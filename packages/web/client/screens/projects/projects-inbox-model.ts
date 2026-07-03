@@ -514,7 +514,7 @@ export function sessionSelectRoute(
   return {
     ...scopeBase(route),
     indexView: "sessions",
-    sessionId,
+    ...(sessionId ? { sessionId } : {}),
     selectedAgentId: undefined,
   };
 }
@@ -525,9 +525,10 @@ export function isSessionSelected(session: InboxSession, route: Extract<Route, {
   return false;
 }
 
-export function sessionRouteRef(session: InboxSession): string {
+export function sessionRouteRef(session: InboxSession): string | null {
   if (session.sessionId) return session.sessionId;
   if (session.conversationId) return session.conversationId;
+  if (!session.route) return null;
   const marker = ":session:";
   const markerIndex = session.id.indexOf(marker);
   return markerIndex >= 0
@@ -536,9 +537,23 @@ export function sessionRouteRef(session: InboxSession): string {
 }
 
 export function sessionOpenRoute(session: InboxSession, route: Extract<Route, { view: "agents-v2" }>): Route {
-  if (session.route) return session.route;
-  if (session.agentId) return openProjectAgentProfile(route, session.agentId);
-  return scopeBase(route);
+  const sessionId = sessionRouteRef(session);
+  if (sessionId) {
+    return {
+      ...scopeBase(route),
+      projectSlug: session.projectSlug,
+      indexView: "sessions",
+      sessionId,
+      selectedAgentId: undefined,
+    };
+  }
+  return {
+    ...scopeBase(route),
+    projectSlug: session.projectSlug,
+    indexView: "sessions",
+    selectedAgentId: undefined,
+    sessionId: undefined,
+  };
 }
 
 export { agentPrecedence };

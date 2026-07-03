@@ -7,6 +7,7 @@ import {
   isDormantProject,
   isSessionSelected,
   isThreadSelected,
+  sessionOpenRoute,
   sessionSelectRoute,
   threadOpenRoute,
   threadSelectRoute,
@@ -272,13 +273,22 @@ describe("filters + routing", () => {
     expect(open).toEqual({ view: "conversation", conversationId: "conv-1" });
   });
 
-  test("session selection uses session ids, then stable row refs", () => {
+  test("session selection uses canonical session ids only", () => {
     const agents = [mkAgent({ id: "scout.a", name: "Scout" })];
     const model = buildProjectsInboxModel(baseInput(agents, null, false, [mkSession(agents[0]!)]));
     const session = model.sessions[0]!;
+    expect(session.sessionId).toBeTruthy();
+    const canonicalSessionId = session.sessionId!;
     const select = { view: "agents-v2" as const, projectSlug: session.projectSlug, sessionId: session.sessionId ?? undefined };
     expect(isSessionSelected(session, select)).toBe(true);
     expect(sessionSelectRoute(session, { view: "agents-v2", projectSlug: session.projectSlug }).selectedAgentId).toBeUndefined();
+    expect(sessionOpenRoute(session, { view: "agents-v2", projectSlug: session.projectSlug })).toEqual({
+      view: "agents-v2",
+      projectSlug: session.projectSlug,
+      indexView: "sessions",
+      sessionId: canonicalSessionId,
+      selectedAgentId: undefined,
+    });
 
     const conversationBacked = { ...session, sessionId: null };
     const conversationSelect = sessionSelectRoute(conversationBacked, { view: "agents-v2", projectSlug: conversationBacked.projectSlug });
@@ -286,10 +296,71 @@ describe("filters + routing", () => {
     expect(conversationSelect.selectedAgentId).toBeUndefined();
     expect(isSessionSelected(conversationBacked, { view: "agents-v2", sessionId: "c.scout.a" })).toBe(true);
 
-    const liveProcess = { ...session, sessionId: null, conversationId: null };
+    const liveProcess = { ...session, sessionId: null, conversationId: null, route: null };
     const liveSelect = sessionSelectRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug });
-    expect(liveSelect.sessionId).toBe("scout:c.scout.a");
+    expect(liveSelect.sessionId).toBeUndefined();
     expect(liveSelect.selectedAgentId).toBeUndefined();
-    expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(true);
+    expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(false);
+
+    expect(sessionOpenRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug })).toEqual({
+      view: "agents-v2",
+      projectSlug: liveProcess.projectSlug,
+      indexView: "sessions",
+      selectedAgentId: undefined,
+      sessionId: undefined,
+    });
+  });
+
+  test("process-only native rows do not invent session archive routes", () => {
+    const model = buildProjectsInboxModel({
+      ...baseInput([], null),
+      discovery: {
+        generatedAt: NOW,
+        processes: [
+          {
+            pid: 3186,
+            ppid: 1,
+            command: "claude --verbose --print --input-format stream-json",
+            etime: "00:01",
+            cwd: "/Users/test/dev/openscout",
+            harness: "unattributed",
+            source: "claude",
+            parentChain: [],
+          },
+        ],
+        transcripts: [],
+        issues: [],
+        totals: {
+          total: 1,
+          scoutManaged: 0,
+          hudsonManaged: 0,
+          unattributed: 1,
+          transcripts: 0,
+        },
+      },
+    });
+
+    const session = model.sessions.find((entry) => entry.projectSlug === "openscout");
+    expect(session).toBeTruthy();
+    expect(session?.route).toBeNull();
+    expect(session?.sessionId).toBeNull();
+
+    const selected = sessionSelectRoute(session!, { view: "agents-v2", projectSlug: "openscout" });
+    expect(selected.sessionId).toBeUndefined();
+    expect(
+      isSessionSelected(
+        session!,
+        { view: "agents-v2", projectSlug: "openscout", sessionId: "native:process:claude:3186" },
+      ),
+    ).toBe(false);
+
+    const opened = sessionOpenRoute(session!, { view: "agents-v2", projectSlug: "openscout" });
+    expect(opened).toEqual({
+      view: "agents-v2",
+      projectSlug: "openscout",
+      indexView: "sessions",
+      selectedAgentId: undefined,
+      sessionId: undefined,
+    });
   });
 });
