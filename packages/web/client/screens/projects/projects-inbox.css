@@ -289,8 +289,10 @@
   background: color-mix(in srgb, var(--hud-ink) 4%, transparent);
 }
 .pi-projectGroupHead {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px;
   align-items: center;
+  gap: 2px;
   min-width: 0;
 }
 .pi-projectPath {
@@ -307,7 +309,6 @@
   color: var(--pi-muted);
   cursor: pointer;
   text-align: left;
-  flex: 1;
 }
 .pi-projectPath:hover {
   color: var(--pi-ink);
@@ -329,19 +330,29 @@
   font-size: 12px;
   font-weight: 620;
 }
-.pi-projectPathCaret {
-  flex: none;
+.pi-projectPathToggle {
+  width: 22px;
+  height: 24px;
   display: grid;
   place-items: center;
-  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   color: var(--pi-dim);
   opacity: 0;
+  cursor: pointer;
   transition: opacity 0.14s var(--pi-ease), color 0.14s var(--pi-ease);
 }
-.pi-projectPath:hover .pi-projectPathCaret,
-.pi-projectPath:focus-visible .pi-projectPathCaret {
+.pi-projectGroupHead:hover .pi-projectPathToggle,
+.pi-projectGroupHead:focus-within .pi-projectPathToggle {
   color: var(--pi-muted);
   opacity: 0.88;
+}
+.pi-projectPathToggle:hover {
+  color: var(--pi-ink);
+  background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
+  opacity: 1;
 }
 .pi-projectSessionList {
   display: flex;
@@ -615,9 +626,10 @@
 }
 .pi-projectIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .pi-projectHead[data-compact] .pi-projectIdent {
-  flex-direction: row;
-  align-items: baseline;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(90px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 10px;
   overflow: hidden;
 }
 .pi-projectTitleRow { display: flex; align-items: baseline; gap: 8px; }
@@ -643,6 +655,59 @@
 }
 .pi-projectHead[data-compact] .pi-projectTitle {
   font-size: 14px;
+}
+.pi-projectSessionContext {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.pi-projectSessionContext span {
+  flex: none;
+  color: var(--pi-muted);
+  font-size: 8.5px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pi-projectSessionContext b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-ink);
+  font-family: var(--pi-sans);
+  font-size: 12px;
+  font-weight: 680;
+}
+.pi-projectSessionContext code {
+  flex: none;
+  max-width: 128px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--pi-accent) 32%, var(--pi-hairline));
+  border-radius: 5px;
+  color: var(--pi-accent);
+  background: color-mix(in srgb, var(--pi-accent-soft) 18%, transparent);
+  font-family: var(--pi-mono);
+}
+.pi-projectSessionContext em {
+  flex: none;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-dim);
+  font-style: normal;
 }
 .pi-projectRoot {
   font-size: 11px;
@@ -735,6 +800,297 @@
   font-family: var(--pi-mono);
   font-variant-numeric: tabular-nums;
   color: var(--pi-dim);
+}
+
+.pi-projectOverview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hud-surface) 7%, transparent), transparent 260px),
+    color-mix(in srgb, var(--pi-bg) 97%, black);
+}
+.pi-projectSnapshot {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(280px, 0.8fr) minmax(340px, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+.pi-projectSnapshotMain,
+.pi-projectSnapshotStats,
+.pi-projectWorktrees,
+.pi-projectTablePanel {
+  min-width: 0;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--pi-bg) 94%, black);
+}
+.pi-projectSnapshotMain {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+}
+.pi-projectSnapshotLabel,
+.pi-projectWorktreesHead span,
+.pi-projectTableToolbar span {
+  color: var(--pi-muted);
+  font-size: 9px;
+  font-weight: 740;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pi-projectSnapshotMain > b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pi-ink);
+  font-size: 14px;
+  font-weight: 680;
+}
+.pi-projectSnapshotLine {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pi-projectSnapshotLine span {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 6px;
+  color: var(--pi-muted);
+  font-family: var(--pi-mono);
+  font-size: 9.5px;
+}
+.pi-projectSnapshotStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+  padding: 11px 12px;
+}
+.pi-projectSnapshotStats .pi-sessionGlanceField {
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  min-height: 28px;
+  padding: 4px 0;
+}
+.pi-projectSnapshotStats .pi-sessionGlanceField span {
+  align-self: center;
+}
+.pi-projectSnapshotStats .pi-sessionGlanceField b {
+  text-align: right;
+  color: var(--pi-accent);
+  font-size: 13px;
+}
+.pi-projectWorktrees {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.pi-projectWorktreesHead,
+.pi-projectTableToolbar {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--pi-hairline);
+  background: color-mix(in srgb, var(--hud-surface) 12%, transparent);
+}
+.pi-projectWorktreesHead b,
+.pi-projectTableToolbar b {
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pi-projectWorktreeList {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px;
+}
+.pi-projectWorktree {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 3px 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 6px;
+  color: var(--pi-muted);
+  background: color-mix(in srgb, var(--hud-surface) 7%, transparent);
+}
+.pi-projectWorktree[data-active] {
+  border-color: color-mix(in srgb, var(--pi-accent) 36%, var(--pi-hairline));
+}
+.pi-projectWorktree b,
+.pi-projectWorktree em,
+.pi-projectWorktree small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-projectWorktree b {
+  color: var(--pi-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+.pi-projectWorktree em,
+.pi-projectWorktree small {
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 9.5px;
+  font-style: normal;
+}
+.pi-projectWorktree small {
+  grid-column: 1 / -1;
+}
+.pi-projectOverviewEmpty {
+  padding: 20px 12px;
+  color: var(--pi-dim);
+  font-size: 12px;
+}
+.pi-projectBranchChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 12px 12px;
+}
+.pi-projectBranchChips span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 6px;
+  color: var(--pi-muted);
+  font-family: var(--pi-mono);
+  font-size: 9.5px;
+}
+.pi-projectTablePanel {
+  overflow: hidden;
+}
+.pi-projectTableScroller {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.pi-projectTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.pi-projectTable th,
+.pi-projectTable td {
+  border-bottom: 1px solid var(--pi-hairline);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+.pi-projectTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: color-mix(in srgb, var(--pi-bg) 94%, black);
+}
+.pi-projectTable th:nth-child(1) { width: 96px; }
+.pi-projectTable th:nth-child(2) { width: 210px; }
+.pi-projectTable th:nth-child(4) { width: 150px; }
+.pi-projectTable th:nth-child(5) { width: 88px; }
+.pi-projectTable tr {
+  cursor: pointer;
+}
+.pi-projectTable tbody tr:hover {
+  background: color-mix(in srgb, var(--scout-chrome-hover) 62%, transparent);
+}
+.pi-projectTable tbody tr[data-state="working"] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--pi-accent) 72%, transparent);
+}
+.pi-projectTableSort {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 8.5px;
+  font-weight: 740;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pi-projectTableSort:hover,
+.pi-projectTableSort[data-active] {
+  color: var(--pi-accent);
+}
+.pi-projectTableStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 10px;
+}
+.pi-projectTableStatus::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pi-dim) 48%, transparent);
+}
+.pi-projectTableStatus[data-live] {
+  color: var(--pi-accent);
+}
+.pi-projectTableStatus[data-live]::before {
+  background: var(--pi-accent);
+  box-shadow: 0 0 0 3px var(--pi-accent-soft);
+}
+.pi-projectTableAgent {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--pi-muted);
+}
+.pi-projectTableAgent span,
+.pi-projectTableWork,
+.pi-projectTableBranch,
+.pi-projectTableLast {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pi-projectTableWork {
+  display: block;
+  color: var(--pi-ink);
+  font-size: 12.5px;
+  font-weight: 580;
+}
+.pi-projectTableBranch,
+.pi-projectTableLast {
+  display: block;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 10px;
 }
 
 .pi-sessionDetail {
@@ -1663,6 +2019,20 @@
     justify-self: start;
     max-width: 100%;
     overflow-x: auto;
+  }
+
+  .pi-projectOverview {
+    padding: 12px;
+  }
+
+  .pi-projectSnapshot,
+  .pi-projectSnapshotStats,
+  .pi-projectWorktreeList {
+    grid-template-columns: 1fr;
+  }
+
+  .pi-projectTable {
+    min-width: 720px;
   }
 
   .pi-sessionGlanceTop,

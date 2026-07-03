@@ -1,7 +1,5 @@
 import type { Route } from "../../lib/types.ts";
 import { ProjectsInbox } from "./ProjectsInbox.tsx";
-import { ProjectsRail } from "./ProjectsRail.tsx";
-import { ProjectsThreadAside } from "./ProjectsThreadAside.tsx";
 import { ProjectAgentProfile } from "./ProjectAgentProfile.tsx";
 import { isProjectAgentProfileRoute } from "./model.ts";
 import "./projects.css";
@@ -16,7 +14,6 @@ export function ProjectsScreen({
 }) {
   const isProfile = isProjectAgentProfileRoute(route);
   const stageKey = isProfile ? `profile:${route.agentId}` : "index";
-  const asideEngaged = Boolean(route.selectedAgentId && !route.sessionId);
   const zeroPreview = !isProfile && projectsZeroPreviewEnabled();
 
   return (
@@ -25,11 +22,7 @@ export function ProjectsScreen({
         {isProfile ? (
           <ProjectAgentProfile route={route} navigate={navigate} />
         ) : (
-          <div className="pi-shell" data-aside={asideEngaged || undefined}>
-            <ProjectsRail route={route} navigate={navigate} zeroPreview={zeroPreview} />
-            <ProjectsInbox route={route} navigate={navigate} zeroPreview={zeroPreview} />
-            {asideEngaged ? <ProjectsThreadAside route={route} navigate={navigate} /> : null}
-          </div>
+          <ProjectsInbox route={route} navigate={navigate} zeroPreview={zeroPreview} />
         )}
       </div>
     </div>
