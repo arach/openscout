@@ -1,3 +1,3 @@
-export { ProjectsBrowse } from "./ProjectsBrowse.tsx";
-export { ProjectsDetail } from "./ProjectsDetail.tsx";
+export { ProjectsRail } from "./ProjectsRail.tsx";
 export { ProjectsScreen } from "./ProjectsScreen.tsx";
+export { ProjectsThreadAside } from "./ProjectsThreadAside.tsx";

@@ -93,6 +93,10 @@ describe("broker delivery routing", () => {
     }))).toEqual({
       harness: "codex",
     });
+
+    expect(executionWithRouteParams(testPayload({
+      targetLabel: "session:codex:native-thread-123",
+    }))).toBeUndefined();
   });
 
   test("captures implicit project-card materialization policy", () => {

@@ -109,10 +109,25 @@ export interface ObserveMetadata {
   usage?: ObserveUsageMeta;
 }
 
+/**
+ * Recent-activity histogram for the home sparkline. Event density over a fixed
+ * trailing window, computed server-side where the full (untruncated) event
+ * stream is available. Absent when no event has a resolvable wall-clock time.
+ */
+export interface ObservePulse {
+  /** Width of each bucket in ms. */
+  bucketMs: number;
+  /** Right edge (exclusive) of the last bucket — the window's "now". */
+  endMs: number;
+  /** Event count per bucket, oldest → newest; length === bucket count. */
+  counts: number[];
+}
+
 export interface ObserveData {
   events: ObserveEvent[];
   files: ObserveFile[];
   contextUsage?: number[];
+  pulse?: ObservePulse;
   live?: boolean;
   metadata?: ObserveMetadata;
 }
@@ -1186,6 +1201,41 @@ function timelineSeconds(values: number[], baseTimestampMs: number): number[] {
   });
 }
 
+const PULSE_BUCKET_COUNT = 30;
+const PULSE_BUCKET_MS = 60_000;
+
+/**
+ * Bin event wall-clock times into a trailing activity histogram.
+ *
+ * Contract: {@link PULSE_BUCKET_COUNT} buckets × {@link PULSE_BUCKET_MS}ms
+ * ending at `nowMs`; each count is the number of timestamps that fall in that
+ * bucket's `[start, end)` half-open interval. Timestamps outside the window
+ * (older than the first bucket, or at/after `nowMs`) are ignored. Returns
+ * `undefined` when no timestamp is finite / in-window — callers should hide the
+ * chart rather than render an empty one.
+ */
+export function buildObservePulse(
+  timestamps: number[],
+  nowMs: number,
+): ObservePulse | undefined {
+  if (!Number.isFinite(nowMs)) return undefined;
+  const endMs = Math.floor(nowMs);
+  const windowMs = PULSE_BUCKET_COUNT * PULSE_BUCKET_MS;
+  const startMs = endMs - windowMs;
+  const counts = new Array<number>(PULSE_BUCKET_COUNT).fill(0);
+  let placed = 0;
+  for (const raw of timestamps) {
+    if (!Number.isFinite(raw)) continue;
+    if (raw < startMs || raw >= endMs) continue;
+    const index = Math.floor((raw - startMs) / PULSE_BUCKET_MS);
+    if (index < 0 || index >= PULSE_BUCKET_COUNT) continue;
+    counts[index] += 1;
+    placed += 1;
+  }
+  if (placed === 0) return undefined;
+  return { bucketMs: PULSE_BUCKET_MS, endMs, counts };
+}
+
 function syntheticContextUsage(eventCount: number): number[] {
   if (eventCount <= 0) {
     return [];
@@ -1359,10 +1409,18 @@ export function buildObserveDataFromSnapshot(
     }
   }
 
+  const pulse = buildObservePulse(
+    events
+      .map((event) => event.at)
+      .filter((at): at is number => typeof at === "number" && Number.isFinite(at)),
+    Date.now(),
+  );
+
   return {
     events,
     files: [...files.values()].sort((left, right) => right.lastT - left.lastT || left.path.localeCompare(right.path)),
     contextUsage: syntheticContextUsage(events.length),
+    ...(pulse ? { pulse } : {}),
     live,
     metadata: buildObserveMetadata(snapshot, timing.baseTimestampMs),
   };

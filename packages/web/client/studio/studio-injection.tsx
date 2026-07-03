@@ -5,6 +5,7 @@ import {
   type StudioInjectionMode,
   type StudioInjectionState,
 } from "./studio-injection-state.ts";
+import "./studio-injection.css";
 
 export interface StudioInjectionController extends StudioInjectionState {
   renderedMode: StudioInjectionMode;

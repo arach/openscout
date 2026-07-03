@@ -105,9 +105,10 @@ type ExtractedDocument = {
   kind: string;
   content: string;
   sourceRef: KnowledgeSourceRef;
+  facets?: KnowledgeFacets;
 };
 
-const EXTRACTOR_VERSION = "session-qmd-v1";
+const EXTRACTOR_VERSION = "session-qmd-v2";
 const CHUNK_POLICY_VERSION = "session-qmd-record-window-v1";
 const EVENT_WINDOW_RECORDS = 350;
 const EVENT_CHUNK_RECORDS = 50;
@@ -519,6 +520,47 @@ function oneLineInput(input: unknown): string {
   return trimOneLine(text, 120);
 }
 
+function uniqueFacetValues(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result.slice(0, 100);
+}
+
+function touchedPaths(records: NormalizedRecord[]): string[] {
+  return uniqueFacetValues(records.flatMap((record) =>
+    record.tool ? extractPaths(record.tool.input) : []
+  ));
+}
+
+function recordFacets(records: NormalizedRecord[]): KnowledgeFacets {
+  const facets: KnowledgeFacets = {};
+  const kinds = uniqueFacetValues(records.map((record) => record.kind));
+  const tags = uniqueFacetValues(records.map((record) => record.tag));
+  const tools = uniqueFacetValues(records.map((record) => record.tool?.name));
+  const paths = touchedPaths(records);
+
+  if (kinds.length > 0) facets.recordKind = kinds;
+  if (tags.length > 0) facets.recordTag = tags;
+  if (tools.length > 0) facets.toolName = tools;
+  if (paths.length > 0) facets.touchedPath = paths;
+  return facets;
+}
+
+function documentFacets(kind: string, records: NormalizedRecord[]): KnowledgeFacets {
+  return {
+    documentKind: kind,
+    ...recordFacets(records),
+  };
+}
+
 function summarizeRecord(record: NormalizedRecord): string {
   if (record.text) return trimOneLine(record.text, 180);
   if (record.tool) return `name=${record.tool.name} input=${oneLineInput(record.tool.input)}`;
@@ -640,6 +682,7 @@ function buildEventDocuments(parse: ParseResult, file: SessionFile): ExtractedDo
       kind: "events",
       content: `${lines.join("\n")}\n`,
       sourceRef,
+      facets: documentFacets("events", slice),
     });
   }
   return docs;
@@ -647,10 +690,32 @@ function buildEventDocuments(parse: ParseResult, file: SessionFile): ExtractedDo
 
 function buildDocuments(parse: ParseResult, file: SessionFile, project: string, title: string): ExtractedDocument[] {
   const allSourceRef = sourceRefFor(file, parse, parse.records.length > 0 ? [0, parse.records.at(-1)!.i] : undefined);
+  const toolRecords = parse.records.filter((record) => record.kind === "command_or_tool");
   return [
-    { path: "overview.md", kind: "overview", content: buildOverview(parse, file, project, title), sourceRef: allSourceRef },
-    { path: "files.md", kind: "files", content: buildFiles(parse), sourceRef: allSourceRef },
-    { path: "tool-calls.md", kind: "tool-calls", content: buildToolCalls(parse), sourceRef: allSourceRef },
+    {
+      path: "overview.md",
+      kind: "overview",
+      content: buildOverview(parse, file, project, title),
+      sourceRef: allSourceRef,
+      facets: documentFacets("overview", parse.records),
+    },
+    {
+      path: "files.md",
+      kind: "files",
+      content: buildFiles(parse),
+      sourceRef: allSourceRef,
+      facets: {
+        documentKind: "files",
+        ...(touchedPaths(parse.records).length > 0 ? { touchedPath: touchedPaths(parse.records) } : {}),
+      },
+    },
+    {
+      path: "tool-calls.md",
+      kind: "tool-calls",
+      content: buildToolCalls(parse),
+      sourceRef: allSourceRef,
+      facets: documentFacets("tool-calls", toolRecords),
+    },
     ...buildEventDocuments(parse, file),
   ];
 }
@@ -871,6 +936,10 @@ function storeSessionCollection(
     };
     store.upsertDocument(doc);
     chunkDocument(extracted).forEach((chunk, ordinal) => {
+      const chunkFacets: KnowledgeFacets = {
+        ...facets,
+        ...(extracted.facets ?? { documentKind: extracted.kind }),
+      };
       const knowledgeChunk: KnowledgeChunk = {
         id: deterministicKnowledgeChunkId({
           collectionId: id,
@@ -888,7 +957,7 @@ function storeSessionCollection(
         origin: "mechanical",
         ownership: "derived",
         sourceRefs: [chunk.sourceRef],
-        facets,
+        facets: chunkFacets,
       };
       store.upsertChunk(knowledgeChunk, `${title} / ${extracted.path}`);
       chunks++;

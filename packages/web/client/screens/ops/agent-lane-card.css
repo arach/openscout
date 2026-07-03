@@ -21,7 +21,7 @@
 .s-lane-card--working {
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--green) 4%, transparent),
+    color-mix(in srgb, var(--green) 2%, transparent),
     color-mix(in srgb, var(--ink) 0.5%, transparent)
   );
 }
@@ -97,9 +97,9 @@
 .s-lane-card-name {
   font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 16px;
+  line-height: 18px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -456,8 +456,8 @@
 }
 .s-lane-card-current--console .s-lane-card-head-text {
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  letter-spacing: 0.005em;
+  font-size: var(--text-md);
+  letter-spacing: 0;
   color: color-mix(in srgb, var(--ink) 92%, transparent);
 }
 
@@ -499,7 +499,7 @@
 /* a work/console line shows its full command in mono, matching the line above */
 .s-lane-card-current--console .s-lane-card-headpop {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--text-md);
 }
 .s-lane-card-headwrap:hover .s-lane-card-headpop,
 .s-lane-card-headwrap:focus-within .s-lane-card-headpop {
@@ -583,8 +583,8 @@
    reading as broken/empty while staying clearly inactive. */
 .s-lane-card-accs-empty {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.01em;
+  font-size: var(--text-xs);
+  letter-spacing: 0;
   color: var(--dim);
   opacity: 0.65;
 }
@@ -904,7 +904,7 @@
 }
 .s-lane-card-fmore {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   color: var(--dim);
   padding-left: 32px;
 }

@@ -74,8 +74,18 @@ function ScoutChromeMark({ className = "" }: { className?: string }) {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" strokeWidth="1.9" />
-      <polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" strokeWidth="1.32" opacity="0.74" />
+      <polygon
+        points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1"
+        strokeWidth="1.9"
+        fill="currentColor"
+        fillOpacity="0.12"
+      />
+      <polygon
+        points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4"
+        strokeWidth="0.9"
+        fill="currentColor"
+        fillOpacity="0.9"
+      />
     </svg>
   );
 }
@@ -103,7 +113,7 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
             aria-label={title}
             className="flex items-center gap-2 rounded-sm px-0.5 -mx-0.5 leading-none text-foreground/90"
           >
-            <ScoutChromeMark className="h-[19px] w-[19px] text-[#f8f3e8] opacity-90 drop-shadow-[0_0_5px_rgba(255,247,234,0.16)]" />
+            <ScoutChromeMark className="h-5 w-5 text-[#f8f3e8] drop-shadow-[0_0_6px_rgba(255,247,234,0.3)]" />
             <span className="font-mono text-[11px] font-medium tracking-[0.06em] leading-none">
               {title}
             </span>
@@ -288,6 +298,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const agentsV2Peek =
     route.view === "agents-v2"
     && !route.agentId
+    && !route.sessionId
     && Boolean(route.selectedAgentId);
   const agentDetailOpen =
     (route.view === "agents" && Boolean(route.agentId))

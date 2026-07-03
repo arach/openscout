@@ -37,6 +37,7 @@ import type {
 } from "../../lib/types.ts";
 import {
   buildHomeNativeMovingLanes,
+  dedupeWorkingAgentsByObservedSession,
   HOME_MOVING_CARD_LIMIT,
   HOME_MOVING_WINDOW_MS,
   homeMovingDisplayCounts,
@@ -44,11 +45,14 @@ import {
   isFreshHomeMovingTimestamp,
   isHomeAgentMoving,
   isHomeObserveCandidate,
+  laneObservedSessionKey,
+  observedSessionKey,
   workingContextFromLane,
   workingContextFromObserve,
   type WorkingAgentContext,
 } from "./home-moving.ts";
 import { homeMovingGridClass, homeMovingLayout } from "./home-moving-layout.ts";
+import { assignEntranceIndices } from "./home-entrance.ts";
 import { NowCard } from "./home-now-card.tsx";
 import { isAgentLaneLive, type AgentLane } from "../ops/agent-lanes-model.ts";
 
@@ -267,6 +271,11 @@ export function HomeContent({
   const requestIdRef = useRef(0);
   const lastForegroundRefreshAtRef = useRef(0);
   const fleetRef = useRef<FleetState | null>(null);
+  // Ids of moving units (agents · lanes · observed actors) that have already
+  // played their one-time entrance. Persisted across the home's constant
+  // re-renders so only a unit's FIRST appearance animates; later refreshes,
+  // clock ticks, and layout-mode switches render statically.
+  const enterIndexRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     fleetRef.current = fleet;
@@ -488,7 +497,7 @@ export function HomeContent({
         windowMs: HOME_MOVING_WINDOW_MS,
       }),
     );
-    return moving
+    const sorted = moving
       .sort((left, right) =>
         homeMovingRecencyMs(right, {
           observeEntry: observeCache[right.id],
@@ -503,6 +512,7 @@ export function HomeContent({
           movingAsk: movingAskByAgent.get(left.id),
         }),
       );
+    return dedupeWorkingAgentsByObservedSession(sorted, observeCache);
   }, [agents, movingAskByAgent, observeCache, tailEvents, nowMs]);
   const workingContext = useMemo(() => {
     const next: Record<string, WorkingAgentContext> = {};
@@ -515,6 +525,14 @@ export function HomeContent({
     () => new Set(workingAgents.map((agent) => agent.id)),
     [workingAgents],
   );
+  const workingSessionKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const agent of workingAgents) {
+      const key = observedSessionKey(observeCache[agent.id]);
+      if (key) keys.add(key);
+    }
+    return keys;
+  }, [observeCache, workingAgents]);
   const nativeMovingLanes = useMemo<AgentLane[]>(() => {
     const lanes = buildHomeNativeMovingLanes({
       agents,
@@ -525,9 +543,13 @@ export function HomeContent({
       nowMs,
     });
     return lanes
-      .filter((lane) => !workingAgentIds.has(lane.agent.id))
+      .filter((lane) => {
+        if (workingAgentIds.has(lane.agent.id)) return false;
+        const laneKey = laneObservedSessionKey(lane);
+        return !(laneKey && workingSessionKeys.has(laneKey));
+      })
       .sort((left, right) => right.lastActiveAt - left.lastActiveAt);
-  }, [agents, observeCache, nowMs, tailDiscovery, tailEvents, workingAgentIds]);
+  }, [agents, observeCache, nowMs, tailDiscovery, tailEvents, workingAgentIds, workingSessionKeys]);
   const movingAsksWithoutWorkingAgent = useMemo(
     () =>
       freshMovingAsks.filter(
@@ -679,6 +701,18 @@ export function HomeContent({
       : `What's moving · ${totalMovingCount}`;
   const movingLayout = homeMovingLayout(movingCardCount);
 
+  // First-appearance entrances. Visible units in render order:
+  // working agents → native lanes → observed actors. Assignments are sticky
+  // (see home-entrance.ts): the class stays on across re-renders so the 1s
+  // clock tick can't cut an entrance mid-flight; new ids cascade from 0.
+  const visibleMovingIds = [
+    ...visibleWorkingAgents.map((agent) => agent.id),
+    ...visibleNativeMovingLanes.map((lane) => lane.id),
+    ...visibleObservedMovingActors.map((actor) => actor.id),
+  ];
+  assignEntranceIndices(enterIndexRef.current, visibleMovingIds);
+  const enterIndexById = enterIndexRef.current;
+
   return (
     <div className="s-fleet-home">
       <div className="s-fleet-home-inner">
@@ -686,10 +720,10 @@ export function HomeContent({
         <HomeHero {...heroProps} />
 
         {/* ── What's moving ──────────────────────────────────────── */}
-        {totalMovingCount > 0 && (
+        {(totalMovingCount > 0 || loading) && (
           <div className="s-fleet-section">
             <SectionRule
-              label={movingSectionLabel}
+              label={loading && totalMovingCount === 0 ? "What's moving" : movingSectionLabel}
               right={
                 <button
                   className="s-link-btn"
@@ -699,54 +733,66 @@ export function HomeContent({
                 </button>
               }
             />
-            {movingCardCount > 0 && (
-              <div className={homeMovingGridClass(movingLayout)}>
-                {visibleWorkingAgents.map((agent) => (
-                  <NowCard
-                    key={agent.id}
-                    agent={agent}
-                    ask={movingAskByAgent.get(agent.id) ?? null}
-                    context={workingContext[agent.id] ?? null}
-                    observeData={observeCache[agent.id]?.data ?? null}
-                    observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
-                    layout={movingLayout}
-                    nowMs={nowMs}
-                    navigate={navigate}
-                  />
-                ))}
-                {visibleNativeMovingLanes.map((lane) => (
-                  <NowCard
-                    key={lane.id}
-                    agent={lane.agent}
-                    ask={null}
-                    context={workingContextFromLane(lane)}
-                    observeData={lane.observe}
-                    observeLive={isAgentLaneLive(lane.observe)}
-                    layout={movingLayout}
-                    nowMs={nowMs}
-                    navigate={navigate}
-                  />
-                ))}
-                {visibleObservedMovingActors.map((actor) => (
-                  <ObservedActorCard
-                    key={actor.id}
-                    actor={actor}
-                    nowMs={nowMs}
-                    navigate={navigate}
-                  />
-                ))}
-              </div>
-            )}
-            {movingAsksWithoutWorkingAgent.length > 0 && (
-              <div className="s-moving-ask-list">
-                {movingAsksWithoutWorkingAgent.map((ask) => (
-                  <MovingAskRow
-                    key={ask.invocationId}
-                    ask={ask}
-                    navigate={navigate}
-                  />
-                ))}
-              </div>
+            {loading && totalMovingCount === 0 ? (
+              <MovingSkeleton />
+            ) : (
+              <>
+                {movingCardCount > 0 && (
+                  <div className={homeMovingGridClass(movingLayout)}>
+                    {visibleWorkingAgents.map((agent) => (
+                      <NowCard
+                        key={agent.id}
+                        agent={agent}
+                        ask={movingAskByAgent.get(agent.id) ?? null}
+                        context={workingContext[agent.id] ?? null}
+                        observeData={observeCache[agent.id]?.data ?? null}
+                        observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
+                        layout={movingLayout}
+                        nowMs={nowMs}
+                        navigate={navigate}
+                        enter={enterIndexById.has(agent.id)}
+                        enterIndex={enterIndexById.get(agent.id) ?? 0}
+                      />
+                    ))}
+                    {visibleNativeMovingLanes.map((lane) => (
+                      <NowCard
+                        key={lane.id}
+                        agent={lane.agent}
+                        ask={null}
+                        context={workingContextFromLane(lane)}
+                        observeData={lane.observe}
+                        observeLive={isAgentLaneLive(lane.observe)}
+                        layout={movingLayout}
+                        nowMs={nowMs}
+                        navigate={navigate}
+                        enter={enterIndexById.has(lane.id)}
+                        enterIndex={enterIndexById.get(lane.id) ?? 0}
+                      />
+                    ))}
+                    {visibleObservedMovingActors.map((actor) => (
+                      <ObservedActorCard
+                        key={actor.id}
+                        actor={actor}
+                        nowMs={nowMs}
+                        navigate={navigate}
+                        enter={enterIndexById.has(actor.id)}
+                        enterIndex={enterIndexById.get(actor.id) ?? 0}
+                      />
+                    ))}
+                  </div>
+                )}
+                {movingAsksWithoutWorkingAgent.length > 0 && (
+                  <div className="s-moving-ask-list">
+                    {movingAsksWithoutWorkingAgent.map((ask) => (
+                      <MovingAskRow
+                        key={ask.invocationId}
+                        ask={ask}
+                        navigate={navigate}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -851,10 +897,14 @@ function ObservedActorCard({
   actor,
   nowMs,
   navigate,
+  enter = false,
+  enterIndex = 0,
 }: {
   actor: FleetActivity;
   nowMs: number;
   navigate: (r: Route) => void;
+  enter?: boolean;
+  enterIndex?: number;
 }) {
   const name = actor.actorName ?? "—";
   const initial = name[0]?.toUpperCase() ?? "?";
@@ -871,8 +921,11 @@ function ObservedActorCard({
 
   return (
     <div
-      className="s-now-card s-now-card--observed"
-      style={{ cursor: route ? "pointer" : "default" }}
+      className={`s-now-card s-now-card--observed${enter ? " s-now-card--enter" : ""}`}
+      style={{
+        cursor: route ? "pointer" : "default",
+        ...(enter ? { "--enter-delay": `${enterIndex * 45}ms` } : {}),
+      } as React.CSSProperties}
       onClick={() => {
         if (route) navigate(route);
       }}
@@ -981,6 +1034,21 @@ function LookbackPicker({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MovingSkeleton() {
+  return (
+    <div className="s-now-grid s-now-grid--dense s-now-skeleton" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="s-now-skeleton-row">
+          <span className="s-now-skeleton-avatar" />
+          <span className="s-now-skeleton-name" />
+          <span className="s-now-skeleton-meta" />
+          <span className="s-now-skeleton-action" />
+        </div>
+      ))}
     </div>
   );
 }

@@ -10,6 +10,29 @@ function summarize(text: string, max = 120): string {
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
 }
 
+const PLACEHOLDER_TEXT_MARKERS = [
+  "no session trace",
+  "waiting for events",
+  "waiting for a live session",
+];
+
+function isPlaceholderText(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return PLACEHOLDER_TEXT_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+/**
+ * A bare protocol token like `[turn_ended]` — a raw lifecycle marker that
+ * leaked into the trace text (e.g. an unmapped grok event type). We never want
+ * to surface the raw bracket in card copy: return calm human words instead
+ * ("turn ended"), or null if it isn't a bare token.
+ */
+function humanizeProtocolToken(text: string): string | null {
+  const match = text.trim().match(/^\[\s*([a-z0-9]+(?:[_\-.\s][a-z0-9]+)*)\s*\]$/iu);
+  if (!match) return null;
+  return match[1]!.replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim() || null;
+}
+
 function formatObserveAction(event: ObserveData["events"][number]): string | null {
   if (event.kind === "tool" && event.tool) {
     const arg = event.arg?.trim();
@@ -37,17 +60,31 @@ export function liveActionSummary(input: {
   }
 
   const events = input.observeData?.events ?? [];
+  // A bare protocol token (e.g. `[turn_ended]`) is a last-resort line: prefer
+  // any real meaningful line behind it, but keep the humanized token so the
+  // card never surfaces the raw bracket or falls all the way back to the task.
+  let humanizedToken: string | null = null;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (!event) continue;
     const formatted = formatObserveAction(event);
-    if (formatted) return formatted;
+    if (!formatted) continue;
+    if (isPlaceholderText(formatted)) continue;
+    const token = humanizeProtocolToken(formatted);
+    if (token) {
+      if (!humanizedToken) humanizedToken = token;
+      continue;
+    }
+    return formatted;
   }
+  if (humanizedToken) return summarize(humanizedToken, 140);
 
-  if (input.observeLive && input.fallbackTask?.trim()) {
-    return summarize(input.fallbackTask, 140);
+  const fallback = input.fallbackTask?.trim();
+  if (input.observeLive && fallback) {
+    return isPlaceholderText(fallback) ? null : summarize(fallback, 140);
   }
-  return input.fallbackTask?.trim() ? summarize(input.fallbackTask, 140) : null;
+  if (!fallback || isPlaceholderText(fallback)) return null;
+  return summarize(fallback, 140);
 }
 
 export type HomeCardAction = "profile" | "observe" | "peek" | "terminal";

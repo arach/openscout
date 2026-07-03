@@ -16,6 +16,7 @@ import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import type { Agent, Route, SessionEntry } from "../../lib/types.ts";
+import { projectIdentityForAgent } from "./model.ts";
 
 type ProfileField = {
   label: string;
@@ -36,6 +37,84 @@ function CapabilityTokens({ values }: { values: string[] }) {
 
 function CodeValue({ value }: { value: string }) {
   return <span className="s-agent-code-value">{value}</span>;
+}
+
+function FieldChip({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value?.trim()) {
+    return null;
+  }
+  return (
+    <span className="s-agent-profile-chip">
+      <span className="s-agent-profile-chip-label">{label}</span>
+      <span className="s-agent-profile-chip-value">{value}</span>
+    </span>
+  );
+}
+
+function normalizeIdentityText(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function humanizeAlias(value: string): string {
+  return value
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/^(project|agent|session)[-_.:\s]+/iu, "")
+    .split(/[-_\s·]+/u)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function stripProjectPrefix(
+  value: string,
+  projectTitle: string,
+  projectSlug: string | null,
+  harness: string | null,
+): string {
+  let next = value.trim().replace(/^@+/, "");
+  const prefixes = [
+    projectTitle,
+    projectSlug,
+    harness,
+    harness ? formatLabel(harness) : null,
+  ].filter((v): v is string => Boolean(v?.trim()));
+  for (const prefix of prefixes) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    next = next.replace(new RegExp(`^${escaped}[-_.:\\s·]+`, "iu"), "");
+  }
+  return next;
+}
+
+function aliasTitleForAgent(
+  agent: Agent,
+  session: SessionEntry | null,
+  projectTitle: string,
+  projectSlug: string | null,
+): string | null {
+  const participant = session?.participants?.find((entry) =>
+    entry.agentId === agent.id || entry.actorId === agent.id,
+  );
+  const harnessName = normalizeIdentityText(agent.harness);
+  const projectName = normalizeIdentityText(projectTitle);
+  const candidates = [
+    participant?.scopedAlias,
+    session?.alias,
+    agent.handle,
+    participant?.displayName,
+    session?.agentName,
+    agent.name,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate?.trim()) continue;
+    const stripped = stripProjectPrefix(candidate, projectTitle, projectSlug, agent.harness);
+    const label = humanizeAlias(stripped);
+    const normalized = normalizeIdentityText(label);
+    if (!normalized || normalized === projectName || normalized === harnessName) continue;
+    return label;
+  }
+  return null;
 }
 
 function protocolLabel(value: string | null | undefined): string | null {
@@ -67,19 +146,26 @@ function ProviderValue({
 
 function ProfileCard({
   title,
+  subtitle,
   items,
+  variant,
 }: {
   title: string;
+  subtitle?: string;
   items: ProfileField[];
+  variant?: "primary" | "secondary";
 }) {
   if (items.length === 0) {
     return null;
   }
 
   return (
-    <section className="s-agent-profile-card">
+    <section className={`s-agent-profile-card${variant ? ` s-agent-profile-card-${variant}` : ""}`}>
       <div className="s-agent-profile-card-header">
-        <div className="s-agent-profile-card-title">{title}</div>
+        <div>
+          <div className="s-agent-profile-card-title">{title}</div>
+          {subtitle && <div className="s-agent-profile-card-subtitle">{subtitle}</div>}
+        </div>
       </div>
       <div className="s-agent-meta-card-body">
         {items.map((item) => (
@@ -181,18 +267,32 @@ export function AgentInfoScreen({
   const skills = agent.skills ?? [];
   const protocol = protocolLabel(agent.protocol);
   const hasExternalCardIdentity = Boolean(agent.providerName || protocol || skills.length > 0);
-  const identityItems: ProfileField[] = [
-    { label: "Fully qualified ID", value: <CodeValue value={agent.id} /> },
-    { label: "Definition", value: <CodeValue value={agent.definitionId} /> },
+  const projectIdentity = projectIdentityForAgent(agent);
+  const projectTitle = projectIdentity.title;
+  const aliasTitle = aliasTitleForAgent(agent, session, projectTitle, projectIdentity.slug);
+  const profileTitle = aliasTitle ? `${projectTitle} · ${aliasTitle}` : projectTitle;
+  const participant = session?.participants?.find((entry) =>
+    entry.agentId === agent.id || entry.actorId === agent.id,
+  );
+  const modelLabel = agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
+    ? agent.model.slice(agent.harness.length + 1)
+    : agent.model;
+  const runtimeLabel = [formatLabel(agent.harness ?? "") ?? agent.harness, modelLabel]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  const stableAliasItems: ProfileField[] = [
+    { label: "Project", value: projectTitle },
+    { label: "Alias", value: aliasTitle ?? "Default project participant" },
+    ...(primarySelector ? [{ label: "Primary selector", value: <CodeValue value={primarySelector} /> }] : []),
+    ...(participant?.scopedAlias ? [{ label: "Scoped alias", value: <CodeValue value={participant.scopedAlias} /> }] : []),
     ...(displayHandle ? [{ label: "Handle", value: <CodeValue value={displayHandle} /> }] : []),
-    ...(agent.selector ? [{ label: "Selector", value: <CodeValue value={agent.selector} /> }] : []),
     ...(agent.defaultSelector && agent.defaultSelector !== agent.selector
       ? [{ label: "Default selector", value: <CodeValue value={agent.defaultSelector} /> }]
       : []),
-    ...(agent.workspaceQualifier
-      ? [{ label: "Workspace qualifier", value: <CodeValue value={agent.workspaceQualifier} /> }]
-      : []),
-    ...(agent.nodeQualifier ? [{ label: "Node qualifier", value: <CodeValue value={agent.nodeQualifier} /> }] : []),
+    { label: "Definition", value: <CodeValue value={agent.definitionId} /> },
+  ];
+  const diagnosticsItems: ProfileField[] = [
+    { label: "Routable agent ID", value: <CodeValue value={agent.id} /> },
     ...(agent.providerName
       ? [{ label: "Provider", value: <ProviderValue name={agent.providerName} url={agent.providerUrl} /> }]
       : []),
@@ -200,6 +300,10 @@ export function AgentInfoScreen({
     ...(skills.length > 0 ? [{ label: "Skills", value: <CapabilityTokens values={skills} /> }] : []),
     ...(!hasExternalCardIdentity ? [{ label: "Class", value: formatLabel(agent.agentClass) ?? "—" }] : []),
     ...(!hasExternalCardIdentity && agent.role ? [{ label: "Role", value: formatLabel(agent.role) ?? agent.role }] : []),
+    ...(agent.workspaceQualifier
+      ? [{ label: "Workspace qualifier", value: <CodeValue value={agent.workspaceQualifier} /> }]
+      : []),
+    ...(agent.nodeQualifier ? [{ label: "Node qualifier", value: <CodeValue value={agent.nodeQualifier} /> }] : []),
     ...(agent.staleLocalRegistration
       ? [{
         label: "Registration",
@@ -210,7 +314,10 @@ export function AgentInfoScreen({
       : []),
     ...(agent.retiredFromFleet ? [{ label: "Fleet state", value: "Retired" }] : []),
   ];
-  const topologyItems: ProfileField[] = [
+  const locationItems: ProfileField[] = [
+    ...(agent.projectRoot ? [{ label: "Project path", value: <CodeValue value={agent.projectRoot} /> }] : []),
+    ...(agent.cwd ? [{ label: "Working dir", value: <CodeValue value={agent.cwd} /> }] : []),
+    ...(agent.branch ? [{ label: "Branch", value: agent.branch }] : []),
     ...(nodeLabel ? [{ label: "Authority node", value: <CodeValue value={nodeLabel} /> }] : []),
     ...(homeNodeLabel ? [{ label: "Home node", value: <CodeValue value={homeNodeLabel} /> }] : []),
     ...(agent.ownerId ? [{ label: "Owner", value: agent.ownerName ? `${agent.ownerName} (${agent.ownerId})` : agent.ownerId }] : []),
@@ -218,27 +325,23 @@ export function AgentInfoScreen({
       ? [{ label: "Direct conversation", value: <CodeValue value={agent.conversationId} /> }]
       : []),
   ];
-  const workspaceItems: ProfileField[] = [
-    ...(agent.project ? [{ label: "Project", value: agent.project }] : []),
-    ...(agent.branch ? [{ label: "Branch", value: agent.branch }] : []),
-    ...(agent.projectRoot ? [{ label: "Path", value: agent.projectRoot }] : []),
-    ...(agent.cwd ? [{ label: "Working dir", value: agent.cwd }] : []),
-  ];
   const runtimeItems: ProfileField[] = [
     ...(!hasExternalCardIdentity && agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
     ...(agent.model ? [{ label: "Model", value: agent.model }] : []),
     ...(!hasExternalCardIdentity && agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
     ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
+    ...(agent.harnessSessionId ? [{ label: protocol ? `${protocol} session` : "Harness session", value: <CodeValue value={agent.harnessSessionId} /> }] : []),
+    ...(agent.harnessLogPath ? [{ label: "Harness log", value: <CodeValue value={agent.harnessLogPath} /> }] : []),
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
   ];
   const conversationItems: ProfileField[] = [
-    { label: "Conversation UID", value: conversationId },
-    ...(session?.workspaceRoot ? [{ label: "Workspace", value: session.workspaceRoot }] : []),
+    { label: "Conversation ID", value: <CodeValue value={conversationId} /> },
+    ...(session?.alias ? [{ label: "Conversation alias", value: <CodeValue value={session.alias} /> }] : []),
+    ...(session?.naturalKey ? [{ label: "Natural key", value: <CodeValue value={session.naturalKey} /> }] : []),
+    ...(session?.workspaceRoot ? [{ label: "Workspace", value: <CodeValue value={session.workspaceRoot} /> }] : []),
     ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
     ...(session?.messageCount != null ? [{ label: "Messages", value: String(session.messageCount) }] : []),
     ...(session?.lastMessageAt ? [{ label: "Last message", value: fullTimestamp(session.lastMessageAt) }] : []),
-    ...(agent.harnessSessionId ? [{ label: protocol ? `${protocol} context` : "Harness session", value: agent.harnessSessionId }] : []),
-    ...(agent.harnessLogPath ? [{ label: "Harness log", value: agent.harnessLogPath }] : []),
   ];
 
   return (
@@ -286,18 +389,17 @@ export function AgentInfoScreen({
                   </span>
                 )}
               </div>
-              <h1 className="s-agent-profile-hero-title">{agent.name}</h1>
+              <h1 className="s-agent-profile-hero-title">{profileTitle}</h1>
               <div className="s-agent-profile-hero-tags">
-                <CodeValue value={agent.id} />
-                {agent.selector && <CodeValue value={agent.selector} />}
-                {agent.defaultSelector && agent.defaultSelector !== agent.selector && (
-                  <CodeValue value={agent.defaultSelector} />
-                )}
+                <FieldChip label="Project" value={projectTitle} />
+                <FieldChip label="Alias" value={aliasTitle ?? "Default"} />
+                <FieldChip label="Runtime" value={runtimeLabel || null} />
+                <FieldChip label="Host" value={agent.homeNodeName?.replace(/\.local$/i, "") ?? null} />
               </div>
               <p className="s-agent-profile-hero-context">
                 {session?.title
                   ? `Conversation: ${session.title}.`
-                  : "Attached to the current conversation."}
+                  : "Attached to this conversation."}
                 {agent.updatedAt ? ` Updated ${timeAgo(agent.updatedAt)}.` : ""}
               </p>
             </div>
@@ -321,24 +423,31 @@ export function AgentInfoScreen({
 
       <div className="s-agent-profile-grid">
         <ProfileCard
-          title="Identity"
-          items={identityItems}
+          title="Stable alias"
+          subtitle="Repeatable project identity used to route future work."
+          items={stableAliasItems}
+          variant="primary"
         />
         <ProfileCard
-          title="Topology"
-          items={topologyItems}
+          title="Current conversation"
+          subtitle="Unique DM/context attached to this page."
+          items={conversationItems}
         />
         <ProfileCard
-          title="Workspace"
-          items={workspaceItems}
-        />
-        <ProfileCard
-          title="Runtime"
+          title="Runtime instance"
+          subtitle="Concrete harness state for the current attachment."
           items={runtimeItems}
         />
         <ProfileCard
-          title="Conversation context"
-          items={conversationItems}
+          title="Location"
+          subtitle="Where this alias resolves right now."
+          items={locationItems}
+        />
+        <ProfileCard
+          title="Diagnostics"
+          subtitle="Broker and provider fields for debugging."
+          items={diagnosticsItems}
+          variant="secondary"
         />
       </div>
 

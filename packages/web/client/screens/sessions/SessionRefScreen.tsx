@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
@@ -10,10 +10,10 @@ import type {
 } from "../../lib/types.ts";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { ConversationScreen } from "../chat/ConversationScreen.tsx";
-import { SessionObserve } from "./SessionObserve.tsx";
+import { SessionObserve, SessionObserveContextRail } from "./SessionObserve.tsx";
 import "../chat/inbox-thread-redesign.css";
 
-type SessionRefObservePayload =
+export type SessionRefObservePayload =
   | ({
       kind: "agent";
       refId: string;
@@ -42,7 +42,7 @@ type SessionRefObservePayload =
       data: ObserveData;
     };
 
-type SessionRefLookup =
+export type SessionRefLookup =
   | {
       kind: "conversation";
       refId: string;
@@ -62,13 +62,7 @@ function normalizeSessionRef(value: string | null | undefined): string {
   return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
 }
 
-export function SessionRefScreen({
-  sessionRef,
-  navigate,
-}: {
-  sessionRef: string;
-  navigate: (r: Route) => void;
-}) {
+function useSessionRefLookup(sessionRef: string) {
   const [lookup, setLookup] = useState<SessionRefLookup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,22 +126,80 @@ export function SessionRefScreen({
     };
   }, []);
 
+  return { lookup, loading, error };
+}
+
+export function SessionRefContextRail({ sessionRef }: { sessionRef: string }) {
+  const { lookup, loading, error } = useSessionRefLookup(sessionRef);
+
+  if (lookup?.kind === "observe") {
+    return (
+      <SessionObserveContextRail
+        data={lookup.observe.data}
+        agentId={lookup.observe.agentId ?? lookup.session?.agentId ?? undefined}
+        sessionId={lookup.observe.sessionId ?? lookup.observe.refId}
+        surface="context"
+      />
+    );
+  }
+
+  return (
+    <aside className="s-observe-rail s-observe-rail--context">
+      <div>
+        <div className="s-observe-rail-label">
+          {lookup?.kind === "conversation" ? "Conversation" : "Session context"}
+        </div>
+        <div className="s-observe-empty">
+          {loading ? "Resolving session reference" : error ? "Session context unavailable" : "No observe context captured for this session"}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+export function SessionRefScreen({
+  sessionRef,
+  navigate,
+  renderBeforeContent,
+  showObserveRail = true,
+  onLookup,
+}: {
+  sessionRef: string;
+  navigate: (r: Route) => void;
+  renderBeforeContent?: (lookup: SessionRefLookup) => ReactNode;
+  showObserveRail?: boolean;
+  onLookup?: (lookup: SessionRefLookup) => void;
+}) {
+  const { lookup, loading, error } = useSessionRefLookup(sessionRef);
+
+  useEffect(() => {
+    if (lookup) onLookup?.(lookup);
+  }, [lookup, onLookup]);
+
   if (lookup?.kind === "conversation") {
     return (
-      <ConversationScreen
-        conversationId={lookup.conversationId}
-        navigate={navigate}
-      />
+      <>
+        {renderBeforeContent?.(lookup)}
+        <ConversationScreen
+          conversationId={lookup.conversationId}
+          navigate={navigate}
+        />
+      </>
     );
   }
 
   if (lookup?.kind === "observe") {
     return (
-      <SessionObserve
-        data={lookup.observe.data}
-        agentId={lookup.observe.agentId ?? lookup.session?.agentId ?? undefined}
-        sessionId={lookup.observe.sessionId ?? lookup.observe.refId}
-      />
+      <>
+        {renderBeforeContent?.(lookup)}
+        <SessionObserve
+          data={lookup.observe.data}
+          agentId={lookup.observe.agentId ?? lookup.session?.agentId ?? undefined}
+          sessionId={lookup.observe.sessionId ?? lookup.observe.refId}
+          conversationId={lookup.session?.id ?? null}
+          showRail={showObserveRail}
+        />
+      </>
     );
   }
 

@@ -45,6 +45,43 @@ final class ScoutEndpointsTests: XCTestCase {
         }
     }
 
+    func testHostInfoPrefersLocalBrokerServiceOverAdvertisedMeshURL() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://mac.tailnet.ts.net:43110",
+            webURL: "http://127.0.0.1:43120",
+            extraFields: """
+              "advertiseScope": "mesh",
+              "ports": {
+                "broker": 43110,
+                "web": 43120
+              },
+              "services": {
+                "broker": {
+                  "host": "0.0.0.0",
+                  "port": 43110,
+                  "url": "http://mac.tailnet.ts.net:43110"
+                },
+                "web": {
+                  "host": "127.0.0.1",
+                  "port": 43120,
+                  "url": "http://127.0.0.1:43120"
+                }
+              }
+            """
+        )
+
+        withEndpointEnvironment(supportDirectory: supportDirectory) {
+            XCTAssertEqual(ScoutWeb.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutWeb.baseURL().port, 43120)
+            XCTAssertEqual(ScoutBroker.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutBroker.baseURL().port, 43110)
+        }
+    }
+
     func testStaleHostInfoIsIgnored() throws {
         let supportDirectory = try makeSupportDirectory()
         defer { removeDirectory(supportDirectory) }
@@ -95,15 +132,18 @@ private func writeHostInfo(
     supportDirectory: URL,
     updatedAtMs: Double,
     brokerURL: String,
-    webURL: String
+    webURL: String,
+    extraFields: String = ""
 ) throws {
+    let normalizedExtraFields = extraFields.trimmingCharacters(in: .whitespacesAndNewlines)
+    let extraFieldsBody = normalizedExtraFields.isEmpty ? "" : ",\n\(normalizedExtraFields)"
     let body = """
     {
       "schemaVersion": 1,
       "source": "test",
       "updatedAtMs": \(updatedAtMs),
       "brokerUrl": "\(brokerURL)",
-      "webUrl": "\(webURL)"
+      "webUrl": "\(webURL)"\(extraFieldsBody)
     }
     """
     try body.write(

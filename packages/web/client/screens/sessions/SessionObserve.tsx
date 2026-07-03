@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type FormEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -8,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
 
 import type {
   ObserveData,
@@ -47,6 +48,8 @@ import {
 } from "../../lib/lane-observe.ts";
 import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
 import { api } from "../../lib/api.ts";
+import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
+import { DictationMic } from "../../components/DictationMic.tsx";
 import {
   formatClockTimestamp,
   formatDurationClock,
@@ -61,6 +64,7 @@ import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
+import { SendIcon } from "../chat/conversation-icons.tsx";
 
 import "./session-observe.css";
 
@@ -1751,20 +1755,32 @@ function Scrubber({
   duration,
   cursor,
   onCursor,
+  snapTimes = [],
 }: {
   events: SessionEvent[];
   duration: number;
   cursor: number;
   onCursor: (t: number) => void;
+  snapTimes?: number[];
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const messageBuckets = useMemo(
+    () => buildMessageBuckets(events, duration, 48),
+    [events, duration],
+  );
+  const hasMessageBuckets = messageBuckets.some((bucket) => bucket.count > 0);
+  const messageBucketCount = messageBuckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const chartTitle = hasMessageBuckets
+    ? `${messageBucketCount} message turn anchors. Click the timeline or use arrow keys to snap between turns.`
+    : "Session timeline";
   const onClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = trackRef.current!.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      onCursor(Math.max(0, Math.min(duration, (x / rect.width) * duration)));
+      const raw = Math.max(0, Math.min(duration, (x / rect.width) * duration));
+      onCursor(snapToTimelineTime(raw, duration, snapTimes));
     },
-    [duration, onCursor],
+    [duration, onCursor, snapTimes],
   );
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1774,10 +1790,10 @@ function Scrubber({
       let next = cursor;
       switch (e.key) {
         case "ArrowLeft":
-          next = cursor - (e.shiftKey ? large : small);
+          next = snapTimes.length ? previousSnapTime(cursor, snapTimes) : cursor - (e.shiftKey ? large : small);
           break;
         case "ArrowRight":
-          next = cursor + (e.shiftKey ? large : small);
+          next = snapTimes.length ? nextSnapTime(cursor, snapTimes, duration) : cursor + (e.shiftKey ? large : small);
           break;
         case "PageDown":
           next = cursor - large;
@@ -1795,13 +1811,33 @@ function Scrubber({
           return;
       }
       e.preventDefault();
-      onCursor(Math.max(0, Math.min(duration, next)));
+      onCursor(snapTimes.length && (e.key === "PageDown" || e.key === "PageUp")
+        ? snapToTimelineTime(next, duration, snapTimes)
+        : Math.max(0, Math.min(duration, next)));
     },
-    [cursor, duration, onCursor],
+    [cursor, duration, onCursor, snapTimes],
   );
 
   return (
-    <div className="s-observe-track-wrap">
+    <div className="s-observe-track-wrap" title={chartTitle}>
+      {hasMessageBuckets ? (
+        <>
+          <div className="s-observe-track-barsHead" aria-hidden>
+            <span>Turns</span>
+            <span>{messageBucketCount}</span>
+          </div>
+          <div className="s-observe-track-bars" aria-hidden>
+            {messageBuckets.map((bucket) => (
+              <span
+                key={bucket.index}
+                className="s-observe-track-bar"
+                data-active={bucket.start <= cursor || undefined}
+                style={{ height: `${bucketHeight(bucket.count, messageBuckets)}%` }}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
       <div
         ref={trackRef}
         className="s-observe-track"
@@ -1837,6 +1873,143 @@ function Scrubber({
           className="s-observe-track-cursor"
           style={{ left: `${(cursor / duration) * 100}%` }}
         />
+      </div>
+    </div>
+  );
+}
+
+function isTurnAnchorEvent(event: SessionEvent): boolean {
+  return event.kind === "message" || event.kind === "ask";
+}
+
+function turnAnchorTimes(events: SessionEvent[], duration: number): number[] {
+  const times = events
+    .filter(isTurnAnchorEvent)
+    .map((event) => Math.max(0, Math.min(duration, event.t)))
+    .sort((a, b) => a - b);
+  return Array.from(new Set(times));
+}
+
+function snapToTimelineTime(raw: number, duration: number, snapTimes: number[]): number {
+  const clamped = Math.max(0, Math.min(duration, raw));
+  if (snapTimes.length === 0) return clamped;
+  let best = snapTimes[0]!;
+  let bestDistance = Math.abs(best - clamped);
+  for (const time of snapTimes) {
+    const distance = Math.abs(time - clamped);
+    if (distance < bestDistance) {
+      best = time;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function nextSnapTime(cursor: number, snapTimes: number[], duration: number): number {
+  const next = snapTimes.find((time) => time > cursor + 0.01);
+  return next ?? duration;
+}
+
+function previousSnapTime(cursor: number, snapTimes: number[]): number {
+  for (let index = snapTimes.length - 1; index >= 0; index -= 1) {
+    const time = snapTimes[index]!;
+    if (time < cursor - 0.01) return time;
+  }
+  return 0;
+}
+
+function buildMessageBuckets(events: SessionEvent[], duration: number, bucketCount: number): Array<{ index: number; count: number; start: number }> {
+  const safeDuration = Math.max(1, duration);
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    index,
+    count: 0,
+    start: (index / bucketCount) * safeDuration,
+  }));
+  for (const event of events) {
+    if (!isTurnAnchorEvent(event)) continue;
+    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((event.t / safeDuration) * bucketCount)));
+    buckets[index]!.count += 1;
+  }
+  return buckets;
+}
+
+function bucketHeight(count: number, buckets: Array<{ count: number }>): number {
+  if (count <= 0) return 0;
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  return Math.max(18, (count / max) * 100);
+}
+
+function SessionTransport({
+  events,
+  duration,
+  cursor,
+  mode,
+  speed,
+  snapTimes,
+  onCursor,
+  onPlayToggle,
+  onSpeedChange,
+}: {
+  events: SessionEvent[];
+  duration: number;
+  cursor: number;
+  mode: "tail" | "playing" | "paused";
+  speed: 0.5 | 1 | 2 | 4;
+  snapTimes: number[];
+  onCursor: (cursor: number) => void;
+  onPlayToggle: () => void;
+  onSpeedChange: (speed: 0.5 | 1 | 2 | 4) => void;
+}) {
+  const playTitle = mode === "tail"
+    ? "Following latest"
+    : mode === "playing"
+      ? "Pause replay"
+      : "Play turns";
+
+  return (
+    <div className="s-observe-transport" data-snap={snapTimes.length > 0 || undefined} data-mode={mode}>
+      <button
+        type="button"
+        className="s-observe-play-btn"
+        data-state={mode}
+        onClick={onPlayToggle}
+        aria-pressed={mode === "tail" || mode === "playing"}
+        aria-label={playTitle}
+        title={playTitle}
+      >
+        {mode === "playing" ? "❚❚" : "▶"}
+      </button>
+      <button
+        type="button"
+        className="s-observe-rewind-btn"
+        onClick={() => {
+          onCursor(0);
+        }}
+        aria-label="Jump to start"
+        title="Jump to start"
+      >
+        ⏮
+      </button>
+
+      <Scrubber
+        events={events}
+        duration={duration}
+        cursor={cursor}
+        onCursor={onCursor}
+        snapTimes={snapTimes}
+      />
+
+      <div className="s-observe-speed-group">
+        {([0.5, 1, 2, 4] as const).map((s) => (
+          <button
+            type="button"
+            key={s}
+            className={`s-observe-speed-btn${speed === s ? " s-observe-speed-btn--active" : ""}`}
+            onClick={() => onSpeedChange(s)}
+          >
+            {s}×
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1969,194 +2142,44 @@ const EMPTY_OBSERVE_DATA: SessionObserveData = {
   live: false,
 };
 
-/* ── Main component ── */
-
-export function SessionObserve({
-  data,
+export function SessionObserveContextRail({
+  data = EMPTY_OBSERVE_DATA,
   agentId,
   sessionId,
-
-  showRail = true,
-  variant = "default",
-  traceLimit,
-  traceWindowMs,
-  traceWindowLabel,
-  nowMs,
-  initialCursorT,
-  focusEventId,
-  inlineFocusEventId,
-  inlineFocusContent,
-  onLaneEventSelect,
-  surface = "scout",
-  laneGutter,
-  richSimpleTools,
+  cursor,
+  duration,
+  surface = "embedded",
 }: {
   data?: SessionObserveData;
   agentId?: string;
   sessionId?: string | null;
-  showRail?: boolean;
-  variant?: "default" | "lane";
-  /** Scope instrument: timeline only — no Scout replay chrome, rail, or lane meta bar. */
-  surface?: "scout" | "scope";
-  /** Lane mode: time-only gutter (Scout) or kind/tool label + time (Scope lanes). */
-  laneGutter?: "time" | "label-time";
-  /** Lane mode: render bash pills and per-family tool chrome even for single-token commands. */
-  richSimpleTools?: boolean;
-  /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
-  traceLimit?: number;
-  /** Lane mode: only render observe events inside this wall-clock window. */
-  traceWindowMs?: number;
-  /** Lane mode: human label for the selected horizon (e.g. "30m"). */
-  traceWindowLabel?: string;
-  /** Lane mode: shared wall clock for horizon filters (kept in sync with lane roster). */
-  nowMs?: number;
-  /** Default mode: open the replay cursor at this event time. */
-  initialCursorT?: number;
-  /** Default mode: visually mark and scroll to this event when the view opens. */
-  focusEventId?: string | null;
-  /** Default mode: expand detail content inline below this timeline row. */
-  inlineFocusEventId?: string | null;
-  inlineFocusContent?: ReactNode;
-  /** Lane mode: open the full session detail sheet for a clicked trace row. */
-  onLaneEventSelect?: (event: SessionEvent) => void;
+  cursor?: number;
+  duration?: number;
+  surface?: "embedded" | "context";
 }) {
-  const laneMode = variant === "lane";
-  const scopeSurface = surface === "scope";
-  const effectiveLaneGutter = laneGutter ?? (scopeSurface ? "label-time" : "time");
-  const effectiveRichSimpleTools = richSimpleTools ?? scopeSurface;
-  const effectiveShowRail = showRail && !scopeSurface;
-  const observeData = data ?? EMPTY_OBSERVE_DATA;
-  const { events, files } = observeData;
-  const liveSession = observeData.live === true;
-  const sessionStartMs = observeData.metadata?.session?.sessionStart;
-
-  const [internalNow, setInternalNow] = useState(Date.now);
-  const now = typeof nowMs === "number" ? nowMs : internalNow;
+  const { events, files } = data;
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
-  useEffect(() => {
-    if (!laneMode || typeof nowMs === "number") return;
-    const timer = setInterval(() => setInternalNow(Date.now()), 10_000);
-    return () => clearInterval(timer);
-  }, [laneMode, nowMs]);
 
   useEffect(() => {
-    if (!agentId || laneMode) return;
+    if (!agentId) return;
     let cancelled = false;
     api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
       .then((result) => { if (!cancelled) setCatalog(result); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [agentId, laneMode]);
+  }, [agentId]);
 
-  const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
-  const anchoredCursor = typeof initialCursorT === "number"
-    ? Math.max(0, Math.min(duration, initialCursorT))
-    : null;
-  const [cursor, setCursor] = useState(() => anchoredCursor ?? duration);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
-  const [autoFollow, setAutoFollow] = useState(anchoredCursor == null);
-  const previousDurationRef = useRef(duration);
-  const observeRootRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (anchoredCursor == null) return;
-    setCursor(anchoredCursor);
-    setAutoFollow(false);
-    setPlaying(false);
-  }, [anchoredCursor, focusEventId]);
-
-  useEffect(() => {
-    setCursor((current) => {
-      const previousDuration = previousDurationRef.current;
-      previousDurationRef.current = duration;
-      const wasNearLiveEdge = isCursorAtLiveEdge(current, previousDuration);
-      if (current > duration || (wasNearLiveEdge && autoFollow)) {
-        return duration;
-      }
-      return current;
-    });
-  }, [duration, autoFollow]);
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      setCursor((c) => {
-        const next = c + speed;
-        if (next >= duration) {
-          setPlaying(false);
-          return duration;
-        }
-        return next;
-      });
-    }, 100);
-    return () => clearInterval(id);
-  }, [playing, duration, speed]);
-
-  const useHorizonTrace = laneMode && Boolean(traceWindowMs && traceWindowMs > 0);
-  const visible = (() => {
-    let filtered = events.filter((event) => event.t <= cursor);
-    if (useHorizonTrace && traceWindowMs) {
-      filtered = filterObserveEventsForHorizon(
-        filtered,
-        sessionStartMs,
-        now,
-        traceWindowMs,
-      );
-    } else if (laneMode && traceLimit && traceLimit > 0) {
-      filtered = filtered.slice(-traceLimit);
-    }
-    return filtered;
-  })();
-  const laneTraceStats = useMemo(() => {
-    if (!useHorizonTrace || !traceWindowMs) return null;
-    const hiddenBeforeCount = countObserveEventsBeforeHorizon(
-      events,
-      sessionStartMs,
-      now,
-      traceWindowMs,
-    );
-    return laneTraceWindowStats(
-      visible,
-      sessionStartMs,
-      now,
-      traceWindowMs,
-      hiddenBeforeCount,
-    );
-  }, [events, now, sessionStartMs, traceWindowMs, useHorizonTrace, visible]);
-  useLayoutEffect(() => {
-    if (laneMode || !focusEventId) return;
-    const root = observeRootRef.current;
-    if (!root) return;
-    const target = root.querySelector<HTMLElement>('[data-focus-group="true"]')
-      ?? root.querySelector<HTMLElement>(`[data-event-id="${focusEventId}"]`);
-    const scrollParent = target?.closest(".s-observe-main") as HTMLElement | null;
-    if (target && scrollParent) {
-      const parentRect = scrollParent.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const top = scrollParent.scrollTop + (targetRect.top - parentRect.top) - 16;
-      scrollParent.scrollTo({ top: Math.max(0, top), behavior: "instant" });
-      return;
-    }
-    target?.scrollIntoView({ block: "start", behavior: "instant" });
-  }, [focusEventId, inlineFocusEventId, laneMode, visible.length]);
-  const isAtTail = isCursorAtLiveEdge(cursor, duration);
-  const isFollowing = isAtTail && autoFollow;
-  const isLive = liveSession && isFollowing;
-
-  const handleFollowToggle = useCallback(() => {
-    if (isFollowing) {
-      setAutoFollow(false);
-    } else {
-      setCursor(duration);
-      setAutoFollow(true);
-    }
-  }, [isFollowing, duration]);
-
-  const metadata = observeData.metadata;
+  const metadata = data.metadata;
   const sessionMeta = metadata?.session;
-  const sourcePath = sessionMeta?.threadPath ?? null;
   const usageMeta = metadata?.usage;
+  const effectiveDuration = typeof duration === "number" && Number.isFinite(duration) && duration > 0
+    ? duration
+    : events.length > 0
+      ? events[events.length - 1]!.t + 30
+      : 60;
+  const effectiveCursor = typeof cursor === "number" && Number.isFinite(cursor)
+    ? cursor
+    : effectiveDuration;
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const thinkCount = events.filter((e) => e.kind === "think").length;
   const askCount = events.filter((e) => e.kind === "ask").length;
@@ -2291,6 +2314,412 @@ export function SessionObserve({
   const hasSessionMetadata = hasObserveRows(sessionMeta);
 
   return (
+    <aside className={`s-observe-rail${surface === "context" ? " s-observe-rail--context" : ""}`}>
+      {catalog && catalog.sessions.length > 0 && (
+        <div>
+          <div className="s-observe-rail-label">Session</div>
+          <SessionHeader catalog={catalog} sessionId={sessionId ?? null} agentId={agentId} />
+        </div>
+      )}
+
+      <div>
+        <div className="s-observe-rail-label">Trace stats</div>
+        <div className="s-observe-stats">
+          <StatCard
+            label="Turns"
+            value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)}
+          />
+          <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
+          <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
+          <StatCard label="Asks" value={fmtCompactNumber(askCount)} />
+          <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
+          <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
+          <StatCard label="Files" value={fmtCompactNumber(files.length)} />
+          <StatCard label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
+        </div>
+      </div>
+
+      <div>
+        <div className="s-observe-rail-label">Interacted agents</div>
+        <ObservedTopologyPanel
+          topology={metadata?.topology ?? null}
+          size="rail"
+          maxAgents={4}
+        />
+      </div>
+
+      <div>
+        <div className="s-observe-rail-label">Context window</div>
+        <DetailRows rows={windowRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
+        {derivedLoadPercent !== null ? (
+          <>
+            <ContextMeter data={[derivedLoadPercent / 100, derivedLoadPercent / 100]} cursor={effectiveCursor / effectiveDuration} />
+            <div className="s-observe-ctx-detail">
+              Meter uses latest context input divided by the model window.
+            </div>
+          </>
+        ) : windowRows.length === 0 ? (
+          <RailEmpty />
+        ) : (
+          <div className="s-observe-ctx-detail">
+            No derived load trace captured.
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="s-observe-rail-label">
+          Files touched · {files.length}
+        </div>
+        <div className="s-observe-files">
+          {files.map((f) => (
+            <div
+              key={f.path}
+              className={`s-observe-file${f.lastT <= effectiveCursor ? " s-observe-file--visible" : " s-observe-file--hidden"}`}
+            >
+              <FileGlyph state={f.state} />
+              <LocalPathLink
+                path={f.path}
+                basePath={sessionMeta?.cwd ?? null}
+                agentId={agentId ?? null}
+                sessionId={sessionId ?? null}
+                className="s-observe-file-path"
+              >
+                {f.path}
+              </LocalPathLink>
+              <span className="s-observe-file-touches">×{f.touches}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="s-observe-rail-label">Usage</div>
+        {usageStatCards.length > 0 && (
+          <div className="s-observe-stats s-observe-stats--usage">
+            {usageStatCards.map((card) => (
+              <StatCard
+                key={card.label}
+                label={card.label}
+                value={fmtCompactNumber(card.value)}
+              />
+            ))}
+          </div>
+        )}
+        {usageRows.length > 0 ? (
+          <DetailRows rows={usageRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
+        ) : !hasUsageMetadata && usageStatCards.length === 0 ? (
+          <RailEmpty />
+        ) : null}
+      </div>
+
+      <div>
+        <div className="s-observe-rail-label">Metadata</div>
+        {metadataRows.length > 0 ? (
+          <DetailRows rows={metadataRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
+        ) : !hasSessionMetadata ? (
+          <RailEmpty />
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+function SessionObserveComposer({
+  conversationId,
+}: {
+  conversationId?: string | null;
+}) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const canSubmit = draft.trim().length > 0 && !sending;
+
+  const submit = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    const body = draft.trim();
+    if (!body || sending) return;
+    if (!conversationId) {
+      setError("No writable session target is attached yet.");
+      return;
+    }
+
+    setSending(true);
+    setStatus(null);
+    setError(null);
+    try {
+      await api("/api/send", {
+        method: "POST",
+        body: JSON.stringify({
+          body,
+          conversationId,
+          intent: "steer",
+        }),
+      });
+      setDraft("");
+      setStatus("Sent into this session.");
+      inputRef.current?.focus();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <form className="s-observe-compose" onSubmit={(event) => void submit(event)}>
+      <div className="s-observe-compose-shell">
+        <div className="s-observe-compose-row">
+          <textarea
+            ref={inputRef}
+            className="s-observe-compose-input"
+            value={draft}
+            rows={3}
+            placeholder="Write into this session..."
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (!isComposerSendShortcut(event)) return;
+              event.preventDefault();
+              if (canSubmit) void submit();
+            }}
+          />
+          <button
+            type="button"
+            className="s-observe-compose-tool"
+            aria-label="Add context"
+            title="Add context"
+            onClick={() => inputRef.current?.focus()}
+          >
+            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+          <DictationMic
+            onAppend={(text) =>
+              setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
+            }
+          />
+          <button
+            type="submit"
+            className="s-observe-compose-send"
+            disabled={!canSubmit}
+            title="Send into this session (Cmd+Enter)"
+            aria-label="Send into this session"
+          >
+            <SendIcon />
+          </button>
+        </div>
+      </div>
+      {error ? <div className="s-observe-compose-status s-observe-compose-status--error">{error}</div> : null}
+      {status ? <div className="s-observe-compose-status">{status}</div> : null}
+    </form>
+  );
+}
+
+/* ── Main component ── */
+
+export function SessionObserve({
+  data,
+  agentId,
+  sessionId,
+  conversationId,
+
+  showRail = true,
+  variant = "default",
+  traceLimit,
+  traceWindowMs,
+  traceWindowLabel,
+  nowMs,
+  initialCursorT,
+  focusEventId,
+  inlineFocusEventId,
+  inlineFocusContent,
+  onLaneEventSelect,
+  surface = "scout",
+  laneGutter,
+  richSimpleTools,
+}: {
+  data?: SessionObserveData;
+  agentId?: string;
+  sessionId?: string | null;
+  conversationId?: string | null;
+  showRail?: boolean;
+  variant?: "default" | "lane";
+  /** Scope instrument: timeline only — no Scout replay chrome, rail, or lane meta bar. */
+  surface?: "scout" | "scope";
+  /** Lane mode: time-only gutter (Scout) or kind/tool label + time (Scope lanes). */
+  laneGutter?: "time" | "label-time";
+  /** Lane mode: render bash pills and per-family tool chrome even for single-token commands. */
+  richSimpleTools?: boolean;
+  /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
+  traceLimit?: number;
+  /** Lane mode: only render observe events inside this wall-clock window. */
+  traceWindowMs?: number;
+  /** Lane mode: human label for the selected horizon (e.g. "30m"). */
+  traceWindowLabel?: string;
+  /** Lane mode: shared wall clock for horizon filters (kept in sync with lane roster). */
+  nowMs?: number;
+  /** Default mode: open the replay cursor at this event time. */
+  initialCursorT?: number;
+  /** Default mode: visually mark and scroll to this event when the view opens. */
+  focusEventId?: string | null;
+  /** Default mode: expand detail content inline below this timeline row. */
+  inlineFocusEventId?: string | null;
+  inlineFocusContent?: ReactNode;
+  /** Lane mode: open the full session detail sheet for a clicked trace row. */
+  onLaneEventSelect?: (event: SessionEvent) => void;
+}) {
+  const laneMode = variant === "lane";
+  const scopeSurface = surface === "scope";
+  const effectiveLaneGutter = laneGutter ?? (scopeSurface ? "label-time" : "time");
+  const effectiveRichSimpleTools = richSimpleTools ?? scopeSurface;
+  const effectiveShowRail = showRail && !scopeSurface;
+  const observeData = data ?? EMPTY_OBSERVE_DATA;
+  const { events } = observeData;
+  const sessionStartMs = observeData.metadata?.session?.sessionStart;
+
+  const [internalNow, setInternalNow] = useState(Date.now);
+  const now = typeof nowMs === "number" ? nowMs : internalNow;
+  useEffect(() => {
+    if (!laneMode || typeof nowMs === "number") return;
+    const timer = setInterval(() => setInternalNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, [laneMode, nowMs]);
+
+  const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
+  const anchoredCursor = typeof initialCursorT === "number"
+    ? Math.max(0, Math.min(duration, initialCursorT))
+    : null;
+  const [cursor, setCursor] = useState(() => anchoredCursor ?? duration);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState<0.5 | 1 | 2 | 4>(1);
+  const [autoFollow, setAutoFollow] = useState(anchoredCursor == null);
+  const previousDurationRef = useRef(duration);
+  const observeRootRef = useRef<HTMLDivElement | null>(null);
+  const snapTimes = useMemo(() => turnAnchorTimes(events, duration), [events, duration]);
+
+  useEffect(() => {
+    if (anchoredCursor == null) return;
+    setCursor(anchoredCursor);
+    setAutoFollow(false);
+    setPlaying(false);
+  }, [anchoredCursor, focusEventId]);
+
+  useEffect(() => {
+    setCursor((current) => {
+      const previousDuration = previousDurationRef.current;
+      previousDurationRef.current = duration;
+      const wasNearLiveEdge = isCursorAtLiveEdge(current, previousDuration);
+      if (current > duration || (wasNearLiveEdge && autoFollow)) {
+        return duration;
+      }
+      return current;
+    });
+  }, [duration, autoFollow]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const intervalMs = snapTimes.length > 0 ? Math.max(220, 700 / speed) : 100;
+    const id = setInterval(() => {
+      setCursor((c) => {
+        if (snapTimes.length > 0) {
+          const next = nextSnapTime(c, snapTimes, duration);
+          if (next >= duration) {
+            setAutoFollow(true);
+            setPlaying(false);
+            return duration;
+          }
+          return next;
+        }
+        const next = c + speed;
+        if (next >= duration) {
+          setAutoFollow(true);
+          setPlaying(false);
+          return duration;
+        }
+        return next;
+      });
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [playing, duration, snapTimes, speed]);
+
+  const useHorizonTrace = laneMode && Boolean(traceWindowMs && traceWindowMs > 0);
+  const visible = (() => {
+    let filtered = events.filter((event) => event.t <= cursor);
+    if (useHorizonTrace && traceWindowMs) {
+      filtered = filterObserveEventsForHorizon(
+        filtered,
+        sessionStartMs,
+        now,
+        traceWindowMs,
+      );
+    } else if (laneMode && traceLimit && traceLimit > 0) {
+      filtered = filtered.slice(-traceLimit);
+    }
+    return filtered;
+  })();
+  const laneTraceStats = useMemo(() => {
+    if (!useHorizonTrace || !traceWindowMs) return null;
+    const hiddenBeforeCount = countObserveEventsBeforeHorizon(
+      events,
+      sessionStartMs,
+      now,
+      traceWindowMs,
+    );
+    return laneTraceWindowStats(
+      visible,
+      sessionStartMs,
+      now,
+      traceWindowMs,
+      hiddenBeforeCount,
+    );
+  }, [events, now, sessionStartMs, traceWindowMs, useHorizonTrace, visible]);
+  useLayoutEffect(() => {
+    if (laneMode || !focusEventId) return;
+    const root = observeRootRef.current;
+    if (!root) return;
+    const target = root.querySelector<HTMLElement>('[data-focus-group="true"]')
+      ?? root.querySelector<HTMLElement>(`[data-event-id="${focusEventId}"]`);
+    const scrollParent = target?.closest(".s-observe-main") as HTMLElement | null;
+    if (target && scrollParent) {
+      const parentRect = scrollParent.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const top = scrollParent.scrollTop + (targetRect.top - parentRect.top) - 16;
+      scrollParent.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      return;
+    }
+    target?.scrollIntoView({ block: "start", behavior: "instant" });
+  }, [focusEventId, inlineFocusEventId, laneMode, visible.length]);
+  const isAtTail = isCursorAtLiveEdge(cursor, duration);
+  const isFollowing = isAtTail && autoFollow;
+  const playbackMode: "tail" | "playing" | "paused" = isFollowing
+    ? "tail"
+    : playing
+      ? "playing"
+      : "paused";
+
+  const setManualCursor = useCallback((nextCursor: number) => {
+    setAutoFollow(false);
+    setPlaying(false);
+    setCursor(nextCursor);
+  }, []);
+
+  const handlePlayToggle = useCallback(() => {
+    if (isFollowing) {
+      setAutoFollow(false);
+      setPlaying(false);
+    } else {
+      setAutoFollow(false);
+      setPlaying((current) => !current);
+    }
+  }, [isFollowing]);
+
+  const metadata = observeData.metadata;
+  const sessionMeta = metadata?.session;
+  const sourcePath = sessionMeta?.threadPath ?? null;
+
+  return (
     <div
       ref={observeRootRef}
       className={[
@@ -2311,15 +2740,6 @@ export function SessionObserve({
             sessionId={sessionId ?? null}
           />
         )}
-        {!scopeSurface && !useHorizonTrace ? (
-          <div className="s-observe-live-sticky">
-            <FollowToggle
-              isFollowing={isFollowing}
-              isLive={isLive}
-              onToggle={handleFollowToggle}
-            />
-          </div>
-        ) : null}
         {!scopeSurface && useHorizonTrace && laneTraceStats ? (
           <div className="s-observe-lane-trace-meta">
             <span className="s-observe-lane-trace-meta-label">Trace</span>
@@ -2366,154 +2786,33 @@ export function SessionObserve({
 
       {/* Right rail */}
       {effectiveShowRail && !laneMode && (
-        <aside className="s-observe-rail">
-          {catalog && catalog.sessions.length > 0 && (
-          <div>
-            <div className="s-observe-rail-label">Session</div>
-            <SessionHeader catalog={catalog} sessionId={sessionId ?? null} agentId={agentId} />
-          </div>
-        )}
-
-        <div>
-          <div className="s-observe-rail-label">Trace stats</div>
-          <div className="s-observe-stats">
-            <StatCard
-              label="Turns"
-              value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)}
-            />
-            <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
-            <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
-            <StatCard label="Asks" value={fmtCompactNumber(askCount)} />
-            <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
-            <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
-            <StatCard label="Files" value={fmtCompactNumber(files.length)} />
-            <StatCard label="Window" value={fmtWindowSpan(observedWindowSeconds)} />
-          </div>
-        </div>
-
-        <div>
-          <div className="s-observe-rail-label">Agent family</div>
-          <ObservedTopologyPanel
-            topology={metadata?.topology ?? null}
-            size="rail"
-            maxAgents={4}
-          />
-        </div>
-
-        <div>
-          <div className="s-observe-rail-label">Context window</div>
-          <DetailRows rows={windowRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
-          {derivedLoadPercent !== null ? (
-            <>
-              <ContextMeter data={[derivedLoadPercent / 100, derivedLoadPercent / 100]} cursor={cursor / duration} />
-              <div className="s-observe-ctx-detail">
-                Meter uses latest context input divided by the model window.
-              </div>
-            </>
-          ) : windowRows.length === 0 ? (
-            <RailEmpty />
-          ) : (
-            <div className="s-observe-ctx-detail">
-              No derived load trace captured.
-            </div>
-          )}
-        </div>
-
-        <div>
-          <div className="s-observe-rail-label">
-            Files touched · {files.length}
-          </div>
-          <div className="s-observe-files">
-            {files.map((f) => (
-              <div
-                key={f.path}
-                className={`s-observe-file${f.lastT <= cursor ? " s-observe-file--visible" : " s-observe-file--hidden"}`}
-              >
-                <FileGlyph state={f.state} />
-                <LocalPathLink
-                  path={f.path}
-                  basePath={sessionMeta?.cwd ?? null}
-                  agentId={agentId ?? null}
-                  sessionId={sessionId ?? null}
-                  className="s-observe-file-path"
-                >
-                  {f.path}
-                </LocalPathLink>
-                <span className="s-observe-file-touches">×{f.touches}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className="s-observe-rail-label">Usage</div>
-          {usageStatCards.length > 0 && (
-            <div className="s-observe-stats s-observe-stats--usage">
-              {usageStatCards.map((card) => (
-                <StatCard
-                  key={card.label}
-                  label={card.label}
-                  value={fmtCompactNumber(card.value)}
-                />
-              ))}
-            </div>
-          )}
-          {usageRows.length > 0 ? (
-            <DetailRows rows={usageRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
-          ) : !hasUsageMetadata && usageStatCards.length === 0 ? (
-            <RailEmpty />
-          ) : null}
-        </div>
-
-        <div>
-          <div className="s-observe-rail-label">Metadata</div>
-          {metadataRows.length > 0 ? (
-            <DetailRows rows={metadataRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
-          ) : !hasSessionMetadata ? (
-            <RailEmpty />
-          ) : null}
-        </div>
-        </aside>
+        <SessionObserveContextRail
+          data={observeData}
+          agentId={agentId}
+          sessionId={sessionId}
+          cursor={cursor}
+          duration={duration}
+        />
       )}
 
       {/* Scrubber footer */}
       {!scopeSurface && !laneMode && (
-      <footer className="s-observe-scrubber">
-        <button
-          className="s-observe-play-btn"
-          onClick={() => setPlaying(!playing)}
-        >
-          {playing ? "❚❚" : "▶"}
-        </button>
-        <button
-          className="s-observe-rewind-btn"
-          onClick={() => {
-            setCursor(0);
-            setPlaying(false);
-          }}
-        >
-          ⏮
-        </button>
-
-        <Scrubber
-          events={events}
-          duration={duration}
-          cursor={cursor}
-          onCursor={setCursor}
-        />
-
-        <div className="s-observe-speed-group">
-          {([0.5, 1, 2, 4] as const).map((s) => (
-            <button
-              key={s}
-              className={`s-observe-speed-btn${speed === s ? " s-observe-speed-btn--active" : ""}`}
-              onClick={() => setSpeed(s)}
-            >
-              {s}×
-            </button>
-          ))}
-        </div>
-      </footer>
+        <footer className="s-observe-scrubber">
+          <SessionTransport
+            events={events}
+            duration={duration}
+            cursor={cursor}
+            mode={playbackMode}
+            speed={speed}
+            snapTimes={snapTimes}
+            onCursor={setManualCursor}
+            onPlayToggle={handlePlayToggle}
+            onSpeedChange={setSpeed}
+          />
+          <SessionObserveComposer
+            conversationId={conversationId}
+          />
+        </footer>
       )}
     </div>
   );

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { SessionState } from "@openscout/agent-sessions";
 
-import { buildObserveDataFromSnapshot } from "./service.ts";
+import { buildObserveDataFromSnapshot, buildObservePulse } from "./service.ts";
 
 describe("buildObserveDataFromSnapshot", () => {
   test("maps timed snapshot blocks into observer events and files", () => {
@@ -238,5 +238,64 @@ describe("buildObserveDataFromSnapshot", () => {
         serviceTier: "standard",
       },
     });
+  });
+});
+
+describe("buildObservePulse", () => {
+  const NOW = 1_700_000_000_000;
+  const BUCKET_MS = 60_000;
+  const BUCKET_COUNT = 30;
+  const WINDOW_MS = BUCKET_COUNT * BUCKET_MS;
+
+  test("bins timestamps into 30 one-minute buckets ending at now", () => {
+    const pulse = buildObservePulse(
+      [
+        NOW - 30_000, // last bucket (index 29)
+        NOW - 90_000, // index 28
+        NOW - 90_001, // index 28 (same bucket)
+      ],
+      NOW,
+    );
+    expect(pulse).toBeDefined();
+    expect(pulse!.bucketMs).toBe(BUCKET_MS);
+    expect(pulse!.endMs).toBe(NOW);
+    expect(pulse!.counts).toHaveLength(BUCKET_COUNT);
+    expect(pulse!.counts[29]).toBe(1);
+    expect(pulse!.counts[28]).toBe(2);
+    expect(pulse!.counts.reduce((a, b) => a + b, 0)).toBe(3);
+  });
+
+  test("empty input yields undefined", () => {
+    expect(buildObservePulse([], NOW)).toBeUndefined();
+  });
+
+  test("returns undefined when every timestamp is non-finite", () => {
+    expect(buildObservePulse([NaN, Infinity, -Infinity], NOW)).toBeUndefined();
+  });
+
+  test("ignores events outside the trailing window", () => {
+    const pulse = buildObservePulse(
+      [
+        NOW - WINDOW_MS - 1, // just older than the window
+        NOW, // at now (exclusive right edge)
+        NOW + 5_000, // in the future
+        NOW - 60_000, // in-window (index 29)
+      ],
+      NOW,
+    );
+    expect(pulse).toBeDefined();
+    expect(pulse!.counts.reduce((a, b) => a + b, 0)).toBe(1);
+    expect(pulse!.counts[29]).toBe(1);
+  });
+
+  test("places the window's oldest edge in the first bucket", () => {
+    const pulse = buildObservePulse([NOW - WINDOW_MS], NOW);
+    expect(pulse).toBeDefined();
+    expect(pulse!.counts[0]).toBe(1);
+    expect(pulse!.counts.slice(1).every((c) => c === 0)).toBe(true);
+  });
+
+  test("returns undefined when now is not finite", () => {
+    expect(buildObservePulse([NOW - 1_000], NaN)).toBeUndefined();
   });
 });

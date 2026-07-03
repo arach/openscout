@@ -61,6 +61,42 @@ describe("liveActionSummary", () => {
       }),
     ).toBe("Home layout pass");
   });
+
+  test("does not surface empty session-trace placeholders", () => {
+    const observeData: ObserveData = {
+      events: [{
+        kind: "system",
+        text: "No session trace is available for this agent yet.",
+      }],
+      files: [],
+    };
+    expect(liveActionSummary({ observeData })).toBeNull();
+    expect(
+      liveActionSummary({
+        fallbackTask: "No session trace is available for this agent yet.",
+        observeLive: true,
+      }),
+    ).toBeNull();
+  });
+
+  test("humanizes a bare protocol token instead of surfacing the raw bracket", () => {
+    const observeData: ObserveData = {
+      events: [{ kind: "system", text: "[turn_ended]" }],
+      files: [],
+    };
+    expect(liveActionSummary({ observeData })).toBe("turn ended");
+  });
+
+  test("prefers a real meaningful line over a trailing protocol token", () => {
+    const observeData: ObserveData = {
+      events: [
+        { kind: "tool", tool: "Edit", arg: "home-now-card.tsx" },
+        { kind: "system", text: "[turn_ended]" },
+      ],
+      files: [],
+    };
+    expect(liveActionSummary({ observeData })).toBe("Edit · home-now-card.tsx");
+  });
 });
 
 describe("homeCardRoute", () => {

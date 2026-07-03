@@ -127,6 +127,8 @@ import {
   indexRecentSessionKnowledge,
   resolveOpenScoutKnowledgePaths,
   SQLiteKnowledgeStore,
+  type KnowledgeCollectionKind,
+  type KnowledgeFacets,
   type KnowledgeSourceRef,
 } from "@openscout/runtime/knowledge";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
@@ -1461,6 +1463,85 @@ function parseOptionalPositiveInt(
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseOptionalFiniteNumber(value: string | null | undefined): number | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+const KNOWLEDGE_SEARCH_FACET_PARAMS = [
+  "harness",
+  "project",
+  "source",
+  "sessionId",
+  "documentKind",
+  "recordKind",
+  "recordTag",
+  "toolName",
+  "touchedPath",
+  "state",
+] as const;
+
+const KNOWLEDGE_SEARCH_SOURCE_KINDS = new Set<KnowledgeCollectionKind>([
+  "sessions",
+  "skills",
+  "mcp",
+  "codebase",
+  "context_pack",
+  "mixed",
+]);
+
+function addKnowledgeFacetValue(facets: KnowledgeFacets, key: string, rawValue: string): void {
+  const value = rawValue.trim();
+  if (!key.trim() || !value || value === "all") return;
+  const existing = facets[key];
+  if (!existing) {
+    facets[key] = value;
+    return;
+  }
+  const next = Array.isArray(existing) ? existing : [existing];
+  if (!next.includes(value)) facets[key] = [...next, value];
+}
+
+function parseKnowledgeSearchParams(rawUrl: string): {
+  facets?: KnowledgeFacets;
+  collections?: string[];
+  sourceKinds?: KnowledgeCollectionKind[];
+  sourceUpdatedAfterMs?: number;
+  sourceUpdatedBeforeMs?: number;
+} {
+  const url = new URL(rawUrl, "http://localhost");
+  const facets: KnowledgeFacets = {};
+
+  for (const key of KNOWLEDGE_SEARCH_FACET_PARAMS) {
+    for (const value of url.searchParams.getAll(key)) {
+      addKnowledgeFacetValue(facets, key, value);
+    }
+  }
+  for (const [key, value] of url.searchParams.entries()) {
+    if (key.startsWith("facet:")) addKnowledgeFacetValue(facets, key.slice("facet:".length), value);
+    if (key.startsWith("facet.")) addKnowledgeFacetValue(facets, key.slice("facet.".length), value);
+  }
+
+  const collections = [
+    ...url.searchParams.getAll("collection"),
+    ...url.searchParams.getAll("collectionId"),
+  ].map((value) => value.trim()).filter(Boolean);
+  const sourceKinds = url.searchParams.getAll("sourceKind")
+    .map((value) => value.trim())
+    .filter((value): value is KnowledgeCollectionKind =>
+      KNOWLEDGE_SEARCH_SOURCE_KINDS.has(value as KnowledgeCollectionKind)
+    );
+
+  return {
+    facets: Object.keys(facets).length > 0 ? facets : undefined,
+    collections: collections.length > 0 ? collections : undefined,
+    sourceKinds: sourceKinds.length > 0 ? sourceKinds : undefined,
+    sourceUpdatedAfterMs: parseOptionalFiniteNumber(url.searchParams.get("updatedAfterMs")),
+    sourceUpdatedBeforeMs: parseOptionalFiniteNumber(url.searchParams.get("updatedBeforeMs")),
+  };
 }
 
 type ServerTimingMetric = {
@@ -5027,16 +5108,42 @@ export async function createOpenScoutWebServer(
   app.get("/api/knowledge/search", (c) => {
     const q = c.req.query("q") ?? "";
     const limit = parseOptionalPositiveInt(c.req.query("limit"), 30) ?? 30;
+    const primitives = parseKnowledgeSearchParams(c.req.url);
     const store = new SQLiteKnowledgeStore();
     try {
       return c.json({
         q,
         hits: store.searchLexical({
           q,
-          sourceKinds: ["sessions"],
+          sourceKinds: primitives.sourceKinds ?? ["sessions"],
+          collections: primitives.collections,
+          facets: primitives.facets,
+          sourceUpdatedAfterMs: primitives.sourceUpdatedAfterMs,
+          sourceUpdatedBeforeMs: primitives.sourceUpdatedBeforeMs,
           limit,
           mode: "lexical",
         }),
+        status: store.status(),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  app.get("/api/knowledge/search-primitives", (c) => {
+    const keys = new URL(c.req.url, "http://localhost").searchParams.getAll("key");
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 200) ?? 200;
+    const store = new SQLiteKnowledgeStore();
+    try {
+      return c.json({
+        facets: store.listFacetValues(keys, limit),
+        params: {
+          facets: KNOWLEDGE_SEARCH_FACET_PARAMS,
+          genericFacetPrefixes: ["facet:", "facet."],
+          ranges: ["updatedAfterMs", "updatedBeforeMs"],
+          collections: ["collection", "collectionId"],
+          sourceKinds: [...KNOWLEDGE_SEARCH_SOURCE_KINDS],
+        },
         status: store.status(),
       });
     } finally {

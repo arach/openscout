@@ -1024,24 +1024,6 @@
   letter-spacing: var(--tracking-sm);
 }
 
-.s-now-card-pulse {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-pill);
-  background: var(--green);
-  animation: s-fleet-live-pulse 1.6s ease-in-out infinite;
-}
-
-.s-now-card-pulse--delivered { background: var(--accent); }
-.s-now-card-pulse--queued    { background: var(--amber); }
-.s-now-card-pulse--failed     { background: var(--red); }
-.s-now-card-pulse--idle {
-  background: transparent;
-  border: 1px solid var(--dim);
-  animation: none;
-}
-
 .s-now-card--layout-dense .s-now-card-runtime {
   display: none;
 }
@@ -1107,22 +1089,24 @@
   white-space: nowrap;
 }
 
-/* Relevant at-a-glance tiles — turn · session · state. */
+/* At-a-glance vitals — flat instrument readouts (value over small uppercase
+   label), aligned on a quiet grid under a single hairline. No per-tile box. */
 .s-now-card-metrics {
   margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--space-sm) var(--space-xl);
 }
 
 .s-metric-tile {
   min-width: 0;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg) 36%, transparent);
+  padding: 0;
+  border: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .s-metric-tile strong {
@@ -1131,8 +1115,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: var(--text-md, 13px);
-  font-weight: 600;
+  font-size: var(--text-lg, 15px);
+  font-weight: 550;
+  line-height: var(--leading-none, 1);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -1288,23 +1273,25 @@
   gap: var(--space-md) var(--space-xl);
 }
 
+/* Fixed column bases so stacked dense rows read as one table — shrinkable
+   bases let content push each row's columns to different x positions. */
 .s-now-card--layout-dense .s-now-card-top {
-  flex: 0 1 168px;
-  max-width: 200px;
+  flex: 0 0 190px;
 }
 
 .s-now-card--layout-dense .s-now-card-idline--dense {
-  flex: 1 1 140px;
-  max-width: 280px;
+  flex: 0 0 230px;
 }
 
 .s-now-card--layout-dense .s-now-card-action {
-  flex: 2 1 200px;
+  flex: 1 1 200px;
   min-width: 160px;
 }
 
 .s-now-card--layout-dense .s-now-card-metrics--inline {
   flex: 0 0 auto;
+  min-width: 88px;
+  justify-content: flex-end;
 }
 
 .s-now-card--layout-dense .s-now-card-actions {
@@ -2036,5 +2023,136 @@
 
   .s-quiet-target-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── What's-moving entrance ──────────────────────────────────────────
+   Cards come on shift one after another: opacity 0→1 plus a small rise.
+   Calm and precise — no spring, no overshoot. The class is sticky: keyed
+   elements keep their DOM node across re-renders, so the animation runs once
+   per mount; `--enter-delay` staggers by first-seen position. */
+.s-now-card--enter {
+  animation: s-now-enter 260ms ease-out both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+@keyframes s-now-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── What's-moving initial-load skeleton ─────────────────────────────
+   Dense-row silhouette: avatar circle · name bar · meta bar · wide action
+   bar, with the same shimmer grammar as the live-activity skeleton. */
+.s-now-skeleton {
+  pointer-events: none;
+}
+
+.s-now-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg) var(--space-xl);
+  padding: var(--space-lg) var(--space-xl);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.s-now-skeleton-row > span {
+  display: block;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--border) 60%, transparent) 0%,
+    color-mix(in srgb, var(--border) 90%, transparent) 50%,
+    color-mix(in srgb, var(--border) 60%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: s-fleet-live-shimmer 1400ms linear infinite;
+}
+
+.s-now-skeleton-avatar {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.s-now-skeleton-name { flex: 0 0 132px; }
+.s-now-skeleton-meta { flex: 0 0 180px; }
+.s-now-skeleton-action { flex: 1 1 auto; }
+
+/* ── Reduced motion ──────────────────────────────────────────────────
+   No transform animation and no shimmer; at most a fast opacity settle. */
+@media (prefers-reduced-motion: reduce) {
+  .s-now-card--enter {
+    animation: s-now-enter-fade 120ms ease-out both;
+    animation-delay: 0ms;
+  }
+
+  .s-now-skeleton-row > span {
+    animation: none;
+  }
+}
+
+@keyframes s-now-enter-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Activity sparkline (vitals) ─────────────────────────────────────
+   A tiny time chart of recent event density — reads as a living process
+   at a glance. Single accent, flat-topped bars with a faint old→new opacity
+   ramp, no axes. Bars self-dim, so the container stays crisp; the component
+   hides itself when the pulse is missing or flat (no dead-chrome rule here). */
+.s-now-card-pulse {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--accent);
+  background: none;
+  border-radius: 0;
+}
+
+/* In the nanos row the sparkline anchors the right cluster: it takes the auto
+   margin and the ctx gauge (which normally right-anchors itself) follows at a
+   plain gap. */
+.s-now-card-nanos .s-now-card-pulse {
+  margin-left: auto;
+}
+
+.s-now-card-nanos .s-now-card-pulse + .s-now-card-ctx {
+  margin-left: 0;
+}
+
+.s-now-card-pulse svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Dense rows keep a fixed sparkline column so stacked rows read as a table
+   (matches the fixed bases on .s-now-card-top / .s-now-card-action etc.). */
+.s-now-card-pulse-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.s-now-card--layout-dense .s-now-card-pulse-cell {
+  flex: 0 0 64px;
+}
+
+@media (max-width: 720px) {
+  .s-now-card--layout-dense .s-now-card-pulse-cell {
+    flex: 0 0 auto;
+    justify-content: flex-start;
   }
 }

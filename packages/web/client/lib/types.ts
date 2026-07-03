@@ -760,10 +760,25 @@ export type ObserveMetadata = {
   topology?: ObservedHarnessTopology;
 };
 
+/**
+ * Recent-activity histogram for the home sparkline (mirrors the server
+ * `ObservePulse`). Event density over a trailing window; absent when no event
+ * has a resolvable wall-clock time.
+ */
+export type ObservePulse = {
+  /** Width of each bucket in ms. */
+  bucketMs: number;
+  /** Right edge (exclusive) of the last bucket — the window's "now". */
+  endMs: number;
+  /** Event count per bucket, oldest → newest; length === bucket count. */
+  counts: number[];
+};
+
 export type ObserveData = {
   events: ObserveEvent[];
   files: ObserveFile[];
   contextUsage?: number[];
+  pulse?: ObservePulse;
   live?: boolean;
   metadata?: ObserveMetadata;
 };

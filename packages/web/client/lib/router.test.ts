@@ -68,6 +68,8 @@ describe("scope route parsing", () => {
       .toBe("/scope?ffBundle=scope-instrument&layout=grid");
     expect(preserveLocationSearch("/scope/tail?q=codex", "?ffBundle=scope-instrument"))
       .toBe("/scope/tail?q=codex&ffBundle=scope-instrument");
+    expect(preserveLocationSearch("/projects/pomo/sessions/s1", "?select=pomo.main&machineId=node-a"))
+      .toBe("/projects/pomo/sessions/s1?machineId=node-a");
   });
 
   test("sessions route stays under /scope when the browser is in the scope namespace", () => {
@@ -239,6 +241,20 @@ describe("agents route parsing", () => {
       sessionId: "codex-thread-1",
     });
     expect(routePath(route)).toBe("/agents/hudson.main/sessions/codex-thread-1");
+  });
+
+  test("standalone session routes carry agent context as quiet query metadata", () => {
+    const route = routeFromUrl("http://127.0.0.1:43120/sessions/codex-thread-1?agentId=hudson.main");
+
+    expect(route).toEqual({
+      view: "sessions",
+      sessionId: "codex-thread-1",
+      agentId: "hudson.main",
+    });
+    expect(routePath(route)).toBe("/sessions/codex-thread-1?agentId=hudson.main");
+    expect(routePath({ ...route, machineId: "node-b" })).toBe(
+      "/sessions/codex-thread-1?agentId=hudson.main&machineId=node-b",
+    );
   });
 
   test("follow routes preserve Scout ids and preferred view", () => {
@@ -643,6 +659,18 @@ describe("agents route parsing", () => {
       sessionId: "c.foo",
     });
     expect(routePath(session)).toBe("/projects/lattices/sessions/c.foo");
+
+    const oldNoisySession = routeFromUrl(
+      "http://127.0.0.1:43120/projects/lattices/sessions/c.foo?select=lattices.main",
+    );
+    expect(oldNoisySession).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      indexView: "sessions",
+      sessionId: "c.foo",
+      selectedAgentId: "lattices.main",
+    });
+    expect(routePath(oldNoisySession)).toBe("/projects/lattices/sessions/c.foo");
 
     const selected = routeFromUrl(
       "http://127.0.0.1:43120/projects/hudson?select=grok.main",
