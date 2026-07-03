@@ -15,7 +15,7 @@ import {
 import { CodexObservedTopologyTracker } from "@openscout/agent-sessions/adapters/codex/topology";
 import { resolveCodexExecutable } from "@openscout/agent-sessions/codex-executable";
 import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions/protocol/primitives";
-import { epochMs, type ScoutReplyContext } from "@openscout/protocol";
+import { epochMs } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
@@ -282,6 +282,7 @@ type SessionRequestOptions = {
   systemPrompt: string;
   runtimeDirectory: string;
   logsDirectory: string;
+  env?: Record<string, string | undefined>;
   launchArgs?: string[];
   approvalPolicy?: CodexApprovalPolicy;
   sandbox?: CodexSandboxMode;
@@ -292,7 +293,6 @@ type SessionRequestOptions = {
 type InvocationOptions = SessionRequestOptions & {
   prompt: string;
   timeoutMs?: number;
-  replyContext?: ScoutReplyContext | null;
 };
 
 type SteerOptions = SessionRequestOptions & {
@@ -484,6 +484,42 @@ function metadataRecord(metadata: Record<string, unknown> | undefined, key: stri
     return undefined;
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeEnvironmentOverrides(env: Record<string, string | undefined> | undefined): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  if (!env) {
+    return normalized;
+  }
+
+  for (const key of Object.keys(env).sort()) {
+    const value = env[key];
+    if (typeof value === "string") {
+      normalized[key] = value;
+    }
+  }
+
+  return normalized;
+}
+
+function mergeEnvironmentOverrides(
+  baseEnv: NodeJS.ProcessEnv,
+  overrides: Record<string, string | undefined> | undefined,
+): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...baseEnv };
+  if (!overrides) {
+    return merged;
+  }
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (typeof value === "string") {
+      merged[key] = value;
+    } else {
+      delete merged[key];
+    }
+  }
+
+  return merged;
 }
 
 function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | undefined {
@@ -1688,8 +1724,6 @@ class CodexAppServerSession {
 
   private readonly statePath: string;
 
-  private readonly replyContextPath: string;
-
   private readonly stdoutLogPath: string;
 
   private readonly stderrLogPath: string;
@@ -1723,7 +1757,6 @@ class CodexAppServerSession {
     this.key = sessionKey(options);
     this.threadIdPath = join(options.runtimeDirectory, "codex-thread-id.txt");
     this.statePath = join(options.runtimeDirectory, "state.json");
-    this.replyContextPath = join(options.runtimeDirectory, "scout-reply-context.json");
     this.stdoutLogPath = join(options.logsDirectory, "stdout.log");
     this.stderrLogPath = join(options.logsDirectory, "stderr.log");
     this.lastConfigSignature = this.configSignature(options);
@@ -1756,7 +1789,6 @@ class CodexAppServerSession {
   async invoke(
     prompt: string,
     timeoutMs?: number,
-    replyContext?: ScoutReplyContext | null,
   ): Promise<{ output: string; threadId: string }> {
     return this.enqueue(async () => {
       await this.ensureStarted();
@@ -1768,7 +1800,6 @@ class CodexAppServerSession {
         const turn = this.createActiveTurn(resolve, reject);
 
         try {
-          await this.writeReplyContext(replyContext ?? null);
           const response = await this.request<TurnStartResult>("turn/start", {
             threadId: this.threadId,
             cwd: this.options.cwd,
@@ -1783,7 +1814,6 @@ class CodexAppServerSession {
           turn.turnId = response.turn.id;
           await this.persistState();
         } catch (error) {
-          await this.clearReplyContext();
           this.clearActiveTurn(turn);
           reject(error instanceof Error ? error : new Error(errorMessage(error)));
         }
@@ -1931,6 +1961,7 @@ class CodexAppServerSession {
       sandbox: options.sandbox ?? "danger-full-access",
       threadId: options.threadId ?? null,
       requireExistingThread: options.requireExistingThread === true,
+      env: normalizeEnvironmentOverrides(options.env),
       launchArgs: normalizeCodexAppServerLaunchArgs(options.launchArgs),
     });
   }
@@ -1971,9 +2002,8 @@ class CodexAppServerSession {
     const env = buildManagedAgentEnvironment({
       agentName: this.options.agentName,
       currentDirectory: this.options.cwd,
-      baseEnv: process.env,
+      baseEnv: mergeEnvironmentOverrides(process.env, this.options.env),
     });
-    env.OPENSCOUT_REPLY_CONTEXT_FILE = this.replyContextPath;
     const child = spawn(codexExecutable, [
       "app-server",
       ...buildScoutMcpCodexLaunchArgs({
@@ -2234,20 +2264,6 @@ class CodexAppServerSession {
     });
   }
 
-  private async writeReplyContext(context: ScoutReplyContext | null): Promise<void> {
-    if (!context) {
-      await this.clearReplyContext();
-      return;
-    }
-
-    await mkdir(this.options.runtimeDirectory, { recursive: true });
-    await writeFile(this.replyContextPath, `${JSON.stringify(context, null, 2)}\n`, "utf8");
-  }
-
-  private async clearReplyContext(): Promise<void> {
-    await rm(this.replyContextPath, { force: true }).catch(() => undefined);
-  }
-
   private handleNotification(message: CodexNotification): void {
     const method = message.method;
     const params = message.params ?? {};
@@ -2307,7 +2323,6 @@ class CodexAppServerSession {
     }
 
     if (method === "turn/completed") {
-      void this.clearReplyContext();
       this.completeTurn(params as unknown as TurnCompletedParams);
       return;
     }
@@ -2534,7 +2549,7 @@ export async function ensureCodexAppServerAgentOnline(options: SessionRequestOpt
 export async function invokeCodexAppServerAgent(options: InvocationOptions): Promise<{ output: string; threadId: string }> {
   const session = getOrCreateSession(options);
   session.update(options);
-  return session.invoke(options.prompt, options.timeoutMs, options.replyContext);
+  return session.invoke(options.prompt, options.timeoutMs);
 }
 
 export async function sendCodexAppServerAgent(options: InvocationOptions): Promise<{ output: string; threadId: string }> {
@@ -2543,7 +2558,7 @@ export async function sendCodexAppServerAgent(options: InvocationOptions): Promi
   if (session.hasActiveTurn()) {
     return session.steerAndWait(options.prompt, options.timeoutMs);
   }
-  return session.invoke(options.prompt, options.timeoutMs, options.replyContext);
+  return session.invoke(options.prompt, options.timeoutMs);
 }
 
 export async function steerCodexAppServerAgent(options: SteerOptions): Promise<void> {

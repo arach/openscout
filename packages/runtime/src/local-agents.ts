@@ -2233,7 +2233,7 @@ function buildCodexAgentSessionOptions(
   agentName: string,
   record: LocalAgentRecord,
   systemPrompt?: string,
-): {
+): CodexAppServerSessionOptions & {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2248,7 +2248,7 @@ function buildCodexAgentSessionOptions(
   sandbox: CodexSandboxMode;
 } {
   const permissionPosture = compileCodexPermissionProfile(record.permissionProfile);
-  return {
+  return withScoutReplyContextEnvironment({
     agentName,
     sessionId: record.tmuxSession,
     cwd: record.cwd,
@@ -2259,7 +2259,7 @@ function buildCodexAgentSessionOptions(
     permissionProfile: permissionPosture.profile,
     approvalPolicy: permissionPosture.approvalPolicy,
     sandbox: permissionPosture.sandbox,
-  };
+  });
 }
 
 function buildClaudeAgentSessionOptions(
@@ -2420,7 +2420,7 @@ function attachedLocalSessionSystemPrompt(endpoint: AgentEndpoint): string {
   return "Resume the existing session without changing its identity or prior context.";
 }
 
-function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
+function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServerSessionOptions & {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2439,7 +2439,7 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
       ?? endpointMetadataString(endpoint, "externalSessionId")
       ?? undefined;
 
-  return {
+  return withScoutReplyContextEnvironment({
     agentName,
     sessionId: endpointRuntimeInstanceId(endpoint),
     cwd: endpointCwd(endpoint),
@@ -2449,7 +2449,7 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
     launchArgs: attachedCodexEndpointLaunchArgs(endpoint),
     threadId,
     requireExistingThread: Boolean(threadId) && !ownsSessionThread,
-  };
+  });
 }
 
 function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
@@ -2766,6 +2766,68 @@ export function buildScoutReplyContext(agentName: string, invocation: Invocation
     replyPath: "final_response",
     action: invocation.action,
   };
+}
+
+type CodexAppServerSessionOptions = Parameters<typeof ensureCodexAppServerAgentOnline>[0];
+type CodexAppServerInvocationOptions = Parameters<typeof invokeCodexAppServerAgent>[0];
+type CodexBrokerInvocationOptions = CodexAppServerInvocationOptions & {
+  replyContext?: ScoutReplyContext | null;
+};
+
+function scoutReplyContextPath(runtimeDirectory: string): string {
+  return join(runtimeDirectory, "scout-reply-context.json");
+}
+
+function withScoutReplyContextEnvironment<T extends { runtimeDirectory: string; env?: Record<string, string | undefined> }>(
+  options: T,
+): T & { env: Record<string, string | undefined> } {
+  return {
+    ...options,
+    env: {
+      ...(options.env ?? {}),
+      OPENSCOUT_REPLY_CONTEXT_FILE: scoutReplyContextPath(options.runtimeDirectory),
+    },
+  };
+}
+
+async function writeScoutReplyContextFile(
+  runtimeDirectory: string,
+  context: ScoutReplyContext | null,
+): Promise<void> {
+  const contextPath = scoutReplyContextPath(runtimeDirectory);
+  if (!context) {
+    await rm(contextPath, { force: true }).catch(() => undefined);
+    return;
+  }
+
+  await mkdir(runtimeDirectory, { recursive: true });
+  await writeFile(contextPath, `${JSON.stringify(context, null, 2)}\n`, "utf8");
+}
+
+async function invokeCodexAppServerAgentForBroker(
+  options: CodexBrokerInvocationOptions,
+): Promise<Awaited<ReturnType<typeof invokeCodexAppServerAgent>>> {
+  const { replyContext, ...transportOptions } = options;
+  const wrappedOptions = withScoutReplyContextEnvironment(transportOptions);
+  await writeScoutReplyContextFile(wrappedOptions.runtimeDirectory, replyContext ?? null);
+  try {
+    return await invokeCodexAppServerAgent(wrappedOptions);
+  } finally {
+    await writeScoutReplyContextFile(wrappedOptions.runtimeDirectory, null);
+  }
+}
+
+async function sendCodexAppServerAgentForBroker(
+  options: CodexBrokerInvocationOptions,
+): Promise<Awaited<ReturnType<typeof sendCodexAppServerAgent>>> {
+  const { replyContext, ...transportOptions } = options;
+  const wrappedOptions = withScoutReplyContextEnvironment(transportOptions);
+  await writeScoutReplyContextFile(wrappedOptions.runtimeDirectory, replyContext ?? null);
+  try {
+    return await sendCodexAppServerAgent(wrappedOptions);
+  } finally {
+    await writeScoutReplyContextFile(wrappedOptions.runtimeDirectory, null);
+  }
 }
 
 function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
@@ -4713,8 +4775,8 @@ export async function invokeLocalAgentEndpoint(
   if (!existing && endpoint.transport === "codex_app_server") {
     await ensureLocalSessionEndpointOnline(endpoint);
     const invoke = isSessionBackedEndpoint(endpoint)
-      ? sendCodexAppServerAgent
-      : invokeCodexAppServerAgent;
+      ? sendCodexAppServerAgentForBroker
+      : invokeCodexAppServerAgentForBroker;
     const result = await invoke({
       ...buildCodexEndpointSessionOptions(endpoint),
       prompt,
@@ -4819,7 +4881,7 @@ export async function invokeLocalAgentEndpoint(
   const selectedRecord = recordForHarness(record, requestedHarness);
   const onlineRecord = await ensureLocalAgentOnline(agentRuntimeId, selectedRecord);
   if (onlineRecord.transport === "codex_app_server") {
-    const result = await invokeCodexAppServerAgent({
+    const result = await invokeCodexAppServerAgentForBroker({
       ...buildCodexAgentSessionOptions(
         agentRuntimeId,
         onlineRecord,
