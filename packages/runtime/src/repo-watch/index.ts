@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import type { DiscoverySnapshot } from "../tail/index.js";
 import {
+  repoServiceTransportMetadata,
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
@@ -409,14 +410,11 @@ function readBooleanEnv(name: string): boolean {
 
 async function defaultNativeRepoScan(request: RepoWatchNativeScanRequest): Promise<RepoWatchNativeScanResponse> {
   const command = resolveRepoServiceCommand("scan");
-  if (!command) {
-    throw new Error("Repo service binary was not found.");
-  }
-
   const output = await runRepoServiceJson(
     command,
     request,
     Math.max(2_000, request.limits.scanBudgetMs + 1_500),
+    "scan",
   );
 
   if (!output || typeof output !== "object") {
@@ -425,6 +423,18 @@ async function defaultNativeRepoScan(request: RepoWatchNativeScanRequest): Promi
   const response = output as RepoWatchNativeScanResponse;
   if (response.schema !== "openscout.repo.scan/v1" || !Array.isArray(response.projects)) {
     throw new Error("Repo service returned an unsupported scan response.");
+  }
+  const transport = repoServiceTransportMetadata(output);
+  if (transport?.backend === "spawn-fallback") {
+    response.diagnostics = [
+      ...(response.diagnostics ?? []),
+      {
+        level: "warning",
+        kind: "repo_service_transport_fallback",
+        message: `Repo service used spawn fallback because scoutd was unavailable: ${transport.fallbackReason ?? "unknown reason"}`,
+        path: null,
+      },
+    ];
   }
   return response;
 }

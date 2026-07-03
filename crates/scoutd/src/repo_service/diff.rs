@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::{git_capture, normalize_path, now_ms, DiagnosticLevel};
+use super::{git_capture, normalize_path, now_ms, DiagnosticLevel};
 
 const DEFAULT_MAX_PATCH_BYTES: usize = 2_000_000;
 const DEFAULT_MAX_FILES: usize = 500;

@@ -2,9 +2,8 @@
 
 Native first slice for SCO-062.
 
-This binary is the native daemon for the existing Bun-backed OpenScout base service. It is
-intentionally stdlib-only for the first pass so the resulting package stays
-small and easy to reason about.
+This binary is the native daemon for the existing Bun-backed OpenScout base service. The supervisor path stays small and easy to reason about; the probe/repo child
+uses serde for the local socket protocol.
 
 ```bash
 cargo run --manifest-path crates/scoutd/Cargo.toml -- status --json
@@ -32,3 +31,18 @@ depend on git metadata.
 Before each child spawn, `scoutd` bounds the child `stdout.log` and `stderr.log`
 files: if either expected scoutd-owned log is above 512 KiB, it writes a tail
 snapshot to `.1` and truncates the active file before opening it for append.
+
+## Probe/repo socket
+
+`scoutd probes serve` listens on `$OPENSCOUT_HOME/run/scoutd-probes.sock` (or
+`OPENSCOUT_PROBES_SOCKET`) with one JSON request per connection. The
+capabilities response advertises probe families plus job capabilities:
+`repo.scan` and `repo.diff`.
+
+Repo jobs use request schemas `openscout.repo.scan/v1` and
+`openscout.repo.diff/v1`; the remaining request fields are the same JSON
+contract accepted by the one-shot `openscout-repo-service` wrapper. Responses
+are wrapped as `openscout.repo.response/v1` with `{ operation, value, error,
+daemonVersion }`. Repo jobs are executed per request with no daemon-side TTL or
+snapshot cache; the TypeScript repo-watch/repo-diff job/cache layers remain the
+freshness owners.

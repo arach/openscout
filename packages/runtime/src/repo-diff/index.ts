@@ -22,6 +22,7 @@ import {
   type RepoWatchSessionRef,
 } from "../repo-watch/index.js";
 import {
+  repoServiceTransportMetadata,
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
@@ -186,12 +187,8 @@ const TRUNK_REFS = [
 
 async function defaultNativeRepoDiff(request: RepoDiffNativeRequest): Promise<RepoDiffResponse> {
   const command = resolveRepoServiceCommand("diff");
-  if (!command) {
-    throw new Error("Repo service binary was not found.");
-  }
-
   const timeoutMs = Math.max(2_000, (request.limits?.timeoutMs ?? DEFAULT_NATIVE_TIMEOUT_MS) + 1_500);
-  const output = await runRepoServiceJson(command, request, timeoutMs);
+  const output = await runRepoServiceJson(command, request, timeoutMs, "diff");
 
   if (!output || typeof output !== "object") {
     throw new Error("Repo service returned a non-object response.");
@@ -199,6 +196,18 @@ async function defaultNativeRepoDiff(request: RepoDiffNativeRequest): Promise<Re
   const response = output as RepoDiffResponse;
   if (response.schema !== "openscout.repo.diff/v1" || !Array.isArray(response.layers)) {
     throw new Error("Repo service returned an unsupported diff response.");
+  }
+  const transport = repoServiceTransportMetadata(output);
+  if (transport?.backend === "spawn-fallback") {
+    response.diagnostics = [
+      ...(response.diagnostics ?? []),
+      {
+        level: "warning",
+        kind: "repo_service_transport_fallback",
+        message: `Repo service used spawn fallback because scoutd was unavailable: ${transport.fallbackReason ?? "unknown reason"}`,
+        path: null,
+      },
+    ];
   }
   return response;
 }

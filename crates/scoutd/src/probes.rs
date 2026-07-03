@@ -1,3 +1,4 @@
+use scoutd::repo_service;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -16,12 +17,21 @@ const CAPABILITIES_SCHEMA: &str = "openscout.probe.capabilities/v1";
 const REQUEST_SCHEMA: &str = "openscout.probe.request/v1";
 const SNAPSHOT_SCHEMA: &str = "openscout.probe.snapshot/v1";
 const ERROR_SCHEMA: &str = "openscout.probe.error/v1";
+const REPO_SCAN_SCHEMA: &str = "openscout.repo.scan/v1";
+const REPO_DIFF_SCHEMA: &str = "openscout.repo.diff/v1";
+const REPO_RESPONSE_SCHEMA: &str = "openscout.repo.response/v1";
+const REPO_SCAN_CAPABILITY_ID: &str = "repo.scan";
+const REPO_DIFF_CAPABILITY_ID: &str = "repo.diff";
 const TAILSCALE_STATUS_ID: &str = "tailscale.status";
 const GIT_BUILD_INFO_ID: &str = "git.buildInfo";
 const TAILSCALE_STATUS_TTL_MS: u64 = 30_000;
 const GIT_BUILD_INFO_TTL_MS: u64 = 60_000;
 const DEFAULT_TAILSCALE_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_millis(1_500);
+const DEFAULT_REPO_JOB_TIMEOUT: Duration = Duration::from_millis(20_000);
+const DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_REPO_JOB_WORKERS: usize = 4;
+const DEFAULT_REPO_JOB_QUEUE: usize = 32;
 const REQUEST_READ_CAP_BYTES: u64 = 1024 * 1024;
 const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -33,6 +43,10 @@ pub struct ProbeServerOptions {
     pub tailscale_status_fixture: Option<PathBuf>,
     pub tailscale_timeout: Duration,
     pub git_timeout: Duration,
+    pub repo_job_timeout: Duration,
+    pub repo_job_response_cap_bytes: usize,
+    pub repo_job_workers: usize,
+    pub repo_job_queue: usize,
 }
 
 impl ProbeServerOptions {
@@ -48,6 +62,14 @@ impl ProbeServerOptions {
                 .unwrap_or(DEFAULT_TAILSCALE_TIMEOUT),
             git_timeout: env_duration_ms("OPENSCOUT_GIT_BUILD_INFO_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_GIT_TIMEOUT),
+            repo_job_timeout: env_duration_ms("OPENSCOUT_REPO_JOB_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_REPO_JOB_TIMEOUT),
+            repo_job_response_cap_bytes: env_usize("OPENSCOUT_REPO_JOB_RESPONSE_MAX_BYTES")
+                .unwrap_or(DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES),
+            repo_job_workers: env_usize("OPENSCOUT_REPO_JOB_WORKERS")
+                .unwrap_or(DEFAULT_REPO_JOB_WORKERS)
+                .max(1),
+            repo_job_queue: env_usize("OPENSCOUT_REPO_JOB_QUEUE").unwrap_or(DEFAULT_REPO_JOB_QUEUE),
         }
     }
 }
@@ -97,6 +119,33 @@ struct ProbeSnapshotResponse {
     error: Option<JsonError>,
     #[serde(rename = "daemonVersion")]
     daemon_version: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RepoJobResponse {
+    schema: String,
+    operation: String,
+    #[serde(rename = "generatedAt")]
+    generated_at: u128,
+    value: Value,
+    error: Option<JsonError>,
+    #[serde(rename = "daemonVersion")]
+    daemon_version: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RepoOperation {
+    Scan,
+    Diff,
+}
+
+impl RepoOperation {
+    fn capability_id(self) -> &'static str {
+        match self {
+            Self::Scan => REPO_SCAN_CAPABILITY_ID,
+            Self::Diff => REPO_DIFF_CAPABILITY_ID,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,17 +203,91 @@ struct ProbeEngineState {
     git_static: HashMap<String, StaticGitBuildMetadata>,
 }
 
+#[derive(Debug, Default)]
+struct JobLimiterState {
+    active: usize,
+    queued: usize,
+}
+
+#[derive(Clone, Debug)]
+struct JobLimiter {
+    max_active: usize,
+    max_queue: usize,
+    state: Arc<(Mutex<JobLimiterState>, Condvar)>,
+}
+
+#[derive(Debug)]
+struct JobPermit {
+    state: Arc<(Mutex<JobLimiterState>, Condvar)>,
+}
+
+impl Drop for JobPermit {
+    fn drop(&mut self) {
+        let (lock, cvar) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.active = state.active.saturating_sub(1);
+        cvar.notify_one();
+    }
+}
+
+impl JobLimiter {
+    fn new(max_active: usize, max_queue: usize) -> Self {
+        Self {
+            max_active: max_active.max(1),
+            max_queue,
+            state: Arc::new((Mutex::new(JobLimiterState::default()), Condvar::new())),
+        }
+    }
+
+    fn acquire(&self) -> Result<JobPermit, ProbeFailure> {
+        let (lock, cvar) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.active < self.max_active {
+            state.active += 1;
+            return Ok(JobPermit {
+                state: Arc::clone(&self.state),
+            });
+        }
+        if state.queued >= self.max_queue {
+            return Err(ProbeFailure {
+                code: "busy".to_string(),
+                message: format!(
+                    "repo job queue is full (active={}, queued={}, maxQueue={})",
+                    state.active, state.queued, self.max_queue
+                ),
+                timed_out: false,
+            });
+        }
+        state.queued += 1;
+        loop {
+            state = cvar
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.active < self.max_active {
+                state.queued = state.queued.saturating_sub(1);
+                state.active += 1;
+                return Ok(JobPermit {
+                    state: Arc::clone(&self.state),
+                });
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ProbeEngine {
     options: ProbeServerOptions,
     state: Arc<(Mutex<ProbeEngineState>, Condvar)>,
+    repo_jobs: JobLimiter,
 }
 
 impl ProbeEngine {
     fn new(options: ProbeServerOptions) -> Self {
+        let repo_jobs = JobLimiter::new(options.repo_job_workers, options.repo_job_queue);
         Self {
             options,
             state: Arc::new((Mutex::new(ProbeEngineState::default()), Condvar::new())),
+            repo_jobs,
         }
     }
 
@@ -242,6 +365,27 @@ impl ProbeEngine {
         entry.in_flight = false;
         cvar.notify_all();
         snapshot
+    }
+
+    fn run_repo_job(&self, operation: RepoOperation, input: Value) -> RepoJobResponse {
+        let result = match self.repo_jobs.acquire() {
+            Ok(_permit) => {
+                run_repo_operation_with_timeout(operation, input, self.options.repo_job_timeout)
+            }
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(value) => repo_job_response(operation, value, None),
+            Err(error) => repo_job_response(
+                operation,
+                Value::Null,
+                Some(JsonError {
+                    code: error.code,
+                    message: error.message,
+                    timed_out: if error.timed_out { Some(true) } else { None },
+                }),
+            ),
+        }
     }
 
     fn run_probe(&self, probe_id: &str, key: Option<String>) -> Result<Value, ProbeFailure> {
@@ -471,10 +615,22 @@ fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), 
                     Err(error) => error_response("serialize_error", &error.to_string()),
                 }
             }
+            Ok(ParsedRequest::Repo(request)) => {
+                match serde_json::to_value(engine.run_repo_job(request.operation, request.body)) {
+                    Ok(value) => value,
+                    Err(error) => repo_job_error_response(
+                        request.operation,
+                        "serialize_error",
+                        &error.to_string(),
+                        false,
+                    ),
+                }
+            }
             Err(error) => error_response(&error.code, &error.message),
         }
     };
-    let payload = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
+    let payload =
+        serialize_response_with_cap(response, engine.options.repo_job_response_cap_bytes)?;
     stream
         .write_all(&payload)
         .map_err(|error| error.to_string())?;
@@ -508,6 +664,13 @@ fn read_one_request(stream: &mut UnixStream) -> Result<Vec<u8>, String> {
 enum ParsedRequest {
     Capabilities,
     Probe(ProbeRequest),
+    Repo(RepoJobRequest),
+}
+
+#[derive(Debug)]
+struct RepoJobRequest {
+    operation: RepoOperation,
+    body: Value,
 }
 
 fn parse_request(bytes: &[u8]) -> Result<ParsedRequest, ProbeFailure> {
@@ -548,6 +711,14 @@ fn parse_request(bytes: &[u8]) -> Result<ParsedRequest, ProbeFailure> {
             }
             Ok(ParsedRequest::Probe(request))
         }
+        REPO_SCAN_SCHEMA => Ok(ParsedRequest::Repo(RepoJobRequest {
+            operation: RepoOperation::Scan,
+            body: value,
+        })),
+        REPO_DIFF_SCHEMA => Ok(ParsedRequest::Repo(RepoJobRequest {
+            operation: RepoOperation::Diff,
+            body: value,
+        })),
         other => Err(ProbeFailure {
             code: "unsupported_schema".to_string(),
             message: format!("unsupported probe request schema: {other}"),
@@ -576,6 +747,16 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             schema_version: 1,
             ttl_ms: GIT_BUILD_INFO_TTL_MS,
         },
+        ProbeCapability {
+            probe_id: REPO_SCAN_CAPABILITY_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: 0,
+        },
+        ProbeCapability {
+            probe_id: REPO_DIFF_CAPABILITY_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: 0,
+        },
     ]
 }
 
@@ -588,6 +769,112 @@ fn error_response(code: &str, message: &str) -> Value {
         },
         "daemonVersion": DAEMON_VERSION,
     })
+}
+
+fn repo_job_response(
+    operation: RepoOperation,
+    value: Value,
+    error: Option<JsonError>,
+) -> RepoJobResponse {
+    RepoJobResponse {
+        schema: REPO_RESPONSE_SCHEMA.to_string(),
+        operation: operation.capability_id().to_string(),
+        generated_at: epoch_ms(),
+        value,
+        error,
+        daemon_version: DAEMON_VERSION.to_string(),
+    }
+}
+
+fn repo_job_error_response(
+    operation: RepoOperation,
+    code: &str,
+    message: &str,
+    timed_out: bool,
+) -> Value {
+    serde_json::to_value(repo_job_response(
+        operation,
+        Value::Null,
+        Some(JsonError {
+            code: code.to_string(),
+            message: message.to_string(),
+            timed_out: if timed_out { Some(true) } else { None },
+        }),
+    ))
+    .unwrap_or_else(|_| error_response(code, message))
+}
+
+fn run_repo_operation_with_timeout(
+    operation: RepoOperation,
+    input: Value,
+    timeout: Duration,
+) -> Result<Value, ProbeFailure> {
+    if timeout.is_zero() {
+        return Err(ProbeFailure {
+            code: "timeout".to_string(),
+            message: "repo job timed out after 0ms".to_string(),
+            timed_out: true,
+        });
+    }
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let result = match operation {
+            RepoOperation::Scan => repo_service::scan_value(input),
+            RepoOperation::Diff => repo_service::diff_value(input),
+        };
+        let _ = sender.send(result);
+    });
+    match receiver.recv_timeout(timeout) {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(message)) => Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message,
+            timed_out: false,
+        }),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(ProbeFailure {
+            code: "timeout".to_string(),
+            message: format!("repo job timed out after {}ms", timeout.as_millis()),
+            timed_out: true,
+        }),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(ProbeFailure {
+            code: "worker".to_string(),
+            message: "repo job worker exited without a response".to_string(),
+            timed_out: false,
+        }),
+    }
+}
+
+fn serialize_response_with_cap(
+    response: Value,
+    repo_response_cap: usize,
+) -> Result<Vec<u8>, String> {
+    let mut payload = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
+    if payload.len() <= repo_response_cap {
+        return Ok(payload);
+    }
+    let operation = response
+        .get("operation")
+        .and_then(Value::as_str)
+        .and_then(repo_operation_from_capability_id);
+    if response.get("schema").and_then(Value::as_str) == Some(REPO_RESPONSE_SCHEMA) {
+        let operation = operation.unwrap_or(RepoOperation::Scan);
+        let capped = repo_job_error_response(
+            operation,
+            "output_cap",
+            &format!("repo job response exceeded {repo_response_cap} bytes"),
+            false,
+        );
+        payload = serde_json::to_vec(&capped).map_err(|error| error.to_string())?;
+    }
+    Ok(payload)
+}
+
+fn repo_operation_from_capability_id(value: &str) -> Option<RepoOperation> {
+    match value {
+        REPO_SCAN_CAPABILITY_ID => Some(RepoOperation::Scan),
+        REPO_DIFF_CAPABILITY_ID => Some(RepoOperation::Diff),
+        _ => None,
+    }
 }
 
 fn error_snapshot(
@@ -1004,15 +1291,22 @@ fn env_duration_ms(name: &str) -> Option<Duration> {
         .map(Duration::from_millis)
 }
 
+fn env_usize(name: &str) -> Option<usize> {
+    env_nonempty(name).and_then(|value| value.parse::<usize>().ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{serve, ProbeServerOptions, CAPABILITIES_SCHEMA, ERROR_SCHEMA, SNAPSHOT_SCHEMA};
+    use scoutd::repo_service;
+    use serde_json::json;
     use serde_json::Value;
     use std::fs;
     use std::io::{Read, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixStream;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -1039,7 +1333,7 @@ mod tests {
             let _ = serve(options);
         });
         for _ in 0..100 {
-            if socket_path.exists() {
+            if socket_path.exists() && UnixStream::connect(&socket_path).is_ok() {
                 return;
             }
             thread::sleep(Duration::from_millis(10));
@@ -1064,6 +1358,10 @@ mod tests {
             tailscale_status_fixture: None,
             tailscale_timeout: Duration::from_millis(1_500),
             git_timeout: Duration::from_millis(1_500),
+            repo_job_timeout: Duration::from_millis(20_000),
+            repo_job_response_cap_bytes: 8 * 1024 * 1024,
+            repo_job_workers: 4,
+            repo_job_queue: 32,
         }
     }
 
@@ -1087,8 +1385,17 @@ mod tests {
                 .and_then(Value::as_array)
                 .unwrap()
                 .len(),
-            2
+            4
         );
+        let family_ids = capabilities
+            .get("families")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(|family| family.get("probeId").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(family_ids.contains(&"repo.scan"));
+        assert!(family_ids.contains(&"repo.diff"));
 
         let unknown = request(
             &socket_path,
@@ -1101,6 +1408,187 @@ mod tests {
         assert_eq!(
             unknown.pointer("/error/code").and_then(Value::as_str),
             Some("unknown_probe")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn repo_scan_and_diff_match_one_shot_contract_over_socket() {
+        let dir = unique_temp_dir("scoutd-repo-parity");
+        let socket_path = dir.join("probes.sock");
+        let repo = dir.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        run_git(&repo, &["init", "-b", "main"]);
+        fs::write(repo.join("README.md"), "hello\n").unwrap();
+        run_git(&repo, &["add", "README.md"]);
+        run_git(
+            &repo,
+            &[
+                "-c",
+                "user.email=scout@example.test",
+                "-c",
+                "user.name=Scout",
+                "commit",
+                "-m",
+                "initial",
+            ],
+        );
+        fs::write(repo.join("README.md"), "hello\nworld\n").unwrap();
+        fs::write(repo.join("scratch.md"), "scratch\n").unwrap();
+        start_test_server(base_options(socket_path.clone()));
+
+        let scan_request = json!({
+            "schema": "openscout.repo.scan/v1",
+            "hints": [{ "path": repo.to_string_lossy(), "source": "test" }],
+            "limits": {
+                "maxRoots": 4,
+                "maxWorktrees": 4,
+                "maxFilesPerWorktree": 12,
+                "scanBudgetMs": 4_000,
+                "includeDiff": true,
+                "includeLastCommit": true
+            }
+        });
+        let socket_scan = request(&socket_path, &scan_request.to_string());
+        assert_eq!(
+            socket_scan.get("schema").and_then(Value::as_str),
+            Some("openscout.repo.response/v1")
+        );
+        assert_eq!(
+            socket_scan.get("operation").and_then(Value::as_str),
+            Some("repo.scan")
+        );
+        assert!(socket_scan.get("error").unwrap().is_null());
+        let one_shot_scan: Value = serde_json::from_str(
+            &repo_service::run_command_json("scan", &scan_request.to_string()).unwrap(),
+        )
+        .unwrap();
+        let mut socket_scan_value = socket_scan.get("value").cloned().unwrap();
+        let mut one_shot_scan_value = one_shot_scan;
+        normalize_scan_timestamps(&mut socket_scan_value);
+        normalize_scan_timestamps(&mut one_shot_scan_value);
+        assert_eq!(socket_scan_value, one_shot_scan_value);
+
+        let diff_request = json!({
+            "schema": "openscout.repo.diff/v1",
+            "worktreePath": repo.to_string_lossy(),
+            "layers": ["unstaged"],
+            "limits": {
+                "maxPatchBytes": 200_000,
+                "maxFiles": 100,
+                "maxHunksPerFile": 50,
+                "maxLinesPerHunk": 500,
+                "timeoutMs": 5_000,
+                "includeRawPatch": true,
+                "includeParsedHunks": true,
+                "includeBinaryPatch": true
+            }
+        });
+        let socket_diff = request(&socket_path, &diff_request.to_string());
+        assert_eq!(
+            socket_diff.get("schema").and_then(Value::as_str),
+            Some("openscout.repo.response/v1")
+        );
+        assert_eq!(
+            socket_diff.get("operation").and_then(Value::as_str),
+            Some("repo.diff")
+        );
+        assert!(socket_diff.get("error").unwrap().is_null());
+        let one_shot_diff: Value = serde_json::from_str(
+            &repo_service::run_command_json("diff", &diff_request.to_string()).unwrap(),
+        )
+        .unwrap();
+        let mut socket_diff_value = socket_diff.get("value").cloned().unwrap();
+        let mut one_shot_diff_value = one_shot_diff;
+        normalize_generated_at(&mut socket_diff_value);
+        normalize_generated_at(&mut one_shot_diff_value);
+        assert_eq!(socket_diff_value, one_shot_diff_value);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn repo_malformed_body_returns_repo_error_envelope() {
+        let dir = unique_temp_dir("scoutd-repo-malformed");
+        let socket_path = dir.join("probes.sock");
+        start_test_server(base_options(socket_path.clone()));
+
+        let response = request(&socket_path, r#"{"schema":"openscout.repo.diff/v1"}"#);
+        assert_eq!(
+            response.get("schema").and_then(Value::as_str),
+            Some("openscout.repo.response/v1")
+        );
+        assert_eq!(
+            response.get("operation").and_then(Value::as_str),
+            Some("repo.diff")
+        );
+        assert_eq!(
+            response.pointer("/error/code").and_then(Value::as_str),
+            Some("invalid_request")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn repo_timeout_returns_error_without_crashing_server() {
+        let dir = unique_temp_dir("scoutd-repo-timeout");
+        let socket_path = dir.join("probes.sock");
+        let mut options = base_options(socket_path.clone());
+        options.repo_job_timeout = Duration::from_millis(0);
+        start_test_server(options);
+
+        let timed_out = request(
+            &socket_path,
+            r#"{"schema":"openscout.repo.scan/v1","hints":[]}"#,
+        );
+        assert_eq!(
+            timed_out.get("schema").and_then(Value::as_str),
+            Some("openscout.repo.response/v1")
+        );
+        assert_eq!(
+            timed_out.pointer("/error/code").and_then(Value::as_str),
+            Some("timeout")
+        );
+        assert_eq!(
+            timed_out
+                .pointer("/error/timed_out")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let capabilities = request(
+            &socket_path,
+            r#"{"schema":"openscout.probe.capabilities/v1"}"#,
+        );
+        assert_eq!(
+            capabilities.get("schema").and_then(Value::as_str),
+            Some(CAPABILITIES_SCHEMA)
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn repo_oversized_response_returns_error_envelope() {
+        let dir = unique_temp_dir("scoutd-repo-output-cap");
+        let socket_path = dir.join("probes.sock");
+        let mut options = base_options(socket_path.clone());
+        options.repo_job_response_cap_bytes = 64;
+        start_test_server(options);
+
+        let response = request(
+            &socket_path,
+            r#"{"schema":"openscout.repo.scan/v1","hints":[]}"#,
+        );
+        assert_eq!(
+            response.get("schema").and_then(Value::as_str),
+            Some("openscout.repo.response/v1")
+        );
+        assert_eq!(
+            response.pointer("/error/code").and_then(Value::as_str),
+            Some("output_cap")
         );
 
         let _ = fs::remove_dir_all(dir);
@@ -1231,5 +1719,39 @@ exit 0
 
     fn shell_quote(value: &str) -> String {
         format!("'{}'", value.replace('\'', "'\\''"))
+    }
+
+    fn run_git(cwd: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            let _ = std::io::stderr().write_all(&output.stderr);
+            panic!("git {} failed", args.join(" "));
+        }
+    }
+
+    fn normalize_scan_timestamps(value: &mut Value) {
+        normalize_generated_at(value);
+        if let Some(projects) = value.get_mut("projects").and_then(Value::as_array_mut) {
+            for project in projects {
+                if let Some(worktrees) = project.get_mut("worktrees").and_then(Value::as_array_mut)
+                {
+                    for worktree in worktrees {
+                        if let Some(object) = worktree.as_object_mut() {
+                            object.insert("scannedAt".to_string(), Value::from(0));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn normalize_generated_at(value: &mut Value) {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("generatedAt".to_string(), Value::from(0));
+        }
     }
 }
