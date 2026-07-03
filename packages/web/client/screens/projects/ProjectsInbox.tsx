@@ -133,12 +133,16 @@ function ProjectScopeHeader({
   slug,
   model,
   mode,
+  selectedSession,
+  sessionRef,
 }: {
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
   slug: string;
   model: ProjectsInboxModel;
   mode: ProjectMode;
+  selectedSession: InboxSession | null;
+  sessionRef: string | null;
 }) {
   const project = model.projects.find((entry) => entry.slug === slug) ?? null;
   const projectThreads = threadsForProject(model.threads, slug);
@@ -150,6 +154,13 @@ function ProjectScopeHeader({
   const baseRoute = { view: "agents-v2" as const, projectSlug: slug, ...machineScope };
   const showProjectAvatar = !route.sessionId;
   const compact = Boolean(route.sessionId);
+  const compactSessionRef = sessionRef ? shortSessionRef(sessionRef) : null;
+  const sessionTitle = selectedSession
+    ? sessionHeadline(selectedSession.work, selectedSession.agentName, sessionRouteKey(selectedSession))
+    : compactSessionRef;
+  const showSessionRef = Boolean(sessionRef && compactSessionRef && sessionTitle !== compactSessionRef);
+  const sessionAgent = selectedSession?.agentName ?? null;
+  const sessionWhen = selectedSession?.lastActivityAt ? timeAgo(selectedSession.lastActivityAt) : null;
 
   const digest = digestLine(project?.needs ?? 0, project?.working ?? 0, projectThreads.length);
 
@@ -162,6 +173,15 @@ function ProjectScopeHeader({
             <span className="pi-projectKind">Project</span>
             <h1 className="pi-projectTitle">/{title}</h1>
           </div>
+          {compact && sessionTitle ? (
+            <div className="pi-projectSessionContext">
+              <span>Session</span>
+              <b title={sessionTitle}>{sessionTitle}</b>
+              {showSessionRef ? <code title={sessionRef ?? undefined}>{compactSessionRef}</code> : null}
+              {sessionAgent ? <em title={sessionAgent}>{sessionAgent}</em> : null}
+              {sessionWhen ? <em>{sessionWhen}</em> : null}
+            </div>
+          ) : null}
           {root ? (
             <div className="pi-projectRoot" title={root}>
               {shortHomePath(root)}
@@ -175,7 +195,15 @@ function ProjectScopeHeader({
         <button
           type="button"
           className="pi-projectFacet"
-          data-selected={mode === "overview" || mode === "sessions" || undefined}
+          data-selected={mode === "overview" || undefined}
+          onClick={() => navigate(baseRoute)}
+        >
+          <span>Overview</span>
+        </button>
+        <button
+          type="button"
+          className="pi-projectFacet"
+          data-selected={mode === "sessions" || undefined}
           onClick={() => navigate({ ...baseRoute, indexView: "sessions" })}
         >
           <span>Sessions</span>
@@ -215,6 +243,13 @@ function ProjectScopeHeader({
       ) : null}
     </header>
   );
+}
+
+function shortSessionRef(value: string): string {
+  if (value.length <= 18) return value;
+  const uuid = value.match(/^([0-9a-f]{8})-[0-9a-f-]{27,}$/iu);
+  if (uuid) return uuid[1]!;
+  return `${value.slice(0, 10)}…${value.slice(-5)}`;
 }
 
 function digestLine(needs: number, working: number, total: number): ReactNode {
@@ -446,7 +481,6 @@ function projectRoute(
   return {
     view: "agents-v2",
     projectSlug,
-    indexView: "sessions",
     ...(route.showEphemeral ? { showEphemeral: true } : {}),
     ...(route.machineId ? { machineId: route.machineId } : {}),
   };
@@ -1003,6 +1037,278 @@ function ProjectSessionGlance({
   );
 }
 
+function ProjectOverviewEmpty({ label }: { label: string }) {
+  return <div className="pi-projectOverviewEmpty">{label}</div>;
+}
+
+type ProjectSessionSort = "status" | "agent" | "work" | "branch" | "last";
+
+type ProjectOverviewWorktree = {
+  key: string;
+  root: string | null;
+  branch: string | null;
+  sessions: number;
+  work: number;
+  moving: number;
+  lastActivityAt: number;
+};
+
+function sortSessionsForOverview(sessions: InboxSession[], sort: ProjectSessionSort): InboxSession[] {
+  return [...sessions].sort((left, right) => {
+    switch (sort) {
+      case "status":
+        return Number(right.working) - Number(left.working)
+          || right.lastActivityAt - left.lastActivityAt
+          || left.agentName.localeCompare(right.agentName);
+      case "agent":
+        return left.agentName.localeCompare(right.agentName)
+          || right.lastActivityAt - left.lastActivityAt;
+      case "work":
+        return sessionHeadline(left.work, left.agentName, sessionRouteKey(left)).localeCompare(
+          sessionHeadline(right.work, right.agentName, sessionRouteKey(right)),
+        ) || right.lastActivityAt - left.lastActivityAt;
+      case "branch":
+        return (left.branch ?? "").localeCompare(right.branch ?? "")
+          || right.lastActivityAt - left.lastActivityAt;
+      case "last":
+      default:
+        return Number(right.working) - Number(left.working)
+          || right.lastActivityAt - left.lastActivityAt
+          || left.agentName.localeCompare(right.agentName);
+    }
+  });
+}
+
+function cleanBranch(value: string | null): string | null {
+  if (!value || value === "—") return null;
+  if (/^\d+\s+branches$/iu.test(value)) return null;
+  return value;
+}
+
+function projectWorktrees(
+  root: string | null,
+  sessions: InboxSession[],
+  threads: InboxThread[],
+): ProjectOverviewWorktree[] {
+  const map = new Map<string, ProjectOverviewWorktree>();
+  const ensure = (entryRoot: string | null, branch: string | null): ProjectOverviewWorktree => {
+    const normalizedRoot = entryRoot ?? root;
+    const normalizedBranch = cleanBranch(branch);
+    const key = `${normalizedRoot ?? "project"}:${normalizedBranch ?? "main"}`;
+    const existing = map.get(key);
+    if (existing) return existing;
+    const next = {
+      key,
+      root: normalizedRoot,
+      branch: normalizedBranch,
+      sessions: 0,
+      work: 0,
+      moving: 0,
+      lastActivityAt: 0,
+    };
+    map.set(key, next);
+    return next;
+  };
+  for (const session of sessions) {
+    const entry = ensure(session.projectRoot, session.branch);
+    entry.sessions += 1;
+    if (session.working) entry.moving += 1;
+    entry.lastActivityAt = Math.max(entry.lastActivityAt, session.lastActivityAt);
+  }
+  for (const thread of threads) {
+    const entry = ensure(thread.projectRoot, thread.branch);
+    entry.work += 1;
+    if (thread.working) entry.moving += 1;
+    entry.lastActivityAt = Math.max(entry.lastActivityAt, thread.lastActivityAt);
+  }
+  if (map.size === 0) ensure(root, null);
+  return [...map.values()].sort((left, right) =>
+    right.moving - left.moving
+    || right.lastActivityAt - left.lastActivityAt
+    || (left.root ?? "").localeCompare(right.root ?? ""),
+  );
+}
+
+function ProjectOverviewSortButton({
+  label,
+  sort,
+  active,
+  onSort,
+}: {
+  label: string;
+  sort: ProjectSessionSort;
+  active: ProjectSessionSort;
+  onSort: (sort: ProjectSessionSort) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="pi-projectTableSort"
+      data-active={active === sort || undefined}
+      onClick={() => onSort(sort)}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ProjectOverviewMain({
+  project,
+  threads,
+  sessions,
+  route,
+  navigate,
+  nowMs,
+}: {
+  project: InboxProject | null;
+  threads: InboxThread[];
+  sessions: InboxSession[];
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+  nowMs: number;
+}) {
+  const [sessionSort, setSessionSort] = useState<ProjectSessionSort>("last");
+  const root = project?.root ?? sessions[0]?.projectRoot ?? threads[0]?.projectRoot ?? null;
+  const workCount = threads.length;
+  const sessionCount = project?.sessionCount ?? sessions.length;
+  const liveSessionCount = project?.liveSessionCount ?? sessions.filter((session) => session.working).length;
+  const needs = project?.needs ?? threads.filter((thread) => thread.needs).length;
+  const moving = project?.working ?? threads.filter((thread) => thread.working).length;
+  const lastActivityAt = Math.max(
+    project?.lastActivityAt ?? 0,
+    sessions[0]?.lastActivityAt ?? 0,
+    threads[0]?.lastActivityAt ?? 0,
+  );
+  const branches = project?.branches.length
+    ? project.branches
+    : [
+        ...new Set(
+          [...sessions.map((session) => session.branch), ...threads.map((thread) => thread.branch)]
+            .filter((branch): branch is string => Boolean(branch) && branch !== "—" && branch !== "main"),
+        ),
+      ];
+  const sortedSessions = sortSessionsForOverview(sessions, sessionSort);
+  const worktrees = projectWorktrees(root, sessions, threads);
+  const currentBranch = worktrees.find((entry) => entry.moving > 0 && entry.branch)?.branch
+    ?? worktrees.find((entry) => entry.branch)?.branch
+    ?? branches[0]
+    ?? "main";
+  const statusLabel = needs > 0 ? `${needs} needs you` : moving > 0 || liveSessionCount > 0 ? `${moving || liveSessionCount} moving` : "quiet";
+
+  return (
+    <main className="pi-projectOverview" aria-label="Project overview">
+      <section className="pi-projectSnapshot" aria-label="Project snapshot">
+        <div className="pi-projectSnapshotMain">
+          <span className="pi-projectSnapshotLabel">Current</span>
+          <b title={root ?? undefined}>{root ? shortHomePath(root) : route.projectSlug ?? "project"}</b>
+          <div className="pi-projectSnapshotLine">
+            <span title={currentBranch}>branch {currentBranch}</span>
+            <span>{statusLabel}</span>
+            <span>{lastActivityAt ? timeAgo(lastActivityAt, nowMs) : "no activity"}</span>
+          </div>
+        </div>
+
+        <div className="pi-projectSnapshotStats">
+          <GlanceField label="Sessions" value={compactNumber(sessionCount)} />
+          <GlanceField label="Work" value={compactNumber(workCount)} />
+          <GlanceField label="Moving" value={compactNumber(moving || liveSessionCount)} />
+          <GlanceField label="Worktrees" value={compactNumber(worktrees.length)} />
+        </div>
+
+        <div className="pi-projectWorktrees">
+          <div className="pi-projectWorktreesHead">
+            <span>Worktrees</span>
+            <b>{compactNumber(worktrees.length)}</b>
+          </div>
+          <div className="pi-projectWorktreeList">
+            {worktrees.slice(0, 4).map((entry) => (
+              <span key={entry.key} className="pi-projectWorktree" data-active={entry.moving > 0 || undefined}>
+                <b title={entry.root ?? undefined}>{entry.root ? shortHomePath(entry.root) : "workspace"}</b>
+                <em title={entry.branch ?? "main"}>{entry.branch ?? "main"}</em>
+                <small>{entry.moving > 0 ? `${entry.moving} moving` : entry.lastActivityAt ? timeAgo(entry.lastActivityAt, nowMs) : "idle"}</small>
+              </span>
+            ))}
+          </div>
+          {branches.length > 0 ? (
+            <div className="pi-projectBranchChips">
+              {branches.slice(0, 8).map((branch) => (
+                <span key={branch} title={branch}>{branch}</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="pi-projectTablePanel" aria-label="Project sessions">
+        <div className="pi-projectTableToolbar">
+          <span>Sessions</span>
+          <b>{compactNumber(sessionCount)}</b>
+        </div>
+        {sortedSessions.length > 0 ? (
+          <div className="pi-projectTableScroller">
+            <table className="pi-projectTable">
+              <thead>
+                <tr>
+                  <th><ProjectOverviewSortButton label="Status" sort="status" active={sessionSort} onSort={setSessionSort} /></th>
+                  <th><ProjectOverviewSortButton label="Agent" sort="agent" active={sessionSort} onSort={setSessionSort} /></th>
+                  <th><ProjectOverviewSortButton label="Session" sort="work" active={sessionSort} onSort={setSessionSort} /></th>
+                  <th><ProjectOverviewSortButton label="Branch" sort="branch" active={sessionSort} onSort={setSessionSort} /></th>
+                  <th><ProjectOverviewSortButton label="Last" sort="last" active={sessionSort} onSort={setSessionSort} /></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedSessions.slice(0, 80).map((session) => {
+                  const title = sessionHeadline(session.work, session.agentName, sessionRouteKey(session));
+                  return (
+                    <tr
+                      key={session.id}
+                      data-state={session.working ? "working" : session.group}
+                      onClick={() => navigate(sessionSelectRoute(session, route))}
+                      onDoubleClick={() => navigate(sessionOpenRoute(session, route))}
+                    >
+                      <td>
+                        <span className="pi-projectTableStatus" data-live={session.working || undefined}>
+                          {session.working ? "active" : "idle"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="pi-projectTableAgent">
+                          <AgentAvatar
+                            agent={{
+                              name: session.agentName,
+                              harness: session.harness,
+                              state: session.working ? "in_turn" : null,
+                            }}
+                            placement="row"
+                            size={20}
+                          />
+                          <span>{session.agentName}</span>
+                          <HarnessMark harness={session.harness} size={10} />
+                        </span>
+                      </td>
+                      <td>
+                        <span className="pi-projectTableWork" title={session.work}>{title}</span>
+                      </td>
+                      <td>
+                        <span className="pi-projectTableBranch" title={session.branch ?? undefined}>{session.branch ?? "main"}</span>
+                      </td>
+                      <td>
+                        <span className="pi-projectTableLast">{session.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—"}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <ProjectOverviewEmpty label="No sessions yet." />
+        )}
+      </section>
+    </main>
+  );
+}
+
 export function ProjectsInbox({
   route,
   navigate,
@@ -1037,6 +1343,7 @@ export function ProjectsInbox({
       const slug = route.projectSlug!;
       const projectThreads = threadsForProject(model.threads, slug);
       const projectSessions = sessionsForProject(model.sessions, slug);
+      if (mode === "overview") return [];
       if (mode === "agents") return projectThreads.filter((thread) => thread.kind === "agent");
       if (projectSessions.length > 0) return projectSessions;
       return projectThreads;
@@ -1102,7 +1409,15 @@ export function ProjectsInbox({
   return (
     <div className="s-pi s-pi-inbox">
       {scoped ? (
-        <ProjectScopeHeader route={route} navigate={navigate} slug={route.projectSlug!} model={model} mode={mode} />
+        <ProjectScopeHeader
+          route={route}
+          navigate={navigate}
+          slug={route.projectSlug!}
+          model={model}
+          mode={mode}
+          selectedSession={selectedSession}
+          sessionRef={selectedSessionRef}
+        />
       ) : (
         <div className="pi-inboxHead">
           <h1 className="pi-inboxTitle">Projects</h1>
@@ -1118,6 +1433,15 @@ export function ProjectsInbox({
           session={selectedSession}
           sessionRef={selectedSessionRef}
           sessions={model.sessions}
+          route={route}
+          navigate={navigate}
+          nowMs={nowMs}
+        />
+      ) : scoped && mode === "overview" ? (
+        <ProjectOverviewMain
+          project={model.projects.find((project) => project.slug === route.projectSlug) ?? null}
+          threads={threadsForProject(model.threads, route.projectSlug!)}
+          sessions={sessionsForProject(model.sessions, route.projectSlug!)}
           route={route}
           navigate={navigate}
           nowMs={nowMs}
