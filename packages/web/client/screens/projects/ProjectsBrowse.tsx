@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Pin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Pin, Search, X } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import "./projects.css";
@@ -16,7 +16,7 @@ type Navigate = (route: Route) => void;
 type ProjectSort = "recent" | "name" | "sessions";
 
 const PROJECT_SESSION_PREVIEW_LIMIT = 4;
-const PINNED_PROJECTS_STORAGE_KEY = "openscout.projects.pinned";
+const PINNED_SESSIONS_STORAGE_KEY = "openscout.projects.pinnedSessions";
 
 type ProjectRailGroup = {
   project: BrowseProject;
@@ -73,7 +73,8 @@ export function ProjectsBrowse({
   const { browseProjects, projectSessions } = useProjectsData(Boolean(route.showEphemeral));
   const [projectQuery, setProjectQuery] = useState("");
   const [projectSort, setProjectSort] = useState<ProjectSort>("recent");
-  const [pinnedProjects, setPinnedProjects] = useState<Set<string>>(() => readPinnedProjects());
+  const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => readPinnedSessions());
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
 
   const projectGroups = useMemo(
@@ -82,8 +83,8 @@ export function ProjectsBrowse({
   );
 
   const visibleGroups = useMemo(
-    () => filterAndSortProjectGroups(projectGroups, projectQuery, projectSort, pinnedProjects),
-    [pinnedProjects, projectGroups, projectQuery, projectSort],
+    () => filterAndSortProjectGroups(projectGroups, projectQuery, projectSort),
+    [projectGroups, projectQuery, projectSort],
   );
 
   const openProject = (slug: string) => navigate(scopeRoute(route, { projectSlug: slug }));
@@ -97,12 +98,21 @@ export function ProjectsBrowse({
       ...(route.showEphemeral ? { showEphemeral: true } : {}),
     });
 
-  const togglePinned = (slug: string) => {
-    setPinnedProjects((current) => {
+  const togglePinnedSession = (sessionId: string) => {
+    setPinnedSessions((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      writePinnedSessions(next);
+      return next;
+    });
+  };
+
+  const toggleCollapsed = (slug: string) => {
+    setCollapsedProjects((current) => {
       const next = new Set(current);
       if (next.has(slug)) next.delete(slug);
       else next.add(slug);
-      writePinnedProjects(next);
       return next;
     });
   };
@@ -174,12 +184,14 @@ export function ProjectsBrowse({
             key={group.project.slug}
             group={group}
             selected={route.projectSlug === group.project.slug}
-            pinned={pinnedProjects.has(group.project.slug)}
+            collapsed={collapsedProjects.has(group.project.slug)}
             expanded={expandedProjects.has(group.project.slug)}
+            pinnedSessions={pinnedSessions}
             onOpenProject={() => openProject(group.project.slug)}
             onOpenSession={openSession}
-            onTogglePinned={() => togglePinned(group.project.slug)}
+            onToggleCollapsed={() => toggleCollapsed(group.project.slug)}
             onToggleExpanded={() => toggleExpanded(group.project.slug)}
+            onTogglePinnedSession={togglePinnedSession}
           />
         ))}
         {visibleGroups.length === 0 ? (
@@ -199,31 +211,52 @@ export function ProjectsBrowse({
 function ProjectRailGroup({
   group,
   selected,
-  pinned,
+  collapsed,
   expanded,
+  pinnedSessions,
   onOpenProject,
   onOpenSession,
-  onTogglePinned,
+  onToggleCollapsed,
   onToggleExpanded,
+  onTogglePinnedSession,
 }: {
   group: ProjectRailGroup;
   selected: boolean;
-  pinned: boolean;
+  collapsed: boolean;
   expanded: boolean;
+  pinnedSessions: Set<string>;
   onOpenProject: () => void;
   onOpenSession: (entry: ProjectSessionEntry) => void;
-  onTogglePinned: () => void;
+  onToggleCollapsed: () => void;
   onToggleExpanded: () => void;
+  onTogglePinnedSession: (sessionId: string) => void;
 }) {
   const { project, sessions } = group;
-  const visibleSessions = expanded
-    ? sessions
-    : sessions.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
+  const orderedSessions = sortSessionsForProjectRail(sessions, pinnedSessions);
+  const visibleSessions = collapsed
+    ? []
+    : expanded
+      ? orderedSessions
+      : orderedSessions.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
   const hiddenCount = Math.max(0, sessions.length - visibleSessions.length);
 
   return (
-    <div className="av2-projectGroup" data-selected={selected || undefined} data-pinned={pinned || undefined}>
+    <div className="av2-projectGroup" data-selected={selected || undefined} data-collapsed={collapsed || undefined}>
       <div className="av2-projectGroupHead">
+        <button
+          type="button"
+          className="av2-projectDisclosure"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
+          title={collapsed ? "Expand project" : "Collapse project"}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? (
+            <ChevronRight size={12} strokeWidth={2} aria-hidden />
+          ) : (
+            <ChevronDown size={12} strokeWidth={2} aria-hidden />
+          )}
+        </button>
         <button
           type="button"
           className="av2-projectPath"
@@ -234,45 +267,49 @@ function ProjectRailGroup({
           <span className="av2-projectPathText">/{project.title}</span>
           <span className="av2-projectPathMeta">{projectMeta(project)}</span>
         </button>
-        <button
-          type="button"
-          className="av2-projectPin"
-          data-pinned={pinned || undefined}
-          aria-pressed={pinned}
-          aria-label={pinned ? `Unpin /${project.title}` : `Pin /${project.title}`}
-          title={pinned ? "Unpin project" : "Pin project"}
-          onClick={onTogglePinned}
-        >
-          <Pin size={12} strokeWidth={2} aria-hidden />
-        </button>
       </div>
 
-      {visibleSessions.length > 0 ? (
+      {!collapsed && visibleSessions.length > 0 ? (
         <div className="av2-projectSessionList">
           {visibleSessions.map((entry) => (
-            <button
+            <div
               key={`${entry.projectSlug}:${entry.session.key}`}
-              type="button"
               className="av2-projectSession"
               data-active={entry.session.status === "active" || undefined}
-              title={entry.session.transcriptPath ?? displayProjectSessionPreview(entry)}
-              onClick={() => onOpenSession(entry)}
+              data-pinned={pinnedSessions.has(entry.session.refId) || undefined}
             >
-              <span className="av2-projectSessionTitle">{projectSessionTitle(entry)}</span>
-              <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
-              <span className="av2-projectSessionMeta">{projectSessionMeta(entry)}</span>
-            </button>
+              <button
+                type="button"
+                className="av2-projectSessionMain"
+                title={projectSessionTooltip(entry)}
+                onClick={() => onOpenSession(entry)}
+              >
+                <span className="av2-projectSessionTitle">{projectSessionTitle(entry)}</span>
+                <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
+              </button>
+              <button
+                type="button"
+                className="av2-sessionPin"
+                data-pinned={pinnedSessions.has(entry.session.refId) || undefined}
+                aria-pressed={pinnedSessions.has(entry.session.refId)}
+                aria-label={pinnedSessions.has(entry.session.refId) ? "Unpin session" : "Pin session"}
+                title={pinnedSessions.has(entry.session.refId) ? "Unpin session" : "Pin session"}
+                onClick={() => onTogglePinnedSession(entry.session.refId)}
+              >
+                <Pin size={11} strokeWidth={2} aria-hidden />
+              </button>
+            </div>
           ))}
         </div>
-      ) : (
+      ) : !collapsed ? (
         <div className="av2-projectSessionEmpty">No sessions yet</div>
-      )}
+      ) : null}
 
-      {hiddenCount > 0 ? (
+      {!collapsed && hiddenCount > 0 ? (
         <button type="button" className="av2-projectShowMore" onClick={onToggleExpanded}>
           Show more
         </button>
-      ) : expanded && sessions.length > PROJECT_SESSION_PREVIEW_LIMIT ? (
+      ) : !collapsed && expanded && sessions.length > PROJECT_SESSION_PREVIEW_LIMIT ? (
         <button type="button" className="av2-projectShowMore" onClick={onToggleExpanded}>
           Show less
         </button>
@@ -326,9 +363,18 @@ function projectSessionTitle(entry: ProjectSessionEntry): string {
     entry.session.transcriptPath
       ? pathLeaf(entry.session.transcriptPath)
       : entry.session.sessionId || entry.session.refId;
-  return raw
+  return compactSessionLabel(raw)
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function compactSessionLabel(raw: string): string {
+  const stem = raw.replace(/\.jsonl$/iu, "");
+  const rollout = stem.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/u);
+  if (rollout) return `rollout ${rollout[1]}-${rollout[2]}-${rollout[3]} ${rollout[4]}:${rollout[5]}`;
+  const uuid = stem.match(/^([0-9a-f]{8})-[0-9a-f-]{27,}$/iu);
+  if (uuid) return `session ${uuid[1]}`;
+  return stem.length > 42 ? `${stem.slice(0, 39).trim()}...` : stem;
 }
 
 function projectSessionWhen(entry: ProjectSessionEntry): string {
@@ -336,15 +382,32 @@ function projectSessionWhen(entry: ProjectSessionEntry): string {
   return at ? timeAgo(at) : "—";
 }
 
+function projectSessionTooltip(entry: ProjectSessionEntry): string {
+  return [
+    entry.session.transcriptPath ?? displayProjectSessionPreview(entry),
+    projectSessionMeta(entry),
+  ].filter(Boolean).join("\n");
+}
+
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function sortSessionsForProjectRail(
+  sessions: ProjectSessionEntry[],
+  pinnedSessions: Set<string>,
+): ProjectSessionEntry[] {
+  return [...sessions].sort((a, b) => {
+    const pinnedDelta = Number(pinnedSessions.has(b.session.refId)) - Number(pinnedSessions.has(a.session.refId));
+    if (pinnedDelta) return pinnedDelta;
+    return projectSessionLastAt(b) - projectSessionLastAt(a);
+  });
 }
 
 function filterAndSortProjectGroups(
   groups: ProjectRailGroup[],
   query: string,
   sort: ProjectSort,
-  pinnedProjects: Set<string>,
 ): ProjectRailGroup[] {
   const needle = query.trim().toLowerCase();
   const filtered = needle
@@ -358,8 +421,6 @@ function filterAndSortProjectGroups(
       )
     : groups;
   return [...filtered].sort((a, b) => {
-    const pinDelta = Number(pinnedProjects.has(b.project.slug)) - Number(pinnedProjects.has(a.project.slug));
-    if (pinDelta) return pinDelta;
     switch (sort) {
       case "name":
         return a.project.title.localeCompare(b.project.title);
@@ -377,10 +438,10 @@ function filterAndSortProjectGroups(
   });
 }
 
-function readPinnedProjects(): Set<string> {
+function readPinnedSessions(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(PINNED_PROJECTS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(PINNED_SESSIONS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
   } catch {
@@ -388,10 +449,10 @@ function readPinnedProjects(): Set<string> {
   }
 }
 
-function writePinnedProjects(projects: Set<string>): void {
+function writePinnedSessions(sessions: Set<string>): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PINNED_PROJECTS_STORAGE_KEY, JSON.stringify([...projects]));
+    window.localStorage.setItem(PINNED_SESSIONS_STORAGE_KEY, JSON.stringify([...sessions]));
   } catch {
     // Best-effort UI preference.
   }
