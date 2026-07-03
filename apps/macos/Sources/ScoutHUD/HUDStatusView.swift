@@ -69,13 +69,11 @@ struct HUDStatusView: View {
     private let minPanelH: CGFloat = 380
     private let cornerRadius: CGFloat = 12
 
-    /// The framing the tail render is hosted in — the single source of truth
-    /// for tail theme / placement / chrome. `nil` when the tail isn't showing.
-    /// Every tail style branch below derives from this, so the framing can never
-    /// half-disagree with the content.
+    /// HUD tab 3 hosts the shared tail render in the normal HUD panel skin.
+    /// TailModeController hosts the same render in its attach/free overlay skin.
     private var tailSurface: TailSurface? {
         guard state.view == .tail else { return nil }
-        return .overlay
+        return .panel
     }
 
     private var isTailOverlay: Bool {

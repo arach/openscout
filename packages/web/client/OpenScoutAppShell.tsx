@@ -29,6 +29,10 @@ import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpO
 import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
+import {
+  isNewChatShortcut,
+  NEW_CHAT_SHORTCUT_LABEL,
+} from "./lib/new-chat-shortcut.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -392,8 +396,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       },
       {
         id: "shell:new-session",
-        label: "New Session",
-        shortcut: "Cmd+Shift+N",
+        label: "New Chat",
+        shortcut: NEW_CHAT_SHORTCUT_LABEL,
         action: () => {
           const context = resolveCaptureRouteContext(route, agents);
           openContextCapture({ agentId: context.agentId ?? undefined });
@@ -435,7 +439,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         e.preventDefault();
         setShowCommandPalette(true);
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+      if (isNewChatShortcut(e)) {
         e.preventDefault();
         const context = resolveCaptureRouteContext(route, agents);
         openContextCapture({ agentId: context.agentId ?? undefined });

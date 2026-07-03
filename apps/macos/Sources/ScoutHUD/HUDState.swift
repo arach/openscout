@@ -18,7 +18,7 @@ public enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     case assistant = 5
 
     public static var allCases: [HUDView] {
-        [.agents, .activity, .sessions, .assistant]
+        [.agents, .activity, .tail, .sessions, .assistant]
     }
 
     public var id: Int { rawValue }
@@ -34,13 +34,7 @@ public enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     }
 
     public var keyLabel: String {
-        switch self {
-        case .agents: return "1"
-        case .activity: return "2"
-        case .sessions: return "3"
-        case .assistant: return "4"
-        case .tail: return "T"
-        }
+        String(rawValue)
     }
 }
 
@@ -59,9 +53,9 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    // Resolved content size for `screen`. The normal HUD keeps the existing
-    // compact/workbench/top-dock tiers. Tail gets a portrait overlay geometry:
-    // narrow enough to live beside real work, tall enough to read as a stream.
+    // Resolved content size for `screen`. HUD tab 3 uses these same panel
+    // tiers as every other tab; TailMode owns the separate attach/free overlay
+    // geometry while sharing the tail render.
     //
     // WHY this shape (S vs M vs L):
     //   S 560x520     compact single-column overlay — at-a-glance HUD
@@ -79,29 +73,12 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    public func contentSize(for view: HUDView, on screen: NSScreen? = NSScreen.main) -> NSSize {
-        contentSize(for: view, collapsed: false, on: screen)
+    public func contentSize(for _: HUDView, on screen: NSScreen? = NSScreen.main) -> NSSize {
+        contentSize(on: screen)
     }
 
-    public func contentSize(for view: HUDView, collapsed: Bool, on screen: NSScreen? = NSScreen.main) -> NSSize {
-        guard view == .tail else { return contentSize(on: screen) }
-        let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        if collapsed {
-            return HUDTailCollapsedGeometry.verticalSize(in: frame)
-        }
-        switch self {
-        case .compact:
-            return NSSize(width: 460, height: floor(frame.height * tailEdgeCoverage))
-        case .medium:
-            return NSSize(width: 540, height: floor(frame.height * tailEdgeCoverage))
-        case .large:
-            // Wide "deck": the firehose keeps the main column and the native
-            // active-agents rail rides the right edge, so the panel claims
-            // roughly half the screen. Never below 860 so the split still fits
-            // on smaller displays.
-            let width = min(frame.width, max(860, floor(frame.width * 0.5)))
-            return NSSize(width: width, height: frame.height)
-        }
+    public func contentSize(for _: HUDView, collapsed _: Bool, on screen: NSScreen? = NSScreen.main) -> NSSize {
+        contentSize(on: screen)
     }
 
     var tailEdgeCoverage: CGFloat {
@@ -119,8 +96,8 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         self == .large
     }
 
-    public func isScreenAnchored(for view: HUDView) -> Bool {
-        view == .tail || isScreenAnchored
+    public func isScreenAnchored(for _: HUDView) -> Bool {
+        isScreenAnchored
     }
 }
 
@@ -229,13 +206,7 @@ public final class HUDState: ObservableObject {
     }
 
     public func select(viewIndex raw: Int) {
-        switch raw {
-        case 1: select(.agents)
-        case 2: select(.activity)
-        case 3: select(.sessions)
-        case 4: select(.assistant)
-        default: break
-        }
+        if let view = HUDView(rawValue: raw) { select(view) }
     }
 
     public func setSize(_ size: HUDSize) {

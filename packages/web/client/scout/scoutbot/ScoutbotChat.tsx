@@ -240,6 +240,7 @@ export function ChatInput({
   voiceBusy,
   voiceUnavailable,
   onMicClick,
+  autoFocus,
 }: {
   draft: string;
   onDraftChange: (next: string) => void;
@@ -250,7 +251,14 @@ export function ChatInput({
   voiceBusy: boolean;
   voiceUnavailable: boolean;
   onMicClick: () => void;
+  autoFocus?: boolean;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    textareaRef.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
+
   let micTitle = "Start talking";
   if (voiceUnavailable) micTitle = "Open Scout voice";
   if (recording) micTitle = "Stop talking";
@@ -286,6 +294,7 @@ export function ChatInput({
         {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
       </button>
       <textarea
+        ref={textareaRef}
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         placeholder="Ask to inspect state or move the UI…"

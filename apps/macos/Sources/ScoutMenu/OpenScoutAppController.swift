@@ -812,7 +812,11 @@ final class OpenScoutAppController: ObservableObject {
         let tailscaleLine = tailscale.available
             ? "Tailscale \(tailscale.statusLabel.lowercased())"
             : "Tailscale unavailable"
-        menuBarTooltip = ([brokerLine, restartLine, pairingLine, tailscaleLine].compactMap { $0 }).joined(separator: "\n")
+        let actionLines = [
+            "Click: choose Scout, HUD, or Tail",
+            "Right-click: quick actions",
+        ]
+        menuBarTooltip = (actionLines + [brokerLine, restartLine, pairingLine, tailscaleLine].compactMap { $0 }).joined(separator: "\n")
     }
 
     private func openWebSurfaceNow(path: String) async {

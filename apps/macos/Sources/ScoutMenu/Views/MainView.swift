@@ -141,14 +141,13 @@ struct MainView: View {
                 .help(showQR ? "Hide pairing QR" : "Show pairing QR")
 
                 Button {
-                    controller.openComms()
+                    ScoutAppBridge.openScout()
                 } label: {
                     Image(systemName: "bubble.left.and.bubble.right")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(HeaderIconButtonStyle())
-                .disabled(controller.webActionPending)
-                .help("Open Scout")
+                .help("Open native Scout")
 
                 Button {
                     controller.openWebApp()
@@ -224,7 +223,7 @@ struct MainView: View {
             LaunchTile(
                 glyph: "macwindow",
                 label: "SCOUT",
-                help: "Open the Scout app"
+                help: "Open native Scout"
             ) {
                 ScoutAppBridge.openScout()
             }
@@ -811,6 +810,10 @@ private struct LaunchTile: View {
 
     @State private var hover = false
 
+    private var isInteractive: Bool {
+        !disabled
+    }
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 5) {
@@ -825,7 +828,7 @@ private struct LaunchTile: View {
             .padding(.vertical, 11)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(hover && !disabled ? ShellPalette.surfaceFill : ShellPalette.chrome)
+                    .fill(tileFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -833,16 +836,21 @@ private struct LaunchTile: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
+        .disabled(!isInteractive)
         .help(help)
         .onHover { hovering in
             hover = hovering
-            if hovering && !disabled {
+            if hovering && isInteractive {
                 NSCursor.pointingHand.set()
             } else {
                 NSCursor.arrow.set()
             }
         }
+    }
+
+    private var tileFill: Color {
+        if hover && isInteractive { return ShellPalette.surfaceFill }
+        return ShellPalette.chrome
     }
 }
 

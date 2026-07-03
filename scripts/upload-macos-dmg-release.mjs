@@ -32,6 +32,7 @@ Options:
   --title <value>         Release title when the release does not exist yet.
   --notes <value>         Release notes when the release does not exist yet.
   --clobber               Replace existing assets with the same name.
+  --skip-verify           Upload without running the local DMG verifier.
   --dry-run               Print gh commands without running them.
 `;
 }
@@ -51,6 +52,7 @@ function parseArgs(argv) {
     title: null,
     notes: "Signed and notarized OpenScout macOS installer.",
     clobber: false,
+    skipVerify: false,
     dryRun: false,
   };
 
@@ -116,6 +118,10 @@ function parseArgs(argv) {
       options.clobber = true;
       continue;
     }
+    if (arg === "--skip-verify") {
+      options.skipVerify = true;
+      continue;
+    }
     if (arg === "--dry-run") {
       options.dryRun = true;
       continue;
@@ -172,12 +178,45 @@ function assertFile(relativeOrAbsolutePath) {
   return relativeOrAbsolutePath;
 }
 
+function runLocal(command, args, { dryRun } = {}) {
+  const label = [command, ...args].join(" ");
+  if (dryRun) {
+    console.log(`DRY ${label}`);
+    return;
+  }
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if ((result.status ?? 1) !== 0) {
+    throw new Error(`${label} exited with ${result.status}`);
+  }
+}
+
+function verifyAssets(options) {
+  if (options.skipVerify) {
+    return;
+  }
+  runLocal("node", ["scripts/verify-macos-dmg.mjs", options.dmgPath], {
+    dryRun: options.dryRun,
+  });
+  if (options.uploadLatest) {
+    runLocal("cmp", ["-s", options.dmgPath, options.latestDmgPath], {
+      dryRun: options.dryRun,
+    });
+  }
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const assets = [options.dryRun ? options.dmgPath : assertFile(options.dmgPath)];
   if (options.uploadLatest) {
     assets.push(options.dryRun ? options.latestDmgPath : assertFile(options.latestDmgPath));
   }
+  verifyAssets(options);
 
   if (options.dryRun) {
     runGh(["release", "view", options.tag, ...repoArgs(options.repo)], { dryRun: true });

@@ -12,7 +12,8 @@ enum ScoutAppBridge {
             return
         }
 
-        launchScoutIfNeeded(activates: true, arguments: []) {
+        reopenScoutApp {
+            postHUDCommand(command: "open-app", value: nil)
             if let channelId {
                 postHUDCommand(command: "channel", value: channelId)
             }
@@ -28,6 +29,39 @@ enum ScoutAppBridge {
 
         launchScoutIfNeeded(activates: false, arguments: []) {
             postHUDCommand(command: command, value: value)
+        }
+    }
+
+    private static func reopenScoutApp(completion: @MainActor @escaping @Sendable () -> Void) {
+        guard let scoutURL = scoutApplicationURL() else {
+            if let app = runningScoutApp {
+                app.activate(options: [.activateAllWindows])
+            }
+            completion()
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.addsToRecentItems = false
+
+        NSWorkspace.shared.openApplication(at: scoutURL, configuration: configuration) { app, error in
+            if let error {
+                NSLog("[hud] could not reopen Scout.app: %@", error.localizedDescription)
+                DispatchQueue.main.async {
+                    if let app = runningScoutApp {
+                        app.activate(options: [.activateAllWindows])
+                    }
+                    Task { @MainActor in completion() }
+                }
+                return
+            }
+            if let app {
+                app.activate(options: [.activateAllWindows])
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                Task { @MainActor in completion() }
+            }
         }
     }
 

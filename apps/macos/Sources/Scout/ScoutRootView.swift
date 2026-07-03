@@ -858,10 +858,13 @@ struct ScoutRootView: View {
             conversationId: result.conversationId?.nilIfEmpty,
             sessionId: result.sessionId?.nilIfEmpty,
             flightId: result.flightId?.nilIfEmpty,
+            messageId: result.messageId?.nilIfEmpty,
             title: pendingConversationTitle(for: submittedDraft),
             subtitle: pendingConversationSubtitle(for: submittedDraft),
             draft: submittedDraft,
-            state: .starting
+            state: .starting,
+            flightState: nil,
+            flightSummary: nil
         )
         pendingConversations.removeAll { $0.id == pending.id }
         pendingConversations.insert(pending, at: 0)
@@ -964,15 +967,19 @@ struct ScoutRootView: View {
         pendingFlightTasks[pending.id]?.cancel()
         guard pending.conversationId?.nilIfEmpty != nil || pending.flightId?.nilIfEmpty != nil else { return }
         pendingFlightTasks[pending.id] = Task { [pending] in
-            for _ in 0..<30 {
-                if Task.isCancelled { return }
+            while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                guard let status = try? await Self.fetchPendingFlightStatus(for: pending) else { continue }
+                guard let status = try? await Self.fetchPendingFlightStatus(for: pending) else {
+                    await MainActor.run {
+                        reconcilePendingConversations()
+                    }
+                    continue
+                }
                 await MainActor.run {
                     applyPendingFlightStatus(status, pendingId: pending.id)
                 }
-                if status.isTerminal { return }
+                if status.isTerminal || status.removePendingRow { return }
             }
             await MainActor.run {
                 pendingFlightTasks[pending.id] = nil
@@ -999,6 +1006,9 @@ struct ScoutRootView: View {
             pendingFlightTasks[pendingId]?.cancel()
             pendingFlightTasks[pendingId] = nil
             store.refresh(force: true)
+        } else {
+            pendingConversations[index].flightState = status.state
+            pendingConversations[index].flightSummary = status.summary?.nilIfEmpty
         }
     }
 
@@ -1035,6 +1045,10 @@ struct ScoutRootView: View {
             return nil
         }
         let flights = try JSONDecoder().decode([ScoutPendingFlightStatus].self, from: data)
+        if let conversationId = pending.conversationId?.nilIfEmpty,
+           let answered = try await fetchPendingAnsweredMessageStatus(conversationId: conversationId, pending: pending) {
+            return answered
+        }
         if let flightId = pending.flightId?.nilIfEmpty,
            let match = flights.first(where: { $0.id == flightId }) {
             return match
@@ -1044,6 +1058,34 @@ struct ScoutRootView: View {
         }
         guard let conversationId = pending.conversationId?.nilIfEmpty else { return nil }
         return try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending)
+    }
+
+    private static func fetchPendingAnsweredMessageStatus(
+        conversationId: String,
+        pending: ScoutPendingConversation
+    ) async throws -> ScoutPendingFlightStatus? {
+        guard let messageId = pending.messageId?.nilIfEmpty else { return nil }
+        let url = ScoutWeb.baseURL()
+            .appending(path: "api/messages")
+            .appending(queryItems: [
+                URLQueryItem(name: "conversationId", value: conversationId),
+                URLQueryItem(name: "limit", value: "24"),
+            ])
+        let messages = try await ScoutHTTP.fetch([ScoutMessage].self, from: url)
+        guard messages.contains(where: { message in
+            guard !message.isOperator else { return false }
+            guard message.messageClass != "status", message.messageClass != "system" else { return false }
+            return message.replyToMessageId == messageId
+                || message.metadata?.sourceMessageId == messageId
+        }) else {
+            return nil
+        }
+        return ScoutPendingFlightStatus(
+            id: pending.flightId?.nilIfEmpty ?? messageId,
+            state: "completed",
+            summary: "Agent replied.",
+            removePendingRow: true
+        )
     }
 
     private static func fetchPendingFailureMessageStatus(
@@ -1456,6 +1498,7 @@ struct ScoutRootView: View {
                                 message: message,
                                 agent: agent(for: message),
                                 baseDirectory: fileBaseDirectory(for: message),
+                                isLatestMessage: message.id == store.messages.last?.id,
                                 previewAgent: previewAgent,
                                 onNewFromMessage: {
                                     startConversationFromMessage(message, agent: agent(for: message))
@@ -4136,7 +4179,8 @@ private struct ScoutPendingConversationProgressRow: View {
 
     private var statusLabel: String {
         switch pending.state {
-        case .starting: return "Starting..."
+        case .starting:
+            return pending.flightState.flatMap(progressLabel) ?? "Starting..."
         case .failed: return "Failed"
         }
     }
@@ -4151,9 +4195,19 @@ private struct ScoutPendingConversationProgressRow: View {
     private var detailText: String {
         switch pending.state {
         case .starting:
-            return pending.subtitle
+            return pending.flightSummary?.nilIfEmpty ?? pending.subtitle
         case .failed(let message):
             return message
+        }
+    }
+
+    private func progressLabel(_ state: String) -> String {
+        switch state.lowercased() {
+        case "queued": return "Queued..."
+        case "waking": return "Starting up..."
+        case "running": return "Working..."
+        case "waiting": return "Waiting"
+        default: return "Working..."
         }
     }
 }
@@ -4186,6 +4240,9 @@ private struct ScoutPendingConversationInspector: View {
                 }
                 if let flightId = pending.flightId?.nilIfEmpty {
                     fact("paperplane", "flight \(String(flightId.prefix(8)))")
+                }
+                if let messageId = pending.messageId?.nilIfEmpty {
+                    fact("text.bubble", "message \(String(messageId.prefix(8)))")
                 }
             }
 
@@ -4280,7 +4337,8 @@ private struct ScoutPendingConversationInspector: View {
 
     private var statusLabel: String {
         switch pending.state {
-        case .starting: return pending.subtitle
+        case .starting:
+            return pending.flightSummary?.nilIfEmpty ?? pending.subtitle
         case .failed: return "Failed"
         }
     }

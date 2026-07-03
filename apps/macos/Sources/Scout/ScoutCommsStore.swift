@@ -45,6 +45,9 @@ final class ScoutCommsStore: ObservableObject {
     private var attemptedInitialChannelsLoad = false
     private var readCursorTask: Task<Void, Never>?
     private var activeTurnTask: Task<Void, Never>?
+    private var activeTurnRequestId: UUID?
+    private var activeTurnPollTask: Task<Void, Never>?
+    private var activeTurnPollCId: String?
     /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
     /// reactive advance against the steady-state poll re-firing the same POST on
     /// every heartbeat — we only re-mark when the selection or its newest
@@ -120,6 +123,7 @@ final class ScoutCommsStore: ObservableObject {
         observeTask?.cancel()
         readCursorTask?.cancel()
         activeTurnTask?.cancel()
+        activeTurnPollTask?.cancel()
         channelsTask = nil
         channelsRequestId = nil
         messagesTask = nil
@@ -127,6 +131,9 @@ final class ScoutCommsStore: ObservableObject {
         observeTask = nil
         readCursorTask = nil
         activeTurnTask = nil
+        activeTurnRequestId = nil
+        activeTurnPollTask = nil
+        activeTurnPollCId = nil
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
         observeRequestId = nil
@@ -157,6 +164,7 @@ final class ScoutCommsStore: ObservableObject {
         // flash on the new thread; the fire-now fetch repopulates if this one
         // is mid-turn rather than waiting for the next poll tick.
         activeTurn = nil
+        stopActiveTurnPolling()
         loadActiveTurn(cId: resolvedCId)
         loadMessages()
         // Opening a conversation reads it. Fire immediately (timestamp-based) so
@@ -174,6 +182,7 @@ final class ScoutCommsStore: ObservableObject {
             selectedCId = resolvedCId
             messages = []
             activeTurn = nil
+            stopActiveTurnPolling()
             loadMessages()
             markConversationRead(cId: resolvedCId)
         }
@@ -457,6 +466,9 @@ final class ScoutCommsStore: ObservableObject {
             // the exact latest message id; the dedup key keeps the steady-state
             // poll (which also calls loadMessages) from re-POSTing every beat.
             markConversationRead(cId: cId, latest: next.last)
+            if activeTurn != nil || selectedFlightIdHint != nil {
+                loadActiveTurn(cId: cId)
+            }
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
@@ -488,6 +500,8 @@ final class ScoutCommsStore: ObservableObject {
 
     private func loadActiveTurn(cId: String) {
         activeTurnTask?.cancel()
+        let requestId = UUID()
+        activeTurnRequestId = requestId
         let agentId = selectedAgentId
         let flightId = selectedFlightIdHint
         let agentName = selectedAgent?.displayName
@@ -495,7 +509,7 @@ final class ScoutCommsStore: ObservableObject {
             ?? selectedAgentNameHint
             ?? "agent"
         activeTurnTask = Task { [weak self] in
-            await self?.fetchActiveTurn(cId: cId, flightId: flightId, agentId: agentId, agentName: agentName)
+            await self?.fetchActiveTurn(cId: cId, requestId: requestId, flightId: flightId, agentId: agentId, agentName: agentName)
         }
     }
 
@@ -507,8 +521,12 @@ final class ScoutCommsStore: ObservableObject {
     /// call only fires while a non-terminal flight exists, so an idle
     /// conversation costs just the lightweight flights read. Failures are
     /// swallowed — an absent in-flight turn is the common, non-error case.
-    private func fetchActiveTurn(cId: String, flightId: String?, agentId: String?, agentName: String) async {
-        defer { activeTurnTask = nil }
+    private func fetchActiveTurn(cId: String, requestId: UUID, flightId: String?, agentId: String?, agentName: String) async {
+        defer {
+            if activeTurnRequestId == requestId {
+                activeTurnTask = nil
+            }
+        }
         let base = ScoutWeb.baseURL()
         var queryItems = [
             URLQueryItem(name: "active", value: "false"),
@@ -522,31 +540,74 @@ final class ScoutCommsStore: ObservableObject {
             .appending(path: "api/flights")
             .appending(queryItems: queryItems)
         let flights = (try? await fetch([ScoutPendingFlightStatus].self, from: flightsURL)) ?? []
-        guard selectedCId == cId else { return }
+        guard selectedCId == cId, activeTurnRequestId == requestId else { return }
         guard let live = flights.first(where: { !$0.isTerminal }) else {
             setIfChanged(nil, to: \.activeTurn)
+            stopActiveTurnPolling()
+            return
+        }
+        if shouldHideActiveTurn(live, cId: cId) {
+            setIfChanged(nil, to: \.activeTurn)
+            stopActiveTurnPolling()
             return
         }
 
         var detail: String?
-        if let agentId = agentId?.nilIfEmpty {
-            let observeURL = base.appending(path: "api/agents/\(agentId)/observe")
+        let liveAgentId = live.agentId?.nilIfEmpty ?? agentId?.nilIfEmpty
+        if let liveAgentId {
+            let observeURL = base.appending(path: "api/agents/\(liveAgentId)/observe")
             if let payload = try? await fetch(ScoutObservePayload.self, from: observeURL),
                payload.data.live {
                 detail = payload.data.events.last.flatMap(Self.activeTurnDetailLine)
             }
-            guard selectedCId == cId else { return }
+            guard selectedCId == cId, activeTurnRequestId == requestId else { return }
         }
 
         setIfChanged(
             ScoutActiveTurn(
-                agentName: agentName,
+                agentName: live.agentName?.nilIfEmpty ?? agentName,
                 state: live.state,
                 summary: live.summary?.nilIfEmpty,
                 detail: detail
             ),
             to: \.activeTurn
         )
+        ensureActiveTurnPolling(cId: cId)
+    }
+
+    private func shouldHideActiveTurn(_ flight: ScoutPendingFlightStatus, cId: String) -> Bool {
+        guard let startedAt = flight.startedAt else { return false }
+        return messages.contains { message in
+            message.cId == cId
+                && !message.isOperator
+                && message.messageClass != "status"
+                && message.messageClass != "system"
+                && message.createdAt >= startedAt
+        }
+    }
+
+    private func ensureActiveTurnPolling(cId: String) {
+        if activeTurnPollTask != nil, activeTurnPollCId == cId {
+            return
+        }
+        stopActiveTurnPolling()
+        activeTurnPollCId = cId
+        activeTurnPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    guard let self, self.selectedCId == cId else { return }
+                    self.loadActiveTurn(cId: cId)
+                }
+            }
+        }
+    }
+
+    private func stopActiveTurnPolling() {
+        activeTurnPollTask?.cancel()
+        activeTurnPollTask = nil
+        activeTurnPollCId = nil
     }
 
     /// Condense an observe event into a one-line "what it's doing right now"

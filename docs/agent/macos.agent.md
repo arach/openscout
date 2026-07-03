@@ -51,8 +51,8 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 
 | Channel | Direction | Semantics |
 |---|---|---|
-| `scout://hud/{show,hide,toggle,tab/<name>,size/<name>}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper forwards via notification |
-| `scout://tail/{show,hide,toggle,attach,float,size/<name>,collapse,expand}` | OS → either bundle | Scout handles directly; helper forwards as Tail commands. `scout://hud/tail[/size]` remains a compatibility alias. |
+| `scout://hud/{show,hide,toggle,tail[/size],tab/<name>,size/<name>}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper forwards via notification. `hud/tail` selects HUD tab 3 and keeps HUD chrome. |
+| `scout://tail/{show,hide,toggle,attach,float,size/<name>,collapse,expand}` | OS → either bundle | Scout handles directly; helper forwards as Tail mode commands. Tail mode is the persistent attach/free overlay. |
 | `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `app.openscout.scout.service-url` notification |
 | `app.openscout.scout.hud` (distributed notif) | helper → Scout | `command` + `value`; Scout also accepts `channel`/`open-channel` |
 | launch args `--hud --hud-command <c> --hud-value <v>` / `--channel <cId>` | helper → cold Scout | `ScoutAppBridge` uses these when Scout isn't running |
@@ -70,8 +70,8 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Activation policy | Scout starts `.regular`; `--hud` launch starts `.accessory` and hides non-panel windows; last window close → `.accessory`, never terminates; reopen → `.regular` |
 | Hotkeys (Carbon, sig `OSCT`) | Scout id 1: Hyper+H → HUD toggle. Helper id 2: Hyper+C → `openComms` (ensures web server via `scout server start`, then launches/activates Scout). Helper id 3: Hyper+T → Tail mode toggle. |
 | HUD panel | `HUDController` singleton; non-activating `OverlayPanel`, mouse-screen centered, fade in/out, outside-click dismiss (220ms), Esc cascade (cheatsheet → dock text → chip → blur → unengage → dismiss) |
-| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor; global path gated by `shouldHandleGlobalKey` (Esc always; else panel key / app active). Tabs 1-4 = agents/activity/sessions/assistant; sizes compact/medium/large via `[`/`]`/⌘-arrows |
-| Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` renderer. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
+| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor; global path gated by `shouldHandleGlobalKey` (Esc always; else panel key / app active). Tabs 1-5 = agents/activity/tail/sessions/assistant; sizes compact/medium/large via `[`/`]`/⌘-arrows |
+| Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` tail logic with the overlay skin/wrapper. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
 | Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible; only unclaimed events drive window navigation |
 
 ## Data flow
@@ -95,7 +95,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 | release-ish build | `bun apps/macos/bin/scout-app.ts build` (git Hudson, release) |
 | raw swift | `HUDSONKIT_WITH_TERMINAL=1 swift build` — enables the native Hudson/Termini terminal surface |
 | helper bundle | `bun apps/macos/bin/openscout-menu.ts build|launch|restart|status` |
-| HUD CLI | `bun apps/macos/bin/openscout-menu.ts hud state|show|hide|toggle|tab <t>|size <s>|capture|matrix` (actions via `open -g scout://hud/*`, queries via state file) |
+| HUD CLI | `bun apps/macos/bin/openscout-menu.ts hud state|show|hide|toggle|tail [s]|tab <t>|size <s>|capture|matrix` (actions via `open -g scout://hud/*`, queries via state file) |
 | Tail CLI | `bun apps/macos/bin/openscout-menu.ts tail state|show|hide|toggle|attach|float|size <s>|collapse|expand|capture` (actions via `open -g scout://tail/*`, queries via state file) |
 | installer | `apps/macos/scripts/build-dmg.sh` → Hudson `hkit` (`HUDSON_DIR`/`HKIT_BIN`), contract `hudson-package.json`, embeds ScoutMenu.app under LoginItems; `SKIP_NOTARIZE=1` for local |
 
@@ -143,6 +143,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 cd apps/macos && bun bin/scout-app.ts dev-build      # debug build (path Hudson, voice on)
 bun apps/macos/bin/openscout-menu.ts hud state        # reads /tmp/openscout-hud-state.json
 bun apps/macos/bin/openscout-menu.ts hud show
+bun apps/macos/bin/openscout-menu.ts hud tail         # selects embedded HUD Tail
 bun apps/macos/bin/openscout-menu.ts tail show
 bun apps/macos/bin/openscout-menu.ts tail float
 bun apps/macos/bin/openscout-menu.ts hud capture /tmp/hud.png

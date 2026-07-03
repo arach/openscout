@@ -102,7 +102,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        NSApp.setActivationPolicy(.regular)
+        showMainWindows()
         return true
     }
 
@@ -204,7 +204,11 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleAppCommand(command: String, value: String?) -> Bool {
         switch command.lowercased() {
+        case "open", "open-app", "show-app", "reopen":
+            showMainWindows()
+            return true
         case "channel", "open-channel":
+            showMainWindows()
             guard let cId = value?.nilIfEmpty else { return false }
             ScoutExternalCommand.openChannel(cId)
             return true
@@ -246,6 +250,15 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         for window in NSApp.windows where !(window is NSPanel) {
             window.orderOut(nil)
         }
+    }
+
+    private func showMainWindows() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        for window in NSApp.windows where !(window is NSPanel) {
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func launchMenuHelperIfNeeded() {
