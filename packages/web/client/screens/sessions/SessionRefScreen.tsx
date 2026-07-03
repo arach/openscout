@@ -62,6 +62,10 @@ function normalizeSessionRef(value: string | null | undefined): string {
   return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
 }
 
+function isNativeProcessRef(value: string): boolean {
+  return value.startsWith("native:process:");
+}
+
 function useSessionRefLookup(sessionRef: string) {
   const [lookup, setLookup] = useState<SessionRefLookup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -224,16 +228,22 @@ export function SessionRefScreen({
     );
   }
 
+  const processOnlyRef = isNativeProcessRef(sessionRef);
+
   return (
     <div className="s-sessions-screen s-inbox-thread-redesign">
       <section className="s-thread-overview">
         <div className="s-thread-overview-copy">
           <div className="s-sessions-header s-thread-overview-heading">
-            <h2 className="s-page-title">Session not found</h2>
+            <h2 className="s-page-title">
+              {processOnlyRef ? "Process trace unavailable" : "Session not found"}
+            </h2>
             <span className="s-meta s-tabular">{sessionRef.slice(0, 8)}</span>
           </div>
           <p className="s-thread-overview-summary">
-            This session may have ended or the archive is not available on this machine.
+            {processOnlyRef
+              ? "This is a live process handle, not a transcript session. No replayable session archive is attached yet."
+              : "This session may have ended or the archive is not available on this machine."}
           </p>
           {error && (
             <p className="s-session-ref-error-detail">{error}</p>

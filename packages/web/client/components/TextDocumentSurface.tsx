@@ -169,7 +169,15 @@ type MarkdownBlock =
   | { kind: "heading"; depth: 1 | 2 | 3 | 4 | 5 | 6; content: string }
   | { kind: "hr" }
   | { kind: "list"; ordered: boolean; items: string[] }
-  | { kind: "paragraph"; content: string };
+  | { kind: "paragraph"; content: string }
+  | {
+      kind: "table";
+      alignments: MarkdownTableAlignment[];
+      headers: string[];
+      rows: string[][];
+    };
+
+type MarkdownTableAlignment = "left" | "center" | "right" | null;
 
 function parseMarkdownBlocks(markdown: string): ReactNode[] {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
@@ -241,6 +249,13 @@ function parseMarkdownBlocks(markdown: string): ReactNode[] {
       continue;
     }
 
+    const table = parseMarkdownTableAt(lines, i);
+    if (table) {
+      blocks.push(table.block);
+      i = table.nextIndex;
+      continue;
+    }
+
     const paragraph: string[] = [];
     while (i < lines.length) {
       const nextLine = lines[i] ?? "";
@@ -251,6 +266,7 @@ function parseMarkdownBlocks(markdown: string): ReactNode[] {
         || /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/.test(nextLine)
         || /^>\s?/.test(nextLine)
         || /^(\s*)([-*+]|\d+[.)])\s+/.test(nextLine)
+        || parseMarkdownTableAt(lines, i)
       ) {
         break;
       }
@@ -301,7 +317,141 @@ function renderMarkdownBlock(block: MarkdownBlock, index: number): ReactNode {
       );
     case "hr":
       return <hr key={index} />;
+    case "table":
+      return (
+        <div key={index} className="s-text-document-table-wrap">
+          <table className="s-text-document-table">
+            <thead>
+              <tr>
+                {block.headers.map((header, cellIndex) => (
+                  <th
+                    key={`${index}:h:${cellIndex}`}
+                    data-align={block.alignments[cellIndex] ?? undefined}
+                  >
+                    {renderInlineMarkdown(header)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, rowIndex) => (
+                <tr key={`${index}:r:${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td
+                      key={`${index}:r:${rowIndex}:${cellIndex}`}
+                      data-align={block.alignments[cellIndex] ?? undefined}
+                    >
+                      {renderInlineMarkdown(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
   }
+}
+
+function parseMarkdownTableAt(
+  lines: string[],
+  index: number,
+): { block: Extract<MarkdownBlock, { kind: "table" }>; nextIndex: number } | null {
+  const header = splitMarkdownTableRow(lines[index] ?? "");
+  const alignments = parseMarkdownTableDivider(lines[index + 1] ?? "");
+  if (!header || !alignments || header.length !== alignments.length) {
+    return null;
+  }
+
+  const width = header.length;
+  const rows: string[][] = [];
+  let cursor = index + 2;
+  while (cursor < lines.length) {
+    const row = splitMarkdownTableRow(lines[cursor] ?? "");
+    if (!row || row.length < 2) {
+      break;
+    }
+    rows.push(normalizeMarkdownTableRow(row, width));
+    cursor += 1;
+  }
+
+  return {
+    block: {
+      kind: "table",
+      alignments,
+      headers: normalizeMarkdownTableRow(header, width),
+      rows,
+    },
+    nextIndex: cursor,
+  };
+}
+
+function splitMarkdownTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) {
+    return null;
+  }
+
+  let body = trimmed;
+  if (body.startsWith("|")) {
+    body = body.slice(1);
+  }
+  if (body.endsWith("|") && !body.endsWith("\\|")) {
+    body = body.slice(0, -1);
+  }
+
+  const cells: string[] = [];
+  let cell = "";
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body[i];
+    if (ch === "\\" && body[i + 1] === "|") {
+      cell += "|";
+      i += 1;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  cells.push(cell.trim());
+
+  return cells.length >= 2 ? cells : null;
+}
+
+function parseMarkdownTableDivider(line: string): MarkdownTableAlignment[] | null {
+  const cells = splitMarkdownTableRow(line);
+  if (!cells || cells.length < 2) {
+    return null;
+  }
+
+  const alignments: MarkdownTableAlignment[] = [];
+  for (const cell of cells) {
+    const marker = cell.replace(/\s/g, "");
+    if (!/^:?-{3,}:?$/u.test(marker)) {
+      return null;
+    }
+    if (marker.startsWith(":") && marker.endsWith(":")) {
+      alignments.push("center");
+    } else if (marker.endsWith(":")) {
+      alignments.push("right");
+    } else if (marker.startsWith(":")) {
+      alignments.push("left");
+    } else {
+      alignments.push(null);
+    }
+  }
+  return alignments;
+}
+
+function normalizeMarkdownTableRow(row: string[], width: number): string[] {
+  const normalized = row.slice(0, width);
+  while (normalized.length < width) {
+    normalized.push("");
+  }
+  return normalized;
 }
 
 type HighlightLanguage = TextDocumentLanguage | TextDocumentKind | string | undefined;

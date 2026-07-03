@@ -125,6 +125,47 @@ function ThreadRow({
   );
 }
 
+function ProjectSurfaceState({
+  title,
+  detail,
+  tone = "muted",
+}: {
+  title: string;
+  detail?: string;
+  tone?: "loading" | "error" | "muted";
+}) {
+  return (
+    <div className="pi-stateBlock" data-tone={tone} role={tone === "loading" ? "status" : "note"}>
+      <span className="pi-statePulse" aria-hidden />
+      <span className="pi-stateTitle">{title}</span>
+      {detail ? <span className="pi-stateDetail">{detail}</span> : null}
+    </div>
+  );
+}
+
+function ProjectRowsSkeleton({ rows = 7 }: { rows?: number }) {
+  return (
+    <div className="pi-loadingRows" aria-hidden="true">
+      <div className="pi-sectionHead pi-sectionHead--loading">
+        <span className="pi-loadingLine pi-loadingLine--label" />
+        <span className="pi-loadingLine pi-loadingLine--count" />
+      </div>
+      {Array.from({ length: rows }, (_, index) => (
+        <div className="pi-row pi-row--loading" key={index}>
+          <span className="pi-rowDot" />
+          <span className="pi-rowBody">
+            <span className="pi-loadingLine pi-loadingLine--title" />
+            <span className="pi-loadingLine pi-loadingLine--meta" />
+          </span>
+          <span className="pi-rowVitals">
+            <span className="pi-loadingLine pi-loadingLine--time" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type ProjectMode = "overview" | "agents" | "sessions";
 
 function ProjectScopeHeader({
@@ -923,7 +964,7 @@ export function ProjectsInbox({
   navigate: Navigate;
   zeroPreview?: boolean;
 }) {
-  const { model, nowMs, loading } = useProjectsInbox(route);
+  const { model, nowMs, loading, error } = useProjectsInbox(route);
   const [view] = useProjectsInboxView();
   const scoped = Boolean(route.projectSlug);
   const selectedSessionRef =
@@ -956,6 +997,9 @@ export function ProjectsInbox({
   );
   const sections = useMemo(() => groupItems(items), [items]);
   const flat = useMemo(() => sections.flatMap((section) => section.items), [sections]);
+  const hasModelData = model.projects.length > 0 || model.threads.length > 0 || model.sessions.length > 0;
+  const initialLoading = loading && !hasModelData;
+  const resolvingSelectedSession = Boolean(selectedSessionRef && !selectedSession && loading);
   const displayCounts = zeroPreview ? ZERO_COUNTS : model.counts;
   const waiting = loading && !zeroPreview;
   const showProjectZeroState =
@@ -1011,7 +1055,7 @@ export function ProjectsInbox({
 
 
   return (
-    <div className="s-pi s-pi-inbox">
+    <div className="s-pi s-pi-inbox" aria-busy={loading || undefined} data-loading={loading || undefined}>
       {scoped ? (
         <ProjectScopeHeader route={route} navigate={navigate} slug={route.projectSlug!} model={model} mode={mode} />
       ) : (
@@ -1025,17 +1069,29 @@ export function ProjectsInbox({
       )}
 
       {selectedSessionRef ? (
-        <SelectedSessionMain
-          session={selectedSession}
-          sessionRef={selectedSessionRef}
-          sessions={model.sessions}
-          route={route}
-          navigate={navigate}
-          nowMs={nowMs}
-        />
+        resolvingSelectedSession ? (
+          <main className="pi-sessionDetail" aria-label="Selected session">
+            <ProjectSurfaceState
+              tone="loading"
+              title="Resolving session"
+              detail="Looking for a live trace or readable session archive."
+            />
+          </main>
+        ) : (
+          <SelectedSessionMain
+            session={selectedSession}
+            sessionRef={selectedSessionRef}
+            sessions={model.sessions}
+            route={route}
+            navigate={navigate}
+            nowMs={nowMs}
+          />
+        )
       ) : (
         <div className="pi-threads">
-          {sections.map((section) => {
+          {initialLoading ? <ProjectRowsSkeleton /> : null}
+
+          {!initialLoading && sections.map((section) => {
             let base = 0;
             for (const prior of sections) {
               if (prior.group === section.group) break;
@@ -1070,21 +1126,21 @@ export function ProjectsInbox({
             );
           })}
 
-          {items.length === 0 ? (
-            <div className="pi-empty">
-              {showProjectZeroState ? (
+          {!initialLoading && items.length === 0 ? (
+            error && !hasModelData ? (
+              <ProjectSurfaceState tone="error" title="Projects unavailable" detail={error} />
+            ) : showProjectZeroState ? (
+              <div className="pi-empty">
                 <ProjectZeroComposer route={route} navigate={navigate} projects={model.projects} />
-              ) : waiting ? (
-                "Loading…"
-              ) : (
-                <>
-                  <span>{emptyLabel(scoped, mode, view)}</span>
-                  {!scoped && view !== "everything" ? (
-                    <span className="pi-emptyHint">Nothing here right now.</span>
-                  ) : null}
-                </>
-              )}
-            </div>
+              </div>
+            ) : waiting ? (
+              <div className="pi-empty">Loading…</div>
+            ) : (
+              <ProjectSurfaceState
+                title={emptyLabel(scoped, mode, view)}
+                detail={!scoped && view !== "everything" ? "Nothing here right now." : undefined}
+              />
+            )
           ) : null}
         </div>
       )}

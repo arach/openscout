@@ -7,6 +7,7 @@ import {
   isDormantProject,
   isSessionSelected,
   isThreadSelected,
+  sessionOpenRoute,
   sessionSelectRoute,
   threadOpenRoute,
   threadSelectRoute,
@@ -310,9 +311,18 @@ describe("filters + routing", () => {
     const agents = [mkAgent({ id: "scout.a", name: "Scout" })];
     const model = buildProjectsInboxModel(baseInput(agents, null, false, [mkSession(agents[0]!)]));
     const session = model.sessions[0]!;
+    expect(session.sessionId).toBeTruthy();
+    const canonicalSessionId = session.sessionId!;
     const select = { view: "agents-v2" as const, projectSlug: session.projectSlug, sessionId: session.sessionId ?? undefined };
     expect(isSessionSelected(session, select)).toBe(true);
     expect(sessionSelectRoute(session, { view: "agents-v2", projectSlug: session.projectSlug }).selectedAgentId).toBeUndefined();
+    expect(sessionOpenRoute(session, { view: "agents-v2", projectSlug: session.projectSlug })).toEqual({
+      view: "agents-v2",
+      projectSlug: session.projectSlug,
+      indexView: "sessions",
+      sessionId: canonicalSessionId,
+      selectedAgentId: undefined,
+    });
 
     const conversationBacked = { ...session, sessionId: null };
     const conversationSelect = sessionSelectRoute(conversationBacked, { view: "agents-v2", projectSlug: conversationBacked.projectSlug });
@@ -320,9 +330,18 @@ describe("filters + routing", () => {
     expect(conversationSelect.selectedAgentId).toBeUndefined();
     expect(isSessionSelected(conversationBacked, { view: "agents-v2", sessionId: "c.scout.a" })).toBe(true);
 
-    const liveProcess = { ...session, sessionId: null, conversationId: null };
+    const liveProcess = { ...session, sessionId: null, conversationId: null, route: null };
     const liveSelect = sessionSelectRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug });
     expect(liveSelect).toEqual({ view: "agents-v2", projectSlug: liveProcess.projectSlug });
     expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(false);
+
+    expect(sessionOpenRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug })).toEqual({
+      view: "agents-v2",
+      projectSlug: liveProcess.projectSlug,
+      indexView: "sessions",
+      selectedAgentId: undefined,
+      sessionId: undefined,
+    });
   });
+
 });

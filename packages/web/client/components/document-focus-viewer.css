@@ -381,7 +381,8 @@
 .s-text-document-markdown ul,
 .s-text-document-markdown ol,
 .s-text-document-markdown blockquote,
-.s-text-document-markdown pre {
+.s-text-document-markdown pre,
+.s-text-document-table-wrap {
   margin: var(--space-lg) 0;
 }
 
@@ -442,6 +443,59 @@
   background: transparent;
   color: inherit;
   padding: 0;
+}
+
+.s-text-document-table-wrap {
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg) 96%, black);
+}
+
+.s-text-document-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+}
+
+.s-text-document-table th,
+.s-text-document-table td {
+  padding: var(--space-sm) var(--space-lg);
+  border-right: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  vertical-align: top;
+  text-align: left;
+}
+
+.s-text-document-table th {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.s-text-document-table th[data-align="center"],
+.s-text-document-table td[data-align="center"] {
+  text-align: center;
+}
+
+.s-text-document-table th[data-align="right"],
+.s-text-document-table td[data-align="right"] {
+  text-align: right;
+}
+
+.s-text-document-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.s-text-document-table th:last-child,
+.s-text-document-table td:last-child {
+  border-right: 0;
+}
+
+.s-text-document-table code {
+  font-size: var(--text-sm);
 }
 
 .s-text-document-markdown hr {

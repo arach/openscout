@@ -2260,18 +2260,24 @@
 }
 
 .s-observe-compose-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 34px);
+  grid-template-rows: minmax(74px, auto) 34px;
   align-items: end;
-  gap: var(--space-sm);
+  column-gap: var(--space-sm);
+  row-gap: var(--space-xs);
   min-width: 0;
   padding: var(--space-sm);
 }
 
 .s-observe-compose-input {
   display: block;
+  grid-column: 1 / -1;
+  grid-row: 1;
   flex: 1;
+  width: 100%;
   min-width: 0;
-  min-height: 78px;
+  min-height: 74px;
   max-height: 180px;
   resize: none;
   overflow-y: auto;
@@ -2300,6 +2306,9 @@
 }
 
 .s-observe-compose-tool {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
   width: 34px;
   height: 34px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, var(--surface));
@@ -2319,6 +2328,12 @@
     transform 0.12s ease;
 }
 
+.s-observe-compose-row .s-dictation-mic {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+}
+
 .s-observe-compose-tool:hover {
   color: var(--ink);
   border-color: color-mix(in srgb, var(--ink) 28%, transparent);
@@ -2326,6 +2341,9 @@
 }
 
 .s-observe-compose-send {
+  grid-column: 4;
+  grid-row: 2;
+  justify-self: end;
   width: 34px;
   height: 34px;
   border: 0;
