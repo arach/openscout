@@ -14,6 +14,12 @@ export type KnowledgeScoreSource = "fts" | "vector" | "hybrid";
 
 export type KnowledgeFacets = Record<string, string | string[]>;
 
+export interface KnowledgeFacetValue {
+  key: string;
+  value: string;
+  count: number;
+}
+
 export interface KnowledgeSourceAnchor {
   sizeBytes?: number;
   mtimeMs?: number;
@@ -106,6 +112,8 @@ export interface KnowledgeSearchQuery {
   collections?: string[];
   sourceKinds?: KnowledgeCollectionKind[];
   facets?: KnowledgeFacets;
+  sourceUpdatedAfterMs?: number;
+  sourceUpdatedBeforeMs?: number;
   limit?: number;
   mode?: "lexical" | "semantic" | "hybrid";
 }

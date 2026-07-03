@@ -1330,6 +1330,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     status: "shipped",
     blurb: "Landing — every plan, study, and atom in one list.",
   },
+  {
+    href: "/meta/routes",
+    label: "Route Inventory",
+    bucket: "meta",
+    status: "draft",
+    source: [
+      "design/studio/app/meta/routes/page.tsx",
+      "packages/web/client/lib/router.ts",
+      "packages/web/client/router/tanstack/route-tree.ts",
+      "packages/web/client/scout/topNavConfig.ts",
+      "packages/web/client/scout/secondaryNavConfig.ts",
+    ],
+    blurb: "Every app page, canonical URL shape, compatibility route, and component-offered navigation target.",
+  },
 ];
 
 /** Find the registry entry for a route. */

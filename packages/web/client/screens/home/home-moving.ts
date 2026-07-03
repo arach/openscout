@@ -1,6 +1,5 @@
 import { isAgentBusy } from "../../lib/agent-state.ts";
 import type { ObserveCacheEntry } from "../../lib/observe.ts";
-import { buildTailPreviewContext, tailEventMatchesContext } from "../../lib/tail-preview.ts";
 import { normalizeTimestampMs } from "../../lib/time.ts";
 import type {
   Agent,
@@ -69,18 +68,16 @@ export function agentHasRecentTailActivity(
   nowMs: number,
   windowMs = HOME_MOVING_WINDOW_MS,
 ): boolean {
-  const context = buildTailPreviewContext({ activeSessionId: null, agent, sessionMeta: null });
   const sessionId = agent.harnessSessionId?.trim();
+  if (!sessionId) return false;
+
   const cutoff = nowMs - windowMs;
   return tailEvents.some((event) => {
     const ts = normalizeTimestampMs(event.ts);
     if (ts === null || ts < cutoff) return false;
     if (!tailEventMatchesAgentHarness(agent, event)) return false;
     const eventSessionId = event.sessionId?.trim();
-    if (sessionId && eventSessionId) {
-      return eventSessionId === sessionId;
-    }
-    return tailEventMatchesContext(event, context);
+    return Boolean(eventSessionId && eventSessionId === sessionId);
   });
 }
 
@@ -143,6 +140,71 @@ export function workingContextFromLane(lane: AgentLane): WorkingAgentContext {
   });
 }
 
+/** Identity of the underlying harness session an observe payload resolved to. */
+export function observedSessionKey(
+  entry: Pick<ObserveCacheEntry, "sessionId" | "historyPath" | "data"> | null | undefined,
+): string | null {
+  if (!entry) return null;
+  const sessionId = entry.sessionId?.trim()
+    || entry.data?.metadata?.session?.externalSessionId?.trim();
+  if (sessionId) return `session:${sessionId}`;
+  const historyPath = entry.historyPath?.trim()
+    || entry.data?.metadata?.session?.threadPath?.trim();
+  if (historyPath) return `history:${historyPath}`;
+  return null;
+}
+
+export function laneObservedSessionKey(lane: AgentLane): string | null {
+  const session = lane.observe?.metadata?.session;
+  const sessionId = session?.externalSessionId?.trim();
+  if (sessionId) return `session:${sessionId}`;
+  const threadPath = session?.threadPath?.trim();
+  if (threadPath) return `history:${threadPath}`;
+  return null;
+}
+
+function agentOwnsObservedSession(
+  agent: Agent,
+  entry: ObserveCacheEntry | undefined,
+): boolean {
+  const observed = entry?.sessionId?.trim()
+    || entry?.data?.metadata?.session?.externalSessionId?.trim();
+  const own = agent.harnessSessionId?.trim();
+  return Boolean(observed && own && observed === own);
+}
+
+/* Stale agent records in a project all fall back to the same newest discovered
+   transcript, so without this they render as N identical rows (same context %,
+   same last line). One observed session gets one row: the agent that actually
+   owns the session wins, else the caller's order (recency) decides. Agents
+   whose observe payload has no session identity pass through untouched. */
+export function dedupeWorkingAgentsByObservedSession(
+  agents: Agent[],
+  observeCache: Record<string, ObserveCacheEntry | undefined>,
+): Agent[] {
+  const keptIndexByKey = new Map<string, number>();
+  const result: Agent[] = [];
+  for (const agent of agents) {
+    const entry = observeCache[agent.id];
+    const key = observedSessionKey(entry);
+    if (!key) {
+      result.push(agent);
+      continue;
+    }
+    const keptIndex = keptIndexByKey.get(key);
+    if (keptIndex === undefined) {
+      keptIndexByKey.set(key, result.length);
+      result.push(agent);
+      continue;
+    }
+    const kept = result[keptIndex]!;
+    if (!agentOwnsObservedSession(kept, observeCache[kept.id]) && agentOwnsObservedSession(agent, entry)) {
+      result[keptIndex] = agent;
+    }
+  }
+  return result;
+}
+
 export function homeMovingRecencyMs(
   agent: Agent,
   input: {
@@ -162,11 +224,13 @@ export function homeMovingRecencyMs(
   const sessionId = agent.harnessSessionId?.trim();
   const agentSource = harnessTailSource(agent.harness);
   let latestTail = 0;
-  for (const event of tailEvents) {
-    if (agentSource && event.source !== agentSource) continue;
-    if (sessionId && event.sessionId?.trim() !== sessionId) continue;
-    const ts = normalizeTimestampMs(event.ts);
-    if (ts !== null) latestTail = Math.max(latestTail, ts);
+  if (sessionId) {
+    for (const event of tailEvents) {
+      if (agentSource && event.source !== agentSource) continue;
+      if (event.sessionId?.trim() !== sessionId) continue;
+      const ts = normalizeTimestampMs(event.ts);
+      if (ts !== null) latestTail = Math.max(latestTail, ts);
+    }
   }
   if (latestTail > 0) return latestTail;
   return normalizeTimestampMs(agent.updatedAt) ?? 0;

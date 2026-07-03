@@ -11,6 +11,7 @@ import type {
   KnowledgeDocument,
   KnowledgeDrilldown,
   KnowledgeFacets,
+  KnowledgeFacetValue,
   KnowledgeIndexJob,
   KnowledgeIndexJobState,
   KnowledgeIndexRequest,
@@ -519,6 +520,46 @@ export class SQLiteKnowledgeStore {
       clauses.push(`col.kind IN (${placeholders})`);
     }
 
+    if (query.facets) {
+      for (const [key, rawValue] of Object.entries(query.facets)) {
+        const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+        const filtered = values
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+        if (filtered.length === 0) continue;
+        const placeholders = filtered.map((value) => {
+          params.push(value);
+          return `?${params.length}`;
+        }).join(", ");
+        params.push(key);
+        clauses.push(`EXISTS (
+          SELECT 1 FROM facets f
+          WHERE f.collection_id = c.collection_id
+            AND (f.chunk_id = c.id OR f.chunk_id IS NULL)
+            AND f.key = ?${params.length}
+            AND f.value IN (${placeholders})
+        )`);
+      }
+    }
+
+    if (typeof query.sourceUpdatedAfterMs === "number" && Number.isFinite(query.sourceUpdatedAfterMs)) {
+      params.push(query.sourceUpdatedAfterMs);
+      clauses.push(`EXISTS (
+        SELECT 1 FROM source_refs sr
+        WHERE sr.chunk_id = c.id
+          AND CAST(json_extract(sr.ref_json, '$.anchor.mtimeMs') AS REAL) >= ?${params.length}
+      )`);
+    }
+
+    if (typeof query.sourceUpdatedBeforeMs === "number" && Number.isFinite(query.sourceUpdatedBeforeMs)) {
+      params.push(query.sourceUpdatedBeforeMs);
+      clauses.push(`EXISTS (
+        SELECT 1 FROM source_refs sr
+        WHERE sr.chunk_id = c.id
+          AND CAST(json_extract(sr.ref_json, '$.anchor.mtimeMs') AS REAL) <= ?${params.length}
+      )`);
+    }
+
     const sql = `
       SELECT
         c.*,
@@ -538,6 +579,33 @@ export class SQLiteKnowledgeStore {
     } catch {
       return [];
     }
+  }
+
+  listFacetValues(keys?: string[], limit?: number): KnowledgeFacetValue[] {
+    const params: SQLiteBinding[] = [];
+    const clauses: string[] = [];
+    const requestedKeys = keys
+      ?.map((key) => key.trim())
+      .filter((key) => key.length > 0);
+
+    if (requestedKeys?.length) {
+      const placeholders = requestedKeys.map((key) => {
+        params.push(key);
+        return `?${params.length}`;
+      }).join(", ");
+      clauses.push(`key IN (${placeholders})`);
+    }
+
+    const sql = `
+      SELECT key, value, COUNT(DISTINCT COALESCE(chunk_id, collection_id)) AS count
+      FROM facets
+      ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
+      GROUP BY key, value
+      ORDER BY key ASC, count DESC, value ASC
+      LIMIT ?${params.length + 1}`;
+    params.push(normalizedLimit(limit, 200, 1000));
+
+    return this.db.query(sql).all(...params) as KnowledgeFacetValue[];
   }
 
   createIndexJob(request: KnowledgeIndexRequest, id = `knowledge-job-${randomUUID()}`): KnowledgeIndexJob {

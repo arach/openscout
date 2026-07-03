@@ -298,7 +298,7 @@ export function ObservedTopologyPanel({
           </header>
         )}
         <div className="s-observed-topology-empty">
-          {failed ? "Topology is unavailable right now." : "No internal agent family observed yet."}
+          {failed ? "Topology is unavailable right now." : "No interacted agents observed yet."}
         </div>
       </section>
     );

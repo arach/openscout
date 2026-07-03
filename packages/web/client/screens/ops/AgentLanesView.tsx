@@ -12,6 +12,7 @@ import {
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { defineSurface } from "../../surfaces/types.ts";
@@ -43,6 +44,7 @@ import {
   DEFAULT_AGENT_LANE_HORIZON,
   isAgentLaneLive,
   lanePrimaryLabel,
+  laneStatusLabel,
   rosterIssuesFromTailDiscovery,
   shouldPollAgentForLaneObserve,
   sortLanesWithStableOrder,
@@ -63,6 +65,8 @@ import {
 } from "./lane-deck.ts";
 import { useLaneDeck } from "./useLaneDeck.ts";
 import { useLaneWidthResize } from "./useLaneWidthResize.ts";
+import { isLaneSyntheticAgent } from "./agent-lane-navigation.ts";
+import { publishLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts";
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 
@@ -387,6 +391,29 @@ export function AgentLanesView({
   );
   const visibleColumns = layout.flat;
   const pinnedCount = layout.pinnedLeft.length + layout.pinnedRight.length;
+
+  // Publish the roster the deck actually rendered — `layout.flat` is exactly the
+  // column order on screen (pinned-left → main → pinned-right, with hidden auto
+  // lanes and stable ordering already applied) — so the lanes-mode left rail can
+  // mirror the strip 1:1 instead of re-deriving a roster that drifts from it.
+  useEffect(() => {
+    const entries: LaneRosterEntry[] = visibleColumns.map((column) => {
+      const { lane } = column;
+      return {
+        id: lane.id,
+        label: lanePrimaryLabel(lane.agent, lane.source),
+        statusLabel: laneStatusLabel(lane.agent, lane.source),
+        tone: normalizeAgentState(lane.agent.state, lane.agent),
+        agentId: isLaneSyntheticAgent(lane.agent) ? undefined : lane.agent.id,
+        updatedAt: lane.lastActiveAt > 0 ? lane.lastActiveAt : undefined,
+      };
+    });
+    publishLaneRoster(entries);
+  }, [visibleColumns]);
+
+  // Clear on unmount so a stale roster doesn't linger for a rail that outlives
+  // the deck (or a next mount before the first publish).
+  useEffect(() => () => publishLaneRoster(null), []);
   const [traceSheetTarget, setTraceSheetTarget] = useState<LaneTraceSheetTarget | null>(null);
   const inspectLane = useCallback((lane: AgentLane) => {
     setInspectedLaneId(lane.id);

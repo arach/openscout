@@ -114,6 +114,53 @@ export type WorktreeIndexResponse = {
   status: KnowledgeStatus;
 };
 
+export type GuidedKnowledgeWindow = 2 | 3 | 7 | 21;
+export type GuidedKnowledgeHarness = "all" | "claude" | "codex";
+
+export type GuidedKnowledgeFilters = {
+  harness: GuidedKnowledgeHarness;
+  days: GuidedKnowledgeWindow;
+};
+
+export type GuidedKnowledgeSearch = {
+  q: string;
+  hits: KnowledgeHit[];
+};
+
+export type GuidedKnowledgeSessionSummary = {
+  collectionId: string;
+  title: string;
+  project: string;
+  harness: string;
+  sessionId: string | null;
+  hitCount: number;
+  matchedQueries: string[];
+  recordRanges: string[];
+  topSnippet: string;
+  confidence: "strong" | "possible" | "weak";
+  judgment: string;
+};
+
+export const GUIDED_KNOWLEDGE_WINDOWS: Array<{
+  days: GuidedKnowledgeWindow;
+  label: string;
+  limit: number;
+}> = [
+  { days: 2, label: "2d", limit: 200 },
+  { days: 3, label: "3d", limit: 260 },
+  { days: 7, label: "1w", limit: 520 },
+  { days: 21, label: "3w", limit: 1000 },
+];
+
+export const GUIDED_KNOWLEDGE_HARNESSES: Array<{
+  value: GuidedKnowledgeHarness;
+  label: string;
+}> = [
+  { value: "all", label: "All" },
+  { value: "claude", label: "Claude" },
+  { value: "codex", label: "Codex" },
+];
+
 export type KnowledgeSourcePreviewRecord = {
   index: number;
   raw: string;
@@ -210,6 +257,135 @@ export function queryTerms(query: string): string[] {
       return true;
     })
     .slice(0, 12);
+}
+
+function guidedText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function pushUnique(values: string[], value: string) {
+  const compact = guidedText(value);
+  if (!compact) return;
+  if (values.some((existing) => existing.toLowerCase() === compact.toLowerCase())) return;
+  values.push(compact);
+}
+
+function guidedWindow(days: GuidedKnowledgeWindow) {
+  return GUIDED_KNOWLEDGE_WINDOWS.find((window) => window.days === days) ?? GUIDED_KNOWLEDGE_WINDOWS[0]!;
+}
+
+export function guidedKnowledgeLimit(days: GuidedKnowledgeWindow): number {
+  return guidedWindow(days).limit;
+}
+
+export function guidedKnowledgeUpdatedAfterMs(days: GuidedKnowledgeWindow, now = Date.now()): number {
+  return now - days * 24 * 60 * 60 * 1000;
+}
+
+export function buildGuidedKnowledgeQueries(theme: string, objective: string): string[] {
+  const queries: string[] = [];
+  const cleanTheme = guidedText(theme);
+  const cleanObjective = guidedText(objective);
+  const objectiveTerms = queryTerms(cleanObjective).slice(0, 6);
+  const allTerms = queryTerms(`${cleanTheme} ${cleanObjective}`)
+    .filter((term) => !["about", "find", "into", "that", "this", "with"].includes(term.toLowerCase()));
+
+  pushUnique(queries, cleanTheme);
+  pushUnique(queries, objectiveTerms.join(" "));
+
+  for (let index = 0; index < allTerms.length - 1 && queries.length < 9; index += 1) {
+    pushUnique(queries, `${allTerms[index]} ${allTerms[index + 1]}`);
+  }
+  for (const term of allTerms) {
+    if (queries.length >= 10) break;
+    if (term.length >= 4 || term.includes("/") || term.includes("-")) {
+      pushUnique(queries, term);
+    }
+  }
+
+  return queries.slice(0, 10);
+}
+
+export function aggregateGuidedKnowledgeHits(
+  searches: GuidedKnowledgeSearch[],
+  limit = 30,
+): KnowledgeHit[] {
+  const scored = new Map<string, { hit: KnowledgeHit; score: number }>();
+  searches.forEach((search, searchIndex) => {
+    search.hits.forEach((hit, hitIndex) => {
+      const key = hit.chunkId;
+      const existing = scored.get(key) ?? { hit, score: 0 };
+      existing.score += Math.max(1, 32 - hitIndex) + (searchIndex === 0 ? 8 : 0);
+      scored.set(key, existing);
+    });
+  });
+  return [...scored.values()]
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.hit)
+    .slice(0, limit);
+}
+
+export function summarizeGuidedKnowledgeSessions(
+  searches: GuidedKnowledgeSearch[],
+  limit = 6,
+): GuidedKnowledgeSessionSummary[] {
+  const groups = new Map<string, {
+    hit: KnowledgeHit;
+    score: number;
+    queries: Set<string>;
+    ranges: Set<string>;
+    hitCount: number;
+  }>();
+
+  searches.forEach((search) => {
+    search.hits.forEach((hit, index) => {
+      const transcript = firstTranscriptRef(hit);
+      const key = hit.collectionId;
+      const group = groups.get(key) ?? {
+        hit,
+        score: 0,
+        queries: new Set<string>(),
+        ranges: new Set<string>(),
+        hitCount: 0,
+      };
+      group.score += Math.max(1, 24 - index);
+      group.hitCount += 1;
+      group.queries.add(search.q);
+      if (transcript?.recordRange) group.ranges.add(transcript.recordRange.join(".."));
+      groups.set(key, group);
+    });
+  });
+
+  return [...groups.values()]
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map((group) => {
+      const transcript = firstTranscriptRef(group.hit);
+      const queryCount = group.queries.size;
+      const confidence = queryCount >= 3 || group.hitCount >= 8
+        ? "strong"
+        : queryCount >= 2 || group.hitCount >= 3
+          ? "possible"
+          : "weak";
+      const judgment = confidence === "strong"
+        ? `Strong candidate: matched ${queryCount} query angles across ${group.hitCount} chunks.`
+        : confidence === "possible"
+          ? `Possible match: enough overlap to inspect before discarding.`
+          : `Weak match: one narrow overlap; treat as a near miss unless the preview confirms it.`;
+      return {
+        collectionId: group.hit.collectionId,
+        title: group.hit.title,
+        project: facetText(group.hit, "project"),
+        harness: facetText(group.hit, "harness"),
+        sessionId: transcriptSessionId(transcript),
+        hitCount: group.hitCount,
+        matchedQueries: [...group.queries].slice(0, 4),
+        recordRanges: [...group.ranges].slice(0, 4),
+        topSnippet: group.hit.snippet,
+        confidence,
+        judgment,
+      };
+    });
 }
 
 function escapeRegExp(value: string): string {

@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ObserveCacheEntry } from "../../lib/observe.ts";
 import type { Agent, FleetAsk, TailEvent } from "../../lib/types.ts";
 import {
   agentHasRecentTailActivity,
   buildHomeNativeMovingLanes,
+  dedupeWorkingAgentsByObservedSession,
   harnessTailSource,
   HOME_MOVING_CARD_LIMIT,
   HOME_MOVING_WINDOW_MS,
   homeMovingDisplayCounts,
   isHomeAgentMoving,
   isHomeObserveCandidate,
+  observedSessionKey,
 } from "./home-moving.ts";
 
 function agent(overrides: Partial<Agent> = {}): Agent {
@@ -149,7 +152,7 @@ describe("isHomeAgentMoving", () => {
     ).toBe(true);
   });
 
-  test("shows agents with recent tail activity for their workspace", () => {
+  test("shows agents with recent tail activity for their session", () => {
     const tailEvents: TailEvent[] = [{
       id: "tail-1",
       ts: nowMs - 60_000,
@@ -164,11 +167,33 @@ describe("isHomeAgentMoving", () => {
 
     expect(
       isHomeAgentMoving({
-        agent: agent({ state: "available" }),
+        agent: agent({ state: "available", harnessSessionId: "sess-1" }),
         tailEvents,
         nowMs,
       }),
     ).toBe(true);
+  });
+
+  test("hides callable agents with only broad workspace tail activity", () => {
+    const tailEvents: TailEvent[] = [{
+      id: "tail-1",
+      ts: nowMs - 60_000,
+      kind: "tool-call",
+      source: "codex",
+      harness: "codex",
+      project: "openscout",
+      cwd: "/Users/dev/openscout",
+      sessionId: "other-session",
+      summary: "grep home-moving",
+    }];
+
+    expect(
+      isHomeAgentMoving({
+        agent: agent({ state: "available" }),
+        tailEvents,
+        nowMs,
+      }),
+    ).toBe(false);
   });
 
   test("hides idle callable agents without observe or tail signal", () => {
@@ -204,7 +229,7 @@ describe("isHomeAgentMoving", () => {
 });
 
 describe("agentHasRecentTailActivity", () => {
-  test("matches project and cwd context for the same harness family", () => {
+  test("requires a concrete session match for managed agent tail activity", () => {
     const nowMs = Date.parse("2026-06-30T12:00:00.000Z");
     const events: TailEvent[] = [{
       id: "tail-1",
@@ -219,8 +244,22 @@ describe("agentHasRecentTailActivity", () => {
     }];
 
     expect(
-      agentHasRecentTailActivity(agent({ harness: "codex" }), events, nowMs),
+      agentHasRecentTailActivity(
+        agent({ harness: "codex", harnessSessionId: "tail-1" }),
+        events,
+        nowMs,
+      ),
+    ).toBe(false);
+    expect(
+      agentHasRecentTailActivity(
+        agent({ harness: "codex", harnessSessionId: "other-session" }),
+        events,
+        nowMs,
+      ),
     ).toBe(true);
+    expect(
+      agentHasRecentTailActivity(agent({ harness: "codex" }), events, nowMs),
+    ).toBe(false);
   });
 
   test("ignores tail events when the agent harness is unknown", () => {
@@ -280,6 +319,74 @@ describe("agentHasRecentTailActivity", () => {
         nowMs,
       ),
     ).toBe(true);
+  });
+});
+
+function observeEntry(overrides: Partial<ObserveCacheEntry> = {}): ObserveCacheEntry {
+  return {
+    source: "history",
+    fidelity: "timestamped",
+    historyPath: "/Users/art/.claude/projects/openscout/sess-a.jsonl",
+    sessionId: "sess-a",
+    updatedAt: Date.now(),
+    data: { events: [], files: [] },
+    ...overrides,
+  };
+}
+
+describe("observedSessionKey", () => {
+  test("prefers the payload session id, falls back to history path", () => {
+    expect(observedSessionKey(observeEntry())).toBe("session:sess-a");
+    expect(
+      observedSessionKey(observeEntry({ sessionId: null })),
+    ).toBe("history:/Users/art/.claude/projects/openscout/sess-a.jsonl");
+    expect(observedSessionKey(observeEntry({ sessionId: null, historyPath: null }))).toBeNull();
+    expect(observedSessionKey(undefined)).toBeNull();
+  });
+});
+
+describe("dedupeWorkingAgentsByObservedSession", () => {
+  test("collapses agents that resolved to the same discovered session", () => {
+    const echoOne = agent({ id: "echo-1", name: "Pages Tail" });
+    const echoTwo = agent({ id: "echo-2", name: "Openscout Card M" });
+    const owner = agent({ id: "owner", name: "Claude 3e0048e9", harnessSessionId: "sess-a" });
+    const cache = {
+      "echo-1": observeEntry(),
+      "echo-2": observeEntry(),
+      owner: observeEntry(),
+    };
+
+    expect(
+      dedupeWorkingAgentsByObservedSession([echoOne, echoTwo, owner], cache),
+    ).toEqual([owner]);
+  });
+
+  test("keeps the first (most recent) agent when nobody owns the session", () => {
+    const first = agent({ id: "first" });
+    const second = agent({ id: "second" });
+    const cache = {
+      first: observeEntry(),
+      second: observeEntry(),
+    };
+
+    expect(dedupeWorkingAgentsByObservedSession([first, second], cache)).toEqual([first]);
+  });
+
+  test("passes through agents with distinct or missing observed sessions", () => {
+    const distinct = agent({ id: "distinct" });
+    const unobserved = agent({ id: "unobserved" });
+    const other = agent({ id: "other" });
+    const cache = {
+      distinct: observeEntry(),
+      other: observeEntry({
+        sessionId: "sess-b",
+        historyPath: "/Users/art/.claude/projects/openscout/sess-b.jsonl",
+      }),
+    };
+
+    expect(
+      dedupeWorkingAgentsByObservedSession([distinct, unobserved, other], cache),
+    ).toEqual([distinct, unobserved, other]);
   });
 });
 

@@ -146,11 +146,14 @@ export function parseScopeRouteFromUrl(
   }
 }
 
+const NON_STICKY_QUERY_PARAMS = new Set(["select"]);
+
 /** Keep URL query params (flags, layout, etc.) when rewriting to a scope path. */
 export function preserveLocationSearch(path: string, search = ""): string {
   const target = new URL(path, "http://scout.local");
   const current = new URLSearchParams(search);
   current.forEach((value, key) => {
+    if (NON_STICKY_QUERY_PARAMS.has(key)) return;
     if (!target.searchParams.has(key)) {
       target.searchParams.set(key, value);
     }

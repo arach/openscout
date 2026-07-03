@@ -3,7 +3,7 @@ import type { Route } from "../lib/types.ts";
 import type { useScout } from "../scout/Provider.tsx";
 import { ActivityContent } from "./activity/index.ts";
 import { AgentsContent, AgentsLeft, AgentsRight } from "./agents/index.ts";
-import { ProjectsBrowse, ProjectsDetail, ProjectsScreen } from "./projects/index.ts";
+import { ProjectsRail, ProjectsScreen, ProjectsThreadAside } from "./projects/index.ts";
 import { BriefingsContent } from "./briefings/index.ts";
 import { BrokerContent } from "./broker/index.ts";
 import { ChatContent, ChatLeft, ChatRight } from "./chat/index.ts";
@@ -15,6 +15,7 @@ import { OpsContent, OpsLeft } from "./ops/index.ts";
 import { ReposContent, ReposRight } from "./repos/index.ts";
 import { SearchContent, SearchRight } from "./search/index.ts";
 import { SessionsContent, SessionsRight } from "./sessions/index.ts";
+import { SessionRefContextRail } from "./sessions/SessionRefScreen.tsx";
 import { SettingsContent } from "./settings/index.ts";
 import { TerminalContent, TerminalLeft, TerminalRight } from "./terminal/index.ts";
 import { WorkContent, WorkRight } from "./work/index.ts";
@@ -27,7 +28,7 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
     case "ops":
       return <OpsLeft />;
     case "agents-v2":
-      return <ProjectsBrowse route={route} navigate={navigate} />;
+      return <ProjectsRail route={route} navigate={navigate} />;
     case "agents":
     case "agent-info":
       return <AgentsLeft />;
@@ -105,10 +106,16 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
     case "fleet":
       return <HomeRight />;
     case "agents-v2": {
-      if (!route.agentId) {
-        return <ProjectsDetail route={route} navigate={navigate} />;
+      if (route.sessionId) {
+        return <SessionRefContextRail sessionRef={route.sessionId} />;
       }
-      // Hybrid (agent-profile-rebalance): center = sessions spine + inline summary;
+      if (!route.agentId) {
+        // Index mode: the thread aside earns its place — null until engaged.
+        return route.selectedAgentId && !route.sessionId
+          ? <ProjectsThreadAside route={route} navigate={navigate} />
+          : null;
+      }
+      // Profile (agent-profile-rebalance): center = sessions spine + inline summary;
       // right rail = session snapshot, files, transcript tail, Observe/Take over.
       return <AgentsRight />;
     }

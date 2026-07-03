@@ -478,7 +478,7 @@ export function KnowledgeSearchInspector() {
           <div className="ks-preview-head">
             <div>
               <span className="ks-panel-eyebrow">Indexer</span>
-              <h2>Three-day session pipeline</h2>
+              <h2>Session knowledge indexer</h2>
             </div>
             <button type="button" aria-label="Refresh index status" onClick={() => void refreshStatus()}>
               <RefreshCw size={14} aria-hidden="true" />
@@ -486,17 +486,17 @@ export function KnowledgeSearchInspector() {
           </div>
 
           <div className="ks-indexer-actions">
-            <button type="button" className="ks-primary-button" onClick={() => void buildIndex(false)} disabled={indexing}>
+            <button type="button" className="ks-icon-button" onClick={() => void buildIndex(false)} disabled={indexing}>
               {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <Database size={14} aria-hidden="true" />}
-              Build 3-day index
+              Refresh 3d
             </button>
-            <button type="button" className="ks-primary-button" onClick={() => void buildWorktreeIndex(true)} disabled={indexing}>
+            <button type="button" className="ks-icon-button" onClick={() => void buildWorktreeIndex(true)} disabled={indexing}>
               {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <FileJson size={14} aria-hidden="true" />}
-              Index worktree diffs
+              Diffs
             </button>
             <button type="button" className="ks-icon-button" onClick={() => void buildIndex(true)} disabled={indexing}>
               <RefreshCw size={14} aria-hidden="true" />
-              Rebuild
+              Rebuild 3d
             </button>
           </div>
 
@@ -515,7 +515,7 @@ export function KnowledgeSearchInspector() {
               <strong>Manual refresh</strong>
             </div>
             <div>
-              <span>Window</span>
+              <span>Default window</span>
               <strong>Last 3 days, up to 260 sessions</strong>
             </div>
             <div>

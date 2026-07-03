@@ -178,7 +178,12 @@ private enum ScoutEndpointResolver {
 
     static func brokerURLFromHostInfo() -> URL? {
         guard let info = readHostInfo() else { return nil }
-        return urlFromHostInfo(
+        // The broker URL can be a mesh advertisement. Local macOS clients should
+        // use the listener endpoint from the service snapshot when it is present.
+        return localServiceURLFromHostInfo(
+            service: info.services?.broker,
+            port: info.ports?.broker
+        ) ?? urlFromHostInfo(
             explicitURL: info.brokerUrl,
             service: info.services?.broker,
             port: info.ports?.broker
@@ -235,6 +240,23 @@ private enum ScoutEndpointResolver {
             return url
         }
 
+        if let servicePort = service?.port,
+           let url = httpURL(host: service?.host, port: servicePort) {
+            return url
+        }
+
+        if let port,
+           let url = httpURL(host: service?.host, port: port) {
+            return url
+        }
+
+        return nil
+    }
+
+    private static func localServiceURLFromHostInfo(
+        service: OpenScoutHostInfo.Service?,
+        port: Int?
+    ) -> URL? {
         if let servicePort = service?.port,
            let url = httpURL(host: service?.host, port: servicePort) {
             return url

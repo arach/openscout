@@ -173,18 +173,39 @@ function slugHash(value: string): string {
   return (h >>> 0).toString(36);
 }
 
+function preferredCleanSlugRank(slice: { key: string; root?: string | null }): number {
+  const root = slice.root ?? "";
+  if (!root) return 4;
+  if (isTemporaryProjectRoot(root)) return 3;
+  if (root.startsWith("~/dev/") || /^\/Users\/[^/]+\/dev\//.test(root)) return 0;
+  if (root.startsWith("~/")) return 1;
+  return 2;
+}
+
+function compareCleanSlugCandidate<T extends { key: string; root?: string | null }>(a: T, b: T): number {
+  return preferredCleanSlugRank(a) - preferredCleanSlugRank(b) || a.key.localeCompare(b.key);
+}
+
 // Guarantee the URL slug is injective per canonical project: two distinct roots
-// that share a basename ("…/dev/talkie" vs "…/work/talkie") must not collapse to
-// one slug. Unique basenames keep their clean one-word slug; only the colliding
-// ones get a short stable hash of their identity key appended. Same exact project
-// → same slug; different path → different slug.
-export function disambiguateProjectSlugs<T extends { slug: string; key: string }>(
+// that share a basename (".../dev/talkie" vs ".../work/talkie") must not collapse
+// to one slug. Unique basenames keep their clean one-word slug. On collisions,
+// the best human-facing candidate keeps the clean slug and only the remaining
+// colliders get a short stable hash discriminator.
+export function disambiguateProjectSlugs<T extends { slug: string; key: string; root?: string | null }>(
   slices: T[],
 ): void {
-  const counts = new Map<string, number>();
-  for (const s of slices) counts.set(s.slug, (counts.get(s.slug) ?? 0) + 1);
+  const groups = new Map<string, T[]>();
   for (const s of slices) {
-    if ((counts.get(s.slug) ?? 0) > 1) s.slug = `${s.slug}-${slugHash(s.key)}`;
+    const group = groups.get(s.slug) ?? [];
+    group.push(s);
+    groups.set(s.slug, group);
+  }
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+    const primary = [...group].sort(compareCleanSlugCandidate)[0];
+    for (const s of group) {
+      if (s !== primary) s.slug = `${s.slug}-${slugHash(s.key)}`;
+    }
   }
 }
 
@@ -196,7 +217,13 @@ export function projectKeyFrom(root: string | null, title: string): string {
 }
 
 export function isTemporaryProjectRoot(root: string | null): boolean {
-  return Boolean(root?.startsWith("/tmp/"));
+  return Boolean(
+    root?.startsWith("/tmp/") ||
+    root?.startsWith("/private/tmp/") ||
+    root?.startsWith("/var/tmp/") ||
+    root?.startsWith("/private/var/tmp/") ||
+    /^\/(?:private\/)?var\/folders\/[^/]+\/[^/]+\/T\//.test(root ?? ""),
+  );
 }
 
 export function projectIdentity(title: string | null | undefined, root: string | null | undefined): ProjectIdentity {

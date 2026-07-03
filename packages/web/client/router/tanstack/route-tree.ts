@@ -16,7 +16,14 @@ const rootRoute = createRootRoute({
   component: ScoutAppRoot,
   beforeLoad: ({ location }) => {
     const pathname = canonicalizeScopePathname(location.pathname);
-    if (pathname !== location.pathname) {
+    // Only redirect for a *meaningful* rewrite (legacy /scout → /scope). A pure
+    // trailing-slash strip must NOT redirect here: the app's own canonicalizer in
+    // lib/router.ts already normalizes trailing slashes, and firing a second
+    // redirect from beforeLoad races it — the two ping-pong synchronously and
+    // wedge the renderer at 100% CPU (any /foo/ entry, e.g. /projects/, /fleet/).
+    // Compare slash-agnostically so beforeLoad stays out of the trailing-slash game.
+    const currentTrimmed = location.pathname.replace(/\/+$/u, "") || "/";
+    if (pathname !== currentTrimmed) {
       throw redirect({
         href: `${pathname}${location.searchStr}${location.hash ? `#${location.hash}` : ""}`,
       });

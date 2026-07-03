@@ -1,11 +1,11 @@
-import { useMemo, type KeyboardEvent, type MouseEvent } from "react";
+import { useMemo, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { isAgentBusy } from "../../lib/agent-state.ts";
 import { formatLabel } from "../../lib/text.ts";
 import { normalizeTimestampMs } from "../../lib/time.ts";
-import type { Agent, FleetAsk, ObserveData, Route } from "../../lib/types.ts";
+import type { Agent, FleetAsk, ObserveData, ObservePulse, Route } from "../../lib/types.ts";
 import {
   homeCardPeekEnabled,
   homeCardRoute,
@@ -191,6 +191,90 @@ function showActivityDetail(layout: HomeMovingLayout, hasDetail: boolean): boole
   return layout === "spotlight" || layout === "duo";
 }
 
+function sparklineDims(layout: HomeMovingLayout): { w: number; h: number } {
+  switch (layout) {
+    case "spotlight": return { w: 96, h: 20 };
+    case "duo": return { w: 88, h: 20 };
+    case "strip": return { w: 72, h: 18 };
+    case "dense": return { w: 64, h: 16 };
+  }
+}
+
+/**
+ * Aggregate a fine-grained pulse into `target` contiguous bars (summing each
+ * group, newest on the right). Keeping bars few and wide guarantees a visible
+ * gap between them, so a flat-out session degrades to a legible equalizer comb
+ * instead of one merged block.
+ */
+function downsamplePulse(counts: number[], target: number): number[] {
+  if (counts.length <= target) return counts;
+  const out = new Array<number>(target).fill(0);
+  for (let index = 0; index < counts.length; index += 1) {
+    const bucket = Math.min(target - 1, Math.floor((index / counts.length) * target));
+    out[bucket] += counts[index]!;
+  }
+  return out;
+}
+
+/**
+ * A tiny inline activity chart: the observe pulse (per-bucket event density)
+ * drawn as flat-topped accent bars with a clear gap. Bars share one quiet
+ * opacity (only the most recent is accented, to hint "now"), so at flat-max the
+ * chart degrades to a legible equalizer comb, never a solid rounded pill —
+ * dimming the older bars, by contrast, let a thin gap blur them into a block.
+ * Single accent, no axes, no labels. Returns null when there's nothing worth
+ * showing so the card never renders a dead chart.
+ */
+function ActivitySparkline({
+  pulse,
+  layout,
+}: {
+  pulse: ObservePulse;
+  layout: HomeMovingLayout;
+}) {
+  const { w, h } = sparklineDims(layout);
+  // Few, wide bars: target ~8px per slot so the 2px gap always reads as a gap.
+  const bars = downsamplePulse(pulse.counts, Math.max(5, Math.round(w / 8)));
+  const peak = bars.length > 0 ? Math.max(...bars) : 0;
+  if (peak <= 0 || bars.length < 2) return null;
+
+  const gap = 2;
+  const slot = w / bars.length;
+  const barW = Math.max(1.5, slot - gap);
+  const minBar = 2; // a nonzero bucket always shows a visible tick
+  const maxBar = h - 1; // a hair of headroom so peaks never slam the top edge
+  const last = bars.length - 1;
+
+  return (
+    /* Fixed px inline so no flex negotiation can collapse the chart. */
+    <span
+      className="s-now-card-pulse"
+      style={{ width: w, height: h }}
+      title="activity · last 30m"
+      aria-hidden="true"
+    >
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+        {bars.map((count, index) => {
+          if (count <= 0) return null;
+          const barH = Math.min(maxBar, Math.max(minBar, (count / peak) * maxBar));
+          const x = index * slot + (slot - barW) / 2;
+          return (
+            <rect
+              key={index}
+              x={x.toFixed(2)}
+              y={(h - barH).toFixed(2)}
+              width={barW.toFixed(2)}
+              height={barH.toFixed(2)}
+              fill="var(--accent)"
+              fillOpacity={index === last ? "0.95" : "0.62"}
+            />
+          );
+        })}
+      </svg>
+    </span>
+  );
+}
+
 export function NowCard({
   agent,
   ask,
@@ -200,6 +284,8 @@ export function NowCard({
   layout,
   nowMs,
   navigate,
+  enter = false,
+  enterIndex = 0,
 }: {
   agent: Agent;
   ask?: FleetAsk | null;
@@ -209,6 +295,10 @@ export function NowCard({
   layout: HomeMovingLayout;
   nowMs: number;
   navigate: (r: Route) => void;
+  /** Play the one-time entrance animation (first appearance of this unit). */
+  enter?: boolean;
+  /** Stagger position; drives `--enter-delay`. Caller caps this. */
+  enterIndex?: number;
 }) {
   const card = buildAgentWorkingCardData(agent, ask, observeLive);
   const laneModel = useMemo(
@@ -226,6 +316,10 @@ export function NowCard({
   const sessionLabel = compactSessionId(context?.sessionId ?? agent.harnessSessionId);
   const contextPct = laneModel.context ?? context?.contextPct ?? null;
   const machineLabel = compactNode(agent.homeNodeName ?? agent.nodeQualifier);
+  const sessionStart = normalizeTimestampMs(observeData?.metadata?.session?.sessionStart);
+  const uptimeLabel = sessionStart !== null ? formatAge(sessionStart, nowMs) : null;
+  const pulse = observeData?.pulse ?? null;
+  const showPulse = Boolean(pulse && pulse.counts.some((count) => count > 0));
   const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
   const actionLine = liveActionSummary({
     observeData,
@@ -259,7 +353,12 @@ export function NowCard({
       tone: contextPct >= 80 ? "warn" : "work",
     });
   }
-  if (sessionLabel) tiles.push({ key: "session", label: "session", value: sessionLabel });
+  if (uptimeLabel) {
+    tiles.push({ key: "uptime", label: "uptime", value: uptimeLabel, tone: "work" });
+  }
+  /* The session id is the one variable-width fact; in dense rows it breaks
+     the fixed metrics column, so it stays on the wider layouts only. */
+  if (sessionLabel && !dense) tiles.push({ key: "session", label: "session", value: sessionLabel });
   if (machineLabel && !dense) tiles.push({ key: "machine", label: "machine", value: machineLabel });
 
   const defaultRoute = homeCardRoute(agent, "observe");
@@ -271,7 +370,8 @@ export function NowCard({
 
   return (
     <article
-      className={`s-now-card s-now-card--${tone} s-now-card--layout-${layout}`}
+      className={`s-now-card s-now-card--${tone} s-now-card--layout-${layout}${enter ? " s-now-card--enter" : ""}`}
+      style={enter ? ({ "--enter-delay": `${enterIndex * 45}ms` } as CSSProperties) : undefined}
       onClick={() => navigate(defaultRoute)}
       onKeyDown={(event) => handleCardKey(event, () => navigate(defaultRoute))}
       role="button"
@@ -341,6 +441,12 @@ export function NowCard({
         </div>
       ) : null}
 
+      {dense && showPulse && pulse ? (
+        <div className="s-now-card-pulse-cell">
+          <ActivitySparkline pulse={pulse} layout={layout} />
+        </div>
+      ) : null}
+
       {showDetail ? (
         <div className="s-now-card-detail" onClick={stopCardClick}>
           <div className="s-now-card-nanos">
@@ -360,6 +466,11 @@ export function NowCard({
             ) : (
               <span className="s-now-card-nanos-empty">no tool activity yet</span>
             )}
+            {/* Sparkline first: `.s-now-card-ctx` right-anchors with an auto
+                margin, so anything after it gets crushed against the edge. */}
+            {showPulse && pulse ? (
+              <ActivitySparkline pulse={pulse} layout={layout} />
+            ) : null}
             {contextPct !== null ? (
               <span
                 className="s-now-card-ctx"
@@ -389,6 +500,9 @@ export function NowCard({
         </div>
       ) : (
         <div className="s-now-card-metrics s-now-card-metrics--inline" aria-label={`${card.agentName} signals`}>
+          {strip && showPulse && pulse ? (
+            <ActivitySparkline pulse={pulse} layout={layout} />
+          ) : null}
           {tiles.map((tile) => (
             <span key={tile.key} className={`s-now-card-metric-inline s-now-card-metric-inline--${tile.tone ?? "dim"}`}>
               {tile.value}

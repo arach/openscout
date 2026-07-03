@@ -108,14 +108,24 @@ describe("projectIdentity slug", () => {
 });
 
 describe("disambiguateProjectSlugs", () => {
-  test("same basename, different roots → distinct slugs (no aliasing)", () => {
+  test("same basename, different roots stay distinct while the preferred project keeps the clean slug", () => {
     const a = projectIdentity("Talkie", "/Users/art/dev/talkie");
     const b = projectIdentity("Talkie", "/Users/art/work/talkie");
     expect(a.slug).toBe(b.slug); // both bare "talkie" before disambiguation
     disambiguateProjectSlugs([a, b]);
     expect(a.slug).not.toBe(b.slug);
-    expect(a.slug.startsWith("talkie-")).toBe(true);
+    expect(a.slug).toBe("talkie");
     expect(b.slug.startsWith("talkie-")).toBe(true);
+  });
+  test("macOS temp-project collisions do not force the real checkout onto a noisy route", () => {
+    const primary = projectIdentity("Openscout", "/Users/art/dev/openscout");
+    const temp = projectIdentity(
+      "Openscout",
+      "/var/folders/gq/hhq6lhks2dn7_s4j_f25hj040000gn/T/openscout-runtime-test-iKqB29/projects/openscout",
+    );
+    disambiguateProjectSlugs([primary, temp]);
+    expect(primary.slug).toBe("openscout");
+    expect(temp.slug).toMatch(/^openscout-/);
   });
   test("unique basename keeps its clean one-word slug", () => {
     const a = projectIdentity("Talkie", "/Users/art/dev/talkie");

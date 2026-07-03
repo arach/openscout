@@ -181,8 +181,8 @@ html,
 body,
 #root {
   min-height: 100%;
-  background: var(--bg, #050605);
-  color: var(--ink, #f3f4ee);
+  background: var(--bg, oklch(0.132 0.004 260));
+  color: var(--ink, oklch(0.965 0.006 260));
 }
 
 body { margin: 0; }

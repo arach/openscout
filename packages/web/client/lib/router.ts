@@ -256,6 +256,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const agentTab = parseAgentTab(url.searchParams.get("tab"))
     ?? (messageHashId ? "message" : undefined);
   const agentProjectSlug = url.searchParams.get("project")?.trim() || undefined;
+  const sessionAgentId = url.searchParams.get("agentId")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
@@ -450,7 +451,11 @@ export function routeFromUrl(urlLike: string | URL): Route {
     });
   }
   if (parts[0] === "sessions" && parts[1]) {
-    return scoped({ view: "sessions", sessionId: decodeURIComponent(parts[1]) });
+    return scoped({
+      view: "sessions",
+      sessionId: decodeURIComponent(parts[1]),
+      ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
+    });
   }
   if (parts[0] === "conversations") return scoped({ view: "conversations" });
   if (parts[0] === "messages") {
@@ -464,7 +469,12 @@ export function routeFromUrl(urlLike: string | URL): Route {
     };
     return scoped(base);
   }
-  if (parts[0] === "sessions") return scoped({ view: "sessions" });
+  if (parts[0] === "sessions") {
+    return scoped({
+      view: "sessions",
+      ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
+    });
+  }
   if (parts[0] === "repos") return scoped({ view: "repos" });
   if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
@@ -664,7 +674,7 @@ export function routePath(r: Route, pathname?: string): string {
       if (!r.projectSlug && r.indexView && r.indexView !== "agents") params.set("view", r.indexView);
       if (r.stateFilter) params.set("state", r.stateFilter);
       if (r.showEphemeral) params.set("ephemeral", "1");
-      if (r.selectedAgentId && !r.agentId) params.set("select", r.selectedAgentId);
+      if (r.selectedAgentId && !r.agentId && !r.sessionId) params.set("select", r.selectedAgentId);
       const defaultTab = r.conversationId ? "message" : "profile";
       if (r.agentId && r.tab && r.tab !== defaultTab) params.set("tab", r.tab);
       appendMachineScope(params, r);
@@ -708,15 +718,15 @@ export function routePath(r: Route, pathname?: string): string {
         : "/messages";
       return `${base}${searchSuffix(params)}`;
     }
-    case "sessions":
-      return pathWithMachineScope(
-        r.agentId && r.sessionId
-          ? `/agents/${encodeURIComponent(r.agentId)}/sessions/${encodeURIComponent(r.sessionId)}`
-          : r.sessionId
-          ? `/sessions/${encodeURIComponent(r.sessionId)}`
-          : "/sessions",
-        r,
-      );
+    case "sessions": {
+      const params = new URLSearchParams();
+      if (r.agentId) params.set("agentId", r.agentId);
+      appendMachineScope(params, r);
+      const path = r.sessionId
+        ? `/sessions/${encodeURIComponent(r.sessionId)}`
+        : "/sessions";
+      return `${path}${searchSuffix(params)}`;
+    }
     case "repos":
       return pathWithMachineScope("/repos", r);
     case "harnesses":
@@ -959,16 +969,21 @@ function useBrowserLocationState(): BrowserLocationState {
 
 function navigateBrowser(href: string, replace = false): void {
   if (typeof window === "undefined") return;
+  const emitLocationChange = () => window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
   if (scoutNavigationAdapter) {
-    // TanStack owns history: pushing through it keeps the router store in sync
-    // without the synthetic popstate broadcast this used to need.
     scoutNavigationAdapter(href, replace);
+    // TanStack's history push can update window.location after this call stack.
+    // The Scout route model still reads window.location, so notify it after the
+    // browser has had a chance to apply the new URL.
+    window.queueMicrotask(emitLocationChange);
+    window.requestAnimationFrame(emitLocationChange);
+    return;
   } else if (replace) {
     window.history.replaceState(window.history.state, "", href);
   } else {
     window.history.pushState(window.history.state, "", href);
   }
-  window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
+  emitLocationChange();
 }
 
 function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
