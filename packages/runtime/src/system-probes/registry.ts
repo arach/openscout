@@ -114,6 +114,7 @@ type ProbeState<T> = {
   inFlight: Promise<void> | null;
   invalidated: boolean;
   invalidationReason: string | null;
+  invalidationSerial: number;
   nextRetryAt: number;
   backend: ProbeBackend;
   fallbackSince: number | null;
@@ -269,6 +270,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     inFlight: null,
     invalidated: false,
     invalidationReason: null,
+    invalidationSerial: 0,
     nextRetryAt: 0,
     backend: "local",
     fallbackSince: null,
@@ -311,10 +313,18 @@ class ProbeInstance<T> implements ProbeHandle<T> {
   async fresh(options: ProbeFreshOptions = {}): Promise<ProbeSnapshot<T>> {
     this.touch();
     const maxAgeMs = options.maxAgeMs ?? this.spec.ttlMs;
-    if (isFreshEnough(this.state, maxAgeMs)) {
-      return this.snapshot();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (isFreshEnough(this.state, maxAgeMs)) {
+        return this.snapshot();
+      }
+      await this.ensureRefresh(true, maxAgeMs);
+      // If a side effect invalidated the probe while the awaited run was already
+      // in flight, that run may have observed pre-side-effect state. Loop once
+      // more so fresh() blocks on a post-invalidation run.
+      if (!this.state.invalidated) {
+        return this.snapshot();
+      }
     }
-    await this.ensureRefresh(true, maxAgeMs);
     return this.snapshot();
   }
 
@@ -358,6 +368,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     this.touch();
     this.state.invalidated = true;
     this.state.invalidationReason = reason ?? null;
+    this.state.invalidationSerial += 1;
     this.state.nextRetryAt = 0;
   }
 
@@ -415,6 +426,9 @@ class ProbeInstance<T> implements ProbeHandle<T> {
 
   private async executeRun(maxAgeMs: number): Promise<void> {
     const startedAt = Date.now();
+    // Used to detect invalidate() calls that happen while this run is in flight.
+    // Such runs must not clear the invalidation they did not observe.
+    const invalidationSerialAtStart = this.state.invalidationSerial;
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | null = null;
     this.metricState.runCount += 1;
@@ -448,8 +462,10 @@ class ProbeInstance<T> implements ProbeHandle<T> {
       this.state.at = output.generatedAt ?? Date.now();
       this.state.error = null;
       this.state.consecutiveFailures = 0;
-      this.state.invalidated = false;
-      this.state.invalidationReason = null;
+      if (this.state.invalidationSerial === invalidationSerialAtStart) {
+        this.state.invalidated = false;
+        this.state.invalidationReason = null;
+      }
       this.state.nextRetryAt = 0;
       this.state.backend = output.backend;
       this.state.fallbackSince = output.fallbackSince ?? null;
