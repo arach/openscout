@@ -15,6 +15,16 @@
       "bun": "./src/client.ts",
       "default": "./dist/client.js"
     },
+    "./adapters/acp": {
+      "types": "./src/adapters/acp/index.ts",
+      "bun": "./src/adapters/acp/index.ts",
+      "default": "./dist/adapters/acp/index.js"
+    },
+    "./adapters/claude-code": {
+      "types": "./src/adapters/claude-code/index.ts",
+      "bun": "./src/adapters/claude-code/index.ts",
+      "default": "./dist/adapters/claude-code/index.js"
+    },
     "./adapters/claude-code/team-topology": {
       "types": "./src/adapters/claude-code/team-topology.ts",
       "bun": "./src/adapters/claude-code/team-topology.ts",
@@ -25,10 +35,40 @@
       "bun": "./src/adapters/claude-code/workflow-topology.ts",
       "default": "./dist/adapters/claude-code/workflow-topology.js"
     },
+    "./adapters/codex": {
+      "types": "./src/adapters/codex/index.ts",
+      "bun": "./src/adapters/codex/index.ts",
+      "default": "./dist/adapters/codex/index.js"
+    },
     "./adapters/codex/topology": {
       "types": "./src/adapters/codex/topology.ts",
       "bun": "./src/adapters/codex/topology.ts",
       "default": "./dist/adapters/codex/topology.js"
+    },
+    "./adapters/echo": {
+      "types": "./src/adapters/echo/index.ts",
+      "bun": "./src/adapters/echo/index.ts",
+      "default": "./dist/adapters/echo/index.js"
+    },
+    "./adapters/grok-acp": {
+      "types": "./src/adapters/grok-acp/index.ts",
+      "bun": "./src/adapters/grok-acp/index.ts",
+      "default": "./dist/adapters/grok-acp/index.js"
+    },
+    "./adapters/openai-compat": {
+      "types": "./src/adapters/openai-compat/index.ts",
+      "bun": "./src/adapters/openai-compat/index.ts",
+      "default": "./dist/adapters/openai-compat/index.js"
+    },
+    "./adapters/opencode": {
+      "types": "./src/adapters/opencode/index.ts",
+      "bun": "./src/adapters/opencode/index.ts",
+      "default": "./dist/adapters/opencode/index.js"
+    },
+    "./adapters/pi": {
+      "types": "./src/adapters/pi/index.ts",
+      "bun": "./src/adapters/pi/index.ts",
+      "default": "./dist/adapters/pi/index.js"
     },
     "./codex-executable": {
       "types": "./src/codex-executable.ts",

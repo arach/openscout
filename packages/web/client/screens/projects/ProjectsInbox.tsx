@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { ArrowRight, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
+import { api } from "../../lib/api.ts";
 import { formatClockTimestamp, formatDurationClock, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
 import type { ObserveData, Route } from "../../lib/types.ts";
+import { useScout } from "../../scout/Provider.tsx";
+import { pathLeaf } from "../agents/model.ts";
 import { SessionRefScreen, type SessionRefLookup } from "../sessions/SessionRefScreen.tsx";
 import { shortHomePath } from "./project-overview-helpers.ts";
-import { useProjectsInbox, useProjectsInboxView } from "./useProjectsInbox.ts";
+import { refreshProjectsInbox, useProjectsInbox, useProjectsInboxView } from "./useProjectsInbox.ts";
 import {
   filterThreadsForView,
   groupItems,
@@ -16,14 +20,32 @@ import {
   sessionsForProject,
   threadOpenRoute,
   threadSelectRoute,
+  type InboxProject,
   type InboxSession,
-  threadsForProject,
   type InboxThread,
   type ProjectsInboxModel,
+  threadsForProject,
 } from "./projects-inbox-model.ts";
 import "./projects-inbox.css";
 
 type Navigate = (route: Route) => void;
+type ProjectHarness = "claude" | "codex";
+
+type ProjectPickOption = {
+  slug: string;
+  title: string;
+  root: string | null;
+  agentCount: number;
+  sessionCount: number;
+  lastActivityAt: number;
+};
+
+const ZERO_COUNTS = {
+  needs: 0,
+  working: 0,
+  recent: 0,
+  everything: 0,
+};
 
 function ThreadRow({
   thread,
@@ -249,6 +271,326 @@ function digestLine(needs: number, working: number, total: number): ReactNode {
   }, []);
 }
 
+function ProjectZeroComposer({
+  route,
+  navigate,
+  projects,
+}: {
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+  projects: InboxProject[];
+}) {
+  const { onboarding, refreshOnboarding, reload } = useScout();
+  const currentDefaultHarness = defaultHarnessOf(onboarding?.defaultHarness);
+  const [draft, setDraft] = useState("");
+  const [selectedSlug, setSelectedSlug] = useState("");
+  const [harness, setHarness] = useState<ProjectHarness>(currentDefaultHarness);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [createdRoot, setCreatedRoot] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHarness(currentDefaultHarness);
+  }, [currentDefaultHarness]);
+
+  const options = useMemo(() => buildProjectPickOptions(projects), [projects]);
+  const matches = useMemo(() => filterProjectPickOptions(options, draft), [draft, options]);
+  const selectedOption = useMemo(
+    () => options.find((option) => option.slug === selectedSlug) ?? exactProjectOption(options, draft),
+    [draft, options, selectedSlug],
+  );
+  const trimmedDraft = draft.trim();
+  const canCreateProject = isProjectPathLike(trimmedDraft) && !exactProjectOption(options, trimmedDraft);
+  const activeOption = selectedOption ?? (!canCreateProject && trimmedDraft ? matches[0] ?? null : null);
+  const primaryLabel = activeOption ? "Open project" : canCreateProject ? "Create project" : "Find project";
+  const canSubmit = Boolean(activeOption || canCreateProject || trimmedDraft);
+
+  useEffect(() => {
+    if (!selectedSlug) return;
+    if (!options.some((option) => option.slug === selectedSlug)) setSelectedSlug("");
+  }, [options, selectedSlug]);
+
+  useEffect(() => {
+    if (!createdRoot) return;
+    const created = options.find((option) => projectOptionMatchesRoot(option, createdRoot));
+    if (!created) return;
+    setCreatedRoot(null);
+    navigate(projectRoute(route, created.slug));
+  }, [createdRoot, navigate, options, route]);
+
+  const chooseProject = (option: ProjectPickOption) => {
+    setSelectedSlug(option.slug);
+    setDraft(option.title);
+    setError(null);
+    setStatus(null);
+  };
+
+  const openProject = (option: ProjectPickOption) => {
+    navigate(projectRoute(route, option.slug));
+  };
+
+  const createProject = async (projectRoot: string) => {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      await api("/api/onboarding/project", {
+        method: "POST",
+        body: JSON.stringify({
+          contextRoot: projectRoot,
+          sourceRoots: [projectRoot],
+          defaultHarness: harness,
+        }),
+      });
+      setCreatedRoot(projectRoot);
+      setStatus("Project created. Refreshing inventory.");
+      setSelectedSlug("");
+      setDraft("");
+      refreshProjectsInbox();
+      await Promise.all([refreshOnboarding(), reload()]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create project.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    if (activeOption) {
+      openProject(activeOption);
+      return;
+    }
+    if (canCreateProject) {
+      void createProject(trimmedDraft);
+      return;
+    }
+    if (trimmedDraft) {
+      setError("No project matches that search. Paste a repo path to create one.");
+      return;
+    }
+    setError("Choose a project or paste a repo path.");
+  };
+
+  return (
+    <div className="pi-zero">
+      <div className="pi-zeroHead">
+        <span className="pi-zeroKicker">
+          <FolderPlus size={13} strokeWidth={1.9} aria-hidden />
+          Projects
+        </span>
+        <h2>Pick a project to start.</h2>
+      </div>
+
+      <form className="pi-zeroComposer" onSubmit={submit}>
+        <div className="pi-zeroBar">
+          <label className="pi-zeroSelect">
+            <Search size={13} strokeWidth={1.8} aria-hidden />
+            <select
+              value={selectedSlug}
+              aria-label="Choose project"
+              onChange={(event) => {
+                const option = options.find((candidate) => candidate.slug === event.currentTarget.value);
+                if (option) chooseProject(option);
+                else setSelectedSlug("");
+              }}
+            >
+              <option value="">Choose project</option>
+              {options.slice(0, 80).map((option) => (
+                <option key={option.slug} value={option.slug}>
+                  {option.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="pi-zeroHarness" role="group" aria-label="Default harness">
+            {(["claude", "codex"] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                data-on={harness === item || undefined}
+                onClick={() => setHarness(item)}
+              >
+                {item === "claude" ? "Claude" : "Codex"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="pi-zeroInputRow">
+          <textarea
+            value={draft}
+            rows={2}
+            placeholder="Find project or paste /path/to/repo"
+            aria-label="Find or create project"
+            onChange={(event) => {
+              setDraft(event.currentTarget.value);
+              setSelectedSlug("");
+              setError(null);
+              setStatus(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          <button type="submit" className="pi-zeroSend" disabled={busy || !canSubmit} title={primaryLabel}>
+            <ArrowRight size={15} strokeWidth={2} aria-hidden />
+            <span>{busy ? "Working" : primaryLabel}</span>
+          </button>
+        </div>
+
+        {matches.length > 0 ? (
+          <div className="pi-zeroMatches" aria-label="Matching projects">
+            {matches.map((option) => (
+              <button
+                key={option.slug}
+                type="button"
+                className="pi-zeroMatch"
+                data-selected={selectedOption?.slug === option.slug || undefined}
+                onClick={() => chooseProject(option)}
+                onDoubleClick={() => openProject(option)}
+              >
+                <span className="pi-zeroMatchMain">
+                  <span className="pi-zeroMatchTitle">/{option.title}</span>
+                  <span className="pi-zeroMatchRoot" title={option.root ?? undefined}>
+                    {option.root ? shortHomePath(option.root) : option.slug}
+                  </span>
+                </span>
+                <span className="pi-zeroMatchMeta">{projectOptionMeta(option)}</span>
+              </button>
+            ))}
+          </div>
+        ) : trimmedDraft ? (
+          <div className="pi-zeroEmpty">No project matches.</div>
+        ) : null}
+
+        {error ? <div className="pi-zeroError">{error}</div> : null}
+        {status ? <div className="pi-zeroStatus">{status}</div> : null}
+      </form>
+    </div>
+  );
+}
+
+function defaultHarnessOf(value: string | null | undefined): ProjectHarness {
+  return value === "codex" ? "codex" : "claude";
+}
+
+function projectRoute(
+  route: Extract<Route, { view: "agents-v2" }>,
+  projectSlug: string,
+): Extract<Route, { view: "agents-v2" }> {
+  return {
+    view: "agents-v2",
+    projectSlug,
+    indexView: "sessions",
+    ...(route.showEphemeral ? { showEphemeral: true } : {}),
+    ...(route.machineId ? { machineId: route.machineId } : {}),
+  };
+}
+
+function buildProjectPickOptions(projects: InboxProject[]): ProjectPickOption[] {
+  return projects
+    .map((project) => ({
+      slug: project.slug,
+      title: project.title,
+      root: project.root,
+      agentCount: project.agentCount,
+      sessionCount: project.sessionCount,
+      lastActivityAt: project.lastActivityAt,
+    }))
+    .sort((left, right) =>
+      right.lastActivityAt - left.lastActivityAt
+      || right.agentCount - left.agentCount
+      || right.sessionCount - left.sessionCount
+      || left.title.localeCompare(right.title),
+    );
+}
+
+function filterProjectPickOptions(options: ProjectPickOption[], draft: string): ProjectPickOption[] {
+  const query = normalizeProjectQuery(draft);
+  if (!query) return options.slice(0, 6);
+  return options
+    .map((option) => ({ option, score: projectPickScore(option, query) }))
+    .filter((entry): entry is { option: ProjectPickOption; score: number } => entry.score !== null)
+    .sort((left, right) =>
+      left.score - right.score
+      || right.option.lastActivityAt - left.option.lastActivityAt
+      || left.option.title.localeCompare(right.option.title),
+    )
+    .slice(0, 6)
+    .map((entry) => entry.option);
+}
+
+function exactProjectOption(options: ProjectPickOption[], draft: string): ProjectPickOption | null {
+  const query = normalizeProjectQuery(draft);
+  if (!query) return null;
+  return options.find((option) => {
+    const root = normalizeProjectQuery(option.root ?? "");
+    const rootLeaf = normalizeProjectQuery(option.root ? pathLeaf(option.root) : "");
+    return normalizeProjectQuery(option.title) === query
+      || normalizeProjectQuery(option.slug) === query
+      || root === query
+      || rootLeaf === query
+      || normalizeProjectQuery(option.root ? shortHomePath(option.root) : "") === query;
+  }) ?? null;
+}
+
+function projectPickScore(option: ProjectPickOption, query: string): number | null {
+  const title = normalizeProjectQuery(option.title);
+  const slug = normalizeProjectQuery(option.slug);
+  const root = normalizeProjectQuery(option.root ?? "");
+  const rootLeaf = normalizeProjectQuery(option.root ? pathLeaf(option.root) : "");
+  if (title === query || slug === query || root === query || rootLeaf === query) return 0;
+  if (title.startsWith(query) || slug.startsWith(query) || rootLeaf.startsWith(query)) return 1;
+  if (title.includes(query) || slug.includes(query) || rootLeaf.includes(query)) return 2;
+  if (root.includes(query)) return 3;
+  return null;
+}
+
+function normalizeProjectQuery(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^~(?=\/)/u, "")
+    .replace(/\s+/g, " ");
+}
+
+function isProjectPathLike(value: string): boolean {
+  const trimmed = value.trim();
+  return /^(~\/|\/|\.{1,2}\/)/u.test(trimmed) || trimmed.includes("/");
+}
+
+function projectOptionMatchesRoot(option: ProjectPickOption, value: string): boolean {
+  const query = normalizeProjectQuery(value);
+  if (!query) return false;
+  const candidates = [
+    option.root ?? "",
+    option.root ? shortHomePath(option.root) : "",
+    option.root ? pathLeaf(option.root) : "",
+    option.slug,
+    option.title,
+  ].map(normalizeProjectQuery);
+  return candidates.some((candidate) => candidate === query || candidate.endsWith(query));
+}
+
+function projectOptionMeta(option: ProjectPickOption): string {
+  const parts = [
+    plural(option.agentCount, "agent"),
+    plural(option.sessionCount, "session"),
+    option.lastActivityAt ? timeAgo(option.lastActivityAt) : null,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function findSelectedSession(sessions: InboxSession[], route: Extract<Route, { view: "agents-v2" }>): InboxSession | null {
   if (!route.sessionId) return null;
   return (
@@ -258,6 +600,10 @@ function findSelectedSession(sessions: InboxSession[], route: Extract<Route, { v
       session.id === route.sessionId
     ) ?? null
   );
+}
+
+function isSyntheticProcessSessionRef(value: string | null | undefined): boolean {
+  return /^native:process:/iu.test(value ?? "");
 }
 
 function isPathLikeWork(value: string): boolean {
@@ -612,14 +958,17 @@ function ProjectSessionGlance({
 export function ProjectsInbox({
   route,
   navigate,
+  zeroPreview = false,
 }: {
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
+  zeroPreview?: boolean;
 }) {
   const { model, nowMs, loading, error } = useProjectsInbox(route);
   const [view] = useProjectsInboxView();
   const scoped = Boolean(route.projectSlug);
-  const selectedSessionRef = scoped ? route.sessionId ?? null : null;
+  const selectedSessionRef =
+    scoped && !isSyntheticProcessSessionRef(route.sessionId) ? route.sessionId ?? null : null;
   const selectedSession = useMemo(
     () => selectedSessionRef ? findSelectedSession(model.sessions, route) : null,
     [model.sessions, route, selectedSessionRef],
@@ -634,6 +983,7 @@ export function ProjectsInbox({
 
   const items = useMemo<Array<InboxThread | InboxSession>>(
     () => {
+      if (zeroPreview) return [];
       if (selectedSessionRef) return [];
       if (!scoped) return filterThreadsForView(model.threads, view, nowMs);
       const slug = route.projectSlug!;
@@ -643,16 +993,30 @@ export function ProjectsInbox({
       if (projectSessions.length > 0) return projectSessions;
       return projectThreads;
     },
-    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, selectedSessionRef, view],
+    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, selectedSessionRef, view, zeroPreview],
   );
   const sections = useMemo(() => groupItems(items), [items]);
   const flat = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const hasModelData = model.projects.length > 0 || model.threads.length > 0 || model.sessions.length > 0;
   const initialLoading = loading && !hasModelData;
   const resolvingSelectedSession = Boolean(selectedSessionRef && !selectedSession && loading);
+  const displayCounts = zeroPreview ? ZERO_COUNTS : model.counts;
+  const waiting = loading && !zeroPreview;
+  const showProjectZeroState =
+    !scoped && view === "everything" && !waiting && (zeroPreview || (model.projects.length === 0 && items.length === 0));
 
   const [cursor, setCursor] = useState(-1);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  useEffect(() => {
+    if (!scoped || !route.sessionId || !isSyntheticProcessSessionRef(route.sessionId)) return;
+    navigate({
+      ...route,
+      indexView: "sessions",
+      sessionId: undefined,
+      selectedAgentId: undefined,
+    });
+  }, [navigate, route, scoped]);
 
   useEffect(() => {
     setCursor(-1);
@@ -697,7 +1061,7 @@ export function ProjectsInbox({
       ) : (
         <div className="pi-inboxHead">
           <h1 className="pi-inboxTitle">Projects</h1>
-          <span className="pi-inboxDigest">{digestLine(model.counts.needs, model.counts.working, model.counts.everything)}</span>
+          <span className="pi-inboxDigest">{digestLine(displayCounts.needs, displayCounts.working, displayCounts.everything)}</span>
           <span className="pi-inboxKbd" aria-hidden>
             j/k move · ↵ open
           </span>
@@ -765,6 +1129,12 @@ export function ProjectsInbox({
           {!initialLoading && items.length === 0 ? (
             error && !hasModelData ? (
               <ProjectSurfaceState tone="error" title="Projects unavailable" detail={error} />
+            ) : showProjectZeroState ? (
+              <div className="pi-empty">
+                <ProjectZeroComposer route={route} navigate={navigate} projects={model.projects} />
+              </div>
+            ) : waiting ? (
+              <div className="pi-empty">Loading…</div>
             ) : (
               <ProjectSurfaceState
                 title={emptyLabel(scoped, mode, view)}

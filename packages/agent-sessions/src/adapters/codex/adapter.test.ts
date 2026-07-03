@@ -6,8 +6,8 @@ import { join } from "node:path";
 import {
   OBSERVED_HARNESS_TOPOLOGY_META_KEY,
   type PairingEvent,
-} from "./protocol/primitives.ts";
-import { createAdapter } from "./adapters/codex.ts";
+} from "../../protocol/primitives.ts";
+import { createAdapter } from "./adapter.ts";
 
 const tempPaths = new Set<string>();
 const pairingSessionIds = new Set<string>();

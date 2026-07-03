@@ -5,7 +5,7 @@
   "displayName": "Claude Code",
   "implementation": {
     "package": "@openscout/agent-sessions",
-    "entrypoint": "src/adapters/claude-code.ts",
+    "entrypoint": "src/adapters/claude-code/adapter.ts",
     "factoryExport": "createAdapter",
     "className": "ClaudeCodeAdapter"
   },
@@ -16,7 +16,7 @@
     "sources": [
       {
         "kind": "file",
-        "ref": "src/adapters/claude-code.ts"
+        "ref": "src/adapters/claude-code/adapter.ts"
       },
       {
         "kind": "file",
@@ -24,7 +24,7 @@
       },
       {
         "kind": "comment",
-        "ref": "src/adapters/claude-code.ts",
+        "ref": "src/adapters/claude-code/adapter.ts",
         "notes": "Header comment documents the stream-json input and output event shapes consumed by the current adapter."
       }
     ]

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Agent, FleetAsk, FleetState, SessionEntry } from "../../lib/types.ts";
+import type { Agent, FleetAsk, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
 import {
   buildProjectsInboxModel,
   filterThreadsForView,
@@ -116,13 +116,14 @@ function baseInput(
   fleet: FleetState | null,
   showEphemeral = false,
   sessions: SessionEntry[] = [],
+  discovery: TailDiscoverySnapshot | null = null,
 ): BuildInboxInput {
   return {
     agents,
     machineId: null,
     sessions,
     fleet,
-    discovery: null,
+    discovery,
     nowMs: NOW,
     showEphemeral,
   };
@@ -227,6 +228,39 @@ describe("project aggregation + dormancy", () => {
     expect(openscout?.agentCount).toBe(1);
     expect(openscout?.sessionCount).toBe(1);
   });
+
+  test("process-only native observations do not become openable sessions", () => {
+    const discovery: TailDiscoverySnapshot = {
+      generatedAt: NOW,
+      processes: [
+        {
+          pid: 99168,
+          ppid: 1,
+          command: "claude --verbose",
+          etime: "00:10",
+          cwd: "/Users/test/dev/openscout",
+          harness: "claude",
+          parentChain: [],
+          source: "claude",
+        },
+      ],
+      transcripts: [],
+      issues: [],
+      totals: {
+        total: 1,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 1,
+        transcripts: 0,
+      },
+    };
+    const model = buildProjectsInboxModel(baseInput([], null, false, [], discovery));
+    const openscout = model.projects.find((project) => project.slug === "openscout");
+
+    expect(model.sessions).toHaveLength(0);
+    expect(openscout?.sessionCount).toBe(0);
+    expect(openscout?.liveSessionCount).toBe(0);
+  });
 });
 
 describe("filters + routing", () => {
@@ -273,7 +307,7 @@ describe("filters + routing", () => {
     expect(open).toEqual({ view: "conversation", conversationId: "conv-1" });
   });
 
-  test("session selection uses canonical session ids only", () => {
+  test("session selection uses session ids, then conversation ids, never stable row refs", () => {
     const agents = [mkAgent({ id: "scout.a", name: "Scout" })];
     const model = buildProjectsInboxModel(baseInput(agents, null, false, [mkSession(agents[0]!)]));
     const session = model.sessions[0]!;
@@ -298,8 +332,7 @@ describe("filters + routing", () => {
 
     const liveProcess = { ...session, sessionId: null, conversationId: null, route: null };
     const liveSelect = sessionSelectRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug });
-    expect(liveSelect.sessionId).toBeUndefined();
-    expect(liveSelect.selectedAgentId).toBeUndefined();
+    expect(liveSelect).toEqual({ view: "agents-v2", projectSlug: liveProcess.projectSlug });
     expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(false);
 
     expect(sessionOpenRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug })).toEqual({
@@ -311,56 +344,4 @@ describe("filters + routing", () => {
     });
   });
 
-  test("process-only native rows do not invent session archive routes", () => {
-    const model = buildProjectsInboxModel({
-      ...baseInput([], null),
-      discovery: {
-        generatedAt: NOW,
-        processes: [
-          {
-            pid: 3186,
-            ppid: 1,
-            command: "claude --verbose --print --input-format stream-json",
-            etime: "00:01",
-            cwd: "/Users/test/dev/openscout",
-            harness: "unattributed",
-            source: "claude",
-            parentChain: [],
-          },
-        ],
-        transcripts: [],
-        issues: [],
-        totals: {
-          total: 1,
-          scoutManaged: 0,
-          hudsonManaged: 0,
-          unattributed: 1,
-          transcripts: 0,
-        },
-      },
-    });
-
-    const session = model.sessions.find((entry) => entry.projectSlug === "openscout");
-    expect(session).toBeTruthy();
-    expect(session?.route).toBeNull();
-    expect(session?.sessionId).toBeNull();
-
-    const selected = sessionSelectRoute(session!, { view: "agents-v2", projectSlug: "openscout" });
-    expect(selected.sessionId).toBeUndefined();
-    expect(
-      isSessionSelected(
-        session!,
-        { view: "agents-v2", projectSlug: "openscout", sessionId: "native:process:claude:3186" },
-      ),
-    ).toBe(false);
-
-    const opened = sessionOpenRoute(session!, { view: "agents-v2", projectSlug: "openscout" });
-    expect(opened).toEqual({
-      view: "agents-v2",
-      projectSlug: "openscout",
-      indexView: "sessions",
-      selectedAgentId: undefined,
-      sessionId: undefined,
-    });
-  });
 });

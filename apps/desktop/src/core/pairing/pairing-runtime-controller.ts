@@ -122,10 +122,8 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
   const emitStatus = createStatusWriter(state);
 
   try {
-    const managedRelay = resolvedRelayUrl ? null : (() => {
-      state.relay = startManagedRelay(relayPort);
-      return state.relay;
-    })();
+    const managedRelay = resolvedRelayUrl ? null : await startManagedRelay(relayPort);
+    state.relay = managedRelay;
     const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
     const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
     if (!activeRelayUrl || !connectRelayUrl) {
