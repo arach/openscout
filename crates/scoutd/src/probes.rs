@@ -486,7 +486,9 @@ fn read_one_request(stream: &mut UnixStream) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
-        let read = stream.read(&mut buffer).map_err(|error| error.to_string())?;
+        let read = stream
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
         if read == 0 {
             break;
         }
