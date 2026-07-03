@@ -1,0 +1,219 @@
+[
+  {
+    "path": "apps/desktop/src/app/desktop/shell-utils.ts",
+    "symbol": "execFileSync",
+    "category": "imperative",
+    "reason": "desktop shell utility remains a Phase A app-host direct command wrapper outside server request paths",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/app/host/agent-session.ts",
+    "symbol": "execFileSync",
+    "category": "imperative",
+    "reason": "desktop host session helper is outside the M3 server/core burn-down scope",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/app/host/diagnostics.ts",
+    "symbol": "execFileSync",
+    "category": "cli",
+    "reason": "desktop diagnostics one-shot command collection",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/main.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "desktop CLI launchctl/scout discovery one-shots",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/install.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "interactive installer one-shot commands",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/mcp-install.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "interactive MCP installer one-shot commands",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/menu.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "desktop menu CLI one-shot launch command",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/cli/commands/session.ts",
+    "symbol": "spawnSync",
+    "category": "cli",
+    "reason": "terminal session CLI owns foreground attach/create commands",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/core/setup/local-edge-dependencies.ts",
+    "symbol": "spawnSync",
+    "category": "boot",
+    "reason": "setup dependency probe runs during explicit setup/doctor flow",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/core/setup/terminal-pty-dependencies.ts",
+    "symbol": "spawnSync",
+    "category": "boot",
+    "reason": "setup dependency probe runs during explicit setup/doctor flow",
+    "owner": "desktop"
+  },
+  {
+    "path": "apps/desktop/src/core/pairing/runtime/relay-runtime.test.ts",
+    "symbol": "spawnSync",
+    "category": "test",
+    "reason": "test subprocess fixture",
+    "owner": "tests"
+  },
+  {
+    "path": "apps/ios/hkit.ts",
+    "symbol": "spawnSync",
+    "category": "build-script",
+    "reason": "iOS helper script runs foreground build/deploy commands",
+    "owner": "ios"
+  },
+  {
+    "path": "apps/macos/bin/openscout-menu.ts",
+    "symbol": "execFileSync",
+    "category": "build-script",
+    "reason": "macOS packaging/dev helper one-shot commands",
+    "owner": "macos"
+  },
+  {
+    "path": "apps/macos/bin/openscout-menu.ts",
+    "symbol": "execSync",
+    "category": "build-script",
+    "reason": "macOS packaging/dev helper one-shot commands",
+    "owner": "macos"
+  },
+  {
+    "path": "apps/macos/bin/scout-app.ts",
+    "symbol": "execSync",
+    "category": "build-script",
+    "reason": "macOS Scout build/launch helper one-shot commands",
+    "owner": "macos"
+  },
+  {
+    "path": "packages/agent-sessions/src/codex-executable.ts",
+    "symbol": "execFileSync",
+    "category": "boot",
+    "reason": "Codex executable inventory/version check used as capability discovery",
+    "owner": "agent-sessions"
+  },
+  {
+    "path": "packages/agent-sessions/src/registry.ts",
+    "symbol": "Bun.spawnSync",
+    "category": "boot",
+    "reason": "session registry one-shot git branch metadata capture",
+    "owner": "agent-sessions"
+  },
+  {
+    "path": "packages/runtime/src/agent-workspace.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/base-daemon.ts",
+    "symbol": "spawnSync",
+    "category": "boot",
+    "reason": "daemon startup port ownership check before spawning broker",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/runtime/src/broker-process-manager.ts",
+    "symbol": "spawnSync",
+    "category": "boot",
+    "reason": "broker process manager startup scout binary discovery",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/runtime/src/harness-catalog.ts",
+    "symbol": "execFileSync",
+    "category": "boot",
+    "reason": "harness catalog capability/version discovery",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/runtime/src/load-resolved-relay-agents.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/pi-rpc.ts",
+    "symbol": "execFileSync",
+    "category": "imperative",
+    "reason": "local secret lookup command kept as explicit imperative outside M3 probe census",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/runtime/src/repo-watch.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/setup.ts",
+    "symbol": "execFileSync",
+    "category": "boot",
+    "reason": "explicit setup/bootstrap one-shot checks",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/runtime/src/system-probes.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup for probe tests",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/tailscale.test.ts",
+    "symbol": "spawnSync",
+    "category": "test",
+    "reason": "subprocess fixture",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/runtime/src/tailscale.ts",
+    "symbol": "execFileSync",
+    "category": "boot",
+    "reason": "startup origin resolution sync tailscale status path from BOOT-OK census",
+    "owner": "runtime"
+  },
+  {
+    "path": "packages/web/server/create-openscout-web-server.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/web/server/work-materials.test.ts",
+    "symbol": "execFileSync",
+    "category": "test",
+    "reason": "git fixture setup",
+    "owner": "tests"
+  },
+  {
+    "path": "packages/web/vite.config.ts",
+    "symbol": "execSync",
+    "category": "build-script",
+    "reason": "Vite config build-time git metadata",
+    "owner": "web"
+  }
+]
