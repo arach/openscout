@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { createAdapter as createGrokAcpAdapter } from "../adapters/grok-acp/index.js";
 import { createAdapter as createPiAdapter } from "../adapters/pi/index.js";
@@ -6,10 +8,54 @@ import type { SequencedEvent } from "../buffer.js";
 import type { AdapterFactory, PairingEvent, Session } from "../protocol/index.js";
 import { SessionRegistry } from "../registry.js";
 import type { SessionState, TurnState } from "../state.js";
+import {
+  getOrCreateCodexAppServerClient,
+  shutdownCodexAppServerLocalAgent,
+  normalizeCodexAppServerLaunchArgs,
+  type CodexAppServerClient,
+  type CodexAppServerSessionOptions,
+} from "./transports/codex-app-server.js";
 
-export type LocalAgentHarness = "pi" | "grok" | "grok-acp";
-export type LocalAgentResolvedHarness = "pi" | "grok";
-export type LocalAgentTransport = "pi_rpc" | "grok_acp";
+export {
+  CodexAppServerClient,
+  CodexAppServerExitError,
+  CodexAppServerRequesterTimeoutError,
+  CodexAppServerTransport,
+  codexAppServerSessionKey,
+  ensureCodexAppServerLocalAgentOnline,
+  getOrCreateCodexAppServerClient,
+  interruptCodexAppServerLocalAgent,
+  invokeCodexAppServerLocalAgent,
+  isCodexAppServerExitError,
+  isCodexAppServerLocalAgentAlive,
+  normalizeCodexAppServerLaunchArgs,
+  readCodexAppServerModelFromLaunchArgs,
+  readCodexAppServerReasoningEffortFromLaunchArgs,
+  sendCodexAppServerLocalAgent,
+  shutdownCodexAppServerLocalAgent,
+  steerCodexAppServerLocalAgent,
+} from "./transports/codex-app-server.js";
+export type {
+  CodexAppServerApprovalPolicy,
+  CodexAppServerClientInfo,
+  CodexAppServerExitKind,
+  CodexAppServerInterruptOptions,
+  CodexAppServerInvocationOptions,
+  CodexAppServerNotification,
+  CodexAppServerRequest,
+  CodexAppServerResponse,
+  CodexAppServerSandboxMode,
+  CodexAppServerServerRequest,
+  CodexAppServerSessionOptions,
+  CodexAppServerShutdownOptions,
+  CodexAppServerSteerOptions,
+  CodexAppServerThreadResult,
+  CodexAppServerTurnResult,
+} from "./transports/codex-app-server.js";
+
+export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp";
+export type LocalAgentResolvedHarness = "codex" | "pi" | "grok";
+export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp";
 export type LocalAgentWarmth = "warm" | "lazy";
 
 export type LocalAgentUsage = {
@@ -105,9 +151,16 @@ function resolveLocalTransport(
   harness: LocalAgentResolvedHarness,
   requested: LocalAgentTransport | undefined,
 ): LocalAgentTransport {
-  const defaultTransport: LocalAgentTransport = harness === "pi" ? "pi_rpc" : "grok_acp";
+  const defaultTransport: LocalAgentTransport = harness === "codex"
+    ? "codex_app_server"
+    : harness === "pi"
+      ? "pi_rpc"
+      : "grok_acp";
   const transport = requested ?? defaultTransport;
 
+  if (harness === "codex" && transport !== "codex_app_server") {
+    throw new Error(`Local harness codex does not support transport ${transport}.`);
+  }
   if (harness === "pi" && transport !== "pi_rpc") {
     throw new Error(`Local harness pi does not support transport ${transport}.`);
   }
@@ -126,13 +179,20 @@ function adapterSpecForTransport(transport: LocalAgentTransport): LocalAdapterSp
     };
   }
 
-  return {
-    adapterType: "grok-acp",
-    createAdapter: createGrokAcpAdapter,
-  };
+  if (transport === "grok_acp") {
+    return {
+      adapterType: "grok-acp",
+      createAdapter: createGrokAcpAdapter,
+    };
+  }
+
+  throw new Error(`Transport ${transport} is handled outside the adapter registry.`);
 }
 
 function localSessionName(harness: LocalAgentResolvedHarness): string {
+  if (harness === "codex") {
+    return "Local Codex";
+  }
   return harness === "pi" ? "Local Pi" : "Local Grok ACP";
 }
 
@@ -395,11 +455,183 @@ function normalizeTurnInput(input: string | LocalAgentClientTurnOptions): LocalA
   return typeof input === "string" ? { input } : input;
 }
 
+function safeCodexSessionSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120) || "codex";
+}
+
+function codexLocalSessionPaths(sessionId: string): {
+  runtimeDirectory: string;
+  logsDirectory: string;
+} {
+  const root = join(homedir(), ".scout", "local", "codex", safeCodexSessionSegment(sessionId));
+  return {
+    runtimeDirectory: join(root, "runtime"),
+    logsDirectory: join(root, "logs"),
+  };
+}
+
+function codexLaunchArgsForModel(model: string | undefined): string[] {
+  return model ? normalizeCodexAppServerLaunchArgs(["--model", model]) : [];
+}
+
+function buildCodexSessionOptions(options: {
+  sessionId: string;
+  cwd: string;
+  systemPrompt?: string;
+  model?: string;
+}): CodexAppServerSessionOptions {
+  const paths = codexLocalSessionPaths(options.sessionId);
+  return {
+    agentName: "Local Codex",
+    sessionId: options.sessionId,
+    cwd: options.cwd,
+    systemPrompt: options.systemPrompt?.trim() || "You are a helpful local Codex agent.",
+    runtimeDirectory: paths.runtimeDirectory,
+    logsDirectory: paths.logsDirectory,
+    launchArgs: codexLaunchArgsForModel(options.model),
+    clientInfo: {
+      name: "openscout-agent-sessions",
+      title: "OpenScout Agent Sessions",
+      version: "0.0.0",
+    },
+  };
+}
+
+async function runCodexTurnWithAbort(
+  client: CodexAppServerClient,
+  text: string,
+  options: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<{ output: string; threadId: string }> {
+  if (options.signal?.aborted) {
+    await client.interrupt().catch(() => undefined);
+    throw abortError();
+  }
+
+  let removeAbortListener: (() => void) | undefined;
+  try {
+    const turn = client.invoke(text, options.timeoutMs);
+    const abort = options.signal
+      ? new Promise<never>((_resolve, reject) => {
+          const onAbort = (): void => {
+            void client.interrupt().catch(() => undefined);
+            reject(abortError());
+          };
+          options.signal?.addEventListener("abort", onAbort, { once: true });
+          removeAbortListener = () => options.signal?.removeEventListener("abort", onAbort);
+        })
+      : null;
+
+    return await (abort ? Promise.race([turn, abort]) : turn);
+  } finally {
+    removeAbortListener?.();
+  }
+}
+
+async function createCodexLocalAgentClient(
+  options: CreateLocalAgentClientOptions,
+): Promise<LocalAgentClient> {
+  const sessionId = options.reuseKey?.trim() || randomUUID();
+  let currentSessionOptions = buildCodexSessionOptions({
+    sessionId,
+    cwd: options.cwd,
+    systemPrompt: options.systemPrompt,
+    model: options.model,
+  });
+  let client = getOrCreateCodexAppServerClient(currentSessionOptions);
+  let closed = false;
+  let turnCount = 0;
+  let createdBeforeFirstTurn = false;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  if (options.warmth !== "lazy") {
+    createdBeforeFirstTurn = true;
+    await client.ensureOnline();
+  }
+
+  const runTurn = async (rawInput: string | LocalAgentClientTurnOptions): Promise<LocalAgentTurnResult> => {
+    if (closed) {
+      throw new Error("Local agent client is closed.");
+    }
+
+    const turnOptions = normalizeTurnInput(rawInput);
+    const model = turnOptions.model ?? options.model;
+    const nextSessionOptions = buildCodexSessionOptions({
+      sessionId,
+      cwd: options.cwd,
+      systemPrompt: options.systemPrompt,
+      model,
+    });
+    currentSessionOptions = nextSessionOptions;
+    client = getOrCreateCodexAppServerClient(nextSessionOptions);
+    client.update(nextSessionOptions);
+
+    const text = textForTurn({
+      input: turnOptions.input,
+      turnSystemPrompt: turnOptions.systemPrompt,
+      sessionSystemPrompt: options.systemPrompt,
+      sessionSystemPromptAppliedByAdapter: true,
+    });
+    const reused = turnCount > 0;
+    const warm = createdBeforeFirstTurn;
+    const result = await runCodexTurnWithAbort(client, text, {
+      timeoutMs: Math.max(1, turnOptions.timeoutMs ?? options.timeoutMs ?? DEFAULT_LOCAL_AGENT_TIMEOUT_MS),
+      signal: turnOptions.signal ?? options.signal,
+    });
+    turnCount += 1;
+
+    return {
+      text: result.output,
+      harness: "codex",
+      transport: "codex_app_server",
+      session: {
+        id: sessionId,
+        nativeId: result.threadId,
+        reused,
+        warm,
+      },
+      metadata: {
+        providerMeta: {
+          threadId: result.threadId,
+          ...(client.threadPath ? { threadPath: client.threadPath } : {}),
+          stdoutLogFile: client.stdoutLogFile,
+          stderrLogFile: client.stderrLogFile,
+        },
+      },
+    };
+  };
+
+  return {
+    turn(input: string | LocalAgentClientTurnOptions): Promise<LocalAgentTurnResult> {
+      const next = queue.then(() => runTurn(input), () => runTurn(input));
+      queue = next.then(() => undefined, () => undefined);
+      return next;
+    },
+    async close(): Promise<void> {
+      closed = true;
+      await shutdownCodexAppServerLocalAgent(currentSessionOptions);
+    },
+    interrupt(): void {
+      void client.interrupt().catch(() => undefined);
+    },
+  };
+}
+
 export async function createLocalAgentClient(
   options: CreateLocalAgentClientOptions,
 ): Promise<LocalAgentClient> {
   const harness = normalizeHarness(options.harness);
   const transport = resolveLocalTransport(harness, options.transport);
+  if (transport === "codex_app_server") {
+    return createCodexLocalAgentClient({
+      ...options,
+      harness,
+      transport,
+    });
+  }
+
   const spec = adapterSpecForTransport(transport);
   const registry = new SessionRegistry({
     adapters: {
