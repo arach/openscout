@@ -496,6 +496,31 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("keeps direct agent ids ahead of session-shaped labels", () => {
+    const target = makeAgent({ id: "arc.main", definitionId: "arc" });
+    const sessionOwner = makeAgent({ id: "talkie.main", definitionId: "talkie" });
+    const sessionId = "session-019f244c-e6f3-79a3-957d-8dfd0b203056";
+    const snapshot = makeSnapshot(
+      [target, sessionOwner],
+      [makeEndpoint({
+        id: "endpoint.talkie.main.codex",
+        agentId: sessionOwner.id,
+        harness: "codex",
+        sessionId,
+      })],
+    );
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { targetAgentId: target.id, targetLabel: `session:${sessionId}` },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+  });
+
   test("resolves exact session targets through native endpoint aliases", () => {
     const target = makeAgent({ id: "talkie.main", definitionId: "talkie" });
     const snapshot = makeSnapshot(
@@ -516,6 +541,63 @@ describe("resolveBrokerRouteTarget", () => {
     const result = resolveBrokerRouteTarget(
       snapshot,
       { target: { kind: "session_id", sessionId: "codex-thread-talkie" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+  });
+
+  test("resolves session route labels before treating them as agent labels", () => {
+    const target = makeAgent({ id: "talkie.main", definitionId: "talkie" });
+    const snapshot = makeSnapshot(
+      [target],
+      [makeEndpoint({
+        id: "endpoint.talkie.main.local.codex_app_server",
+        agentId: target.id,
+        harness: "codex",
+        sessionId: "relay-talkie-codex",
+        metadata: {
+          externalSessionId: "codex-thread-talkie",
+          threadId: "codex-thread-talkie",
+        },
+      })],
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { targetLabel: "session:codex-thread-talkie" },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+  });
+
+  test("resolves legacy @session-id labels to exact session endpoints", () => {
+    const target = makeAgent({ id: "openscout.main", definitionId: "openscout" });
+    const sessionId = "session-019f244c-e6f3-79a3-957d-8dfd0b203056";
+    const snapshot = makeSnapshot(
+      [target],
+      [makeEndpoint({
+        id: "endpoint.openscout.main.codex",
+        agentId: target.id,
+        harness: "codex",
+        sessionId,
+        metadata: {
+          externalSessionId: sessionId,
+          threadId: sessionId,
+        },
+      })],
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "agent_label", label: `@${sessionId}` } },
       { helpers },
     );
 
@@ -612,6 +694,44 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe(claude.id);
+    }
+  });
+
+  test("resolves sid-prefixed target labels as exact session routes", () => {
+    const sessionId = "session-sid-route";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-sid-route",
+          agentId: sessionId,
+          harness: "codex",
+          sessionId,
+          projectRoot: "/Users/art/dev/scope",
+          metadata: {
+            cardless: true,
+            sid: "0123456789abcdef",
+          },
+        }),
+      ],
+      {},
+      {
+        [sessionId]: makeSessionActor({
+          id: sessionId,
+          handle: "project-sid",
+        }),
+      },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { targetLabel: "sid:0123456789abcdef" },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(sessionId);
     }
   });
 

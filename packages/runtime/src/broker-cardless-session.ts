@@ -27,7 +27,9 @@ export const CARDLESS_SESSION_SOURCE = "scout-cardless-session";
 export interface CardlessSessionInput {
   /** Scout's broker-local session marker. Provider ids are attached later. */
   sessionId: string;
-  /** Human-addressable handle for this session actor. */
+  /** Stable broker-owned handoff code; route as `sid:<sid>`. */
+  sid?: string;
+  /** Optional human-addressable handle for this session actor. */
   handle?: string;
   transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp";
   harness: AgentHarness;
@@ -48,8 +50,8 @@ function resolveCardlessSessionPath(path: string): string {
   return resolve(expandHomePath(path));
 }
 
-function cleanCardlessSessionHandle(input: CardlessSessionInput): string {
-  return input.handle?.trim().replace(/^@+/, "") || input.sessionId;
+function cleanCardlessSessionHandle(input: CardlessSessionInput): string | undefined {
+  return input.handle?.trim().replace(/^@+/, "") || undefined;
 }
 
 function titleCaseHandle(handle: string): string {
@@ -98,21 +100,23 @@ export function cardlessSessionDisplayName(input: {
 export function buildCardlessSessionActor(input: CardlessSessionInput): ActorIdentity {
   const projectRoot = resolveCardlessSessionPath(input.projectRoot ?? input.cwd);
   const projectName = basename(projectRoot) || projectRoot;
-  const shortId = input.sessionId.length > 8 ? input.sessionId.slice(0, 8) : input.sessionId;
+  const stableCode = input.sid?.trim() || input.sessionId;
+  const shortId = stableCode.length > 8 ? stableCode.slice(0, 8) : stableCode;
   const handle = cleanCardlessSessionHandle(input);
   return {
     id: input.sessionId,
     kind: "session",
-    displayName: input.displayName?.trim() || (input.handle?.trim()
+    displayName: input.displayName?.trim() || (handle
       ? cardlessSessionDisplayName({ handle, projectName })
       : `${projectName}:${shortId}`),
-    handle,
+    ...(handle ? { handle } : {}),
     labels: ["cardless-session", "session"],
     metadata: {
       source: CARDLESS_SESSION_SOURCE,
       sessionBacked: true,
       cardless: true,
-      handle,
+      ...(input.sid?.trim() ? { sid: input.sid.trim() } : {}),
+      ...(handle ? { handle } : {}),
       project: projectName,
       projectRoot,
       ...(input.viaCard ? { viaCard: input.viaCard } : {}),
@@ -129,7 +133,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const endpointSessionId = input.pairingSessionId?.trim() || input.sessionId;
   const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
   const handle = cleanCardlessSessionHandle(input);
-  const displayName = input.displayName?.trim() || (input.handle?.trim()
+  const displayName = input.displayName?.trim() || (handle
     ? cardlessSessionDisplayName({ handle, projectName })
     : undefined);
   return {
@@ -147,7 +151,8 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
       sessionBacked: true,
       cardless: true,
       externalSource: "local-session",
-      handle,
+      ...(input.sid?.trim() ? { sid: input.sid.trim() } : {}),
+      ...(handle ? { handle } : {}),
       ...(displayName ? { displayName } : {}),
       project: projectName,
       projectRoot,

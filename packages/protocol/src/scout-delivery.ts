@@ -87,7 +87,9 @@ export interface ScoutDeliveryReceipt {
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
   targetLabel?: string;
-  /** Provisional routable pointer (e.g. project-chopin) when target is cardless. */
+  /** Broker-owned stable session handoff code; route as `sid:<sid>`. */
+  sid?: ScoutId;
+  /** @deprecated Provisional routable pointer (e.g. project-chopin) when target is cardless. */
   sessionAlias?: string;
   bindingRef?: string;
   conversationId: ScoutId;
@@ -113,6 +115,8 @@ export interface ScoutDeliverAcceptedResponse {
   message: MessageRecord;
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
+  sid?: ScoutId;
+  /** @deprecated Use sid. */
   sessionAlias?: string;
   bindingRef?: string;
   flight?: FlightRecord;

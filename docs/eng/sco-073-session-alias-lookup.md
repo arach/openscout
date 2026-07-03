@@ -1,8 +1,15 @@
-# SCO-073: Session Alias Lookup (Provisional Routable Pointers)
+# SCO-073: Session SID Lookup (Stable Handoff Codes)
 
 ## Status
 
-Proposed (2026-06-27) — captures operator feedback after confusing
+Amended (2026-07-02). The provisional alias-table direction below is superseded
+for default project-routed sessions: Scout now mints a broker-owned `sid`
+metadata value and returns it as the shareable handoff token. Agents should pass
+`sid:<code>` or the raw sid code as `targetSessionId` to continue the exact
+session. Provisional `sessionAlias` / `project-*` handles remain compatibility
+or explicit-handle affordances, not the default handoff primitive.
+
+Originally proposed (2026-06-27) — captures operator feedback after confusing
 `Project Chopin` cardless spawns with configured agents such as
 `scope.main.arts-mac-mini-local`.
 
@@ -16,16 +23,16 @@ Proposed (2026-06-27) — captures operator feedback after confusing
 
 ## Intent
 
-Make **provisional session aliases** explicit **pointers** in a broker-owned
-lookup table:
+Make session handoffs explicit without minting agent cards or noisy provisional
+agent-like names. The current default handoff is a stable broker-owned `sid`:
 
 ```
-alias  →  session_id  (+ project, harness, flight, expiry)
+sid:<code>  →  session_id  (+ project, harness, endpoint metadata)
 ```
 
-An alias is routable for orchestrators and humans, but it is **not** a durable
-agent identity. Under the hood, delivery always resolves to `session:<id>` (and
-then to the owning endpoint). Cardless sessions stay cardless; we stop dressing
+The sid is routable for orchestrators and humans, but it is **not** an agent
+identity. Under the hood, delivery resolves through the cardless session actor
+and endpoint from SCO-070. Cardless sessions stay cardless; we stop dressing
 them up as named agents.
 
 This extends [SCO-070](./sco-070-scout-initiated-cardless-sessions.md) (cardless
@@ -62,8 +69,14 @@ Configured agent cards (`scope.main…`) solve durability; this proposal solves 
 
 ## Decision
 
-Introduce a first-class **`session_aliases`** table (name TBD) owned by the
-broker. Each row is a **provisional routable pointer**, not an agent.
+Default project-routed cardless sessions store `metadata.sid` on both the
+session actor and endpoint. `endpointMatchesTargetSession` resolves raw sid
+codes and `sid:<code>` values alongside broker session ids, harness thread ids,
+and other endpoint aliases.
+
+The older first-class **`session_aliases`** table idea below remains a possible
+compatibility/promotion feature, but it is not the default handoff path. Each
+row would be a **provisional routable pointer**, not an agent.
 
 ### Alias record (minimal)
 
@@ -200,23 +213,23 @@ scout ask --to session:019eff52-… "continue exact harness thread"
 
 | Seam | Location | Work |
 | ---- | -------- | ---- |
-| 1. Storage | `packages/runtime` sqlite schema | `session_aliases` table + CRUD |
-| 2. Mint | `broker-daemon.ts` cardless materialization | insert alias on spawn |
-| 3. Resolve | `scout-dispatcher.ts` | alias lookup before flight-ref guessing |
-| 4. Receipt | `apps/desktop/src/cli/commands/ask.ts` | pointer-forward copy |
-| 5. API | broker HTTP / MCP `ask` | return `sessionAlias` in ids payload |
-| 6. GC | endpoint reaper hook | deactivate aliases with stale endpoints |
+| 1. Storage | `broker-cardless-session.ts` | persist `sid` on session actor + endpoint metadata |
+| 2. Mint | `broker-daemon.ts` cardless materialization | mint `sid` on spawn; only use handles when explicit |
+| 3. Resolve | `broker-endpoint-selection.ts` | match raw sid and `sid:<code>` in session target lookup |
+| 4. Receipt | `apps/desktop/src/cli/commands/ask.ts` | render `sid:<code>` before legacy aliases |
+| 5. API | broker HTTP / MCP `ask` | return `sid` in ids payload |
+| 6. Compatibility | runtime/CLI | keep `sessionAlias` as fallback for old explicit handles |
 
-## Acceptance tests
+## Current Acceptance Tests
 
-1. `scout ask --project ~/dev/scope --harness codex` returns `sessionAlias` and
-   `sessionId`; receipt shows `alias → session`, not "Project {Composer}."
-2. `scout ask --to <returned-alias>` delivers to the **same** session without
-   re-spawn while alias is active.
-3. After alias expiry, `--to <alias>` fails with actionable message; `--to
-   session:<id>` still works if session lives; `--project` mints a **new** alias.
+1. `scout ask --project ~/dev/scope --harness codex` returns `sid` and
+   `targetSessionId`; receipt shows `sid:<code>`, not "Project {Composer}."
+2. `targetSessionId: "sid:<code>"` and raw `targetSessionId: "<code>"` both
+   deliver to the **same** session without re-spawn while the session is live.
+3. Stale sessions fail closed with session-reference diagnostics; `--project`
+   mints a **new** sid-backed session.
 4. `scope.main.arts-mac-mini-local` routing unchanged (card tier unaffected).
-5. Orchestrator receipt JSON includes handle bundle for parent-agent handoff.
+5. Orchestrator receipt JSON includes `sid` for parent-agent handoff.
 
 ## Open questions
 

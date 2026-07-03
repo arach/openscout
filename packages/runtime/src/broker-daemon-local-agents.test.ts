@@ -32,7 +32,8 @@ describe("broker daemon local agent routing", () => {
       kind: string;
       accepted: boolean;
       targetAgentId?: string;
-      receipt?: { targetAgentId?: string };
+      sid?: string;
+      receipt?: { targetAgentId?: string; sid?: string };
       flight?: { targetAgentId: string; state: string };
     }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-project-auto-card",
@@ -54,6 +55,8 @@ describe("broker daemon local agent routing", () => {
     expect(response.accepted).toBe(true);
     expect(response.targetAgentId).toMatch(/^session-/);
     expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.sid).toMatch(/^[0-9a-f]{16}$/);
+    expect(response.receipt?.sid).toBe(response.sid);
     expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
     expect(response.flight?.state).toBe("queued");
 
@@ -62,13 +65,13 @@ describe("broker daemon local agent routing", () => {
       agents: Record<string, unknown>;
       endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
     }>(harness.baseUrl, "/v1/snapshot");
-    expect(snapshot.actors[response.targetAgentId!]?.handle).toMatch(/^project-/);
-    expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^implicit-project-/);
+    expect(snapshot.actors[response.targetAgentId!]?.handle).toBeUndefined();
+    expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^implicit-project:/);
     expect(snapshot.actors[response.targetAgentId!]).toEqual(expect.objectContaining({
       kind: "session",
       metadata: expect.objectContaining({
         cardless: true,
-        handle: expect.stringMatching(/^project-/),
+        sid: response.sid,
         projectRoot,
       }),
     }));
@@ -79,6 +82,7 @@ describe("broker daemon local agent routing", () => {
         projectRoot,
         metadata: expect.objectContaining({
           cardless: true,
+          sid: response.sid,
           pendingExternalSession: true,
         }),
       }),

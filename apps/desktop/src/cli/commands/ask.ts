@@ -34,6 +34,7 @@ export function renderAskCommandHelp(): string {
     "  one target + no channel            -> DM",
     "  --channel <name>                   -> named group thread",
     "  short @name                        -> agent card; starts fresh harness session",
+    "  --to sid:<code>                    -> continue a broker-owned session handoff",
     "  --to session:<id>                  -> continue one exact existing session",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
     "  --project <path> --harness <rt>     -> capability request; broker chooses/creates worker",
@@ -82,7 +83,7 @@ export function renderScoutAskReceipt(value: {
     ids.targetAgentId ? `asked ${ids.targetAgentId}` : "ask queued",
     ids.flightId ? `flight ${ids.flightId}` : null,
     ids.conversationId ? renderConversationRoute(ids.conversationId) : null,
-    ids.sessionAlias ? `alias ${ids.sessionAlias}` : null,
+    ids.sid ? renderSessionSid(ids.sid) : ids.sessionAlias ? `alias ${ids.sessionAlias}` : null,
     renderBindingRef(ids.bindingRef),
   ].filter((piece): piece is string => Boolean(piece));
   const delivery = renderScoutAskDeliveryStatus(value.flight);
@@ -390,6 +391,7 @@ export async function runAskWithOptions(
         conversationId: receipt.ids.conversationId ?? null,
         messageId: receipt.ids.messageId ?? null,
         bindingRef: renderBindingRef(receipt.ids.bindingRef),
+        sid: receipt.ids.sid ?? null,
         sessionAlias: receipt.ids.sessionAlias ?? null,
         flight: completed,
         timedOut,
@@ -403,6 +405,7 @@ function renderScoutAskInlineResult(value: {
   conversationId?: string | null;
   messageId?: string | null;
   bindingRef?: string | null;
+  sid?: string | null;
   sessionAlias?: string | null;
   flight: ScoutFlightRecord;
   timedOut?: boolean;
@@ -418,8 +421,13 @@ function renderScoutAskInlineResult(value: {
     `state ${value.flight.state}`,
     `flight ${value.flight.id}`,
     value.conversationId ? renderConversationRoute(value.conversationId) : null,
-    value.sessionAlias ? `alias ${value.sessionAlias}` : null,
+    value.sid ? renderSessionSid(value.sid) : value.sessionAlias ? `alias ${value.sessionAlias}` : null,
     value.bindingRef,
   ].filter((piece): piece is string => Boolean(piece));
   return `${pieces.join(" · ")}. Next: scout wait ${waitReferenceForFlight(value.flight)} --timeout 600.`;
+}
+
+function renderSessionSid(sid: string): string {
+  const trimmed = sid.trim().replace(/^sid:/, "");
+  return trimmed ? `sid:${trimmed}` : "";
 }

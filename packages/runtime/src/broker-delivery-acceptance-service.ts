@@ -29,12 +29,14 @@ import type { DeliveryWorkItemResolution } from "./broker-work-item-store.js";
 import {
   askedLabelForRouteTarget,
   buildDispatchEnvelope,
+  legacySessionIdForAgentLabel,
+  parseSessionRouteLabel,
   routeChannelForTarget,
   type BrokerRouteTargetInput,
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
 import { describeUnavailableSessionEndpoint } from "./broker-endpoint-selection.js";
-import { sessionActorAlias } from "./session-alias.js";
+import { sessionActorAlias, sessionActorSid } from "./session-alias.js";
 
 type EnsureBrokerDeliveryConversationInput = {
   requesterId: string;
@@ -297,6 +299,16 @@ export class BrokerDeliveryAcceptanceService {
       nodeId: this.options.nodeId,
     });
     const askedLabel = askedLabelForRouteTarget(payload);
+    const labelSessionRoute = payload.target?.kind === "agent_label"
+      ? parseSessionRouteLabel(payload.target.label)
+      : !payload.target
+      ? parseSessionRouteLabel(payload.targetLabel)
+      : null;
+    const legacyLabelSessionId = payload.target?.kind === "agent_label"
+      ? legacySessionIdForAgentLabel(payload.target.label)
+      : !payload.target
+      ? legacySessionIdForAgentLabel(payload.targetLabel)
+      : null;
     const execution = executionWithRouteParams(payload);
     const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
     const attachments = normalizeDeliveryAttachments(payload.attachments, this.options.createId);
@@ -307,6 +319,8 @@ export class BrokerDeliveryAcceptanceService {
         || payload.execution?.targetSessionId?.trim()
         || this.options.metadataStringValue(payload.invocationMetadata, "targetSessionId")
         || this.options.metadataStringValue(payload.messageMetadata, "targetSessionId")
+        || labelSessionRoute?.sessionId
+        || legacyLabelSessionId
         || undefined;
     const replyToSessionId =
       payload.replyToSessionId?.trim()
@@ -721,6 +735,8 @@ export class BrokerDeliveryAcceptanceService {
     const messageId = this.options.createId("msg");
     const targetLabel = target.label;
     const routeKind = this.options.brokerRouteKind(conversation);
+    const sid = sessionActorSid(snapshot, target.actorId) ?? undefined;
+    const sessionAlias = sessionActorAlias(snapshot, target.actorId) ?? undefined;
     const message: MessageRecord = {
       id: messageId,
       conversationId: conversation.id,
@@ -791,6 +807,8 @@ export class BrokerDeliveryAcceptanceService {
         targetAgentId: target.actorId,
         targetSessionId: receiptSessionId,
         targetLabel,
+        sid,
+        sessionAlias,
         conversationId: conversation.id,
         messageId,
       });
@@ -803,6 +821,8 @@ export class BrokerDeliveryAcceptanceService {
         message,
         targetAgentId: target.actorId,
         ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+        ...(sid ? { sid } : {}),
+        ...(sessionAlias ? { sessionAlias } : {}),
         ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
       };
     }
@@ -857,7 +877,6 @@ export class BrokerDeliveryAcceptanceService {
     const flight = await this.options.acceptInvocation(invocation);
     throwIfAborted(options.signal);
     const bindingRef = flight.id.slice(-8);
-    const sessionAlias = sessionActorAlias(snapshot, target.actorId) ?? undefined;
     this.options.dispatchAcceptedInvocation(invocation).catch((error) => {
       this.options.warn?.(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
     });
@@ -873,6 +892,7 @@ export class BrokerDeliveryAcceptanceService {
         targetAgentId: target.actorId,
         targetSessionId: receiptSessionId,
         targetLabel,
+        sid,
         sessionAlias,
         bindingRef,
         conversationId: conversation.id,
@@ -883,6 +903,7 @@ export class BrokerDeliveryAcceptanceService {
       message,
       targetAgentId: target.actorId,
       ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+      ...(sid ? { sid } : {}),
       ...(sessionAlias ? { sessionAlias } : {}),
       bindingRef,
       flight,

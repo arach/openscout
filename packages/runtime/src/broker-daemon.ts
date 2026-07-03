@@ -129,10 +129,7 @@ import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-s
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
 import { cardlessSessionDisplayName, registerCardlessSession } from "./broker-cardless-session.js";
-import {
-  collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProjectProvisionalAgentName,
-} from "./provisional-agent-names.js";
+import { resolveProjectProvisionalAgentName } from "./provisional-agent-names.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
 import { createBrokerHttpRouter } from "./broker-http-router.js";
@@ -186,6 +183,10 @@ process.title = PROCESS_NAME;
 
 function createRuntimeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createSessionSid(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 16);
 }
 
 function resolveControlPlaneHome(): string {
@@ -879,36 +880,22 @@ async function createCardlessProjectSessionForDelivery(input: {
       : "claude_stream_json";
   const launchArgs = launchArgsForCardlessSession(harness, input.execution);
   const sessionId = createRuntimeId("session");
+  const sid = createSessionSid();
   const projectName = basename(projectRoot) || projectRoot;
-  const snapshot = runtime.snapshot();
-  const projectSessionIndex = Object.values(snapshot.endpoints).filter((endpoint) => {
-    const endpointProjectRoot = endpoint.projectRoot
-      ?? (typeof endpoint.metadata?.projectRoot === "string" ? endpoint.metadata.projectRoot : undefined)
-      ?? endpoint.cwd;
-    return endpoint.metadata?.cardless === true
-      && endpoint.harness === harness
-      && Boolean(endpointProjectRoot)
-      && resolve(expandHomePath(endpointProjectRoot!)) === projectRoot;
-  }).length;
-  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(snapshot);
   const requestedHandle = input.projectAgent?.handle?.trim();
-  const provisionalName = resolveProjectProvisionalAgentName({
-    explicitName: requestedHandle,
-    occupied,
-    seedParts: [
-      "cardless-project-session",
-      input.requesterId,
-      projectRoot,
-      harness,
-      projectSessionIndex,
-    ],
-  });
+  const handle = requestedHandle
+    ? resolveProjectProvisionalAgentName({
+        explicitName: requestedHandle,
+        occupied: [],
+      })
+    : undefined;
   const registered = await registerCardlessSession({
     upsertActor: upsertActorDurably,
     upsertEndpoint: persistEndpoint,
   }, {
     sessionId,
-    handle: provisionalName,
+    sid,
+    ...(handle ? { handle } : {}),
     transport,
     harness,
     cwd: projectRoot,
@@ -928,7 +915,7 @@ async function createCardlessProjectSessionForDelivery(input: {
       sessionId: registered.sessionId,
       actorId: registered.actorId,
       endpoint,
-      label: cardlessSessionDisplayName({ handle: provisionalName, projectName }),
+      label: handle ? cardlessSessionDisplayName({ handle, projectName }) : `sid:${sid}`,
       nodeId: endpoint.nodeId,
     },
   };

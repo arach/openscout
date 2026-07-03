@@ -309,7 +309,7 @@ const targetAgentIdInputSchema = z
 
 const targetSessionIdInputSchema = z
   .string()
-  .describe("Exact Scout session id to continue. Agent-card targets create fresh sessions; pass targetSessionId only when you intentionally want prior context from a specific CODEX_THREAD_ID or attached runtime session.")
+  .describe("Exact Scout session id to continue. Accepts broker handoff codes such as sid:<code> or the raw sid code. Agent-card targets create fresh sessions; pass targetSessionId only when you intentionally want prior context from a specific CODEX_THREAD_ID or attached runtime session.")
   .optional();
 
 const projectPathInputSchema = z
@@ -1214,6 +1214,7 @@ const askReceiptSchema = z.object({
     messageId: z.string().optional(),
     workId: z.string().optional(),
     bindingRef: z.string().optional(),
+    sid: z.string().optional(),
   }),
   delivery: z.enum(REPLY_DELIVERY_VALUES).optional(),
   notification: z
@@ -1508,6 +1509,7 @@ function renderMcpAskPrimitiveSummary(receipt: ScoutAskReceipt): string {
       : "";
     const flight = receipt.ids.flightId ? `; flight ${receipt.ids.flightId}` : "";
     const work = receipt.ids.workId ? `; work ${receipt.ids.workId}` : "";
+    const sid = receipt.ids.sid ? `; sid:${receipt.ids.sid.replace(/^sid:/, "")}` : "";
     let delivery = "";
     if (receipt.notification?.status === "not_scheduled") {
       delivery = receipt.ids.flightId
@@ -1520,7 +1522,7 @@ function renderMcpAskPrimitiveSummary(receipt: ScoutAskReceipt): string {
           ? ` MCP notification was not scheduled; use invocations_wait with flightId=${receipt.ids.flightId}.`
           : " MCP notification was not scheduled.";
     }
-    return `Ask ${receipt.state}${target}${flight}${work}.${delivery}`;
+    return `Ask ${receipt.state}${target}${flight}${work}${sid}.${delivery}`;
   }
   if (receipt.next) {
     return `Ask was not sent: ${receipt.next.reason}`;

@@ -12,6 +12,7 @@ import {
 
 import { SUPPORTED_SCOUT_HARNESSES } from "./local-agents.js";
 import {
+  parseSessionRouteLabel,
   resolveBrokerRouteTarget,
   type BrokerLabelResolution,
   type BrokerRouteTargetInput,
@@ -68,9 +69,10 @@ export function executionWithRouteParams(payload: ScoutDeliverRequest): Invocati
   const identity = label
     ? parseAgentIdentity(label.startsWith("@") ? label : `@${label}`)
     : null;
+  const labelSessionHarness = label ? parseSessionRouteLabel(label)?.harness : undefined;
   const targetHarness = payload.target?.kind === "session_id"
     ? payload.target.harness
-    : undefined;
+    : labelSessionHarness;
   const harness = payload.execution?.harness
     ? undefined
     : targetHarness ?? supportedRouteHarness(identity?.harness);
@@ -148,6 +150,7 @@ export function buildDeliveryReceipt(input: {
   targetAgentId?: string;
   targetSessionId?: string;
   targetLabel: string;
+  sid?: string;
   sessionAlias?: string;
   bindingRef?: string;
   conversationId: string;
@@ -162,6 +165,7 @@ export function buildDeliveryReceipt(input: {
     targetAgentId: input.targetAgentId,
     targetSessionId: input.targetSessionId,
     targetLabel: input.targetLabel,
+    ...(input.sid ? { sid: input.sid } : {}),
     ...(input.sessionAlias ? { sessionAlias: input.sessionAlias } : {}),
     ...(input.bindingRef ? { bindingRef: input.bindingRef } : {}),
     conversationId: input.conversationId,
