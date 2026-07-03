@@ -105,6 +105,8 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     "",
     ...renderTerminalPtyReport(report.terminalPty),
     "",
+    ...renderSystemProbes(report.systemProbes),
+    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -183,6 +185,30 @@ function renderTerminalPtyReport(report: ScoutDoctorReport["terminalPty"]): stri
   );
   if (report.installCommand) {
     lines.push(`  Install: ${report.installCommand}`);
+  }
+  return lines;
+}
+
+function renderSystemProbes(report: ScoutDoctorReport["systemProbes"]): string[] {
+  const lines = [
+    "System probes:",
+    `  Socket: ${report.socketPath}`,
+    `  Socket exists: ${report.socketExists ? "yes" : "no"}`,
+    `  Daemon observed: ${report.daemonObserved ? "yes" : "no"}`,
+    `  Daemon version: ${report.daemonVersion ?? "-"}`,
+    `  Capabilities: ${report.supportedProbeIds.length > 0 ? report.supportedProbeIds.join(", ") : "-"}`,
+  ];
+  if (report.lastError) {
+    lines.push(`  Last scoutd error: ${report.lastError}`);
+  }
+  for (const family of report.families) {
+    const fallback = family.fallbackSince
+      ? `; fallback ${Math.round((family.fallbackAgeMs ?? 0) / 1000)}s: ${family.fallbackReason ?? "unknown"}`
+      : "";
+    lines.push(`  - ${family.id}: ${family.backend} (${family.status})${fallback}`);
+  }
+  for (const warning of report.warnings) {
+    lines.push(`  Warning: ${warning}`);
   }
   return lines;
 }
@@ -321,6 +347,8 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
     ...renderTerminalPtyReport(report.terminalPty),
+    "",
+    ...renderSystemProbes(report.systemProbes),
     "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];

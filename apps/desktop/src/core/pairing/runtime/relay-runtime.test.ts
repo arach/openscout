@@ -106,7 +106,7 @@ exit 1
       ).href;
       const result = spawnSync(
         "bun",
-        ["--silent", "-e", `const mod = await import(${JSON.stringify(moduleUrl)}); mod.suggestedRelayUrl(43131);`],
+        ["--silent", "-e", `const mod = await import(${JSON.stringify(moduleUrl)}); await mod.suggestedRelayUrl(43131);`],
         {
           encoding: "utf8",
           env: {

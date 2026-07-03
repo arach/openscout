@@ -1,9 +1,8 @@
 import type { NodeDefinition } from "@openscout/protocol";
 import {
-  readTailscalePeers,
-  readTailscaleStatusSummary,
   type TailscalePeerCandidate,
 } from "@openscout/runtime/mesh/tailscale";
+import { tailscaleStatusProbe } from "@openscout/runtime/system-probes";
 
 import {
   readScoutBrokerHealth,
@@ -94,7 +93,7 @@ function readMeshEnvVars(): MeshEnvVars {
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
-  const summary = await readTailscaleStatusSummary();
+  const summary = tailscaleStatusProbe.read().value;
   const peers = summary?.peers ?? [];
   return {
     available: summary !== null,
@@ -175,7 +174,7 @@ export async function loadMeshDoctorReport(): Promise<MeshDoctorReport> {
 
 export async function runMeshDiscover(): Promise<MeshDiscoverReport> {
   const brokerUrl = resolveScoutBrokerUrl();
-  const tailscalePeers = await readTailscalePeers();
+  const tailscalePeers = tailscaleStatusProbe.read().value?.peers ?? [];
 
   const response = await fetch(new URL("/v1/mesh/discover", brokerUrl), {
     method: "POST",
