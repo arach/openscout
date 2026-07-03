@@ -1,8 +1,7 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { promisify } from "node:util";
 
 import {
   buildScoutVantagePlan,
@@ -21,7 +20,6 @@ import {
 
 import { loadScoutBrokerContext } from "./core/broker/service.ts";
 
-const execFileAsync = promisify(execFile);
 const VANTAGE_BROKER_CONTEXT_TIMEOUT_MS = 2_000;
 
 export type OpenScoutVantageHandoffInput = {
@@ -297,7 +295,7 @@ async function launchVantageOpenUrl(
   }
 
   try {
-    await execFileAsync("/usr/bin/open", [openUrl]);
+    await execSystemFile("/usr/bin/open", [openUrl], { timeoutMs: 1_500 });
     return { attempted: true, ok: true, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

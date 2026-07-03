@@ -12,19 +12,16 @@
  */
 
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
 import { epochMs } from "@openscout/protocol";
 import { resolveClaudeStatuslineDirectory } from "@openscout/runtime/claude-statusline";
+import { execSystemFile } from "@openscout/runtime/system-probes";
 import { db, resolveDbPath } from "./db/internal/db.ts";
-
-const execFileAsync = promisify(execFile);
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 3600 * 1000;
@@ -768,10 +765,11 @@ async function loadGithubGauge(forceRefresh = false): Promise<ServiceGauge | nul
   } else {
     try {
       const ghBin = process.env[GH_CLI_BIN_ENV] || "gh";
-      const result = await execFileAsync(ghBin, ["api", "rate_limit"], {
+      const result = await execSystemFile(ghBin, ["api", "rate_limit"], {
         env: { ...process.env },
-        timeout: GH_CLI_TIMEOUT_MS,
-        maxBuffer: 256 * 1024,
+        timeoutMs: GH_CLI_TIMEOUT_MS,
+        maxStdoutBytes: 256 * 1024,
+        maxStderrBytes: 128 * 1024,
       });
       stdout = result.stdout;
     } catch (error) {

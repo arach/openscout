@@ -15,6 +15,8 @@ const CAPABILITIES_SCHEMA = "openscout.probe.capabilities/v1";
 const REQUEST_SCHEMA = "openscout.probe.request/v1";
 const SNAPSHOT_SCHEMA = "openscout.probe.snapshot/v1";
 const ERROR_SCHEMA = "openscout.probe.error/v1";
+const EXEC_REQUEST_SCHEMA = "openscout.exec.request/v1";
+const EXEC_RESPONSE_SCHEMA = "openscout.exec.response/v1";
 const CAPABILITY_RECHECK_MS = 10_000;
 const SOCKET_TIMEOUT_MS = 900;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -25,12 +27,18 @@ export type ScoutdProbeFamilyCapability = {
   ttlMs: number;
 };
 
+export type ScoutdExecVerbCapability = {
+  verb: string;
+  schemaVersion: number;
+};
+
 export type ScoutdProbeClientDiagnostics = {
   socketPath: string;
   socketExists: boolean;
   daemonObserved: boolean;
   daemonVersion: string | null;
   supportedProbeIds: string[];
+  supportedExecVerbs: string[];
   lastCapabilityCheckAt: number | null;
   lastError: string | null;
 };
@@ -38,6 +46,7 @@ export type ScoutdProbeClientDiagnostics = {
 type Capabilities = {
   daemonVersion: string;
   families: Map<string, ScoutdProbeFamilyCapability>;
+  verbs: Map<string, ScoutdExecVerbCapability>;
 };
 
 type ScoutdSnapshotResponse<T> = {
@@ -56,6 +65,27 @@ type ScoutdProbeOutcome<T> =
       state: "scoutd";
       value: T;
       generatedAt: number;
+      daemonVersion: string;
+    }
+  | {
+      state: "local";
+      fallbackSince?: number;
+      fallbackReason?: string;
+    };
+
+type ScoutdExecResponse<T> = {
+  schema: typeof EXEC_RESPONSE_SCHEMA;
+  verb: string;
+  ok: boolean;
+  value?: T;
+  error?: { code?: string; message?: string; timedOut?: boolean; timed_out?: boolean } | null;
+  daemonVersion: string;
+};
+
+type ScoutdExecOutcome<T> =
+  | {
+      state: "scoutd";
+      value: T;
       daemonVersion: string;
     }
   | {
@@ -88,6 +118,18 @@ function fallbackMessage(error: unknown): string {
   return String(error);
 }
 
+export class ScoutdExecResponseError extends Error {
+  code: string;
+  timedOut: boolean;
+
+  constructor(message: string, options: { code?: string; timedOut?: boolean } = {}) {
+    super(message);
+    this.name = "ScoutdExecResponseError";
+    this.code = options.code ?? "exec_error";
+    this.timedOut = options.timedOut ?? false;
+  }
+}
+
 export function resolveScoutdProbesSocketPath(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.OPENSCOUT_PROBES_SOCKET?.trim();
   if (explicit) {
@@ -103,6 +145,7 @@ export class ScoutdProbeClient {
   private lastError: string | null = null;
   private daemonObserved = false;
   private readonly fallbackByProbe = new Map<string, FallbackState>();
+  private readonly fallbackByExec = new Map<string, FallbackState>();
 
   constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
 
@@ -160,6 +203,63 @@ export class ScoutdProbeClient {
     }
   }
 
+  async requestExecVerb<T>(input: {
+    verb: string;
+    args: Record<string, unknown>;
+  }): Promise<ScoutdExecOutcome<T>> {
+    const socketPath = resolveScoutdProbesSocketPath(this.env);
+    const socketExists = existsSync(socketPath);
+    if (!socketExists) {
+      this.capabilities = null;
+      this.lastError = null;
+      return this.daemonObserved
+        ? this.execFallback(input.verb, `probe socket is missing: ${socketPath}`)
+        : { state: "local" };
+    }
+    this.daemonObserved = true;
+
+    const capabilities = await this.ensureCapabilities(socketPath);
+    if (!capabilities) {
+      return this.execFallback(input.verb, this.lastError ?? "probe capabilities unavailable");
+    }
+    if (!capabilities.verbs.has(input.verb)) {
+      return this.execFallback(input.verb, `scoutd does not serve ${input.verb}`);
+    }
+
+    try {
+      const response = await requestJson<ScoutdExecResponse<T>>(socketPath, {
+        schema: EXEC_REQUEST_SCHEMA,
+        verb: input.verb,
+        args: input.args,
+      }, { timeoutMs: execSocketTimeoutMs(input.args) });
+      if (!isRecord(response) || response.schema !== EXEC_RESPONSE_SCHEMA) {
+        throw new Error("scoutd returned an invalid exec response envelope");
+      }
+      if (!response.ok) {
+        const error = isRecord(response.error) ? response.error : {};
+        const code = readString(error.code) ?? "exec_error";
+        const message = readString(error.message) ?? code;
+        const timedOut = error.timedOut === true || error.timed_out === true;
+        throw new ScoutdExecResponseError(message, { code, timedOut });
+      }
+      this.fallbackByExec.delete(input.verb);
+      this.lastError = null;
+      return {
+        state: "scoutd",
+        value: response.value as T,
+        daemonVersion: readString(response.daemonVersion) ?? capabilities.daemonVersion,
+      };
+    } catch (error) {
+      if (error instanceof ScoutdExecResponseError) {
+        throw error;
+      }
+      this.capabilities = null;
+      this.lastCapabilityCheckAt = null;
+      this.lastError = fallbackMessage(error);
+      return this.execFallback(input.verb, this.lastError);
+    }
+  }
+
   diagnostics(): ScoutdProbeClientDiagnostics {
     const socketPath = resolveScoutdProbesSocketPath(this.env);
     return {
@@ -168,6 +268,7 @@ export class ScoutdProbeClient {
       daemonObserved: this.daemonObserved,
       daemonVersion: this.capabilities?.daemonVersion ?? null,
       supportedProbeIds: this.capabilities ? [...this.capabilities.families.keys()].sort() : [],
+      supportedExecVerbs: this.capabilities ? [...this.capabilities.verbs.keys()].sort() : [],
       lastCapabilityCheckAt: this.lastCapabilityCheckAt,
       lastError: this.lastError,
     };
@@ -179,6 +280,7 @@ export class ScoutdProbeClient {
     this.lastError = null;
     this.daemonObserved = false;
     this.fallbackByProbe.clear();
+    this.fallbackByExec.clear();
   }
 
   private async ensureCapabilities(socketPath: string): Promise<Capabilities | null> {
@@ -206,7 +308,18 @@ export class ScoutdProbeClient {
           }
         }
       }
-      this.capabilities = { daemonVersion, families };
+      const verbs = new Map<string, ScoutdExecVerbCapability>();
+      if (Array.isArray(response.verbs)) {
+        for (const entry of response.verbs) {
+          if (!isRecord(entry)) continue;
+          const verb = readString(entry.verb);
+          const schemaVersion = readNumber(entry.schemaVersion);
+          if (verb && schemaVersion !== null) {
+            verbs.set(verb, { verb, schemaVersion });
+          }
+        }
+      }
+      this.capabilities = { daemonVersion, families, verbs };
       this.daemonObserved = true;
       this.lastError = null;
       return this.capabilities;
@@ -223,6 +336,19 @@ export class ScoutdProbeClient {
     if (!state || state.reason !== reason) {
       state = { since: Date.now(), reason };
       this.fallbackByProbe.set(id, state);
+    }
+    return {
+      state: "local",
+      fallbackSince: state.since,
+      fallbackReason: state.reason,
+    };
+  }
+
+  private execFallback(verb: string, reason: string): ScoutdExecOutcome<never> {
+    let state = this.fallbackByExec.get(verb);
+    if (!state || state.reason !== reason) {
+      state = { since: Date.now(), reason };
+      this.fallbackByExec.set(verb, state);
     }
     return {
       state: "local",
@@ -283,7 +409,18 @@ export async function runWithScoutdFallback<T>(input: {
   }
 }
 
-async function requestJson<T>(socketPath: string, payload: unknown): Promise<T> {
+function execSocketTimeoutMs(args: Record<string, unknown>): number {
+  const timeoutMs = typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs)
+    ? Math.max(0, args.timeoutMs)
+    : 5_000;
+  return Math.max(SOCKET_TIMEOUT_MS, Math.min(timeoutMs + 1_000, 31_000));
+}
+
+async function requestJson<T>(
+  socketPath: string,
+  payload: unknown,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
   const bun = (globalThis as typeof globalThis & {
     Bun?: {
       connect?: (options: {
@@ -298,7 +435,7 @@ async function requestJson<T>(socketPath: string, payload: unknown): Promise<T> 
     };
   }).Bun;
   if (bun?.connect) {
-    return await requestJsonWithBun<T>(bun.connect, socketPath, payload);
+    return await requestJsonWithBun<T>(bun.connect, socketPath, payload, options);
   }
 
   return await new Promise<T>((resolve, reject) => {
@@ -319,9 +456,10 @@ async function requestJson<T>(socketPath: string, payload: unknown): Promise<T> 
       }
     };
 
+    const timeoutMs = options.timeoutMs ?? SOCKET_TIMEOUT_MS;
     const timer = setTimeout(() => {
-      finish(new Error(`scoutd probe socket timed out after ${SOCKET_TIMEOUT_MS}ms`));
-    }, SOCKET_TIMEOUT_MS);
+      finish(new Error(`scoutd probe socket timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     timer.unref?.();
 
     const finishFromResponse = (): void => {
@@ -371,6 +509,7 @@ async function requestJsonWithBun<T>(
   })["Bun"]>["connect"]> extends (...args: infer A) => infer R ? (...args: A) => R : never,
   socketPath: string,
   payload: unknown,
+  options: { timeoutMs?: number } = {},
 ): Promise<T> {
   return await new Promise<T>((resolve, reject) => {
     let response = "";
@@ -410,9 +549,10 @@ async function requestJsonWithBun<T>(
       }
     };
 
+    const timeoutMs = options.timeoutMs ?? SOCKET_TIMEOUT_MS;
     const timer = setTimeout(() => {
-      finish(new Error(`scoutd probe socket timed out after ${SOCKET_TIMEOUT_MS}ms`));
-    }, SOCKET_TIMEOUT_MS);
+      finish(new Error(`scoutd probe socket timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     timer.unref?.();
 
     void connect({

@@ -20,6 +20,8 @@ const ERROR_SCHEMA: &str = "openscout.probe.error/v1";
 const REPO_SCAN_SCHEMA: &str = "openscout.repo.scan/v1";
 const REPO_DIFF_SCHEMA: &str = "openscout.repo.diff/v1";
 const REPO_RESPONSE_SCHEMA: &str = "openscout.repo.response/v1";
+const EXEC_REQUEST_SCHEMA: &str = "openscout.exec.request/v1";
+const EXEC_RESPONSE_SCHEMA: &str = "openscout.exec.response/v1";
 const REPO_SCAN_CAPABILITY_ID: &str = "repo.scan";
 const REPO_DIFF_CAPABILITY_ID: &str = "repo.diff";
 const TAILSCALE_STATUS_ID: &str = "tailscale.status";
@@ -32,14 +34,30 @@ const DEFAULT_REPO_JOB_TIMEOUT: Duration = Duration::from_millis(20_000);
 const DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_REPO_JOB_WORKERS: usize = 4;
 const DEFAULT_REPO_JOB_QUEUE: usize = 32;
-const REQUEST_READ_CAP_BYTES: u64 = 1024 * 1024;
+const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
+const DEFAULT_EXEC_JOB_QUEUE: usize = 32;
+const REQUEST_READ_CAP_BYTES: u64 = 8 * 1024 * 1024;
 const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const EXEC_VERBS: &[&str] = &[
+    "tmux.sendKeys",
+    "tmux.sendKeysLiteral",
+    "tmux.loadBuffer",
+    "tmux.pasteBuffer",
+    "tmux.deleteBuffer",
+    "tmux.killSession",
+    "tmux.newSession",
+    "tmux.detachClient",
+    "tailscale.cert",
+    "reveal.open",
+];
 
 #[derive(Clone, Debug)]
 pub struct ProbeServerOptions {
     pub socket_path: PathBuf,
     pub tailscale_bin: String,
     pub git_bin: String,
+    pub tmux_bin: String,
     pub tailscale_status_fixture: Option<PathBuf>,
     pub tailscale_timeout: Duration,
     pub git_timeout: Duration,
@@ -47,6 +65,8 @@ pub struct ProbeServerOptions {
     pub repo_job_response_cap_bytes: usize,
     pub repo_job_workers: usize,
     pub repo_job_queue: usize,
+    pub exec_job_workers: usize,
+    pub exec_job_queue: usize,
 }
 
 impl ProbeServerOptions {
@@ -56,6 +76,7 @@ impl ProbeServerOptions {
             tailscale_bin: env_nonempty("OPENSCOUT_TAILSCALE_BIN")
                 .unwrap_or_else(|| "tailscale".to_string()),
             git_bin: env_nonempty("OPENSCOUT_GIT_BIN").unwrap_or_else(|| "git".to_string()),
+            tmux_bin: env_nonempty("OPENSCOUT_TMUX_BIN").unwrap_or_else(|| "tmux".to_string()),
             tailscale_status_fixture: env_nonempty("OPENSCOUT_TAILSCALE_STATUS_JSON")
                 .map(PathBuf::from),
             tailscale_timeout: env_duration_ms("OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS")
@@ -70,6 +91,10 @@ impl ProbeServerOptions {
                 .unwrap_or(DEFAULT_REPO_JOB_WORKERS)
                 .max(1),
             repo_job_queue: env_usize("OPENSCOUT_REPO_JOB_QUEUE").unwrap_or(DEFAULT_REPO_JOB_QUEUE),
+            exec_job_workers: env_usize("OPENSCOUT_EXEC_JOB_WORKERS")
+                .unwrap_or(DEFAULT_EXEC_JOB_WORKERS)
+                .max(1),
+            exec_job_queue: env_usize("OPENSCOUT_EXEC_JOB_QUEUE").unwrap_or(DEFAULT_EXEC_JOB_QUEUE),
         }
     }
 }
@@ -95,6 +120,13 @@ pub struct ProbeCapability {
     pub schema_version: u32,
     #[serde(rename = "ttlMs")]
     pub ttl_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecVerbCapability {
+    pub verb: String,
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -133,6 +165,19 @@ struct RepoJobResponse {
     daemon_version: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ExecResponse {
+    schema: String,
+    verb: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<JsonError>,
+    #[serde(rename = "daemonVersion")]
+    daemon_version: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RepoOperation {
     Scan,
@@ -159,6 +204,13 @@ struct ProbeRequest {
     max_age_ms: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExecRequest {
+    verb: Option<String>,
+    #[serde(default)]
+    args: Value,
+}
+
 #[derive(Debug)]
 struct ProbeFailure {
     code: String,
@@ -169,6 +221,7 @@ struct ProbeFailure {
 #[derive(Debug)]
 struct CommandResult {
     stdout: String,
+    stderr: String,
 }
 
 #[derive(Debug)]
@@ -279,15 +332,18 @@ struct ProbeEngine {
     options: ProbeServerOptions,
     state: Arc<(Mutex<ProbeEngineState>, Condvar)>,
     repo_jobs: JobLimiter,
+    exec_jobs: JobLimiter,
 }
 
 impl ProbeEngine {
     fn new(options: ProbeServerOptions) -> Self {
         let repo_jobs = JobLimiter::new(options.repo_job_workers, options.repo_job_queue);
+        let exec_jobs = JobLimiter::new(options.exec_job_workers, options.exec_job_queue);
         Self {
             options,
             state: Arc::new((Mutex::new(ProbeEngineState::default()), Condvar::new())),
             repo_jobs,
+            exec_jobs,
         }
     }
 
@@ -385,6 +441,303 @@ impl ProbeEngine {
                     timed_out: if error.timed_out { Some(true) } else { None },
                 }),
             ),
+        }
+    }
+
+    fn run_exec_job(&self, verb: String, args: Value) -> ExecResponse {
+        let result = match self.exec_jobs.acquire() {
+            Ok(_permit) => self.run_exec_verb(&verb, args),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(value) => exec_response(&verb, true, Some(value), None),
+            Err(error) => exec_response(
+                &verb,
+                false,
+                None,
+                Some(JsonError {
+                    code: error.code,
+                    message: error.message,
+                    timed_out: if error.timed_out { Some(true) } else { None },
+                }),
+            ),
+        }
+    }
+
+    fn run_exec_verb(&self, verb: &str, args: Value) -> Result<Value, ProbeFailure> {
+        if !EXEC_VERBS.contains(&verb) {
+            return Err(ProbeFailure {
+                code: "unknown_verb".to_string(),
+                message: format!("unknown exec verb: {verb}"),
+                timed_out: false,
+            });
+        }
+        let object = args.as_object().ok_or_else(|| ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{verb} args must be an object"),
+            timed_out: false,
+        })?;
+        match verb {
+            "tmux.sendKeys" => self.exec_tmux_send_keys(object),
+            "tmux.sendKeysLiteral" => self.exec_tmux_send_keys_literal(object),
+            "tmux.loadBuffer" => self.exec_tmux_load_buffer(object),
+            "tmux.pasteBuffer" => self.exec_tmux_paste_buffer(object),
+            "tmux.deleteBuffer" => self.exec_tmux_delete_buffer(object),
+            "tmux.killSession" => self.exec_tmux_kill_session(object),
+            "tmux.newSession" => self.exec_tmux_new_session(object),
+            "tmux.detachClient" => self.exec_tmux_detach_client(object),
+            "tailscale.cert" => self.exec_tailscale_cert(object),
+            "reveal.open" => self.exec_reveal_open(object),
+            _ => Err(ProbeFailure {
+                code: "unknown_verb".to_string(),
+                message: format!("unknown exec verb: {verb}"),
+                timed_out: false,
+            }),
+        }
+    }
+
+    fn exec_tmux_send_keys(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let target = required_tmux_target(args, "target")?;
+        let keys = required_string_array(args, "keys", validate_tmux_key)?;
+        if keys.is_empty() {
+            return Err(invalid_args("tmux.sendKeys requires at least one key"));
+        }
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend(["send-keys".to_string(), "-t".to_string(), target]);
+        command_args.extend(keys);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_send_keys_literal(
+        &self,
+        args: &Map<String, Value>,
+    ) -> Result<Value, ProbeFailure> {
+        let target = required_tmux_target(args, "target")?;
+        let text = required_bounded_string(args, "text", 128 * 1024, allow_text_payload)?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend([
+            "send-keys".to_string(),
+            "-t".to_string(),
+            target,
+            "-l".to_string(),
+            text,
+        ]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_load_buffer(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let buffer_name = required_buffer_name(args, "bufferName")?;
+        let content =
+            required_bounded_string(args, "content", 4 * 1024 * 1024, allow_text_payload)?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend([
+            "load-buffer".to_string(),
+            "-b".to_string(),
+            buffer_name,
+            "-".to_string(),
+        ]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            Some(content.into_bytes()),
+            args,
+            ExecVerbLimits::tmux_large_input(),
+        )
+    }
+
+    fn exec_tmux_paste_buffer(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let buffer_name = required_buffer_name(args, "bufferName")?;
+        let target = required_tmux_target(args, "target")?;
+        let flags = optional_string(args, "flags").unwrap_or_else(|| "-dpr".to_string());
+        validate_tmux_paste_flags(&flags)?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend([
+            "paste-buffer".to_string(),
+            flags,
+            "-b".to_string(),
+            buffer_name,
+            "-t".to_string(),
+            target,
+        ]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_delete_buffer(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let buffer_name = required_buffer_name(args, "bufferName")?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend(["delete-buffer".to_string(), "-b".to_string(), buffer_name]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_kill_session(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let target = required_tmux_target(args, "target")?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend(["kill-session".to_string(), "-t".to_string(), target]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_detach_client(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let session_name = required_tmux_target(args, "sessionName")?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.extend(["detach-client".to_string(), "-s".to_string(), session_name]);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux(),
+        )
+    }
+
+    fn exec_tmux_new_session(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let session_name = required_tmux_target(args, "sessionName")?;
+        let command = required_bounded_string(args, "command", 16 * 1024, allow_tmux_command)?;
+        let mut command_args = tmux_socket_prefix(args)?;
+        command_args.push("new-session".to_string());
+        let detached = optional_bool(args, "detached").unwrap_or(true);
+        let print_pane = optional_bool(args, "printPane").unwrap_or(false);
+        if detached && print_pane {
+            command_args.push("-dP".to_string());
+        } else {
+            if detached {
+                command_args.push("-d".to_string());
+            }
+            if print_pane {
+                command_args.push("-P".to_string());
+            }
+        }
+        if let Some(window_name) = optional_string(args, "windowName") {
+            validate_tmux_window_name(&window_name)?;
+            command_args.extend(["-n".to_string(), window_name]);
+        }
+        if let Some(columns) = optional_u16(args, "columns") {
+            command_args.extend(["-x".to_string(), columns.to_string()]);
+        }
+        if let Some(rows) = optional_u16(args, "rows") {
+            command_args.extend(["-y".to_string(), rows.to_string()]);
+        }
+        if let Some(format) = optional_string(args, "format") {
+            validate_tmux_format(&format)?;
+            command_args.extend(["-F".to_string(), format]);
+        }
+        command_args.extend(["-s".to_string(), session_name]);
+        if let Some(cwd) = optional_string(args, "cwd") {
+            validate_absolute_path(&cwd, "cwd")?;
+            command_args.extend(["-c".to_string(), cwd]);
+        }
+        command_args.push(command);
+        self.run_exec_command_json(
+            &self.options.tmux_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tmux_new_session(),
+        )
+    }
+
+    fn exec_tailscale_cert(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let cert_file = required_bounded_string(args, "certFile", 4096, |value| {
+            validate_absolute_path(value, "certFile")
+        })?;
+        let key_file = required_bounded_string(args, "keyFile", 4096, |value| {
+            validate_absolute_path(value, "keyFile")
+        })?;
+        let hostname = required_bounded_string(args, "hostname", 253, validate_hostname)?;
+        let command_args = vec![
+            "cert".to_string(),
+            "--cert-file".to_string(),
+            cert_file,
+            "--key-file".to_string(),
+            key_file,
+            hostname,
+        ];
+        self.run_exec_command_json(
+            &self.options.tailscale_bin,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::tailscale_cert(),
+        )
+    }
+
+    fn exec_reveal_open(&self, args: &Map<String, Value>) -> Result<Value, ProbeFailure> {
+        let target_path = required_bounded_string(args, "targetPath", 4096, |value| {
+            validate_absolute_path(value, "targetPath")
+        })?;
+        let mode = required_bounded_string(args, "mode", 32, validate_reveal_mode)?;
+        let (command, command_args) = match mode.as_str() {
+            "darwinReveal" => ("open".to_string(), vec!["-R".to_string(), target_path]),
+            "darwinOpen" => ("open".to_string(), vec![target_path]),
+            "xdgOpen" => ("xdg-open".to_string(), vec![target_path]),
+            "windowsSelect" => (
+                "explorer.exe".to_string(),
+                vec![format!("/select,{target_path}")],
+            ),
+            _ => return Err(invalid_args("unsupported reveal.open mode")),
+        };
+        self.run_exec_command_json(
+            &command,
+            command_args,
+            None,
+            args,
+            ExecVerbLimits::reveal_open(),
+        )
+    }
+
+    fn run_exec_command_json(
+        &self,
+        command: &str,
+        args: Vec<String>,
+        stdin: Option<Vec<u8>>,
+        request_args: &Map<String, Value>,
+        limits: ExecVerbLimits,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = requested_timeout(request_args, limits.default_timeout, limits.max_timeout)?;
+        match run_capped_command_with_input(
+            command,
+            &args,
+            stdin.as_deref(),
+            None,
+            timeout,
+            limits.max_stdout_bytes,
+            limits.max_stderr_bytes,
+        ) {
+            Ok(output) => Ok(json!({
+                "stdout": output.stdout,
+                "stderr": output.stderr,
+                "exitCode": 0,
+            })),
+            Err(error) => Err(command_failure_to_exec(error, command)),
         }
     }
 
@@ -626,6 +979,15 @@ fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), 
                     ),
                 }
             }
+            Ok(ParsedRequest::Exec(request)) => {
+                let verb = request.verb.unwrap_or_default();
+                match serde_json::to_value(engine.run_exec_job(verb.clone(), request.args)) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        exec_error_response(&verb, "serialize_error", &error.to_string(), false)
+                    }
+                }
+            }
             Err(error) => error_response(&error.code, &error.message),
         }
     };
@@ -665,6 +1027,7 @@ enum ParsedRequest {
     Capabilities,
     Probe(ProbeRequest),
     Repo(RepoJobRequest),
+    Exec(ExecRequest),
 }
 
 #[derive(Debug)]
@@ -719,6 +1082,28 @@ fn parse_request(bytes: &[u8]) -> Result<ParsedRequest, ProbeFailure> {
             operation: RepoOperation::Diff,
             body: value,
         })),
+        EXEC_REQUEST_SCHEMA => {
+            let request: ExecRequest =
+                serde_json::from_value(value).map_err(|error| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: format!("invalid exec request: {error}"),
+                    timed_out: false,
+                })?;
+            if request
+                .verb
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err(ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "exec request missing verb".to_string(),
+                    timed_out: false,
+                });
+            }
+            Ok(ParsedRequest::Exec(request))
+        }
         other => Err(ProbeFailure {
             code: "unsupported_schema".to_string(),
             message: format!("unsupported probe request schema: {other}"),
@@ -732,6 +1117,7 @@ fn capabilities_response(families: Vec<ProbeCapability>) -> Value {
         "schema": CAPABILITIES_SCHEMA,
         "daemonVersion": DAEMON_VERSION,
         "families": families,
+        "verbs": served_exec_capabilities(),
     })
 }
 
@@ -758,6 +1144,16 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             ttl_ms: 0,
         },
     ]
+}
+
+fn served_exec_capabilities() -> Vec<ExecVerbCapability> {
+    EXEC_VERBS
+        .iter()
+        .map(|verb| ExecVerbCapability {
+            verb: (*verb).to_string(),
+            schema_version: 1,
+        })
+        .collect()
 }
 
 fn error_response(code: &str, message: &str) -> Value {
@@ -795,6 +1191,36 @@ fn repo_job_error_response(
     serde_json::to_value(repo_job_response(
         operation,
         Value::Null,
+        Some(JsonError {
+            code: code.to_string(),
+            message: message.to_string(),
+            timed_out: if timed_out { Some(true) } else { None },
+        }),
+    ))
+    .unwrap_or_else(|_| error_response(code, message))
+}
+
+fn exec_response(
+    verb: &str,
+    ok: bool,
+    value: Option<Value>,
+    error: Option<JsonError>,
+) -> ExecResponse {
+    ExecResponse {
+        schema: EXEC_RESPONSE_SCHEMA.to_string(),
+        verb: verb.to_string(),
+        ok,
+        value,
+        error,
+        daemon_version: DAEMON_VERSION.to_string(),
+    }
+}
+
+fn exec_error_response(verb: &str, code: &str, message: &str, timed_out: bool) -> Value {
+    serde_json::to_value(exec_response(
+        verb,
+        false,
+        None,
         Some(JsonError {
             code: code.to_string(),
             message: message.to_string(),
@@ -1107,6 +1533,337 @@ fn realpath_or_resolved(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ExecVerbLimits {
+    default_timeout: Duration,
+    max_timeout: Duration,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+}
+
+impl ExecVerbLimits {
+    fn tmux() -> Self {
+        Self {
+            default_timeout: Duration::from_millis(2_000),
+            max_timeout: Duration::from_millis(5_000),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 64 * 1024,
+        }
+    }
+
+    fn tmux_large_input() -> Self {
+        Self {
+            default_timeout: Duration::from_millis(5_000),
+            max_timeout: Duration::from_millis(10_000),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 64 * 1024,
+        }
+    }
+
+    fn tmux_new_session() -> Self {
+        Self {
+            default_timeout: Duration::from_millis(5_000),
+            max_timeout: Duration::from_millis(10_000),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 64 * 1024,
+        }
+    }
+
+    fn tailscale_cert() -> Self {
+        Self {
+            default_timeout: Duration::from_millis(30_000),
+            max_timeout: Duration::from_millis(30_000),
+            max_stdout_bytes: 512 * 1024,
+            max_stderr_bytes: 512 * 1024,
+        }
+    }
+
+    fn reveal_open() -> Self {
+        Self {
+            default_timeout: Duration::from_millis(1_500),
+            max_timeout: Duration::from_millis(5_000),
+            max_stdout_bytes: 64 * 1024,
+            max_stderr_bytes: 64 * 1024,
+        }
+    }
+}
+
+fn invalid_args(message: &str) -> ProbeFailure {
+    ProbeFailure {
+        code: "invalid_request".to_string(),
+        message: message.to_string(),
+        timed_out: false,
+    }
+}
+
+fn optional_string(args: &Map<String, Value>, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn optional_bool(args: &Map<String, Value>, key: &str) -> Option<bool> {
+    args.get(key).and_then(Value::as_bool)
+}
+
+fn optional_u16(args: &Map<String, Value>, key: &str) -> Option<u16> {
+    args.get(key)
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0 && *value <= u64::from(u16::MAX))
+        .map(|value| value as u16)
+}
+
+fn required_bounded_string<F>(
+    args: &Map<String, Value>,
+    key: &str,
+    max_len: usize,
+    validate: F,
+) -> Result<String, ProbeFailure>
+where
+    F: Fn(&str) -> Result<(), ProbeFailure>,
+{
+    let value = args
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_args(&format!("missing string arg: {key}")))?
+        .to_string();
+    if value.is_empty() || value.len() > max_len {
+        return Err(invalid_args(&format!(
+            "{key} length is outside the allowed range"
+        )));
+    }
+    if value.contains('\0')
+        || value
+            .chars()
+            .any(|ch| ch.is_control() && ch != '\n' && ch != '\t')
+    {
+        return Err(invalid_args(&format!("{key} contains a control character")));
+    }
+    validate(&value)?;
+    Ok(value)
+}
+
+fn required_string_array<F>(
+    args: &Map<String, Value>,
+    key: &str,
+    validate: F,
+) -> Result<Vec<String>, ProbeFailure>
+where
+    F: Fn(&str) -> Result<(), ProbeFailure>,
+{
+    let values = args
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid_args(&format!("missing array arg: {key}")))?;
+    if values.len() > 64 {
+        return Err(invalid_args(&format!("{key} has too many entries")));
+    }
+    let mut out = Vec::with_capacity(values.len());
+    for value in values {
+        let string = value
+            .as_str()
+            .ok_or_else(|| invalid_args(&format!("{key} entries must be strings")))?;
+        if string.is_empty() || string.len() > 128 || string.contains('\0') {
+            return Err(invalid_args(&format!(
+                "{key} entry is outside the allowed range"
+            )));
+        }
+        validate(string)?;
+        out.push(string.to_string());
+    }
+    Ok(out)
+}
+
+fn required_tmux_target(args: &Map<String, Value>, key: &str) -> Result<String, ProbeFailure> {
+    required_bounded_string(args, key, 160, validate_tmux_target)
+}
+
+fn required_buffer_name(args: &Map<String, Value>, key: &str) -> Result<String, ProbeFailure> {
+    required_bounded_string(args, key, 160, validate_tmux_buffer_name)
+}
+
+fn tmux_socket_prefix(args: &Map<String, Value>) -> Result<Vec<String>, ProbeFailure> {
+    let Some(socket_path) = optional_string(args, "socketPath") else {
+        return Ok(Vec::new());
+    };
+    validate_absolute_path(&socket_path, "socketPath")?;
+    Ok(vec!["-S".to_string(), socket_path])
+}
+
+fn requested_timeout(
+    args: &Map<String, Value>,
+    default_timeout: Duration,
+    max_timeout: Duration,
+) -> Result<Duration, ProbeFailure> {
+    let requested = args
+        .get("timeoutMs")
+        .and_then(Value::as_u64)
+        .map(Duration::from_millis)
+        .unwrap_or(default_timeout);
+    if requested.is_zero() {
+        return Err(ProbeFailure {
+            code: "timeout".to_string(),
+            message: "exec verb timed out after 0ms".to_string(),
+            timed_out: true,
+        });
+    }
+    Ok(requested.min(max_timeout))
+}
+
+fn validate_tmux_target(value: &str) -> Result<(), ProbeFailure> {
+    validate_no_shell_meta(value, "tmux target")?;
+    if value.len() > 160
+        || !value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | '-' | '.' | ':' | '@' | '%' | '+' | '=' | '/')
+        })
+    {
+        return Err(invalid_args("tmux target contains unsupported characters"));
+    }
+    Ok(())
+}
+
+fn validate_tmux_buffer_name(value: &str) -> Result<(), ProbeFailure> {
+    validate_no_shell_meta(value, "tmux buffer name")?;
+    if !value.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':' | '@' | '%' | '+' | '=')
+    }) {
+        return Err(invalid_args(
+            "tmux buffer name contains unsupported characters",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_tmux_key(value: &str) -> Result<(), ProbeFailure> {
+    validate_no_shell_meta(value, "tmux key")?;
+    if value.chars().all(|ch| {
+        ch.is_ascii_alphanumeric()
+            || matches!(
+                ch,
+                '_' | '-' | '.' | ':' | '@' | '%' | '+' | '=' | '/' | '[' | ']'
+            )
+    }) {
+        return Ok(());
+    }
+    Err(invalid_args("tmux key contains unsupported characters"))
+}
+
+fn validate_tmux_window_name(value: &str) -> Result<(), ProbeFailure> {
+    validate_no_shell_meta(value, "tmux window name")?;
+    if value.len() <= 80
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | '-' | '.' | ':' | '@' | '%' | '+' | '=')
+        })
+    {
+        return Ok(());
+    }
+    Err(invalid_args(
+        "tmux window name contains unsupported characters",
+    ))
+}
+
+fn validate_tmux_paste_flags(value: &str) -> Result<(), ProbeFailure> {
+    match value {
+        "-dpr" | "-dp" | "-dr" | "-d" | "-p" | "-r" => Ok(()),
+        _ => Err(invalid_args("unsupported tmux paste-buffer flags")),
+    }
+}
+
+fn validate_tmux_format(value: &str) -> Result<(), ProbeFailure> {
+    match value {
+        "#{pane_id}" => Ok(()),
+        _ => Err(invalid_args("unsupported tmux format string")),
+    }
+}
+
+fn allow_text_payload(value: &str) -> Result<(), ProbeFailure> {
+    if value.contains('\0') {
+        return Err(invalid_args("text payload contains NUL"));
+    }
+    Ok(())
+}
+
+fn allow_tmux_command(value: &str) -> Result<(), ProbeFailure> {
+    if value.contains('\0') || value.trim().is_empty() {
+        return Err(invalid_args("tmux command is empty or contains NUL"));
+    }
+    Ok(())
+}
+
+fn validate_absolute_path(value: &str, field: &str) -> Result<(), ProbeFailure> {
+    if value.contains('\0') || value.contains('\n') || value.contains('\r') {
+        return Err(invalid_args(&format!(
+            "{field} contains an unsupported character"
+        )));
+    }
+    if !Path::new(value).is_absolute() {
+        return Err(invalid_args(&format!("{field} must be absolute")));
+    }
+    Ok(())
+}
+
+fn validate_hostname(value: &str) -> Result<(), ProbeFailure> {
+    if value.ends_with('.') || value.starts_with('.') || value.contains("..") {
+        return Err(invalid_args("hostname must be a normalized DNS name"));
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '.')
+    {
+        return Err(invalid_args("hostname contains unsupported characters"));
+    }
+    for label in value.split('.') {
+        if label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-') {
+            return Err(invalid_args("hostname label is invalid"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_reveal_mode(value: &str) -> Result<(), ProbeFailure> {
+    match value {
+        "darwinReveal" | "darwinOpen" | "xdgOpen" | "windowsSelect" => Ok(()),
+        _ => Err(invalid_args("unsupported reveal.open mode")),
+    }
+}
+
+fn validate_no_shell_meta(value: &str, label: &str) -> Result<(), ProbeFailure> {
+    if value.chars().any(|ch| {
+        matches!(
+            ch,
+            ';' | '&'
+                | '|'
+                | '`'
+                | '$'
+                | '<'
+                | '>'
+                | '"'
+                | '\''
+                | '\\'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | '*'
+                | '?'
+                | '!'
+                | '\n'
+                | '\r'
+                | '\t'
+                | ' '
+        )
+    }) {
+        return Err(invalid_args(&format!(
+            "{label} contains shell metacharacters"
+        )));
+    }
+    Ok(())
+}
+
 fn run_capped_command(
     command: &str,
     args: &[&str],
@@ -1115,10 +1872,37 @@ fn run_capped_command(
     max_stdout_bytes: usize,
     max_stderr_bytes: usize,
 ) -> Result<CommandResult, CommandFailure> {
+    run_capped_command_with_input(
+        command,
+        &args
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>(),
+        None,
+        cwd,
+        timeout,
+        max_stdout_bytes,
+        max_stderr_bytes,
+    )
+}
+
+fn run_capped_command_with_input(
+    command: &str,
+    args: &[String],
+    stdin: Option<&[u8]>,
+    cwd: Option<&Path>,
+    timeout: Duration,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+) -> Result<CommandResult, CommandFailure> {
     let mut command_builder = Command::new(command);
     command_builder
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(cwd) = cwd {
@@ -1132,6 +1916,23 @@ fn run_capped_command(
         message: format!("{command}: {error}"),
         timed_out: false,
     })?;
+
+    if let Some(input) = stdin {
+        let Some(mut child_stdin) = child.stdin.take() else {
+            return Err(CommandFailure {
+                code: "io".to_string(),
+                message: format!("{command}: stdin pipe unavailable"),
+                timed_out: false,
+            });
+        };
+        child_stdin
+            .write_all(input)
+            .map_err(|error| CommandFailure {
+                code: "io".to_string(),
+                message: format!("{command}: failed to write stdin: {error}"),
+                timed_out: false,
+            })?;
+    }
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -1148,17 +1949,23 @@ fn run_capped_command(
         timed_out: false,
     })?;
     let stdout = join_reader(stdout_reader)??;
-    let _stderr = join_reader(stderr_reader)??;
+    let stderr = join_reader(stderr_reader)??;
 
     if let Some(status) = status {
         if status.success() {
             return Ok(CommandResult {
                 stdout: String::from_utf8_lossy(&stdout).to_string(),
+                stderr: String::from_utf8_lossy(&stderr).to_string(),
             });
         }
+        let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
         return Err(CommandFailure {
             code: "exit".to_string(),
-            message: format!("{command} exited with {}", status.code().unwrap_or(1)),
+            message: if stderr_text.is_empty() {
+                format!("{command} exited with {}", status.code().unwrap_or(1))
+            } else {
+                stderr_text
+            },
             timed_out: false,
         });
     }
@@ -1236,6 +2043,14 @@ fn command_failure_to_probe(error: CommandFailure, probe_id: &str) -> ProbeFailu
     ProbeFailure {
         code: error.code,
         message: format!("Probe {probe_id} failed: {}", error.message),
+        timed_out: error.timed_out,
+    }
+}
+
+fn command_failure_to_exec(error: CommandFailure, command: &str) -> ProbeFailure {
+    ProbeFailure {
+        code: error.code,
+        message: format!("Exec command {command} failed: {}", error.message),
         timed_out: error.timed_out,
     }
 }
@@ -1355,6 +2170,7 @@ mod tests {
             socket_path,
             tailscale_bin: "tailscale".to_string(),
             git_bin: "git".to_string(),
+            tmux_bin: "tmux".to_string(),
             tailscale_status_fixture: None,
             tailscale_timeout: Duration::from_millis(1_500),
             git_timeout: Duration::from_millis(1_500),
@@ -1362,6 +2178,8 @@ mod tests {
             repo_job_response_cap_bytes: 8 * 1024 * 1024,
             repo_job_workers: 4,
             repo_job_queue: 32,
+            exec_job_workers: 4,
+            exec_job_queue: 32,
         }
     }
 
@@ -1396,6 +2214,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(family_ids.contains(&"repo.scan"));
         assert!(family_ids.contains(&"repo.diff"));
+        let verb_ids = capabilities
+            .get("verbs")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(|verb| verb.get("verb").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(verb_ids.contains(&"tmux.sendKeys"));
+        assert!(verb_ids.contains(&"tmux.newSession"));
+        assert!(verb_ids.contains(&"tailscale.cert"));
 
         let unknown = request(
             &socket_path,
@@ -1408,6 +2236,134 @@ mod tests {
         assert_eq!(
             unknown.pointer("/error/code").and_then(Value::as_str),
             Some("unknown_probe")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn exec_tmux_send_keys_uses_structured_verb_envelope() {
+        let dir = unique_temp_dir("scoutd-exec-send-keys");
+        let socket_path = dir.join("probes.sock");
+        let argv_path = dir.join("argv.txt");
+        let tmux = dir.join("tmux");
+        write_executable(
+            &tmux,
+            &format!(
+                r#"#!/bin/sh
+printf '%s\n' "$@" > {}
+exit 0
+"#,
+                shell_quote(&argv_path.to_string_lossy())
+            ),
+        );
+        let mut options = base_options(socket_path.clone());
+        options.tmux_bin = tmux.to_string_lossy().to_string();
+        start_test_server(options);
+
+        let response = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tmux.sendKeys","args":{"target":"scout-test","keys":["C-c"],"timeoutMs":2000}}"#,
+        );
+        assert_eq!(
+            response.get("schema").and_then(Value::as_str),
+            Some("openscout.exec.response/v1")
+        );
+        assert_eq!(response.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            fs::read_to_string(&argv_path).unwrap(),
+            "send-keys\n-t\nscout-test\nC-c\n"
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn exec_unknown_verb_and_injection_shaped_args_are_rejected() {
+        let dir = unique_temp_dir("scoutd-exec-validation");
+        let socket_path = dir.join("probes.sock");
+        start_test_server(base_options(socket_path.clone()));
+
+        let unknown = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tmux.runShell","args":{}}"#,
+        );
+        assert_eq!(
+            unknown.get("schema").and_then(Value::as_str),
+            Some("openscout.exec.response/v1")
+        );
+        assert_eq!(unknown.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            unknown.pointer("/error/code").and_then(Value::as_str),
+            Some("unknown_verb")
+        );
+
+        let malformed = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tmux.killSession","args":{"target":"safe;rm -rf /"}}"#,
+        );
+        assert_eq!(malformed.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            malformed.pointer("/error/code").and_then(Value::as_str),
+            Some("invalid_request")
+        );
+
+        let bad_path = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tailscale.cert","args":{"certFile":"relative.crt","keyFile":"/tmp/key","hostname":"node.example.ts.net"}}"#,
+        );
+        assert_eq!(bad_path.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            bad_path.pointer("/error/code").and_then(Value::as_str),
+            Some("invalid_request")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn exec_timeout_returns_error_without_crashing_server() {
+        let dir = unique_temp_dir("scoutd-exec-timeout");
+        let socket_path = dir.join("probes.sock");
+        let tmux = dir.join("tmux");
+        write_executable(
+            &tmux,
+            r#"#!/bin/sh
+sleep 1
+exit 0
+"#,
+        );
+        let mut options = base_options(socket_path.clone());
+        options.tmux_bin = tmux.to_string_lossy().to_string();
+        start_test_server(options);
+
+        let timed_out = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tmux.sendKeys","args":{"target":"scout-test","keys":["Enter"],"timeoutMs":1}}"#,
+        );
+        assert_eq!(
+            timed_out.get("schema").and_then(Value::as_str),
+            Some("openscout.exec.response/v1")
+        );
+        assert_eq!(timed_out.get("ok").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            timed_out.pointer("/error/code").and_then(Value::as_str),
+            Some("timeout")
+        );
+        assert_eq!(
+            timed_out
+                .pointer("/error/timed_out")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let capabilities = request(
+            &socket_path,
+            r#"{"schema":"openscout.probe.capabilities/v1"}"#,
+        );
+        assert_eq!(
+            capabilities.get("schema").and_then(Value::as_str),
+            Some(CAPABILITIES_SCHEMA)
         );
 
         let _ = fs::remove_dir_all(dir);

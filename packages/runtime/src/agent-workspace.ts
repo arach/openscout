@@ -12,13 +12,10 @@
 // docs/eng/isolation-cow-vs-worktrees.md for the design and the review blockers
 // that gate them.
 
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { execSystemFile } from "./system-probes/exec.js";
 
 /** Directory (under the project root) that holds every Scout-created workspace. */
 export const SCOUT_WORKSPACES_DIRNAME = ".scout-worktrees";
@@ -32,7 +29,7 @@ export interface CreateAgentWorkspaceResult {
 
 async function isGitRepo(projectRoot: string): Promise<boolean> {
   try {
-    await execFileAsync("git", ["rev-parse", "--git-dir"], { cwd: projectRoot });
+    await execSystemFile("git", ["rev-parse", "--git-dir"], { cwd: projectRoot, timeoutMs: 2_000 });
     return true;
   } catch {
     return false;
@@ -71,12 +68,12 @@ export async function createAgentWorkspace(
 
   try {
     // Create the worktree on a new branch based on current HEAD.
-    await execFileAsync("git", ["worktree", "add", "-b", branch, workspacePath], { cwd: projectRoot });
+    await execSystemFile("git", ["worktree", "add", "-b", branch, workspacePath], { cwd: projectRoot, timeoutMs: 10_000 });
     return { path: workspacePath, branch };
   } catch {
     // Branch might already exist — retry attaching to it without -b.
     try {
-      await execFileAsync("git", ["worktree", "add", workspacePath, branch], { cwd: projectRoot });
+      await execSystemFile("git", ["worktree", "add", workspacePath, branch], { cwd: projectRoot, timeoutMs: 10_000 });
       return { path: workspacePath, branch };
     } catch {
       // If both fail, fall back to no worktree.

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
@@ -9,6 +8,7 @@ import {
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
+import { readGitRepoStatusCommand } from "../system-probes/git-repo-status.js";
 
 export type RepoWatchHintSource =
   | "agent"
@@ -227,7 +227,6 @@ const DEFAULT_MAX_ROOTS = 8;
 const DEFAULT_MAX_WORKTREES = 4;
 const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
 const DEFAULT_SCAN_BUDGET_MS = 4_000;
-const GIT_TIMEOUT_MS = 650;
 const GIT_MAX_BUFFER = 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;
@@ -338,69 +337,14 @@ function uniqueBy<T>(items: T[], keyFor: (item: T) => string): T[] {
 }
 
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn("git", args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const killTimer = (setTimeout(() => {
-      terminate();
-      fail(new Error(`git ${args.join(" ")} timed out after ${GIT_TIMEOUT_MS}ms`));
-    }, GIT_TIMEOUT_MS));
-    killTimer.unref?.();
-
-    function terminate(): void {
-      child.kill("SIGTERM");
-      const hardKillTimer = setTimeout(() => child.kill("SIGKILL"), 250);
-      hardKillTimer.unref?.();
-    }
-
-    function cleanup(): void {
-      clearTimeout(killTimer);
-    }
-
-    function fail(error: Error): void {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    }
-
-    function succeed(output: string): void {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolvePromise(output);
-    }
-
-    function append(kind: "stdout" | "stderr", chunk: unknown): void {
-      const text = typeof chunk === "string" ? chunk : String(chunk);
-      if (kind === "stdout") stdout += text;
-      else stderr += text;
-      if (stdout.length + stderr.length > GIT_MAX_BUFFER) {
-        terminate();
-        fail(new Error(`git ${args.join(" ")} exceeded output limit`));
-      }
-    }
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => append("stdout", chunk));
-    child.stderr.on("data", (chunk) => append("stderr", chunk));
-    child.on("error", (error) => fail(error));
-    child.on("close", (code, signal) => {
-      if (code === 0) {
-        succeed(stdout);
-        return;
-      }
-      const detail = (stderr || `git exited with ${signal ?? code ?? "unknown status"}`).trim();
-      fail(new Error(detail));
-    });
+  const output = await readGitRepoStatusCommand(cwd, args, {
+    maxAgeMs: 0,
+    maxStdoutBytes: GIT_MAX_BUFFER,
   });
+  if (output === null) {
+    throw new Error(`git ${args.join(" ")} returned no output`);
+  }
+  return output;
 }
 
 function readBooleanEnv(name: string): boolean {
