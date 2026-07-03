@@ -4,6 +4,11 @@ import type { ActorIdentity, AgentEndpoint } from "@openscout/protocol";
 
 import type { RuntimeSnapshot } from "./scout-dispatcher.js";
 
+function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 /** Provisional handle for a cardless/session actor (e.g. project-chopin). */
 export function sessionActorAlias(
   snapshot: RuntimeSnapshot,
@@ -16,11 +21,30 @@ export function sessionActorAlias(
   const endpoint = Object.values(snapshot.endpoints).find((entry) => entry.agentId === actorId);
   const candidates = [
     actor.handle,
-    typeof actor.metadata?.handle === "string" ? actor.metadata.handle : null,
-    typeof endpoint?.metadata?.handle === "string" ? endpoint.metadata.handle : null,
+    metadataStringValue(actor.metadata, "handle"),
+    metadataStringValue(endpoint?.metadata, "handle"),
   ];
   for (const value of candidates) {
     const trimmed = value?.trim().replace(/^@+/, "");
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+export function sessionActorSid(
+  snapshot: RuntimeSnapshot,
+  actorId: string,
+): string | null {
+  const actor = snapshot.actors[actorId];
+  const endpoint = Object.values(snapshot.endpoints).find((entry) => entry.agentId === actorId);
+  const candidates = [
+    metadataStringValue(actor?.metadata, "sid"),
+    metadataStringValue(endpoint?.metadata, "sid"),
+  ];
+  for (const value of candidates) {
+    const trimmed = value?.trim().replace(/^sid:/, "");
     if (trimmed) {
       return trimmed;
     }
@@ -59,6 +83,11 @@ export function formatSessionAliasPointer(input: {
     : `alias ${input.alias} → ${target}`;
 }
 
+export function formatSessionSid(sid: string): string {
+  const trimmed = sid.trim().replace(/^sid:/, "");
+  return `sid:${trimmed}`;
+}
+
 export function sessionAliasAckSummary(input: {
   snapshot: RuntimeSnapshot;
   actorId: string;
@@ -78,6 +107,22 @@ export function sessionAliasAckSummary(input: {
     harness: endpoint?.harness ?? null,
   });
   return `${pointer} acknowledged via ${input.strategy}.`;
+}
+
+export function sessionHandoffAckSummary(input: {
+  snapshot: RuntimeSnapshot;
+  actorId: string;
+  endpoint?: AgentEndpoint;
+  strategy: string;
+}): string {
+  if (!isCardlessSessionActor(input.snapshot, input.actorId)) {
+    return "";
+  }
+  const sid = sessionActorSid(input.snapshot, input.actorId);
+  if (sid) {
+    return `${formatSessionSid(sid)} acknowledged via ${input.strategy}.`;
+  }
+  return sessionAliasAckSummary(input);
 }
 
 export function projectPrefixedSessionAlias(alias: string): string {

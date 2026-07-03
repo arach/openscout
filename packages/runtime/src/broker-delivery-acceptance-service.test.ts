@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildScoutReturnAddress,
+  type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
   type ConversationDefinition,
@@ -67,6 +68,7 @@ function testConversation(input: Partial<ConversationDefinition> = {}): Conversa
 }
 
 function testSnapshot(input: {
+  actors?: Record<string, ActorIdentity>;
   agents?: Record<string, AgentDefinition>;
   endpoints?: Record<string, AgentEndpoint>;
   conversations?: Record<string, ConversationDefinition>;
@@ -74,7 +76,7 @@ function testSnapshot(input: {
 } = {}): RuntimeSnapshot {
   return {
     nodes: {},
-    actors: {},
+    actors: input.actors ?? {},
     agents: input.agents ?? {},
     endpoints: input.endpoints ?? {},
     conversations: input.conversations ?? {},
@@ -300,6 +302,121 @@ describe("BrokerDeliveryAcceptanceService", () => {
       }),
     }));
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
+  });
+
+  test("session route labels dispatch as exact session continuations", async () => {
+    const harness = createHarness({ now: 21_000 });
+
+    const result = await harness.service.accept({
+      id: "deliver-session-label",
+      body: "continue here",
+      intent: "consult",
+      targetLabel: "session:session-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result.accepted).toBe(true);
+    expect(result.receipt).toEqual(expect.objectContaining({
+      targetSessionId: "session-1",
+    }));
+    expect(harness.postedMessages[0]?.metadata).toEqual(expect.objectContaining({
+      targetSessionId: "session-1",
+    }));
+    expect(harness.acceptedInvocations[0]?.execution).toEqual(expect.objectContaining({
+      session: "existing",
+      targetSessionId: "session-1",
+    }));
+  });
+
+  test("legacy @session-id labels dispatch as exact session continuations", async () => {
+    const sessionId = "session-019f244c-e6f3-79a3-957d-8dfd0b203056";
+    const harness = createHarness({ now: 22_000 });
+
+    const result = await harness.service.accept({
+      id: "deliver-legacy-session-label",
+      body: "continue here too",
+      intent: "consult",
+      target: { kind: "agent_label", label: `@${sessionId}` },
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result.accepted).toBe(true);
+    expect(result.receipt).toEqual(expect.objectContaining({
+      targetSessionId: sessionId,
+    }));
+    expect(harness.acceptedInvocations[0]?.execution).toEqual(expect.objectContaining({
+      session: "existing",
+      targetSessionId: sessionId,
+    }));
+  });
+
+  test("returns sid for cardless session delivery receipts", async () => {
+    const sessionActor: ActorIdentity = {
+      id: "session-cardless-1",
+      kind: "session",
+      displayName: "scope:01234567",
+      metadata: {
+        cardless: true,
+        sid: "0123456789abcdef",
+      },
+    };
+    const endpoint = testEndpoint({
+      id: "endpoint-cardless-1",
+      agentId: sessionActor.id,
+      transport: "codex_app_server",
+      sessionId: sessionActor.id,
+      metadata: {
+        cardless: true,
+        sid: "0123456789abcdef",
+      },
+    });
+    const conversation = testConversation({
+      id: "conversation-cardless",
+      participantIds: ["operator", sessionActor.id],
+    });
+    const harness = createHarness({
+      conversation,
+      snapshot: testSnapshot({
+        actors: { [sessionActor.id]: sessionActor },
+        agents: {},
+        endpoints: { [endpoint.id]: endpoint },
+        conversations: { [conversation.id]: conversation },
+      }),
+      resolution: {
+        kind: "resolved_session",
+        session: {
+          sessionId: sessionActor.id,
+          actorId: sessionActor.id,
+          endpoint,
+          label: "sid:0123456789abcdef",
+          nodeId: "node-1",
+        },
+      },
+      now: 23_000,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-cardless-sid",
+      body: "fresh worker please",
+      intent: "consult",
+      target: { kind: "project_path", projectPath: "/Users/art/dev/scope" },
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result.accepted).toBe(true);
+    expect(result.receipt).toEqual(expect.objectContaining({
+      targetAgentId: sessionActor.id,
+      targetSessionId: sessionActor.id,
+      sid: "0123456789abcdef",
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      targetAgentId: sessionActor.id,
+      targetSessionId: sessionActor.id,
+      sid: "0123456789abcdef",
+    }));
   });
 
   test("channel consult posts a canonical channel message and broker pointer DM", async () => {

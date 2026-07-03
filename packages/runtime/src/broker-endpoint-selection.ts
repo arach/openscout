@@ -11,6 +11,7 @@ import { isBrokerRunnableLocalAgentTransport } from "./local-agent-transports.js
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 
 export const ENDPOINT_SESSION_ALIAS_METADATA_KEYS = [
+  "sid",
   "sessionId",
   "externalSessionId",
   "threadId",
@@ -246,7 +247,15 @@ export function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId:
   if (!normalizedSessionId) {
     return false;
   }
-  return endpointSessionAliasValues(endpoint).includes(normalizedSessionId);
+  const lookupValues = [normalizedSessionId];
+  if (normalizedSessionId.startsWith("sid:")) {
+    lookupValues.push(normalizedSessionId.slice("sid:".length));
+  }
+  if (normalizedSessionId.startsWith("session:")) {
+    lookupValues.push(normalizedSessionId.slice("session:".length));
+  }
+  const aliases = endpointSessionAliasValues(endpoint);
+  return lookupValues.some((value) => aliases.includes(value));
 }
 
 export function localEndpointPreferenceRank(endpoint: AgentEndpoint): number {

@@ -30,6 +30,7 @@ describe("SCO-070 cardless sessions", () => {
     const runtime = newRuntime();
     const result = await registerCardlessSession(runtime, {
       sessionId: "sess-abc12345",
+      sid: "0123456789abcdef",
       handle: "archimedes",
       transport: "codex_app_server",
       harness: "codex",
@@ -41,6 +42,7 @@ describe("SCO-070 cardless sessions", () => {
     // The actor exists and is session-kind; NO agent card was minted.
     expect(snapshot.actors["sess-abc12345"]?.kind).toBe("session");
     expect(snapshot.actors["sess-abc12345"]?.handle).toBe("archimedes");
+    expect(snapshot.actors["sess-abc12345"]?.metadata?.sid).toBe("0123456789abcdef");
     expect(snapshot.actors["sess-abc12345"]?.metadata?.handle).toBe("archimedes");
     expect(snapshot.agents["sess-abc12345"]).toBeUndefined();
 
@@ -49,6 +51,7 @@ describe("SCO-070 cardless sessions", () => {
     expect(endpoint?.agentId).toBe("sess-abc12345");
     expect(isCardlessSessionEndpoint(endpoint!)).toBe(true);
     expect(endpoint?.metadata?.pendingExternalSession).toBe(true);
+    expect(endpoint?.metadata?.sid).toBe("0123456789abcdef");
     expect(endpoint?.metadata?.handle).toBe("archimedes");
     expect(endpoint?.metadata?.externalSessionId).toBeUndefined();
     expect(endpoint?.metadata?.threadId).toBeUndefined();
@@ -58,6 +61,7 @@ describe("SCO-070 cardless sessions", () => {
     const runtime = newRuntime();
     await registerCardlessSession(runtime, {
       sessionId: "sess-route-1",
+      sid: "feedfacecafebeef",
       handle: "franklin",
       transport: "claude_stream_json",
       harness: "claude",
@@ -78,6 +82,26 @@ describe("SCO-070 cardless sessions", () => {
       expect(result.session.nodeId).toBe("node-1");
     }
 
+    const sidResult = resolveBrokerRouteTarget(
+      runtime.snapshot(),
+      { target: { kind: "session_id", sessionId: "feedfacecafebeef" } },
+      { helpers },
+    );
+    expect(sidResult.kind).toBe("resolved_session");
+    if (sidResult.kind === "resolved_session") {
+      expect(sidResult.session.actorId).toBe("sess-route-1");
+    }
+
+    const prefixedSidResult = resolveBrokerRouteTarget(
+      runtime.snapshot(),
+      { targetSessionId: "sid:feedfacecafebeef" },
+      { helpers },
+    );
+    expect(prefixedSidResult.kind).toBe("resolved_session");
+    if (prefixedSidResult.kind === "resolved_session") {
+      expect(prefixedSidResult.session.actorId).toBe("sess-route-1");
+    }
+
     const handleResult = resolveBrokerRouteTarget(
       runtime.snapshot(),
       { target: { kind: "agent_label", label: "@franklin" } },
@@ -88,6 +112,25 @@ describe("SCO-070 cardless sessions", () => {
       expect(handleResult.session.actorId).toBe("sess-route-1");
       expect(handleResult.session.label).toBe("openscout-franklin");
     }
+  });
+
+  test("cardless sessions can rely on sid without a noisy handle", async () => {
+    const runtime = newRuntime();
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-no-handle",
+      sid: "aa55aa55aa55aa55",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    const snapshot = runtime.snapshot();
+
+    expect(snapshot.actors["sess-no-handle"]?.handle).toBeUndefined();
+    expect(snapshot.actors["sess-no-handle"]?.metadata?.handle).toBeUndefined();
+    expect(snapshot.actors["sess-no-handle"]?.metadata?.sid).toBe("aa55aa55aa55aa55");
+    expect(Object.values(snapshot.endpoints)[0]?.metadata?.handle).toBeUndefined();
+    expect(Object.values(snapshot.endpoints)[0]?.metadata?.sid).toBe("aa55aa55aa55aa55");
   });
 
   test("two cardless sessions in one project each resolve, no ambiguity", async () => {

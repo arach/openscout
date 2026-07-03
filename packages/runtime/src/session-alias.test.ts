@@ -5,10 +5,13 @@ import type { ActorIdentity, AgentEndpoint } from "@openscout/protocol";
 import type { RuntimeSnapshot } from "./scout-dispatcher.js";
 import {
   formatSessionAliasPointer,
+  formatSessionSid,
   isCardlessSessionActor,
   projectPrefixedSessionAlias,
   sessionActorAlias,
+  sessionActorSid,
   sessionAliasAckSummary,
+  sessionHandoffAckSummary,
 } from "./session-alias.js";
 
 function makeSnapshot(input: {
@@ -45,6 +48,42 @@ describe("session-alias", () => {
     expect(sessionActorAlias(snapshot, "session-abc")).toBe("project-chopin");
   });
 
+  test("sessionActorSid reads actor and endpoint metadata", () => {
+    const snapshot = makeSnapshot({
+      actors: {
+        "session-abc": {
+          id: "session-abc",
+          kind: "session",
+          displayName: "scope:session",
+          metadata: { sid: "0123456789abcdef" },
+        },
+      },
+    });
+    expect(sessionActorSid(snapshot, "session-abc")).toBe("0123456789abcdef");
+
+    const endpointOnly = makeSnapshot({
+      actors: {
+        "session-def": {
+          id: "session-def",
+          kind: "session",
+          displayName: "scope:session",
+        },
+      },
+      endpoints: {
+        "endpoint-1": {
+          id: "endpoint-1",
+          agentId: "session-def",
+          nodeId: "node.local",
+          harness: "codex",
+          transport: "codex_app_server",
+          state: "idle",
+          metadata: { sid: "sid:feedfacecafebeef" },
+        },
+      },
+    });
+    expect(sessionActorSid(endpointOnly, "session-def")).toBe("feedfacecafebeef");
+  });
+
   test("isCardlessSessionActor reads actor and endpoint metadata", () => {
     const snapshot = makeSnapshot({
       actors: {
@@ -76,6 +115,11 @@ describe("session-alias", () => {
       projectRoot: "/Users/art/dev/scope",
       harness: "codex",
     })).toBe("alias project-chopin → session-mqvw…-extra (scope, codex)");
+  });
+
+  test("formatSessionSid renders the routable sid token", () => {
+    expect(formatSessionSid("0123456789abcdef")).toBe("sid:0123456789abcdef");
+    expect(formatSessionSid("sid:0123456789abcdef")).toBe("sid:0123456789abcdef");
   });
 
   test("sessionAliasAckSummary returns empty for non-cardless actors", () => {
@@ -127,6 +171,39 @@ describe("session-alias", () => {
     })).toBe(
       "alias project-chopin → session-mqvw…-extra (scope, codex) acknowledged via spawn.",
     );
+  });
+
+  test("sessionHandoffAckSummary prefers quiet sid copy", () => {
+    const snapshot = makeSnapshot({
+      actors: {
+        "session-mqvw7fgy-ineuic-extra": {
+          id: "session-mqvw7fgy-ineuic-extra",
+          kind: "session",
+          displayName: "Project Chopin",
+          handle: "project-chopin",
+          metadata: { cardless: true, handle: "project-chopin", sid: "0123456789abcdef" },
+        },
+      },
+      endpoints: {
+        "endpoint-1": {
+          id: "endpoint-1",
+          agentId: "session-mqvw7fgy-ineuic-extra",
+          nodeId: "node.local",
+          harness: "codex",
+          transport: "codex_app_server",
+          state: "idle",
+          projectRoot: "/Users/art/dev/scope",
+          cwd: "/Users/art/dev/scope",
+          metadata: { cardless: true, handle: "project-chopin", sid: "0123456789abcdef" },
+        },
+      },
+    });
+
+    expect(sessionHandoffAckSummary({
+      snapshot,
+      actorId: "session-mqvw7fgy-ineuic-extra",
+      strategy: "spawn",
+    })).toBe("sid:0123456789abcdef acknowledged via spawn.");
   });
 
   test("projectPrefixedSessionAlias adds project- prefix when missing", () => {

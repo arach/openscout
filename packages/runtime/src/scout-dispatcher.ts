@@ -5,6 +5,7 @@ import {
   constructAgentIdentity,
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
+  AGENT_HARNESSES,
   OPENSCOUT_COORDINATOR_AGENT_ID,
   parseAgentIdentity,
   SCOUT_DISPATCHER_AGENT_ID,
@@ -35,6 +36,8 @@ import {
 } from "./broker-endpoint-selection.js";
 
 export type RuntimeSnapshot = ReturnType<ReturnType<typeof createInMemoryControlRuntime>["snapshot"]>;
+
+const SESSION_ROUTE_HARNESSES = new Set<AgentHarness>(AGENT_HARNESSES);
 
 /**
  * Addressable target for a cardless session (SCO-070). Carries no
@@ -130,6 +133,70 @@ function metadataStringValue(metadata: Record<string, unknown> | undefined, key:
 
 function sessionRouteLabel(sessionId: string, harness?: AgentHarness): string {
   return harness ? `session:${harness}:${sessionId}` : `session:${sessionId}`;
+}
+
+export function parseSessionRouteLabel(
+  label: string | null | undefined,
+): { sessionId: string; harness?: AgentHarness } | null {
+  const value = label?.trim().replace(/^@+/, "");
+  if (value?.startsWith("sid:")) {
+    const sessionId = value.slice("sid:".length).trim();
+    return sessionId && !/\s/.test(sessionId) ? { sessionId } : null;
+  }
+
+  if (!value?.startsWith("session:")) {
+    return null;
+  }
+
+  const routeValue = value.slice("session:".length).trim();
+  if (!routeValue || /\s/.test(routeValue)) {
+    return null;
+  }
+
+  const harnessSeparator = routeValue.indexOf(":");
+  if (harnessSeparator > 0) {
+    const maybeHarness = routeValue.slice(0, harnessSeparator) as AgentHarness;
+    const sessionId = routeValue.slice(harnessSeparator + 1);
+    if (SESSION_ROUTE_HARNESSES.has(maybeHarness) && sessionId) {
+      return { sessionId, harness: maybeHarness };
+    }
+  }
+
+  return { sessionId: routeValue };
+}
+
+function legacyAtSessionLabel(
+  label: string,
+  identity: AgentIdentity,
+): string | null {
+  if (
+    identity.workspaceQualifier
+    || identity.nodeQualifier
+    || identity.profile
+    || identity.harness
+    || identity.model
+  ) {
+    return null;
+  }
+
+  const value = label.trim().replace(/^@+/, "");
+  if (!value.startsWith("session-")) {
+    return null;
+  }
+  return value;
+}
+
+export function legacySessionIdForAgentLabel(label: string | null | undefined): string | null {
+  const trimmed = label?.trim();
+  if (!trimmed?.startsWith("@session-")) {
+    return null;
+  }
+
+  const identity = parseAgentIdentity(trimmed);
+  if (!identity) {
+    return null;
+  }
+  return legacyAtSessionLabel(trimmed, identity);
 }
 
 function endpointMatchesSessionRouteScope(
@@ -403,6 +470,13 @@ export function resolveAgentLabel(
       return session;
     }
 
+    const legacySessionId = legacyAtSessionLabel(trimmed, identity);
+    if (legacySessionId) {
+      return resolveSessionTarget(snapshot, legacySessionId, {
+        helpers: options.helpers,
+      });
+    }
+
     const bareHandle = normalizeAgentSelectorSegment(identity.definitionId);
     if (bareHandle && !bareHandle.startsWith("project-")) {
       const prefixed = parseAgentIdentity(`@project-${bareHandle}`);
@@ -523,7 +597,7 @@ function resolveSessionTarget(
     .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId))
     .filter((endpoint) => endpointMatchesSessionRouteScope(endpoint, options));
   if (matching.length === 0) {
-    return { kind: "unknown", label };
+    return { kind: "unknown", label, detail: `no session matches ${label}` };
   }
 
   // Card path (semantics unchanged from before SCO-070): if any matching endpoint
@@ -551,7 +625,7 @@ function resolveSessionTarget(
   // id is a transport choice, not an identity ambiguity.
   const live = matching.filter((endpoint) => !isStaleLocalEndpoint(snapshot, endpoint));
   if (live.length === 0) {
-    return { kind: "unknown", label };
+    return { kind: "unknown", label, detail: `session ${label} is no longer attachable` };
   }
   const endpoint = [...live].sort(
     (left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right),
@@ -601,6 +675,18 @@ export function resolveBrokerRouteTarget(
     if (agent && !options.helpers.isStale(agent)) {
       return { kind: "resolved", agent };
     }
+  }
+
+  const labelSessionRoute = routeTarget?.kind === "agent_label"
+    ? parseSessionRouteLabel(normalizedRouteTargetValue(routeTarget))
+    : !routeTarget
+    ? parseSessionRouteLabel(input.targetLabel)
+    : null;
+  if (labelSessionRoute) {
+    return resolveSessionTarget(snapshot, labelSessionRoute.sessionId, {
+      helpers: options.helpers,
+      harness: labelSessionRoute.harness ?? input.execution?.harness,
+    });
   }
 
   const bindingRef = routeTarget?.kind === "binding_ref"

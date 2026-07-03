@@ -424,6 +424,7 @@ export type ScoutAskResult = {
   conversationId?: string;
   messageId?: string;
   bindingRef?: string;
+  sid?: string;
   sessionAlias?: string;
   workItem?: ScoutTrackedWorkItem;
   unresolvedTarget?: string;
@@ -3960,6 +3961,7 @@ export async function deliverScoutAsk(input: {
     conversationId: delivery.conversation.id,
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
+    sid: delivery.receipt?.sid ?? delivery.sid,
     sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
     workItem,
   };

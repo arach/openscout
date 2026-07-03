@@ -408,13 +408,13 @@ describe("BrokerLocalInvocationService", () => {
     }));
   });
 
-  test("uses pointer-forward alias copy for cardless session dispatch acks", async () => {
+  test("uses sid handoff copy for cardless session dispatch acks", async () => {
     const sessionActor = testActor({
       id: "session-chopin-1",
       kind: "session",
       displayName: "Project Chopin",
       handle: "project-chopin",
-      metadata: { cardless: true, handle: "project-chopin" },
+      metadata: { cardless: true, handle: "project-chopin", sid: "0123456789abcdef" },
     });
     const endpoint = testEndpoint({
       id: "endpoint-chopin",
@@ -427,6 +427,7 @@ describe("BrokerLocalInvocationService", () => {
       metadata: {
         cardless: true,
         handle: "project-chopin",
+        sid: "0123456789abcdef",
         sessionBacked: true,
         pendingExternalSession: true,
       },
@@ -443,7 +444,7 @@ describe("BrokerLocalInvocationService", () => {
     await harness.service.execute(testInvocation({ targetAgentId: sessionActor.id }));
 
     expect(harness.persistedFlights[0]?.summary).toBe(
-      "alias project-chopin → session-chopin-1 (scope, codex) acknowledged via attach.",
+      "sid:0123456789abcdef acknowledged via attach.",
     );
   });
 

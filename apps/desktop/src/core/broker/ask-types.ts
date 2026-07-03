@@ -70,6 +70,8 @@ export type ScoutAskReceipt = {
     messageId?: string;
     workId?: string;
     bindingRef?: string;
+    sid?: string;
+    /** @deprecated Use sid. */
     sessionAlias?: string;
   };
   delivery?: "none" | "inline" | "mcp_notification";
