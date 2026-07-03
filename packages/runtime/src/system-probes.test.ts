@@ -158,7 +158,7 @@ describe("system probe registry", () => {
     const secondRun = deferred<number>();
     const probe = defineProbe<number>({
       id: "test.staleWhileRevalidate",
-      ttlMs: 5,
+      ttlMs: 50,
       timeoutMs: 1_000,
       maxStaleMs: 1_000,
       run: async () => {
@@ -171,7 +171,7 @@ describe("system probe registry", () => {
     });
 
     expect((await probe.fresh()).value).toBe(1);
-    await sleep(12);
+    await sleep(75);
 
     const stale = probe.read();
     expect(stale.status).toBe("stale");
