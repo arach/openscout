@@ -97,6 +97,8 @@ export function isWorkingFlightState(state: FlightRecord["state"]): boolean {
   return state === "queued" || state === "waking" || state === "running" || state === "waiting";
 }
 
+export const STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS = 2 * 60_000;
+
 export function isTerminalFlightState(state: FlightRecord["state"]): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
 }
@@ -237,6 +239,7 @@ export function staleWorkingFlightReason(
   flight: FlightRecord,
   options: {
     isInvocationActive: (invocationId: string) => boolean;
+    now?: number;
   },
 ): string | null {
   if (!isWorkingFlightState(flight.state)) {
@@ -275,6 +278,11 @@ export function staleWorkingFlightReason(
 
   const endpoint = endpointForFlight(snapshot, flight);
   if (!endpoint) {
+    const now = options.now ?? Date.now();
+    const ageMs = now - startedAt;
+    if (startedAt > 0 && ageMs >= STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS) {
+      return `target agent ${flight.targetAgentId} has no registered endpoint after ${Math.floor(ageMs / 1000)}s`;
+    }
     return null;
   }
 
