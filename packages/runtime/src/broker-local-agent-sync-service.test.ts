@@ -106,7 +106,9 @@ function createHarness(input: {
   signatures?: Array<string | null>;
   configuredCoreAgentIds?: string[];
   aliveEndpointIds?: string[];
+  aliveEndpointIdsAsync?: string[];
   aliveSessionIds?: string[];
+  aliveSessionIdsAsync?: string[];
   disabledSyntheticEndpointIds?: string[];
 } = {}) {
   const runtimeSnapshot = input.snapshot ?? snapshot();
@@ -123,7 +125,9 @@ function createHarness(input: {
   let reconciledStaleFlights = 0;
   let reconciledStaleDeliveries = 0;
   const aliveEndpointIds = new Set(input.aliveEndpointIds ?? []);
+  const aliveEndpointIdsAsync = new Set(input.aliveEndpointIdsAsync ?? []);
   const aliveSessionIds = new Set(input.aliveSessionIds ?? []);
+  const aliveSessionIdsAsync = new Set(input.aliveSessionIdsAsync ?? []);
   const disabledSyntheticEndpointIds = new Set(input.disabledSyntheticEndpointIds ?? []);
   let bindingBatchIndex = 0;
   const service = new BrokerLocalAgentSyncService({
@@ -157,7 +161,9 @@ function createHarness(input: {
     },
     isGeneratedLocalAgentMetadata: (metadata) => metadata?.generatedLocalAgent === true,
     isLocalAgentEndpointAlive: (candidate) => aliveEndpointIds.has(candidate.id),
+    isLocalAgentEndpointAliveAsync: async (candidate) => aliveEndpointIdsAsync.has(candidate.id),
     isLocalAgentSessionAlive: (sessionId) => aliveSessionIds.has(sessionId),
+    isLocalAgentSessionAliveAsync: async (sessionId) => aliveSessionIdsAsync.has(sessionId),
     shouldDisableGeneratedCodexEndpoint: (candidate) => disabledSyntheticEndpointIds.has(candidate.id),
     async upsertActor(nextActor) {
       upsertedActors.push(nextActor);
@@ -354,6 +360,55 @@ describe("BrokerLocalAgentSyncService", () => {
     }));
     expect(harness.reconciledStaleFlights).toBe(1);
     expect(harness.reconciledStaleDeliveries).toBe(1);
+  });
+
+  test("keeps live tmux broker-only cards when only fresh async liveness can see the session", async () => {
+    const cardAgent = agent({
+      id: "card-active",
+      definitionId: "card-active",
+      displayName: "Card Active",
+      metadata: {
+        generatedLocalAgent: true,
+        source: "relay-agent-registry",
+        cardLifecycle: { kind: "one_time" },
+      },
+    });
+    const cardEndpoint = endpoint({
+      id: "endpoint-card-active-tmux",
+      agentId: cardAgent.id,
+      transport: "tmux",
+      sessionId: "relay-card-active-claude",
+      state: "active",
+      metadata: {
+        generatedLocalAgent: true,
+        source: "relay-agent-registry",
+        tmuxSession: "relay-card-active-claude",
+      },
+    });
+    const harness = createHarness({
+      snapshot: snapshot({
+        agents: { [cardAgent.id]: cardAgent },
+        endpoints: { [cardEndpoint.id]: cardEndpoint },
+      }),
+      bindings: [],
+      aliveEndpointIds: [],
+      aliveSessionIds: [],
+      aliveEndpointIdsAsync: [cardEndpoint.id],
+      aliveSessionIdsAsync: ["relay-card-active-claude"],
+    });
+
+    await harness.service.sync();
+
+    expect(harness.upsertedAgents).not.toContainEqual(expect.objectContaining({
+      id: cardAgent.id,
+      metadata: expect.objectContaining({ staleLocalRegistration: true }),
+    }));
+    expect(harness.persistedEndpoints).not.toContainEqual(expect.objectContaining({
+      id: cardEndpoint.id,
+      state: "offline",
+    }));
+    expect(harness.runtimeSnapshot.agents[cardAgent.id]?.metadata?.staleLocalRegistration).toBeUndefined();
+    expect(harness.runtimeSnapshot.endpoints[cardEndpoint.id]?.state).toBe("active");
   });
 
   test("syncIfChanged refreshes once per changed registry signature", async () => {

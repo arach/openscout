@@ -28,7 +28,9 @@ export type BrokerLocalAgentSyncServiceOptions = {
   clearGitBranchCache: () => void;
   isGeneratedLocalAgentMetadata: (metadata: Record<string, unknown> | undefined) => boolean;
   isLocalAgentEndpointAlive: (endpoint: AgentEndpoint) => boolean;
+  isLocalAgentEndpointAliveAsync?: (endpoint: AgentEndpoint) => Promise<boolean>;
   isLocalAgentSessionAlive: (sessionId: string) => boolean;
+  isLocalAgentSessionAliveAsync?: (sessionId: string) => Promise<boolean>;
   shouldDisableGeneratedCodexEndpoint: (endpoint: AgentEndpoint) => boolean;
   upsertActor: (actor: ActorIdentity) => Promise<void>;
   upsertAgent: (agent: AgentDefinition) => Promise<void>;
@@ -263,7 +265,7 @@ export class BrokerLocalAgentSyncService {
       if (agent?.authorityNodeId && agent.authorityNodeId !== this.options.nodeId) {
         continue;
       }
-      if (this.options.isLocalAgentEndpointAlive(endpoint)) {
+      if (await this.isLocalAgentEndpointAlive(endpoint)) {
         if (endpoint.metadata?.staleLocalRegistration === true) {
           await this.options.persistEndpoint({
             ...endpoint,
@@ -386,7 +388,7 @@ export class BrokerLocalAgentSyncService {
         const sessionId =
           endpoint.sessionId
           ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
-        const sessionAlive = sessionId ? this.options.isLocalAgentSessionAlive(sessionId) : false;
+        const sessionAlive = sessionId ? await this.isLocalAgentSessionAlive(sessionId) : false;
         if (!sessionAlive) {
           if (endpoint.state !== "offline") {
             await this.options.persistEndpoint({
@@ -422,6 +424,23 @@ export class BrokerLocalAgentSyncService {
       });
       this.options.log?.(`[openscout-runtime] disabled synthetic endpoint ${endpoint.id}`);
     }
+  }
+
+  private async isLocalAgentEndpointAlive(endpoint: AgentEndpoint): Promise<boolean> {
+    // Startup and invalidation windows can leave the synchronous probe snapshot cold.
+    // Before archiving a generated local registration, force the async/fresh liveness path.
+    if (this.options.isLocalAgentEndpointAlive(endpoint)) {
+      return true;
+    }
+    return await this.options.isLocalAgentEndpointAliveAsync?.(endpoint) ?? false;
+  }
+
+  private async isLocalAgentSessionAlive(sessionId: string): Promise<boolean> {
+    // Same cold-snapshot guard for endpoint state reconciliation.
+    if (this.options.isLocalAgentSessionAlive(sessionId)) {
+      return true;
+    }
+    return await this.options.isLocalAgentSessionAliveAsync?.(sessionId) ?? false;
   }
 
   private now(): number {
