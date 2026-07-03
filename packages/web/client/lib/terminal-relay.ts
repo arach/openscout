@@ -6,12 +6,22 @@ import type { Agent, Route, TerminalSurfaceDescriptor } from "./types.ts";
 export const SCOUT_TERMINAL_INITIAL_COLS = 132;
 export const SCOUT_TERMINAL_INITIAL_ROWS = 44;
 
+export type TerminalRelayControlMode = "observe" | "takeover";
+
 export function relayAgentForHarness(harness: string | null | undefined): "claude" | "pi" | undefined {
   return harness === "pi" ? "pi" : undefined;
 }
 
-export function agentTmuxTerminalSessionKey(agentId: string, tmuxSession: string): string {
-  return `scout-tmux-${agentId}-${tmuxSession}`;
+export function terminalRelayControlMode(mode: "observe" | "takeover" | undefined): TerminalRelayControlMode {
+  return mode === "observe" ? "observe" : "takeover";
+}
+
+export function agentTmuxTerminalSessionKey(
+  agentId: string,
+  tmuxSession: string,
+  mode: TerminalRelayControlMode = "takeover",
+): string {
+  return `scout-tmux-${agentId}-${tmuxSession}-${mode}`;
 }
 
 export function resolveAgentTerminalSurface(agent: Agent | null): TerminalSurfaceDescriptor | null {
@@ -77,18 +87,20 @@ export function resolveTerminalRelaySessionKey(params: {
   agent: Agent | null;
   terminalSurface: TerminalSurfaceDescriptor | null;
   registeredTarget?: RegisteredTerminalTarget | null;
+  mode?: "observe" | "takeover";
 }): string {
   const { agentId, agent, terminalSurface, registeredTarget } = params;
+  const controlMode = terminalRelayControlMode(params.mode);
   const terminalSessionKey = terminalSurface && agent
-    ? `scout-terminal-${terminalSurface.backend}-${agent.id}-${terminalSurface.sessionName}`
+    ? `scout-terminal-${terminalSurface.backend}-${agent.id}-${terminalSurface.sessionName}-${controlMode}`
     : registeredTarget && terminalSurface
-      ? `scout-terminal-registry-${registeredTarget.session.id}-${terminalSurface.backend}-${terminalSurface.sessionName}`
+      ? `scout-terminal-registry-${registeredTarget.session.id}-${terminalSurface.backend}-${terminalSurface.sessionName}-${controlMode}`
       : agentId
-        ? `scout-takeover-${agentId}`
-        : "scout-takeover";
+        ? `scout-takeover-${agentId}-${controlMode}`
+        : `scout-takeover-${controlMode}`;
 
   if (terminalSurface?.backend === "tmux" && agent) {
-    return agentTmuxTerminalSessionKey(agent.id, terminalSurface.sessionName);
+    return agentTmuxTerminalSessionKey(agent.id, terminalSurface.sessionName, controlMode);
   }
   return terminalSessionKey;
 }
@@ -100,6 +112,7 @@ export type TerminalRelayBinding = {
   relayAgent?: "claude" | "pi";
   surfaceOptions: TerminalRelaySurfaceOptions | null;
   orphanTTL?: number;
+  controlMode: TerminalRelayControlMode;
 };
 
 export function resolveTerminalRelayBinding(params: {
@@ -110,13 +123,16 @@ export function resolveTerminalRelayBinding(params: {
   relayUrl: string;
   harness?: string | null;
   cwd?: string | null;
+  mode?: "observe" | "takeover";
 }): TerminalRelayBinding {
   const relayStorageSessionKey = resolveTerminalRelaySessionKey({
     agentId: params.agentId,
     agent: params.agent,
     terminalSurface: params.terminalSurface,
     registeredTarget: params.registeredTarget,
+    mode: params.mode,
   });
+  const controlMode = terminalRelayControlMode(params.mode);
 
   return {
     relayStorageSessionKey,
@@ -125,6 +141,7 @@ export function resolveTerminalRelayBinding(params: {
     relayAgent: relayAgentForHarness(params.harness),
     surfaceOptions: resolveTerminalRelaySurfaceOptions(params.terminalSurface),
     orphanTTL: params.terminalSurface ? 1_000 : undefined,
+    controlMode,
   };
 }
 

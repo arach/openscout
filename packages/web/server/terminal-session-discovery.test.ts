@@ -8,9 +8,9 @@ import {
 
 describe("terminal session discovery", () => {
   test("parses tmux session inventory", () => {
-    expect(parseTmuxSessionList("relay-claude|1|0\nlattices-c36f74\t2\t1\n")).toEqual([
-      { name: "relay-claude", windows: 1, attached: 0 },
-      { name: "lattices-c36f74", windows: 2, attached: 1 },
+    expect(parseTmuxSessionList("relay-claude|1|0|claude|/Users/art/dev/openscout\nlattices-c36f74\t2\t1\tzsh\t/Users/art\n")).toEqual([
+      { name: "relay-claude", windows: 1, attached: 0, currentCommand: "claude", currentPath: "/Users/art/dev/openscout" },
+      { name: "lattices-c36f74", windows: 2, attached: 1, currentCommand: "zsh", currentPath: "/Users/art" },
     ]);
   });
 

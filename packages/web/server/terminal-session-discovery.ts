@@ -25,6 +25,8 @@ type TmuxSessionInfo = {
   name: string;
   windows: number;
   attached: number;
+  currentCommand: string | null;
+  currentPath: string | null;
 };
 
 type ZellijSessionInfo = {
@@ -51,7 +53,11 @@ export function queryDiscoveredTerminalSessions(options: DiscoveryOptions = {}):
 }
 
 function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): DiscoveredTerminalSession[] {
-  const result = spawnSync("tmux", ["list-sessions", "-F", "#{session_name}|#{session_windows}|#{session_attached}"], {
+  const result = spawnSync("tmux", [
+    "list-sessions",
+    "-F",
+    "#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_command}|#{pane_current_path}",
+  ], {
     env: input.env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -66,6 +72,7 @@ function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<str
       backend: "tmux",
       name: session.name,
       state: "live",
+      cwd: session.currentPath ?? "",
       surface: {
         backend: "tmux",
         sessionName: session.name,
@@ -84,6 +91,8 @@ function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<str
         registryState: "discovered",
         attachedClients: session.attached,
         windows: session.windows,
+        currentCommand: session.currentCommand,
+        currentPath: session.currentPath,
       },
     }));
 }
@@ -134,12 +143,14 @@ export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, windows, attached] = line.includes("|") ? line.split("|") : line.split("\t");
+      const [name, windows, attached, currentCommand, currentPath] = line.includes("|") ? line.split("|") : line.split("\t");
       if (!name) return null;
       return {
         name,
         windows: parsePositiveInteger(windows, 1),
         attached: parsePositiveInteger(attached, 0),
+        currentCommand: cleanOptionalString(currentCommand),
+        currentPath: cleanOptionalString(currentPath),
       };
     })
     .filter((session): session is TmuxSessionInfo => Boolean(session));
@@ -170,6 +181,7 @@ function discoveredRecordFromSurface(input: {
   backend: TerminalBackend;
   name: string;
   state: TerminalSurfaceState;
+  cwd?: string;
   surface: TerminalSurface;
   metadata: Record<string, unknown>;
 }): DiscoveredTerminalSession {
@@ -179,13 +191,18 @@ function discoveredRecordFromSurface(input: {
     id,
     harness: input.backend,
     sourceSessionId: input.name,
-    cwd: "",
+    cwd: input.cwd ?? "",
     resumeCommand: input.surface.attachCommand.join(" "),
     surfaces: [input.surface],
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata,
   };
+}
+
+function cleanOptionalString(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
