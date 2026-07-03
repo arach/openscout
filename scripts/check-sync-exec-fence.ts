@@ -1,10 +1,25 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
-type AllowCategory = "boot" | "cli" | "build-script" | "test" | "imperative";
+type AllowCategory =
+  | "boot"
+  | "cli"
+  | "build-script"
+  | "test"
+  | "imperative"
+  | "probe-exec"
+  | "repo-service-fallback"
+  | "imperative-fallback"
+  | "process-lifecycle";
 type AllowEntry = {
   path: string;
-  symbol: "execFileSync" | "execSync" | "spawnSync" | "Bun.spawnSync";
+  symbol:
+    | "execFileSync"
+    | "execSync"
+    | "spawnSync"
+    | "Bun.spawnSync"
+    | "node:child_process"
+    | "Bun.spawn";
   category: AllowCategory;
   reason: string;
   owner: string;
@@ -12,8 +27,25 @@ type AllowEntry = {
 
 const ROOT = process.cwd();
 const SCAN_ROOTS = ["packages", "apps"];
-const SYMBOLS = ["execFileSync", "execSync", "spawnSync", "Bun.spawnSync"] as const;
-const CATEGORIES = new Set<AllowCategory>(["boot", "cli", "build-script", "test", "imperative"]);
+const PHASE_B_ROOTS = [
+  "packages/web/server",
+  "packages/runtime/src",
+  "apps/desktop/src/core",
+];
+const SYNC_SYMBOLS = ["execFileSync", "execSync", "spawnSync", "Bun.spawnSync"] as const;
+const PHASE_B_SYMBOLS = ["node:child_process", "Bun.spawn", "Bun.spawnSync"] as const;
+const SYMBOLS = [...SYNC_SYMBOLS, "node:child_process", "Bun.spawn"] as const;
+const CATEGORIES = new Set<AllowCategory>([
+  "boot",
+  "cli",
+  "build-script",
+  "test",
+  "imperative",
+  "probe-exec",
+  "repo-service-fallback",
+  "imperative-fallback",
+  "process-lifecycle",
+]);
 
 function normalizePath(path: string): string {
   return path.split(/[\\/]+/).filter(Boolean).join("/");
@@ -87,6 +119,29 @@ function lineNumber(source: string, index: number): number {
   return line;
 }
 
+function symbolPattern(symbol: AllowEntry["symbol"]): RegExp {
+  if (symbol === "node:child_process") {
+    return /(?:from\s+["']node:child_process["']|import\s*\(\s*["']node:child_process["']\s*\))/gu;
+  }
+  if (symbol === "Bun.spawn") {
+    return /(?<![A-Za-z0-9_$.])Bun\.spawn(?!Sync)(?![A-Za-z0-9_$])/gu;
+  }
+  const escaped = symbol.replace(".", "\\.");
+  return new RegExp(`(?<![A-Za-z0-9_$.])${escaped}(?![A-Za-z0-9_$])`, "gu");
+}
+
+function isUnderAnyRoot(rel: string, roots: readonly string[]): boolean {
+  return roots.some((root) => rel === root || rel.startsWith(`${root}/`));
+}
+
+function shouldScanSymbol(rel: string, symbol: AllowEntry["symbol"]): boolean {
+  if ((SYNC_SYMBOLS as readonly string[]).includes(symbol)) return true;
+  if ((PHASE_B_SYMBOLS as readonly string[]).includes(symbol)) {
+    return isUnderAnyRoot(rel, PHASE_B_ROOTS);
+  }
+  return false;
+}
+
 const allowlistRaw = JSON.parse(await readFile(join(ROOT, "scripts", "sync-exec-allowlist.json"), "utf8")) as unknown;
 const allowlist = validateAllowlist(allowlistRaw);
 const allowed = new Set(allowlist.map((entry) => `${entry.path}\u0000${entry.symbol}`));
@@ -99,8 +154,8 @@ for (const file of files) {
   const rel = normalizePath(relative(ROOT, file));
   const source = await readFile(file, "utf8");
   for (const symbol of SYMBOLS) {
-    const escaped = symbol.replace(".", "\\.");
-    const pattern = new RegExp(`(?<![A-Za-z0-9_$.])${escaped}(?![A-Za-z0-9_$])`, "gu");
+    if (!shouldScanSymbol(rel, symbol)) continue;
+    const pattern = symbolPattern(symbol);
     for (const match of source.matchAll(pattern)) {
       const key = `${rel}\u0000${symbol}`;
       observed.add(key);

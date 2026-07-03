@@ -5,8 +5,7 @@
  * broker helpers already available in the web server package.
  */
 
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 
 import type { NodeDefinition } from "@openscout/protocol";
 import {
@@ -19,7 +18,7 @@ import {
   type TailscalePeerCandidate,
   type TailscaleSelfCandidate,
 } from "@openscout/runtime/mesh/tailscale";
-import { tailscaleStatusProbe } from "@openscout/runtime/system-probes";
+import { execSystemFile, tailscaleStatusProbe } from "@openscout/runtime/system-probes";
 
 import {
   readScoutBrokerHealth,
@@ -29,8 +28,6 @@ import {
   type ScoutBrokerHealthState,
   type ScoutBrokerNodeRecord,
 } from "../broker/service.ts";
-
-const execFileAsync = promisify(execFile);
 
 /* ── Types ── */
 
@@ -411,7 +408,7 @@ async function openTailscaleApp(): Promise<void> {
   }
 
   try {
-    await execFileAsync("open", ["-a", "Tailscale"]);
+    await execSystemFile("open", ["-a", "Tailscale"], { timeoutMs: 1_500 });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(

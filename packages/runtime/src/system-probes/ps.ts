@@ -16,6 +16,13 @@ export type ProcessCommandRow = ProcessRow & {
   command: string;
 };
 
+export type ProcessDiscoveryRow = {
+  pid: number;
+  ppid: number;
+  etime: string;
+  command: string;
+};
+
 export type PsRuntimeSnapshot = {
   rows: ProcessRow[];
   commandRows: ProcessCommandRow[];
@@ -74,6 +81,23 @@ function parseCommandRows(output: string): ProcessCommandRow[] {
     .filter((row): row is ProcessCommandRow => Boolean(row));
 }
 
+function parseDiscoveryRows(output: string): ProcessDiscoveryRow[] {
+  return output
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/u);
+      if (!match) return null;
+      const pid = parseProcessNumber(match[1]);
+      const ppid = parseProcessNumber(match[2]);
+      const etime = match[3]?.trim() ?? "";
+      const command = match[4]?.trim() ?? "";
+      return pid && ppid && etime && command ? { pid, ppid, etime, command } : null;
+    })
+    .filter((row): row is ProcessDiscoveryRow => Boolean(row));
+}
+
 async function readPsRuntimeLocal(ctx: ProbeCtx): Promise<PsRuntimeSnapshot> {
   try {
     const [rows, commandRows] = await Promise.all([
@@ -105,6 +129,24 @@ export const psRuntimeProbe = defineProbe<PsRuntimeSnapshot>({
   run: readPsRuntimeLocal,
 });
 
+export const psDiscoveryProbe = defineProbe<ProcessDiscoveryRow[]>({
+  id: "ps.discovery",
+  ttlMs: 1_000,
+  timeoutMs: PS_TIMEOUT_MS,
+  run: async (ctx) => {
+    try {
+      const { stdout } = await execProbeFile(ctx, "ps", ["-axww", "-o", "pid=,ppid=,etime=,command="], {
+        maxStdoutBytes: 32 * 1024 * 1024,
+        maxStderrBytes: 128 * 1024,
+      });
+      return parseDiscoveryRows(stdout);
+    } catch (error) {
+      if (isUnavailable(error)) return [];
+      throw error;
+    }
+  },
+});
+
 export async function readProcessRowsForTty(tty: string, maxAgeMs = PS_TTL_MS): Promise<ProcessRow[]> {
   const target = normalizeTty(tty);
   if (!target) return [];
@@ -120,6 +162,11 @@ export async function readAllProcessRows(maxAgeMs = PS_TTL_MS): Promise<ProcessR
 export async function readAllProcessCommandRows(maxAgeMs = PS_TTL_MS): Promise<ProcessCommandRow[]> {
   const snapshot = await psRuntimeProbe.fresh({ maxAgeMs });
   return snapshot.value?.commandRows ?? [];
+}
+
+export async function readProcessDiscoveryRows(maxAgeMs = 1_000): Promise<ProcessDiscoveryRow[]> {
+  const snapshot = await psDiscoveryProbe.fresh({ maxAgeMs });
+  return snapshot.value ?? [];
 }
 
 export async function readProcessField(pid: number, field: "command" | "ppid", maxAgeMs = PS_TTL_MS): Promise<string | null> {

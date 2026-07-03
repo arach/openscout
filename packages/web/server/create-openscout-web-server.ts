@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { performance } from "node:perf_hooks";
-import { promisify } from "node:util";
 
 import { Hono, type Context } from "hono";
 import {
@@ -420,8 +418,6 @@ import {
   serializeOpenScoutWebBootstrap,
 } from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
-
-const execFileAsync = promisify(execFile);
 
 export type TerminalRunRequest = {
   command: string;
@@ -3825,7 +3821,7 @@ async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promis
     const remote = await runGitValue(path, ["remote", "get-url", "origin"]);
     const repo = repoNameFromGitRemote(remote, path);
     try {
-      const result = await execFileAsync("gh", [
+      const result = await execSystemFile("gh", [
         "pr",
         "list",
         "--state",
@@ -3836,9 +3832,9 @@ async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promis
         "number,title,url,state,isDraft,headRefName,baseRefName,author,updatedAt",
       ], {
         cwd: path,
-        encoding: "utf8",
-        timeout: 2_500,
-        maxBuffer: 512 * 1024,
+        timeoutMs: 2_500,
+        maxStdoutBytes: 512 * 1024,
+        maxStderrBytes: 128 * 1024,
       });
       return {
         pullRequests: parseGhPullRequests(result.stdout, repo, path),
