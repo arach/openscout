@@ -130,8 +130,9 @@ describe("terminal relay config", () => {
     expect(useTerminalRelayMock).toHaveBeenCalledWith(
       expect.objectContaining({
         autoConnect: true,
+        controlMode: "takeover",
         healthUrl: "https://scout.test/api/relay-health",
-        sessionKey: "scout-takeover-agent-1",
+        sessionKey: "scout-takeover-agent-1-takeover",
         url: "wss://scout.test/ws/relay?agentId=agent-1",
       }),
     );
@@ -161,8 +162,9 @@ describe("terminal relay config", () => {
       expect.objectContaining({
         autoConnect: true,
         backend: "tmux",
+        controlMode: "takeover",
         healthUrl: "https://scout.test/ws/terminal/health",
-        sessionKey: "scout-tmux-agent-1-relay-agent-1-claude",
+        sessionKey: "scout-tmux-agent-1-relay-agent-1-claude-takeover",
         tmuxSession: "relay-agent-1-claude",
         url: "wss://scout.test/ws/terminal?agentId=agent-1",
       }),
@@ -199,8 +201,9 @@ describe("terminal relay config", () => {
       expect.objectContaining({
         autoConnect: true,
         backend: "zellij",
+        controlMode: "takeover",
         healthUrl: "https://scout.test/ws/terminal/health",
-        sessionKey: "scout-terminal-zellij-agent-1-scout-zj-source-session-1",
+        sessionKey: "scout-terminal-zellij-agent-1-scout-zj-source-session-1-takeover",
         terminalSession: "scout-zj-source-session-1",
         zellijSession: "scout-zj-source-session-1",
         zellijSocketDir: "/Users/test/.openscout/zellij-sockets",
@@ -232,6 +235,15 @@ describe("terminal relay config", () => {
       mode: "observe",
       navigate: () => {},
     }));
+
+    expect(useTerminalRelayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backend: "tmux",
+        controlMode: "observe",
+        sessionKey: "scout-tmux-agent-1-relay-agent-1-claude-observe",
+        tmuxSession: "relay-agent-1-claude",
+      }),
+    );
 
     const captured = terminalRelayProps as TerminalRelayCapture | null;
     expect(captured?.relay).toBeTruthy();

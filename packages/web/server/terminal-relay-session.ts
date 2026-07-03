@@ -500,10 +500,14 @@ async function spawnTmuxSession(
   commandBin: string,
   commandArgs: string[],
   env: Record<string, string | undefined>,
+  controlMode: 'owner' | 'takeover' | 'observe',
 ): Promise<IPty> {
   const exists = await tmuxSessionExists(tmuxName);
 
   if (!exists) {
+    if (controlMode === 'observe') {
+      throw new Error(`tmux session '${tmuxName}' does not exist`);
+    }
     // Create the tmux session detached, running the requested command inside it.
     // tmux runs the trailing command through a shell, so quote every word;
     // everything else is passed as discrete argv entries (no shell involved).
@@ -520,9 +524,11 @@ async function spawnTmuxSession(
     console.log(`[relay] Created tmux session: ${tmuxName}`);
     if (muxTtlMs() > 0) trackCreatedMuxSession('tmux', tmuxName);
   } else {
-    // Resize existing session to match client
-    await resizeTmuxWindow(tmuxName, cols, rows);
-    console.log(`[relay] Attaching to existing tmux session: ${tmuxName}`);
+    // Observers should never perturb the tmux session they are watching.
+    if (controlMode !== 'observe') {
+      await resizeTmuxWindow(tmuxName, cols, rows);
+    }
+    console.log(`[relay] Attaching to existing tmux session: ${tmuxName}${controlMode === 'observe' ? ' (observe)' : ''}`);
     markMuxSessionInUse('tmux', tmuxName);
   }
 
@@ -681,7 +687,7 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   try {
     if (backend === 'tmux') {
       console.log(`[relay] Session ${id}: tmux backend (session: ${tmuxName}) in ${cwd} [agent: ${agent}]`);
-      ptyProcess = await spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env);
+      ptyProcess = await spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env, controlMode);
     } else if (backend === 'zellij') {
       console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}, mode: ${controlMode}) in ${cwd} [agent: ${agent}]`);
       // Only pay for the existence check when the mux reaper is on; 'observe'

@@ -44,7 +44,7 @@ describe("terminal relay binding", () => {
       agentId: "agent-1",
       agent: agent(),
       terminalSurface: null,
-    })).toBe("scout-takeover-agent-1");
+    })).toBe("scout-takeover-agent-1-takeover");
   });
 
   test("uses tmux-specific storage keys for tmux-backed agents", () => {
@@ -61,6 +61,12 @@ describe("terminal relay binding", () => {
       agent: tmuxAgent,
       terminalSurface: surface,
     })).toBe(agentTmuxTerminalSessionKey("agent-1", "relay-agent-1-claude"));
+    expect(resolveTerminalRelaySessionKey({
+      agentId: "agent-1",
+      agent: tmuxAgent,
+      terminalSurface: surface,
+      mode: "observe",
+    })).toBe(agentTmuxTerminalSessionKey("agent-1", "relay-agent-1-claude", "observe"));
   });
 
   test("uses zellij session keys for terminal-surface agents", () => {
@@ -80,7 +86,7 @@ describe("terminal relay binding", () => {
       agentId: "agent-1",
       agent: zellijAgent,
       terminalSurface: surface,
-    })).toBe("scout-terminal-zellij-agent-1-scout-zj-source-session-1");
+    })).toBe("scout-terminal-zellij-agent-1-scout-zj-source-session-1-takeover");
   });
 
   test("builds relay binding with surface options and orphan TTL", () => {
@@ -100,8 +106,10 @@ describe("terminal relay binding", () => {
       relayUrl: "wss://scout.test/ws/terminal",
       harness: "claude",
       cwd: "/tmp/agent-1",
+      mode: "observe",
     });
 
+    expect(binding.controlMode).toBe("observe");
     expect(binding.relayAgent).toBeUndefined();
     expect(binding.orphanTTL).toBe(1_000);
     expect(binding.surfaceOptions).toEqual({
