@@ -78,9 +78,11 @@ function SmartViewRow({
 export function ProjectsRail({
   route,
   navigate,
+  zeroPreview = false,
 }: {
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
+  zeroPreview?: boolean;
 }) {
   const { model, nowMs } = useProjectsInbox(route);
   const [view, setView] = useProjectsInboxView();
@@ -97,8 +99,8 @@ export function ProjectsRail({
   const ephemeralScope = route.showEphemeral ? { showEphemeral: true } : {};
 
   const projectGroups = useMemo(
-    () => buildProjectGroups(model.projects, model.sessions),
-    [model.projects, model.sessions],
+    () => zeroPreview ? [] : buildProjectGroups(model.projects, model.sessions),
+    [model.projects, model.sessions, zeroPreview],
   );
   const visibleGroups = useMemo(
     () => filterAndSortProjectGroups(projectGroups, query, sort),
@@ -113,12 +115,14 @@ export function ProjectsRail({
     : visibleGroups.filter((group) => isDormantProject(group.project, nowMs));
   const visiblePinnedSessions = useMemo(
     () =>
-      sortSessionsForRail(
-        model.sessions.filter((session) =>
-          pinnedSessions.has(sessionKey(session)) && sessionMatchesQuery(session, query)
-        ),
-      ),
-    [model.sessions, pinnedSessions, query],
+      zeroPreview
+        ? []
+        : sortSessionsForRail(
+            model.sessions.filter((session) =>
+              pinnedSessions.has(sessionKey(session)) && sessionMatchesQuery(session, query)
+            ),
+          ),
+    [model.sessions, pinnedSessions, query, zeroPreview],
   );
 
   const selectSmartView = (id: SmartView) => {
@@ -140,6 +144,7 @@ export function ProjectsRail({
   const openSession = (session: InboxSession) => {
     setCollapsedProjects((current) => withoutValue(current, session.projectSlug));
     const sessionRef = sessionRouteRef(session);
+    if (!sessionRef) return;
     navigate({
       view: "agents-v2",
       projectSlug: session.projectSlug,
@@ -194,7 +199,7 @@ export function ProjectsRail({
         <div className="pi-railGroup">
           <div className="pi-railLabel">Views</div>
           {SMART_VIEWS.map((smart) => {
-            const count = model.counts[smart.id];
+            const count = zeroPreview ? 0 : model.counts[smart.id];
             if (smart.id !== "everything" && count === 0) return null;
             const state = smart.id === "needs" && count > 0 ? "needs" : smart.id === "working" && count > 0 ? "working" : "idle";
             return (
@@ -372,20 +377,19 @@ function ProjectRailGroup({
         <button
           type="button"
           className="pi-projectPath"
+          aria-expanded={!collapsed}
           title={projectTitle(project)}
-          onClick={() => onOpenProject(project.slug)}
+          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
+          onClick={() => {
+            if (selected) onToggleCollapsed();
+            else onOpenProject(project.slug);
+          }}
         >
           <Folder size={13} strokeWidth={1.6} aria-hidden />
           <span className="pi-projectPathText">/{project.title}</span>
-        </button>
-        <button
-          type="button"
-          className="pi-projectCollapse"
-          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
-          aria-expanded={!collapsed}
-          onClick={onToggleCollapsed}
-        >
-          {collapsed ? <ChevronRight size={12} strokeWidth={2} aria-hidden /> : <ChevronDown size={12} strokeWidth={2} aria-hidden />}
+          <span className="pi-projectPathCaret" aria-hidden>
+            {collapsed ? <ChevronRight size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
+          </span>
         </button>
       </div>
 
@@ -412,7 +416,7 @@ function ProjectRailGroup({
 
       {!collapsed && hiddenCount > 0 ? (
         <button type="button" className="pi-projectShowMore" onClick={onToggleExpanded}>
-          Show {hiddenCount} more
+          Show more
         </button>
       ) : !collapsed && expanded && orderedSessions.length > PROJECT_SESSION_PREVIEW_LIMIT ? (
         <button type="button" className="pi-projectShowMore" onClick={onToggleExpanded}>
@@ -513,7 +517,7 @@ function ProjectSessionHoverCard({
         {session.branch ? <span>{session.branch}</span> : null}
         {agent ? <span>{agent}</span> : null}
       </div>
-      <div className="pi-sessionHoverRef">{ref}</div>
+      <div className="pi-sessionHoverRef">{ref ?? session.id}</div>
     </div>
   );
 }
@@ -584,7 +588,7 @@ function sessionMatchesQuery(session: InboxSession, query: string): boolean {
 }
 
 function sessionKey(session: InboxSession): string {
-  return sessionRouteRef(session);
+  return sessionRouteRef(session) ?? session.id;
 }
 
 function sessionTitle(session: InboxSession): string {

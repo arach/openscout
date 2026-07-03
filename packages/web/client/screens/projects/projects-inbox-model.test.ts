@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Agent, FleetAsk, FleetState, SessionEntry } from "../../lib/types.ts";
+import type { Agent, FleetAsk, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
 import {
   buildProjectsInboxModel,
   filterThreadsForView,
@@ -115,13 +115,14 @@ function baseInput(
   fleet: FleetState | null,
   showEphemeral = false,
   sessions: SessionEntry[] = [],
+  discovery: TailDiscoverySnapshot | null = null,
 ): BuildInboxInput {
   return {
     agents,
     machineId: null,
     sessions,
     fleet,
-    discovery: null,
+    discovery,
     nowMs: NOW,
     showEphemeral,
   };
@@ -226,6 +227,39 @@ describe("project aggregation + dormancy", () => {
     expect(openscout?.agentCount).toBe(1);
     expect(openscout?.sessionCount).toBe(1);
   });
+
+  test("process-only native observations do not become openable sessions", () => {
+    const discovery: TailDiscoverySnapshot = {
+      generatedAt: NOW,
+      processes: [
+        {
+          pid: 99168,
+          ppid: 1,
+          command: "claude --verbose",
+          etime: "00:10",
+          cwd: "/Users/test/dev/openscout",
+          harness: "claude",
+          parentChain: [],
+          source: "claude",
+        },
+      ],
+      transcripts: [],
+      issues: [],
+      totals: {
+        total: 1,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 1,
+        transcripts: 0,
+      },
+    };
+    const model = buildProjectsInboxModel(baseInput([], null, false, [], discovery));
+    const openscout = model.projects.find((project) => project.slug === "openscout");
+
+    expect(model.sessions).toHaveLength(0);
+    expect(openscout?.sessionCount).toBe(0);
+    expect(openscout?.liveSessionCount).toBe(0);
+  });
 });
 
 describe("filters + routing", () => {
@@ -272,7 +306,7 @@ describe("filters + routing", () => {
     expect(open).toEqual({ view: "conversation", conversationId: "conv-1" });
   });
 
-  test("session selection uses session ids, then stable row refs", () => {
+  test("session selection uses session ids, then conversation ids, never stable row refs", () => {
     const agents = [mkAgent({ id: "scout.a", name: "Scout" })];
     const model = buildProjectsInboxModel(baseInput(agents, null, false, [mkSession(agents[0]!)]));
     const session = model.sessions[0]!;
@@ -288,8 +322,7 @@ describe("filters + routing", () => {
 
     const liveProcess = { ...session, sessionId: null, conversationId: null };
     const liveSelect = sessionSelectRoute(liveProcess, { view: "agents-v2", projectSlug: liveProcess.projectSlug });
-    expect(liveSelect.sessionId).toBe("scout:c.scout.a");
-    expect(liveSelect.selectedAgentId).toBeUndefined();
-    expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(true);
+    expect(liveSelect).toEqual({ view: "agents-v2", projectSlug: liveProcess.projectSlug });
+    expect(isSessionSelected(liveProcess, { view: "agents-v2", sessionId: "scout:c.scout.a" })).toBe(false);
   });
 });
