@@ -20,6 +20,8 @@ export type ProbeSnapshot<T> = {
   error: ProbeError | null;
   consecutiveFailures: number;
   backend: ProbeBackend;
+  fallbackSince?: number;
+  fallbackReason?: string;
 };
 
 export type ProbeCtx = {
@@ -27,13 +29,25 @@ export type ProbeCtx = {
   key?: string;
   signal: AbortSignal;
   timeoutMs: number;
+  maxAgeMs?: number;
   startedAt: number;
+};
+
+export type ProbeBackendMetadata = {
+  backend: ProbeBackend;
+  fallbackSince?: number;
+  fallbackReason?: string;
+  generatedAt?: number;
+};
+
+export type ProbeRunOutput<T> = ProbeBackendMetadata & {
+  value: T;
 };
 
 export type ProbeSpec<T> = {
   id: string;
   ttlMs: number;
-  run: (ctx: ProbeCtx) => Promise<T>;
+  run: (ctx: ProbeCtx) => Promise<T | ProbeRunOutput<T>>;
   timeoutMs: number;
   maxStaleMs?: number;
 };
@@ -55,6 +69,8 @@ export type ProbeMetrics = {
   lastSuccessAt: number | null;
   consecutiveFailures: number;
   inFlight: boolean;
+  fallbackSince?: number;
+  fallbackReason?: string;
 };
 
 export type ProbeHandle<T> = {
@@ -70,7 +86,7 @@ export type ProbeFamilySpec<K, T> = Omit<ProbeSpec<T>, "run"> & {
   maxKeys: number;
   idleKeyTtlMs: number;
   maxConcurrentKeys: number;
-  run: (key: string, ctx: ProbeCtx) => Promise<T>;
+  run: (key: string, ctx: ProbeCtx) => Promise<T | ProbeRunOutput<T>>;
 };
 
 export type ProbeFamilyMetrics = {
@@ -99,6 +115,9 @@ type ProbeState<T> = {
   invalidated: boolean;
   invalidationReason: string | null;
   nextRetryAt: number;
+  backend: ProbeBackend;
+  fallbackSince: number | null;
+  fallbackReason: string | null;
 };
 
 type MutableProbeMetrics = Omit<ProbeMetrics, "inFlight" | "consecutiveFailures">;
@@ -106,11 +125,63 @@ type MutableProbeMetrics = Omit<ProbeMetrics, "inFlight" | "consecutiveFailures"
 type ProbeInstanceOptions<T> = {
   spec: Pick<ProbeSpec<T>, "id" | "ttlMs" | "timeoutMs" | "maxStaleMs">;
   key?: string;
-  run: (ctx: ProbeCtx) => Promise<T>;
+  run: (ctx: ProbeCtx) => Promise<T | ProbeRunOutput<T>>;
   scheduleRun?: <R>(task: () => Promise<R>) => Promise<R>;
 };
 
 const DEFAULT_MIN_MAX_STALE_MS = 2 * 60_000;
+const PROBE_RUN_OUTPUT = Symbol("openscout.probeRunOutput");
+
+type InternalProbeRunOutput<T> = ProbeRunOutput<T> & {
+  [PROBE_RUN_OUTPUT]: true;
+};
+
+export class ProbeBackendError extends Error {
+  backend: ProbeBackend;
+  fallbackSince?: number;
+  fallbackReason?: string;
+
+  constructor(message: string, metadata: Omit<ProbeBackendMetadata, "generatedAt">) {
+    super(message);
+    this.name = "ProbeBackendError";
+    this.backend = metadata.backend;
+    this.fallbackSince = metadata.fallbackSince;
+    this.fallbackReason = metadata.fallbackReason;
+  }
+}
+
+export function probeRunOutput<T>(value: T, metadata: ProbeBackendMetadata): ProbeRunOutput<T> {
+  return {
+    [PROBE_RUN_OUTPUT]: true,
+    value,
+    ...metadata,
+  } as InternalProbeRunOutput<T>;
+}
+
+function isProbeRunOutput<T>(value: T | ProbeRunOutput<T>): value is InternalProbeRunOutput<T> {
+  return typeof value === "object" && value !== null && (value as { [PROBE_RUN_OUTPUT]?: unknown })[PROBE_RUN_OUTPUT] === true;
+}
+
+function backendMetadataFromError(error: unknown): Omit<ProbeBackendMetadata, "generatedAt"> | null {
+  if (error instanceof ProbeBackendError) {
+    return {
+      backend: error.backend,
+      fallbackSince: error.fallbackSince,
+      fallbackReason: error.fallbackReason,
+    };
+  }
+  if (typeof error === "object" && error !== null) {
+    const record = error as { backend?: unknown; fallbackSince?: unknown; fallbackReason?: unknown };
+    if (record.backend === "local" || record.backend === "scoutd" || record.backend === "local-fallback") {
+      return {
+        backend: record.backend,
+        fallbackSince: typeof record.fallbackSince === "number" ? record.fallbackSince : undefined,
+        fallbackReason: typeof record.fallbackReason === "string" ? record.fallbackReason : undefined,
+      };
+    }
+  }
+  return null;
+}
 
 function assertProbeSpec(spec: Pick<ProbeSpec<unknown>, "id" | "ttlMs" | "timeoutMs" | "maxStaleMs">): void {
   if (!spec.id.trim()) {
@@ -188,7 +259,7 @@ function isFreshEnough<T>(state: ProbeState<T>, maxAgeMs: number): boolean {
 class ProbeInstance<T> implements ProbeHandle<T> {
   private readonly spec: Pick<ProbeSpec<T>, "id" | "ttlMs" | "timeoutMs" | "maxStaleMs">;
   private readonly key: string | undefined;
-  private readonly runProbe: (ctx: ProbeCtx) => Promise<T>;
+  private readonly runProbe: (ctx: ProbeCtx) => Promise<T | ProbeRunOutput<T>>;
   private readonly scheduleRun: <R>(task: () => Promise<R>) => Promise<R>;
   private readonly state: ProbeState<T> = {
     value: null,
@@ -199,6 +270,9 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     invalidated: false,
     invalidationReason: null,
     nextRetryAt: 0,
+    backend: "local",
+    fallbackSince: null,
+    fallbackReason: null,
   };
   private readonly metricState: MutableProbeMetrics;
   lastAccessAt = Date.now();
@@ -225,7 +299,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
   read(): ProbeSnapshot<T> {
     this.touch();
     if (this.shouldRefreshForRead(Date.now())) {
-      void this.ensureRefresh(false);
+      void this.ensureRefresh(false, this.spec.ttlMs);
     }
     const snap = this.snapshot();
     if (snap.status === "stale" || (snap.status === "failed" && snap.at !== null)) {
@@ -240,7 +314,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     if (isFreshEnough(this.state, maxAgeMs)) {
       return this.snapshot();
     }
-    await this.ensureRefresh(true);
+    await this.ensureRefresh(true, maxAgeMs);
     return this.snapshot();
   }
 
@@ -274,7 +348,9 @@ class ProbeInstance<T> implements ProbeHandle<T> {
       status,
       error,
       consecutiveFailures: this.state.consecutiveFailures,
-      backend: "local",
+      backend: this.state.backend,
+      ...(this.state.fallbackSince !== null ? { fallbackSince: this.state.fallbackSince } : {}),
+      ...(this.state.fallbackReason !== null ? { fallbackReason: this.state.fallbackReason } : {}),
     };
   }
 
@@ -290,6 +366,8 @@ class ProbeInstance<T> implements ProbeHandle<T> {
       ...this.metricState,
       consecutiveFailures: this.state.consecutiveFailures,
       inFlight: this.state.inFlight !== null,
+      ...(this.state.fallbackSince !== null ? { fallbackSince: this.state.fallbackSince } : {}),
+      ...(this.state.fallbackReason !== null ? { fallbackReason: this.state.fallbackReason } : {}),
     };
   }
 
@@ -317,7 +395,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     return now - this.state.at > this.spec.ttlMs;
   }
 
-  private ensureRefresh(force: boolean): Promise<void> {
+  private ensureRefresh(force: boolean, maxAgeMs: number): Promise<void> {
     if (this.state.inFlight) {
       return this.state.inFlight;
     }
@@ -325,7 +403,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     if (!force && this.state.nextRetryAt > now) {
       return Promise.resolve();
     }
-    const inFlight = this.scheduleRun(() => this.executeRun())
+    const inFlight = this.scheduleRun(() => this.executeRun(maxAgeMs))
       .finally(() => {
         if (this.state.inFlight === inFlight) {
           this.state.inFlight = null;
@@ -335,7 +413,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     return inFlight;
   }
 
-  private async executeRun(): Promise<void> {
+  private async executeRun(maxAgeMs: number): Promise<void> {
     const startedAt = Date.now();
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -347,6 +425,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
       ...(this.key !== undefined ? { key: this.key } : {}),
       signal: controller.signal,
       timeoutMs: this.spec.timeoutMs,
+      maxAgeMs,
       startedAt,
     };
 
@@ -355,20 +434,27 @@ class ProbeInstance<T> implements ProbeHandle<T> {
     runPromise.catch(() => undefined);
 
     try {
-      const value = await new Promise<T>((resolve, reject) => {
+      const result = await new Promise<T | ProbeRunOutput<T>>((resolve, reject) => {
         timeout = setTimeout(() => {
           controller.abort(timeoutProbeError);
           reject(timeoutProbeError);
         }, this.spec.timeoutMs);
         runPromise.then(resolve, reject);
       });
-      this.state.value = value;
-      this.state.at = Date.now();
+      const output: ProbeRunOutput<T> = isProbeRunOutput<T>(result)
+        ? result
+        : probeRunOutput(result as T, { backend: "local" });
+      this.state.value = output.value;
+      this.state.at = output.generatedAt ?? Date.now();
       this.state.error = null;
       this.state.consecutiveFailures = 0;
       this.state.invalidated = false;
       this.state.invalidationReason = null;
       this.state.nextRetryAt = 0;
+      this.state.backend = output.backend;
+      this.state.fallbackSince = output.fallbackSince ?? null;
+      this.state.fallbackReason = output.fallbackReason ?? null;
+      this.metricState.backend = output.backend;
       this.metricState.lastSuccessAt = this.state.at;
     } catch (error) {
       const timedOut = error === timeoutProbeError
@@ -379,6 +465,13 @@ class ProbeInstance<T> implements ProbeHandle<T> {
         : probeErrorFromUnknown(error, at, timedOut);
       this.state.consecutiveFailures += 1;
       this.state.nextRetryAt = at + failureBackoffMs(this.state.consecutiveFailures);
+      const backendMetadata = backendMetadataFromError(error);
+      if (backendMetadata) {
+        this.state.backend = backendMetadata.backend;
+        this.state.fallbackSince = backendMetadata.fallbackSince ?? null;
+        this.state.fallbackReason = backendMetadata.fallbackReason ?? null;
+        this.metricState.backend = backendMetadata.backend;
+      }
       this.metricState.failureCount += 1;
       if (this.state.error.timedOut || this.state.error.code === "timeout") {
         this.metricState.timeoutCount += 1;

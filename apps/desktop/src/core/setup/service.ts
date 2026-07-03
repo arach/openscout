@@ -23,6 +23,10 @@ import {
   getRuntimeBrokerServiceStatus,
 } from "../../app/host/runtime-service-client.ts";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import {
+  loadSystemProbeDoctorReport,
+  type SystemProbeDoctorReport,
+} from "@openscout/runtime/system-probes";
 import { withScoutCoreCommandLock } from "./command-lock.ts";
 import {
   ensureScoutLocalEdgeDependencies,
@@ -71,6 +75,7 @@ export type ScoutDoctorReport = {
   broker: BrokerServiceStatus;
   localEdge: ScoutLocalEdgeDoctorReport;
   terminalPty: ScoutTerminalPtyReport;
+  systemProbes: SystemProbeDoctorReport;
   setup: Awaited<ReturnType<typeof loadResolvedRelayAgents>>;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
   capabilities: ScoutCapabilityMatrixSnapshot | null;
@@ -103,10 +108,11 @@ export async function loadScoutDoctorReport(input: {
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
   return withScoutCoreCommandLock("doctor", async () => {
-    const [broker, localEdge, terminalPty, setup, catalog, capabilities] = await Promise.all([
+    const [broker, localEdge, terminalPty, systemProbes, setup, catalog, capabilities] = await Promise.all([
       getRuntimeBrokerServiceStatus(),
       loadScoutLocalEdgeDoctorReport(input.env ?? process.env),
       Promise.resolve(inspectScoutTerminalPtyDependencies({ env: input.env ?? process.env })),
+      loadSystemProbeDoctorReport({ repoRoot: input.repoRoot }),
       loadResolvedRelayAgents({
         currentDirectory: input.currentDirectory,
         onProjectInventoryEntry: input.onProjectInventoryEntry,
@@ -122,6 +128,7 @@ export async function loadScoutDoctorReport(input: {
       broker,
       localEdge,
       terminalPty,
+      systemProbes,
       setup,
       catalog,
       capabilities,
