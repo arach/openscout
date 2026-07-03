@@ -3,7 +3,7 @@ import { ArrowRight, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
-import { formatClockTimestamp, formatDurationClock, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
+import { formatClockTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
 import type { ObserveData, ObserveUsageMeta, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { pathLeaf } from "../agents/model.ts";
@@ -133,16 +133,12 @@ function ProjectScopeHeader({
   slug,
   model,
   mode,
-  selectedSession,
-  sessionRef,
 }: {
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
   slug: string;
   model: ProjectsInboxModel;
   mode: ProjectMode;
-  selectedSession: InboxSession | null;
-  sessionRef: string | null;
 }) {
   const project = model.projects.find((entry) => entry.slug === slug) ?? null;
   const projectThreads = threadsForProject(model.threads, slug);
@@ -152,36 +148,18 @@ function ProjectScopeHeader({
   const showAgentFacet = (project?.agentCount ?? agentThreads.length) > 1;
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
   const baseRoute = { view: "agents-v2" as const, projectSlug: slug, ...machineScope };
-  const showProjectAvatar = !route.sessionId;
-  const compact = Boolean(route.sessionId);
-  const compactSessionRef = sessionRef ? shortSessionRef(sessionRef) : null;
-  const sessionTitle = selectedSession
-    ? sessionHeadline(selectedSession.work, selectedSession.agentName, sessionRouteKey(selectedSession))
-    : compactSessionRef;
-  const showSessionRef = Boolean(sessionRef && compactSessionRef && sessionTitle !== compactSessionRef);
-  const sessionAgent = selectedSession?.agentName ?? null;
-  const sessionWhen = selectedSession?.lastActivityAt ? timeAgo(selectedSession.lastActivityAt) : null;
 
   const digest = digestLine(project?.needs ?? 0, project?.working ?? 0, projectThreads.length);
 
   return (
-    <header className="pi-projectHead" data-compact={compact || undefined}>
-      <div className="pi-projectHeadTop" data-no-avatar={!showProjectAvatar || undefined}>
-        {showProjectAvatar ? <AgentAvatar name={title} placement="row" size={40} presence={false} /> : null}
+    <header className="pi-projectHead">
+      <div className="pi-projectHeadTop">
+        <AgentAvatar name={title} placement="row" size={40} presence={false} />
         <div className="pi-projectIdent">
           <div className="pi-projectTitleRow">
             <span className="pi-projectKind">Project</span>
             <h1 className="pi-projectTitle">/{title}</h1>
           </div>
-          {compact && sessionTitle ? (
-            <div className="pi-projectSessionContext">
-              <span>Session</span>
-              <b title={sessionTitle}>{sessionTitle}</b>
-              {showSessionRef ? <code title={sessionRef ?? undefined}>{compactSessionRef}</code> : null}
-              {sessionAgent ? <em title={sessionAgent}>{sessionAgent}</em> : null}
-              {sessionWhen ? <em>{sessionWhen}</em> : null}
-            </div>
-          ) : null}
           {root ? (
             <div className="pi-projectRoot" title={root}>
               {shortHomePath(root)}
@@ -230,7 +208,7 @@ function ProjectScopeHeader({
         </span>
       </div>
 
-      {project && !compact ? (
+      {project ? (
         <div className="pi-projectGlance">
           <span>{project.liveSessionCount} live session{project.liveSessionCount === 1 ? "" : "s"}</span>
           <span>{project.worktreeCount} worktree{project.worktreeCount === 1 ? "" : "s"}</span>
@@ -612,54 +590,73 @@ function sessionHeadline(work: string | null | undefined, agentName: string, ses
 function ProjectSessionOverview({
   session,
   sessionRef,
-  sessions,
+  threads,
   lookup,
   route,
+  navigate,
   nowMs,
 }: {
   session: InboxSession | null;
   sessionRef: string;
-  sessions: InboxSession[];
+  threads: InboxThread[];
   lookup: SessionRefLookup | null;
   route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
   nowMs: number;
 }) {
-  const projectSlug = session?.projectSlug ?? route.projectSlug;
-  const projectTitle = session?.projectTitle ?? projectSlug ?? "Project";
   const agentName = session?.agentName ?? route.selectedAgentId ?? route.agentId ?? "Session";
   const harness = session?.harness ?? "session";
-  const statusLabel = session?.working ? "live" : "recent";
+  const data = lookup?.kind === "observe" ? lookup.observe.data : null;
+  const sessionMeta = data?.metadata?.session;
+  const startMs = observedStartMs(data);
+  const fallbackLastAt = session?.lastActivityAt ?? lookup?.session?.lastMessageAt ?? null;
+  const endMs = observedEndMs(data, fallbackLastAt);
+  const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
+  const model = sessionMeta?.model ?? null;
+  const turnCount = sessionMeta?.turnCount ?? data?.metadata?.usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
+  const lastLabel = endMs ? timeAgo(endMs, nowMs) : session?.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—";
+  const statusLabel = session?.working ? `live · last ${lastLabel}` : lastLabel !== "—" ? `last ${lastLabel}` : "trace resolving";
   const headline = sessionHeadline(session?.work, agentName, sessionRef);
+  const refLabel = shortSessionRef(sessionRef);
+  const metaItems = [
+    agentName,
+    harness,
+    model,
+    branch,
+    startMs ? `started ${formatClockTimestamp(startMs)}` : null,
+    observedDuration(data, fallbackLastAt),
+    turnCount != null ? `turn ${compactNumber(turnCount)}` : null,
+    refLabel,
+  ].filter((item): item is string => Boolean(item) && item !== "—");
 
   return (
     <section className="pi-sessionOverview" aria-label="Session overview">
-      <section className="pi-sessionHero" data-state={session?.working ? "working" : "recent"}>
-        <div className="pi-sessionHeroCopy">
-          <div className="pi-sessionKicker">
-            <span>/{projectTitle}</span>
-            <span>{statusLabel}</span>
-            <span>{session?.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—"}</span>
-          </div>
-          <h2 className="pi-sessionHeadline" title={headline}>
-            {headline}
-          </h2>
-          <div className="pi-sessionAttribution">
-            <span>{agentName}</span>
-            <span className="pi-sessionHmark" aria-hidden>
-              <HarnessMark harness={harness} size={12} />
+      <section className="pi-sessionMasthead" data-state={session?.working ? "working" : "recent"}>
+        <div className="pi-sessionMastTop">
+          <span className="pi-sessionCrumb">Sessions ▸</span>
+          <h2 className="pi-sessionHeadline" title={headline}>{headline}</h2>
+          <span className="pi-sessionState">
+            {session?.working ? <span className="pi-sessionLiveDot" aria-hidden /> : null}
+            {statusLabel}
+          </span>
+        </div>
+        <div className="pi-sessionMeta">
+          {metaItems.map((item, index) => (
+            <span key={`${item}:${index}`} title={index === metaItems.length - 1 ? sessionRef : item}>
+              {index === 1 ? <HarnessMark harness={harness} size={11} /> : null}
+              {item}
             </span>
-            <span>{harness}</span>
-            {session?.branch ? <span>{session.branch}</span> : null}
-          </div>
+          ))}
         </div>
       </section>
 
       <ProjectSessionGlance
         lookup={lookup}
         session={session}
-        sessionRef={sessionRef}
-        sessions={sessions}
+        threads={threads}
         nowMs={nowMs}
+        route={route}
+        navigate={navigate}
       />
     </section>
   );
@@ -668,14 +665,14 @@ function ProjectSessionOverview({
 function SelectedSessionMain({
   session,
   sessionRef,
-  sessions,
+  threads,
   route,
   navigate,
   nowMs,
 }: {
   session: InboxSession | null;
   sessionRef: string;
-  sessions: InboxSession[];
+  threads: InboxThread[];
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
   nowMs: number;
@@ -692,9 +689,10 @@ function SelectedSessionMain({
         <ProjectSessionOverview
           session={session}
           sessionRef={sessionRef}
-          sessions={sessions}
+          threads={threads}
           lookup={lookup}
           route={route}
+          navigate={navigate}
           nowMs={nowMs}
         />
         <SessionRefScreen
@@ -712,6 +710,35 @@ type TokenBucket = {
   key: string;
   label: string;
   value: number;
+};
+
+type SessionFileSignal = {
+  path: string;
+  kind: ObserveData["files"][number]["state"];
+  detail: string;
+};
+
+type SessionToolSignal = {
+  name: string;
+  count: number;
+  detail: string;
+};
+
+type SessionContextSignal = {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "warn" | "good";
+};
+
+type SessionThreadSignal = {
+  thread: InboxThread;
+  title: string;
+  channel: string;
+  state: string;
+  time: string;
+  participants: string;
+  why: string;
 };
 
 function compactNumber(value: number | null | undefined): string {
@@ -738,101 +765,50 @@ function contextRatio(usage: ObserveUsageMeta | null | undefined): number | null
   return Math.max(0, Math.min(1, used / total));
 }
 
-function contextSamples(data: ObserveData | null, usage: ObserveUsageMeta | null | undefined): number[] {
-  const exact = contextRatio(usage);
-  const raw = (data?.contextUsage ?? [])
-    .filter((value) => Number.isFinite(value))
-    .map((value) => Math.max(0, Math.min(1, value)));
-  if (raw.length > 1) {
-    const last = raw.at(-1) ?? 0;
-    if (exact !== null && last > 0) {
-      const scale = exact / last;
-      return raw.map((value) => Math.max(0, Math.min(1, value * scale)));
-    }
-    return raw;
-  }
-  return exact !== null ? [Math.max(0, exact * 0.35), exact] : [];
-}
-
 function tokenBuckets(usage: ObserveUsageMeta | null | undefined): TokenBucket[] {
-  const buckets = [
+  const rawBuckets = [
     { key: "input", label: "input", value: positiveNumber(usage?.inputTokens) ?? 0 },
     { key: "cache-read", label: "cache rd", value: positiveNumber(usage?.cacheReadInputTokens) ?? 0 },
     { key: "cache-write", label: "cache wr", value: positiveNumber(usage?.cacheCreationInputTokens) ?? 0 },
     { key: "output", label: "output", value: positiveNumber(usage?.outputTokens) ?? 0 },
     { key: "reasoning", label: "reasoning", value: positiveNumber(usage?.reasoningOutputTokens) ?? 0 },
   ].filter((bucket) => bucket.value > 0);
+  const total = rawBuckets.reduce((sum, bucket) => sum + bucket.value, 0);
+  const buckets = rawBuckets.filter((bucket) => bucket.key !== "reasoning" || (total > 0 && bucket.value / total >= 0.02));
   if (buckets.length > 0) return buckets;
-  const total = positiveNumber(usage?.totalTokens);
-  return total !== null ? [{ key: "total", label: "total", value: total }] : [];
-}
-
-function sparklinePoints(samples: number[], width: number, height: number): string {
-  const maxIndex = Math.max(1, samples.length - 1);
-  return samples
-    .map((value, index) => {
-      const x = (index / maxIndex) * width;
-      const y = height - Math.max(1, Math.min(height - 1, value * height));
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-function filesTitle(files: ObserveData["files"]): string | undefined {
-  if (files.length === 0) return undefined;
-  return files
-    .slice(0, 8)
-    .map((file) => file.path)
-    .join("\n");
+  const fallbackTotal = positiveNumber(usage?.totalTokens);
+  return fallbackTotal !== null ? [{ key: "total", label: "total", value: fallbackTotal }] : [];
 }
 
 function TokenTelemetry({
-  data,
-  usage,
-  tokenTotal,
+  buckets,
 }: {
-  data: ObserveData | null;
-  usage: ObserveUsageMeta | null | undefined;
-  tokenTotal: string;
+  buckets: TokenBucket[];
 }) {
-  const buckets = tokenBuckets(usage);
-  const samples = contextSamples(data, usage);
   const bucketTotal = buckets.reduce((sum, bucket) => sum + bucket.value, 0);
-  const currentContext = contextRatio(usage) ?? samples.at(-1) ?? null;
-  if (buckets.length === 0 && samples.length < 2) return null;
-  const contextLabel = currentContext !== null ? `${Math.round(currentContext * 100)}% ctx` : null;
+  if (buckets.length === 0) return null;
 
   return (
     <div className="pi-sessionGlanceTokens" aria-label="Token usage">
-      <div className="pi-sessionGlanceTokenHead">
-        <span className="pi-sessionGlanceTokenLabel">Tokens</span>
-        <b>{tokenTotal}</b>
-        {contextLabel ? <span>{contextLabel}</span> : null}
+      <div className="pi-sessionGlanceTokenBars">
+        {buckets.map((bucket) => (
+          <span
+            key={bucket.key}
+            className="pi-sessionGlanceTokenSeg"
+            data-kind={bucket.key}
+            style={{ flexGrow: bucketTotal > 0 ? Math.max(0.035, bucket.value / bucketTotal) : 1, flexBasis: 0 } as CSSProperties}
+            title={`${bucket.label}: ${tokenLabel(bucket.value)}`}
+          />
+        ))}
       </div>
-      {buckets.length > 0 ? (
-        <div className="pi-sessionGlanceTokenBars">
-          {buckets.map((bucket) => (
-            <span
-              key={bucket.key}
-              className="pi-sessionGlanceTokenSeg"
-              data-kind={bucket.key}
-              style={{ flexGrow: bucketTotal > 0 ? Math.max(0.035, bucket.value / bucketTotal) : 1, flexBasis: 0 } as CSSProperties}
-              title={`${bucket.label}: ${tokenLabel(bucket.value)}`}
-            >
-              <span className="pi-sessionGlanceTokenSegLabel">{bucket.label}</span>
-              <span className="pi-sessionGlanceTokenSegValue">{compactNumber(bucket.value)}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {samples.length > 1 ? (
-        <div className="pi-sessionGlanceTokenTrend" title={contextLabel ?? undefined}>
-          <svg viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
-            <polyline points={sparklinePoints(samples, 120, 28)} />
-          </svg>
-          <span>context</span>
-        </div>
-      ) : null}
+      <div className="pi-sessionGlanceTokenLegend">
+        {buckets.map((bucket) => (
+          <span key={bucket.key}>
+            <i data-kind={bucket.key} aria-hidden />
+            {bucket.label} <b>{compactNumber(bucket.value)}</b>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -863,10 +839,24 @@ function observedEndMs(data: ObserveData | null, fallback: number | null | undef
 function observedDuration(data: ObserveData | null, fallbackLastAt: number | null | undefined): string {
   const start = observedStartMs(data);
   const end = observedEndMs(data, fallbackLastAt);
-  if (start !== null && end !== null) return formatDurationClock(Math.max(0, end - start)) || "—";
+  if (start !== null && end !== null) return formatDurationShort(Math.max(0, end - start)) || "—";
   const seconds = data?.events.at(-1)?.t;
-  if (typeof seconds === "number" && Number.isFinite(seconds)) return formatDurationClock(seconds * 1000) || "—";
+  if (typeof seconds === "number" && Number.isFinite(seconds)) return formatDurationShort(seconds * 1000) || "—";
   return "—";
+}
+
+function formatDurationShort(durationMs: number | null | undefined): string {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return "";
+  const totalSeconds = Math.floor(durationMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 48) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }
 
 function topologyLine(data: ObserveData | null): string | null {
@@ -888,25 +878,160 @@ function sessionRouteKey(session: InboxSession): string {
   return session.sessionId ?? session.conversationId ?? session.id;
 }
 
-function nearbySessions(currentRef: string, session: InboxSession | null, sessions: InboxSession[], nowMs: number): Array<{ label: string; time: string; title: string }> {
-  const projectSlug = session?.projectSlug;
-  return sessions
-    .filter((entry) => entry !== session)
-    .filter((entry) => !projectSlug || entry.projectSlug === projectSlug)
-    .filter((entry) => sessionRouteKey(entry) !== currentRef)
-    .slice(0, 3)
-    .map((entry) => ({
-      label: sessionHeadline(entry.work, entry.agentName, sessionRouteKey(entry)),
-      time: entry.lastActivityAt ? timeAgo(entry.lastActivityAt, nowMs) : "—",
-      title: entry.work,
+function sessionFileSignals(files: ObserveData["files"]): SessionFileSignal[] {
+  return [...files]
+    .sort((left, right) => {
+      const stateRank = fileStateRank(right.state) - fileStateRank(left.state);
+      return stateRank || right.touches - left.touches || right.lastT - left.lastT || left.path.localeCompare(right.path);
+    })
+    .slice(0, 5)
+    .map((file) => ({
+      path: file.path,
+      kind: file.state,
+      detail: [
+        file.touches > 1 ? `${compactNumber(file.touches)} touches` : "1 touch",
+        file.lastT > 0 ? `last ${formatDurationShort(file.lastT * 1000)}` : null,
+      ].filter(Boolean).join(" · "),
     }));
 }
 
-function GlanceField({ label, value, title }: { label: string; value: string; title?: string }) {
+function fileStateRank(state: ObserveData["files"][number]["state"]): number {
+  switch (state) {
+    case "created":
+      return 3;
+    case "modified":
+      return 2;
+    case "read":
+      return 1;
+  }
+}
+
+function sessionToolSignals(events: ObserveData["events"]): SessionToolSignal[] {
+  const byTool = new Map<string, { count: number; samples: string[] }>();
+  for (const event of events) {
+    if (event.kind !== "tool") continue;
+    const name = normalizeToolName(event.tool || event.text);
+    const entry = byTool.get(name) ?? { count: 0, samples: [] };
+    entry.count += 1;
+    const sample = event.arg || event.detail || event.text;
+    if (sample && entry.samples.length < 2) entry.samples.push(sample);
+    byTool.set(name, entry);
+  }
+  return [...byTool.entries()]
+    .sort((left, right) => right[1].count - left[1].count || left[0].localeCompare(right[0]))
+    .slice(0, 5)
+    .map(([name, entry]) => ({
+      name,
+      count: entry.count,
+      detail: entry.samples.join(" · ") || `${compactNumber(entry.count)} uses`,
+    }));
+}
+
+function normalizeToolName(value: string): string {
+  const raw = value.trim().split(/\s+/u)[0] ?? "tool";
+  return raw.replace(/[_-]+/gu, " ").toLowerCase();
+}
+
+function sessionContextSignals({
+  usage,
+  contextPct,
+  topology,
+  workspace,
+  projectRoot,
+  branch,
+}: {
+  usage: ObserveUsageMeta | null | undefined;
+  contextPct: number | null;
+  topology: string | null;
+  workspace: string | null;
+  projectRoot: string | null | undefined;
+  branch: string | null;
+}): SessionContextSignal[] {
+  const signals: SessionContextSignal[] = [];
+  if (contextPct !== null) {
+    signals.push({
+      label: "Context",
+      value: `${contextPct}%`,
+      detail: contextPct >= 80 ? "approaching limit" : "within window",
+      tone: contextPct >= 80 ? "warn" : undefined,
+    });
+  }
+  if (usage?.serviceTier || usage?.planType || usage?.speed) {
+    signals.push({
+      label: "Budget",
+      value: usage.serviceTier ?? usage.planType ?? usage.speed ?? "usage",
+      detail: [usage.planType, usage.speed].filter(Boolean).join(" · ") || "provider metadata",
+    });
+  }
+  if (workspace && projectRoot && workspace !== projectRoot) {
+    signals.push({
+      label: "Worktree",
+      value: shortHomePath(workspace),
+      detail: "session cwd differs from project root",
+      tone: "warn",
+    });
+  } else if (branch) {
+    signals.push({
+      label: "Repo",
+      value: branch,
+      detail: "session branch",
+    });
+  }
+  if (topology) {
+    signals.push({
+      label: "Topology",
+      value: topology,
+      detail: "observed harness hierarchy",
+    });
+  }
+  if (usage?.webSearchRequests || usage?.webFetchRequests) {
+    signals.push({
+      label: "Network",
+      value: `${compactNumber((usage.webSearchRequests ?? 0) + (usage.webFetchRequests ?? 0))} req`,
+      detail: [
+        usage.webSearchRequests ? `${compactNumber(usage.webSearchRequests)} search` : null,
+        usage.webFetchRequests ? `${compactNumber(usage.webFetchRequests)} fetch` : null,
+      ].filter(Boolean).join(" · "),
+    });
+  }
+  return signals.slice(0, 4);
+}
+
+function coordinationThreadSignals({
+  session,
+  threads,
+  nowMs,
+}: {
+  session: InboxSession | null;
+  threads: InboxThread[];
+  nowMs: number;
+}): SessionThreadSignal[] {
+  return threads
+    .filter((thread) => thread.kind === "agent")
+    .filter((thread) => thread.agentId !== session?.agentId || thread.work !== session?.work)
+    .sort((left, right) => Number(right.working) - Number(left.working) || right.lastActivityAt - left.lastActivityAt)
+    .slice(0, 4)
+    .map((thread) => {
+      const sameBranch = Boolean(session?.branch && thread.branch === session.branch);
+      const sameAgent = Boolean(session?.agentName && thread.agentName === session.agentName);
+      return {
+        thread,
+        title: sessionHeadline(thread.work, thread.agentName, thread.id),
+        channel: thread.conversationId ? shortSessionRef(thread.conversationId) : thread.agentName,
+        state: thread.needs ? "needs" : thread.working ? "working" : "recent",
+        time: thread.lastActivityAt ? timeAgo(thread.lastActivityAt, nowMs) : "—",
+        participants: thread.agentName,
+        why: sameBranch ? "same branch" : sameAgent ? "same agent" : thread.working ? "active in project" : "project thread",
+      };
+    });
+}
+
+function GlanceField({ label, value, title, detail }: { label: string; value: string; title?: string; detail?: string | null }) {
   return (
     <span className="pi-sessionGlanceField" title={title}>
       <span>{label}</span>
       <b>{value}</b>
+      {detail ? <small>{detail}</small> : null}
     </span>
   );
 }
@@ -914,24 +1039,24 @@ function GlanceField({ label, value, title }: { label: string; value: string; ti
 function ProjectSessionGlance({
   lookup,
   session,
-  sessionRef,
-  sessions,
+  threads,
   nowMs,
+  route,
+  navigate,
 }: {
   lookup: SessionRefLookup | null;
   session: InboxSession | null;
-  sessionRef: string;
-  sessions: InboxSession[];
+  threads: InboxThread[];
   nowMs: number;
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
 }) {
+  const [tokensOpen, setTokensOpen] = useState(false);
   const data = lookup?.kind === "observe" ? lookup.observe.data : null;
   const sessionMeta = data?.metadata?.session;
   const usage = data?.metadata?.usage;
   const events = data?.events ?? [];
   const files = data?.files ?? [];
-  const startMs = observedStartMs(data);
-  const fallbackLastAt = session?.lastActivityAt ?? lookup?.session?.lastMessageAt ?? null;
-  const endMs = observedEndMs(data, fallbackLastAt);
   const turnCount = sessionMeta?.turnCount ?? usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
   const toolCount = events.filter((event) => event.kind === "tool").length;
   const createdCount = files.filter((file) => file.state === "created").length;
@@ -942,19 +1067,13 @@ function ProjectSessionGlance({
   const contextPct = context !== null ? Math.round(context * 100) : null;
   const workspace = sessionMeta?.cwd ?? lookup?.session?.workspaceRoot ?? session?.projectRoot ?? null;
   const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
-  const model = sessionMeta?.model ?? null;
   const topology = topologyLine(data);
-  const nearby = nearbySessions(sessionRef, session, sessions, nowMs);
-  const startedLabel = startMs ? formatClockTimestamp(startMs) : "—";
-  const lastLabel = endMs ? timeAgo(endMs, nowMs) : session?.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—";
-  const duration = observedDuration(data, fallbackLastAt);
   const tokenTotal = tokenLabel(usage?.totalTokens ?? (
     typeof usage?.inputTokens === "number" || typeof usage?.outputTokens === "number"
       ? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
       : null
   ));
-  const workspaceLabel = workspace ? shortHomePath(workspace) : "—";
-  const branchLabel = branch || "branch unknown";
+  const buckets = tokenBuckets(usage);
   const fileStateLabel = editCount > 0
     ? [
         modifiedCount > 0 ? `${compactNumber(modifiedCount)} mod` : null,
@@ -962,77 +1081,160 @@ function ProjectSessionGlance({
       ].filter(Boolean).join(" · ")
     : readCount > 0 ? "read-only" : "no file trace";
   const fileCountLabel = files.length > 0 ? `${compactNumber(files.length)} touched` : "—";
-  const fileListTitle = filesTitle(files);
-  const summaryParts = [
-    startMs ? `started ${startedLabel}` : null,
-    duration !== "—" ? duration : null,
-    lastLabel !== "—" ? `last ${lastLabel}` : null,
-  ].filter(Boolean);
+  const fileSignals = sessionFileSignals(files);
+  const toolSignals = sessionToolSignals(events);
+  const contextSignals = sessionContextSignals({
+    usage,
+    contextPct,
+    topology,
+    workspace,
+    projectRoot: session?.projectRoot,
+    branch,
+  });
+  const threadSignals = coordinationThreadSignals({ session, threads, nowMs });
+  const showContext = contextPct !== null;
+  const contextWarn = contextPct !== null && contextPct >= 80;
 
   return (
     <section className="pi-sessionGlance" aria-label="Session glance">
-      <div className="pi-sessionGlanceTop">
-        <div className="pi-sessionGlanceLead">
-          <span className="pi-sessionGlanceKicker">Session glance</span>
-          <span className="pi-sessionGlanceSummary">{summaryParts.join(" · ") || "Trace context is still resolving."}</span>
-        </div>
-        <div className="pi-sessionGlancePills">
-          {branch ? <span title={branch}>branch {branch}</span> : null}
-          {model ? <span title={model}>{model}</span> : null}
-          {topology ? <span>{topology}</span> : null}
-        </div>
+      <div className="pi-sessionVitals" aria-label="Session vitals">
+        <GlanceField label="Turns" value={compactNumber(turnCount)} />
+        <GlanceField label="Tools" value={compactNumber(toolCount)} />
+        <GlanceField label="Edits" value={compactNumber(editCount)} />
+        <GlanceField label="Files" value={fileCountLabel} detail={fileStateLabel !== "no file trace" ? fileStateLabel : null} />
+        {workspace && session?.projectRoot && workspace !== session.projectRoot ? (
+          <GlanceField label="Worktree" value={shortHomePath(workspace)} title={workspace} />
+        ) : null}
+        {showContext ? (
+          <span className="pi-sessionContextVital" title="Context window usage">
+            <span>Ctx</span>
+            <span className="pi-sessionContextBar" aria-hidden>
+              <span data-warn={contextWarn || undefined} style={{ width: `${contextPct}%` }} />
+            </span>
+            <b data-warn={contextWarn || undefined}>{contextPct}%</b>
+          </span>
+        ) : null}
+        {buckets.length > 0 ? (
+          <button
+            type="button"
+            className="pi-sessionTokenToggle"
+            aria-expanded={tokensOpen}
+            onClick={() => setTokensOpen((open) => !open)}
+          >
+            <span>Tokens</span>
+            <b>{tokenTotal}</b>
+            <i>{tokensOpen ? "▾" : "▸"}</i>
+          </button>
+        ) : null}
       </div>
 
-      <div className="pi-sessionGlanceGrid">
-        <div className="pi-sessionGlanceCard">
-          <span className="pi-sessionGlanceCardLabel">Timeline</span>
-          <div className="pi-sessionGlanceFields">
-            <GlanceField label="Start" value={startedLabel} />
-            <GlanceField label="Duration" value={duration} />
-            <GlanceField label="Last" value={lastLabel} />
-          </div>
-        </div>
+      {tokensOpen && buckets.length > 0 ? <TokenTelemetry buckets={buckets} /> : null}
+      <SessionSignalPanel
+        files={fileSignals}
+        tools={toolSignals}
+        context={contextSignals}
+        threads={threadSignals}
+        route={route}
+        navigate={navigate}
+      />
+    </section>
+  );
+}
 
-        <div className="pi-sessionGlanceCard">
-          <span className="pi-sessionGlanceCardLabel">Activity</span>
-          <div className="pi-sessionGlanceFields">
-            <GlanceField label="Turns" value={compactNumber(turnCount)} />
-            <GlanceField label="Events" value={compactNumber(events.length)} />
-            <GlanceField label="Tools" value={compactNumber(toolCount)} />
-            <GlanceField label="Edits" value={compactNumber(editCount)} />
-          </div>
+function SessionSignalPanel({
+  files,
+  tools,
+  context,
+  threads,
+  route,
+  navigate,
+}: {
+  files: SessionFileSignal[];
+  tools: SessionToolSignal[];
+  context: SessionContextSignal[];
+  threads: SessionThreadSignal[];
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+}) {
+  return (
+    <section className="pi-sessionSignals" aria-label="Session work signals">
+      <div className="pi-sessionSignalCol">
+        <div className="pi-sessionSignalHead">
+          <span>Files</span>
+          <b>{compactNumber(files.length)}</b>
         </div>
-
-        <div className="pi-sessionGlanceCard">
-          <span className="pi-sessionGlanceCardLabel">Workspace</span>
-          <div className="pi-sessionGlanceFields">
-            <GlanceField label="Root" value={workspaceLabel} title={workspace ?? undefined} />
-            <GlanceField label="Branch" value={branchLabel} title={branch ?? undefined} />
-            <GlanceField label="Context" value={contextPct !== null ? `${contextPct}%` : tokenTotal} />
-            <GlanceField label="Files" value={fileCountLabel} title={fileListTitle} />
-            <GlanceField label="State" value={fileStateLabel} title="Trace-derived file state" />
+        {files.length > 0 ? (
+          <div className="pi-sessionFileList">
+            {files.map((file) => (
+              <div key={`${file.kind}:${file.path}`} className="pi-sessionFileRow">
+                <span data-kind={file.kind}>{file.kind}</span>
+                <code title={file.path}>{file.path}</code>
+                <small>{file.detail}</small>
+              </div>
+            ))}
           </div>
-        </div>
+        ) : (
+          <span className="pi-sessionSignalEmpty">No file trace yet.</span>
+        )}
+      </div>
 
-        <div className="pi-sessionGlanceCard">
-          <span className="pi-sessionGlanceCardLabel">Related</span>
-          {nearby.length > 0 ? (
-            <div className="pi-sessionGlanceNearby">
-              {nearby.map((entry) => (
-                <span key={`${entry.label}:${entry.time}`} className="pi-sessionGlanceNearbyItem" title={entry.title}>
-                  {entry.label}
-                  <b>{entry.time}</b>
+      <div className="pi-sessionSignalCol">
+        <div className="pi-sessionSignalHead">
+          <span>Tools · Context · Topology</span>
+        </div>
+        {tools.length > 0 ? (
+          <div className="pi-sessionToolGrid">
+            {tools.map((tool) => (
+              <span key={tool.name} className="pi-sessionToolPill" title={tool.detail}>
+                <b>{tool.name}</b>
+                <em>{compactNumber(tool.count)}</em>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {context.length > 0 ? (
+          <div className="pi-sessionContextList">
+            {context.map((signal) => (
+              <div key={`${signal.label}:${signal.value}`} className="pi-sessionContextRow">
+                <span>{signal.label}</span>
+                <b data-tone={signal.tone}>{signal.value}</b>
+                <small>{signal.detail}</small>
+              </div>
+            ))}
+          </div>
+        ) : tools.length === 0 ? (
+          <span className="pi-sessionSignalEmpty">Trace metadata is still resolving.</span>
+        ) : null}
+      </div>
+
+      <div className="pi-sessionSignalCol">
+        <div className="pi-sessionSignalHead">
+          <span>Recent threads</span>
+          <b>{compactNumber(threads.length)}</b>
+        </div>
+        {threads.length > 0 ? (
+          <div className="pi-sessionThreadList">
+            {threads.map((thread) => (
+              <button
+                key={thread.thread.id}
+                type="button"
+                className="pi-sessionThreadRow"
+                onClick={() => navigate(threadSelectRoute(thread.thread, route))}
+              >
+                <span className="pi-sessionThreadTitle" title={thread.title}>{thread.title}</span>
+                <span className="pi-sessionThreadMeta">
+                  <b>{thread.channel}</b>
+                  <em>{thread.state}</em>
+                  <small>{thread.time}</small>
                 </span>
-              ))}
-            </div>
-          ) : (
-            <span className="pi-sessionGlanceEmpty">No nearby sessions</span>
-          )}
-        </div>
+                <span className="pi-sessionThreadWhy">{thread.participants} · {thread.why}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="pi-sessionSignalEmpty">No recent agent threads.</span>
+        )}
       </div>
-
-      <TokenTelemetry data={data} usage={usage} tokenTotal={tokenTotal} />
-
     </section>
   );
 }
@@ -1415,8 +1617,6 @@ export function ProjectsInbox({
           slug={route.projectSlug!}
           model={model}
           mode={mode}
-          selectedSession={selectedSession}
-          sessionRef={selectedSessionRef}
         />
       ) : (
         <div className="pi-inboxHead">
@@ -1432,7 +1632,7 @@ export function ProjectsInbox({
         <SelectedSessionMain
           session={selectedSession}
           sessionRef={selectedSessionRef}
-          sessions={model.sessions}
+          threads={threadsForProject(model.threads, route.projectSlug ?? selectedSession?.projectSlug ?? "")}
           route={route}
           navigate={navigate}
           nowMs={nowMs}

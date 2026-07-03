@@ -6,6 +6,7 @@ import {
   type CodexQuotaWindowObservation,
 } from "./adapters/codex/usage.js";
 import { codexContextWindowTokens } from "./adapters/codex/context-window.js";
+import { projectCodexAssistantText, type CodexHostMetadata } from "./adapters/codex/host-metadata.js";
 import { claudeContextWindowTokens } from "./adapters/claude-code/context-window.js";
 import {
   observedContextWindowTokens,
@@ -1604,6 +1605,7 @@ class CodexHistoryParser {
   private contextWindowTokens: number | undefined;
   private planType: string | undefined;
   private quotaWindows: CodexQuotaWindowObservation[] = [];
+  private codexHostMetadataRaw = new Set<string>();
 
   constructor(
     private readonly session: Session,
@@ -1779,8 +1781,7 @@ class CodexHistoryParser {
       case "agent_message": {
         const message = maybeString(payload.message);
         if (message) {
-          this.appendCompletedText(capturedAt, message);
-          this.assistantMessageTextThisTurn.add(message);
+          this.appendCodexAssistantText(capturedAt, message);
         }
         break;
       }
@@ -1848,12 +1849,11 @@ class CodexHistoryParser {
     }
 
     const text = renderContentPartsText(payload.content).trim();
-    if (!text || this.assistantMessageTextThisTurn.has(text)) {
+    if (!text) {
       return;
     }
 
-    this.appendCompletedText(capturedAt, text);
-    this.assistantMessageTextThisTurn.add(text);
+    this.appendCodexAssistantText(capturedAt, text);
   }
 
   private handleReasoning(payload: Record<string, unknown>, capturedAt: number): void {
@@ -2162,6 +2162,78 @@ class CodexHistoryParser {
     this.emitBlockEnd(capturedAt, turn, block, "completed");
   }
 
+  private appendCodexAssistantText(capturedAt: number, rawText: string): void {
+    const projected = projectCodexAssistantText(rawText);
+    const changed = this.recordCodexHostMetadata(projected.hostMetadata);
+    const text = projected.text.trim();
+    if (!text) {
+      if (changed) {
+        this.emitSessionUpdate(capturedAt);
+      }
+      return;
+    }
+    if (this.assistantMessageTextThisTurn.has(text)) {
+      if (changed) {
+        this.emitSessionUpdate(capturedAt);
+      }
+      return;
+    }
+
+    if (changed) {
+      this.emitSessionUpdate(capturedAt);
+    }
+    this.appendCompletedText(capturedAt, text);
+    this.assistantMessageTextThisTurn.add(text);
+  }
+
+  private recordCodexHostMetadata(entries: CodexHostMetadata[]): boolean {
+    if (entries.length === 0) {
+      return false;
+    }
+
+    const fresh = entries.filter((entry) => {
+      if (this.codexHostMetadataRaw.has(entry.raw)) {
+        return false;
+      }
+      this.codexHostMetadataRaw.add(entry.raw);
+      return true;
+    });
+    if (fresh.length === 0) {
+      return false;
+    }
+
+    const metadata = this.ensureObserveMetaRecord("observeHostMetadata");
+    const directives = Array.isArray(metadata.directives)
+      ? metadata.directives.filter(isRecord)
+      : [];
+    const memoryCitations = Array.isArray(metadata.memoryCitations)
+      ? metadata.memoryCitations.filter(isRecord)
+      : [];
+
+    for (const entry of fresh) {
+      if (entry.kind === "directive") {
+        directives.push({
+          name: entry.name,
+          raw: entry.raw,
+        });
+      } else {
+        memoryCitations.push({
+          raw: entry.raw,
+          citationEntries: entry.citationEntries,
+          rolloutIds: entry.rolloutIds,
+        });
+      }
+    }
+
+    if (directives.length > 0) {
+      metadata.directives = directives;
+    }
+    if (memoryCitations.length > 0) {
+      metadata.memoryCitations = memoryCitations;
+    }
+    return true;
+  }
+
   private startBlock<T extends Block>(
     turn: Turn,
     capturedAt: number,
@@ -2209,7 +2281,7 @@ class CodexHistoryParser {
     return providerMeta;
   }
 
-  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage" | "observeQuota"): Record<string, unknown> {
+  private ensureObserveMetaRecord(key: "observeRuntime" | "observeUsage" | "observeQuota" | "observeHostMetadata"): Record<string, unknown> {
     const providerMeta = this.ensureProviderMeta();
     const existing = providerMeta[key];
     if (isRecord(existing)) {

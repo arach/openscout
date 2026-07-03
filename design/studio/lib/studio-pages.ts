@@ -972,6 +972,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Drop ENGAGE (Message → composer, Observe → session); + New becomes New session under Sessions; session dot lights only when working, not when selected.",
   },
   {
+    href: "/studies/project-session-glance",
+    label: "Projects · Session Glance",
+    bucket: "studies",
+    surface: "web",
+    family: "projects",
+    status: "draft",
+    source: [
+      "design/studio/views/project-session-glance.tsx",
+      "docs/design/project-session-glance-proposal.md",
+      "packages/web/client/screens/projects/ProjectsInbox.tsx",
+    ],
+    blurb:
+      "Two-band selected-session treatment under a stable project header: Band A masthead (Sessions ▸ title · live/idle · one mono meta line) + Band B vitals strip (turns/tools/edits/files · static context bar · collapsed tokens expanding to a legend-below split). Related as reasoned chips (same branch ▸ same agent adjacent ▸ ran alongside), absent when empty. Three scenarios (live cache-heavy codex · ended claude with no usage · worktree-diverged) plus a Narrow 420 width toggle. No sparkline, no left-edge accent bar, no duplicated nav chrome.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",

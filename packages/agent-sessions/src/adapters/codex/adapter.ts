@@ -18,6 +18,7 @@ import type {
   Turn,
   TurnStatus,
 } from "../../protocol/primitives.js";
+import { projectCodexAssistantStreamText, projectCodexAssistantText, type CodexHostMetadata } from "./host-metadata.js";
 import { CodexObservedTopologyTracker } from "./topology.js";
 
 type CodexRequest = {
@@ -104,6 +105,11 @@ type ActiveTurnState = {
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+};
+
+type AgentMessageStreamState = {
+  rawText: string;
+  emittedText: string;
 };
 
 function parseJsonLine(line: string): CodexResponse | CodexNotification | CodexServerRequest | null {
@@ -299,6 +305,8 @@ export class CodexAdapter extends BaseAdapter {
   private currentThreadId: string | null = null;
   private currentThreadPath: string | null = null;
   private currentTurnState: ActiveTurnState | null = null;
+  private codexHostMetadataRaw = new Set<string>();
+  private agentMessageStreams = new Map<string, AgentMessageStreamState>();
   private blockIndex = 0;
   private readonly observedTopology: CodexObservedTopologyTracker;
 
@@ -734,9 +742,11 @@ export class CodexAdapter extends BaseAdapter {
 
     const turnState = this.ensureTurn(turnId);
     switch (itemType) {
-      case "agentMessage":
-        this.ensureTextBlock(turnState, itemId, typeof item.text === "string" ? item.text : "");
+      case "agentMessage": {
+        const initialText = typeof item.text === "string" ? this.projectAgentMessageStreamText(itemId, item.text) : "";
+        this.ensureTextBlock(turnState, itemId, initialText);
         return;
+      }
       case "reasoning": {
         const text = extractReasoningText(item);
         if (text) {
@@ -760,7 +770,10 @@ export class CodexAdapter extends BaseAdapter {
 
     const turnState = this.ensureTurn(turnId);
     const block = this.ensureTextBlock(turnState, itemId);
-    this.emitTextDelta(turnState.turn, block, delta);
+    const nextText = this.projectAgentMessageStreamText(itemId, delta, { append: true });
+    if (nextText.startsWith(block.text)) {
+      this.emitTextDelta(turnState.turn, block, nextText.slice(block.text.length));
+    }
   }
 
   private handleReasoningDelta(params: Record<string, unknown>): void {
@@ -830,10 +843,11 @@ export class CodexAdapter extends BaseAdapter {
     switch (itemType) {
       case "agentMessage": {
         const block = this.ensureTextBlock(turnState, itemId);
-        const finalText = typeof item.text === "string" ? item.text : "";
+        const finalText = typeof item.text === "string" ? this.projectAgentMessageText(item.text) : "";
         this.emitMissingText(turnState.turn, block, finalText);
         this.completeBlock(turnState.turn, block);
         turnState.blocksByItemId.delete(itemId);
+        this.agentMessageStreams.delete(itemId);
         return;
       }
       case "reasoning": {
@@ -1025,6 +1039,87 @@ export class CodexAdapter extends BaseAdapter {
     if (finalText.startsWith(block.text)) {
       this.emitTextDelta(turn, block, finalText.slice(block.text.length));
     }
+  }
+
+  private projectAgentMessageText(rawText: string): string {
+    const projected = projectCodexAssistantText(rawText);
+    if (this.recordCodexHostMetadata(projected.hostMetadata)) {
+      this.emitSessionUpdate();
+    }
+    return projected.text;
+  }
+
+  private projectAgentMessageStreamText(itemId: string, text: string, options: { append?: boolean } = {}): string {
+    const state = this.agentMessageStreams.get(itemId) ?? {
+      rawText: "",
+      emittedText: "",
+    };
+    state.rawText = options.append ? state.rawText + text : text;
+
+    const projected = projectCodexAssistantStreamText(state.rawText);
+    if (this.recordCodexHostMetadata(projected.hostMetadata)) {
+      this.emitSessionUpdate();
+    }
+    if (projected.text.startsWith(state.emittedText)) {
+      state.emittedText = projected.text;
+    }
+    this.agentMessageStreams.set(itemId, state);
+    return state.emittedText;
+  }
+
+  private recordCodexHostMetadata(entries: CodexHostMetadata[]): boolean {
+    if (entries.length === 0) {
+      return false;
+    }
+
+    const fresh = entries.filter((entry) => {
+      if (this.codexHostMetadataRaw.has(entry.raw)) {
+        return false;
+      }
+      this.codexHostMetadataRaw.add(entry.raw);
+      return true;
+    });
+    if (fresh.length === 0) {
+      return false;
+    }
+
+    const providerMeta: Record<string, unknown> = {
+      ...(this.session.providerMeta ?? {}),
+    };
+    const metadata = typeof providerMeta.observeHostMetadata === "object" && providerMeta.observeHostMetadata !== null && !Array.isArray(providerMeta.observeHostMetadata)
+      ? providerMeta.observeHostMetadata as Record<string, unknown>
+      : {};
+    const directives = Array.isArray(metadata.directives)
+      ? metadata.directives.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null && !Array.isArray(entry))
+      : [];
+    const memoryCitations = Array.isArray(metadata.memoryCitations)
+      ? metadata.memoryCitations.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null && !Array.isArray(entry))
+      : [];
+
+    for (const entry of fresh) {
+      if (entry.kind === "directive") {
+        directives.push({
+          name: entry.name,
+          raw: entry.raw,
+        });
+      } else {
+        memoryCitations.push({
+          raw: entry.raw,
+          citationEntries: entry.citationEntries,
+          rolloutIds: entry.rolloutIds,
+        });
+      }
+    }
+
+    if (directives.length > 0) {
+      metadata.directives = directives;
+    }
+    if (memoryCitations.length > 0) {
+      metadata.memoryCitations = memoryCitations;
+    }
+    providerMeta.observeHostMetadata = metadata;
+    this.session.providerMeta = providerMeta;
+    return true;
   }
 
   private emitActionOutput(turn: Turn, block: ActionBlock, output: string): void {

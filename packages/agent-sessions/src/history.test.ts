@@ -728,6 +728,94 @@ describe("history snapshot replay", () => {
     }
   });
 
+  test("keeps Codex host metadata out of visible assistant text", () => {
+    const basePath = "/Users/arach/.codex/sessions/2026/07/03/codex-host-metadata.jsonl";
+    const assistantText = [
+      "Committed, pushed, and merged.",
+      "",
+      "::git-stage{cwd=\"/Users/arach/dev/openscout\"}",
+      "::git-commit{cwd=\"/Users/arach/dev/openscout\"}",
+      "::git-push{cwd=\"/Users/arach/dev/openscout\" branch=\"codex/project-level-view\"}",
+      "",
+      "<oai-mem-citation>",
+      "<citation_entries>",
+      "MEMORY.md:1-47|note=[Projects surface constraints]",
+      "</citation_entries>",
+      "<rollout_ids>",
+      "019f25c1-3d6d-7640-ab25-f8a589f7e573",
+      "</rollout_ids>",
+      "</oai-mem-citation>",
+    ].join("\n");
+    const content = [
+      JSON.stringify({
+        timestamp: "2026-07-03T16:30:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "task_started",
+          turn_id: "turn-codex-host-metadata",
+          started_at: 1783096200,
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-03T16:30:02.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: assistantText,
+          phase: "final",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-03T16:30:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: assistantText }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-03T16:30:04.000Z",
+        type: "event_msg",
+        payload: {
+          type: "task_complete",
+          completed_at: 1783096204,
+        },
+      }),
+    ].join("\n");
+
+    const result = createHistorySessionSnapshot({
+      path: basePath,
+      content,
+    });
+
+    const turn = result.snapshot.turns[0]!;
+    expect(turn.blocks).toHaveLength(1);
+    const block = turn.blocks[0]!.block;
+    expect(block.type).toBe("text");
+    if (block.type === "text") {
+      expect(block.text).toBe("Committed, pushed, and merged.");
+      expect(block.text).not.toContain("oai-mem-citation");
+      expect(block.text).not.toContain("::git-");
+    }
+
+    expect(result.snapshot.session.providerMeta).toEqual(expect.objectContaining({
+      observeHostMetadata: expect.objectContaining({
+        directives: [
+          expect.objectContaining({ name: "git-stage" }),
+          expect.objectContaining({ name: "git-commit" }),
+          expect.objectContaining({ name: "git-push" }),
+        ],
+        memoryCitations: [
+          expect.objectContaining({
+            citationEntries: ["MEMORY.md:1-47|note=[Projects surface constraints]"],
+            rolloutIds: ["019f25c1-3d6d-7640-ab25-f8a589f7e573"],
+          }),
+        ],
+      }),
+    }));
+  });
+
   test("infers a Codex model window when token logs omit the denominator", () => {
     const basePath = "/Users/arach/.codex/sessions/2026/05/30/codex-no-window.jsonl";
     const content = [

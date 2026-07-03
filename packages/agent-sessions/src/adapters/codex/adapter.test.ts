@@ -110,11 +110,28 @@ for await (const line of rl) {
 
   if (method === "turn/start") {
     const threadId = String(params.threadId ?? "thread-unknown");
+    const finalText = [
+      "hello from codex",
+      "",
+      "::git-stage{cwd=\\"/tmp/project\\"}",
+      "<oai-mem-citation>",
+      "<citation_entries>",
+      "MEMORY.md:1-2|note=[adapter test]",
+      "</citation_entries>",
+      "<rollout_ids>",
+      "019f25c1-3d6d-7640-ab25-f8a589f7e573",
+      "</rollout_ids>",
+      "</oai-mem-citation>",
+    ].join("\\n");
+    const streamedTail = finalText.slice("hello from codex".length);
     console.log(JSON.stringify({ id, result: { turn: { id: "turn-1" } } }));
     console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: "turn-1", status: "inProgress" } } }));
     console.log(JSON.stringify({ method: "item/started", params: { threadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "" } } }));
     console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId, turnId: "turn-1", itemId: "msg-1", delta: "hello " } }));
-    console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "hello from codex" } } }));
+    console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId, turnId: "turn-1", itemId: "msg-1", delta: "from codex" } }));
+    console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId, turnId: "turn-1", itemId: "msg-1", delta: streamedTail.slice(0, 18) } }));
+    console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId, turnId: "turn-1", itemId: "msg-1", delta: streamedTail.slice(18) } }));
+    console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: finalText } } }));
     console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: "turn-1", status: "completed", error: null } } }));
     continue;
   }
@@ -157,6 +174,15 @@ for await (const line of rl) {
     if (lastUpdate?.event === "session:update") {
       expect(lastUpdate.session.providerMeta?.threadId).toBe("thread-attached-1");
       expect(lastUpdate.session.providerMeta?.stdoutLogFile).toBeDefined();
+      expect(lastUpdate.session.providerMeta?.observeHostMetadata).toEqual(expect.objectContaining({
+        directives: [expect.objectContaining({ name: "git-stage" })],
+        memoryCitations: [
+          expect.objectContaining({
+            citationEntries: ["MEMORY.md:1-2|note=[adapter test]"],
+            rolloutIds: ["019f25c1-3d6d-7640-ab25-f8a589f7e573"],
+          }),
+        ],
+      }));
     }
     expect(turnStarts).toHaveLength(1);
     expect(textStart).toBeDefined();
