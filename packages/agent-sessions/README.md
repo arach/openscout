@@ -19,11 +19,15 @@ plane.
 - in-memory session state and replay helpers
 - `SessionRegistry`
 - a browser-safe `./client` boundary for trace consumers
+- a broker-free `./local` boundary for embedding local pi / Grok ACP turns
 - adapter spec fixtures and validation tooling
 
 `./client` is intentionally narrower than the package root. It exposes only
 browser-safe protocol, snapshot, event, and approval helper types so web and
 mobile trace consumers can avoid pulling in registry or adapter code paths.
+
+`./local` exposes `completeLocalAgentTurn` and `createLocalAgentClient` for
+apps that need a direct local turn without broker records or runtime imports.
 
 ## Local Commands
 
