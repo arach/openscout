@@ -2,6 +2,7 @@ import type {
   ActorKind,
   AdvertiseScope,
   AgentState,
+  DeliveryTransport,
   MetadataMap,
   ScoutId,
 } from "./common.js";
@@ -25,6 +26,26 @@ export type AgentCapability =
   | "summarize"
   | "review"
   | "execute";
+
+export type AgentEndpointTransport = Extract<
+  DeliveryTransport,
+  | "local_socket"
+  | "http"
+  | "websocket"
+  | "pairing_bridge"
+  | "claude_channel"
+  | "claude_stream_json"
+  | "codex_app_server"
+  | "codex_exec"
+  | "claude_resume"
+  | "pi_rpc"
+  | "grok_acp"
+  | "tmux"
+  | "cursor_exec"
+  | "cursor_cli_text"
+  | "cursor_cli_stream_json"
+  | "cursor_sdk_local"
+>;
 
 export const AGENT_HARNESSES = [
   "codex",
@@ -82,7 +103,7 @@ export interface AgentEndpoint {
   agentId: ScoutId;
   nodeId: ScoutId;
   harness: AgentHarness;
-  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_channel" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "pi_rpc" | "grok_acp" | "tmux" | "cursor_exec" | "cursor_cli_text" | "cursor_cli_stream_json" | "cursor_sdk_local";
+  transport: AgentEndpointTransport;
   state: AgentState;
   preferred?: boolean;
   address?: string;
