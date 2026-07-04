@@ -1,20 +1,20 @@
-// OutboundBuffer — a fixed-size ring buffer of sequenced Pairing events.
+// OutboundBuffer — a fixed-size ring buffer of sequenced session events.
 //
-// Every event that flows through the bridge gets assigned a monotonic
-// sequence number and stored in this buffer.  When a phone reconnects,
-// it provides its last-seen seq and the bridge replays everything after
-// that point.  This gives us seamless reconnection without persistence.
+// Every event emitted by an adapter gets assigned a monotonic sequence number
+// and stored in this buffer.  When a client reconnects, it provides its
+// last-seen seq and the embedding runtime replays everything after that point.
+// This gives us seamless reconnection without persistence.
 
 import type { PairingEvent } from "./protocol/index.js";
 
 // ---------------------------------------------------------------------------
-// Sequenced event — a Pairing event annotated with ordering metadata
+// Sequenced event — a session event annotated with ordering metadata
 // ---------------------------------------------------------------------------
 
 export interface SequencedEvent {
   /** Monotonic sequence number (starts at 1, never resets). */
   seq: number;
-  /** The original Pairing event. */
+  /** The original session event. */
   event: PairingEvent;
   /** Unix epoch milliseconds when the event was buffered. */
   timestamp: number;

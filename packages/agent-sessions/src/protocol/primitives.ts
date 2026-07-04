@@ -1,13 +1,12 @@
-// Pairing protocol primitives.
+// Session protocol primitives.
 //
 // These types define the universal vocabulary for AI session observability.
 // Every adapter — regardless of the backend (Claude Code, Codex, Gemini,
 // Ollama, a browser extension, etc.) — maps its native events onto these
-// primitives.  The phone app renders these and nothing else.
+// primitives.  Clients render these.
 //
 // Aligned with Vercel AI SDK LanguageModelV3 content types where possible,
-// but transport-agnostic and designed for streaming over encrypted WebSocket
-// rather than HTTP/SSE.
+// but transport-agnostic.
 
 // ---------------------------------------------------------------------------
 // Session — a long-lived connection to one agent
@@ -135,8 +134,8 @@ export interface Turn {
 //   reasoning  → LanguageModelV3ReasoningContent
 //   action     → LanguageModelV3ToolCall + ToolResult (unified)
 //   file       → LanguageModelV3FileContent
-//   error      → (no direct equivalent — Pairing addition)
-//   question   → AskUserQuestion interactive prompt (Pairing addition)
+//   error      → (no direct equivalent — protocol extension)
+//   question   → AskUserQuestion interactive prompt (protocol extension)
 // ---------------------------------------------------------------------------
 
 export type BlockStatus = "started" | "streaming" | "completed" | "failed";
@@ -246,7 +245,7 @@ interface ActionBase {
   /** Present when status is "awaiting_approval". */
   approval?: {
     /** Monotonic version — incremented each time this action's approval
-     *  state changes. Prevents stale phone responses from taking effect. */
+     *  state changes. Prevents stale client responses from taking effect. */
     version: number;
     /** Human-readable description of what's being requested. */
     description?: string;
@@ -341,7 +340,7 @@ export interface BlockActionStatusDelta {
   meta?: Record<string, unknown>;
 }
 
-/** Action transitioned to awaiting_approval — phone renders approve/deny UI. */
+/** Action transitioned to awaiting_approval — client renders approve/deny UI. */
 export interface BlockActionApprovalDelta {
   event: "block:action:approval";
   sessionId: string;
@@ -391,7 +390,7 @@ export type SessionEvent =
   | { event: "session:closed"; sessionId: string };
 
 // ---------------------------------------------------------------------------
-// Wire message — the union of everything that flows over the encrypted pipe
+// PairingEvent — the wire union of all session messages
 // ---------------------------------------------------------------------------
 
 export type PairingEvent = Delta | TurnEvent | SessionEvent;
@@ -413,7 +412,7 @@ export interface Prompt {
   providerOptions?: Record<string, unknown>;
 }
 
-/** User answering a QuestionBlock. Sent from phone → bridge → adapter. */
+/** User answering a QuestionBlock. Routed from client → embedding runtime → adapter. */
 export interface QuestionAnswer {
   sessionId: string;
   /** The block ID of the QuestionBlock being answered. */

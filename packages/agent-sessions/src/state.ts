@@ -1,9 +1,9 @@
-// State tracker — accumulates session state from streaming Pairing events.
+// State tracker — accumulates session state from streaming session events.
 //
-// The bridge feeds every PairingEvent into the tracker.  At any point, a client
-// can request a full snapshot (all turns + accumulated block content) to
-// recover state after reconnect.  This is the "pull" complement to the "push"
-// event stream.
+// The embedding runtime feeds every PairingEvent into the tracker.  At any
+// point, a client can request a full snapshot (all turns + accumulated block
+// content) to recover state after reconnect.  This is the "pull" complement
+// to the "push" event stream.
 //
 // In-memory only — no persistence, no external dependencies.
 
@@ -136,7 +136,7 @@ export class StateTracker {
     return summaries;
   }
 
-  /** Process one Pairing event and update internal state. */
+  /** Process one session event and update internal state. */
   trackEvent(
     sessionId: string,
     event: PairingEvent,
