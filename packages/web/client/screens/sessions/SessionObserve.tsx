@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Plus, Wrench } from "lucide-react";
 
 import type {
   ObserveData,
@@ -23,6 +23,7 @@ import type {
 import {
   collapseObserveDisplayRows,
   collapseTechnicalObserveDisplayRows,
+  compactTechnicalObserveDisplayRows,
   isSimpleLaneToolEvent,
   type ObserveTechnicalSummary,
 } from "../../lib/observe-display.ts";
@@ -54,6 +55,7 @@ import {
 import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
 import { api } from "../../lib/api.ts";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
+import { renderWithMentions } from "../../lib/mentions.tsx";
 import { DictationMic } from "../../components/DictationMic.tsx";
 import {
   formatClockTimestamp,
@@ -416,12 +418,14 @@ function LaneExpandableText({
   laneMode = false,
   live = false,
   renderExpanded,
+  renderCollapsed,
 }: {
   text: string;
   className: string;
   laneMode?: boolean;
   live?: boolean;
   renderExpanded?: (value: string) => ReactNode;
+  renderCollapsed?: (value: string) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const normalized = text.trim();
@@ -438,7 +442,7 @@ function LaneExpandableText({
   const snippet = laneSnippetText(normalized);
   const body = expanded
     ? (renderExpanded ? renderExpanded(normalized) : normalized)
-    : snippet;
+    : (renderCollapsed ? renderCollapsed(snippet) : snippet);
 
   return (
     <div className={`s-observe-lane-expandable${expanded ? " s-observe-lane-expandable--open" : ""}`}>
@@ -1000,9 +1004,8 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
           className="s-observe-ask-text"
           laneMode={laneMode}
           live={event.live}
-          renderExpanded={(value) => laneMode
-            ? value
-            : <MessageMarkup text={value} />}
+          renderCollapsed={(value) => renderWithMentions(value)}
+          renderExpanded={(value) => <MessageMarkup text={value} />}
         />
       ) : event.live ? (
         <span className="s-observe-cursor" />
@@ -1020,26 +1023,30 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
   );
 }
 
-function messageDisplayLabel(event: Pick<SessionEvent, "to">): string {
+function messageDisplayLabel(event: Pick<SessionEvent, "to">): string | null {
   const to = event.to?.trim();
-  if (!to) return "Agent reply";
-  if (to === "human") return "To you";
-  return `To ${to}`;
+  if (!to) return null;
+  if (to === "human") return "→ you";
+  return `→ ${to}`;
 }
 
 function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
-  const text = event.text ?? "";
+  const rawText = event.text ?? "";
+  const thinking = laneMode && rawText.trim().toLowerCase() === "[thinking]";
+  const text = thinking ? "Thinking..." : rawText;
+  const label = thinking ? "Agent thinking" : messageDisplayLabel(event);
   return (
-    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}`}>
-      <div className="s-observe-message-label">{messageDisplayLabel(event)}</div>
+    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}${thinking ? " s-observe-message--thinking" : ""}`}>
+      {label ? <div className="s-observe-message-label">{label}</div> : null}
       <LaneExpandableText
         text={text}
         className="s-observe-message-text"
         laneMode={laneMode}
         live={event.live}
+        renderCollapsed={(value) => renderWithMentions(value)}
         renderExpanded={(value) => <MessageMarkup text={value} />}
       />
-      {!laneMode && <CopyButton text={text} label="Copy message" />}
+      {!laneMode && <CopyButton text={rawText} label="Copy message" />}
     </div>
   );
 }
@@ -1057,6 +1064,40 @@ function TechnicalSummaryLine({ summary }: { summary: ObserveTechnicalSummary })
         </span>
       ) : null}
     </div>
+  );
+}
+
+function LaneTraceModeToggle({
+  collapseTechnicalEvents,
+  onChange,
+}: {
+  collapseTechnicalEvents: boolean;
+  onChange?: (enabled: boolean) => void;
+}) {
+  if (!onChange) return null;
+
+  const label = collapseTechnicalEvents ? "Talk" : "Work";
+  const title = collapseTechnicalEvents
+    ? "Switch this trace to Work mode"
+    : "Switch this trace to Talk mode";
+  const Icon = collapseTechnicalEvents ? MessageCircle : Wrench;
+
+  return (
+    <label
+      className={`s-observe-lane-trace-mode${
+        collapseTechnicalEvents ? " s-observe-lane-trace-mode--talk" : " s-observe-lane-trace-mode--work"
+      }`}
+      title={title}
+    >
+      <input
+        type="checkbox"
+        checked={collapseTechnicalEvents}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        aria-label={title}
+      />
+      <Icon size={12} strokeWidth={1.8} aria-hidden="true" />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -1441,9 +1482,10 @@ function ReplayStream({
       const rows = laneMode
         ? collapseObserveDisplayRows(events)
         : events.map((event) => ({ event, repeatCount: 1 }));
-      return laneMode && collapseTechnicalEvents
+      if (!laneMode) return rows;
+      return collapseTechnicalEvents
         ? collapseTechnicalObserveDisplayRows(rows)
-        : rows;
+        : compactTechnicalObserveDisplayRows(rows);
     },
     [events, laneMode, collapseTechnicalEvents],
   );
@@ -2586,6 +2628,7 @@ export function SessionObserve({
   laneGutter,
   richSimpleTools,
   laneCollapseTechnicalEvents,
+  onLaneCollapseTechnicalEventsChange,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -2601,6 +2644,8 @@ export function SessionObserve({
   richSimpleTools?: boolean;
   /** Lane mode: collapse low-signal technical rows into turn-level summaries. */
   laneCollapseTechnicalEvents?: boolean;
+  /** Lane mode: update the per-lane trace density preference. */
+  onLaneCollapseTechnicalEventsChange?: (enabled: boolean) => void;
   /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
@@ -2791,7 +2836,13 @@ export function SessionObserve({
         )}
         {!scopeSurface && useHorizonTrace && laneTraceStats ? (
           <div className="s-observe-lane-trace-meta">
-            <span className="s-observe-lane-trace-meta-label">Trace</span>
+            <span className="s-observe-lane-trace-meta-leading">
+              <span className="s-observe-lane-trace-meta-label">Trace</span>
+              <LaneTraceModeToggle
+                collapseTechnicalEvents={Boolean(laneCollapseTechnicalEvents)}
+                onChange={onLaneCollapseTechnicalEventsChange}
+              />
+            </span>
             <span className="s-observe-lane-trace-meta-stats">
               <span className="s-observe-lane-trace-meta-window">
                 last {traceWindowLabel ?? fmtTraceSpanMs(traceWindowMs ?? 0)}

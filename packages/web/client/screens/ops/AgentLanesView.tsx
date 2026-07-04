@@ -232,6 +232,7 @@ function AgentLaneColumn({
             traceWindowMs={traceWindowMs}
             traceWindowLabel={traceWindowLabel}
             laneCollapseTechnicalEvents={collapseTechnicalEvents}
+            onLaneCollapseTechnicalEventsChange={setCollapseTechnicalEvents}
             onLaneEventSelect={(event) => onTraceEventSelect(lane, event)}
           />
         ) : (
@@ -256,9 +257,7 @@ function AgentLaneColumn({
         width={laneWidth}
         defaultWidth={defaultWidth}
         pinned={pinned}
-        collapseTechnicalEvents={collapseTechnicalEvents}
         onTogglePin={onTogglePin}
-        onToggleTechnicalRollup={setCollapseTechnicalEvents}
         onWidthChange={onWidthChange}
         onResizeStart={onWidthResizeStart}
         resizing={widthResizing}

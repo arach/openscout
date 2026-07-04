@@ -28,6 +28,9 @@ const INSTRUCTION_HEADING = /^#?\s*(?:AGENTS\.md instructions|Global Codex Build
 const FILES_MENTIONED_HEADING = /^#?\s*Files mentioned by the user\s*:?\s*$/i;
 const MARKDOWN_FENCE = /^```/;
 const ROUTING_PREFIX = /^.+?\bask\/Task\s*:\s*/i;
+const SCOUT_ROUTING_HEADER = /^\s*(?:\u2316\s*)?.+?\s+(?:->|\u2192)\s+.+?\s+(?:\u00b7|\.)\s+ask:[\w-]+\s*(?:>|\u203a)\s*/iu;
+const CODEX_TASK_PREFIX = /^#?\s*Codex task\s*(?:[-:\u2013\u2014])\s*/i;
+const GENERIC_REQUEST_LABEL = /^(?:ask|request|user request|incoming ask)$/i;
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").replace(/\r\n/g, "\n").trim();
@@ -42,6 +45,24 @@ function stripLeadingInstructionBlocks(value: string): string {
     text = next;
   }
   return text.replace(XML_INSTRUCTIONS_BLOCK, "").trim();
+}
+
+function stripLeadingGenericRequestLabels(value: string): string {
+  let text = value.trim();
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const lines = text.split("\n");
+    const first = cleanLine(lines[0] ?? "");
+    if (GENERIC_REQUEST_LABEL.test(first) && lines.length > 1) {
+      text = lines.slice(1).join("\n").trim();
+      text = stripLeadingInstructionBlocks(text);
+      changed = true;
+    }
+  }
+
+  return text;
 }
 
 function stripFilesMentionedSections(value: string): string {
@@ -70,7 +91,9 @@ function cleanLine(value: string): string {
     .trim()
     .replace(/^\s*(?:[-*+]|\d+\.)\s+/u, "")
     .replace(/^>\s*/u, "")
+    .replace(SCOUT_ROUTING_HEADER, "")
     .replace(ROUTING_PREFIX, "")
+    .replace(CODEX_TASK_PREFIX, "")
     .trim();
 }
 
@@ -81,6 +104,7 @@ function isMeaningfulLine(value: string): boolean {
   if (INSTRUCTION_HEADING.test(line)) return false;
   if (FILES_MENTIONED_HEADING.test(line)) return false;
   if (REQUEST_SECTION_HEADING.test(line)) return false;
+  if (GENERIC_REQUEST_LABEL.test(line)) return false;
   if (/^<image\b/i.test(line) || /^<\/image>$/i.test(line)) return false;
   if (/^<\/?INSTRUCTIONS>$/i.test(line)) return false;
   return /[\p{L}\p{N}]/u.test(line);
@@ -155,7 +179,7 @@ function answerDelayLabel(event: Pick<ObserveEvent, "t" | "answerT">): string | 
 
 export function buildLaneAskDisplay(event: Pick<ObserveEvent, "text" | "to" | "answer" | "answerT" | "t">): LaneAskDisplayModel {
   const fullText = normalizeText(event.text);
-  const strippedText = stripFilesMentionedSections(stripLeadingInstructionBlocks(fullText)) || fullText;
+  const strippedText = stripFilesMentionedSections(stripLeadingGenericRequestLabels(stripLeadingInstructionBlocks(fullText))) || fullText;
   const requestText = requestSection(strippedText)
     ?? requestSection(fullText)
     ?? strippedText;

@@ -43,6 +43,32 @@ Extra context follows here.`);
     expect(laneAskPreview(event)).toContain("Extra context follows here.");
   });
 
+  test("skips a generic leading Ask label before injected instructions", () => {
+    const event = ask(`Ask
+
+# AGENTS.md instructions for /Users/art/dev/openscout
+
+<INSTRUCTIONS>
+Do not put DerivedData under /tmp.
+</INSTRUCTIONS>
+
+Ship the message-card design pass.`);
+
+    const model = buildLaneAskDisplay(event);
+
+    expect(model.title).toBe("Ship the message-card design pass.");
+    expect(model.preview).not.toContain("DerivedData");
+    expect(model.preview).not.toBe("Ask");
+  });
+
+  test("strips Scout routed ask envelopes from the request title", () => {
+    const model = buildLaneAskDisplay(ask("⌖ Claude (@claude) → openscout-pauli-2 (@session-mr5ogsi1-q7eoiz) · ask:wej9zx › # Codex task — review OPEN PRs for merge-readiness\nYou are doing an adversarial merge-readiness pass over the diff."));
+
+    expect(model.title).toBe("review OPEN PRs for merge-readiness");
+    expect(model.preview).toContain("adversarial merge-readiness");
+    expect(model.preview).not.toContain("ask:wej9zx");
+  });
+
   test("records human answers with delay metadata", () => {
     const model = buildLaneAskDisplay(ask("Proceed with the migration?", {
       to: "human",
