@@ -31,8 +31,8 @@ export type DeliveryStatus =
   | "peer_acked"      // peer broker journaled the envelope
   | "running"         // target agent claimed the flight
   | "completed"       // terminal success
-  | "deferred"        // within retry window — see metadata.nextAttemptAt
-  | "failed"          // terminal failure — see metadata.failureReason
+  | "deferred"        // within retry window — see DeliveryMetadata.nextAttemptAt
+  | "failed"          // terminal failure — see DeliveryMetadata.failureReason
   | "cancelled"
   // Legacy values kept for backwards-compatible journal replay
   | "pending"
