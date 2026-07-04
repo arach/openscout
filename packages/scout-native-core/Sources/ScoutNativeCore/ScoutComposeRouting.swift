@@ -33,7 +33,9 @@ public enum ScoutComposeRouting {
         let normalizedDefault = normalizeHandle(defaultTarget) ?? assistantHandle
         let resolvedTarget = normalizeHandle(targetHandle) ?? normalizedDefault
         let cleanedBody = stripInBodyMentions(trimmed)
-        let wireBody = "@\(resolvedTarget) \(cleanedBody)"
+        let wireBody = isRouteDirectiveTarget(resolvedTarget)
+            ? "\(resolvedTarget) \(cleanedBody)"
+            : "@\(resolvedTarget) \(cleanedBody)"
 
         return ScoutComposeEnvelope(
             resolvedTarget: resolvedTarget,
@@ -47,8 +49,15 @@ public enum ScoutComposeRouting {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let bare = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+        if let routeTarget = normalizeRouteDirectiveTarget(bare) {
+            return routeTarget
+        }
         let normalized = bare.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized.isEmpty ? nil : normalized
+    }
+
+    public static func isRouteDirectiveTarget(_ raw: String) -> Bool {
+        normalizeRouteDirectiveTarget(raw) != nil
     }
 
     public static func stripInBodyMentions(_ body: String) -> String {
@@ -65,5 +74,26 @@ public enum ScoutComposeRouting {
             withTemplate: "$1"
         )
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizeRouteDirectiveTarget(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let bare = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+        let lower = bare.lowercased()
+
+        if lower.hasPrefix("session:") {
+            let value = String(bare.dropFirst("session:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : "session:\(value)"
+        }
+
+        if lower.hasPrefix("sid:") {
+            let value = String(bare.dropFirst("sid:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : "session:\(value)"
+        }
+
+        return nil
     }
 }

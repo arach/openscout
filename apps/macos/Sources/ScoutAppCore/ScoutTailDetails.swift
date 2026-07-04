@@ -182,12 +182,21 @@ public struct ScoutTailRowContext: Identifiable, Sendable, Equatable {
         scoutTailClean(sessionId) != nil
     }
 
+    public var sessionRoutingHandle: String? {
+        guard let sessionId = scoutTailClean(sessionId) else { return nil }
+        return "session:\(sessionId)"
+    }
+
+    public var sessionRoutingLabel: String? {
+        sessionRoutingHandle
+    }
+
     public var routingHandle: String {
-        scoutTailClean(agentHandle) ?? scoutTailClean(agentName) ?? source
+        sessionRoutingHandle ?? scoutTailClean(agentHandle) ?? scoutTailClean(agentName) ?? source
     }
 
     public var routingLabel: String {
-        scoutTailClean(agentName) ?? scoutTailClean(agentHandle) ?? source
+        sessionRoutingLabel ?? scoutTailClean(agentName) ?? scoutTailClean(agentHandle) ?? source
     }
 
     public var scopeLabel: String {

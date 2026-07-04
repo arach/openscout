@@ -1564,12 +1564,6 @@ export function ProjectsInbox({
   const { model, nowMs, loading, error } = useProjectsInbox(route);
   const [view] = useProjectsInboxView();
   const scoped = Boolean(route.projectSlug);
-  const selectedSessionRef =
-    scoped && !isSyntheticProcessSessionRef(route.sessionId) ? route.sessionId ?? null : null;
-  const selectedSession = useMemo(
-    () => selectedSessionRef ? findSelectedSession(model.sessions, route) : null,
-    [model.sessions, route, selectedSessionRef],
-  );
   const mode: ProjectMode = !scoped
     ? "overview"
     : route.indexView === "agents"
@@ -1581,7 +1575,6 @@ export function ProjectsInbox({
   const items = useMemo<Array<InboxThread | InboxSession>>(
     () => {
       if (zeroPreview) return [];
-      if (selectedSessionRef) return [];
       if (!scoped) return filterThreadsForView(model.threads, view, nowMs);
       const slug = route.projectSlug!;
       const projectThreads = threadsForProject(model.threads, slug);
@@ -1591,13 +1584,12 @@ export function ProjectsInbox({
       if (projectSessions.length > 0) return projectSessions;
       return projectThreads;
     },
-    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, selectedSessionRef, view, zeroPreview],
+    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, view, zeroPreview],
   );
   const sections = useMemo(() => groupItems(items), [items]);
   const flat = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const hasModelData = model.projects.length > 0 || model.threads.length > 0 || model.sessions.length > 0;
   const initialLoading = loading && !hasModelData;
-  const resolvingSelectedSession = Boolean(selectedSessionRef && !selectedSession && loading);
   const displayCounts = zeroPreview ? ZERO_COUNTS : model.counts;
   const waiting = loading && !zeroPreview;
   const showProjectZeroState =
@@ -1672,26 +1664,7 @@ export function ProjectsInbox({
         </div>
       )}
 
-      {selectedSessionRef ? (
-        resolvingSelectedSession ? (
-          <main className="pi-sessionDetail" aria-label="Selected session">
-            <ProjectSurfaceState
-              tone="loading"
-              title="Resolving session"
-              detail="Looking for a live trace or readable session archive."
-            />
-          </main>
-        ) : (
-          <SelectedSessionMain
-            session={selectedSession}
-            sessionRef={selectedSessionRef}
-            threads={threadsForProject(model.threads, route.projectSlug ?? selectedSession?.projectSlug ?? "")}
-            route={route}
-            navigate={navigate}
-            nowMs={nowMs}
-          />
-        )
-      ) : scoped && mode === "overview" ? (
+      {scoped && mode === "overview" ? (
         <ProjectOverviewMain
           project={model.projects.find((project) => project.slug === route.projectSlug) ?? null}
           threads={threadsForProject(model.threads, route.projectSlug!)}

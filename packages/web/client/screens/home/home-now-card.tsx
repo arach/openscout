@@ -281,6 +281,7 @@ export function NowCard({
   context,
   observeData,
   observeLive = false,
+  lastActivityAt,
   layout,
   nowMs,
   navigate,
@@ -292,6 +293,7 @@ export function NowCard({
   context?: WorkingAgentContext | null;
   observeData?: ObserveData | null;
   observeLive?: boolean;
+  lastActivityAt?: number | null;
   layout: HomeMovingLayout;
   nowMs: number;
   navigate: (r: Route) => void;
@@ -321,6 +323,8 @@ export function NowCard({
   const pulse = observeData?.pulse ?? null;
   const showPulse = Boolean(pulse && pulse.counts.some((count) => count > 0));
   const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
+  const lastActivityAtMs = normalizeTimestampMs(lastActivityAt) ?? card.execution.lastEventAt;
+  const lastActivityAge = formatAge(lastActivityAtMs, nowMs);
   const actionLine = liveActionSummary({
     observeData,
     checkpoint: card.checkpoint?.line ?? null,
@@ -342,7 +346,22 @@ export function NowCard({
   ];
   if (agent.role) metaParts.push({ key: "role", text: formatLabel(agent.role) ?? agent.role });
 
-  const tiles: { key: string; label: string; value: string; tone?: "work" | "warn" | "dim" }[] = [
+  const tiles: {
+    key: string;
+    label: string;
+    value: string;
+    inlineValue?: string;
+    title?: string;
+    tone?: "work" | "warn" | "dim";
+  }[] = [
+    {
+      key: "last",
+      label: "last activity",
+      value: lastActivityAge,
+      inlineValue: `last ${lastActivityAge}`,
+      title: lastActivityAtMs !== null ? `Last activity ${lastActivityAge} ago` : "Last activity unknown",
+      tone: lastActivityAtMs !== null ? "work" : "dim",
+    },
     { key: "turn", label: "turn", value: turnAge, tone: card.task.openedAt ? "work" : "dim" },
   ];
   if (contextPct !== null) {
@@ -495,7 +514,13 @@ export function NowCard({
           aria-label={`${card.agentName} signals`}
         >
           {tiles.map((tile) => (
-            <MetricTile key={tile.key} label={tile.label} value={tile.value} tone={tile.tone} />
+            <MetricTile
+              key={tile.key}
+              label={tile.label}
+              value={tile.value}
+              tone={tile.tone}
+              title={tile.title}
+            />
           ))}
         </div>
       ) : (
@@ -504,8 +529,12 @@ export function NowCard({
             <ActivitySparkline pulse={pulse} layout={layout} />
           ) : null}
           {tiles.map((tile) => (
-            <span key={tile.key} className={`s-now-card-metric-inline s-now-card-metric-inline--${tile.tone ?? "dim"}`}>
-              {tile.value}
+            <span
+              key={tile.key}
+              className={`s-now-card-metric-inline s-now-card-metric-inline--${tile.tone ?? "dim"}`}
+              title={tile.title}
+            >
+              {tile.inlineValue ?? tile.value}
             </span>
           ))}
         </div>
@@ -549,13 +578,15 @@ function MetricTile({
   label,
   value,
   tone = "dim",
+  title,
 }: {
   label: string;
   value: string;
   tone?: "work" | "warn" | "dim";
+  title?: string;
 }) {
   return (
-    <span className={`s-metric-tile s-metric-tile--${tone}`}>
+    <span className={`s-metric-tile s-metric-tile--${tone}`} title={title}>
       <strong>{value}</strong>
       <span>{label}</span>
     </span>

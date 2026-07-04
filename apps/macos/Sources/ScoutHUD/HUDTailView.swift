@@ -72,6 +72,13 @@ private func copyToPasteboard(_ value: String) {
     NSPasteboard.general.setString(value, forType: .string)
 }
 
+@MainActor
+private func stageMessageTarget(for row: TailRowModel) {
+    guard let handle = row.sessionRoutingHandle else { return }
+    HUDDockState.shared.setTarget(handle: handle, label: row.sessionRoutingLabel)
+    HUDDockState.shared.focus()
+}
+
 /// How a tail render is framed. The render itself — `HUDTailView`'s LOGS layout
 /// (filter · log · detail) — is identical across surfaces; only theme,
 /// placement, and chrome differ. One render, the surface as the single knob, so
@@ -141,6 +148,7 @@ struct HUDTailView: View {
     // The framing this render is hosted in. Only theme/chrome reads it — the
     // layout below is surface-agnostic.
     var surface: TailSurface = .overlay
+    var managesTailLifecycle = true
 
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var motion = HUDMotionState.shared
@@ -151,6 +159,9 @@ struct HUDTailView: View {
     @State private var following = true
     @State private var seenRowIds: Set<String> = []
     @State private var freshRowIds: Set<String> = []
+    @State private var pendingFreshRowIds: Set<String> = []
+    @State private var revealQueue: [String] = []
+    @State private var revealTask: Task<Void, Never>?
     @State private var hasPrimedRows = false
     @State private var tailInteractionsLive = false
     // Left-rail filter: when set, the centre log is scoped to one actor.
@@ -172,14 +183,20 @@ struct HUDTailView: View {
             }
         }
         .onAppear {
-            tail.start()
+            if managesTailLifecycle {
+                tail.start()
+            }
             wireNavBus()
         }
         .onChange(of: treatment) { _, _ in
             wireNavBus()
         }
         .onDisappear {
-            tail.stop()
+            if managesTailLifecycle {
+                tail.stop()
+            }
+            revealTask?.cancel()
+            revealTask = nil
             HUDNavBus.shared.clear()
         }
     }
@@ -217,9 +234,18 @@ struct HUDTailView: View {
                 if showDetail, let engaged {
                     railDivider
                     let (prev, next) = neighbors(of: engaged)
-                    TailEngagedDetail(row: engaged, prev: prev, next: next, paneFill: surface.sidePaneFill) {
+                    TailEngagedDetail(
+                        row: engaged,
+                        prev: prev,
+                        next: next,
+                        paneFill: surface.sidePaneFill,
+                        onMessageSession: {
+                            stageMessageTarget(for: engaged)
+                        },
+                        onClose: {
                         engage.unengage()
-                    }
+                        }
+                    )
                     .frame(width: HUDTailDetail.width)
                 }
             }
@@ -324,24 +350,32 @@ struct HUDTailView: View {
     }
 
     private func rowIds() -> [String] {
-        rows.map { $0.id }
+        visibleRows(from: rows).map { $0.id }
     }
 
     // MARK: - Rows
 
     private func rowsBody(size: HUDSize) -> some View {
+        let allRowsSnapshot = allRows
         let currentRows = rows
-        let motionKey = rowMotionKey(for: currentRows)
+        let displayedRows = visibleRows(from: currentRows)
+        let sourceMotionKey = rowMotionKey(for: allRowsSnapshot)
+        let displayMotionKey = rowMotionKey(for: displayedRows)
         let motionActive = motion.isActive
 
         return VStack(spacing: 0) {
-            TailLiveMeter(count: currentRows.count, size: size, following: following)
+            TailLiveMeter(
+                count: currentRows.count,
+                pendingCount: pendingFreshRowIds.count,
+                size: size,
+                following: following
+            )
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
                         // Engaging a row no longer expands it inline — its detail
                         // opens in the right-hand pane (see nativeTailContent).
-                        ForEach(currentRows) { row in
+                        ForEach(displayedRows) { row in
                             TailRow(
                                 row: row,
                                 size: size,
@@ -371,7 +405,7 @@ struct HUDTailView: View {
                     .padding(.bottom, size == .large ? 14 : 8)
                     .animation(
                         motionActive ? nil : .spring(response: 0.26, dampingFraction: 0.86, blendDuration: 0.06),
-                        value: motionKey
+                        value: displayMotionKey
                     )
                 }
                 .onChange(of: engage.cursoredId) { _, id in
@@ -388,22 +422,26 @@ struct HUDTailView: View {
                         }
                     }
                 }
-                .onChange(of: motionKey) { _, _ in
+                .onChange(of: sourceMotionKey) { _, _ in
                     // Don't let a folded-out id latch if its row rolled off /
                     // was filtered away — that would freeze follow-mode scroll.
+                    pruneStreamState(to: allRowsSnapshot)
                     if let folded = foldedOutTurnId,
                        !currentRows.contains(where: { $0.id == folded }) {
                         foldedOutTurnId = nil
                     }
                     if motionActive {
-                        absorbRowsWithoutFresh(currentRows)
+                        absorbRowsWithoutFresh(allRowsSnapshot)
                         return
                     }
-                    markFreshRows(currentRows)
+                    stageFreshRows(allRowsSnapshot)
+                }
+                .onChange(of: displayMotionKey) { _, _ in
+                    guard !motionActive else { return }
                     // Hold position while a turn row is folded out for reading —
                     // don't yank the stream to the bottom under the pointer.
-                    guard following, foldedOutTurnId == nil, let last = currentRows.last?.id else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
+                    guard following, foldedOutTurnId == nil, let last = displayedRows.last?.id else { return }
+                    withAnimation(.easeOut(duration: 0.16)) {
                         proxy.scrollTo(last, anchor: .bottom)
                     }
                 }
@@ -417,7 +455,14 @@ struct HUDTailView: View {
         .contentShape(Rectangle())
         .onHover { tailInteractionsLive = $0 }
         .onAppear {
-            primeMotionState(currentRows)
+            primeMotionState(allRowsSnapshot)
+        }
+    }
+
+    private func visibleRows(from rows: [TailRowModel]) -> [TailRowModel] {
+        guard hasPrimedRows else { return rows }
+        return rows.filter { row in
+            seenRowIds.contains(row.id) || freshRowIds.contains(row.id)
         }
     }
 
@@ -463,17 +508,24 @@ struct HUDTailView: View {
     private func primeMotionState(_ rows: [TailRowModel]) {
         guard !hasPrimedRows, !rows.isEmpty else { return }
         seenRowIds = Set(rows.map(\.id))
+        freshRowIds.removeAll()
+        pendingFreshRowIds.removeAll()
+        revealQueue.removeAll()
         hasPrimedRows = true
     }
 
     private func absorbRowsWithoutFresh(_ rows: [TailRowModel]) {
         guard !rows.isEmpty else { return }
+        revealTask?.cancel()
+        revealTask = nil
+        revealQueue.removeAll()
+        pendingFreshRowIds.removeAll()
         seenRowIds.formUnion(rows.map(\.id))
         hasPrimedRows = true
         freshRowIds.removeAll()
     }
 
-    private func markFreshRows(_ rows: [TailRowModel]) {
+    private func stageFreshRows(_ rows: [TailRowModel]) {
         let ids = Set(rows.map(\.id))
         guard hasPrimedRows else {
             seenRowIds = ids
@@ -481,15 +533,84 @@ struct HUDTailView: View {
             return
         }
 
-        let fresh = ids.subtracting(seenRowIds)
-        seenRowIds.formUnion(ids)
+        let alreadyTracked = seenRowIds.union(freshRowIds).union(pendingFreshRowIds)
+        let fresh = ids.subtracting(alreadyTracked)
         guard !fresh.isEmpty else { return }
 
-        freshRowIds.formUnion(fresh)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 720_000_000)
-            freshRowIds.subtract(fresh)
+        let orderedFresh = rows.map(\.id).filter { fresh.contains($0) }
+        let overflow = max(0, orderedFresh.count - TailStreamCadence.maxPacedRows)
+        let immediate = Array(orderedFresh.prefix(overflow))
+        let paced = Array(orderedFresh.dropFirst(overflow))
+
+        if !immediate.isEmpty {
+            seenRowIds.formUnion(immediate)
         }
+
+        if !paced.isEmpty {
+            pendingFreshRowIds.formUnion(paced)
+            revealQueue.append(contentsOf: paced)
+            startRevealTask()
+        }
+    }
+
+    private func startRevealTask() {
+        guard revealTask == nil else { return }
+        revealTask = Task { @MainActor in
+            var revealedCount = 0
+            while !Task.isCancelled {
+                guard !revealQueue.isEmpty else {
+                    revealTask = nil
+                    return
+                }
+                let id = revealQueue.removeFirst()
+                guard pendingFreshRowIds.contains(id) else { continue }
+                let delay = TailStreamCadence.delayNanoseconds(after: revealedCount)
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: delay)
+                }
+                guard !Task.isCancelled else { return }
+                pendingFreshRowIds.remove(id)
+                _ = withAnimation(TailStreamCadence.revealAnimation) {
+                    freshRowIds.insert(id)
+                }
+                scheduleFreshExpiry(Set([id]))
+                revealedCount += 1
+            }
+        }
+    }
+
+    private func scheduleFreshExpiry(_ ids: Set<String>) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: TailStreamCadence.freshLifetimeNanoseconds)
+            seenRowIds.formUnion(ids)
+            freshRowIds.subtract(ids)
+        }
+    }
+
+    private func pruneStreamState(to rows: [TailRowModel]) {
+        let ids = Set(rows.map(\.id))
+        freshRowIds.formIntersection(ids)
+        pendingFreshRowIds.formIntersection(ids)
+        revealQueue.removeAll { !ids.contains($0) || !pendingFreshRowIds.contains($0) }
+        if revealQueue.isEmpty {
+            revealTask?.cancel()
+            revealTask = nil
+        }
+    }
+}
+
+private enum TailStreamCadence {
+    static let maxPacedRows = 18
+    static let freshLifetimeNanoseconds: UInt64 = 860_000_000
+
+    static var revealAnimation: Animation {
+        .spring(response: 0.24, dampingFraction: 0.80, blendDuration: 0.04)
+    }
+
+    static func delayNanoseconds(after revealedCount: Int) -> UInt64 {
+        if revealedCount == 0 { return 22_000_000 }
+        if revealedCount < 6 { return 42_000_000 }
+        return 24_000_000
     }
 }
 
@@ -678,6 +799,7 @@ private struct TailEmbedProblemView: View {
 
 private struct TailLiveMeter: View {
     let count: Int
+    let pendingCount: Int
     let size: HUDSize
     let following: Bool
     @State private var phase: CGFloat = 0
@@ -709,6 +831,14 @@ private struct TailLiveMeter: View {
                     .font(HUDType.mono(8.5))
                     .tracking(HUDType.eyebrowTracking)
                     .foregroundStyle(HUDChrome.inkFaint)
+                if pendingCount > 0 {
+                    Text("+\(pendingCount)")
+                        .font(HUDType.mono(8.5, weight: .bold))
+                        .monospacedDigit()
+                        .tracking(HUDType.eyebrowMicro)
+                        .foregroundStyle(HUDChrome.accent.opacity(0.86))
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
             }
             Spacer()
             // f to follow chip — only when the operator has navigated off
@@ -764,7 +894,7 @@ private struct TailRow: View {
 
     @State private var hovered = false
     @State private var scopeHovered = false
-    @State private var hasPoppedIn = false
+    @State private var arrivalPhase: CGFloat = 1
 
     // The conversational turn boundaries — the human's message and the agent's
     // reply — as opposed to tool/output/event/system chatter. These are the
@@ -837,15 +967,18 @@ private struct TailRow: View {
                             .padding(.horizontal, 5)
                             .padding(.vertical, 0.5)
                     }
+                    if fresh {
+                        TailRowArrivalWash(phase: arrivalPhase, isTurnMessage: isTurnMessage)
+                    }
                     TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
                 }
             }
             .overlay(alignment: .bottom) {
                 selectedDivider
             }
-            .opacity(fresh && !hasPoppedIn ? 0 : 1)
-            .offset(y: fresh && !hasPoppedIn ? 5 : 0)
-            .scaleEffect(fresh && !hasPoppedIn ? 0.992 : 1, anchor: .bottom)
+            .opacity(fresh ? 0.74 + (0.26 * Double(arrivalPhase)) : 1)
+            .offset(y: fresh ? 7 * (1 - arrivalPhase) : 0)
+            .scaleEffect(fresh ? 0.992 + (0.008 * arrivalPhase) : 1, anchor: .bottom)
             .overlay(alignment: .leading) {
                 freshMarker
             }
@@ -885,25 +1018,29 @@ private struct TailRow: View {
             }
             .onTapGesture(perform: onTap)
             .onAppear {
-                guard fresh else { return }
-                hasPoppedIn = false
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
-                    hasPoppedIn = true
-                }
+                startArrivalIfNeeded()
             }
             .onChange(of: fresh) { _, next in
                 guard next else {
-                    hasPoppedIn = false
+                    arrivalPhase = 1
                     return
                 }
-                hasPoppedIn = false
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
-                    hasPoppedIn = true
-                }
+                startArrivalIfNeeded()
             }
             .contextMenu {
                 rowContextMenu
             }
+    }
+
+    private func startArrivalIfNeeded() {
+        guard fresh else {
+            arrivalPhase = 1
+            return
+        }
+        arrivalPhase = 0
+        withAnimation(.easeOut(duration: 0.58)) {
+            arrivalPhase = 1
+        }
     }
 
     private var rowContent: some View {
@@ -957,16 +1094,20 @@ private struct TailRow: View {
 
     @ViewBuilder
     private var freshMarker: some View {
-        if fresh && hasPoppedIn {
+        if fresh {
             Rectangle()
-                .fill(HUDChrome.inkMuted.opacity(0.22))
-                .frame(width: 1)
+                .fill(HUDChrome.accent.opacity(0.34 - (0.12 * Double(arrivalPhase))))
+                .frame(width: 1.5)
                 .transition(.opacity)
         }
     }
 
     @ViewBuilder
     private var rowContextMenu: some View {
+        Button("Message session") {
+            stageMessageTarget(for: row)
+        }
+        .disabled(!row.hasSession)
         Button("Open session") {
             NSWorkspace.shared.open(row.sessionURL)
         }
@@ -996,6 +1137,35 @@ private struct TailRow: View {
         Button("Copy line") {
             copyToPasteboard(row.line)
         }
+    }
+}
+
+private struct TailRowArrivalWash: View {
+    let phase: CGFloat
+    let isTurnMessage: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let lift = max(0, 1 - phase)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: isTurnMessage ? 4 : 2, style: .continuous)
+                    .fill(HUDChrome.accentWhisper.opacity(0.35 + (0.45 * Double(lift))))
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        HUDChrome.accent.opacity(0.16 * Double(lift)),
+                        HUDChrome.ink.opacity(0.055 * Double(lift)),
+                        Color.clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: min(220, max(96, width * 0.34)))
+                .offset(x: ((width + 220) * phase) - 220)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -1103,6 +1273,7 @@ private struct TailDetailInline: View {
     let prev: TailRowModel?
     let next: TailRowModel?
     var size: HUDSize = .compact
+    var onMessageSession: (() -> Void)?
 
     private var bodyFont: CGFloat {
         size == .compact ? 8.5 : 9
@@ -1141,6 +1312,9 @@ private struct TailDetailInline: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 if row.hasSession {
+                    TailDetailActionLink(label: "MESSAGE SESSION", compact: true) {
+                        onMessageSession?()
+                    }
                     HUDDrillLink(label: "OPEN SESSION", url: row.sessionURL, compact: true)
                     HUDDrillLink(label: "FOLLOW LIVE", url: row.followURL, compact: true)
                 }
@@ -1595,6 +1769,40 @@ private struct TailRailDot: View {
     }
 }
 
+private struct TailDetailActionLink: View {
+    let label: String
+    var compact = false
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    private var arrowSize: CGFloat { compact ? 9 : 11 }
+    private var labelSize: CGFloat { compact ? 8.5 : 10 }
+    private var horizontalPadding: CGFloat { compact ? 4 : 6 }
+    private var verticalPadding: CGFloat { compact ? 2 : 4 }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: compact ? 5 : 8) {
+                Text("→")
+                    .font(HUDType.mono(arrowSize))
+                    .foregroundStyle(hovered ? HUDChrome.accent : HUDChrome.inkFaint)
+                Text(label)
+                    .font(HUDType.mono(labelSize, weight: .semibold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkMuted)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(label)
+    }
+}
+
 // RIGHT zone of the LOGS view: the engaged line's detail. Replaces the old
 // inline expansion — clicking a log line opens its detail here, with its
 // neighbours for context.
@@ -1603,6 +1811,7 @@ private struct TailEngagedDetail: View {
     let prev: ScoutTailRowContext?
     let next: ScoutTailRowContext?
     var paneFill: Color = HUDChrome.canvas.opacity(0.62)
+    var onMessageSession: () -> Void = {}
     var onClose: () -> Void = {}
 
     var body: some View {
@@ -1626,7 +1835,13 @@ private struct TailEngagedDetail: View {
             }
 
             ScrollView(.vertical, showsIndicators: false) {
-                TailDetailInline(row: row, prev: prev, next: next, size: .medium)
+                TailDetailInline(
+                    row: row,
+                    prev: prev,
+                    next: next,
+                    size: .medium,
+                    onMessageSession: onMessageSession
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

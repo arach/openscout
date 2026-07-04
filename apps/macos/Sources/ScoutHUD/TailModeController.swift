@@ -49,7 +49,7 @@ public final class TailModeState: ObservableObject {
             TailModeStateFile.shared.touch()
             return
         }
-        HUDMotionState.shared.begin(collapsed ? .collapsing : .moving)
+        HUDMotionState.shared.begin(collapsed ? .collapsing : .expanding)
         self.collapsed = collapsed
         TailModeStateFile.shared.touch()
     }
@@ -378,10 +378,11 @@ public final class TailModeController {
         panel.contentMinSize = motionMinContentSize(target: targetMinContentSize)
         panel.contentMaxSize = maxContentSize(on: screen)
 
-        if TailModeState.shared.collapsed {
+        let targetCollapsed = TailModeState.shared.collapsed
+        if targetCollapsed {
             preparePanelForCollapse(panel)
         } else {
-            restorePanelContentSurface(panel)
+            restorePanelContentSurface(panel, forceLayout: !animated)
         }
 
         let frameSize = panel.frameRect(forContentRect: NSRect(origin: .zero, size: targetContentSize)).size
@@ -396,7 +397,7 @@ public final class TailModeController {
         }
 
         let motionToken = HUDMotionState.shared.isActive ? nil : HUDMotionState.shared.begin(.moving)
-        preparePanelForMotion(panel)
+        preparePanelForMotion(panel, forceLayout: targetCollapsed)
         let animation = animationStyle(collapsed: TailModeState.shared.collapsed)
 
         let update = {
@@ -573,16 +574,18 @@ public final class TailModeController {
         panel.displayIfNeeded()
     }
 
-    private func restorePanelContentSurface(_ panel: NSPanel) {
+    private func restorePanelContentSurface(_ panel: NSPanel, forceLayout: Bool = true) {
         panel.backgroundColor = .clear
         panel.contentView?.alphaValue = 1
         panel.contentView?.isHidden = false
+        guard forceLayout else { return }
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.displayIfNeeded()
     }
 
-    private func preparePanelForMotion(_ panel: NSPanel) {
+    private func preparePanelForMotion(_ panel: NSPanel, forceLayout: Bool = true) {
         panel.contentView?.wantsLayer = true
+        guard forceLayout else { return }
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.displayIfNeeded()
     }
@@ -672,6 +675,9 @@ struct TailModeView: View {
     @StateObject private var agentsStore = ScoutAgentsStore()
     @StateObject private var tail = ScoutTailStore()
     @State private var tailHovered = false
+    // Mount the row tree after expand resize settles; measuring rows in the
+    // collapsed frame is the visible stagger this surface is avoiding.
+    @State private var tailContentReady = !TailModeState.shared.collapsed
     @AppStorage(HUDTailAppearance.blurOpacityKey) private var tailBlurOpacity = HUDTailAppearance.defaultBlurOpacity
     @AppStorage(HUDTailAppearance.passiveBlurOpacityKey) private var tailPassiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
     @AppStorage(HUDTailAppearance.passiveOpacityKey) private var tailPassiveOpacity = HUDTailAppearance.defaultPassiveOpacity
@@ -707,6 +713,10 @@ struct TailModeView: View {
 
     private var isCollapsing: Bool {
         motion.phase == .collapsing
+    }
+
+    private var isExpanding: Bool {
+        motion.phase == .expanding
     }
 
     private var isFullHeight: Bool {
@@ -777,20 +787,10 @@ struct TailModeView: View {
                 EmptyView()
             } else if state.collapsed {
                 tailCollapsedRail
+            } else if !tailContentReady || isExpanding {
+                tailExpansionShell
             } else {
-                VStack(spacing: 0) {
-                    tailMasthead
-                    HUDTailView(
-                        tail: tail,
-                        agents: agents,
-                        treatment: tailTreatmentBinding,
-                        size: state.size,
-                        surface: .overlay
-                    )
-                    .opacity(tailContentOpacity)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    HUDFlashRow()
-                }
+                tailExpandedContent
             }
         }
         .frame(
@@ -813,9 +813,28 @@ struct TailModeView: View {
         .onHover { tailHovered = $0 }
         .onAppear {
             agentsStore.start()
+            tail.start()
+            tailContentReady = !state.collapsed && !isExpanding
+        }
+        .onChange(of: state.collapsed) { _, collapsed in
+            if collapsed {
+                tailContentReady = false
+            } else if motion.phase == .idle {
+                tailContentReady = true
+            } else {
+                tailContentReady = false
+            }
+        }
+        .onChange(of: motion.phase) { _, phase in
+            if phase == .expanding {
+                tailContentReady = false
+            } else if phase == .idle && !state.collapsed {
+                tailContentReady = true
+            }
         }
         .onDisappear {
             agentsStore.stop()
+            tail.stop()
         }
     }
 
@@ -832,6 +851,31 @@ struct TailModeView: View {
                     .strokeBorder(Color.white.opacity(0.055), lineWidth: 0.5)
             }
             .allowsHitTesting(false)
+    }
+
+    private var tailExpansionShell: some View {
+        VStack(spacing: 0) {
+            tailMasthead
+            Spacer(minLength: 0)
+            HUDFlashRow()
+        }
+    }
+
+    private var tailExpandedContent: some View {
+        VStack(spacing: 0) {
+            tailMasthead
+            HUDTailView(
+                tail: tail,
+                agents: agents,
+                treatment: tailTreatmentBinding,
+                size: state.size,
+                surface: .overlay,
+                managesTailLifecycle: false
+            )
+            .opacity(tailContentOpacity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            HUDFlashRow()
+        }
     }
 
     private var tailReadabilityVeil: some View {

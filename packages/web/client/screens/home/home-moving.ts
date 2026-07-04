@@ -11,6 +11,7 @@ import type {
 } from "../../lib/types.ts";
 import {
   buildAgentLanes,
+  type AgentLaneHorizonKey,
   isAgentLaneLive,
   observeLastSubstantiveActivityAt,
   shouldPollAgentForLaneObserve,
@@ -19,6 +20,70 @@ import {
 
 export const HOME_MOVING_WINDOW_MS = 30 * 60_000;
 export const HOME_MOVING_HORIZON = "30m" as const;
+export const HOME_MOVING_DEFAULT_SORT = "recent" as const;
+
+export type HomeMovingWindowOption = {
+  key: AgentLaneHorizonKey;
+  label: string;
+  windowMs: number;
+};
+
+export const HOME_MOVING_WINDOW_OPTIONS: ReadonlyArray<HomeMovingWindowOption> = [
+  { key: "5m", label: "5m", windowMs: 5 * 60_000 },
+  { key: "30m", label: "30m", windowMs: HOME_MOVING_WINDOW_MS },
+  { key: "4h", label: "4h", windowMs: 4 * 60 * 60_000 },
+  { key: "24h", label: "24h", windowMs: 24 * 60 * 60_000 },
+];
+
+export type HomeMovingSortMode = "recent" | "grouped";
+export type HomeMovingBucket = "working" | "native" | "observed";
+
+export type HomeMovingSortable = {
+  bucket: HomeMovingBucket;
+  id: string;
+  lastActivityAt: number;
+};
+
+const HOME_MOVING_BUCKET_RANK: Record<HomeMovingBucket, number> = {
+  working: 0,
+  native: 1,
+  observed: 2,
+};
+
+export function normalizeHomeMovingWindowKey(value: string | null | undefined): AgentLaneHorizonKey {
+  const key = value?.trim();
+  return HOME_MOVING_WINDOW_OPTIONS.some((option) => option.key === key)
+    ? key as AgentLaneHorizonKey
+    : HOME_MOVING_HORIZON;
+}
+
+export function homeMovingWindowOption(key: AgentLaneHorizonKey): HomeMovingWindowOption {
+  return HOME_MOVING_WINDOW_OPTIONS.find((option) => option.key === key)
+    ?? HOME_MOVING_WINDOW_OPTIONS[1]!;
+}
+
+export function normalizeHomeMovingSort(value: string | null | undefined): HomeMovingSortMode {
+  return value === "grouped" ? "grouped" : HOME_MOVING_DEFAULT_SORT;
+}
+
+export function compareHomeMovingItems(
+  left: HomeMovingSortable,
+  right: HomeMovingSortable,
+  mode: HomeMovingSortMode,
+): number {
+  if (mode === "grouped") {
+    const rank = HOME_MOVING_BUCKET_RANK[left.bucket] - HOME_MOVING_BUCKET_RANK[right.bucket];
+    if (rank !== 0) return rank;
+  }
+
+  const recent = right.lastActivityAt - left.lastActivityAt;
+  if (recent !== 0) return recent;
+
+  const rank = HOME_MOVING_BUCKET_RANK[left.bucket] - HOME_MOVING_BUCKET_RANK[right.bucket];
+  if (rank !== 0) return rank;
+
+  return left.id.localeCompare(right.id);
+}
 
 export type WorkingAgentContext = {
   sessionId: string | null;
@@ -48,11 +113,13 @@ export function isHomeObserveCandidate(
   nowMs: number,
   hasMovingAsk: boolean,
   tailEvents: TailEvent[] = [],
+  windowMs = HOME_MOVING_WINDOW_MS,
+  horizon: AgentLaneHorizonKey = HOME_MOVING_HORIZON,
 ): boolean {
   if (hasMovingAsk) return true;
   if (isAgentBusy(agent.state)) return true;
-  if (shouldPollAgentForLaneObserve(agent, nowMs, HOME_MOVING_HORIZON)) return true;
-  if (agentHasRecentTailActivity(agent, tailEvents, nowMs)) return true;
+  if (shouldPollAgentForLaneObserve(agent, nowMs, horizon)) return true;
+  if (agentHasRecentTailActivity(agent, tailEvents, nowMs, windowMs)) return true;
   return false;
 }
 
@@ -238,39 +305,6 @@ export function homeMovingRecencyMs(
 
 export const HOME_MOVING_CARD_LIMIT = 9;
 
-export type HomeMovingDisplayCounts = {
-  working: number;
-  native: number;
-  observed: number;
-  cardCount: number;
-  totalCount: number;
-};
-
-export function homeMovingDisplayCounts(input: {
-  working: number;
-  native: number;
-  observed: number;
-  movingAsks?: number;
-  limit?: number;
-}): HomeMovingDisplayCounts {
-  const limit = Math.max(0, input.limit ?? HOME_MOVING_CARD_LIMIT);
-  const workingTotal = Math.max(0, input.working);
-  const nativeTotal = Math.max(0, input.native);
-  const observedTotal = Math.max(0, input.observed);
-  const movingAskTotal = Math.max(0, input.movingAsks ?? 0);
-  const working = Math.min(workingTotal, limit);
-  const native = Math.min(nativeTotal, Math.max(0, limit - working));
-  const observed = Math.min(observedTotal, Math.max(0, limit - working - native));
-
-  return {
-    working,
-    native,
-    observed,
-    cardCount: working + native + observed,
-    totalCount: workingTotal + nativeTotal + observedTotal + movingAskTotal,
-  };
-}
-
 export function buildHomeNativeMovingLanes(input: {
   agents: Agent[];
   tailEvents: TailEvent[];
@@ -278,6 +312,7 @@ export function buildHomeNativeMovingLanes(input: {
   processes?: TailDiscoveredProcess[];
   observeCache?: Record<string, ObserveCacheEntry | undefined>;
   nowMs: number;
+  horizon?: AgentLaneHorizonKey;
 }): AgentLane[] {
   const { lanes } = buildAgentLanes({
     transcripts: input.transcripts,
@@ -287,7 +322,7 @@ export function buildHomeNativeMovingLanes(input: {
     observeCache: input.observeCache ?? {},
     now: input.nowMs,
     workingOnly: true,
-    horizon: HOME_MOVING_HORIZON,
+    horizon: input.horizon ?? HOME_MOVING_HORIZON,
   });
   return lanes.filter((lane) => lane.source === "native");
 }
