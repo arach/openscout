@@ -1,109 +1,140 @@
 # OpenScout Runtime
 
-`@openscout/runtime` is the runtime-side foundation for the OpenScout control plane.
+`@openscout/runtime` is the local runtime foundation for OpenScout: the broker,
+SQLite store, service lifecycle, local discovery, system probes, and host-side
+adapters that make the protocol durable on a developer machine.
 
-`@openscout/protocol` defines the language. `@openscout/runtime` defines how that language is stored, served, recovered, and executed on a local machine.
+Use [`@openscout/protocol`](../protocol) when you only need the data contract.
+Use this package when you are building a local OpenScout surface, service, CLI,
+or integration that needs to talk to or embed the broker/runtime layer.
 
-## What This Package Owns
+> Current posture: OpenScout is for high-trust local developer pilots. This
+> package is not a hardened multi-tenant runtime or a compliance boundary.
 
-The runtime is responsible for:
-
-- the SQLite schema and local canonical store
-- the broker daemon and local HTTP/SSE surface
-- service installation and launch-agent management
-- workspace and agent discovery
-- endpoint registration and wake behavior
-- delivery planning and delivery attempts
-- mesh discovery via Tailscale peers or explicit broker seeds
-
-This is the operational layer that makes the protocol feel reliable instead of theoretical.
-
-## Machine Bootstrap
-
-The intended first-run flow is:
+## Install
 
 ```bash
-scout setup
-scout doctor
+npm install @openscout/runtime @openscout/protocol @openscout/agent-sessions
 ```
 
-`scout setup` is expected to:
+The runtime is TypeScript-first and publishes built ESM plus declarations. In a
+Bun monorepo checkout, the package export map keeps the `bun` condition pointed
+at `src/` so local development can type-check without building `dist` first.
+Published Node/ESM consumers resolve `dist/`.
 
-- create `~/Library/Application Support/OpenScout/settings.json`
-- create `~/Library/Application Support/OpenScout/relay-agents.json` for compatibility with the existing machine-local agent registry
-- create `.openscout/project.json` for the current repo when needed
-- discover workspace roots and infer project-backed agents
-- install the broker launch agent
-- attempt to start the broker service immediately
+## Quickstart: embed the in-memory runtime
 
-`scout setup` creates missing local config as part of normal onboarding.
-`scout init` remains available as a focused host/port config writer for
-operators who need to change only `~/.openscout/config.json`.
+For tests, tools, and small local integrations, start with the in-memory runtime
+and the shared protocol types:
 
-`scout doctor` is the operator-facing check that the support paths, service state, broker reachability, and logs line up.
+```ts
+import { InMemoryControlRuntime } from "@openscout/runtime";
+import type { MessageRecord } from "@openscout/protocol";
 
-## Broker Service Model
+const runtime = new InMemoryControlRuntime();
 
-The runtime manages the broker as a macOS launch agent.
+const message: MessageRecord = {
+  id: "msg-demo",
+  conversationId: "conv-demo",
+  actorId: "operator",
+  originNodeId: "local-demo",
+  class: "agent",
+  body: "Hello from a local OpenScout integration.",
+  visibility: "workspace",
+  policy: "best_effort",
+  createdAt: Date.now(),
+  metadata: {},
+};
 
-- the plist lives under `~/Library/LaunchAgents/<label>.plist`
-- `launchd` owns process supervision
-- stdout and stderr are written into the OpenScout support logs tree
-- the runtime can inspect service state, health, and last exit status
+await runtime.postMessage(message, { localOnly: true });
 
-That is the intended story for "how does the broker come up and stay up?" It is not supposed to depend on one terminal staying open.
+console.log(runtime.snapshot().messages[message.id]?.body);
+```
 
-## Agent Mapping And Discovery
+For a machine service, use the `openscout-runtime` bin or the public CLI package
+that wraps it:
 
-The runtime already has a layered discovery model:
+```bash
+openscout-runtime service status --json
+openscout-runtime broker
+```
 
-- machine-local settings declare workspace roots
-- repo-local `.openscout/project.json` manifests provide explicit project-backed agent definitions
-- machine-local `relay-agents.json` remains the compatibility registry and can override or add manual agents
-- nearby repo markers such as `AGENTS.md`, `CLAUDE.md`, `.agents`, and `.claude` help infer the preferred harness
+## What this package owns
 
-That gives OpenScout a way to map "which agents exist on this machine?" without making every repo hand-configure everything from scratch.
+The runtime is the operational layer beneath OpenScout surfaces:
 
-The next abstraction boundary is:
+- canonical local SQLite schema and stores
+- broker daemon, HTTP, SSE, and routing services
+- message, invocation, flight, delivery, question, and work-item persistence
+- local agent and harness endpoint discovery
+- service install/status/start/stop helpers
+- repo watch and repo diff snapshots
+- system probes for host state used by the broker and web UI
+- optional mesh helpers through Tailscale and Iroh bridge processes
+- mobile push relay records for local broker notifications
 
-- `Project`
-- `Agent Definition`
-- `Agent Instance`
+The broker remains the canonical writer for Scout-owned coordination records.
+External harness transcripts are observed source material; they are not bulk
+imported as first-party Scout messages.
 
-The important distinction is that operator-facing mentions usually start from a logical definition like `@fabric`, while routing and mesh replication eventually need a concrete instance such as `@fabric@laptop#feature-x`.
+## Subpath exports
 
-## Durable Execution Story
+| Import | Purpose |
+| --- | --- |
+| `@openscout/runtime` | Root broker/runtime surface: registry, broker services, store, setup, config, probes, projections, repo watch/diff, and protocol path re-exports. |
+| `@openscout/runtime/broker-api` | HTTP client helpers for talking to an active local broker. |
+| `@openscout/runtime/broker-core-service` | Broker service composition boundary for embedding/testing. |
+| `@openscout/runtime/broker-process-manager` | Service config, status, install/start/stop/restart helpers. |
+| `@openscout/runtime/broker-trpc-router` | tRPC router surface for broker-adjacent hosts. |
+| `@openscout/runtime/registry` | Runtime registry snapshot helpers. |
+| `@openscout/runtime/local-agents` | Local agent config, launch, wake, and session helpers. |
+| `@openscout/runtime/harness-catalog` | Known harness catalog and readiness reporting. |
+| `@openscout/runtime/system-probes` | Cached local system probes and scoutd-backed probe client. |
+| `@openscout/runtime/repo-watch` | Repo/worktree status snapshots for Scout surfaces. |
+| `@openscout/runtime/knowledge` | Local knowledge/session indexing store. |
+| `@openscout/runtime/conversations` | Conversation service facades over the runtime store. |
+| `@openscout/runtime/mesh/tailscale` | Tailscale status and host helpers. |
+| `@openscout/runtime/mesh/iroh-bridge` | Iroh bridge process helpers. |
+| `@openscout/runtime/mobile-push` | Local mobile push registration and audit store. |
+| `@openscout/runtime/sqlite-adapter` | Runtime SQLite adapter selection for Bun/Node hosts. |
+| `@openscout/runtime/tool-resolution` | Portable executable/path resolution helpers. |
 
-The runtime separates communication from execution tracking:
+Additional exports provide focused slices for setup/onboarding, agent workspace
+configuration, provisional names, local config, local edge, session display,
+activity, tail, harness topology, Claude stream-json, pi RPC, Codex app server,
+and related broker read models.
 
-- conversations and messages store human-readable history
-- invocations store explicit requests for work
-- flights store the lifecycle of that work
-- deliveries and attempts store how the work or message was routed
+## Runtime support
 
-This is the answer to "how do we make sure nothing gets lost?"
+This is a host-side package, not a browser package.
 
-The goal is not magic. It is that after a restart or failure, the broker has enough durable state to reconcile unfinished work instead of relying on volatile terminal memory.
+| Surface | Browser | Node | Bun | Notes |
+| --- | :---: | :---: | :---: | --- |
+| Pure helpers such as config/path/protocol facades | — | ✅ | ✅ | May still read environment or files depending on import. |
+| Broker/store/service surfaces | — | ✅ | ✅ | SQLite adapter chooses Bun SQLite or Node SQLite. |
+| `openscout-runtime` bin | — | — | ✅ | The bin uses a Bun shebang. |
+| Local agent, harness, MCP, repo, and system-probe surfaces | — | ✅ | ✅ | These may spawn local tools or talk to `scoutd`. |
+| Mesh/Iroh helpers | — | ✅ | ✅ | Require configured native bridge binary. |
 
-## Harness-Agnostic Endpoints
+Published declarations avoid requiring downstream TypeScript projects to install
+`@types/node` just to import the package. Runtime execution still requires the
+host capabilities used by the surface you import.
 
-The runtime should stay harness-agnostic.
+## Native acceleration and fallbacks
 
-- endpoints record the harness and transport they use
-- the broker routes to endpoints without changing the protocol
-- harness-specific startup, wake, and resume behavior stays in adapters
+Some expensive or OS-sensitive work can be delegated to Rust binaries:
 
-Claude and Codex may have different launch mechanics, but they should not require different durable work semantics.
+- `scoutd` serves cached system probes and selected imperative operations over a
+  local Unix socket.
+- `openscout-repo-service` produces native repo scan/diff facts.
 
-## Current Direction
+The TypeScript runtime uses a conservative fallback model: prefer the scoutd
+socket when it advertises the capability, fall back to a bounded native
+subprocess when available, and finally use existing TypeScript/local fallback
+paths where the feature supports them. Fallback metadata is attached to relevant
+responses so operators can diagnose when the daemon is unavailable.
 
-The intent remains:
-
-- `@openscout/protocol` defines the language
-- `@openscout/runtime` defines how that language is stored and executed locally
-- the control plane is the source of truth for local communication and execution
-
-## Local Commands
+## Local development
 
 From the repo root:
 
@@ -111,14 +142,39 @@ From the repo root:
 npm --prefix packages/runtime run build
 npm --prefix packages/runtime run check
 npm --prefix packages/runtime run test
+bun run sync-exec:fence
 ```
 
-## E2E And Live Manual Checks
+The sync-exec fence is intentionally separate from the package-local check. Run
+it before changing host process, probe, or service-management code.
 
-- `bun run --cwd packages/runtime test:live:codex-app-server`
-  Uses [README-live-codex-app-server-test.md](./README-live-codex-app-server-test.md)
+## Publishing checks
+
+The package is prepared for standalone npm publication with real dependencies on
+`@openscout/protocol` and `@openscout/agent-sessions`. The prepack step rewrites
+workspace dependency ranges to concrete package versions before packing.
+
+Recommended release checks:
+
+```bash
+npm --prefix packages/runtime run build
+npm pack --workspace @openscout/runtime
+npx publint packages/runtime
+npx @arethetypeswrong/cli --pack packages/runtime --profile esm-only
+```
+
+Also verify an external ESM scratch project with `skipLibCheck: false` and no
+`@types/node`; this catches published declaration leaks that monorepo checks can
+miss.
+
+## Live and e2e checks
+
+- `bun run --cwd packages/runtime test:live:codex-app-server` uses
+  [README-live-codex-app-server-test.md](./README-live-codex-app-server-test.md)
   for a direct Codex JSON-RPC check against an existing app-server listener.
-- `bun run --cwd packages/runtime test:e2e:local-agent-pass`
-  Uses [README-live-local-agent-pass.md](./README-live-local-agent-pass.md) for
-  a full Codex <-> Claude broker pass on one machine. Pass `-- --mission "..."`
-  to make the run perform a bounded docs, KB, or release-readiness check.
+- `bun run --cwd packages/runtime test:e2e:local-agent-pass` uses
+  [README-live-local-agent-pass.md](./README-live-local-agent-pass.md) for a
+  full Codex ↔ Claude broker pass on one machine.
+
+These live checks require local harnesses and are not a substitute for the unit,
+package, and external-consumer checks above.
