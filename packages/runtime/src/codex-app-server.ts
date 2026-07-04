@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -1085,7 +1086,7 @@ export function buildCodexRolloutSessionSnapshot(
 }
 
 function withManagedCodexEnvironment<T extends SessionRequestOptions>(options: T): T {
-  const baseEnv: NodeJS.ProcessEnv = { ...process.env };
+  const baseEnv: RuntimeEnv = { ...process.env };
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (typeof value === "string") {
       baseEnv[key] = value;

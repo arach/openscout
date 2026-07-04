@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Database } from "bun:sqlite";
+import type { ControlPlaneSqliteDatabase } from "./sqlite-adapter.js";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import {
@@ -16,10 +16,10 @@ import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 export type ControlPlaneSchemaMigration = {
   id: string;
   description: string;
-  apply: (database: Database) => void;
+  apply: (database: ControlPlaneSqliteDatabase) => void;
 };
 
-function hasColumn(database: Database, tableName: string, columnName: string): boolean {
+function hasColumn(database: ControlPlaneSqliteDatabase, tableName: string, columnName: string): boolean {
   const escapedTableName = tableName.replaceAll("'", "''");
   const rows = database.query(
     `SELECT name FROM pragma_table_info('${escapedTableName}')`,
@@ -183,7 +183,7 @@ WHERE latest.invocation_id = inv.id
   },
 ];
 
-export function configureControlPlaneDatabase(database: Database): void {
+export function configureControlPlaneDatabase(database: ControlPlaneSqliteDatabase): void {
   // busy_timeout must be set before WAL, because journal_mode can need a write lock.
   database.exec("PRAGMA busy_timeout = 5000;");
   database.exec("PRAGMA journal_mode = WAL;");
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
 type ControlPlaneDrizzleMigrations = ReturnType<typeof readMigrationFiles>;
 
 function seedControlPlaneDrizzleLedger(
-  database: Database,
+  database: ControlPlaneSqliteDatabase,
   migrations: ControlPlaneDrizzleMigrations,
 ): void {
   if (migrations.length === 0) {
@@ -268,12 +268,12 @@ function seedControlPlaneDrizzleLedger(
     .run(params);
 }
 
-function controlPlaneDatabaseFilename(database: Database): string {
+function controlPlaneDatabaseFilename(database: ControlPlaneSqliteDatabase): string {
   const filename = (database as { filename?: unknown }).filename;
   return typeof filename === "string" && filename.trim() ? filename : "<unknown>";
 }
 
-export function applyControlPlaneDrizzleMigrations(database: Database): boolean {
+export function applyControlPlaneDrizzleMigrations(database: ControlPlaneSqliteDatabase): boolean {
   const migrationsFolder = resolveControlPlaneDrizzleMigrationsFolder();
   const journalPath = join(migrationsFolder, "meta", "_journal.json");
   if (!existsSync(journalPath)) {
@@ -308,7 +308,7 @@ export function applyControlPlaneDrizzleMigrations(database: Database): boolean 
   return true;
 }
 
-export function assertControlPlaneSchemaNotNewer(database: Database): void {
+export function assertControlPlaneSchemaNotNewer(database: ControlPlaneSqliteDatabase): void {
   const row = database.query("PRAGMA user_version").get() as { user_version: number } | null;
   const stampedVersion = row?.user_version ?? 0;
   if (stampedVersion > CONTROL_PLANE_SCHEMA_VERSION) {
@@ -320,13 +320,13 @@ export function assertControlPlaneSchemaNotNewer(database: Database): void {
   }
 }
 
-export function applyControlPlaneSchemaMigrations(database: Database): void {
+export function applyControlPlaneSchemaMigrations(database: ControlPlaneSqliteDatabase): void {
   for (const migration of CONTROL_PLANE_SCHEMA_MIGRATIONS) {
     migration.apply(database);
   }
 }
 
-export function stampControlPlaneSchemaVersion(database: Database): void {
+export function stampControlPlaneSchemaVersion(database: ControlPlaneSqliteDatabase): void {
   database.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION};`);
 }
 
@@ -334,7 +334,7 @@ export function stampControlPlaneSchemaVersion(database: Database): void {
 // giving up. Generous: real migrations complete in well under a second.
 const MIGRATION_LOCK_TIMEOUT_MS = 30_000;
 
-export function migrateControlPlaneDatabaseSchema(database: Database): void {
+export function migrateControlPlaneDatabaseSchema(database: ControlPlaneSqliteDatabase): void {
   // The entire pipeline runs under ONE IMMEDIATE transaction: BEGIN IMMEDIATE
   // takes the database write lock BEFORE any pending-migration check, so
   // concurrent boots fully serialize — the loser blocks at BEGIN (SQLite's

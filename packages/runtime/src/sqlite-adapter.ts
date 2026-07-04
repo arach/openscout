@@ -1,3 +1,4 @@
+import type { RuntimeTypedArray } from "./portable-types.js";
 import { createRequire } from "node:module";
 
 import { planRuntimeAdapters, type RuntimeDatabaseAdapterKind } from "./runtime-adapters.js";
@@ -11,11 +12,11 @@ export type ControlPlaneSqliteOpenOptions = {
 export type ControlPlaneSqliteBinding =
   | string
   | bigint
-  | NodeJS.TypedArray
+  | RuntimeTypedArray
   | number
   | boolean
   | null
-  | Record<string, string | bigint | NodeJS.TypedArray | number | boolean | null>;
+  | Record<string, string | bigint | RuntimeTypedArray | number | boolean | null>;
 
 export type ControlPlaneSqliteStatement<Row = unknown> = {
   all(...params: any[]): Row[];

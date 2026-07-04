@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 
 export type CodingAgentHarness = "scout" | "cursor" | "claude" | "codex";
@@ -11,7 +12,7 @@ export type CodingAgentHostMatch = {
 type HarnessSignal = {
   harness: CodingAgentHarness;
   signal: string;
-  matches: (env: NodeJS.ProcessEnv) => boolean;
+  matches: (env: RuntimeEnv) => boolean;
 };
 
 function isTruthyFlag(value: string | undefined): boolean {
@@ -23,7 +24,7 @@ function hasNonEmpty(value: string | undefined): boolean {
   return Boolean(value?.trim());
 }
 
-function envEquals(env: NodeJS.ProcessEnv, key: string, expected: string): boolean {
+function envEquals(env: RuntimeEnv, key: string, expected: string): boolean {
   return env[key]?.trim().toLowerCase() === expected;
 }
 
@@ -104,7 +105,7 @@ const HARNESS_SIGNALS: HarnessSignal[] = [
 
 /** Identify which top harness host spawned this shell, if any. */
 export function detectCodingAgentHost(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
 ): CodingAgentHostMatch | null {
   for (const entry of HARNESS_SIGNALS) {
     if (entry.matches(env)) {
@@ -116,6 +117,6 @@ export function detectCodingAgentHost(
 
 /** True when the current process looks like a coding-agent host rather than a
  *  human operator shell. */
-export function isCodingAgentHost(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isCodingAgentHost(env: RuntimeEnv = process.env): boolean {
   return detectCodingAgentHost(env) !== null;
 }

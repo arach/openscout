@@ -1,3 +1,4 @@
+import type { RuntimeEnv, RuntimePlatform } from "./portable-types.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -127,8 +128,8 @@ export type HarnessCatalogSnapshot = {
 };
 
 export type HarnessCatalogLoadOptions = {
-  env?: NodeJS.ProcessEnv;
-  platform?: NodeJS.Platform;
+  env?: RuntimeEnv;
+  platform?: RuntimePlatform;
   overridePath?: string;
   now?: () => number;
   whichBinary?: (binary: string) => string | null;
@@ -411,7 +412,7 @@ function expandHomePath(value: string): string {
   return value;
 }
 
-function defaultWhichBinary(binary: string, platform: NodeJS.Platform): string | null {
+function defaultWhichBinary(binary: string, platform: RuntimePlatform): string | null {
   try {
     const command = platform === "win32" ? "where" : "sh";
     const args = platform === "win32"
@@ -427,7 +428,7 @@ function defaultWhichBinary(binary: string, platform: NodeJS.Platform): string |
   }
 }
 
-function defaultRunCommand(command: string, platform: NodeJS.Platform): boolean {
+function defaultRunCommand(command: string, platform: RuntimePlatform): boolean {
   try {
     if (platform === "win32") {
       execFileSync("cmd.exe", ["/d", "/s", "/c", command], {

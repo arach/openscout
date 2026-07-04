@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { accessSync, constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -24,7 +25,7 @@ export type ResolvedJavaScriptRuntime = ResolvedExecutable & {
 };
 
 type ResolveExecutableOptions = {
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   envKeys?: string[];
   names: string[];
   extraDirectories?: string[];
@@ -32,7 +33,7 @@ type ResolveExecutableOptions = {
 };
 
 type ResolveJavaScriptRuntimeOptions = {
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   explicitEnvKeys?: string[];
   allowNode?: boolean;
   allowBun?: boolean;
@@ -49,7 +50,7 @@ const DEFAULT_COMMON_EXECUTABLE_DIRECTORIES = [
   "/usr/local/bin",
 ] as const;
 
-function commonClaudeExecutableDirectories(env: NodeJS.ProcessEnv): string[] {
+function commonClaudeExecutableDirectories(env: RuntimeEnv): string[] {
   const home = env.HOME ?? homedir();
   return [
     join(home, ".local", "bin"),
@@ -60,7 +61,7 @@ function commonClaudeExecutableDirectories(env: NodeJS.ProcessEnv): string[] {
   ];
 }
 
-export function expandHomePath(value: string, env: NodeJS.ProcessEnv = process.env): string {
+export function expandHomePath(value: string, env: RuntimeEnv = process.env): string {
   const home = env.HOME ?? homedir();
   if (value === "~") {
     return home;
@@ -84,12 +85,12 @@ export function isExecutablePath(candidate: string | null | undefined): candidat
   }
 }
 
-export function splitPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
+export function splitPathEntries(env: RuntimeEnv = process.env): string[] {
   const separator = process.platform === "win32" ? ";" : ":";
   return (env.PATH ?? "").split(separator).filter(Boolean);
 }
 
-function dedupeDirectories(values: string[], env: NodeJS.ProcessEnv): string[] {
+function dedupeDirectories(values: string[], env: RuntimeEnv): string[] {
   const seen = new Set<string>();
   const resolvedEntries: string[] = [];
 
@@ -157,7 +158,7 @@ export function resolveExecutableFromSearch(options: ResolveExecutableOptions): 
 function resolveExecutableFromDirectories(
   directories: string[],
   names: string[],
-  env: NodeJS.ProcessEnv,
+  env: RuntimeEnv,
   source: OpenScoutResolutionSource,
 ): ResolvedExecutable | null {
   for (const directory of dedupeDirectories(directories, env)) {
@@ -172,7 +173,7 @@ function resolveExecutableFromDirectories(
   return null;
 }
 
-export function resolveBunExecutable(env: NodeJS.ProcessEnv = process.env): ResolvedExecutable | null {
+export function resolveBunExecutable(env: RuntimeEnv = process.env): ResolvedExecutable | null {
   return resolveExecutableFromSearch({
     env,
     envKeys: ["OPENSCOUT_BUN_BIN", "SCOUT_BUN_BIN", "BUN_BIN"],
@@ -180,7 +181,7 @@ export function resolveBunExecutable(env: NodeJS.ProcessEnv = process.env): Reso
   });
 }
 
-export function resolveClaudeExecutable(env: NodeJS.ProcessEnv = process.env): ResolvedExecutable | null {
+export function resolveClaudeExecutable(env: RuntimeEnv = process.env): ResolvedExecutable | null {
   for (const envKey of ["OPENSCOUT_CLAUDE_BIN", "SCOUT_CLAUDE_BIN", "CLAUDE_BIN"]) {
     const explicit = env[envKey]?.trim();
     if (!explicit) {
@@ -336,7 +337,7 @@ function javascriptRuntimeKindForPath(filePath: string): JavaScriptRuntimeKind {
   return basename(filePath).toLowerCase().startsWith("bun") ? "bun" : "node";
 }
 
-function findExecutableOnSearchPath(name: string, env: NodeJS.ProcessEnv): ResolvedExecutable | null {
+function findExecutableOnSearchPath(name: string, env: RuntimeEnv): ResolvedExecutable | null {
   const searchDirectories = dedupeDirectories(
     [
       ...splitPathEntries(env),

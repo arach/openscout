@@ -1,3 +1,4 @@
+import type { RuntimeEnv, RuntimePlatform } from "./portable-types.js";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -125,7 +126,7 @@ export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
 export const DEFAULT_BROKER_PORT: number = OPENSCOUT_PORTS.broker;
 export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
 
-export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): BrokerAdvertiseScope {
+export function resolveAdvertiseScope(env: RuntimeEnv = process.env): BrokerAdvertiseScope {
   if (openScoutNetworkDiscoveryEnabled(env)) return "mesh";
   const raw = (env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
   if (raw === "mesh") return "mesh";
@@ -135,7 +136,7 @@ export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): Bro
 
 export function resolveBrokerHost(
   scope: BrokerAdvertiseScope = resolveAdvertiseScope(),
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
 ): string {
   const explicit = env.OPENSCOUT_BROKER_HOST?.trim();
   if (explicit) {
@@ -168,7 +169,7 @@ export function resolveBrokerUrl(
   host: string,
   port: number,
   scope: BrokerAdvertiseScope,
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
 ): string {
   const explicit = env.OPENSCOUT_BROKER_URL?.trim();
   if (explicit && !(scope === "mesh" && isUnreachableMeshBrokerUrl(explicit))) {
@@ -441,8 +442,8 @@ type HeadlessBrokerHealthReader = (
 }>;
 
 export function resolveBrokerServiceAdapter(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
+  env: RuntimeEnv = process.env,
+  platform: RuntimePlatform = process.platform,
 ): RuntimeServiceAdapterKind {
   return defaultServiceAdapterForPlatform(platform, env);
 }
@@ -528,8 +529,8 @@ export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBroker
   return null;
 }
 
-function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: string): RuntimeEnv {
+  const env: RuntimeEnv = {
     ...process.env,
     OPENSCOUT_SCOUTD_BIN: scoutdPath,
     OPENSCOUT_RUNTIME_PACKAGE_DIR: config.runtimePackageDir,
@@ -658,7 +659,7 @@ const SCOUTD_KILL_GRACE_MS = 250;
 function spawnScoutdJson(
   scoutdPath: string,
   command: BrokerServiceCommand,
-  env: NodeJS.ProcessEnv,
+  env: RuntimeEnv,
   timeoutMs: number,
 ): Promise<string> {
   return new Promise((resolvePromise, reject) => {
@@ -734,7 +735,7 @@ function spawnScoutdJson(
 type ScoutdJsonRunner = (
   scoutdPath: string,
   command: BrokerServiceCommand,
-  env: NodeJS.ProcessEnv,
+  env: RuntimeEnv,
   timeoutMs: number,
 ) => Promise<string>;
 

@@ -6,7 +6,7 @@
  * the conversations API on the store.
  *
  * Read methods reuse the host `SQLiteControlPlaneStore`'s connection handles
- * so we never open a third bun:sqlite connection to the same database file.
+ * so we never open a third SQLite connection to the same database file.
  * Writes funnel through `store.upsertConversation` so transaction/WAL
  * coordination stays in one place.
  *
@@ -15,8 +15,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-
-import type { Database } from "bun:sqlite";
 
 import type {
   ConversationDefinition,
@@ -33,6 +31,7 @@ import {
 } from "@openscout/protocol";
 
 import type { SQLiteControlPlaneStore } from "../sqlite-store.js";
+import type { ControlPlaneSqliteDatabase } from "../sqlite-adapter.js";
 
 export interface EnsureConversationInput {
   naturalKey: string;
@@ -65,11 +64,11 @@ interface ConversationRow {
 export class Conversations implements ConversationsApi {
   constructor(private readonly store: SQLiteControlPlaneStore) {}
 
-  private get readDb(): Database {
+  private get readDb(): ControlPlaneSqliteDatabase {
     return this.store.readerDb;
   }
 
-  private get writeDb(): Database {
+  private get writeDb(): ControlPlaneSqliteDatabase {
     return this.store.writerDb;
   }
 

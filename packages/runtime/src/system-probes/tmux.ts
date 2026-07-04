@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -75,7 +76,7 @@ function isUnavailable(error: unknown): boolean {
     && (error.code === "ENOENT" || error.code === "spawn" || error.code === "exit");
 }
 
-function tmuxSocketFromEnv(env: NodeJS.ProcessEnv): string | null {
+function tmuxSocketFromEnv(env: RuntimeEnv): string | null {
   const explicit = env.OPENSCOUT_TMUX_SOCKET?.trim();
   if (explicit) return explicit;
   const tmux = env.TMUX?.trim();
@@ -84,7 +85,7 @@ function tmuxSocketFromEnv(env: NodeJS.ProcessEnv): string | null {
   return socketPath?.trim() || null;
 }
 
-export function tmuxSocketKey(input?: string | { env?: NodeJS.ProcessEnv; socketPath?: string | null } | null): string {
+export function tmuxSocketKey(input?: string | { env?: RuntimeEnv; socketPath?: string | null } | null): string {
   if (typeof input === "string") return input.trim() || "default";
   const socketPath = input?.socketPath?.trim() || tmuxSocketFromEnv(input?.env ?? process.env);
   return socketPath || "default";
@@ -94,13 +95,13 @@ function tmuxSocketArgs(key: string): string[] {
   return key === "default" ? [] : ["-S", key];
 }
 
-function zellijSocketDirFromEnv(env: NodeJS.ProcessEnv): string {
+function zellijSocketDirFromEnv(env: RuntimeEnv): string {
   return env.ZELLIJ_SOCKET_DIR?.trim()
     || env.OPENSCOUT_ZELLIJ_SOCKET_DIR?.trim()
     || join(env.HOME?.trim() || homedir(), ".openscout", "zellij-sockets");
 }
 
-export function zellijSocketKey(input?: string | { env?: NodeJS.ProcessEnv; socketDir?: string | null } | null): string {
+export function zellijSocketKey(input?: string | { env?: RuntimeEnv; socketDir?: string | null } | null): string {
   if (typeof input === "string") return input.trim() || zellijSocketDirFromEnv(process.env);
   return input?.socketDir?.trim() || zellijSocketDirFromEnv(input?.env ?? process.env);
 }
@@ -148,7 +149,7 @@ export function parseZellijSessionList(output: string): ZellijSessionInfo[] {
     .filter((session): session is ZellijSessionInfo => Boolean(session));
 }
 
-export const tmuxSessionsProbe = defineProbeFamily<string | { env?: NodeJS.ProcessEnv; socketPath?: string | null }, TmuxSessionInfo[]>({
+export const tmuxSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv; socketPath?: string | null }, TmuxSessionInfo[]>({
   id: "tmux.sessions",
   ttlMs: TMUX_TTL_MS,
   timeoutMs: TMUX_TIMEOUT_MS,
@@ -175,7 +176,7 @@ export const tmuxSessionsProbe = defineProbeFamily<string | { env?: NodeJS.Proce
   },
 });
 
-export const zellijSessionsProbe = defineProbeFamily<string | { env?: NodeJS.ProcessEnv; socketDir?: string | null }, ZellijSessionInfo[]>({
+export const zellijSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv; socketDir?: string | null }, ZellijSessionInfo[]>({
   id: "zellij.sessions",
   ttlMs: TMUX_TTL_MS,
   timeoutMs: ZELLIJ_TIMEOUT_MS,
@@ -272,32 +273,32 @@ export const tmuxPanesProbe = defineProbeFamily<TmuxPaneProbeKey, TmuxPaneDetail
   },
 });
 
-export async function readTmuxSessionExists(sessionName: string, options: { env?: NodeJS.ProcessEnv; socketPath?: string | null; maxAgeMs?: number } = {}): Promise<boolean> {
+export async function readTmuxSessionExists(sessionName: string, options: { env?: RuntimeEnv; socketPath?: string | null; maxAgeMs?: number } = {}): Promise<boolean> {
   const name = sessionName.trim();
   if (!name) return false;
   const snapshot = await tmuxSessionsProbe.for({ env: options.env, socketPath: options.socketPath }).fresh({ maxAgeMs: options.maxAgeMs ?? TMUX_TTL_MS });
   return Boolean(snapshot.value?.some((session) => session.name === name));
 }
 
-export function readTmuxSessionExistsSnapshot(sessionName: string, options: { env?: NodeJS.ProcessEnv; socketPath?: string | null } = {}): boolean {
+export function readTmuxSessionExistsSnapshot(sessionName: string, options: { env?: RuntimeEnv; socketPath?: string | null } = {}): boolean {
   const name = sessionName.trim();
   if (!name) return false;
   const snapshot = tmuxSessionsProbe.for({ env: options.env, socketPath: options.socketPath }).read();
   return Boolean(snapshot.value?.some((session) => session.name === name));
 }
 
-export function invalidateTmuxSessions(options: { env?: NodeJS.ProcessEnv; socketPath?: string | null; reason?: string } = {}): void {
+export function invalidateTmuxSessions(options: { env?: RuntimeEnv; socketPath?: string | null; reason?: string } = {}): void {
   tmuxSessionsProbe.invalidate({ env: options.env, socketPath: options.socketPath }, options.reason);
 }
 
-export async function readZellijSessionExists(sessionName: string, options: { env?: NodeJS.ProcessEnv; socketDir?: string | null; maxAgeMs?: number } = {}): Promise<boolean> {
+export async function readZellijSessionExists(sessionName: string, options: { env?: RuntimeEnv; socketDir?: string | null; maxAgeMs?: number } = {}): Promise<boolean> {
   const name = sessionName.trim();
   if (!name) return false;
   const snapshot = await zellijSessionsProbe.for({ env: options.env, socketDir: options.socketDir }).fresh({ maxAgeMs: options.maxAgeMs ?? TMUX_TTL_MS });
   return Boolean(snapshot.value?.some((session) => session.name === name));
 }
 
-export function invalidateZellijSessions(options: { env?: NodeJS.ProcessEnv; socketDir?: string | null; reason?: string } = {}): void {
+export function invalidateZellijSessions(options: { env?: RuntimeEnv; socketDir?: string | null; reason?: string } = {}): void {
   zellijSessionsProbe.invalidate({ env: options.env, socketDir: options.socketDir }, options.reason);
 }
 

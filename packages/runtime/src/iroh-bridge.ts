@@ -1,3 +1,4 @@
+import type { RuntimeChildProcessLike, RuntimeEnv, RuntimeReadableLike } from "./portable-types.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { join } from "node:path";
 
@@ -35,7 +36,7 @@ export interface IrohBridgeResponse<TBody = unknown> {
 }
 
 export interface IrohBridgeService {
-  child: ChildProcessWithoutNullStreams;
+  child: RuntimeChildProcessLike;
   entrypoint: IrohMeshEntrypoint;
   identityPath: string;
   stop: () => void;
@@ -79,7 +80,7 @@ function readEndpointId(endpointAddr: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-export function resolveIrohMeshEntrypointFromEnv(env: NodeJS.ProcessEnv = process.env): IrohMeshEntrypoint | undefined {
+export function resolveIrohMeshEntrypointFromEnv(env: RuntimeEnv = process.env): IrohMeshEntrypoint | undefined {
   const rawEndpointAddr = env.OPENSCOUT_IROH_ENDPOINT_ADDR_JSON?.trim();
   if (!rawEndpointAddr) {
     return undefined;
@@ -228,7 +229,7 @@ export async function startIrohBridgeServe(options: IrohBridgeServeOptions): Pro
 
 export async function startIrohBridgeServeFromEnv(input: {
   brokerUrl: string;
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
 }): Promise<IrohBridgeService | undefined> {
   const env = input.env ?? process.env;
   if (env.OPENSCOUT_IROH_BRIDGE_AUTO_START?.trim().toLowerCase() === "false") {
@@ -249,7 +250,7 @@ export async function startIrohBridgeServeFromEnv(input: {
   });
 }
 
-function readChildOutput(stream: NodeJS.ReadableStream, onChunk?: (chunk: string) => void): Promise<string> {
+function readChildOutput(stream: RuntimeReadableLike, onChunk?: (chunk: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     stream.on("data", (chunk) => {

@@ -1,3 +1,4 @@
+import type { RuntimeSignal } from "./portable-types.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type {
@@ -377,7 +378,7 @@ class StdioJsonRpcTransport implements McpDiscoveryJsonRpcTransport {
   }
 }
 
-function formatExit(code: number | null, signal: NodeJS.Signals | null): string {
+function formatExit(code: number | null, signal: RuntimeSignal | null): string {
   if (code !== null) {
     return `code ${code}`;
   }

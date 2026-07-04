@@ -1,3 +1,4 @@
+import type { RuntimeEnv, RuntimePlatform } from "./portable-types.js";
 export type RuntimeHostKind = "bun" | "node";
 
 export type RuntimeDatabaseAdapterKind =
@@ -33,8 +34,8 @@ export type RuntimeAdapterPlan = {
 
 export type RuntimeAdapterPlanOptions = {
   host?: RuntimeHostKind;
-  platform?: NodeJS.Platform;
-  env?: NodeJS.ProcessEnv;
+  platform?: RuntimePlatform;
+  env?: RuntimeEnv;
 };
 
 export function detectRuntimeHost(globalScope: typeof globalThis = globalThis): RuntimeHostKind {
@@ -60,8 +61,8 @@ export function normalizeRuntimeServiceAdapter(value: string | undefined | null)
 }
 
 export function defaultServiceAdapterForPlatform(
-  platform: NodeJS.Platform = process.platform,
-  env: NodeJS.ProcessEnv = process.env,
+  platform: RuntimePlatform = process.platform,
+  env: RuntimeEnv = process.env,
 ): RuntimeServiceAdapterKind {
   const explicit = normalizeRuntimeServiceAdapter(env.OPENSCOUT_SERVICE_ADAPTER);
   if (explicit) return explicit;

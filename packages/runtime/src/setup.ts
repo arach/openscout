@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { access, chmod, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -1787,7 +1788,7 @@ export async function readOpenScoutSettings(options: { currentDirectory?: string
 }
 
 export function resolveOpenScoutSetupContextRoot(options: {
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   fallbackDirectory?: string | null;
 } = {}): string {
   const env = options.env ?? process.env;

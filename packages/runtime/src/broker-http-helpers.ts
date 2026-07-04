@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { RuntimeHttpRequestLike, RuntimeHttpResponseLike } from "./portable-types.js";
 
 import { A2A_JSON_RPC_CONTENT_TYPE } from "@openscout/protocol";
 import type { z } from "zod";
@@ -19,7 +19,7 @@ export class BrokerHttpRequestError extends Error {
 }
 
 export function readRequestBody<T>(
-  request: IncomingMessage,
+  request: RuntimeHttpRequestLike,
   options: { maxBytes?: number; requireJsonContentType?: boolean } = {},
 ): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -83,7 +83,7 @@ function formatZodIssues(error: z.ZodError): string {
 }
 
 export async function readValidatedRequestBody<T>(
-  request: IncomingMessage,
+  request: RuntimeHttpRequestLike,
   schema: z.ZodType<T>,
   options: { maxBytes?: number; requireJsonContentType?: boolean } = {},
 ): Promise<T> {
@@ -99,7 +99,7 @@ export async function readValidatedRequestBody<T>(
   return result.data;
 }
 
-export function requestAbortSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {
+export function requestAbortSignal(request: RuntimeHttpRequestLike, response: RuntimeHttpResponseLike): AbortSignal {
   const controller = new AbortController();
   const abort = () => {
     if (!controller.signal.aborted) {
@@ -124,13 +124,13 @@ export function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
-export function json(response: ServerResponse, status: number, payload: unknown): void {
+export function json(response: RuntimeHttpResponseLike, status: number, payload: unknown): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload, null, 2));
 }
 
 export function a2aJson(
-  response: ServerResponse,
+  response: RuntimeHttpResponseLike,
   status: number,
   payload: unknown,
   headers: Record<string, string> = {},
@@ -144,7 +144,7 @@ export function a2aJson(
 }
 
 export function jsonWithHeaders(
-  response: ServerResponse,
+  response: RuntimeHttpResponseLike,
   status: number,
   payload: unknown,
   headers: Record<string, string>,
@@ -186,11 +186,11 @@ export function serverTimingHeader(metrics: ServerTimingMetric[]): string {
     .join(", ");
 }
 
-export function notFound(response: ServerResponse): void {
+export function notFound(response: RuntimeHttpResponseLike): void {
   json(response, 404, { error: "not_found" });
 }
 
-export function badRequest(response: ServerResponse, error: unknown): void {
+export function badRequest(response: RuntimeHttpResponseLike, error: unknown): void {
   if (error instanceof BrokerHttpRequestError) {
     json(response, error.status, {
       error: error.code,
@@ -214,14 +214,14 @@ export function parseBooleanQueryParam(value: string | null | undefined): boolea
   return undefined;
 }
 
-export function conflict(response: ServerResponse, detail: string): void {
+export function conflict(response: RuntimeHttpResponseLike, detail: string): void {
   json(response, 409, {
     error: "conflict",
     detail,
   });
 }
 
-export function threadWatchError(response: ServerResponse, error: unknown): void {
+export function threadWatchError(response: RuntimeHttpResponseLike, error: unknown): void {
   if (error instanceof ThreadWatchProtocolError) {
     json(response, error.status, error.body);
     return;

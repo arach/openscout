@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -33,7 +34,7 @@ function parseEnvLine(line: string): { key: string; value: string } | null {
 }
 
 export async function resolveCursorApiKey(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
 ): Promise<ResolvedCursorAuth> {
   const fromEnv = env.CURSOR_API_KEY?.trim();
   if (fromEnv) {
@@ -59,7 +60,7 @@ export async function resolveCursorApiKey(
   return { source: "none" };
 }
 
-export function resolveCursorAgentExecutable(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveCursorAgentExecutable(env: RuntimeEnv = process.env): string {
   return env.OPENSCOUT_CURSOR_AGENT_BIN?.trim()
     || env.CURSOR_AGENT_BIN?.trim()
     || "cursor-agent";

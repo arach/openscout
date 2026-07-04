@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { RuntimeHttpRequestLike, RuntimeHttpResponseLike } from "./portable-types.js";
 
 import type {
   ActorIdentity,
@@ -35,8 +35,8 @@ export type BrokerHttpEntityWriteRouteDeps = {
 export type BrokerHttpEntityWriteRouteInput = {
   method: string;
   url: URL;
-  request: IncomingMessage;
-  response: ServerResponse;
+  request: RuntimeHttpRequestLike;
+  response: RuntimeHttpResponseLike;
   deps: BrokerHttpEntityWriteRouteDeps;
 };
 

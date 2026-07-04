@@ -431,6 +431,7 @@ describe("scoutd probe backend", () => {
     expect(first.backend).toBe("scoutd");
     expect(first.value?.self?.hostName).toBe("daemon-a");
     await closeServer(server);
+    rmSync(socketPath, { force: true });
     writeFileSync(socketPath, "stale socket placeholder", "utf8");
 
     tailscaleStatusProbe.invalidate("test.socket-failed");
