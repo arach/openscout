@@ -34,6 +34,13 @@ public struct ScoutCommsClient: Sendable {
             .sorted { $0.createdAt < $1.createdAt }
     }
 
+    public func fetchReadCursors(cId: String) async throws -> [ScoutReadCursor] {
+        try await ScoutHTTP.fetch(
+            [ScoutReadCursor].self,
+            from: ScoutWeb.baseURL().appending(path: "api/conversations/\(cId)/read-cursors")
+        )
+    }
+
     public func send(body: String, cId: String) async throws {
         let url = ScoutWeb.baseURL().appending(path: "api/send")
         var request = URLRequest(url: url)
@@ -75,6 +82,7 @@ public struct ScoutCommsClient: Sendable {
         // server takes epoch milliseconds.
         let resolvedAt = lastReadAt ?? Date().timeIntervalSince1970
         payload["lastReadAt"] = Int(resolvedAt * 1000)
+        payload["metadata"] = ["source": "scout-macos"]
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

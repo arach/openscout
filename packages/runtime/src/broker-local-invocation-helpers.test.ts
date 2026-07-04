@@ -26,6 +26,7 @@ import {
   isWorkingFlightState,
   latestEndpointForAgent,
   localEndpointPreferenceRank,
+  STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS,
   staleLocalAgentReason,
   staleLocalEndpointReason,
   staleWorkingFlightReason,
@@ -429,5 +430,38 @@ describe("broker local invocation helpers", () => {
     expect(staleWorkingFlightReason(snapshot, snapshot.flights.working!, {
       isInvocationActive: () => false,
     })).toBe("endpoint replayed was replayed active for invocation invocation-1 without a live broker task");
+  });
+
+  test("waits briefly for endpoint recovery before marking endpointless working flights stale", () => {
+    const runtime = createInMemoryControlRuntime({
+      agents: {
+        "agent-1": testAgent(),
+      },
+      endpoints: {},
+      flights: {
+        waking: testFlight({
+          id: "waking",
+          invocationId: "invocation-1",
+          targetAgentId: "agent-1",
+          state: "waking",
+          startedAt: 10_000,
+        }),
+      },
+    }, { localNodeId: "node-1" });
+    const snapshot = runtime.snapshot();
+    const flight = snapshot.flights.waking!;
+
+    expect(staleWorkingFlightReason(snapshot, flight, {
+      isInvocationActive: () => true,
+      now: 10_000 + STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS + 1,
+    })).toBeNull();
+    expect(staleWorkingFlightReason(snapshot, flight, {
+      isInvocationActive: () => false,
+      now: 10_000 + STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS - 1,
+    })).toBeNull();
+    expect(staleWorkingFlightReason(snapshot, flight, {
+      isInvocationActive: () => false,
+      now: 10_000 + STALE_WORKING_FLIGHT_NO_ENDPOINT_GRACE_MS,
+    })).toBe("target agent agent-1 has no registered endpoint after 120s");
   });
 });

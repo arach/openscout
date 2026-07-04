@@ -382,4 +382,41 @@ describe("broker flight lifecycle helpers", () => {
       }),
     ]);
   });
+
+  test("fails endpointless working flights after the recovery grace window", async () => {
+    const flight = testFlight({
+      state: "waking",
+      startedAt: 10_000,
+    });
+    const invocation = testInvocation();
+    const harness = createHarness({
+      snapshot: testSnapshot({
+        agents: { "agent-1": testAgent() },
+        endpoints: {},
+        invocations: { [invocation.id]: invocation },
+        flights: { [flight.id]: flight },
+      }),
+      invocation,
+      now: 10_000 + 2 * 60_000,
+    });
+
+    await harness.service.reconcileStaleWorkingFlights();
+
+    expect(harness.committedFlights).toEqual([
+      expect.objectContaining({
+        id: "flight-1",
+        state: "failed",
+        summary: "Agent One did not finish cleanly.",
+        error: "Stale running flight reconciled: target agent agent-1 has no registered endpoint after 120s",
+        completedAt: 130_000,
+        metadata: expect.objectContaining({
+          reconciledStaleFlight: true,
+          reconciledReason: "target agent agent-1 has no registered endpoint after 120s",
+          reconciledAt: 130_000,
+        }),
+      }),
+    ]);
+    expect(harness.promoted).toHaveLength(1);
+    expect(harness.forwardedFlights).toHaveLength(1);
+  });
 });

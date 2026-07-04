@@ -45,6 +45,100 @@ final class ScoutEndpointsTests: XCTestCase {
         }
     }
 
+    func testPublicOriginDoesNotOverrideHostInfoForNativeClientLoads() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://127.0.0.1:43110",
+            webURL: "http://127.0.0.1:43120",
+            extraFields: """
+              "ports": {
+                "broker": 43110,
+                "web": 43120
+              },
+              "services": {
+                "web": {
+                  "host": "127.0.0.1",
+                  "port": 43120,
+                  "url": "http://127.0.0.1:43120"
+                }
+              }
+            """
+        )
+
+        withEndpointEnvironment(
+            supportDirectory: supportDirectory,
+            values: ["OPENSCOUT_WEB_PUBLIC_ORIGIN": "http://scout.local"]
+        ) {
+            XCTAssertEqual(ScoutWeb.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutWeb.baseURL().port, 43120)
+        }
+    }
+
+    func testAttachmentURLsUseLocalWebWhenPublicOriginIsConfigured() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://127.0.0.1:43110",
+            webURL: "http://127.0.0.1:43120",
+            extraFields: """
+              "services": {
+                "web": {
+                  "host": "127.0.0.1",
+                  "port": 43120,
+                  "url": "http://127.0.0.1:43120"
+                }
+              }
+            """
+        )
+
+        withEndpointEnvironment(
+            supportDirectory: supportDirectory,
+            values: ["OPENSCOUT_WEB_PUBLIC_ORIGIN": "http://scout.local"]
+        ) {
+            let url = ScoutWeb.attachmentURL("http://scout.local/api/blobs/blob-1?download=1")
+            XCTAssertEqual(url?.scheme, "http")
+            XCTAssertEqual(url?.host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(url?.port, 43120)
+            XCTAssertEqual(url?.path, "/api/blobs/blob-1")
+            XCTAssertEqual(url?.query, "download=1")
+        }
+    }
+
+    func testAttachmentURLKeepsExternalAbsoluteURLs() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+
+        withEndpointEnvironment(supportDirectory: supportDirectory) {
+            XCTAssertEqual(
+                ScoutWeb.attachmentURL("https://example.com/files/image.png")?.absoluteString,
+                "https://example.com/files/image.png"
+            )
+        }
+    }
+
+    func testRelativeAttachmentURLResolvesAgainstLocalWeb() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://127.0.0.1:43110",
+            webURL: "http://127.0.0.1:43120"
+        )
+
+        withEndpointEnvironment(supportDirectory: supportDirectory) {
+            let url = ScoutWeb.attachmentURL("/api/blobs/blob-2")
+            XCTAssertEqual(url?.host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(url?.port, 43120)
+            XCTAssertEqual(url?.path, "/api/blobs/blob-2")
+        }
+    }
+
     func testHostInfoPrefersLocalBrokerServiceOverAdvertisedMeshURL() throws {
         let supportDirectory = try makeSupportDirectory()
         defer { removeDirectory(supportDirectory) }

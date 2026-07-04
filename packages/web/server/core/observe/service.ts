@@ -1236,11 +1236,34 @@ export function buildObservePulse(
   return { bucketMs: PULSE_BUCKET_MS, endMs, counts };
 }
 
-function syntheticContextUsage(eventCount: number): number[] {
+function contextUsageRatio(usage: ObserveUsageMeta | undefined): number | null {
+  const used = usage?.contextInputTokens;
+  const total = usage?.contextWindowTokens;
+  if (
+    typeof used !== "number"
+    || typeof total !== "number"
+    || !Number.isFinite(used)
+    || !Number.isFinite(total)
+    || total <= 0
+  ) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, used / total));
+}
+
+function observedContextUsage(eventCount: number, usage: ObserveUsageMeta | undefined): number[] {
   if (eventCount <= 0) {
     return [];
   }
   const length = Math.max(2, Math.min(eventCount, 24));
+  const current = contextUsageRatio(usage);
+  if (current !== null) {
+    const start = current <= 0.02 ? current : Math.max(0.01, current * 0.35);
+    return Array.from({ length }, (_, index) => {
+      const progress = length <= 1 ? 1 : index / (length - 1);
+      return start + (current - start) * progress;
+    });
+  }
   return Array.from({ length }, (_, index) => {
     const progress = length <= 1 ? 1 : index / (length - 1);
     return Math.min(0.92, 0.08 + progress * 0.66);
@@ -1416,13 +1439,15 @@ export function buildObserveDataFromSnapshot(
     Date.now(),
   );
 
+  const metadata = buildObserveMetadata(snapshot, timing.baseTimestampMs);
+
   return {
     events,
     files: [...files.values()].sort((left, right) => right.lastT - left.lastT || left.path.localeCompare(right.path)),
-    contextUsage: syntheticContextUsage(events.length),
+    contextUsage: observedContextUsage(events.length, metadata?.usage),
     ...(pulse ? { pulse } : {}),
     live,
-    metadata: buildObserveMetadata(snapshot, timing.baseTimestampMs),
+    metadata,
   };
 }
 

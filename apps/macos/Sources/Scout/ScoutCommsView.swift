@@ -1,6 +1,7 @@
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
+import ScoutCapabilities
 import ScoutHUD
 import ScoutNativeCore
 import ScoutSharedUI
@@ -181,6 +182,15 @@ struct ScoutActiveTurn: Equatable, Sendable {
     let state: String          // queued | waking | running | waiting
     let summary: String?
     let detail: String?
+    let activity: [ScoutTurnActivityItem]
+}
+
+struct ScoutTurnActivityItem: Identifiable, Equatable, Sendable {
+    let id: String
+    let kind: String
+    let title: String
+    let detail: String?
+    let timestamp: TimeInterval
 }
 
 /// In-thread preview of a turn that's still running — the agent's sprite, a live
@@ -212,6 +222,10 @@ struct ScoutInFlightTurnRow: View {
                         .lineLimit(2)
                         .truncationMode(.tail)
                         .animation(.easeOut(duration: 0.15), value: line)
+                }
+                if !turn.activity.isEmpty {
+                    ScoutTurnActivityTimeline(items: turn.activity)
+                        .padding(.top, HudSpacing.xs)
                 }
             }
             .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
@@ -250,6 +264,69 @@ struct ScoutInFlightTurnRow: View {
     private var spinnerTint: Color { ScoutPalette.accent }
 
     private var headlineTint: Color { ScoutPalette.dim }
+}
+
+private struct ScoutTurnActivityTimeline: View {
+    let items: [ScoutTurnActivityItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            ForEach(items) { item in
+                HStack(alignment: .top, spacing: HudSpacing.sm) {
+                    Image(systemName: icon(for: item.kind))
+                        .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.accent.opacity(0.82))
+                        .frame(width: 12, height: 14)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: HudSpacing.xs) {
+                            Text(item.title)
+                                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                                .foregroundStyle(ScoutPalette.ink)
+                                .lineLimit(1)
+                            if let age = activityAge(item.timestamp) {
+                                Text(age)
+                                    .font(HudFont.mono(HudTextSize.micro))
+                                    .foregroundStyle(ScoutPalette.dim)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if let detail = item.detail?.nilIfEmpty {
+                            Text(detail)
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.muted)
+                                .lineLimit(2)
+                                .truncationMode(.tail)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.vertical, HudSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    private func icon(for kind: String) -> String {
+        switch kind {
+        case "tool": return "wrench.and.screwdriver"
+        case "think": return "brain.head.profile"
+        case "ask": return "questionmark.circle"
+        case "message": return "text.bubble"
+        default: return "waveform.path.ecg"
+        }
+    }
+
+    private func activityAge(_ timestamp: TimeInterval) -> String? {
+        guard timestamp >= 1_000_000_000 else { return nil }
+        return ScoutRelativeTime.format(timestamp)
+    }
 }
 
 struct ScoutConversationListBar: View {
@@ -1087,6 +1164,7 @@ struct ScoutMemberStrip: View {
 struct ScoutMessageRow: View {
     let message: ScoutMessage
     let agent: ScoutAgent?
+    var readReceipts: [ScoutReadReceipt] = []
     /// Workspace root for resolving relative file paths this message quotes.
     let baseDirectory: String?
     let previewAgent: (ScoutAgent) -> Void
@@ -1167,7 +1245,7 @@ struct ScoutMessageRow: View {
         if isLongTurn {
             VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
                 bubble {
-                    markdown
+                    messageContent
                         .frame(maxHeight: expanded ? nil : ScoutCommsMetrics.collapsedTurnMaxHeight, alignment: .top)
                         .clipped()
                         .overlay(alignment: .bottom) {
@@ -1192,15 +1270,31 @@ struct ScoutMessageRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).scoutPointerCursor()
+                readReceiptLine
             }
         } else {
-            bubble { markdown }
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                bubble { messageContent }
+                readReceiptLine
+            }
+        }
+    }
+
+    /// The themed turn content — markdown plus link-backed attachments. `hug:
+    /// true` lets short turns produce short bubbles instead of full slabs.
+    private var messageContent: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            if !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                markdown
+            }
+            if !message.attachments.isEmpty {
+                ScoutMessageAttachmentStack(attachments: message.attachments, isMine: isMine)
+            }
         }
     }
 
     /// The themed markdown for this turn — light prose on the operator's accent
-    /// fill, standard ink on an incoming surface bubble. `hug: true` lets a short
-    /// turn produce a short bubble instead of a full reading-measure slab.
+    /// fill, standard ink on an incoming surface bubble.
     private var markdown: some View {
         ScoutMarkdownView(
             text: message.body,
@@ -1210,6 +1304,14 @@ struct ScoutMessageRow: View {
             accentColor: bubbleAccent,
             hug: true
         )
+    }
+
+    @ViewBuilder
+    private var readReceiptLine: some View {
+        if !readReceipts.isEmpty {
+            ScoutReadReceiptLine(receipts: readReceipts)
+                .padding(.leading, HudSpacing.xs)
+        }
     }
 
     private var isMine: Bool { message.isOperator }
@@ -1329,6 +1431,232 @@ struct ScoutMessageRow: View {
         .contentShape(Rectangle())
         .animation(.easeOut(duration: 0.10), value: isHoveringAgent)
     }
+}
+
+struct ScoutReadReceipt: Identifiable, Equatable {
+    let actorId: String
+    let label: String
+    let readAt: TimeInterval
+
+    var id: String { actorId }
+}
+
+private struct ScoutReadReceiptLine: View {
+    let receipts: [ScoutReadReceipt]
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xs) {
+            Image(systemName: "checkmark.circle")
+                .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+            Text(label)
+                .font(HudFont.mono(HudTextSize.micro))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundStyle(ScoutPalette.dim)
+    }
+
+    private var label: String {
+        let names = receipts.map(\.label)
+        let latest = receipts.map(\.readAt).max()
+        let age = latest.flatMap { ScoutRelativeTime.format($0) }
+        let prefix: String
+        switch names.count {
+        case 0:
+            prefix = "Read"
+        case 1:
+            prefix = "Read by \(names[0])"
+        case 2:
+            prefix = "Read by \(names[0]) and \(names[1])"
+        default:
+            prefix = "Read by \(names[0]) and \(names.count - 1) others"
+        }
+        if let age, age != "now" {
+            return "\(prefix) \(age)"
+        }
+        return prefix
+    }
+}
+
+private struct ScoutMessageAttachmentStack: View {
+    let attachments: [MessageAttachment]
+    let isMine: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            ForEach(attachments) { attachment in
+                if isImage(attachment) {
+                    ScoutImageAttachmentView(attachment: attachment, isMine: isMine)
+                } else {
+                    ScoutFileAttachmentChip(attachment: attachment, isMine: isMine)
+                }
+            }
+        }
+    }
+
+    private func isImage(_ attachment: MessageAttachment) -> Bool {
+        attachment.mediaType.lowercased().hasPrefix("image/")
+    }
+}
+
+private struct ScoutImageAttachmentView: View {
+    let attachment: MessageAttachment
+    let isMine: Bool
+
+    @State private var hovering = false
+
+    var body: some View {
+        Group {
+            if let url = resolvedURL {
+                Button {
+                    open(url)
+                } label: {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: 360, maxHeight: 260, alignment: .leading)
+                                .clipShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+                        case .failure:
+                            attachmentFallback(icon: "photo", title: title, detail: "Could not load image")
+                        case .empty:
+                            attachmentFallback(icon: "photo", title: title, detail: "Loading image")
+                                .overlay(alignment: .trailing) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .padding(.trailing, HudSpacing.md)
+                                }
+                        @unknown default:
+                            attachmentFallback(icon: "photo", title: title, detail: attachment.mediaType)
+                        }
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
+                    )
+                    .shadow(color: isMine ? Color.clear : ScoutSurface.shadow(0.16), radius: isMine ? 0 : 4, x: 0, y: 2)
+                }
+                .buttonStyle(.plain).scoutPointerCursor()
+                .onHover { hovering = $0 }
+                .help("Open \(title)")
+            } else {
+                attachmentFallback(icon: "photo", title: title, detail: attachment.mediaType)
+            }
+        }
+    }
+
+    private var title: String {
+        attachment.fileName?.nilIfEmpty ?? "Image"
+    }
+
+    private var borderColor: Color {
+        isMine ? Color.white.opacity(hovering ? 0.42 : 0.24) : ScoutDesign.hairlineStrong
+    }
+
+    private var resolvedURL: URL? {
+        resolveAttachmentURL(attachment.url)
+    }
+
+    private func attachmentFallback(icon: String, title: String, detail: String) -> some View {
+        ScoutFileAttachmentChipContent(
+            icon: icon,
+            title: title,
+            detail: detail,
+            isMine: isMine
+        )
+    }
+}
+
+private struct ScoutFileAttachmentChip: View {
+    let attachment: MessageAttachment
+    let isMine: Bool
+
+    var body: some View {
+        Group {
+            if let url = resolveAttachmentURL(attachment.url) {
+                Button {
+                    open(url)
+                } label: {
+                    content
+                }
+                .buttonStyle(.plain).scoutPointerCursor()
+                .help("Open \(title)")
+            } else {
+                content
+            }
+        }
+    }
+
+    private var content: some View {
+        ScoutFileAttachmentChipContent(
+            icon: icon,
+            title: title,
+            detail: attachment.mediaType,
+            isMine: isMine
+        )
+    }
+
+    private var title: String {
+        attachment.fileName?.nilIfEmpty ?? attachment.blobKey?.nilIfEmpty ?? "Attachment"
+    }
+
+    private var icon: String {
+        let mediaType = attachment.mediaType.lowercased()
+        if mediaType.hasPrefix("video/") { return "film" }
+        if mediaType.contains("markdown") { return "doc.text" }
+        if mediaType.hasPrefix("text/") { return "curlybraces" }
+        return "paperclip"
+    }
+}
+
+private struct ScoutFileAttachmentChipContent: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let isMine: Bool
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: icon)
+                .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(detail)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .opacity(0.78)
+            }
+        }
+        .foregroundStyle(isMine ? Color.white : ScoutPalette.ink)
+        .padding(.horizontal, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: 360, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(isMine ? Color.white.opacity(0.12) : ScoutSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(isMine ? Color.white.opacity(0.24) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+}
+
+private func resolveAttachmentURL(_ raw: String?) -> URL? {
+    ScoutWeb.attachmentURL(raw)
+}
+
+private func open(_ url: URL) {
+    #if os(macOS)
+    NSWorkspace.shared.open(url)
+    #endif
 }
 
 struct ScoutAgentHoverCard: View {

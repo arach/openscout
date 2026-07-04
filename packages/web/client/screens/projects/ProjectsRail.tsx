@@ -158,7 +158,6 @@ export function ProjectsRail({
     navigate({
       view: "agents-v2",
       projectSlug: slug,
-      indexView: "sessions",
       ...machineScope,
       ...ephemeralScope,
     });
@@ -406,6 +405,7 @@ function ProjectRailGroup({
           className="pi-projectPath"
           aria-expanded={selected ? !collapsed : undefined}
           title={projectTitle(project)}
+          aria-current={selected ? "page" : undefined}
           aria-label={
             selected
               ? collapsed
@@ -420,9 +420,15 @@ function ProjectRailGroup({
         >
           <Folder size={13} strokeWidth={1.6} aria-hidden />
           <span className="pi-projectPathText">/{project.title}</span>
-          <span className="pi-projectPathCaret" aria-hidden>
-            {collapsed ? <ChevronRight size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
-          </span>
+        </button>
+        <button
+          type="button"
+          className="pi-projectPathToggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? <ChevronRight size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
         </button>
       </div>
 

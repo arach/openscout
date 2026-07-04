@@ -258,6 +258,7 @@ export class BrokerFlightLifecycleService {
     for (const flight of Object.values(snapshot.flights)) {
       const reason = staleWorkingFlightReason(snapshot, flight, {
         isInvocationActive: this.options.isInvocationActive,
+        now,
       });
       if (!reason) {
         continue;
