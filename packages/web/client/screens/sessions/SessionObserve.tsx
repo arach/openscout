@@ -20,7 +20,12 @@ import type {
   ObserveUsageMeta,
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
-import { collapseObserveDisplayRows, isSimpleLaneToolEvent } from "../../lib/observe-display.ts";
+import {
+  collapseObserveDisplayRows,
+  collapseTechnicalObserveDisplayRows,
+  isSimpleLaneToolEvent,
+  type ObserveTechnicalSummary,
+} from "../../lib/observe-display.ts";
 import {
   grokLaneGutterLabel,
   humanizeGrokLanePhase,
@@ -1015,12 +1020,18 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
   );
 }
 
+function messageDisplayLabel(event: Pick<SessionEvent, "to">): string {
+  const to = event.to?.trim();
+  if (!to) return "Agent reply";
+  if (to === "human") return "To you";
+  return `To ${to}`;
+}
+
 function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
-  const toLabel = event.to === "human" ? "you" : event.to ?? "?";
   const text = event.text ?? "";
   return (
     <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}`}>
-      <div className="s-observe-message-label">→ message → {toLabel}</div>
+      <div className="s-observe-message-label">{messageDisplayLabel(event)}</div>
       <LaneExpandableText
         text={text}
         className="s-observe-message-text"
@@ -1029,6 +1040,22 @@ function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMod
         renderExpanded={(value) => <MessageMarkup text={value} />}
       />
       {!laneMode && <CopyButton text={text} label="Copy message" />}
+    </div>
+  );
+}
+
+function TechnicalSummaryLine({ summary }: { summary: ObserveTechnicalSummary }) {
+  const eventLabel = summary.totalCount === 1 ? "technical event" : "technical events";
+  return (
+    <div className="s-observe-tech-summary s-observe-block s-observe-block--inline">
+      <span className="s-observe-tech-summary-count">
+        {summary.totalCount} {eventLabel}
+      </span>
+      {summary.labels.length > 0 ? (
+        <span className="s-observe-tech-summary-detail">
+          {summary.labels.join(" · ")}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -1207,6 +1234,7 @@ function StreamRow({
   onLaneEventSelect,
   laneToolHover,
   hoverPreviewActive = false,
+  technicalSummary,
 }: {
   event: SessionEvent;
   prevT: number;
@@ -1231,9 +1259,10 @@ function StreamRow({
     sessionOffset?: string;
   }) => LaneToolHoverBindings;
   hoverPreviewActive?: boolean;
+  technicalSummary?: ObserveTechnicalSummary;
 }) {
   const gap = event.t - prevT;
-  const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
+  const accent = technicalSummary ? "var(--dim)" : KIND_COLOR[event.kind] ?? "var(--dim)";
   const rowTime = laneMode
     ? fmtLaneRowTime(event, sessionStartMs, nowMs, preferWallAge)
     : fmtObserveRowTime(event, sessionStartMs);
@@ -1244,7 +1273,7 @@ function StreamRow({
   const sessionGapLabel = !preferWallAge && gap > 15 ? `${fmtGap(gap)} gap` : null;
   const gapLabel = wallGapLabel ?? sessionGapLabel;
 
-  const laneSelectable = laneMode && Boolean(onLaneEventSelect);
+  const laneSelectable = laneMode && Boolean(onLaneEventSelect) && !technicalSummary;
   const rowClass = [
     "s-observe-row",
     `s-observe-row--kind-${event.kind}`,
@@ -1256,6 +1285,7 @@ function StreamRow({
     simpleTool ? "s-observe-row--tool-simple" : "",
     stackedTool ? "s-observe-row--tool-stacked" : "",
     hoverPreviewActive ? "s-observe-row--hover-preview" : "",
+    technicalSummary ? "s-observe-row--tech-summary" : "",
   ].filter(Boolean).join(" ");
 
   const rowBody = (
@@ -1276,21 +1306,27 @@ function StreamRow({
 
       <span className="s-observe-row-bead" style={{ background: accent }} />
 
-      {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
-      {event.kind === "tool" && (
-        <ToolBlock
-          event={event}
-          laneMode={laneMode}
-          simple={simpleTool}
-          wallLabel={simpleTool ? rowTime.label : undefined}
-          wallTitle={simpleTool ? rowTime.title : undefined}
-        />
-      )}
-      {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
-      {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
-      {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
-      {(event.kind === "system" || event.kind === "boot") && (
-        <SystemLine event={event} laneMode={laneMode} />
+      {technicalSummary ? (
+        <TechnicalSummaryLine summary={technicalSummary} />
+      ) : (
+        <>
+          {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
+          {event.kind === "tool" && (
+            <ToolBlock
+              event={event}
+              laneMode={laneMode}
+              simple={simpleTool}
+              wallLabel={simpleTool ? rowTime.label : undefined}
+              wallTitle={simpleTool ? rowTime.title : undefined}
+            />
+          )}
+          {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
+          {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
+          {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
+          {(event.kind === "system" || event.kind === "boot") && (
+            <SystemLine event={event} laneMode={laneMode} />
+          )}
+        </>
       )}
     </>
   );
@@ -1376,6 +1412,7 @@ function ReplayStream({
   onLaneEventSelect,
   laneGutter = "time",
   richSimpleTools = false,
+  collapseTechnicalEvents = false,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
@@ -1389,6 +1426,7 @@ function ReplayStream({
   onLaneEventSelect?: (event: SessionEvent) => void;
   laneGutter?: "time" | "label-time";
   richSimpleTools?: boolean;
+  collapseTechnicalEvents?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -1399,10 +1437,15 @@ function ReplayStream({
   const [streamScrollNudge, setStreamScrollNudge] = useState(false);
 
   const displayRows = useMemo(
-    () => (laneMode
-      ? collapseObserveDisplayRows(events)
-      : events.map((event) => ({ event, repeatCount: 1 }))),
-    [events, laneMode],
+    () => {
+      const rows = laneMode
+        ? collapseObserveDisplayRows(events)
+        : events.map((event) => ({ event, repeatCount: 1 }));
+      return laneMode && collapseTechnicalEvents
+        ? collapseTechnicalObserveDisplayRows(rows)
+        : rows;
+    },
+    [events, laneMode, collapseTechnicalEvents],
   );
 
   useEffect(() => {
@@ -1467,12 +1510,14 @@ function ReplayStream({
       <div className="s-observe-spine" />
       {displayRows.map((row, index) => {
         const prevEvent = index > 0 ? displayRows[index - 1]!.event : null;
+        const prevRow = index > 0 ? displayRows[index - 1] : null;
         const prevWallMs = prevEvent
           ? laneEventWallMs(prevEvent, sessionStartMs)
           : null;
-        const simpleTool = laneMode && !richSimpleTools && isSimpleLaneToolEvent(row.event);
+        const simpleTool = laneMode && !row.technicalSummary && !richSimpleTools && isSimpleLaneToolEvent(row.event);
         const stackedTool = simpleTool
           && prevEvent != null
+          && !prevRow?.technicalSummary
           && isSimpleLaneToolEvent(prevEvent);
         const isInlineFocus = inlineFocusEventId === row.event.id && Boolean(inlineFocusContent);
         const rowEl = (
@@ -1500,6 +1545,7 @@ function ReplayStream({
             onLaneEventSelect={onLaneEventSelect}
             laneToolHover={laneMode ? laneToolHover.bind : undefined}
             hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
+            technicalSummary={row.technicalSummary}
           />
         );
 
@@ -2539,6 +2585,7 @@ export function SessionObserve({
   surface = "scout",
   laneGutter,
   richSimpleTools,
+  laneCollapseTechnicalEvents,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -2552,6 +2599,8 @@ export function SessionObserve({
   laneGutter?: "time" | "label-time";
   /** Lane mode: render bash pills and per-family tool chrome even for single-token commands. */
   richSimpleTools?: boolean;
+  /** Lane mode: collapse low-signal technical rows into turn-level summaries. */
+  laneCollapseTechnicalEvents?: boolean;
   /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
@@ -2781,6 +2830,7 @@ export function SessionObserve({
           onLaneEventSelect={onLaneEventSelect}
           laneGutter={effectiveLaneGutter}
           richSimpleTools={effectiveRichSimpleTools}
+          collapseTechnicalEvents={laneMode && Boolean(laneCollapseTechnicalEvents)}
         />
       </main>
 

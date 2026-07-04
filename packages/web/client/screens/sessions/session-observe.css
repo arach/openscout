@@ -598,6 +598,46 @@
   background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
+.s-observe--lane .s-observe-row--tech-summary {
+  padding-bottom: var(--space-xs);
+}
+
+.s-observe--lane .s-observe-row--tech-summary::before {
+  width: 6px;
+  opacity: 0.6;
+  background: color-mix(in srgb, var(--dim) 42%, transparent);
+}
+
+.s-observe--lane .s-observe-tech-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 34%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--dim);
+}
+
+.s-observe--lane .s-observe-tech-summary-count {
+  flex: none;
+  color: color-mix(in srgb, var(--dim) 72%, var(--accent) 28%);
+  font-weight: 600;
+}
+
+.s-observe--lane .s-observe-tech-summary-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--dim) 82%, transparent);
+}
+
 .s-observe--lane .s-observe-system--lane {
   display: flex;
   flex-direction: column;
@@ -765,29 +805,40 @@
    floated over the surface, a thin left edge, and an unhurried interior rhythm
    so the prompt reads as considered, not alarming. */
 .s-observe--lane .s-observe-ask--lane {
-  border: 1px solid color-mix(in srgb, var(--amber) 14%, transparent);
-  border-left: 2px solid color-mix(in srgb, var(--amber) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 18%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--amber) 58%, transparent);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--amber) 4%, color-mix(in srgb, var(--surface) 40%, transparent));
-  padding: var(--space-sm) var(--space-md) var(--space-sm) var(--space-lg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--amber) 5%, transparent), transparent 70%),
+    color-mix(in srgb, var(--surface) 56%, var(--bg));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent),
+    0 10px 22px rgba(0, 0, 0, 0.14);
+  padding: var(--space-md) var(--space-lg) var(--space-md) var(--space-xl);
 }
 
 .s-observe--lane .s-observe-ask--lane .s-observe-ask-label {
-  margin-bottom: var(--space-2xs);
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: var(--space-xs);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
   font-family: var(--font-sans);
   font-size: var(--text-2xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: none;
-  color: color-mix(in srgb, var(--amber) 44%, var(--muted));
+  color: color-mix(in srgb, var(--amber) 58%, var(--ink));
 }
 
 .s-observe--lane .s-observe-ask--lane .s-observe-ask-title {
-  margin-bottom: var(--space-2xs);
+  margin-bottom: var(--space-xs);
   font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: 500;
-  line-height: 1.4;
+  font-size: var(--text-lg);
+  font-weight: 650;
+  line-height: 1.35;
   letter-spacing: 0;
   color: var(--ink);
   word-break: break-word;
@@ -797,8 +848,8 @@
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: 400;
-  line-height: 1.55;
-  color: color-mix(in srgb, var(--ink) 76%, var(--muted));
+  line-height: 1.58;
+  color: color-mix(in srgb, var(--ink) 82%, var(--muted));
   word-break: break-word;
 }
 
@@ -818,20 +869,18 @@
 }
 
 /* Message rows in lane mode — the quietest speaking row. Agent prose, not a
-   headline: a barely-there surface, a neutral left hairline, and a normal-weight
-   body a shade dimmer than the ask, so an ordinary reply never competes with an
-   incoming prompt. */
+   terminal line: a barely-there surface and normal-weight body a shade dimmer
+   than the ask, so an ordinary reply never competes with a human request. */
 .s-observe--lane .s-observe-message--lane {
   padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-lg);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 30%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ink) 4%, transparent);
-  border-left: 2px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 38%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .s-observe--lane .s-observe-message--lane .s-observe-message-label {
   margin-bottom: var(--space-3xs);
-  color: var(--dim);
+  color: color-mix(in srgb, var(--dim) 76%, var(--accent) 24%);
 }
 
 .s-observe--lane.s-observe--lane-gutter-label .s-observe-message--lane .s-observe-message-label {
@@ -958,11 +1007,19 @@
   word-break: break-word;
 }
 
-.s-observe--lane .s-observe-message-text,
 .s-observe--lane .s-observe-tool-result {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.45;
+}
+
+.s-observe--lane .s-observe-row--kind-tool > .s-observe-row-hover-target,
+.s-observe--lane .s-observe-row--kind-think > .s-observe-block,
+.s-observe--lane .s-observe-row--kind-system > .s-observe-block,
+.s-observe--lane .s-observe-row--kind-boot > .s-observe-block,
+.s-observe--lane .s-observe-row--tech-summary > .s-observe-block {
+  margin-left: var(--space-lg);
+  max-width: calc(100% - var(--space-lg));
 }
 
 .s-observe--lane .s-observe-tool {
@@ -971,9 +1028,6 @@
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  /* A quiet left gutter rule turns each command into a tidy terminal block
-     with a real vertical guide, rather than a floating tinted box. */
-  border-left: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
   background: color-mix(in srgb, var(--surface) 62%, transparent);
   transition: background 140ms ease, border-color 140ms ease;
 }

@@ -23,7 +23,9 @@ const LEADING_AGENTS_BLOCK = /^\s*#\s*AGENTS\.md instructions[^\n]*(?:\n+<INSTRU
 const XML_INSTRUCTIONS_BLOCK = /<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>/gi;
 const ROUTED_TASK_LABEL = /\bask\/Task\s*:\s*([^\n]+)/i;
 const TASK_LABEL = /^(?:#+\s*)?(?:task|request|prompt|goal|user goal|user request|ask)\s*:\s*(.+)$/i;
+const REQUEST_SECTION_HEADING = /^\s*#{1,4}\s*(?:my request(?:\s+for\s+[^:\n]+)?|request|user request)\s*:?\s*$/i;
 const INSTRUCTION_HEADING = /^#?\s*(?:AGENTS\.md instructions|Global Codex Build Hygiene|Agent Instructions)\b/i;
+const FILES_MENTIONED_HEADING = /^#?\s*Files mentioned by the user\s*:?\s*$/i;
 const MARKDOWN_FENCE = /^```/;
 const ROUTING_PREFIX = /^.+?\bask\/Task\s*:\s*/i;
 
@@ -42,6 +44,27 @@ function stripLeadingInstructionBlocks(value: string): string {
   return text.replace(XML_INSTRUCTIONS_BLOCK, "").trim();
 }
 
+function stripFilesMentionedSections(value: string): string {
+  const lines = value.split("\n");
+  const kept: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    if (FILES_MENTIONED_HEADING.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && REQUEST_SECTION_HEADING.test(line)) {
+      skipping = false;
+      kept.push(line);
+      continue;
+    }
+    if (!skipping) kept.push(line);
+  }
+
+  return kept.join("\n").trim();
+}
+
 function cleanLine(value: string): string {
   return value
     .trim()
@@ -56,6 +79,9 @@ function isMeaningfulLine(value: string): boolean {
   if (!line) return false;
   if (MARKDOWN_FENCE.test(line)) return false;
   if (INSTRUCTION_HEADING.test(line)) return false;
+  if (FILES_MENTIONED_HEADING.test(line)) return false;
+  if (REQUEST_SECTION_HEADING.test(line)) return false;
+  if (/^<image\b/i.test(line) || /^<\/image>$/i.test(line)) return false;
   if (/^<\/?INSTRUCTIONS>$/i.test(line)) return false;
   return /[\p{L}\p{N}]/u.test(line);
 }
@@ -75,6 +101,16 @@ function labeledRequest(value: string): string | null {
     const line = cleanLine(raw);
     const match = line.match(TASK_LABEL);
     if (match?.[1]?.trim()) return cleanLine(match[1]);
+  }
+  return null;
+}
+
+function requestSection(value: string): string | null {
+  const lines = value.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!REQUEST_SECTION_HEADING.test(lines[index] ?? "")) continue;
+    const rest = lines.slice(index + 1).join("\n").trim();
+    return rest || null;
   }
   return null;
 }
@@ -103,9 +139,9 @@ function compactParagraph(value: string): string {
 
 function targetLabel(event: Pick<ObserveEvent, "to">): string {
   const to = event.to?.trim();
-  if (!to) return "incoming ask";
-  if (to === "human") return "ask -> operator";
-  return `ask -> ${to}`;
+  if (!to) return "User request";
+  if (to === "human") return "Asked operator";
+  return `Asked ${to}`;
 }
 
 function answerDelayLabel(event: Pick<ObserveEvent, "t" | "answerT">): string | null {
@@ -119,7 +155,10 @@ function answerDelayLabel(event: Pick<ObserveEvent, "t" | "answerT">): string | 
 
 export function buildLaneAskDisplay(event: Pick<ObserveEvent, "text" | "to" | "answer" | "answerT" | "t">): LaneAskDisplayModel {
   const fullText = normalizeText(event.text);
-  const requestText = stripLeadingInstructionBlocks(fullText) || fullText;
+  const strippedText = stripFilesMentionedSections(stripLeadingInstructionBlocks(fullText)) || fullText;
+  const requestText = requestSection(strippedText)
+    ?? requestSection(fullText)
+    ?? strippedText;
   const compactRequest = compactParagraph(requestText) || fullText || "Ask";
   const title = labeledRequest(requestText)
     ?? labeledRequest(fullText)

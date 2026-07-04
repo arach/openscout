@@ -9,6 +9,16 @@ const LANE_BASH_TOOL_NAMES = new Set([
 export type ObserveDisplayRow = {
   event: ObserveEvent;
   repeatCount: number;
+  technicalSummary?: ObserveTechnicalSummary;
+};
+
+export type ObserveTechnicalSummary = {
+  totalCount: number;
+  toolCount: number;
+  thinkCount: number;
+  noteCount: number;
+  systemCount: number;
+  labels: string[];
 };
 
 function normalized(value: string | null | undefined): string {
@@ -172,6 +182,154 @@ export function isSimpleLaneToolEvent(event: ObserveEvent): boolean {
   if (arg && arg !== tool) return false;
   if (/\s/u.test(tool)) return false;
   return tool.length <= 64;
+}
+
+function technicalEventCount(row: ObserveDisplayRow): number {
+  return Math.max(1, row.repeatCount);
+}
+
+function hasProblemOutcome(event: ObserveEvent): boolean {
+  const outcome = event.result?.outcome;
+  if (outcome == null) return false;
+  if (typeof outcome === "number") return outcome !== 0;
+  const normalizedOutcome = outcome.trim().toLowerCase();
+  return normalizedOutcome.length > 0
+    && normalizedOutcome !== "0"
+    && normalizedOutcome !== "ok"
+    && normalizedOutcome !== "success"
+    && normalizedOutcome !== "succeeded"
+    && normalizedOutcome !== "completed";
+}
+
+function isImportantTechnicalEvent(event: ObserveEvent): boolean {
+  if (event.live) return true;
+  if (event.kind === "boot") return true;
+  if (event.kind === "tool") return Boolean(event.diff) || hasProblemOutcome(event);
+  if (event.kind === "note") {
+    const text = event.text.trim().toLowerCase();
+    return text === "turn started"
+      || text === "turn complete"
+      || text === "turn ended"
+      || text === "[turn_started]"
+      || text === "[turn_ended]"
+      || /^turn \d+\b/u.test(text);
+  }
+  if (event.kind === "system") {
+    const text = event.text.trim();
+    return isPermissionRequested(event)
+      || isPermissionResolved(event)
+      || /\b(?:approval|permission|denied|failed|failure|error|exception|aborted|blocked)\b/i.test(text);
+  }
+  return false;
+}
+
+function isCollapsibleTechnicalEvent(event: ObserveEvent): boolean {
+  if (event.kind === "ask" || event.kind === "message") return false;
+  return !isImportantTechnicalEvent(event);
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function technicalSummaryFromRows(rows: ObserveDisplayRow[]): ObserveTechnicalSummary {
+  const counts = {
+    totalCount: 0,
+    toolCount: 0,
+    thinkCount: 0,
+    noteCount: 0,
+    systemCount: 0,
+  };
+
+  for (const row of rows) {
+    const count = technicalEventCount(row);
+    counts.totalCount += count;
+    switch (row.event.kind) {
+      case "tool":
+        counts.toolCount += count;
+        break;
+      case "think":
+        counts.thinkCount += count;
+        break;
+      case "note":
+        counts.noteCount += count;
+        break;
+      case "system":
+      case "boot":
+        counts.systemCount += count;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const labels = [
+    counts.toolCount > 0 ? pluralize(counts.toolCount, "tool") : null,
+    counts.thinkCount > 0 ? pluralize(counts.thinkCount, "reasoning update") : null,
+    counts.noteCount > 0 ? pluralize(counts.noteCount, "turn marker") : null,
+    counts.systemCount > 0 ? pluralize(counts.systemCount, "system event") : null,
+  ].filter((label): label is string => Boolean(label));
+
+  return {
+    ...counts,
+    labels,
+  };
+}
+
+function technicalSummaryText(summary: ObserveTechnicalSummary): string {
+  return summary.labels.length > 0
+    ? summary.labels.join(" · ")
+    : pluralize(summary.totalCount, "technical event");
+}
+
+function collapsedTechnicalRow(rows: ObserveDisplayRow[]): ObserveDisplayRow {
+  const first = rows[0]!.event;
+  const last = rows[rows.length - 1]!.event;
+  const summary = technicalSummaryFromRows(rows);
+  const text = technicalSummaryText(summary);
+  return {
+    event: {
+      ...last,
+      id: `technical-rollup:${first.id}:${last.id}:${summary.totalCount}`,
+      kind: "note",
+      text,
+      detail: text,
+      tool: undefined,
+      arg: undefined,
+      diff: undefined,
+      result: undefined,
+      stream: undefined,
+      answer: undefined,
+      answerT: undefined,
+      to: undefined,
+      live: rows.some((row) => row.event.live),
+    },
+    repeatCount: 1,
+    technicalSummary: summary,
+  };
+}
+
+export function collapseTechnicalObserveDisplayRows(rows: ObserveDisplayRow[]): ObserveDisplayRow[] {
+  const out: ObserveDisplayRow[] = [];
+  let pending: ObserveDisplayRow[] = [];
+
+  const flushPending = () => {
+    if (pending.length === 0) return;
+    out.push(collapsedTechnicalRow(pending));
+    pending = [];
+  };
+
+  for (const row of rows) {
+    if (isCollapsibleTechnicalEvent(row.event)) {
+      pending.push(row);
+      continue;
+    }
+    flushPending();
+    out.push(row);
+  }
+
+  flushPending();
+  return out;
 }
 
 /**

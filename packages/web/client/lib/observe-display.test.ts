@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ObserveEvent } from "./types.ts";
 import {
   collapseObserveDisplayRows,
+  collapseTechnicalObserveDisplayRows,
   isSimpleLaneToolEvent,
   observeEventSignature,
 } from "./observe-display.ts";
@@ -320,5 +321,85 @@ describe("collapseObserveDisplayRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.repeatCount).toBe(2);
     expect(rows[0]?.event.id).toBe("b2");
+  });
+});
+
+describe("collapseTechnicalObserveDisplayRows", () => {
+  test("rolls up technical rows between authored turns", () => {
+    const rows = collapseTechnicalObserveDisplayRows(collapseObserveDisplayRows([
+      observe({ id: "ask", t: 1, kind: "ask", text: "Please improve lanes." }),
+      observe({ id: "turn", t: 2, kind: "note", text: "Turn started" }),
+      observe({ id: "read", t: 3, kind: "tool", tool: "Read", arg: "AgentLanesView.tsx", text: "Read · AgentLanesView.tsx" }),
+      observe({ id: "think-a", t: 4, kind: "think", text: "Find the display layer." }),
+      observe({ id: "think-b", t: 5, kind: "think", text: "Patch the render path." }),
+      observe({ id: "msg", t: 6, kind: "message", text: "I found the lane UI." }),
+    ]));
+
+    expect(rows).toHaveLength(4);
+    expect(rows[0]?.event.kind).toBe("ask");
+    expect(rows[1]?.event.text).toBe("Turn started");
+    expect(rows[2]?.technicalSummary?.totalCount).toBe(3);
+    expect(rows[2]?.technicalSummary?.toolCount).toBe(1);
+    expect(rows[2]?.technicalSummary?.thinkCount).toBe(2);
+    expect(rows[2]?.event.text).toBe("1 tool · 2 reasoning updates");
+    expect(rows[3]?.event.kind).toBe("message");
+  });
+
+  test("rolls up single routine technical rows", () => {
+    const rows = collapseTechnicalObserveDisplayRows(collapseObserveDisplayRows([
+      observe({ id: "ask", t: 1, kind: "ask", text: "Status?" }),
+      observe({ id: "read", t: 2, kind: "tool", tool: "Read", arg: "README.md", text: "Read · README.md" }),
+      observe({ id: "msg", t: 3, kind: "message", text: "Done." }),
+    ]));
+
+    expect(rows).toHaveLength(3);
+    expect(rows[1]?.technicalSummary?.totalCount).toBe(1);
+    expect(rows[1]?.event.text).toBe("1 tool");
+  });
+
+  test("does not hide permission or failure events", () => {
+    const rows = collapseTechnicalObserveDisplayRows(collapseObserveDisplayRows([
+      observe({ id: "ask", t: 1, kind: "ask", text: "Run the check." }),
+      observe({ id: "permission", t: 2, kind: "system", text: "permission requested · Shell" }),
+      observe({
+        id: "failed",
+        t: 3,
+        kind: "tool",
+        tool: "Shell",
+        arg: "npm test",
+        text: "Shell · npm test",
+        result: { outcome: "failed" },
+      }),
+      observe({ id: "note", t: 4, kind: "note", text: "Turn complete" }),
+      observe({ id: "system", t: 5, kind: "system", text: "tokens · 1200" }),
+      observe({ id: "read", t: 6, kind: "tool", tool: "Read", arg: "package.json", text: "Read · package.json" }),
+    ]));
+
+    expect(rows).toHaveLength(5);
+    expect(rows[1]?.event.id).toBe("permission");
+    expect(rows[2]?.event.id).toBe("failed");
+    expect(rows[3]?.event.id).toBe("note");
+    expect(rows[4]?.technicalSummary?.totalCount).toBe(2);
+  });
+
+  test("keeps file-changing tool rows visible", () => {
+    const rows = collapseTechnicalObserveDisplayRows(collapseObserveDisplayRows([
+      observe({ id: "ask", t: 1, kind: "ask", text: "Patch the lane." }),
+      observe({
+        id: "edit",
+        t: 2,
+        kind: "tool",
+        tool: "Edit",
+        arg: "SessionObserve.tsx",
+        text: "Edit · SessionObserve.tsx",
+        diff: { add: 2, del: 1, preview: "+next" },
+      }),
+      observe({ id: "read", t: 3, kind: "tool", tool: "Read", arg: "SessionObserve.tsx", text: "Read · SessionObserve.tsx" }),
+      observe({ id: "system", t: 4, kind: "system", text: "tokens · 1200" }),
+    ]));
+
+    expect(rows).toHaveLength(3);
+    expect(rows[1]?.event.id).toBe("edit");
+    expect(rows[2]?.technicalSummary?.totalCount).toBe(2);
   });
 });

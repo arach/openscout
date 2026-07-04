@@ -855,6 +855,41 @@ describe("sendScoutConversationSteer", () => {
       });
     expect(requests.filter((request) => request.path === "/v1/invocations").map((request) => request.body.targetAgentId))
       .toEqual(["hudson.main.mini"]);
+
+    requests.length = 0;
+    const tellResult = await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "Heads up for Hudson.",
+      targetParticipantIds: ["hudson.main.mini"],
+      intent: "tell",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(tellResult).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.hudson-narrative",
+      invokedTargets: ["hudson.main.mini"],
+      unresolvedTargets: [],
+    });
+    const tellMessagePost = requests.find((request) => request.path === "/v1/messages")?.body;
+    expect(tellMessagePost).toMatchObject({
+      metadata: expect.objectContaining({
+        intent: "tell",
+        relayTargetIds: ["hudson.main.mini"],
+      }),
+    });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({
+        targetAgentId: "hudson.main.mini",
+        labels: ["tell"],
+        metadata: expect.objectContaining({
+          intent: "tell",
+          sourceIntent: "direct_message",
+          relayMessageId: tellMessagePost.id,
+        }),
+      });
   }, 15000);
 
   test("does not steer an offline cardless session participant", async () => {

@@ -50,8 +50,33 @@ Extra context follows here.`);
       answerT: 75,
     }));
 
-    expect(model.label).toBe("ask -> operator");
+    expect(model.label).toBe("Asked operator");
     expect(model.fields).toContainEqual({ label: "answer", value: "1m 5s" });
     expect(model.answer).toEqual({ label: "answered after 1m 5s", text: "Yes" });
+  });
+
+  test("prefers the explicit user request over attachments and project instructions", () => {
+    const model = buildLaneAskDisplay(ask(`# AGENTS.md instructions for /Users/art/dev/openscout
+
+<INSTRUCTIONS>
+# Global Codex Build Hygiene
+
+Do not put DerivedData under /tmp.
+</INSTRUCTIONS>
+
+# Files mentioned by the user:
+
+## Talkie Capture.png: /Users/art/Library/Application Support/Talkie/Screenshots/Talkie Capture.png
+
+## My request for Codex:
+ask claude to come up with a much nicer user message presentation
+
+also let's have a filter on the lanes that collapses technical events in turns (as a toggle of course)`));
+
+    expect(model.label).toBe("User request");
+    expect(model.title).toBe("ask claude to come up with a much nicer user message presentation");
+    expect(model.preview).toContain("filter on the lanes");
+    expect(model.preview).not.toContain("DerivedData");
+    expect(model.preview).not.toContain("Talkie Capture");
   });
 });

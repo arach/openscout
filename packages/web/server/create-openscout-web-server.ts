@@ -7344,7 +7344,12 @@ export async function createOpenScoutWebServer(
       const sendMode = (optionalString(intent)?.trim()
         || optionalString(mode)?.trim()
         || defaultSendModeForConversationSession(routeSession)).toLowerCase();
-      const shouldCommentOnly = sendMode === "comment" || sendMode === "tell" || !messageBody;
+      const isOperatorDirectConversation =
+        routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
+      const shouldCommentOnly =
+        sendMode === "comment"
+        || !messageBody
+        || (sendMode === "tell" && !isOperatorDirectConversation);
       const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
         ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
         : undefined;
@@ -7363,6 +7368,7 @@ export async function createOpenScoutWebServer(
             body: messageBody,
             attachments,
             ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
+            intent: sendMode === "tell" ? "tell" : "steer",
             currentDirectory,
             source: "scout-web",
           });

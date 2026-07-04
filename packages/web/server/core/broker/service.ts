@@ -2232,6 +2232,7 @@ export async function sendScoutConversationSteer(input: {
   attachments?: OutgoingAttachmentInput[];
   replyToMessageId?: string | null;
   targetParticipantIds?: string[];
+  intent?: "steer" | "tell";
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -2248,6 +2249,7 @@ export async function sendScoutConversationSteer(input: {
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const createdAtMs = input.createdAtMs ?? Date.now();
+  const intent = input.intent === "tell" ? "tell" : "steer";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2375,7 +2377,7 @@ export async function sendScoutConversationSteer(input: {
       source: input.source?.trim() || "scout-web",
       destinationKind: "conversation",
       destinationId: conversation.id,
-      intent: "steer",
+      intent,
       relayMessageId: messageId,
       relayTargetIds: targetIds,
       scopedTargets: targetLabels,
@@ -2402,13 +2404,14 @@ export async function sendScoutConversationSteer(input: {
         execution: invocationExecutionForSteer(broker.snapshot, targetActorId),
         ensureAwake: true,
         stream: false,
-        labels: ["steer"],
+        labels: [intent],
         createdAt: Date.now(),
         metadata: {
           source: input.source?.trim() || "scout-web",
           destinationKind: "conversation",
           destinationId: conversation.id,
-          intent: "steer",
+          intent,
+          ...(intent === "tell" ? { sourceIntent: "direct_message" } : {}),
           relayTarget: targetActorId,
           relayTargetIds: targetIds,
           relayMessageId: messageId,

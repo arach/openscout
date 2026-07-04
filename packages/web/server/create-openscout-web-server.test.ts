@@ -1903,7 +1903,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("posts direct DM sends in an existing chatId as messages by default", async () => {
+  test("wakes direct DM sends in an existing chatId as tells by default", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
       agentId: "agent-1",
@@ -1925,16 +1925,17 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationMessageCalls).toEqual([
+    expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.agent-1",
         senderId: expect.any(String),
         body: "Status update",
+        intent: "tell",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
     ]);
-    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
@@ -1967,6 +1968,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.agent-1",
         senderId: "operator",
         body: "Use the existing turn context",
+        intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -1976,7 +1978,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
-  test("posts configured-operator direct DM sends in an existing conversationId by default", async () => {
+  test("wakes configured-operator direct DM sends in an existing conversationId by default", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "arach";
     querySessionByIdImpl = () => ({
       kind: "direct",
@@ -1999,16 +2001,17 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationMessageCalls).toEqual([
+    expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.arach-agent-1",
         senderId: expect.any(String),
         body: "Status update",
+        intent: "tell",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
     ]);
-    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
@@ -2040,6 +2043,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.hudson-narrative",
         senderId: "operator",
         body: "@hudson hi",
+        intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -2811,6 +2815,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.ops",
         senderId: "operator",
         body: "Team update",
+        intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
