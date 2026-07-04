@@ -134,7 +134,7 @@ describe("BrokerWebControlService", () => {
     expect(second.running).toBe(true);
     expect(first.pid).toBe(2468);
     expect(spawns[0]?.command).toBe("/usr/local/bin/bun");
-    expect(spawns[0]?.args).toEqual(["run", "--hot", "/repo/packages/web/server/index.ts"]);
+    expect(spawns[0]?.args).toEqual(["run", "/repo/packages/web/server/index.ts"]);
     expect(spawns[0]?.options.argv0).toBe("scout-web");
     expect(spawns[0]?.options.env).toEqual(expect.objectContaining({
       OPENSCOUT_WEB_HOST: "0.0.0.0",

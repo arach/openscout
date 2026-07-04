@@ -2451,6 +2451,7 @@ export function SessionObserveContextRail({
         <div className="s-observe-rail-label">Interacted agents</div>
         <ObservedTopologyPanel
           topology={metadata?.topology ?? null}
+          sessionId={sessionId ?? metadata?.session?.externalSessionId ?? null}
           size="rail"
           maxAgents={4}
         />
