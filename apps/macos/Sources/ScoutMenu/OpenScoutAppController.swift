@@ -67,22 +67,7 @@ final class OpenScoutAppController: ObservableObject {
         var controlHint: String? = nil
     }
 
-    struct TailscaleViewState: Sendable {
-        var status: String = "checking"
-        var statusLabel: String = "Checking"
-        var statusDetail: String = "Checking Tailscale..."
-        var backendState: String? = nil
-        var dnsName: String? = nil
-        var address: String? = nil
-        var peerCount: Int = 0
-        var onlinePeerCount: Int = 0
-        var health: [String] = []
-        var cliPath: String? = nil
-        var available: Bool = false
-        var running: Bool = false
-        var controlAvailable: Bool = false
-        var controlHint: String? = nil
-    }
+    typealias TailscaleViewState = ScoutAppCore.TailscaleViewState
 
     struct OpenScoutNetworkViewState: Sendable {
         var discoveryEnabled: Bool = false
@@ -120,7 +105,7 @@ final class OpenScoutAppController: ObservableObject {
 
     private let brokerService = BrokerService()
     private let pairingService = PairingService()
-    private let tailscaleService = TailscaleService()
+    private let tailscaleService = ScoutAppCore.TailscaleService()
     private let toolchain = OpenScoutToolchain()
     private var refreshTimer: Timer?
     private var refreshQueued = false

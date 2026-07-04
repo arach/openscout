@@ -141,6 +141,11 @@ public struct TailscaleViewState: Sendable {
     public var running: Bool
     public var controlAvailable: Bool
     public var controlHint: String?
+    public var statusSource: String
+    public var probeFallbackReason: String?
+    public var probeSocketPath: String?
+    public var probeDaemonVersion: String?
+    public var probeGeneratedAtMs: UInt64?
 
     public init(
         status: String = "checking",
@@ -156,7 +161,12 @@ public struct TailscaleViewState: Sendable {
         available: Bool = false,
         running: Bool = false,
         controlAvailable: Bool = false,
-        controlHint: String? = nil
+        controlHint: String? = nil,
+        statusSource: String = "checking",
+        probeFallbackReason: String? = nil,
+        probeSocketPath: String? = nil,
+        probeDaemonVersion: String? = nil,
+        probeGeneratedAtMs: UInt64? = nil
     ) {
         self.status = status
         self.statusLabel = statusLabel
@@ -172,6 +182,11 @@ public struct TailscaleViewState: Sendable {
         self.running = running
         self.controlAvailable = controlAvailable
         self.controlHint = controlHint
+        self.statusSource = statusSource
+        self.probeFallbackReason = probeFallbackReason
+        self.probeSocketPath = probeSocketPath
+        self.probeDaemonVersion = probeDaemonVersion
+        self.probeGeneratedAtMs = probeGeneratedAtMs
     }
 }
 
