@@ -119,12 +119,26 @@ export interface ScoutDeliverAcceptedResponse {
   workItem?: WorkItemRecord;
 }
 
-export interface ScoutDeliverQuestionResponse {
+/**
+ * A routing clarification: delivery was not accepted and the caller is asked to
+ * clarify or re-route the carried {@link ScoutDispatchRecord}. This is unrelated to
+ * the collaboration `question` kind ({@link QuestionRecord}) — the `question` field
+ * here carries the dispatch, and the wire `kind` discriminant stays `"question"` for
+ * backward compatibility.
+ */
+export interface ScoutDeliverClarificationResponse {
   kind: "question";
   accepted: false;
   question: ScoutDispatchRecord;
   remediation?: ScoutDeliveryRemediationAction;
 }
+
+/**
+ * @deprecated Renamed to {@link ScoutDeliverClarificationResponse}. This routing
+ * clarification is distinct from the collaboration `question` kind. Retained as an
+ * alias for backward compatibility.
+ */
+export type ScoutDeliverQuestionResponse = ScoutDeliverClarificationResponse;
 
 export interface ScoutDeliverRejectedResponse {
   kind: "rejected";
@@ -136,5 +150,5 @@ export interface ScoutDeliverRejectedResponse {
 
 export type ScoutDeliverResponse =
   | ScoutDeliverAcceptedResponse
-  | ScoutDeliverQuestionResponse
+  | ScoutDeliverClarificationResponse
   | ScoutDeliverRejectedResponse;
