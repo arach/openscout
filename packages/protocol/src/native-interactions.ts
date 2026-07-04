@@ -11,7 +11,6 @@ export type HarnessNativeInteractionKind =
 
 export type ScoutNativeInteractionTargetKind =
   | "question"
-  | "unblock_request"
   | "work_item"
   | "invocation"
   | "flight"
@@ -48,14 +47,14 @@ export const DEFAULT_HARNESS_NATIVE_INTERACTION_MAPPINGS: readonly HarnessNative
   {
     kind: "question",
     nativeNames: ["ask_user"],
-    scoutTargets: ["question", "unblock_request", "session_projection"],
-    description: "A harness-native user question becomes a Scout question or unblock request.",
+    scoutTargets: ["question", "session_projection"],
+    description: "A harness-native user question becomes a Scout question.",
   },
   {
     kind: "plan_approval",
     nativeNames: ["submit_plan"],
-    scoutTargets: ["unblock_request", "work_item", "session_projection"],
-    description: "A harness-native plan review becomes a Scout approval or review-needed projection.",
+    scoutTargets: ["work_item", "session_projection"],
+    description: "A harness-native plan review becomes a Scout work item or review-needed projection.",
   },
   {
     kind: "task_projection",
@@ -72,8 +71,8 @@ export const DEFAULT_HARNESS_NATIVE_INTERACTION_MAPPINGS: readonly HarnessNative
   {
     kind: "tool_approval",
     nativeNames: ["tool_approval_required"],
-    scoutTargets: ["unblock_request", "session_projection"],
-    description: "A harness-native tool approval becomes a Scout unblock request.",
+    scoutTargets: ["session_projection"],
+    description: "A harness-native tool approval projects into session state.",
   },
   {
     kind: "follow_up",

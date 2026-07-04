@@ -3,8 +3,6 @@ export * from "./time.js";
 export * from "./actors.js";
 export * from "./agent-identity.js";
 export * from "./provisional-agent-names.js";
-export * from "./agent-address.js";
-export * from "./agent-selectors.js";
 export * from "./a2a.js";
 export * from "./scout-agent-card.js";
 export * from "./relay-agent-card.js";
