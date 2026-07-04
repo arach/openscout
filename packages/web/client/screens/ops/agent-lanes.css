@@ -1248,7 +1248,7 @@
   display: flex;
   flex-direction: column;
   overflow-anchor: none;
-  padding-top: var(--space-2xs);
+  padding-top: 0;
 }
 
 .s-agent-lane-stat {

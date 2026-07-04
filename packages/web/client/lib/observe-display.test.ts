@@ -4,7 +4,6 @@ import type { ObserveEvent } from "./types.ts";
 import {
   collapseObserveDisplayRows,
   collapseTechnicalObserveDisplayRows,
-  compactTechnicalObserveDisplayRows,
   isSimpleLaneToolEvent,
   observeEventSignature,
 } from "./observe-display.ts";
@@ -402,73 +401,5 @@ describe("collapseTechnicalObserveDisplayRows", () => {
     expect(rows).toHaveLength(3);
     expect(rows[1]?.event.id).toBe("edit");
     expect(rows[2]?.technicalSummary?.totalCount).toBe(2);
-  });
-});
-
-describe("compactTechnicalObserveDisplayRows", () => {
-  test("groups adjacent routine technical work but keeps authored turns visible", () => {
-    const rows = compactTechnicalObserveDisplayRows(collapseObserveDisplayRows([
-      observe({ id: "msg-a", t: 1, kind: "message", text: "I'll inspect the lane UI." }),
-      observe({ id: "read", t: 2, kind: "tool", tool: "Shell", arg: "sed -n '1,120p' AgentLanesView.tsx", text: "Shell · sed -n '1,120p' AgentLanesView.tsx" }),
-      observe({ id: "rg", t: 3, kind: "tool", tool: "Shell", arg: "rg collapseTechnicalEvents packages/web", text: "Shell · rg collapseTechnicalEvents packages/web" }),
-      observe({ id: "think", t: 4, kind: "think", text: "The switch state lives in the lane." }),
-      observe({ id: "msg-b", t: 5, kind: "message", text: "I found the right layer." }),
-    ]));
-
-    expect(rows).toHaveLength(3);
-    expect(rows[0]?.event.id).toBe("msg-a");
-    expect(rows[1]?.technicalSummary?.totalCount).toBe(3);
-    expect(rows[1]?.event.text).toBe("2 tools · 1 reasoning update");
-    expect(rows[2]?.event.id).toBe("msg-b");
-  });
-
-  test("leaves a single ordinary tool row expanded in work mode", () => {
-    const rows = compactTechnicalObserveDisplayRows(collapseObserveDisplayRows([
-      observe({ id: "msg", t: 1, kind: "message", text: "Checking." }),
-      observe({ id: "status", t: 2, kind: "tool", tool: "Shell", arg: "git status --short", text: "Shell · git status --short" }),
-    ]));
-
-    expect(rows).toHaveLength(2);
-    expect(rows[1]?.event.id).toBe("status");
-    expect(rows[1]?.technicalSummary).toBeUndefined();
-  });
-
-  test("quietens isolated transport breadcrumbs in work mode", () => {
-    const rows = compactTechnicalObserveDisplayRows(collapseObserveDisplayRows([
-      observe({ id: "msg", t: 1, kind: "message", text: "Verifying in the browser." }),
-      observe({ id: "mcp-end", t: 2, kind: "note", text: "mcp_tool_call_end" }),
-    ]));
-
-    expect(rows).toHaveLength(2);
-    expect(rows[1]?.technicalSummary?.totalCount).toBe(1);
-    expect(rows[1]?.event.text).toBe("1 turn marker");
-  });
-
-  test("does not hide permissions, failures, turn boundaries, or diffs", () => {
-    const rows = compactTechnicalObserveDisplayRows(collapseObserveDisplayRows([
-      observe({ id: "permission", t: 1, kind: "system", text: "permission requested · Shell" }),
-      observe({
-        id: "failed",
-        t: 2,
-        kind: "tool",
-        tool: "Shell",
-        arg: "bun test",
-        text: "Shell · bun test",
-        result: { outcome: "failed" },
-      }),
-      observe({ id: "turn", t: 3, kind: "note", text: "Turn complete" }),
-      observe({
-        id: "edit",
-        t: 4,
-        kind: "tool",
-        tool: "Edit",
-        arg: "SessionObserve.tsx",
-        text: "Edit · SessionObserve.tsx",
-        diff: { add: 2, del: 1, preview: "+next" },
-      }),
-    ]));
-
-    expect(rows).toHaveLength(4);
-    expect(rows.map((row) => row.event.id)).toEqual(["permission", "failed", "turn", "edit"]);
   });
 });

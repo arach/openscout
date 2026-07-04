@@ -2,7 +2,7 @@
 
 Follow-up to [`lane-user-message-presentation.md`](./lane-user-message-presentation.md).
 That doc set the **structure** (two registers, amber = human, indent the work
-register, Talk/Work toggle) and most of it shipped in `c4285021`. This pass is
+register, Concise/Details trace density) and most of it shipped in `c4285021`. This pass is
 about the thing that's still off: the speech cards read **flat, grey, and a
 little broken**. It's a *material + content-hygiene* pass, not a re-architecture.
 
@@ -58,17 +58,17 @@ their own. 3 and 4 are the material polish on top.
 
 ## The treatment
 
-Three speaking roles, one restrained system. **No new left bars on the rounded
-cards** (house rule: rounded → focus/eyebrow signals direction, not a left edge —
-the amber ask edge is the one sanctioned exception). Differentiate by **material +
-eyebrow dot + type weight**, not by a picket fence of colored spines.
+Three speaking roles, one restrained system. **No left bars on rounded cards**:
+focus and direction come from material, eyebrow dots, and type weight, not a
+left edge. Differentiate by **material + eyebrow dot + type weight**, not by a
+picket fence of colored spines.
 
 ```
 ┌─────────────────────────────────────────────────────┐   ← User request (amber, the signal)
-│▎ ● you  ask · 1m                                     │     amber left edge (existing, keep)
-│▎ Review OPEN PRs for merge-readiness                 │     title: clamped 2 lines, routing stripped
-│▎ You are doing an adversarial pass over the diff…    │     body: markdown-rendered, dim ink
-│▎                                              ⌄ more │
+│  ● you  ask · 1m                                     │     no rail; material carries emphasis
+│  Review OPEN PRs for merge-readiness                 │     title: clamped 2 lines, routing stripped
+│  You are doing an adversarial pass over the diff…    │     body: markdown-rendered, dim ink
+│                                               ⌄ more │
 └─────────────────────────────────────────────────────┘
 
   ◆ → you · 49s                                            ← Agent reply → operator (accent dot = addressed to you)
@@ -216,8 +216,8 @@ This keeps single-accent discipline (accent only earns the "→ you" dot) and ob
 
 ### 5. User-request card — refine the shipped amber, fix the title
 
-The amber material (`.s-observe-ask--lane`, :807) is good; keep the tint, edge,
-and shadow. Three refinements:
+The amber material (`.s-observe-ask--lane`, :807) is good; keep the tint and
+shadow, but do not use a left rail. Three refinements:
 
 - **Eyebrow = attribution, not "User request."** Render `● you  ask · <time>`
   (or the routed sender `@claude` for a Scout-routed ask) as the pill. The word
@@ -269,13 +269,12 @@ Steps 1–3 are content hygiene (small, high-value, low-risk). 4–6 are the pol
 
 ## Guardrails
 
-- **No new left bars on rounded cards** — direction via eyebrow dot, not spines
-  (amber ask edge is the lone exception). Ref: house rule "no left accent-bar on
-  rounded elements."
+- **No left bars on rounded cards** — direction via material, eyebrow dot, and
+  type, not spines or rails.
 - **Single accent** — the accent hue is spent only on the `→ you` dot; amber only
   on the human ask; `--red` only for genuine errors. No categorical color soup.
 - **Works at SM/MD/LG lane widths** — title clamp and eyebrow must survive narrow
   columns; the snippet already clamps via `laneSnippetText`.
-- **Talk/Work parity** — these are visual-layer changes to the speech register;
-  they don't alter what Talk vs Work includes. Don't regress the collapse toggle.
+- **Concise/Details parity** — these are visual-layer changes to the speech
+  register; Details shows the work, Concise summarizes routine technical rows.
 - **Reduced motion** — the thinking pulse honors `prefers-reduced-motion`.

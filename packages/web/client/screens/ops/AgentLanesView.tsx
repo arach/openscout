@@ -3,11 +3,13 @@ import "./agent-lanes.css";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type UIEvent as ReactUIEvent,
 } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
@@ -71,6 +73,32 @@ import { publishLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts"
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
+const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
+
+type LaneScrollZone = "pinned-left" | "main" | "pinned-right";
+const LANE_SCROLL_ZONES: LaneScrollZone[] = ["pinned-left", "main", "pinned-right"];
+
+function laneScrollStorageKey(profileId: string, zone: LaneScrollZone): string {
+  return `${LANE_SCROLL_STORAGE_PREFIX}:${profileId}:${zone}`;
+}
+
+function readStoredLaneScrollLeft(profileId: string, zone: LaneScrollZone): number {
+  try {
+    const stored = sessionStorage.getItem(laneScrollStorageKey(profileId, zone));
+    const value = stored ? Number.parseFloat(stored) : 0;
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStoredLaneScrollLeft(profileId: string, zone: LaneScrollZone, value: number): void {
+  try {
+    sessionStorage.setItem(laneScrollStorageKey(profileId, zone), String(Math.max(0, Math.round(value))));
+  } catch {
+    // ignore storage failures
+  }
+}
 
 function readStoredHorizon(): AgentLaneHorizonKey {
   try {
@@ -116,6 +144,52 @@ function writeStoredLaneTechnicalRollup(laneId: string, enabled: boolean): void 
   } catch {
     // ignore storage failures
   }
+}
+
+function useLaneScrollMemory(profileId: string, restoreSignature: string) {
+  const nodesRef = useRef(new Map<LaneScrollZone, HTMLDivElement>());
+  const scrollLeftRef = useRef<Partial<Record<LaneScrollZone, number>>>({});
+
+  const restoreZone = useCallback((zone: LaneScrollZone, node = nodesRef.current.get(zone)) => {
+    if (!node) return;
+    const remembered = scrollLeftRef.current[zone] ?? readStoredLaneScrollLeft(profileId, zone);
+    if (remembered <= 0) return;
+    const max = Math.max(0, node.scrollWidth - node.clientWidth);
+    const next = Math.min(remembered, max);
+    if (Math.abs(node.scrollLeft - next) > 1) {
+      node.scrollLeft = next;
+    }
+  }, [profileId]);
+
+  const restoreAll = useCallback(() => {
+    for (const zone of LANE_SCROLL_ZONES) restoreZone(zone);
+  }, [restoreZone]);
+
+  useLayoutEffect(() => {
+    restoreAll();
+    const frame = window.requestAnimationFrame(restoreAll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [profileId, restoreAll, restoreSignature]);
+
+  const setLaneScrollNode = useCallback((zone: LaneScrollZone, node: HTMLDivElement | null) => {
+    if (!node) {
+      nodesRef.current.delete(zone);
+      return;
+    }
+    nodesRef.current.set(zone, node);
+    restoreZone(zone, node);
+  }, [restoreZone]);
+
+  const handleLaneScroll = useCallback((
+    zone: LaneScrollZone,
+    event: ReactUIEvent<HTMLDivElement>,
+  ) => {
+    const value = event.currentTarget.scrollLeft;
+    scrollLeftRef.current[zone] = value;
+    writeStoredLaneScrollLeft(profileId, zone, value);
+  }, [profileId]);
+
+  return { handleLaneScroll, setLaneScrollNode };
 }
 
 function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
@@ -185,7 +259,7 @@ function AgentLaneColumn({
 }) {
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
-  const hasTrace = Boolean(observe && observe.events.length > 0);
+  const hasTrace = Boolean(observe);
   const liveClass = isLive ? " s-agent-lane--live" : "";
   const newClass = isNew ? " s-agent-lane--new" : "";
   // Calm by default: the cockpit overlay starts collapsed (header + status
@@ -442,6 +516,32 @@ export function AgentLanesView({
   );
   const visibleColumns = layout.flat;
   const pinnedCount = layout.pinnedLeft.length + layout.pinnedRight.length;
+  const laneScrollRestoreSignature = useMemo(() => (
+    [
+      layout.pinnedLeft,
+      layout.main,
+      layout.pinnedRight,
+    ].map((columns) => columns.map((column) => `${column.key}:${column.widthPx}`).join(",")).join("/")
+  ), [layout.main, layout.pinnedLeft, layout.pinnedRight]);
+  const { handleLaneScroll, setLaneScrollNode } = useLaneScrollMemory(profileId, laneScrollRestoreSignature);
+  const setPinnedLeftScrollNode = useCallback((node: HTMLDivElement | null) => {
+    setLaneScrollNode("pinned-left", node);
+  }, [setLaneScrollNode]);
+  const setMainScrollNode = useCallback((node: HTMLDivElement | null) => {
+    setLaneScrollNode("main", node);
+  }, [setLaneScrollNode]);
+  const setPinnedRightScrollNode = useCallback((node: HTMLDivElement | null) => {
+    setLaneScrollNode("pinned-right", node);
+  }, [setLaneScrollNode]);
+  const handlePinnedLeftScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    handleLaneScroll("pinned-left", event);
+  }, [handleLaneScroll]);
+  const handleMainScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    handleLaneScroll("main", event);
+  }, [handleLaneScroll]);
+  const handlePinnedRightScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    handleLaneScroll("pinned-right", event);
+  }, [handleLaneScroll]);
 
   // Publish the roster the deck actually rendered — `layout.flat` is exactly the
   // column order on screen (pinned-left → main → pinned-right, with hidden auto
@@ -691,7 +791,13 @@ export function AgentLanesView({
           {layout.pinnedLeft.length > 0 ? (
             <section className="s-agent-lanes-zone s-agent-lanes-zone--pinned-left" aria-label="Pinned lanes">
               <div className="s-agent-lanes-zone-label">Pinned</div>
-              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Pinned agent lanes">
+              <div
+                ref={setPinnedLeftScrollNode}
+                className="s-agent-lanes-scroll"
+                role="listbox"
+                aria-label="Pinned agent lanes"
+                onScroll={handlePinnedLeftScroll}
+              >
                 {layout.pinnedLeft.map((column, index) => renderLaneColumn(column, index))}
               </div>
             </section>
@@ -699,7 +805,13 @@ export function AgentLanesView({
           {layout.main.length > 0 ? (
             <section className="s-agent-lanes-zone s-agent-lanes-zone--main" aria-label="Active lanes">
               {layout.pinnedLeft.length > 0 ? <div className="s-agent-lanes-zone-label">Live</div> : null}
-              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Active agent lanes">
+              <div
+                ref={setMainScrollNode}
+                className="s-agent-lanes-scroll"
+                role="listbox"
+                aria-label="Active agent lanes"
+                onScroll={handleMainScroll}
+              >
                 {layout.main.map((column, index) => renderLaneColumn(column, layout.pinnedLeft.length + index))}
               </div>
             </section>
@@ -707,7 +819,13 @@ export function AgentLanesView({
           {layout.pinnedRight.length > 0 ? (
             <section className="s-agent-lanes-zone s-agent-lanes-zone--pinned-right" aria-label="Pinned right lanes">
               <div className="s-agent-lanes-zone-label">Pinned</div>
-              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Pinned right agent lanes">
+              <div
+                ref={setPinnedRightScrollNode}
+                className="s-agent-lanes-scroll"
+                role="listbox"
+                aria-label="Pinned right agent lanes"
+                onScroll={handlePinnedRightScroll}
+              >
                 {layout.pinnedRight.map((column, index) => renderLaneColumn(
                   column,
                   layout.pinnedLeft.length + layout.main.length + index,

@@ -23,7 +23,6 @@ import type {
 import {
   collapseObserveDisplayRows,
   collapseTechnicalObserveDisplayRows,
-  compactTechnicalObserveDisplayRows,
   isSimpleLaneToolEvent,
   type ObserveTechnicalSummary,
 } from "../../lib/observe-display.ts";
@@ -464,6 +463,20 @@ function LaneExpandableText({
 
 function ThinkBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const text = event.text ?? "";
+  if (laneMode && !event.live) {
+    const snippet = laneSnippetText(text, 120, 1);
+    return (
+      <div className="s-observe-block s-observe-think-compact">
+        <span className="s-observe-think-compact-label">reasoning</span>
+        {snippet ? (
+          <span className="s-observe-think-compact-text" title={text}>
+            {snippet}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={`s-observe-block${laneMode ? " s-observe-think--lane" : ""}`}>
       <div className="s-observe-think-label">thinking</div>
@@ -1030,9 +1043,13 @@ function messageDisplayLabel(event: Pick<SessionEvent, "to">): string | null {
   return `→ ${to}`;
 }
 
+function isLaneThinkingPlaceholderEvent(event: Pick<SessionEvent, "kind" | "text">): boolean {
+  return event.kind === "message" && (event.text ?? "").trim().toLowerCase() === "[thinking]";
+}
+
 function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const rawText = event.text ?? "";
-  const thinking = laneMode && rawText.trim().toLowerCase() === "[thinking]";
+  const thinking = laneMode && isLaneThinkingPlaceholderEvent(event);
   const text = thinking ? "Thinking..." : rawText;
   const label = thinking ? "Agent thinking" : messageDisplayLabel(event);
   return (
@@ -1076,16 +1093,16 @@ function LaneTraceModeToggle({
 }) {
   if (!onChange) return null;
 
-  const label = collapseTechnicalEvents ? "Talk" : "Work";
+  const label = collapseTechnicalEvents ? "Concise" : "Details";
   const title = collapseTechnicalEvents
-    ? "Switch this trace to Work mode"
-    : "Switch this trace to Talk mode";
+    ? "Show detailed trace events"
+    : "Show concise trace summaries";
   const Icon = collapseTechnicalEvents ? MessageCircle : Wrench;
 
   return (
     <label
       className={`s-observe-lane-trace-mode${
-        collapseTechnicalEvents ? " s-observe-lane-trace-mode--talk" : " s-observe-lane-trace-mode--work"
+        collapseTechnicalEvents ? " s-observe-lane-trace-mode--concise" : " s-observe-lane-trace-mode--details"
       }`}
       title={title}
     >
@@ -1483,9 +1500,12 @@ function ReplayStream({
         ? collapseObserveDisplayRows(events)
         : events.map((event) => ({ event, repeatCount: 1 }));
       if (!laneMode) return rows;
+      const visibleRows = rows.filter((row) => (
+        row.event.live || !isLaneThinkingPlaceholderEvent(row.event)
+      ));
       return collapseTechnicalEvents
-        ? collapseTechnicalObserveDisplayRows(rows)
-        : compactTechnicalObserveDisplayRows(rows);
+        ? collapseTechnicalObserveDisplayRows(visibleRows)
+        : visibleRows;
     },
     [events, laneMode, collapseTechnicalEvents],
   );

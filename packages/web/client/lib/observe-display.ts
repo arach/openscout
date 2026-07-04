@@ -228,24 +228,6 @@ function isCollapsibleTechnicalEvent(event: ObserveEvent): boolean {
   return !isImportantTechnicalEvent(event);
 }
 
-function isWorkCompactCandidateEvent(event: ObserveEvent): boolean {
-  if (event.kind === "ask" || event.kind === "message") return false;
-  return !isImportantTechnicalEvent(event);
-}
-
-function isTechnicalBreadcrumbEvent(event: ObserveEvent): boolean {
-  if (event.kind !== "system" && event.kind !== "note" && event.kind !== "tool") {
-    return false;
-  }
-  const text = [
-    event.tool,
-    event.arg,
-    event.text,
-    event.detail,
-  ].map((value) => normalized(value).toLowerCase()).join(" ");
-  return /(?:tool search|tool_search|mcp_tool|mcp tool|tool_call|tool call|tool_output|tool output|patch_apply_end|patch apply end|call_end|call end|call output)/u.test(text);
-}
-
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -339,41 +321,6 @@ export function collapseTechnicalObserveDisplayRows(rows: ObserveDisplayRow[]): 
 
   for (const row of rows) {
     if (isCollapsibleTechnicalEvent(row.event)) {
-      pending.push(row);
-      continue;
-    }
-    flushPending();
-    out.push(row);
-  }
-
-  flushPending();
-  return out;
-}
-
-function shouldCompactWorkRows(rows: ObserveDisplayRow[]): boolean {
-  if (rows.length > 1) return true;
-  const row = rows[0];
-  if (!row) return false;
-  if (technicalEventCount(row) > 1) return true;
-  return isTechnicalBreadcrumbEvent(row.event);
-}
-
-export function compactTechnicalObserveDisplayRows(rows: ObserveDisplayRow[]): ObserveDisplayRow[] {
-  const out: ObserveDisplayRow[] = [];
-  let pending: ObserveDisplayRow[] = [];
-
-  const flushPending = () => {
-    if (pending.length === 0) return;
-    if (shouldCompactWorkRows(pending)) {
-      out.push(collapsedTechnicalRow(pending));
-    } else {
-      out.push(...pending);
-    }
-    pending = [];
-  };
-
-  for (const row of rows) {
-    if (isWorkCompactCandidateEvent(row.event)) {
       pending.push(row);
       continue;
     }
