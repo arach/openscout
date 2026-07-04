@@ -218,6 +218,12 @@ export class PiAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
+    if (typeof Bun === "undefined") {
+      throw new Error(
+        "The pi adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
+      );
+    }
+
     const args = ["--mode", "rpc"];
 
     // Model override.

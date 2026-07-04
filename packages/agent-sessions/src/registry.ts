@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import type {
   Adapter,
   AdapterConfig,
@@ -216,13 +217,14 @@ export class SessionRegistry {
 
   private detectBranch(cwd: string | undefined): string | undefined {
     try {
-      const result = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+      // node:child_process (not Bun.spawnSync) so branch detection works under
+      // plain Node as well as Bun — the registry is a Node+Bun surface.
+      const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
         cwd: cwd ?? process.cwd(),
-        stdout: "pipe",
-        stderr: "pipe",
+        encoding: "utf8",
       });
-      if (result.exitCode === 0) {
-        return new TextDecoder().decode(result.stdout).trim();
+      if (result.status === 0) {
+        return result.stdout.trim();
       }
     } catch {
       // Not a git repo or git unavailable.

@@ -57,6 +57,12 @@ export class OpenCodeAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
+    if (typeof Bun === "undefined") {
+      throw new Error(
+        "The opencode adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
+      );
+    }
+
     // Pick a random port for the server.
     this.serverPort = 10000 + Math.floor(Math.random() * 50000);
     this.serverUrl = `http://127.0.0.1:${this.serverPort}`;

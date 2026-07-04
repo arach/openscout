@@ -101,6 +101,12 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
+    if (typeof Bun === "undefined") {
+      throw new Error(
+        "The Claude Code adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
+      );
+    }
+
     const args = [
       "--print",
       "--input-format", "stream-json",
