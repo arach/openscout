@@ -148,9 +148,9 @@
   },
   {
     "path": "packages/agent-sessions/src/registry.ts",
-    "symbol": "Bun.spawnSync",
+    "symbol": "spawnSync",
     "category": "boot",
-    "reason": "session registry one-shot git branch metadata capture",
+    "reason": "session registry one-shot git branch metadata capture (node:child_process so it works under Node and Bun)",
     "owner": "agent-sessions"
   },
   {

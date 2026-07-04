@@ -217,8 +217,8 @@ export class SessionRegistry {
 
   private detectBranch(cwd: string | undefined): string | undefined {
     try {
-      // node:child_process (not Bun.spawnSync) so branch detection works under
-      // plain Node as well as Bun — the registry is a Node+Bun surface.
+      // node:child_process (not the Bun-only sync spawn) so branch detection
+      // works under plain Node as well as Bun — the registry is a Node+Bun surface.
       const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
         cwd: cwd ?? process.cwd(),
         encoding: "utf8",
