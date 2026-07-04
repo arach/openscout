@@ -1,10 +1,11 @@
 // Adapter interface — the contract any backend must implement to work with
-// Pairing.  An adapter wraps one agent (Claude Code, Codex, Gemini, a browser
-// extension, etc.) and translates its native events into Pairing primitives.
+// the session protocol.  An adapter wraps one agent (Claude Code, Codex,
+// Gemini, a browser extension, etc.) and translates its native events into
+// session protocol primitives.
 //
-// The bridge instantiates adapters and wires their events to the encrypted
-// pipe.  The adapter never touches networking, encryption, or the phone —
-// it only speaks primitives.
+// The embedding runtime instantiates adapters and wires their events to
+// consumers.  The adapter never touches networking or transport — it only
+// speaks primitives.
 
 import type {
   PairingEvent,
@@ -15,11 +16,11 @@ import type {
 } from "./primitives.js";
 
 // ---------------------------------------------------------------------------
-// Adapter configuration — passed by the bridge when instantiating
+// Adapter configuration — passed by the embedding runtime when instantiating
 // ---------------------------------------------------------------------------
 
 export interface AdapterConfig {
-  /** Unique session ID assigned by the bridge. */
+  /** Unique session ID assigned by the embedding runtime. */
   sessionId: string;
   /** Human-readable session name. */
   name?: string;
@@ -68,13 +69,13 @@ export interface Adapter {
 
   /**
    * Shut down the adapter — kill the process, close connections, clean up.
-   * Called when the session is removed or the bridge is shutting down.
+   * Called when the session is removed or the embedding runtime is shutting down.
    */
   shutdown(): Promise<void>;
 
   /**
    * Relay an approval decision to the underlying agent.
-   * Called by the bridge after version validation passes.
+   * Called by the embedding runtime after version validation passes.
    * Adapters that don't support approvals can ignore this (optional).
    */
   decide?(turnId: string, blockId: string, decision: "approve" | "deny", reason?: string): void;
@@ -89,13 +90,13 @@ export interface Adapter {
 }
 
 // ---------------------------------------------------------------------------
-// Adapter factory — how the bridge discovers and instantiates adapters
+// Adapter factory — how the embedding runtime discovers and instantiates adapters
 // ---------------------------------------------------------------------------
 
 /**
- * Each adapter ships as a factory function.  The bridge calls it with config,
- * gets back an Adapter instance.  Adapter authors export this from their
- * package.
+ * Each adapter ships as a factory function.  The embedding runtime calls it
+ * with config, gets back an Adapter instance.  Adapter authors export this
+ * from their package.
  *
  * Example:
  *   export const createAdapter: AdapterFactory = (config) => new ClaudeCodeAdapter(config);
@@ -143,7 +144,7 @@ export abstract class BaseAdapter implements Adapter {
     else if (event === "error") this.errorListeners.delete(listener);
   }
 
-  /** Emit a Pairing event. */
+  /** Emit a session event. */
   protected emit(event: "event", payload: PairingEvent): void;
   protected emit(event: "error", payload: Error): void;
   protected emit(event: string, payload: any): void {
