@@ -27,38 +27,57 @@ private struct ScoutAppIconMark: View {
     let cornerRadius: CGFloat
 
     var body: some View {
-        Group {
-            if let icon = Self.appIcon() {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            } else {
-                Text("S")
-                    .font(HudFont.mono(HudTextSize.base, weight: .bold))
-                    .foregroundStyle(ScoutPalette.bg)
-                    .frame(width: size, height: size)
-                    .background(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(ScoutPalette.accent)
-                    )
-            }
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.black.opacity(0.84))
+            ScoutAppIconLineMark()
+                .padding(max(1.5, size * 0.05))
         }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.22), lineWidth: HudStrokeWidth.thin)
+        )
         .accessibilityLabel("Scout")
     }
+}
 
-    private static func appIcon() -> NSImage? {
-        if let appIconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let image = NSImage(contentsOf: appIconURL) {
-            return image
+private struct ScoutAppIconLineMark: View {
+    var body: some View {
+        Canvas { context, canvasSize in
+            let minSide = min(canvasSize.width, canvasSize.height)
+            let lineWidth = max(1.15, minSide * 0.055)
+            let lineStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .square, lineJoin: .miter)
+            let lineColor = Color.white.opacity(0.94)
+
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: canvasSize.width * x, y: canvasSize.height * y)
+            }
+
+            func hexPath(top: CGFloat, upper: CGFloat, side: CGFloat, lower: CGFloat, bottom: CGFloat) -> Path {
+                var path = Path()
+                path.move(to: point(0.50, top))
+                path.addLine(to: point(upper, side))
+                path.addLine(to: point(upper, lower))
+                path.addLine(to: point(0.50, bottom))
+                path.addLine(to: point(1 - upper, lower))
+                path.addLine(to: point(1 - upper, side))
+                path.closeSubpath()
+                return path
+            }
+
+            context.stroke(
+                hexPath(top: 0.17, upper: 0.81, side: 0.33, lower: 0.67, bottom: 0.83),
+                with: .color(lineColor),
+                style: lineStyle
+            )
+            context.stroke(
+                hexPath(top: 0.34, upper: 0.65, side: 0.43, lower: 0.57, bottom: 0.66),
+                with: .color(lineColor),
+                style: lineStyle
+            )
         }
-
-        if let image = NSImage(named: NSImage.applicationIconName), image.isValid {
-            return image
-        }
-
-        return nil
     }
 }
 #endif
@@ -1432,6 +1451,60 @@ struct ScoutRootView: View {
         pending.draft.instructions.nilIfEmpty ?? "New session started."
     }
 
+    private func readReceipts(for message: ScoutMessage) -> [ScoutReadReceipt] {
+        guard message.isOperator,
+              let messageIndex = store.messages.firstIndex(where: { $0.id == message.id }) else {
+            return []
+        }
+
+        return store.readCursors.compactMap { cursor in
+            guard !isOperatorActor(cursor.actorId),
+                  let readIndex = readIndex(for: cursor),
+                  readIndex >= messageIndex else {
+                return nil
+            }
+            let latestOperatorMessageRead = store.messages[...readIndex].last { $0.isOperator }
+            guard latestOperatorMessageRead?.id == message.id else { return nil }
+            return ScoutReadReceipt(
+                actorId: cursor.actorId,
+                label: readReceiptActorLabel(cursor.actorId),
+                readAt: cursor.lastReadAt
+            )
+        }
+        .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    private func readIndex(for cursor: ScoutReadCursor) -> Int? {
+        if let messageId = cursor.lastReadMessageId?.nilIfEmpty,
+           let index = store.messages.firstIndex(where: { $0.id == messageId }) {
+            return index
+        }
+        return store.messages.lastIndex { message in
+            message.createdAt <= cursor.lastReadAt
+        }
+    }
+
+    private func isOperatorActor(_ actorId: String) -> Bool {
+        let trimmed = actorId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed == "operator" || trimmed == "you"
+    }
+
+    private func readReceiptActorLabel(_ actorId: String) -> String {
+        if let participant = store.selectedChannel?.participants.first(where: { $0.actorId == actorId }) {
+            return participant.label.nilIfEmpty ?? participant.displayName
+        }
+        if let agent = store.agents.first(where: { $0.id == actorId }) {
+            return agent.displayName
+        }
+        return shortReceiptActorId(actorId)
+    }
+
+    private func shortReceiptActorId(_ actorId: String) -> String {
+        let trimmed = actorId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 18 else { return trimmed }
+        return "\(trimmed.prefix(14))..."
+    }
+
     /// The agent backing the open conversation, if any — drives the header's
     /// Observe action.
     private var selectedChannelAgent: ScoutAgent? {
@@ -1455,6 +1528,7 @@ struct ScoutRootView: View {
                             ScoutMessageRow(
                                 message: message,
                                 agent: agent(for: message),
+                                readReceipts: readReceipts(for: message),
                                 baseDirectory: fileBaseDirectory(for: message),
                                 previewAgent: previewAgent,
                                 onNewFromMessage: {

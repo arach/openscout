@@ -125,7 +125,11 @@ private enum ScoutEndpointResolver {
     static func webURLFromEnvironment() -> URL? {
         let env = ProcessInfo.processInfo.environment
 
-        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL", "OPENSCOUT_WEB_PUBLIC_ORIGIN"] {
+        // OPENSCOUT_WEB_PUBLIC_ORIGIN is a server/browser-facing origin. In the
+        // native app it can be an HTTP portal alias such as scout.local, which
+        // WKWebView treats as non-local for ATS. Native clients should use an
+        // explicit client URL or the local service URL from .host-info.
+        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL"] {
             guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !value.isEmpty,
                   let url = httpURL(value) else {

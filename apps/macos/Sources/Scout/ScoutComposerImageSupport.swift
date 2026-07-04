@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import ScoutAppCore
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers

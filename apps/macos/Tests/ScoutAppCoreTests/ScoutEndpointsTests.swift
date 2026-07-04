@@ -45,6 +45,38 @@ final class ScoutEndpointsTests: XCTestCase {
         }
     }
 
+    func testPublicOriginDoesNotOverrideHostInfoForNativeClientLoads() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://127.0.0.1:43110",
+            webURL: "http://127.0.0.1:43120",
+            extraFields: """
+              "ports": {
+                "broker": 43110,
+                "web": 43120
+              },
+              "services": {
+                "web": {
+                  "host": "127.0.0.1",
+                  "port": 43120,
+                  "url": "http://127.0.0.1:43120"
+                }
+              }
+            """
+        )
+
+        withEndpointEnvironment(
+            supportDirectory: supportDirectory,
+            values: ["OPENSCOUT_WEB_PUBLIC_ORIGIN": "http://scout.local"]
+        ) {
+            XCTAssertEqual(ScoutWeb.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutWeb.baseURL().port, 43120)
+        }
+    }
+
     func testHostInfoPrefersLocalBrokerServiceOverAdvertisedMeshURL() throws {
         let supportDirectory = try makeSupportDirectory()
         defer { removeDirectory(supportDirectory) }

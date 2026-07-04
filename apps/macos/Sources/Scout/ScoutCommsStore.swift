@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import ScoutAppCore
+import ScoutCapabilities
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -27,6 +28,10 @@ final class ScoutCommsStore: ObservableObject {
     /// shows progress without opening Observe. Nil when the conversation is idle
     /// (no non-terminal flight).
     @Published private(set) var activeTurn: ScoutActiveTurn?
+    /// Read cursors for the selected conversation, keyed by actor on the broker.
+    /// The UI uses these as read receipts on the latest operator-authored turn
+    /// each participant has reached.
+    @Published private(set) var readCursors: [ScoutReadCursor] = []
     /// cIds that appeared in the latest channels fetch but weren't in the prior
     /// one — drives the list's one-shot "new conversation" reveal.
     @Published private(set) var newChannelIds: Set<String> = []
@@ -44,6 +49,7 @@ final class ScoutCommsStore: ObservableObject {
     private var selectedAgentNameHint: String?
     private var attemptedInitialChannelsLoad = false
     private var readCursorTask: Task<Void, Never>?
+    private var readCursorsTask: Task<Void, Never>?
     private var activeTurnTask: Task<Void, Never>?
     /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
     /// reactive advance against the steady-state poll re-firing the same POST on
@@ -119,6 +125,7 @@ final class ScoutCommsStore: ObservableObject {
         agentsTask?.cancel()
         observeTask?.cancel()
         readCursorTask?.cancel()
+        readCursorsTask?.cancel()
         activeTurnTask?.cancel()
         channelsTask = nil
         channelsRequestId = nil
@@ -126,6 +133,7 @@ final class ScoutCommsStore: ObservableObject {
         agentsTask = nil
         observeTask = nil
         readCursorTask = nil
+        readCursorsTask = nil
         activeTurnTask = nil
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
@@ -142,6 +150,7 @@ final class ScoutCommsStore: ObservableObject {
         }
         if let selectedCId {
             loadActiveTurn(cId: selectedCId)
+            loadReadCursors(cId: selectedCId)
         }
     }
 
@@ -153,12 +162,14 @@ final class ScoutCommsStore: ObservableObject {
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
         messages = []
+        readCursors = []
         // Drop the prior conversation's in-flight row immediately so it can't
         // flash on the new thread; the fire-now fetch repopulates if this one
         // is mid-turn rather than waiting for the next poll tick.
         activeTurn = nil
         loadActiveTurn(cId: resolvedCId)
         loadMessages()
+        loadReadCursors(cId: resolvedCId)
         // Opening a conversation reads it. Fire immediately (timestamp-based) so
         // unread clears even before the message list lands; loadMessages() will
         // re-advance to the exact latest id once messages arrive.
@@ -173,8 +184,10 @@ final class ScoutCommsStore: ObservableObject {
         if selectedCId != resolvedCId {
             selectedCId = resolvedCId
             messages = []
+            readCursors = []
             activeTurn = nil
             loadMessages()
+            loadReadCursors(cId: resolvedCId)
             markConversationRead(cId: resolvedCId)
         }
         loadActiveTurn(cId: resolvedCId)
@@ -189,7 +202,11 @@ final class ScoutCommsStore: ObservableObject {
         if let cId = agent.conversationId ?? channels.first(where: { $0.agentId == agent.id })?.cId {
             let isNewSelection = selectedCId != cId
             selectedCId = cId
+            if isNewSelection {
+                readCursors = []
+            }
             loadMessages()
+            loadReadCursors(cId: cId)
             if isNewSelection {
                 markConversationRead(cId: cId)
             }
@@ -201,6 +218,13 @@ final class ScoutCommsStore: ObservableObject {
         messagesTask?.cancel()
         messagesTask = Task { [weak self] in
             await self?.loadMessages(cId: selectedCId)
+        }
+    }
+
+    func loadReadCursors(cId: String) {
+        readCursorsTask?.cancel()
+        readCursorsTask = Task { [weak self] in
+            await self?.fetchReadCursors(cId: cId)
         }
     }
 
@@ -226,12 +250,17 @@ final class ScoutCommsStore: ObservableObject {
         lastAdvancedReadCursor = dedupKey
 
         readCursorTask?.cancel()
-        readCursorTask = Task { [latestId] in
-            await ScoutCommsClient().advanceReadCursor(
+        readCursorTask = Task { [weak self, latestId] in
+            let client = ScoutCommsClient()
+            await client.advanceReadCursor(
                 cId: cId,
                 lastReadMessageId: latestId,
                 lastReadSeq: nil
             )
+            await MainActor.run {
+                guard let self, self.selectedCId == cId else { return }
+                self.loadReadCursors(cId: cId)
+            }
         }
     }
 
@@ -268,15 +297,7 @@ final class ScoutCommsStore: ObservableObject {
             // Upload images first and turn each into a link-backed attachment.
             // We want the blob present before the message lands, so the agent's
             // first fetch succeeds — so this completes before /api/send.
-            var attachments: [[String: String]] = []
-            for image in images {
-                let uploaded = try await uploadImage(image)
-                attachments.append([
-                    "mediaType": uploaded.mediaType,
-                    "url": uploaded.url,
-                    "fileName": uploaded.fileName ?? image.fileName,
-                ])
-            }
+            let attachments = try await ScoutAttachmentUploadService.uploadAll(images)
 
             let url = ScoutWeb.baseURL().appending(path: "api/send")
             var request = URLRequest(url: url)
@@ -288,7 +309,7 @@ final class ScoutCommsStore: ObservableObject {
                 "conversationId": selectedCId,
             ]
             if !attachments.isEmpty {
-                payload["attachments"] = attachments
+                payload["attachments"] = attachments.map(Self.attachmentPayload)
             }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -302,24 +323,6 @@ final class ScoutCommsStore: ObservableObject {
             guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
-    }
-
-    /// Push an image to the ephemeral blob route and get back a fetchable URL.
-    private func uploadImage(_ image: ScoutComposerImage) async throws -> ScoutBlobUploadResponse {
-        let url = ScoutWeb.baseURL().appending(path: "api/blobs")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "data": image.data.base64EncodedString(),
-            "mediaType": image.mediaType,
-            "fileName": image.fileName,
-        ])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ScoutCommsError.sendFailed
-        }
-        return try decoder.decode(ScoutBlobUploadResponse.self, from: data)
     }
 
     /// Publish only what changed. Steady-state polls fetch byte-identical data;
@@ -457,10 +460,24 @@ final class ScoutCommsStore: ObservableObject {
             // the exact latest message id; the dedup key keeps the steady-state
             // poll (which also calls loadMessages) from re-POSTing every beat.
             markConversationRead(cId: cId, latest: next.last)
+            loadReadCursors(cId: cId)
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
+        }
+    }
+
+    private func fetchReadCursors(cId: String) async {
+        defer { readCursorsTask = nil }
+        do {
+            let next = try await ScoutCommsClient().fetchReadCursors(cId: cId)
+            guard selectedCId == cId else { return }
+            setIfChanged(next, to: \.readCursors)
+        } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            guard selectedCId == cId else { return }
+            setIfChanged([], to: \.readCursors)
         }
     }
 
@@ -529,11 +546,15 @@ final class ScoutCommsStore: ObservableObject {
         }
 
         var detail: String?
+        var activity: [ScoutTurnActivityItem] = []
         if let agentId = agentId?.nilIfEmpty {
             let observeURL = base.appending(path: "api/agents/\(agentId)/observe")
             if let payload = try? await fetch(ScoutObservePayload.self, from: observeURL),
                payload.data.live {
                 detail = payload.data.events.last.flatMap(Self.activeTurnDetailLine)
+                activity = Array(payload.data.events
+                    .compactMap(Self.activeTurnActivityItem)
+                    .suffix(4))
             }
             guard selectedCId == cId else { return }
         }
@@ -543,7 +564,8 @@ final class ScoutCommsStore: ObservableObject {
                 agentName: agentName,
                 state: live.state,
                 summary: live.summary?.nilIfEmpty,
-                detail: detail
+                detail: detail,
+                activity: activity
             ),
             to: \.activeTurn
         )
@@ -566,6 +588,55 @@ final class ScoutCommsStore: ObservableObject {
         }
     }
 
+    private static func activeTurnActivityItem(_ event: ScoutObserveEvent) -> ScoutTurnActivityItem? {
+        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tool = event.tool?.nilIfEmpty
+        switch event.kind {
+        case .tool:
+            let title = tool.map { "Running \($0)" } ?? "Using tool"
+            return ScoutTurnActivityItem(
+                id: event.id,
+                kind: "tool",
+                title: title,
+                detail: text.nilIfEmpty,
+                timestamp: event.t
+            )
+        case .think:
+            return ScoutTurnActivityItem(
+                id: event.id,
+                kind: "think",
+                title: "Thinking",
+                detail: text.nilIfEmpty,
+                timestamp: event.t
+            )
+        case .ask:
+            return ScoutTurnActivityItem(
+                id: event.id,
+                kind: "ask",
+                title: "Waiting for input",
+                detail: text.nilIfEmpty,
+                timestamp: event.t
+            )
+        case .message:
+            return ScoutTurnActivityItem(
+                id: event.id,
+                kind: "message",
+                title: "Composing reply",
+                detail: text.nilIfEmpty,
+                timestamp: event.t
+            )
+        default:
+            guard let detail = text.nilIfEmpty else { return nil }
+            return ScoutTurnActivityItem(
+                id: event.id,
+                kind: "activity",
+                title: "Activity",
+                detail: detail,
+                timestamp: event.t
+            )
+        }
+    }
+
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse else {
@@ -575,6 +646,23 @@ final class ScoutCommsStore: ObservableObject {
             throw ScoutCommsError.httpStatus(http.statusCode)
         }
         return try decoder.decode(type, from: data)
+    }
+
+    private static func attachmentPayload(_ attachment: MessageAttachment) -> [String: String] {
+        var payload: [String: String] = [
+            "id": attachment.id,
+            "mediaType": attachment.mediaType,
+        ]
+        if let fileName = attachment.fileName?.nilIfEmpty {
+            payload["fileName"] = fileName
+        }
+        if let blobKey = attachment.blobKey?.nilIfEmpty {
+            payload["blobKey"] = blobKey
+        }
+        if let url = attachment.url?.nilIfEmpty {
+            payload["url"] = url
+        }
+        return payload
     }
 
     private static func userFacingError(_ error: Error) -> String {
@@ -600,20 +688,4 @@ enum ScoutCommsError: LocalizedError {
             return "Scout send failed."
         }
     }
-}
-
-/// An image staged in the composer, ready to upload as an attachment. Holds
-/// raw bytes (not an NSImage) so it stays Sendable across the upload task.
-struct ScoutComposerImage: Identifiable, Sendable {
-    let id = UUID()
-    let data: Data
-    let mediaType: String
-    let fileName: String
-}
-
-/// Response from POST /api/blobs — the link-backed attachment to send.
-struct ScoutBlobUploadResponse: Decodable {
-    let url: String
-    let mediaType: String
-    let fileName: String?
 }

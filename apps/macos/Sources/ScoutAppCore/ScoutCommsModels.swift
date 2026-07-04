@@ -229,6 +229,7 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
     public let createdAt: TimeInterval
     public let messageClass: String
     public let replyToMessageId: String?
+    public let attachments: [MessageAttachment]
     public let metadata: ScoutMessageMetadata?
 
     public var isOperator: Bool {
@@ -245,6 +246,7 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         case createdAt
         case messageClass = "class"
         case replyToMessageId
+        case attachments
         case metadata
     }
 
@@ -263,7 +265,45 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         ) ?? 0
         messageClass = try c.decodeIfPresent(String.self, forKey: .messageClass) ?? "message"
         replyToMessageId = try c.decodeIfPresent(String.self, forKey: .replyToMessageId)
+        attachments = try c.decodeIfPresent([MessageAttachment].self, forKey: .attachments) ?? []
         metadata = try c.decodeIfPresent(ScoutMessageMetadata.self, forKey: .metadata)
+    }
+}
+
+public struct ScoutReadCursor: Identifiable, Decodable, Sendable, Equatable {
+    public let conversationId: String
+    public let actorId: String
+    public let readerNodeId: String?
+    public let lastReadMessageId: String?
+    public let lastReadSeq: Int?
+    public let lastReadAt: TimeInterval
+    public let updatedAt: TimeInterval
+
+    public var id: String { "\(conversationId)\u{0}\(actorId)" }
+
+    enum CodingKeys: String, CodingKey {
+        case conversationId
+        case actorId
+        case readerNodeId
+        case lastReadMessageId
+        case lastReadSeq
+        case lastReadAt
+        case updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversationId = try c.decode(String.self, forKey: .conversationId)
+        actorId = try c.decode(String.self, forKey: .actorId)
+        readerNodeId = try c.decodeIfPresent(String.self, forKey: .readerNodeId)
+        lastReadMessageId = try c.decodeIfPresent(String.self, forKey: .lastReadMessageId)
+        lastReadSeq = try c.decodeIfPresent(Int.self, forKey: .lastReadSeq)
+        lastReadAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .lastReadAt)
+        ) ?? 0
+        updatedAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
+        ) ?? 0
     }
 }
 
