@@ -48,6 +48,8 @@ import {
 } from "../../lib/terminal-relay.ts";
 import {
   fetchTerminalSessions,
+  compactTerminalName,
+  compactTerminalPath,
   resolveRegisteredTerminalTarget,
   surfaceKey,
   terminalConditionLabel,
@@ -117,6 +119,10 @@ type RegisteredTerminalTileModel = {
 };
 
 type TerminalWorkspaceTileModel = FreshTerminalTileModel | RegisteredTerminalTileModel;
+type TerminalHomeListItem = ReturnType<typeof terminalListItems>[number];
+type TerminalInventoryRow =
+  | { id: string; kind: "session"; item: TerminalHomeListItem; matchingAgent: Agent | null; updatedAt: number }
+  | { id: string; kind: "agent"; agent: Agent; updatedAt: number };
 
 function useTerminalSessionsTarget(
   terminalSessionId: string | undefined,
@@ -244,6 +250,7 @@ function useTerminalRelaySession(params: {
     relayUrl,
     harness: registeredTarget?.session.harness ?? agent?.harness,
     cwd,
+    mode,
   });
   const [handoffState, setHandoffState] = useState<HandoffState>({ state: "idle" });
 
@@ -256,6 +263,7 @@ function useTerminalRelaySession(params: {
     ...(binding.orphanTTL ? { orphanTTL: binding.orphanTTL } : {}),
     ...(binding.cwd ? { cwd: binding.cwd } : {}),
     ...(binding.relayAgent ? { agent: binding.relayAgent } : {}),
+    controlMode: binding.controlMode,
   } as Parameters<typeof useTerminalRelay>[0]);
 
   useBrowserLayoutEffect(() => {
@@ -848,6 +856,7 @@ function TerminalRelayCanvas({
         <TerminalRelay
           relay={session.terminalRelay}
           fontSize={13}
+          readOnly={session.readOnly}
           quiet
           configItems={[
             ...(session.terminalSurface
@@ -986,6 +995,7 @@ function openTerminalRouteExternally(route: TerminalRoute, navigate: TerminalNav
 
 function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const { agents } = useScout();
+  const showContextMenu = useContextMenu();
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
   const [tiles, setTiles] = useState<TerminalWorkspaceTileModel[]>([]);
   const [workspaceReload, setWorkspaceReload] = useState(0);
@@ -1025,16 +1035,24 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   }, [loadSessions]);
 
   const terminalItems = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
-  const attachableItems = useMemo(
+  const liveTerminalItems = useMemo(
     () => terminalItems.filter((item) => item.surface.state !== "exited"),
     [terminalItems],
   );
+  const attachableItems = useMemo(
+    () => liveTerminalItems,
+    [liveTerminalItems],
+  );
   const terminalAgents = useMemo(() => sortTerminalAgents(agents), [agents]);
+  const inventoryRows = useMemo(
+    () => buildTerminalInventoryRows(liveTerminalItems, terminalAgents),
+    [liveTerminalItems, terminalAgents],
+  );
   const boundAgentCount = useMemo(
     () => terminalAgents.filter((agent) => resolveAgentTerminalSurface(agent)).length,
     [terminalAgents],
   );
-  const liveTerminalCount = terminalItems.filter((item) => item.surface.state !== "exited").length;
+  const liveTerminalCount = liveTerminalItems.length;
   const sessionError = state.state === "failed" ? state.error : null;
 
   useEffect(() => {
@@ -1209,39 +1227,43 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
         )}
 
         <div className="s-term-workspace-dock">
-          <section className="s-term-home-section" aria-labelledby="terminal-workspace-sessions">
+          <section className="s-term-home-section" aria-labelledby="terminal-workspace-inventory">
             <div className="s-term-home-section-head">
-              <h2 id="terminal-workspace-sessions">Live Sessions</h2>
-              <span>{state.state === "loading" ? "syncing" : `${terminalItems.length}`}</span>
+              <h2 id="terminal-workspace-inventory">Terminals</h2>
+              <span>{state.state === "loading" ? "syncing" : `${inventoryRows.length}`}</span>
             </div>
-            <div className="s-term-home-list">
-              {terminalItems.length === 0 && state.state !== "loading" ? (
+            <div className="s-term-data-table s-term-data-table--inventory" role="table">
+              <div className="s-term-data-header" role="row">
+                <span role="columnheader">Terminal</span>
+                <span role="columnheader">Agent</span>
+                <span role="columnheader">Project</span>
+                <span role="columnheader">Context</span>
+                <span role="columnheader">Running</span>
+                <span role="columnheader">Updated</span>
+                <span role="columnheader">Actions</span>
+              </div>
+              {inventoryRows.length === 0 && state.state !== "loading" ? (
                 <div className="s-term-home-empty">No registered terminals</div>
               ) : (
-                terminalItems.map((item) => (
-                  <TerminalHomeSessionRow
-                    key={item.id}
-                    item={item}
-                    navigate={navigate}
-                    onAttach={attachRegisteredTarget}
-                  />
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="s-term-home-section" aria-labelledby="terminal-workspace-agents">
-            <div className="s-term-home-section-head">
-              <h2 id="terminal-workspace-agents">Agents</h2>
-              <span>{terminalAgents.length}</span>
-            </div>
-            <div className="s-term-home-list">
-              {terminalAgents.length === 0 ? (
-                <div className="s-term-home-empty">No known agents</div>
-              ) : (
-                terminalAgents.map((agent) => (
-                  <TerminalHomeAgentRow key={agent.id} agent={agent} navigate={navigate} />
-                ))
+                inventoryRows.map((row) =>
+                  row.kind === "session" ? (
+                    <TerminalHomeSessionRow
+                      key={row.id}
+                      item={row.item}
+                      matchingAgent={row.matchingAgent}
+                      navigate={navigate}
+                      showContextMenu={showContextMenu}
+                      onAttach={attachRegisteredTarget}
+                    />
+                  ) : (
+                    <TerminalHomeAgentRow
+                      key={row.id}
+                      agent={row.agent}
+                      navigate={navigate}
+                      showContextMenu={showContextMenu}
+                    />
+                  )
+                )
               )}
             </div>
           </section>
@@ -1311,6 +1333,7 @@ function FreshTerminalWorkspaceTile({
     ...(tile.backend === "zellij" && tile.sessionName ? { zellijSession: tile.sessionName } : {}),
     ...(tile.backend === "zellij" && tile.zellijSocketDir ? { zellijSocketDir: tile.zellijSocketDir } : {}),
     agent: tile.agent,
+    controlMode: "takeover",
   } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
 
   useBrowserLayoutEffect(() => {
@@ -1442,49 +1465,109 @@ function RegisteredTerminalWorkspaceTile({
 
 function TerminalHomeSessionRow({
   item,
+  matchingAgent,
   navigate,
+  showContextMenu,
   onAttach,
 }: {
-  item: ReturnType<typeof terminalListItems>[number];
+  item: TerminalHomeListItem;
+  matchingAgent: Agent | null;
   navigate: TerminalNavigate;
+  showContextMenu: (event: ReactMouseEvent, items: MenuItem[]) => void;
   onAttach?: (target: RegisteredTerminalTarget) => void;
 }) {
-  const routeBase = {
+  const routeBase: TerminalRoute = {
     view: "terminal" as const,
     terminalSessionId: item.session.id,
     terminalSurfaceKey: surfaceKey(item.surface),
   };
+  const project = matchingAgent ? terminalAgentProject(matchingAgent) : item.project;
+  const projectDetail = matchingAgent
+    ? matchingAgent.branch ?? (compactTerminalPath(matchingAgent.cwd ?? matchingAgent.projectRoot) || "no workspace path")
+    : item.cwdLabel || (item.origin === "backend" ? "no cwd reported" : "no workspace path");
+  const context = matchingAgent
+    ? terminalAgentContext(matchingAgent)
+    : { kind: item.contextKind, value: item.contextValue };
+  const contextTitle = `${context.kind}: ${context.value}`;
+  const runningDetail = terminalItemRunningDetail(item, matchingAgent);
+  const ownerName = matchingAgent?.name ?? (item.origin === "backend" ? "Standalone" : item.session.harness ?? "Scout");
+  const ownerSub = matchingAgent?.handle
+    ? `@${matchingAgent.handle}`
+    : matchingAgent?.id ?? (item.origin === "backend" ? `${item.surface.backend} session` : item.origin);
+  const ownerTitle = matchingAgent
+    ? `${matchingAgent.name}${matchingAgent.handle ? ` @${matchingAgent.handle}` : ""}`
+    : item.origin === "backend"
+      ? "Backend discovery"
+      : item.session.harness ?? "Scout session";
+  const updatedAt = maxTimestamp(item.session.updatedAt, matchingAgent?.updatedAt);
+  const updated = formatTableTime(updatedAt);
+  const actionItems: MenuItem[] = [
+    ...(onAttach
+      ? [
+          {
+            kind: "action" as const,
+            label: "Add Tile",
+            onSelect: () => onAttach(registeredTargetFromListItem(item)),
+          },
+          { kind: "separator" as const },
+        ]
+      : []),
+    {
+      kind: "action",
+      label: "Observe Read-only",
+      onSelect: () => navigate(withTerminalMode(routeBase, "observe")),
+    },
+    {
+      kind: "action",
+      label: "Open Summary",
+      onSelect: () => navigate(routeBase),
+    },
+    {
+      kind: "action",
+      label: "Open In New Window",
+      onSelect: () => openTerminalRouteExternally({ ...routeBase, mode: "takeover" }, navigate),
+    },
+  ];
 
   return (
-    <div className="s-term-home-row">
+    <div className="s-term-data-row" role="row">
       <button
         type="button"
-        className="s-term-home-row-main"
+        className="s-term-data-cell s-term-data-primary"
+        role="cell"
         onClick={() => navigate(routeBase)}
       >
-        <span className="s-term-home-row-icon">
+        <span className="s-term-home-row-icon" aria-hidden>
           <TerminalIcon size={15} strokeWidth={1.8} />
         </span>
         <span className="s-term-home-row-copy">
           <span className="s-term-home-row-title">{item.title}</span>
-          <span className="s-term-home-row-detail" title={item.detail}>{item.detail || item.session.sourceSessionId}</span>
+          <span className="s-term-home-row-detail" title={item.surface.sessionName}>{item.surface.sessionName}</span>
         </span>
+      </button>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={ownerTitle}>{ownerName}</span>
+        <span className="s-term-data-sub" title={matchingAgent?.id ?? ownerSub}>{ownerSub}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={project}>{project}</span>
+        <span className="s-term-data-sub" title={projectDetail}>{projectDetail}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-kicker">{context.kind}</span>
+        <span className="s-term-data-main" title={contextTitle}>{compactReference(context.value)}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
         <span className="s-term-home-row-badges">
           <span>{item.surface.backend}</span>
           <span>{item.condition}</span>
         </span>
-      </button>
-      <div className="s-term-home-row-actions">
-        {onAttach && (
-          <button
-            type="button"
-            className="s-term-summary-action"
-            onClick={() => onAttach(registeredTargetFromListItem(item))}
-          >
-            <Plus size={13} strokeWidth={1.8} />
-            <span>Tile</span>
-          </button>
-        )}
+        <span className="s-term-data-sub" title={runningDetail}>{runningDetail}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={formatTableDate(updatedAt)}>{updated}</span>
+      </div>
+      <div className="s-term-home-row-actions" role="cell">
         <button
           type="button"
           className="s-term-summary-action s-term-summary-action--primary"
@@ -1495,11 +1578,12 @@ function TerminalHomeSessionRow({
         </button>
         <button
           type="button"
-          className="s-term-summary-action"
-          onClick={() => navigate(withTerminalMode(routeBase, "observe"))}
+          className="s-term-summary-action s-term-row-more"
+          onClick={(event) => showContextMenu(event, actionItems)}
+          title="More terminal actions"
+          aria-label="More terminal actions"
         >
-          <Eye size={13} strokeWidth={1.8} />
-          <span>Observe</span>
+          <MoreHorizontal size={14} strokeWidth={1.8} />
         </button>
       </div>
     </div>
@@ -1509,50 +1593,95 @@ function TerminalHomeSessionRow({
 function TerminalHomeAgentRow({
   agent,
   navigate,
+  showContextMenu,
 }: {
   agent: Agent;
   navigate: TerminalNavigate;
+  showContextMenu: (event: ReactMouseEvent, items: MenuItem[]) => void;
 }) {
   const terminalSurface = resolveAgentTerminalSurface(agent);
-  const routeBase = { view: "terminal" as const, agentId: agent.id };
-  const detail = terminalAgentDetail(agent);
+  if (!terminalSurface) return null;
+
+  const routeBase: TerminalRoute = { view: "terminal" as const, agentId: agent.id };
+  const takeoverRoute: TerminalRoute = { ...routeBase, mode: "takeover" };
+  const observeRoute: TerminalRoute = { ...routeBase, mode: "observe" };
+  const project = terminalAgentProject(agent);
+  const projectDetail = agent.branch ?? (compactTerminalPath(agent.cwd ?? agent.projectRoot) || "no workspace path");
+  const context = terminalAgentContext(agent);
+  const terminalTitle = compactTerminalName(terminalSurface.sessionName);
+  const runtimeDetail = [agent.harness, agent.model ?? agent.transport].filter(Boolean).join(" · ")
+    || agentStateLabel(agent.state);
+  const updated = formatTableTime(agent.updatedAt);
+  const actionItems: MenuItem[] = [
+    {
+      kind: "action",
+      label: "Observe Read-only",
+      onSelect: () => navigate(observeRoute),
+    },
+    {
+      kind: "action",
+      label: "Open In New Window",
+      onSelect: () => openTerminalRouteExternally(takeoverRoute, navigate),
+    },
+  ];
 
   return (
-    <div className="s-term-home-row">
+    <div className="s-term-data-row" role="row">
       <button
         type="button"
-        className="s-term-home-row-main"
-        onClick={() => navigate(withTerminalMode(routeBase, "takeover"))}
+        className="s-term-data-cell s-term-data-primary"
+        role="cell"
+        onClick={() => navigate(takeoverRoute)}
       >
-        <span className={`s-term-agent-dot${terminalSurface ? " s-term-agent-dot--bound" : ""}`} aria-hidden />
-        <span className="s-term-home-row-copy">
-          <span className="s-term-home-row-title">{agent.name}</span>
-          <span className="s-term-home-row-detail" title={detail}>{detail}</span>
+        <span className="s-term-home-row-icon" aria-hidden>
+          <TerminalIcon size={15} strokeWidth={1.8} />
         </span>
-        <span className="s-term-home-row-badges">
-          <span>{terminalSurface?.backend ?? agent.harness ?? "agent"}</span>
-          <span>{terminalSurface ? "bound" : agentStateLabel(agent.state)}</span>
+        <span className="s-term-home-row-copy">
+          <span className="s-term-home-row-title" title={terminalSurface.sessionName}>{terminalTitle}</span>
+          <span className="s-term-home-row-detail" title={terminalSurface.sessionName}>{terminalSurface.sessionName}</span>
         </span>
       </button>
-      <div className="s-term-home-row-actions">
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={agent.name}>{agent.name}</span>
+        <span className="s-term-data-sub" title={agent.id}>{agent.handle ? `@${agent.handle}` : agent.id}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={project}>{project}</span>
+        <span className="s-term-data-sub" title={projectDetail}>{projectDetail}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-kicker">{context.kind}</span>
+        <span className="s-term-data-main" title={context.value}>{compactReference(context.value)}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-home-row-badges">
+          <span>{terminalSurface.backend}</span>
+          <span>bound</span>
+        </span>
+        <span className="s-term-data-sub" title={runtimeDetail}>{runtimeDetail}</span>
+      </div>
+      <div className="s-term-data-cell" role="cell">
+        <span className="s-term-data-main" title={formatTableDate(agent.updatedAt)}>{updated}</span>
+        <span className="s-term-data-sub">{agentStateLabel(agent.state)}</span>
+      </div>
+      <div className="s-term-home-row-actions" role="cell">
         <button
           type="button"
           className="s-term-summary-action s-term-summary-action--primary"
-          onClick={() => navigate(withTerminalMode(routeBase, "takeover"))}
+          onClick={() => navigate(takeoverRoute)}
         >
           <LogIn size={13} strokeWidth={1.8} />
           <span>Enter</span>
         </button>
-        {terminalSurface && (
-          <button
-            type="button"
-            className="s-term-summary-action"
-            onClick={() => navigate(withTerminalMode(routeBase, "observe"))}
-          >
-            <Eye size={13} strokeWidth={1.8} />
-            <span>Observe</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="s-term-summary-action s-term-row-more"
+          onClick={(event) => showContextMenu(event, actionItems)}
+          title="More terminal actions"
+          aria-label="More terminal actions"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.8} />
+        </button>
       </div>
     </div>
   );
@@ -1567,6 +1696,45 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function buildTerminalInventoryRows(items: TerminalHomeListItem[], agents: Agent[]): TerminalInventoryRow[] {
+  const representedAgentIds = new Set<string>();
+  const rows: TerminalInventoryRow[] = items.map((item) => {
+    const matchingAgent = findTerminalItemAgent(item, agents);
+    if (matchingAgent) representedAgentIds.add(matchingAgent.id);
+    return {
+      id: `session:${item.id}`,
+      kind: "session",
+      item,
+      matchingAgent,
+      updatedAt: maxTimestamp(item.session.updatedAt, matchingAgent?.updatedAt),
+    };
+  });
+
+  for (const agent of agents) {
+    if (representedAgentIds.has(agent.id)) continue;
+    const terminalSurface = resolveAgentTerminalSurface(agent);
+    if (!terminalSurface) continue;
+    rows.push({
+      id: `agent:${agent.id}:${terminalSurface.backend}:${terminalSurface.sessionName}`,
+      kind: "agent",
+      agent,
+      updatedAt: maxTimestamp(agent.updatedAt),
+    });
+  }
+
+  return rows.sort((a, b) => {
+    const updatedRank = b.updatedAt - a.updatedAt;
+    if (updatedRank !== 0) return updatedRank;
+    return terminalInventorySortLabel(a).localeCompare(terminalInventorySortLabel(b));
+  });
+}
+
+function terminalInventorySortLabel(row: TerminalInventoryRow): string {
+  if (row.kind === "session") return `${row.item.title} ${row.matchingAgent?.name ?? ""}`;
+  const surface = resolveAgentTerminalSurface(row.agent);
+  return `${surface?.sessionName ?? ""} ${row.agent.name}`;
+}
+
 function sortTerminalAgents(agents: Agent[]): Agent[] {
   return [...agents]
     .filter((agent) => !agent.retiredFromFleet)
@@ -1579,18 +1747,97 @@ function sortTerminalAgents(agents: Agent[]): Agent[] {
     });
 }
 
-function terminalAgentDetail(agent: Agent): string {
-  const workspace = agent.project
-    ?? basename(agent.cwd)
+function findTerminalItemAgent(item: TerminalHomeListItem, agents: Agent[]): Agent | null {
+  const itemSurfaceKey = surfaceKey(item.surface);
+  const bySurface = agents.find((agent) => {
+    const surface = resolveAgentTerminalSurface(agent);
+    return surface ? `${surface.backend}:${surface.sessionName}` === itemSurfaceKey : false;
+  });
+  if (bySurface) return bySurface;
+
+  const aliases = new Set([
+    item.session.id,
+    item.session.sourceSessionId,
+    item.surface.sessionName,
+  ].map((value) => value.trim()).filter(Boolean));
+  return agents.find((agent) =>
+    [
+      agent.harnessSessionId,
+      agent.conversationId,
+      agent.terminalSurface?.sessionName,
+    ].some((value) => value && aliases.has(value))
+  ) ?? null;
+}
+
+function terminalItemRunningDetail(item: TerminalHomeListItem, matchingAgent: Agent | null): string {
+  const command = terminalMetadataString(item.session.metadata, "currentCommand");
+  const path = compactTerminalPath(terminalMetadataString(item.session.metadata, "currentPath"));
+  if (command && path) return `${command} in ${path}`;
+  if (command) return `running ${command}`;
+  if (matchingAgent?.handle) return `owned by @${matchingAgent.handle}`;
+  if (matchingAgent) return `owned by ${matchingAgent.name}`;
+  if (item.surface.paneId) return `pane ${item.surface.paneId}`;
+  const windows = terminalMetadataNumber(item.session.metadata, "windows");
+  if (windows !== null) return `${windows} window${windows === 1 ? "" : "s"}`;
+  return `${item.surface.backend} surface`;
+}
+
+function maxTimestamp(...values: Array<number | null | undefined>): number {
+  return values.reduce((current, value) => {
+    return typeof value === "number" && Number.isFinite(value) && value > current ? value : current;
+  }, 0);
+}
+
+function terminalMetadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function terminalMetadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function terminalAgentProject(agent: Agent): string {
+  return agent.project
     ?? basename(agent.projectRoot)
+    ?? basename(agent.cwd)
+    ?? agent.workspaceQualifier
     ?? agent.definitionId;
-  const parts = [
-    agent.handle ? `@${agent.handle}` : null,
-    agent.harness,
-    workspace,
-    agent.branch,
-  ].filter(Boolean);
-  return parts.join(" · ");
+}
+
+function terminalAgentContext(agent: Agent): { kind: string; value: string } {
+  if (agent.conversationId) return { kind: "conversation", value: agent.conversationId };
+  if (agent.harnessSessionId) return { kind: "session", value: agent.harnessSessionId };
+  if (agent.terminalSurface?.sessionName) return { kind: "terminal", value: agent.terminalSurface.sessionName };
+  if (agent.nodeQualifier) return { kind: "node", value: agent.nodeQualifier };
+  return { kind: "agent", value: agent.id };
+}
+
+function compactReference(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return "n/a";
+  if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(trimmed)) return trimmed.slice(0, 8);
+  if (trimmed.length <= 34) return trimmed;
+  return `${trimmed.slice(0, 22)}...${trimmed.slice(-8)}`;
+}
+
+function formatTableTime(ts: number | null | undefined): string {
+  if (!ts) return "unknown";
+  const deltaMs = Date.now() - ts;
+  const absDeltaMs = Math.abs(deltaMs);
+  if (absDeltaMs < 60_000) return "now";
+  if (deltaMs > 0 && deltaMs < 60 * 60_000) return `${Math.floor(deltaMs / 60_000)}m ago`;
+  if (deltaMs > 0 && deltaMs < 24 * 60 * 60_000) return `${Math.floor(deltaMs / (60 * 60_000))}h ago`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(ts));
+}
+
+function formatTableDate(ts: number | null | undefined): string {
+  if (!ts) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(ts));
 }
 
 function basename(path: string | null | undefined): string | null {
@@ -1633,6 +1880,7 @@ function NewTerminalSession({
     ...(backend === "zellij" && sessionName ? { zellijSession: sessionName } : {}),
     ...(backend === "zellij" && route.zellijSocketDir ? { zellijSocketDir: route.zellijSocketDir } : {}),
     agent,
+    controlMode: "takeover",
   } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
 
   useBrowserLayoutEffect(() => {

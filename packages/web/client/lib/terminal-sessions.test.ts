@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { TerminalSessionRecord } from "@openscout/protocol";
-import { resolveRegisteredTerminalTarget } from "./terminal-sessions.ts";
+import {
+  compactTerminalPath,
+  resolveRegisteredTerminalTarget,
+  terminalListItems,
+} from "./terminal-sessions.ts";
 
 function terminalSession(
   id: string,
@@ -52,5 +56,33 @@ describe("terminal session resolution", () => {
 
     expect(target?.session.id).toBe("discovered.zellij.1");
     expect(target?.surface.sessionName).toBe("hudson-dm79928c");
+  });
+});
+
+describe("terminal list metadata", () => {
+  test("surfaces project and thread context for table rows", () => {
+    const [item] = terminalListItems([{
+      ...terminalSession("ts.context", "tmux", "relay-openscout-main-arts-mac-mini-local-claude"),
+      harness: "claude",
+      sourceSessionId: "source-session-1",
+      cwd: "/Users/art/dev/openscout",
+      metadata: {
+        project: "OpenScout",
+        threadId: "thread-123",
+        currentCommand: "claude",
+        currentPath: "/Users/art/dev/openscout",
+      },
+    }]);
+
+    expect(item?.project).toBe("OpenScout");
+    expect(item?.contextKind).toBe("thread");
+    expect(item?.contextValue).toBe("thread-123");
+    expect(item?.cwdLabel).toBe("dev/openscout");
+    expect(item?.searchable).toContain("thread-123");
+    expect(item?.searchable).toContain("claude");
+  });
+
+  test("derives compact cwd labels", () => {
+    expect(compactTerminalPath("/Users/art/dev/openscout/")).toBe("dev/openscout");
   });
 });

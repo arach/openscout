@@ -28,6 +28,8 @@ type TmuxSessionInfo = {
   name: string;
   windows: number;
   attached: number;
+  currentCommand: string | null;
+  currentPath: string | null;
 };
 
 type ZellijSessionInfo = {
@@ -61,6 +63,7 @@ async function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: S
       backend: "tmux",
       name: session.name,
       state: "live",
+      cwd: session.currentPath ?? "",
       surface: {
         backend: "tmux",
         sessionName: session.name,
@@ -79,6 +82,8 @@ async function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: S
         registryState: "discovered",
         attachedClients: session.attached,
         windows: session.windows,
+        currentCommand: session.currentCommand,
+        currentPath: session.currentPath,
       },
     }));
 }
@@ -121,12 +126,16 @@ export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, windows, attached] = line.includes("|") ? line.split("|") : line.split("\t");
+      const [name, windows, attached, currentCommand, currentPath] = line.includes("|")
+        ? splitDelimitedLine(line, "|", 5)
+        : splitDelimitedLine(line, "\t", 5);
       if (!name) return null;
       return {
         name,
         windows: parsePositiveInteger(windows, 1),
         attached: parsePositiveInteger(attached, 0),
+        currentCommand: cleanOptionalString(currentCommand),
+        currentPath: cleanOptionalString(currentPath),
       };
     })
     .filter((session): session is TmuxSessionInfo => Boolean(session));
@@ -157,6 +166,7 @@ function discoveredRecordFromSurface(input: {
   backend: TerminalBackend;
   name: string;
   state: TerminalSurfaceState;
+  cwd?: string;
   surface: TerminalSurface;
   metadata: Record<string, unknown>;
 }): DiscoveredTerminalSession {
@@ -166,13 +176,24 @@ function discoveredRecordFromSurface(input: {
     id,
     harness: input.backend,
     sourceSessionId: input.name,
-    cwd: "",
+    cwd: input.cwd ?? "",
     resumeCommand: input.surface.attachCommand.join(" "),
     surfaces: [input.surface],
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata,
   };
+}
+
+function cleanOptionalString(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function splitDelimitedLine(line: string, delimiter: "|" | "\t", fieldCount: number): string[] {
+  const parts = line.split(delimiter);
+  if (parts.length <= fieldCount) return parts;
+  return [...parts.slice(0, fieldCount - 1), parts.slice(fieldCount - 1).join(delimiter)];
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
