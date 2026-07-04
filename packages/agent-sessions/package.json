@@ -1,97 +1,141 @@
 {
   "name": "@openscout/agent-sessions",
   "version": "0.2.73",
-  "private": true,
   "description": "Browser-safe session boundary for OpenScout agent sessions",
+  "license": "MIT",
   "type": "module",
+  "author": "Arach Tchoupani",
+  "homepage": "https://github.com/arach/openscout/tree/main/packages/agent-sessions#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arach/openscout.git",
+    "directory": "packages/agent-sessions"
+  },
+  "bugs": {
+    "url": "https://github.com/arach/openscout/issues"
+  },
+  "keywords": [
+    "openscout",
+    "agent-sessions",
+    "agents",
+    "observability",
+    "claude-code",
+    "codex",
+    "acp",
+    "session-replay",
+    "typescript"
+  ],
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.ts",
       "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./client": {
-      "types": "./src/client.ts",
       "bun": "./src/client.ts",
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
       "default": "./dist/client.js"
     },
     "./local": {
-      "types": "./src/local/index.ts",
       "bun": "./src/local/index.ts",
+      "types": "./dist/local/index.d.ts",
+      "import": "./dist/local/index.js",
       "default": "./dist/local/index.js"
     },
     "./adapters/acp": {
-      "types": "./src/adapters/acp/index.ts",
       "bun": "./src/adapters/acp/index.ts",
+      "types": "./dist/adapters/acp/index.d.ts",
+      "import": "./dist/adapters/acp/index.js",
       "default": "./dist/adapters/acp/index.js"
     },
     "./adapters/claude-code": {
-      "types": "./src/adapters/claude-code/index.ts",
       "bun": "./src/adapters/claude-code/index.ts",
+      "types": "./dist/adapters/claude-code/index.d.ts",
+      "import": "./dist/adapters/claude-code/index.js",
       "default": "./dist/adapters/claude-code/index.js"
     },
     "./adapters/claude-code/team-topology": {
-      "types": "./src/adapters/claude-code/team-topology.ts",
       "bun": "./src/adapters/claude-code/team-topology.ts",
+      "types": "./dist/adapters/claude-code/team-topology.d.ts",
+      "import": "./dist/adapters/claude-code/team-topology.js",
       "default": "./dist/adapters/claude-code/team-topology.js"
     },
     "./adapters/claude-code/workflow-topology": {
-      "types": "./src/adapters/claude-code/workflow-topology.ts",
       "bun": "./src/adapters/claude-code/workflow-topology.ts",
+      "types": "./dist/adapters/claude-code/workflow-topology.d.ts",
+      "import": "./dist/adapters/claude-code/workflow-topology.js",
       "default": "./dist/adapters/claude-code/workflow-topology.js"
     },
     "./adapters/codex": {
-      "types": "./src/adapters/codex/index.ts",
       "bun": "./src/adapters/codex/index.ts",
+      "types": "./dist/adapters/codex/index.d.ts",
+      "import": "./dist/adapters/codex/index.js",
       "default": "./dist/adapters/codex/index.js"
     },
     "./adapters/codex/topology": {
-      "types": "./src/adapters/codex/topology.ts",
       "bun": "./src/adapters/codex/topology.ts",
+      "types": "./dist/adapters/codex/topology.d.ts",
+      "import": "./dist/adapters/codex/topology.js",
       "default": "./dist/adapters/codex/topology.js"
     },
     "./adapters/echo": {
-      "types": "./src/adapters/echo/index.ts",
       "bun": "./src/adapters/echo/index.ts",
+      "types": "./dist/adapters/echo/index.d.ts",
+      "import": "./dist/adapters/echo/index.js",
       "default": "./dist/adapters/echo/index.js"
     },
     "./adapters/grok-acp": {
-      "types": "./src/adapters/grok-acp/index.ts",
       "bun": "./src/adapters/grok-acp/index.ts",
+      "types": "./dist/adapters/grok-acp/index.d.ts",
+      "import": "./dist/adapters/grok-acp/index.js",
       "default": "./dist/adapters/grok-acp/index.js"
     },
     "./adapters/openai-compat": {
-      "types": "./src/adapters/openai-compat/index.ts",
       "bun": "./src/adapters/openai-compat/index.ts",
+      "types": "./dist/adapters/openai-compat/index.d.ts",
+      "import": "./dist/adapters/openai-compat/index.js",
       "default": "./dist/adapters/openai-compat/index.js"
     },
     "./adapters/opencode": {
-      "types": "./src/adapters/opencode/index.ts",
       "bun": "./src/adapters/opencode/index.ts",
+      "types": "./dist/adapters/opencode/index.d.ts",
+      "import": "./dist/adapters/opencode/index.js",
       "default": "./dist/adapters/opencode/index.js"
     },
     "./adapters/pi": {
-      "types": "./src/adapters/pi/index.ts",
       "bun": "./src/adapters/pi/index.ts",
+      "types": "./dist/adapters/pi/index.d.ts",
+      "import": "./dist/adapters/pi/index.js",
       "default": "./dist/adapters/pi/index.js"
     },
     "./codex-executable": {
-      "types": "./src/codex-executable.ts",
       "bun": "./src/codex-executable.ts",
+      "types": "./dist/codex-executable.d.ts",
+      "import": "./dist/codex-executable.js",
       "default": "./dist/codex-executable.js"
     },
     "./protocol/primitives": {
-      "types": "./src/protocol/primitives.ts",
       "bun": "./src/protocol/primitives.ts",
+      "types": "./dist/protocol/primitives.d.ts",
+      "import": "./dist/protocol/primitives.js",
       "default": "./dist/protocol/primitives.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "files": [
-    "src",
     "dist",
-    "README.md"
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",

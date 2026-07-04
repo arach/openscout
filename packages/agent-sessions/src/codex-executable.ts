@@ -70,7 +70,7 @@ function uniqueCandidates(candidates: CandidateInput[]): CandidateInput[] {
   return unique;
 }
 
-function codexAppBundleCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
+function codexAppBundleCandidates(env: Record<string, string | undefined>): CandidateInput[] {
   const candidates: CandidateInput[] = [
     {
       path: "/Applications/Codex.app/Contents/Resources/codex",
@@ -84,7 +84,7 @@ function codexAppBundleCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
   return candidates.filter((candidate) => candidate.path.trim().length > 0);
 }
 
-function pathCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
+function pathCandidates(env: Record<string, string | undefined>): CandidateInput[] {
   return (env.PATH ?? "")
     .split(delimiter)
     .filter(Boolean)
@@ -94,7 +94,7 @@ function pathCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
     }));
 }
 
-function commonCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
+function commonCandidates(env: Record<string, string | undefined>): CandidateInput[] {
   return [
     `${env.HOME ?? ""}/.local/bin`,
     `${env.HOME ?? ""}/.bun/bin`,
@@ -109,7 +109,7 @@ function commonCandidates(env: NodeJS.ProcessEnv): CandidateInput[] {
 }
 
 export function resolveCodexExecutableCandidateInputs(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): CandidateInput[] {
   const explicit: CandidateInput[] = [];
   if (env.OPENSCOUT_CODEX_BIN) {
@@ -129,7 +129,7 @@ export function resolveCodexExecutableCandidateInputs(
 }
 
 export function resolveCodexExecutableCandidates(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): string[] {
   return resolveCodexExecutableCandidateInputs(env).map((candidate) => candidate.path);
 }
@@ -201,7 +201,7 @@ function selectCodexCandidate(candidates: CodexExecutableCandidate[]): CodexExec
 }
 
 export function resolveCodexExecutableInventory(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): CodexExecutableInventory {
   const candidates = resolveCodexExecutableCandidateInputs(env).map((candidate) => {
     const executable = isExecutable(candidate.path);
@@ -221,6 +221,6 @@ export function resolveCodexExecutableInventory(
   };
 }
 
-export function resolveCodexExecutable(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveCodexExecutable(env: Record<string, string | undefined> = process.env): string {
   return resolveCodexExecutableInventory(env).selectedPath;
 }

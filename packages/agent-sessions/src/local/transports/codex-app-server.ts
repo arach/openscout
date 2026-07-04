@@ -85,7 +85,7 @@ export type CodexAppServerSessionOptions = {
   logsDirectory: string;
   env?: Record<string, string | undefined>;
   /** Final child-process environment. When omitted, process.env plus env overrides is used. */
-  processEnv?: NodeJS.ProcessEnv;
+  processEnv?: Record<string, string | undefined>;
   launchArgs?: string[];
   approvalPolicy?: CodexAppServerApprovalPolicy;
   sandbox?: CodexAppServerSandboxMode;
@@ -133,7 +133,7 @@ export class CodexAppServerExitError extends Error {
 
   readonly exitCode: number | null;
 
-  readonly signal: NodeJS.Signals | null;
+  readonly signal: string | null;
 
   readonly reason: string | null;
 
@@ -143,7 +143,7 @@ export class CodexAppServerExitError extends Error {
     agentName: string;
     exitKind?: CodexAppServerExitKind;
     exitCode: number | null;
-    signal: NodeJS.Signals | null;
+    signal: string | null;
     reason?: string | null;
   }) {
     const exitKind: CodexAppServerExitKind = input.exitKind ?? (input.signal === "SIGTERM" || input.exitCode === 143
@@ -189,7 +189,7 @@ function codexAppServerExitMessage(input: {
   agentName: string;
   exitKind: CodexAppServerExitKind;
   exitCode: number | null;
-  signal: NodeJS.Signals | null;
+  signal: string | null;
   reason?: string | null;
 }): string {
   if (input.exitKind === "proactive_shutdown") {
@@ -442,7 +442,7 @@ function waitForRequesterResult<T>(
     return promise;
   }
 
-  let timer: NodeJS.Timeout | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<T>((_resolve, reject) => {
     timer = setTimeout(() => {
       reject(new CodexAppServerRequesterTimeoutError({ label, timeoutMs: effectiveTimeoutMs }));
@@ -486,10 +486,10 @@ function normalizeEnvironmentOverrides(env: Record<string, string | undefined> |
 }
 
 function mergeEnvironmentOverrides(
-  baseEnv: NodeJS.ProcessEnv,
+  baseEnv: Record<string, string | undefined>,
   overrides: Record<string, string | undefined> | undefined,
-): NodeJS.ProcessEnv {
-  const merged: NodeJS.ProcessEnv = { ...baseEnv };
+): Record<string, string | undefined> {
+  const merged: Record<string, string | undefined> = { ...baseEnv };
   if (!overrides) {
     return merged;
   }
@@ -1199,7 +1199,7 @@ export class CodexAppServerTransport {
     child: ChildProcessWithoutNullStreams,
     shutdown: ProactiveCodexAppServerShutdown,
     code: number | null,
-    signal: NodeJS.Signals | null,
+    signal: string | null,
   ): void {
     if (this.process === child) {
       this.process = null;
@@ -1297,7 +1297,7 @@ type ActiveTurn = {
   watchers: Array<{
     resolve: (output: string) => void;
     reject: (error: Error) => void;
-    timer: NodeJS.Timeout | null;
+    timer: ReturnType<typeof setTimeout> | null;
   }>;
 };
 

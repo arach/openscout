@@ -46,7 +46,7 @@ function ancestorChain(start: string): string[] {
 
 function resolveExecutableFromSearchPath(
   names: string[],
-  env: NodeJS.ProcessEnv,
+  env: Record<string, string | undefined>,
 ): string | null {
   const pathEntries = (env.PATH ?? "")
     .split(delimiter)
@@ -70,7 +70,7 @@ function resolveExecutableFromSearchPath(
   return null;
 }
 
-function resolveBunExecutable(env: NodeJS.ProcessEnv): string | null {
+function resolveBunExecutable(env: Record<string, string | undefined>): string | null {
   const explicitCandidates = [
     env.OPENSCOUT_BUN_BIN,
     env.SCOUT_BUN_BIN,
@@ -90,7 +90,7 @@ function resolveBunExecutable(env: NodeJS.ProcessEnv): string | null {
   return resolveExecutableFromSearchPath(["bun"], env);
 }
 
-function resolveScoutExecutable(env: NodeJS.ProcessEnv): string | null {
+function resolveScoutExecutable(env: Record<string, string | undefined>): string | null {
   const explicitCandidates = [
     env.OPENSCOUT_CLI_BIN,
     env.SCOUT_CLI_BIN,
@@ -123,14 +123,14 @@ function resolveRepoScoutScript(currentDirectory: string): string | null {
   return null;
 }
 
-function resolveContextRoot(currentDirectory: string, env: NodeJS.ProcessEnv): string {
+function resolveContextRoot(currentDirectory: string, env: Record<string, string | undefined>): string {
   const configured = env.OPENSCOUT_SETUP_CWD?.trim();
   return resolve(configured || currentDirectory);
 }
 
 function resolveScoutMcpCommand(options: {
   currentDirectory: string;
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string | undefined>;
 }): ScoutMcpCommand | null {
   const env = options.env ?? process.env;
   const contextRoot = resolveContextRoot(options.currentDirectory, env);
@@ -159,7 +159,7 @@ function resolveScoutMcpCommand(options: {
 
 export function buildScoutMcpCodexLaunchArgs(options: {
   currentDirectory: string;
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string | undefined>;
 }): string[] {
   const resolved = resolveScoutMcpCommand(options);
   if (!resolved) {
