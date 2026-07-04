@@ -1,4 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { MessageCircle, Wrench } from "lucide-react";
 
 import type { AgentLaneWidthTier } from "./lane-deck.ts";
 
@@ -9,7 +10,9 @@ export function AgentLaneChrome({
   width,
   defaultWidth,
   pinned,
+  collapseTechnicalEvents,
   onTogglePin,
+  onToggleTechnicalRollup,
   onWidthChange,
   onResizeStart,
   resizing,
@@ -18,12 +21,19 @@ export function AgentLaneChrome({
   width: AgentLaneWidthTier | number | undefined;
   defaultWidth: AgentLaneWidthTier;
   pinned: boolean;
+  collapseTechnicalEvents: boolean;
   onTogglePin: () => void;
+  onToggleTechnicalRollup: (enabled: boolean) => void;
   onWidthChange: (width: AgentLaneWidthTier) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   resizing?: boolean;
 }) {
   const activeTier = typeof width === "string" ? width : defaultWidth;
+  const traceModeLabel = collapseTechnicalEvents ? "Talk" : "Work";
+  const traceModeTitle = collapseTechnicalEvents
+    ? "Switch to Work mode for this lane"
+    : "Switch to Talk mode for this lane";
+  const TraceModeIcon = collapseTechnicalEvents ? MessageCircle : Wrench;
 
   return (
     <div className={`s-agent-lane-chrome${resizing ? " s-agent-lane-chrome--resizing" : ""}`}>
@@ -56,6 +66,23 @@ export function AgentLaneChrome({
             </button>
           ))}
         </div>
+        <label
+          className={`s-agent-lane-chrome-tech-toggle${
+            collapseTechnicalEvents ? " s-agent-lane-chrome-tech-toggle--talk" : " s-agent-lane-chrome-tech-toggle--work"
+          }`}
+          title={traceModeTitle}
+        >
+          <input
+            type="checkbox"
+            checked={collapseTechnicalEvents}
+            onChange={(event) => onToggleTechnicalRollup(event.currentTarget.checked)}
+            aria-label={traceModeTitle}
+          />
+          <TraceModeIcon className="s-agent-lane-chrome-tech-icon" size={12} strokeWidth={1.8} aria-hidden="true" />
+          <span className="s-agent-lane-chrome-tech-label">
+            {traceModeLabel}
+          </span>
+        </label>
       </div>
       <div
         role="separator"

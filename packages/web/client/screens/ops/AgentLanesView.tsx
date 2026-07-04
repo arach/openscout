@@ -70,6 +70,7 @@ import { publishLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts"
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
+const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 
 function readStoredHorizon(): AgentLaneHorizonKey {
   try {
@@ -83,7 +84,7 @@ function readStoredHorizon(): AgentLaneHorizonKey {
   return DEFAULT_AGENT_LANE_HORIZON;
 }
 
-function readStoredTechnicalRollup(): boolean {
+function readStoredLegacyTechnicalRollup(): boolean | null {
   try {
     const stored = sessionStorage.getItem(LANE_TECHNICAL_ROLLUP_STORAGE_KEY);
     if (stored === "0") return false;
@@ -91,7 +92,30 @@ function readStoredTechnicalRollup(): boolean {
   } catch {
     // ignore storage failures
   }
-  return true;
+  return null;
+}
+
+function laneTechnicalRollupStorageKey(laneId: string): string {
+  return `${LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX}${encodeURIComponent(laneId)}`;
+}
+
+function readStoredLaneTechnicalRollup(laneId: string): boolean {
+  try {
+    const stored = sessionStorage.getItem(laneTechnicalRollupStorageKey(laneId));
+    if (stored === "0") return false;
+    if (stored === "1") return true;
+  } catch {
+    // ignore storage failures
+  }
+  return readStoredLegacyTechnicalRollup() ?? true;
+}
+
+function writeStoredLaneTechnicalRollup(laneId: string, enabled: boolean): void {
+  try {
+    sessionStorage.setItem(laneTechnicalRollupStorageKey(laneId), enabled ? "1" : "0");
+  } catch {
+    // ignore storage failures
+  }
 }
 
 function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
@@ -120,7 +144,6 @@ function AgentLaneColumn({
   nowMs,
   traceWindowMs,
   traceWindowLabel,
-  collapseTechnicalEvents,
   summaryHeight,
   onSummaryResizeStart,
   onSummaryResizeReset,
@@ -143,7 +166,6 @@ function AgentLaneColumn({
   nowMs: number;
   traceWindowMs: number;
   traceWindowLabel: string;
-  collapseTechnicalEvents: boolean;
   summaryHeight: number | null;
   onSummaryResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   onSummaryResizeReset: () => void;
@@ -170,6 +192,19 @@ function AgentLaneColumn({
   // stay; the resizable pane and its handle reveal on expand), rather than
   // opening expanded.
   const [collapsed, setCollapsed] = useState(true);
+  const [collapseTechnicalEvents, setCollapseTechnicalEvents] = useState(() => (
+    readStoredLaneTechnicalRollup(lane.id)
+  ));
+  const technicalRollupLaneIdRef = useRef(lane.id);
+
+  useEffect(() => {
+    if (technicalRollupLaneIdRef.current !== lane.id) {
+      technicalRollupLaneIdRef.current = lane.id;
+      setCollapseTechnicalEvents(readStoredLaneTechnicalRollup(lane.id));
+      return;
+    }
+    writeStoredLaneTechnicalRollup(lane.id, collapseTechnicalEvents);
+  }, [collapseTechnicalEvents, lane.id]);
 
   // The proven lane trace (distinguished per-kind rows, enter animations,
   // auto-scroll, hidden scrollbars). Rendered fresh per call so it can sit in
@@ -221,7 +256,9 @@ function AgentLaneColumn({
         width={laneWidth}
         defaultWidth={defaultWidth}
         pinned={pinned}
+        collapseTechnicalEvents={collapseTechnicalEvents}
         onTogglePin={onTogglePin}
+        onToggleTechnicalRollup={setCollapseTechnicalEvents}
         onWidthChange={onWidthChange}
         onResizeStart={onWidthResizeStart}
         resizing={widthResizing}
@@ -271,7 +308,6 @@ export function AgentLanesView({
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
-  const [collapseTechnicalEvents, setCollapseTechnicalEvents] = useState(readStoredTechnicalRollup);
   const [summaryHeight, setSummaryHeight] = useState<number | null>(readStoredLaneSummaryHeight);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
   const { beginResize, resetSummaryHeight, resizing: summaryResizing } = useLaneSummaryResize(setSummaryHeight);
@@ -324,14 +360,6 @@ export function AgentLanesView({
       // ignore storage failures
     }
   }, [horizon]);
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(LANE_TECHNICAL_ROLLUP_STORAGE_KEY, collapseTechnicalEvents ? "1" : "0");
-    } catch {
-      // ignore storage failures
-    }
-  }, [collapseTechnicalEvents]);
 
   const laneOrderRef = useRef(createStableLaneOrder());
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
@@ -482,7 +510,6 @@ export function AgentLanesView({
         nowMs={now}
         traceWindowMs={traceWindowMs}
         traceWindowLabel={horizonLabel}
-        collapseTechnicalEvents={collapseTechnicalEvents}
         summaryHeight={summaryHeight}
         onSummaryResizeStart={handleSummaryResizeStart}
         onSummaryResizeReset={resetSummaryHeight}
@@ -506,7 +533,6 @@ export function AgentLanesView({
     getLaneFocusProps,
     handleSummaryResizeStart,
     horizonLabel,
-    collapseTechnicalEvents,
     inspectLane,
     openTraceSheet,
     isPinned,
@@ -537,9 +563,6 @@ export function AgentLanesView({
               <span className="s-agent-lanes-meta-stat">{pinnedCount} pinned</span>
             ) : null}
             <span className="s-agent-lanes-meta-stat">trace {horizonLabel}</span>
-            {collapseTechnicalEvents ? (
-              <span className="s-agent-lanes-meta-stat">tech rolled up</span>
-            ) : null}
             {activeFilterLabel ? (
               <span className="s-agent-lanes-meta-filter">{activeFilterLabel}</span>
             ) : null}
@@ -549,17 +572,6 @@ export function AgentLanesView({
           </div>
         </div>
         <div className="s-agent-lanes-bar-controls">
-          <label className="s-agent-lanes-tech-toggle" title="Collapse low-signal technical events in lane traces">
-            <input
-              type="checkbox"
-              checked={collapseTechnicalEvents}
-              onChange={(event) => setCollapseTechnicalEvents(event.currentTarget.checked)}
-            />
-            <span className="s-agent-lanes-tech-toggle-switch" aria-hidden="true">
-              <span />
-            </span>
-            <span className="s-agent-lanes-tech-toggle-label">Tech rollup</span>
-          </label>
           <div className="s-agent-lanes-deck-menu" ref={deckMenuRef}>
             <button
               type="button"
