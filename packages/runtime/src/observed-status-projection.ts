@@ -6,6 +6,7 @@ import type {
   ObservedActivity,
   ObservedStatusPhase,
   ObservedStatusProjection,
+  QuestionRecord,
   ScoutId,
   StatusProjectionProvenance,
   WorkItemRecord,
@@ -216,7 +217,41 @@ function projectFlightStatus(
 }
 
 function projectCollaborationStatus(record: CollaborationRecord, agentId: ScoutId): StatusCandidate {
-  return projectWorkItemStatus(record, agentId);
+  return record.kind === "question"
+    ? projectQuestionStatus(record, agentId)
+    : projectWorkItemStatus(record, agentId);
+}
+
+function projectQuestionStatus(record: QuestionRecord, agentId: ScoutId): StatusCandidate {
+  // Questions ride slightly below the work-item equivalents: an unanswered question
+  // still needs a reply, but a work item's waiting/review states rank higher.
+  const stateMap: Record<QuestionRecord["state"], {
+    phase: ObservedStatusPhase;
+    activity: ObservedActivity;
+    rank: number;
+  }> = {
+    open: { phase: "registered", activity: "waiting_for_input", rank: 60 },
+    answered: { phase: "running", activity: "review", rank: 58 },
+    closed: { phase: "running", activity: "completed", rank: 40 },
+    declined: { phase: "stopped", activity: "cancelled", rank: 40 },
+  };
+  const mapped = stateMap[record.state];
+
+  return {
+    subjectKind: "question",
+    subjectId: record.id,
+    agentId,
+    phase: mapped.phase,
+    activity: mapped.activity,
+    detail: {
+      title: record.title,
+      summary: record.answer ?? record.summary,
+    },
+    provenance: collaborationProvenance(record, 0.95),
+    confidence: 0.95,
+    updatedAt: record.updatedAt,
+    rank: mapped.rank,
+  };
 }
 
 function projectWorkItemStatus(record: WorkItemRecord, agentId: ScoutId): StatusCandidate {

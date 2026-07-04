@@ -14,6 +14,7 @@ import type {
   ScoutFleetActivitySummary,
   ScoutId,
 } from "@openscout/protocol";
+import { collaborationRequesterId } from "@openscout/protocol";
 
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import { projectObservedStatusForAgent } from "./observed-status-projection.js";
@@ -152,8 +153,10 @@ function collectActivityAgentIds(snapshot: ActivityProjectionSnapshot): ScoutId[
   for (const record of Object.values(snapshot.collaborationRecords)) {
     if (record.ownerId) agentIds.add(record.ownerId);
     if (record.nextMoveOwnerId) agentIds.add(record.nextMoveOwnerId);
-    if (record.requestedById) {
-      agentIds.add(record.requestedById);
+    // requestedById (work item) / askedById (question) — questions must appear too.
+    const requesterId = collaborationRequesterId(record);
+    if (requesterId) {
+      agentIds.add(requesterId);
     }
   }
   for (const message of Object.values(snapshot.messages)) {
@@ -394,7 +397,8 @@ function collaborationTouchesAgent(record: CollaborationRecord, agentId: ScoutId
   if (record.ownerId === agentId || record.nextMoveOwnerId === agentId || record.createdById === agentId) {
     return true;
   }
-  return record.requestedById === agentId;
+  // requestedById (work item) / askedById (question).
+  return collaborationRequesterId(record) === agentId;
 }
 
 function messageTouchesAgent(message: MessageRecord, agentId: ScoutId): boolean {

@@ -13,6 +13,8 @@ import {
   type MessageRecord,
   type NodeDefinition,
   type ScoutDispatchUnavailableTarget,
+  collaborationRequesterId,
+  isWorkItem,
 } from "@openscout/protocol";
 
 import {
@@ -117,8 +119,10 @@ export function actorIdsForCollaboration(
   if (record.ownerId) ids.add(record.ownerId);
   if (record.nextMoveOwnerId) ids.add(record.nextMoveOwnerId);
 
-  if (record.requestedById) ids.add(record.requestedById);
-  if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
+  // requestedById (work item) / askedById (question) — never drop questions.
+  const requesterId = collaborationRequesterId(record);
+  if (requesterId) ids.add(requesterId);
+  if (isWorkItem(record) && record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
     ids.add(record.waitingOn.targetId);
   }
 

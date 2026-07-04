@@ -9,6 +9,7 @@ import type {
   InvocationRequest,
   MessageRecord,
 } from "@openscout/protocol";
+import { collaborationRequesterId, isCollaborationTerminalState } from "@openscout/protocol";
 
 import {
   readScoutBrokerSnapshot,
@@ -21,6 +22,7 @@ export type ScoutAttentionSeverity = "interrupt" | "badge" | "info";
 export type ScoutAttentionEvidenceKind =
   | "git"
   | "work_item"
+  | "question"
   | "flight"
   | "message";
 
@@ -107,7 +109,6 @@ type ProjectAccumulator = ScoutAttentionProject & {
 };
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
-const TERMINAL_WORK_STATES = new Set(["done", "cancelled"]);
 const RISK_TEXT_PATTERN =
   /\b(blocked|blocking|stuck|failed|failure|error|cannot|can't|could not|couldn't|unable|not run|did not run|untested|needs review|waiting on|approval|permission|uncommitted|dirty)\b/i;
 
@@ -557,7 +558,9 @@ function severityScore(severity: ScoutAttentionSeverity): number {
 }
 
 function isTerminalCollaborationRecord(record: CollaborationRecord): boolean {
-  return TERMINAL_WORK_STATES.has(record.state);
+  // Questions terminate on closed/declined; work items on done/cancelled. Blunt
+  // work-state checks leave closed questions as permanent phantom attention items.
+  return isCollaborationTerminalState(record);
 }
 
 function collaborationSeverity(record: CollaborationRecord): ScoutAttentionSeverity {
@@ -568,6 +571,10 @@ function collaborationSeverity(record: CollaborationRecord): ScoutAttentionSever
 }
 
 function collaborationReason(record: CollaborationRecord): string {
+  if (record.kind === "question") {
+    if (record.state === "answered") return "question answered";
+    return "open question";
+  }
   if (record.state === "waiting") return "work item waiting";
   if (record.state === "review") return "work item needs review";
   return "open work item";
@@ -592,7 +599,8 @@ function projectRootForCollaborationRecord(
   return metadataProjectRoot(record.metadata)
     ?? agentProjectRoot(snapshot, record.nextMoveOwnerId)
     ?? agentProjectRoot(snapshot, record.ownerId)
-    ?? agentProjectRoot(snapshot, record.requestedById)
+    // requestedById (work item) / askedById (question).
+    ?? agentProjectRoot(snapshot, collaborationRequesterId(record))
     ?? agentProjectRoot(snapshot, record.createdById);
 }
 
