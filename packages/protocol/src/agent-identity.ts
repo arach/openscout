@@ -760,20 +760,35 @@ export function formatMinimalAgentIdentity<T extends AgentIdentityCandidate>(
   return formatAgentIdentity(canonical, options);
 }
 
+/** @deprecated Use {@link AgentIdentity} instead. */
 export type AgentAddress = AgentIdentity;
+/** @deprecated Use {@link AgentIdentityCandidate} instead. */
 export type AgentAddressCandidate = AgentIdentityCandidate;
+/** @deprecated Use {@link AgentIdentity} instead. */
 export type AgentSelector = AgentIdentity;
+/** @deprecated Use {@link AgentIdentityCandidate} instead. */
 export type AgentSelectorCandidate = AgentIdentityCandidate;
 
+/** @deprecated Use {@link parseAgentIdentity} instead. */
 export const parseAgentAddress = parseAgentIdentity;
+/** @deprecated Use {@link formatAgentIdentity} instead. */
 export const formatAgentAddress = formatAgentIdentity;
+/** @deprecated Use {@link constructAgentIdentity} instead. */
 export const constructAgentAddress = constructAgentIdentity;
+/** @deprecated Use {@link extractAgentIdentities} instead. */
 export const extractAgentAddresses = extractAgentIdentities;
+/** @deprecated Use {@link agentIdentityMatches} instead. */
 export const agentAddressMatches = agentIdentityMatches;
+/** @deprecated Use {@link resolveAgentIdentity} instead. */
 export const resolveAgentAddress = resolveAgentIdentity;
 
+/** @deprecated Use {@link parseAgentIdentity} instead. */
 export const parseAgentSelector = parseAgentIdentity;
+/** @deprecated Use {@link formatAgentIdentity} instead. */
 export const formatAgentSelector = formatAgentIdentity;
+/** @deprecated Use {@link extractAgentIdentities} instead. */
 export const extractAgentSelectors = extractAgentIdentities;
+/** @deprecated Use {@link agentIdentityMatches} instead. */
 export const agentSelectorMatches = agentIdentityMatches;
+/** @deprecated Use {@link resolveAgentIdentity} instead. */
 export const resolveAgentSelector = resolveAgentIdentity;
