@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -41,11 +42,11 @@ export type ProviderTelemetryBootstrapReport = {
   };
 };
 
-function resolveHomeDirectory(env: NodeJS.ProcessEnv): string {
+function resolveHomeDirectory(env: RuntimeEnv): string {
   return env.HOME?.trim() || homedir();
 }
 
-function resolveClaudeSettingsPath(env: NodeJS.ProcessEnv): string {
+function resolveClaudeSettingsPath(env: RuntimeEnv): string {
   return join(resolveHomeDirectory(env), ".claude", "settings.json");
 }
 
@@ -133,7 +134,7 @@ function reportFromInstall(
 }
 
 export async function ensureProviderTelemetryBootstrap(options: {
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   statuslineFreshnessMs?: number;
 } = {}): Promise<ProviderTelemetryBootstrapReport> {
   const env = options.env ?? process.env;

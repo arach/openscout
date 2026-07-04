@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { RuntimeHttpRequestLike, RuntimeHttpResponseLike } from "./portable-types.js";
 import { performance } from "node:perf_hooks";
 
 import type {
@@ -152,7 +152,7 @@ export type BrokerHttpRouterDeps = {
 
 export function createBrokerHttpRouter(
   deps: BrokerHttpRouterDeps,
-): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+): (request: RuntimeHttpRequestLike, response: RuntimeHttpResponseLike) => Promise<void> {
   const {
     host,
     port,
@@ -188,7 +188,7 @@ export function createBrokerHttpRouter(
     deliveryAcceptanceService,
   } = deps;
 
-  return async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  return async function routeRequest(request: RuntimeHttpRequestLike, response: RuntimeHttpResponseLike): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
   const collaborationInvokeMatch = method === "POST"

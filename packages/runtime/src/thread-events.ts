@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { RuntimeHttpRequestLike, RuntimeHttpResponseLike } from "./portable-types.js";
 
 import type {
   ConversationDefinition,
@@ -26,7 +26,7 @@ type LiveWatch = {
   acceptedAfterSeq: number;
   leaseExpiresAt: number;
   mode: "summary" | "shared";
-  clients: Set<ServerResponse>;
+  clients: Set<RuntimeHttpResponseLike>;
 };
 
 export class ThreadWatchProtocolError extends Error {
@@ -42,7 +42,7 @@ function watchKey(conversationId: string, watcherNodeId: string, watcherId: stri
   return `${conversationId}:${watcherNodeId}:${watcherId}`;
 }
 
-function writeSse(response: ServerResponse, eventName: string, payload: unknown): void {
+function writeSse(response: RuntimeHttpResponseLike, eventName: string, payload: unknown): void {
   response.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
@@ -163,8 +163,8 @@ export class ThreadEventPlane {
 
   async streamWatch(
     watchId: string,
-    request: IncomingMessage,
-    response: ServerResponse,
+    request: RuntimeHttpRequestLike,
+    response: RuntimeHttpResponseLike,
   ): Promise<void> {
     const watch = this.requireLiveWatch(watchId);
     const backlog = await this.options.projection.listThreadEvents({

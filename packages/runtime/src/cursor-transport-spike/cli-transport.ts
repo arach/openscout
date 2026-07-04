@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import { spawn } from "node:child_process";
 
 import type {
@@ -16,7 +17,7 @@ export type CursorCliSpikeOptions = {
   authSource: CursorTransportAuthSource;
   sessionId?: string;
   timeoutMs?: number;
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
 };
 
 type CursorCliStreamEvent =
@@ -232,7 +233,7 @@ export async function runCursorCliTransportSpike(
 }
 
 export async function createCursorCliChatSession(
-  options: { env?: NodeJS.ProcessEnv; apiKey?: string } = {},
+  options: { env?: RuntimeEnv; apiKey?: string } = {},
 ): Promise<string> {
   const command = resolveCursorAgentExecutable(options.env);
   const args = ["create-chat"];

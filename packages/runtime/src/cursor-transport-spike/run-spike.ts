@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import type {
   CursorLocalTransportMode,
   CursorTransportSpikeResult,
@@ -18,7 +19,7 @@ export type CursorTransportSpikePlan = {
   prompt: string;
   followUpPrompt?: string;
   modes?: CursorLocalTransportMode[];
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   timeoutMs?: number;
   modelId?: string;
 };

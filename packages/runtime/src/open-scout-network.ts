@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { readFileSync } from "node:fs";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
@@ -47,7 +48,7 @@ export function readOpenScoutNetworkSettingsSync(): OpenScoutNetworkRuntimeSetti
   }
 }
 
-export function openScoutNetworkDiscoveryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function openScoutNetworkDiscoveryEnabled(env: RuntimeEnv = process.env): boolean {
   const explicit = readBooleanEnv(env.OPENSCOUT_NETWORK_DISCOVERY_ENABLED)
     ?? readBooleanEnv(env.OPENSCOUT_OSN_DISCOVERY_ENABLED);
   if (explicit !== undefined) {
@@ -56,13 +57,13 @@ export function openScoutNetworkDiscoveryEnabled(env: NodeJS.ProcessEnv = proces
   return readOpenScoutNetworkSettingsSync().discoveryEnabled;
 }
 
-export function openScoutNetworkServiceEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function openScoutNetworkServiceEnvironment(env: RuntimeEnv = process.env): RuntimeEnv {
   const settings = readOpenScoutNetworkSettingsSync();
   if (!settings.discoveryEnabled) {
     return {};
   }
 
-  const next: NodeJS.ProcessEnv = {};
+  const next: RuntimeEnv = {};
   if (!hasEnv(env, "OPENSCOUT_MESH_RENDEZVOUS_URL")) {
     next.OPENSCOUT_MESH_RENDEZVOUS_URL = settings.rendezvousUrl;
   }
@@ -91,7 +92,7 @@ function readBooleanEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-function hasEnv(env: NodeJS.ProcessEnv, key: string): boolean {
+function hasEnv(env: RuntimeEnv, key: string): boolean {
   return typeof env[key] === "string" && env[key]!.trim().length > 0;
 }
 

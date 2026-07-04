@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { RuntimeHttpRequestLike, RuntimeHttpResponseLike } from "./portable-types.js";
 
 import type {
   ControlEvent,
@@ -41,7 +41,7 @@ export function parseInboxReasons(url: URL): Set<DeliveryReason> | undefined {
   return values.length > 0 ? new Set(values as DeliveryReason[]) : undefined;
 }
 
-export function writeSseFrame(response: ServerResponse, eventName: string, payload: unknown): void {
+export function writeSseFrame(response: RuntimeHttpResponseLike, eventName: string, payload: unknown): void {
   response.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
@@ -86,9 +86,9 @@ export function inboxTargetsForEvent(event: ControlEvent): string[] {
 }
 
 export class BrokerControlStreamService {
-  private readonly eventClients = new Set<ServerResponse>();
-  private readonly invocationStreamClients = new Map<string, Set<ServerResponse>>();
-  private readonly inboxStreamClients = new Map<string, Set<ServerResponse>>();
+  private readonly eventClients = new Set<RuntimeHttpResponseLike>();
+  private readonly invocationStreamClients = new Map<string, Set<RuntimeHttpResponseLike>>();
+  private readonly inboxStreamClients = new Map<string, Set<RuntimeHttpResponseLike>>();
 
   constructor(private readonly deps: BrokerControlStreamServiceDeps) {}
 
@@ -144,8 +144,8 @@ export class BrokerControlStreamService {
   }
 
   addInboxStream(options: {
-    request: IncomingMessage;
-    response: ServerResponse;
+    request: RuntimeHttpRequestLike;
+    response: RuntimeHttpResponseLike;
     targetId: string;
     snapshot: unknown;
   }): void {
@@ -156,7 +156,7 @@ export class BrokerControlStreamService {
     });
     writeSseFrame(options.response, "snapshot", options.snapshot);
 
-    const subscribers = this.inboxStreamClients.get(options.targetId) ?? new Set<ServerResponse>();
+    const subscribers = this.inboxStreamClients.get(options.targetId) ?? new Set<RuntimeHttpResponseLike>();
     subscribers.add(options.response);
     this.inboxStreamClients.set(options.targetId, subscribers);
     options.request.on("close", () => {
@@ -170,8 +170,8 @@ export class BrokerControlStreamService {
   }
 
   addInvocationStream(options: {
-    request: IncomingMessage;
-    response: ServerResponse;
+    request: RuntimeHttpRequestLike;
+    response: RuntimeHttpResponseLike;
     invocationId: string;
     snapshot: unknown;
   }): void {
@@ -199,8 +199,8 @@ export class BrokerControlStreamService {
   }
 
   addEventStream(options: {
-    request: IncomingMessage;
-    response: ServerResponse;
+    request: RuntimeHttpRequestLike;
+    response: RuntimeHttpResponseLike;
     hello: unknown;
   }): void {
     options.response.writeHead(200, {

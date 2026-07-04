@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import type { RuntimeHttpServerLike } from "./portable-types.js";
 import { lstat, mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -33,7 +33,7 @@ export async function prepareBrokerSocketPath(socketPath: string): Promise<void>
 }
 
 export async function listenTcp(
-  serverInstance: Server,
+  serverInstance: RuntimeHttpServerLike,
   options: { host: string; port: number },
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -53,7 +53,7 @@ export async function listenTcp(
 }
 
 export async function listenUnixSocket(
-  serverInstance: Server,
+  serverInstance: RuntimeHttpServerLike,
   socketPath: string,
 ): Promise<void> {
   await prepareBrokerSocketPath(socketPath);
@@ -73,8 +73,8 @@ export async function listenUnixSocket(
   });
 }
 
-export function forceCloseServer(serverInstance: Server): void {
-  const forceCloseable = serverInstance as Server & {
+export function forceCloseServer(serverInstance: RuntimeHttpServerLike): void {
+  const forceCloseable = serverInstance as RuntimeHttpServerLike & {
     closeAllConnections?: () => void;
     closeIdleConnections?: () => void;
   };
@@ -82,7 +82,7 @@ export function forceCloseServer(serverInstance: Server): void {
   forceCloseable.closeIdleConnections?.();
 }
 
-export function closeServer(serverInstance: Server, timeoutMs = 5_000): Promise<void> {
+export function closeServer(serverInstance: RuntimeHttpServerLike, timeoutMs = 5_000): Promise<void> {
   return new Promise((resolve) => {
     if (!serverInstance.listening) {
       resolve();

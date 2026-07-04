@@ -1,3 +1,4 @@
+import type { RuntimeErrnoError } from "./portable-types.js";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -319,7 +320,7 @@ function startLocalEdge(): void {
     caddyfile: caddyfilePath,
   });
 
-  caddyProcess.once("error", (error: NodeJS.ErrnoException) => {
+  caddyProcess.once("error", (error: RuntimeErrnoError) => {
     stopEdgeProcesses();
     warn("local edge failed to start", error.message);
     scheduleEdgeRestart();

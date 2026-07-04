@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import { readFile } from "node:fs/promises";
 
 import { defineProbe, type ProbeCtx } from "./registry.js";
@@ -148,7 +149,7 @@ export function summarizeTailscaleStatus(status: TailscaleStatusJson): Tailscale
   };
 }
 
-function statusTimeoutMs(env: NodeJS.ProcessEnv): number {
+function statusTimeoutMs(env: RuntimeEnv): number {
   const parsed = Number.parseInt(env.OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS;
 }

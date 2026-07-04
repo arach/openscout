@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { Database } from "bun:sqlite";
 import { and, asc, eq } from "drizzle-orm";
 
 import { epochMs, nowMs } from "@openscout/protocol";
@@ -58,6 +57,12 @@ import {
   type RuntimeRegistrySnapshot,
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
+import {
+  openControlPlaneSqliteDatabase,
+  type ControlPlaneSqliteBinding,
+  type ControlPlaneSqliteDatabase,
+  type ControlPlaneSqliteTransactionalDatabase,
+} from "./sqlite-adapter.js";
 import {
   configureControlPlaneDatabase,
   migrateControlPlaneDatabaseSchema,
@@ -195,34 +200,17 @@ function resolveInvocationCollaborationRecordId(invocation: InvocationRequest): 
     || invocationStringValue(invocation, "recordId");
 }
 
-type SQLiteBinding =
-  | string
-  | bigint
-  | NodeJS.TypedArray
-  | number
-  | boolean
-  | null
-  | Record<string, string | bigint | NodeJS.TypedArray | number | boolean | null>;
+type SQLiteBinding = ControlPlaneSqliteBinding;
 
 type SQLiteStatementLike<Row, Params extends SQLiteBinding[]> = {
   all(...params: Params): Row[];
   get(...params: Params): Row | null;
 };
 
-type SQLiteDatabaseConstructor = {
-  new (path: string, options?: { create?: boolean; strict?: boolean; readonly?: boolean }): Database;
-};
-
-type SQLiteTransactionalDatabase = Database & {
-  transaction<TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): (...args: TArgs) => TResult;
-};
-
-const SQLiteDatabase = Database as unknown as SQLiteDatabaseConstructor;
+type SQLiteTransactionalDatabase = ControlPlaneSqliteTransactionalDatabase;
 
 function queryAll<Row, Params extends SQLiteBinding[] = []>(
-  db: Database,
+  db: ControlPlaneSqliteDatabase,
   sql: string,
   ...params: Params
 ): Row[] {
@@ -231,7 +219,7 @@ function queryAll<Row, Params extends SQLiteBinding[] = []>(
 }
 
 function queryAllDynamic<Row>(
-  db: Database,
+  db: ControlPlaneSqliteDatabase,
   sql: string,
   params: SQLiteBinding[],
 ): Row[] {
@@ -240,7 +228,7 @@ function queryAllDynamic<Row>(
 }
 
 function queryGet<Row, Params extends SQLiteBinding[] = []>(
-  db: Database,
+  db: ControlPlaneSqliteDatabase,
   sql: string,
   ...params: Params
 ): Row | null {
@@ -1095,8 +1083,8 @@ function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRec
 }
 
 export class SQLiteControlPlaneStore {
-  private readonly db: Database;
-  private readonly readDb: Database;
+  private readonly db: ControlPlaneSqliteDatabase;
+  private readonly readDb: ControlPlaneSqliteDatabase;
   private readonly drizzleDb: ReturnType<typeof openControlPlaneDrizzle>;
   private readonly drizzleReadDb: ReturnType<typeof openControlPlaneDrizzle>;
   private readonly persistEventsBatch: (events: ControlEvent[]) => void;
@@ -1106,10 +1094,10 @@ export class SQLiteControlPlaneStore {
 
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = new SQLiteDatabase(dbPath, { create: true });
+    this.db = openControlPlaneSqliteDatabase(dbPath, { create: true });
     configureControlPlaneDatabase(this.db);
     migrateControlPlaneDatabaseSchema(this.db);
-    this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
+    this.readDb = openControlPlaneSqliteDatabase(dbPath, { readonly: true });
     this.readDb.exec("PRAGMA busy_timeout = 5000;");
     this.readDb.exec("PRAGMA query_only = ON;");
     this.drizzleDb = openControlPlaneDrizzle(this.db);
@@ -1335,8 +1323,8 @@ export class SQLiteControlPlaneStore {
       clearTimeout(this.flushPendingEventsTimer);
       this.flushPendingEventsTimer = null;
     }
-    this.readDb.close();
-    this.db.close();
+    this.readDb.close?.();
+    this.db.close?.();
   }
 
   private flushPendingEvents(): void {
@@ -2837,7 +2825,7 @@ export class SQLiteControlPlaneStore {
       .from(deliveriesTable)
       .orderBy(asc(deliveriesTable.createdAt))
       .limit(limit);
-    const rows = options.transport && options.status
+    const rows = (options.transport && options.status
       ? baseQuery.where(
         and(
           eq(deliveriesTable.transport, options.transport),
@@ -2848,7 +2836,22 @@ export class SQLiteControlPlaneStore {
         ? baseQuery.where(eq(deliveriesTable.transport, options.transport)).all()
         : options.status
           ? baseQuery.where(eq(deliveriesTable.status, options.status)).all()
-          : baseQuery.all();
+          : baseQuery.all()) as Array<{
+            id: string;
+            messageId: string | null;
+            invocationId: string | null;
+            targetId: string;
+            targetNodeId: string | null;
+            targetKind: DeliveryIntent["targetKind"];
+            transport: DeliveryIntent["transport"];
+            reason: DeliveryIntent["reason"];
+            policy: DeliveryIntent["policy"];
+            status: DeliveryIntent["status"];
+            bindingId: string | null;
+            leaseOwner: string | null;
+            leaseExpiresAt: number | null;
+            metadataJson: string | null;
+          }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -2911,7 +2914,16 @@ export class SQLiteControlPlaneStore {
       .orderBy(asc(deliveryAttemptsTable.attempt), asc(deliveryAttemptsTable.createdAt))
       .all();
 
-    return rows.map((row) => ({
+    return (rows as Array<{
+      id: string;
+      deliveryId: string;
+      attempt: number;
+      status: DeliveryAttempt["status"];
+      error: string | null;
+      externalRef: string | null;
+      createdAt: number;
+      metadataJson: string | null;
+    }>).map((row) => ({
       id: row.id,
       deliveryId: row.deliveryId,
       attempt: row.attempt,
@@ -3556,7 +3568,7 @@ export class SQLiteControlPlaneStore {
     return "message_posted";
   }
 
-  private isDirectConversation(conversationId: string | undefined, db: Database = this.readDb): boolean {
+  private isDirectConversation(conversationId: string | undefined, db: ControlPlaneSqliteDatabase = this.readDb): boolean {
     if (!conversationId) {
       return false;
     }
@@ -3614,7 +3626,7 @@ export class SQLiteControlPlaneStore {
     return null;
   }
 
-  private listConversationAgentIds(conversationId: string | undefined, db: Database = this.readDb): string[] {
+  private listConversationAgentIds(conversationId: string | undefined, db: ControlPlaneSqliteDatabase = this.readDb): string[] {
     if (!conversationId) {
       return [];
     }
@@ -3629,7 +3641,7 @@ export class SQLiteControlPlaneStore {
     ).map((row) => row.actor_id);
   }
 
-  private listConversationMemberIds(conversationId: string | undefined, db: Database = this.readDb): string[] {
+  private listConversationMemberIds(conversationId: string | undefined, db: ControlPlaneSqliteDatabase = this.readDb): string[] {
     if (!conversationId) {
       return [];
     }
@@ -3641,7 +3653,7 @@ export class SQLiteControlPlaneStore {
     ).map((row) => row.actor_id);
   }
 
-  private isKnownAgentId(actorId: string | undefined | null, db: Database = this.readDb): actorId is string {
+  private isKnownAgentId(actorId: string | undefined | null, db: ControlPlaneSqliteDatabase = this.readDb): actorId is string {
     if (!actorId) {
       return false;
     }
@@ -3689,20 +3701,20 @@ export class SQLiteControlPlaneStore {
   }
 
   /**
-   * @internal SCO-031: writer-side `Database` exposed to `Conversations`
+   * @internal SCO-031: writer-side SQLite database exposed to `Conversations`
    * so the api can issue conversation-only queries without opening a third
    * connection. Not part of the public API; downstream code should go through
    * `store.conversations` or other purpose-built methods.
    */
-  get writerDb(): Database {
+  get writerDb(): ControlPlaneSqliteDatabase {
     return this.db;
   }
 
   /**
-   * @internal SCO-031: read-side `Database` (PRAGMA `query_only`) exposed to
+   * @internal SCO-031: read-side SQLite database (PRAGMA `query_only`) exposed to
    * `Conversations`. Same caveats as `writerDb` — internal only.
    */
-  get readerDb(): Database {
+  get readerDb(): ControlPlaneSqliteDatabase {
     return this.readDb;
   }
 
@@ -3714,7 +3726,7 @@ export class SQLiteControlPlaneStore {
    * Other call sites should prefer `store.conversations.findById` over
    * invoking this directly.
    */
-  getConversation(conversationId: string, db: Database = this.db): ConversationDefinition | null {
+  getConversation(conversationId: string, db: ControlPlaneSqliteDatabase = this.db): ConversationDefinition | null {
     const row = queryGet<ConversationRow, [string]>(
       db,
       "SELECT * FROM conversations WHERE id = ?1 LIMIT 1",
@@ -3814,7 +3826,7 @@ export class SQLiteControlPlaneStore {
     return input ? [this.appendThreadEvent(input)] : [];
   }
 
-  private buildThreadMessageEvent(message: MessageRecord, db: Database = this.db): ThreadEventInsert | null {
+  private buildThreadMessageEvent(message: MessageRecord, db: ControlPlaneSqliteDatabase = this.db): ThreadEventInsert | null {
     const conversation = this.getConversation(message.conversationId, db);
     if (!conversation) {
       return null;
@@ -3974,7 +3986,7 @@ export class SQLiteControlPlaneStore {
     };
   }
 
-  private buildMessageThreadNotification(message: MessageRecord, db: Database = this.db): ThreadEventNotification | undefined {
+  private buildMessageThreadNotification(message: MessageRecord, db: ControlPlaneSqliteDatabase = this.db): ThreadEventNotification | undefined {
     const mentionActorIds = [...new Set(
       (message.mentions ?? [])
         .map((mention) => mention.actorId)

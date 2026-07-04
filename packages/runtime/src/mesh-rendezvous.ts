@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import {
   buildUnsignedMeshPresence,
   type MobilePairingMeshEntrypoint,
@@ -38,7 +39,7 @@ const DEFAULT_RENDEZVOUS_TTL_MS = 60_000;
 const DEFAULT_RENDEZVOUS_INTERVAL_MS = 30_000;
 
 export function resolveMeshRendezvousPublishConfig(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
   options: { includeSettings?: boolean } = {},
 ): MeshRendezvousPublishConfig | undefined {
   const explicitUrl = env.OPENSCOUT_MESH_RENDEZVOUS_URL?.trim();
@@ -157,7 +158,7 @@ export function startMeshRendezvousPublisher(
 }
 
 export function readMobilePairingMeshEntrypoint(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
   now: number = Date.now(),
 ): MobilePairingMeshEntrypoint | undefined {
   const runtimeStatePath = env.OPENSCOUT_PAIRING_RUNTIME_STATE_PATH

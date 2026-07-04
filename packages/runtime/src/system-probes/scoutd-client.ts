@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "../portable-types.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -130,7 +131,7 @@ export class ScoutdExecResponseError extends Error {
   }
 }
 
-export function resolveScoutdProbesSocketPath(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveScoutdProbesSocketPath(env: RuntimeEnv = process.env): string {
   const explicit = env.OPENSCOUT_PROBES_SOCKET?.trim();
   if (explicit) {
     return explicit;
@@ -147,7 +148,7 @@ export class ScoutdProbeClient {
   private readonly fallbackByProbe = new Map<string, FallbackState>();
   private readonly fallbackByExec = new Map<string, FallbackState>();
 
-  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
+  constructor(private readonly env: RuntimeEnv = process.env) {}
 
   async requestProbe<T>(input: {
     probeId: string;

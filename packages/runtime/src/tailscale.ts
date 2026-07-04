@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
@@ -27,12 +28,12 @@ function readStatusJsonFromFileSync(filePath: string): TailscaleStatusJson {
   return parseTailscaleStatusJson(raw);
 }
 
-function statusTimeoutMs(env: NodeJS.ProcessEnv): number {
+function statusTimeoutMs(env: RuntimeEnv): number {
   const parsed = Number.parseInt(env.OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS;
 }
 
-function readStatusJsonSync(env: NodeJS.ProcessEnv = process.env): TailscaleStatusJson | null {
+function readStatusJsonSync(env: RuntimeEnv = process.env): TailscaleStatusJson | null {
   if (env.OPENSCOUT_TAILSCALE_AUTO_HOSTS === "0") {
     return null;
   }
@@ -85,7 +86,7 @@ export async function readTailscaleStatusSummary(): Promise<TailscaleStatusSumma
   return snapshot.value;
 }
 
-export function readTailscaleSelfWebHostsSync(env: NodeJS.ProcessEnv = process.env): string[] {
+export function readTailscaleSelfWebHostsSync(env: RuntimeEnv = process.env): string[] {
   const status = readStatusJsonSync(env);
   if (!status || !isTailscaleBackendRunning(status)) {
     return [];

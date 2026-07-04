@@ -1,3 +1,4 @@
+import type { RuntimeTimer } from "./portable-types.js";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -71,7 +72,7 @@ function waitForRequesterResult<T>(
     return promise;
   }
 
-  let timer: NodeJS.Timeout | null = null;
+  let timer: RuntimeTimer | null = null;
   const timeout = new Promise<T>((_resolve, reject) => {
     timer = setTimeout(() => {
       reject(new RequesterWaitTimeoutError({ label, timeoutMs: effectiveTimeoutMs }));

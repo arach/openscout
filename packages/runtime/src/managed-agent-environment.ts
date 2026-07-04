@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 type ManagedAgentEnvironmentOptions = {
   agentName: string;
   currentDirectory: string;
@@ -19,10 +20,10 @@ function managedAgentEnvironmentEntries(
 
 export function buildManagedAgentEnvironment(
   options: ManagedAgentEnvironmentOptions & {
-    baseEnv?: NodeJS.ProcessEnv;
+    baseEnv?: RuntimeEnv;
   },
-): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+): RuntimeEnv {
+  const env: RuntimeEnv = {
     ...(options.baseEnv ?? process.env),
   };
 

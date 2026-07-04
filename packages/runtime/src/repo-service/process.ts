@@ -1,3 +1,4 @@
+import type { RuntimeChildProcessLike, RuntimeEnv, RuntimeReadableLike, RuntimeWritableLike } from "../portable-types.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Socket } from "node:net";
@@ -37,14 +38,27 @@ export type RepoServiceTransportMetadata = {
 };
 
 const REPO_SERVICE_TRANSPORT_METADATA = Symbol.for("openscout.repoService.transport");
-let spawnProcess: typeof spawn = spawn;
 
-export function setRepoServiceSpawnForTests(spawnForTests: typeof spawn | null): void {
-  spawnProcess = spawnForTests ?? spawn;
+type RepoServiceChildProcess = RuntimeChildProcessLike & {
+  stdin: RuntimeWritableLike;
+  stdout: RuntimeReadableLike;
+  stderr: RuntimeReadableLike;
+};
+
+export type RepoServiceSpawnFunction = (
+  command: string,
+  args: readonly string[],
+  options: { cwd?: string; stdio: ["pipe", "pipe", "pipe"] },
+) => RepoServiceChildProcess;
+
+let spawnProcess: RepoServiceSpawnFunction = spawn as unknown as RepoServiceSpawnFunction;
+
+export function setRepoServiceSpawnForTests(spawnForTests: RepoServiceSpawnFunction | null): void {
+  spawnProcess = spawnForTests ?? (spawn as unknown as RepoServiceSpawnFunction);
 }
 
 export function resetRepoServiceTransportForTests(): void {
-  spawnProcess = spawn;
+  spawnProcess = spawn as unknown as RepoServiceSpawnFunction;
   singletonRepoServiceClient?.resetForTests();
   singletonRepoServiceClient = null;
 }
@@ -238,7 +252,7 @@ class RepoServiceSocketClient {
   private daemonObserved = false;
   private readonly fallbackByOperation = new Map<string, FallbackState>();
 
-  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
+  constructor(private readonly env: RuntimeEnv = process.env) {}
 
   async requestJob(subcommand: string, input: unknown, timeoutMs: number): Promise<RepoServiceSocketOutcome> {
     const operation = operationForSubcommand(subcommand);

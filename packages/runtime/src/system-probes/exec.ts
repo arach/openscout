@@ -1,3 +1,4 @@
+import type { RuntimeChildProcessLike, RuntimeEnv, RuntimeSignal, RuntimeSpawnFunction } from "../portable-types.js";
 import { spawn } from "node:child_process";
 
 import type { ProbeCtx } from "./registry.js";
@@ -5,7 +6,7 @@ import { getScoutdProbeClient, ScoutdExecResponseError } from "./scoutd-client.j
 
 export type ExecProbeFileOptions = {
   cwd?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   input?: string | Buffer;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
@@ -30,9 +31,9 @@ export type ExecSystemTransportMetadata = {
 export class ProbeCommandError extends Error {
   code: string;
   exitCode?: number | null;
-  signal?: NodeJS.Signals | null;
+  signal?: RuntimeSignal | null;
 
-  constructor(message: string, options: { code: string; exitCode?: number | null; signal?: NodeJS.Signals | null }) {
+  constructor(message: string, options: { code: string; exitCode?: number | null; signal?: RuntimeSignal | null }) {
     super(message);
     this.name = "ProbeCommandError";
     this.code = options.code;
@@ -45,14 +46,14 @@ const DEFAULT_STDOUT_CAP_BYTES = 1024 * 1024;
 const DEFAULT_STDERR_CAP_BYTES = 128 * 1024;
 const SIGKILL_DELAY_MS = 500;
 const EXEC_SYSTEM_TRANSPORT_METADATA = Symbol.for("openscout.execSystem.transport");
-let spawnProcess: typeof spawn = spawn;
+let spawnProcess: RuntimeSpawnFunction<RuntimeChildProcessLike> = spawn as unknown as RuntimeSpawnFunction<RuntimeChildProcessLike>;
 
-export function setExecSystemSpawnForTests(spawnForTests: typeof spawn | null): void {
-  spawnProcess = spawnForTests ?? spawn;
+export function setExecSystemSpawnForTests(spawnForTests: RuntimeSpawnFunction<RuntimeChildProcessLike> | null): void {
+  spawnProcess = spawnForTests ?? (spawn as unknown as RuntimeSpawnFunction<RuntimeChildProcessLike>);
 }
 
 export function resetExecSystemTransportForTests(): void {
-  spawnProcess = spawn;
+  spawnProcess = spawn as unknown as RuntimeSpawnFunction<RuntimeChildProcessLike>;
 }
 
 export function execSystemTransportMetadata(output: unknown): ExecSystemTransportMetadata | null {

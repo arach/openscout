@@ -1,6 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { RuntimeChildProcessLike, RuntimeEnv, RuntimeHttpRequestLike, RuntimeSpawnFunction } from "./portable-types.js";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
-import type { IncomingMessage } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,9 +37,9 @@ export type BrokerWebControlServiceOptions = {
   tailnetWebHosts?: string[];
   trustedHosts?: Iterable<string>;
   webProcessName?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   fetch?: typeof fetch;
-  spawnProcess?: typeof spawn;
+  spawnProcess?: RuntimeSpawnFunction<RuntimeChildProcessLike>;
   moduleDirectory?: string;
   cwd?: () => string;
   sleep?: (ms: number) => Promise<void>;
@@ -114,7 +114,7 @@ export function normalizeTrustedWebHost(
 }
 
 export function webStartContextFromRequest(
-  request: Pick<IncomingMessage, "headers">,
+  request: Pick<RuntimeHttpRequestLike, "headers">,
   trustedHosts: Set<string> = new Set(),
 ): WebStartContext {
   const forwardedHost = Array.isArray(request.headers["x-forwarded-host"])
@@ -135,7 +135,7 @@ export function webStartContextFromRequest(
 }
 
 export function scoutWebControlCorsHeaders(
-  request: Pick<IncomingMessage, "headers">,
+  request: Pick<RuntimeHttpRequestLike, "headers">,
   trustedHosts: Set<string> = new Set(),
 ): Record<string, string> {
   const origin = request.headers.origin;
@@ -155,14 +155,14 @@ export function scoutWebControlCorsHeaders(
   };
 }
 
-export function isChildProcessRunning(child: ChildProcess | null): boolean {
+export function isChildProcessRunning(child: RuntimeChildProcessLike | null): boolean {
   return Boolean(child && child.exitCode === null && child.signalCode === null);
 }
 
 export class BrokerWebControlService {
-  private readonly env: NodeJS.ProcessEnv;
+  private readonly env: RuntimeEnv;
   private readonly fetchImpl: typeof fetch;
-  private readonly spawnImpl: typeof spawn;
+  private readonly spawnImpl: RuntimeSpawnFunction<RuntimeChildProcessLike>;
   private readonly trustedHosts: Set<string>;
   private readonly tailnetWebHosts: string[];
   private readonly webProcessName: string;
@@ -176,14 +176,14 @@ export class BrokerWebControlService {
   private readonly respawnMaxFailures: number;
   private readonly respawnFailureWindowMs: number;
   private readonly respawnFailures: number[] = [];
-  private webServerProcess: ChildProcess | null = null;
+  private webServerProcess: RuntimeChildProcessLike | null = null;
   private webStartInFlight: Promise<WebControlStatus> | null = null;
   private stopping = false;
 
   constructor(private readonly options: BrokerWebControlServiceOptions) {
     this.env = options.env ?? process.env;
     this.fetchImpl = options.fetch ?? fetch;
-    this.spawnImpl = options.spawnProcess ?? spawn;
+    this.spawnImpl = options.spawnProcess ?? (spawn as unknown as RuntimeSpawnFunction<RuntimeChildProcessLike>);
     this.trustedHosts = new Set(
       [...(options.trustedHosts ?? [])]
         .map((host) => host.trim().replace(/\.$/, "").toLowerCase())
@@ -274,11 +274,11 @@ export class BrokerWebControlService {
     };
   }
 
-  startContextFromRequest(request: Pick<IncomingMessage, "headers">): WebStartContext {
+  startContextFromRequest(request: Pick<RuntimeHttpRequestLike, "headers">): WebStartContext {
     return webStartContextFromRequest(request, this.trustedHosts);
   }
 
-  corsHeaders(request: Pick<IncomingMessage, "headers">): Record<string, string> {
+  corsHeaders(request: Pick<RuntimeHttpRequestLike, "headers">): Record<string, string> {
     return scoutWebControlCorsHeaders(request, this.trustedHosts);
   }
 
@@ -388,7 +388,7 @@ export class BrokerWebControlService {
     return join(logDirectory, "supervised-web.log");
   }
 
-  private spawnWebServer(context: WebStartContext = {}): ChildProcess {
+  private spawnWebServer(context: WebStartContext = {}): RuntimeChildProcessLike {
     const entry = this.resolveEntry();
     if (!entry) {
       throw new Error("Could not find the Scout web server entry.");
@@ -427,7 +427,7 @@ export class BrokerWebControlService {
     });
     const child = this.spawnImpl(
       bun.path,
-      ["run", entry],
+      entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
       {
         argv0: this.webProcessName,
         detached: true,

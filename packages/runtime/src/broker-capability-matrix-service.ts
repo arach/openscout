@@ -1,3 +1,4 @@
+import type { RuntimeEnv } from "./portable-types.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -24,7 +25,7 @@ export const DEFAULT_CAPABILITY_MATRIX_CACHE_TTL_MS = 60_000;
 
 export type BrokerCapabilityMatrixServiceOptions = {
   nodeId: string;
-  env?: NodeJS.ProcessEnv;
+  env?: RuntimeEnv;
   now?: () => number;
   cachePath?: () => string;
   readTextFile?: (path: string, encoding: BufferEncoding) => Promise<string>;
@@ -37,7 +38,7 @@ export type BrokerCapabilityMatrixServiceOptions = {
 };
 
 export function resolveCapabilityMatrixCacheTtlMs(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RuntimeEnv = process.env,
 ): number {
   const raw = env.OPENSCOUT_CAPABILITY_MATRIX_CACHE_TTL_MS?.trim();
   if (!raw) {
