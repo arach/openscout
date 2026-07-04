@@ -55,10 +55,15 @@ public struct MessageRouteChip: View {
     }
 
     private var displayLabel: String {
-        if label.hasPrefix("@") || label.hasPrefix("#") {
+        if label.hasPrefix("@") || label.hasPrefix("#") || Self.isRouteLabel(label) {
             return label
         }
         return prefix + label
+    }
+
+    private static func isRouteLabel(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        return lower.hasPrefix("session:") || lower.hasPrefix("sid:")
     }
 }
 

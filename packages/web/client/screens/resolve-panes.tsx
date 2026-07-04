@@ -15,7 +15,6 @@ import { OpsContent, OpsLeft } from "./ops/index.ts";
 import { ReposContent, ReposRight } from "./repos/index.ts";
 import { SearchContent, SearchRight } from "./search/index.ts";
 import { SessionsContent, SessionsRight } from "./sessions/index.ts";
-import { SessionRefContextRail } from "./sessions/SessionRefScreen.tsx";
 import { SettingsContent } from "./settings/index.ts";
 import { TerminalContent, TerminalLeft, TerminalRight } from "./terminal/index.ts";
 import { WorkContent, WorkRight } from "./work/index.ts";
@@ -106,12 +105,9 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
     case "fleet":
       return <HomeRight />;
     case "agents-v2": {
-      if (route.sessionId) {
-        return <SessionRefContextRail sessionRef={route.sessionId} />;
-      }
       if (!route.agentId) {
-        // Index mode: the thread aside earns its place — null until engaged.
-        return route.selectedAgentId && !route.sessionId
+        // Index mode: selected threads/sessions peek in the shell sidebar.
+        return (route.selectedAgentId || route.sessionId)
           ? <ProjectsThreadAside route={route} navigate={navigate} />
           : null;
       }

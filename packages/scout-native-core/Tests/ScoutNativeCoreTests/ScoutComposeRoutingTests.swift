@@ -22,6 +22,18 @@ import Testing
     #expect(envelope?.isDefaultTarget == false)
 }
 
+@Test func composeEnvelopeRoutesSessionTargetsAsDirectives() {
+    let envelope = ScoutComposeRouting.envelope(
+        body: "please continue here",
+        targetHandle: " session:Codex-Native-123 "
+    )
+
+    #expect(envelope?.resolvedTarget == "session:Codex-Native-123")
+    #expect(envelope?.body == "please continue here")
+    #expect(envelope?.wireBody == "session:Codex-Native-123 please continue here")
+    #expect(envelope?.isDefaultTarget == false)
+}
+
 @Test func composeEnvelopeRejectsBlankBody() {
     #expect(ScoutComposeRouting.envelope(body: "   \n", targetHandle: nil) == nil)
 }

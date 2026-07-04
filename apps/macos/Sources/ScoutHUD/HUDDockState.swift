@@ -113,9 +113,9 @@ public final class HUDDockState: ObservableObject {
     /// Stage a target without focusing — e.g. row hover. The chip
     /// appears in the dock to telegraph routing.
     func setTarget(handle: String?, label: String?) {
-        if let handle, !handle.isEmpty {
-            targetHandle = handle.hasPrefix("@") ? handle : "@" + handle
-            targetLabel = label ?? handle
+        if let target = Self.normalizedTargetHandle(handle) {
+            targetHandle = target
+            targetLabel = label ?? target
         } else {
             targetHandle = nil
             targetLabel = nil
@@ -295,6 +295,18 @@ public final class HUDDockState: ObservableObject {
 }
 
 private extension HUDDockState {
+    static func normalizedTargetHandle(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let bare = trimmed.hasPrefix("@") ? String(trimmed.dropFirst()) : trimmed
+        if let route = ScoutComposeRouting.normalizeHandle(bare),
+           ScoutComposeRouting.isRouteDirectiveTarget(route) {
+            return route
+        }
+        return trimmed.hasPrefix("@") ? trimmed : "@\(trimmed)"
+    }
+
     static let commandCandidates: [HUDDockCommandCandidate] = [
         HUDDockCommandCandidate(
             command: "/help",

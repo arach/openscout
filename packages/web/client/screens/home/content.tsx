@@ -18,7 +18,7 @@ import {
 import { actorColor } from "../../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
-import { usePersistentNumber } from "../../lib/persistent-state.ts";
+import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
 import {
@@ -37,26 +37,51 @@ import type {
 } from "../../lib/types.ts";
 import {
   buildHomeNativeMovingLanes,
+  compareHomeMovingItems,
   dedupeWorkingAgentsByObservedSession,
   HOME_MOVING_CARD_LIMIT,
-  HOME_MOVING_WINDOW_MS,
-  homeMovingDisplayCounts,
+  HOME_MOVING_DEFAULT_SORT,
+  HOME_MOVING_HORIZON,
+  HOME_MOVING_WINDOW_OPTIONS,
   homeMovingRecencyMs,
+  homeMovingWindowOption,
   isFreshHomeMovingTimestamp,
   isHomeAgentMoving,
   isHomeObserveCandidate,
   laneObservedSessionKey,
+  normalizeHomeMovingSort,
+  normalizeHomeMovingWindowKey,
   observedSessionKey,
   workingContextFromLane,
   workingContextFromObserve,
+  type HomeMovingSortMode,
   type WorkingAgentContext,
 } from "./home-moving.ts";
 import { homeMovingGridClass, homeMovingLayout } from "./home-moving-layout.ts";
 import { assignEntranceIndices } from "./home-entrance.ts";
 import { NowCard } from "./home-now-card.tsx";
-import { isAgentLaneLive, type AgentLane } from "../ops/agent-lanes-model.ts";
+import { agentLaneTailRecentLimit, isAgentLaneLive, type AgentLane } from "../ops/agent-lanes-model.ts";
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
+type HomeMovingCardItem =
+  | {
+      bucket: "working";
+      id: string;
+      agent: Agent;
+      lastActivityAt: number;
+    }
+  | {
+      bucket: "native";
+      id: string;
+      lane: AgentLane;
+      lastActivityAt: number;
+    }
+  | {
+      bucket: "observed";
+      id: string;
+      actor: FleetActivity;
+      lastActivityAt: number;
+    };
 
 const LOOKBACK_WINDOWS: LookbackOption[] = [
   { label: "30m", value: 30 * 60_000, activityLimit: 80 },
@@ -65,11 +90,12 @@ const LOOKBACK_WINDOWS: LookbackOption[] = [
 ];
 const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[2].value;
 const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
+const MOVING_WINDOW_STORAGE_KEY = "openscout.home.movingWindow.v1";
+const MOVING_SORT_STORAGE_KEY = "openscout.home.movingSort.v1";
 // Service-budget data (claude/codex/github usage) is expensive to compute
 // and doesn't change minute-to-minute. Refresh once an hour; the server
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
-const LOCAL_TAIL_RECENT_LIMIT = 1000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
 
@@ -302,6 +328,21 @@ export function HomeContent({
         ?? LOOKBACK_WINDOWS[LOOKBACK_WINDOWS.length - 1]!,
     [lookbackMs],
   );
+  const [movingWindowKeyRaw, setMovingWindowKeyRaw] = usePersistentString(
+    MOVING_WINDOW_STORAGE_KEY,
+    HOME_MOVING_HORIZON,
+  );
+  const movingWindowKey = normalizeHomeMovingWindowKey(movingWindowKeyRaw);
+  const movingWindow = homeMovingWindowOption(movingWindowKey);
+  const [movingSortRaw, setMovingSortRaw] = usePersistentString(
+    MOVING_SORT_STORAGE_KEY,
+    HOME_MOVING_DEFAULT_SORT,
+  );
+  const movingSort = normalizeHomeMovingSort(movingSortRaw);
+  const localTailRecentLimit = useMemo(
+    () => agentLaneTailRecentLimit(movingWindowKey),
+    [movingWindowKey],
+  );
 
   const load = useCallback(async (mode: LoadMode = "initial") => {
     const requestId = ++requestIdRef.current;
@@ -392,7 +433,7 @@ export function HomeContent({
   const loadLocalTailSnapshot = useCallback(async () => {
     try {
       const params = new URLSearchParams({
-        limit: String(LOCAL_TAIL_RECENT_LIMIT),
+        limit: String(localTailRecentLimit),
         transcripts: "true",
       });
       const [recent, discovery] = await Promise.all([
@@ -404,7 +445,7 @@ export function HomeContent({
     } catch {
       // Silent: the embedded Tail view owns the visible error/empty state.
     }
-  }, []);
+  }, [localTailRecentLimit]);
 
   useEffect(() => {
     void loadLocalTailSnapshot();
@@ -458,8 +499,8 @@ export function HomeContent({
     [scopedFleet],
   );
   const freshMovingAsks = useMemo(
-    () => movingAsks.filter((ask) => isFreshHomeMovingTimestamp(ask.updatedAt, nowMs)),
-    [movingAsks, nowMs],
+    () => movingAsks.filter((ask) => isFreshHomeMovingTimestamp(ask.updatedAt, nowMs, movingWindow.windowMs)),
+    [movingAsks, movingWindow.windowMs, nowMs],
   );
   const movingAskByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk>();
@@ -481,9 +522,11 @@ export function HomeContent({
           nowMs,
           movingAskByAgent.has(agent.id),
           tailEvents,
+          movingWindow.windowMs,
+          movingWindowKey,
         ),
       ),
-    [agents, movingAskByAgent, nowMs, tailEvents],
+    [agents, movingAskByAgent, movingWindow.windowMs, movingWindowKey, nowMs, tailEvents],
   );
   const observeCache = useObservePolling(observeCandidates);
   const workingAgents = useMemo(() => {
@@ -494,7 +537,7 @@ export function HomeContent({
         tailEvents,
         nowMs,
         movingAsk: movingAskByAgent.get(agent.id),
-        windowMs: HOME_MOVING_WINDOW_MS,
+        windowMs: movingWindow.windowMs,
       }),
     );
     const sorted = moving
@@ -513,7 +556,7 @@ export function HomeContent({
         }),
       );
     return dedupeWorkingAgentsByObservedSession(sorted, observeCache);
-  }, [agents, movingAskByAgent, observeCache, tailEvents, nowMs]);
+  }, [agents, movingAskByAgent, movingWindow.windowMs, observeCache, tailEvents, nowMs]);
   const workingContext = useMemo(() => {
     const next: Record<string, WorkingAgentContext> = {};
     for (const agent of workingAgents) {
@@ -541,6 +584,7 @@ export function HomeContent({
       processes: tailDiscovery?.processes ?? [],
       observeCache,
       nowMs,
+      horizon: movingWindowKey,
     });
     return lanes
       .filter((lane) => {
@@ -549,12 +593,12 @@ export function HomeContent({
         return !(laneKey && workingSessionKeys.has(laneKey));
       })
       .sort((left, right) => right.lastActiveAt - left.lastActiveAt);
-  }, [agents, observeCache, nowMs, tailDiscovery, tailEvents, workingAgentIds, workingSessionKeys]);
+  }, [agents, movingWindowKey, observeCache, nowMs, tailDiscovery, tailEvents, workingAgentIds, workingSessionKeys]);
   const movingAsksWithoutWorkingAgent = useMemo(
     () =>
       freshMovingAsks.filter(
         (ask) => !workingAgents.some((agent) => agent.id === ask.agentId),
-      ),
+      ).sort((left, right) => compareTimestampsDesc(left.updatedAt, right.updatedAt)),
     [workingAgents, freshMovingAsks],
   );
 
@@ -602,11 +646,10 @@ export function HomeContent({
     [heartrate, tailEvents, nowMs],
   );
 
-  // Native/unmanaged actors observed via the activity firehose in the last 10 minutes.
+  // Native/unmanaged actors observed via the activity firehose in the selected moving window.
   // Anything Scout already tracks as a managed agent is excluded — those render as NowCard.
   const observedMovingActors = useMemo<FleetActivity[]>(() => {
-    const ACTIVE_WINDOW_MS = 10 * 60_000;
-    const cutoff = nowMs - ACTIVE_WINDOW_MS;
+    const cutoff = nowMs - movingWindow.windowMs;
     const items = scopedFleet?.activity ?? [];
     const managedNames = new Set(agents.map((a) => a.name.toLowerCase()));
     const managedIds = new Set(agents.map((a) => a.id));
@@ -637,7 +680,7 @@ export function HomeContent({
     return [...byActor.values()].sort((a, b) =>
       compareTimestampsDesc(a.ts, b.ts),
     );
-  }, [scopedFleet?.activity, nowMs, agents, operatorName]);
+  }, [scopedFleet?.activity, movingWindow.windowMs, nowMs, agents, operatorName]);
 
   const syncLabel = loading
     ? "syncing"
@@ -683,18 +726,37 @@ export function HomeContent({
     liveActivity.length > 0 ||
     Boolean(error) ||
     !hideEmptyActivityModule;
-  const movingDisplayCounts = homeMovingDisplayCounts({
-    working: workingAgents.length,
-    native: nativeMovingLanes.length,
-    observed: observedMovingActors.length,
-    movingAsks: movingAsksWithoutWorkingAgent.length,
-    limit: HOME_MOVING_CARD_LIMIT,
-  });
-  const visibleWorkingAgents = workingAgents.slice(0, movingDisplayCounts.working);
-  const visibleNativeMovingLanes = nativeMovingLanes.slice(0, movingDisplayCounts.native);
-  const visibleObservedMovingActors = observedMovingActors.slice(0, movingDisplayCounts.observed);
-  const movingCardCount = movingDisplayCounts.cardCount;
-  const totalMovingCount = movingDisplayCounts.totalCount;
+  const movingCards = useMemo<HomeMovingCardItem[]>(() => {
+    const cards: HomeMovingCardItem[] = [
+      ...workingAgents.map((agent) => ({
+        bucket: "working" as const,
+        id: agent.id,
+        agent,
+        lastActivityAt: homeMovingRecencyMs(agent, {
+          observeEntry: observeCache[agent.id],
+          tailEvents,
+          nowMs,
+          movingAsk: movingAskByAgent.get(agent.id),
+        }),
+      })),
+      ...nativeMovingLanes.map((lane) => ({
+        bucket: "native" as const,
+        id: lane.id,
+        lane,
+        lastActivityAt: lane.lastActiveAt,
+      })),
+      ...observedMovingActors.map((actor) => ({
+        bucket: "observed" as const,
+        id: actor.id,
+        actor,
+        lastActivityAt: normalizeTimestampMs(actor.ts) ?? 0,
+      })),
+    ];
+    return cards.sort((left, right) => compareHomeMovingItems(left, right, movingSort));
+  }, [movingAskByAgent, movingSort, nativeMovingLanes, nowMs, observeCache, observedMovingActors, tailEvents, workingAgents]);
+  const visibleMovingCards = movingCards.slice(0, HOME_MOVING_CARD_LIMIT);
+  const movingCardCount = visibleMovingCards.length;
+  const totalMovingCount = movingCards.length + movingAsksWithoutWorkingAgent.length;
   const movingSectionLabel =
     totalMovingCount > movingCardCount && movingCardCount > 0
       ? `What's moving · ${movingCardCount} of ${totalMovingCount}`
@@ -702,13 +764,11 @@ export function HomeContent({
   const movingLayout = homeMovingLayout(movingCardCount);
 
   // First-appearance entrances. Visible units in render order:
-  // working agents → native lanes → observed actors. Assignments are sticky
+  // sorted moving cards. Assignments are sticky
   // (see home-entrance.ts): the class stays on across re-renders so the 1s
   // clock tick can't cut an entrance mid-flight; new ids cascade from 0.
   const visibleMovingIds = [
-    ...visibleWorkingAgents.map((agent) => agent.id),
-    ...visibleNativeMovingLanes.map((lane) => lane.id),
-    ...visibleObservedMovingActors.map((actor) => actor.id),
+    ...visibleMovingCards.map((card) => card.id),
   ];
   assignEntranceIndices(enterIndexRef.current, visibleMovingIds);
   const enterIndexById = enterIndexRef.current;
@@ -725,12 +785,20 @@ export function HomeContent({
             <SectionRule
               label={loading && totalMovingCount === 0 ? "What's moving" : movingSectionLabel}
               right={
-                <button
-                  className="s-link-btn"
-                  onClick={() => navigate({ view: "mesh" })}
-                >
-                  open mesh ↗
-                </button>
+                <div className="s-moving-controls">
+                  <MovingControls
+                    sort={movingSort}
+                    onSortChange={setMovingSortRaw}
+                    windowKey={movingWindow.key}
+                    onWindowChange={setMovingWindowKeyRaw}
+                  />
+                  <button
+                    className="s-link-btn"
+                    onClick={() => navigate({ view: "mesh" })}
+                  >
+                    open mesh ↗
+                  </button>
+                </div>
               }
             />
             {loading && totalMovingCount === 0 ? (
@@ -739,46 +807,57 @@ export function HomeContent({
               <>
                 {movingCardCount > 0 && (
                   <div className={homeMovingGridClass(movingLayout)}>
-                    {visibleWorkingAgents.map((agent) => (
-                      <NowCard
-                        key={agent.id}
-                        agent={agent}
-                        ask={movingAskByAgent.get(agent.id) ?? null}
-                        context={workingContext[agent.id] ?? null}
-                        observeData={observeCache[agent.id]?.data ?? null}
-                        observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
-                        layout={movingLayout}
-                        nowMs={nowMs}
-                        navigate={navigate}
-                        enter={enterIndexById.has(agent.id)}
-                        enterIndex={enterIndexById.get(agent.id) ?? 0}
-                      />
-                    ))}
-                    {visibleNativeMovingLanes.map((lane) => (
-                      <NowCard
-                        key={lane.id}
-                        agent={lane.agent}
-                        ask={null}
-                        context={workingContextFromLane(lane)}
-                        observeData={lane.observe}
-                        observeLive={isAgentLaneLive(lane.observe)}
-                        layout={movingLayout}
-                        nowMs={nowMs}
-                        navigate={navigate}
-                        enter={enterIndexById.has(lane.id)}
-                        enterIndex={enterIndexById.get(lane.id) ?? 0}
-                      />
-                    ))}
-                    {visibleObservedMovingActors.map((actor) => (
-                      <ObservedActorCard
-                        key={actor.id}
-                        actor={actor}
-                        nowMs={nowMs}
-                        navigate={navigate}
-                        enter={enterIndexById.has(actor.id)}
-                        enterIndex={enterIndexById.get(actor.id) ?? 0}
-                      />
-                    ))}
+                    {visibleMovingCards.map((card) => {
+                      if (card.bucket === "working") {
+                        const agent = card.agent;
+                        return (
+                          <NowCard
+                            key={card.id}
+                            agent={agent}
+                            ask={movingAskByAgent.get(agent.id) ?? null}
+                            context={workingContext[agent.id] ?? null}
+                            observeData={observeCache[agent.id]?.data ?? null}
+                            observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
+                            lastActivityAt={card.lastActivityAt}
+                            layout={movingLayout}
+                            nowMs={nowMs}
+                            navigate={navigate}
+                            enter={enterIndexById.has(card.id)}
+                            enterIndex={enterIndexById.get(card.id) ?? 0}
+                          />
+                        );
+                      }
+                      if (card.bucket === "native") {
+                        const lane = card.lane;
+                        return (
+                          <NowCard
+                            key={card.id}
+                            agent={lane.agent}
+                            ask={null}
+                            context={workingContextFromLane(lane)}
+                            observeData={lane.observe}
+                            observeLive={isAgentLaneLive(lane.observe)}
+                            lastActivityAt={card.lastActivityAt}
+                            layout={movingLayout}
+                            nowMs={nowMs}
+                            navigate={navigate}
+                            enter={enterIndexById.has(card.id)}
+                            enterIndex={enterIndexById.get(card.id) ?? 0}
+                          />
+                        );
+                      }
+                      return (
+                        <ObservedActorCard
+                          key={card.id}
+                          actor={card.actor}
+                          lastActivityAt={card.lastActivityAt}
+                          nowMs={nowMs}
+                          navigate={navigate}
+                          enter={enterIndexById.has(card.id)}
+                          enterIndex={enterIndexById.get(card.id) ?? 0}
+                        />
+                      );
+                    })}
                   </div>
                 )}
                 {movingAsksWithoutWorkingAgent.length > 0 && (
@@ -893,14 +972,66 @@ function SectionRule({
   );
 }
 
+function MovingControls({
+  sort,
+  onSortChange,
+  windowKey,
+  onWindowChange,
+}: {
+  sort: HomeMovingSortMode;
+  onSortChange: (next: string) => void;
+  windowKey: string;
+  onWindowChange: (next: string) => void;
+}) {
+  return (
+    <div className="s-moving-controlset" aria-label="Moving cards controls">
+      <div className="s-mc-window s-moving-window" role="group" aria-label="Moving sort">
+        <span className="s-mc-window-label">Sort</span>
+        <div className="s-mc-window-tabs">
+          {([
+            ["recent", "Recent"],
+            ["grouped", "Grouped"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`s-mc-window-tab${sort === key ? " is-active" : ""}`}
+              onClick={() => onSortChange(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="s-mc-window s-moving-window" role="group" aria-label="Moving activity window">
+        <span className="s-mc-window-label">Window</span>
+        <div className="s-mc-window-tabs">
+          {HOME_MOVING_WINDOW_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              className={`s-mc-window-tab${windowKey === opt.key ? " is-active" : ""}`}
+              onClick={() => onWindowChange(opt.key)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ObservedActorCard({
   actor,
+  lastActivityAt,
   nowMs,
   navigate,
   enter = false,
   enterIndex = 0,
 }: {
   actor: FleetActivity;
+  lastActivityAt: number;
   nowMs: number;
   navigate: (r: Route) => void;
   enter?: boolean;
@@ -910,6 +1041,7 @@ function ObservedActorCard({
   const initial = name[0]?.toUpperCase() ?? "?";
   const verb = activityVerb(actor.kind);
   const text = summarize(actor.title ?? actor.summary, 140);
+  const lastActivityAge = formatAge(lastActivityAt, nowMs);
   const route: Route | null = actor.conversationId
     ? { view: "conversation", conversationId: actor.conversationId }
     : actor.recordId
@@ -945,7 +1077,7 @@ function ObservedActorCard({
         </div>
         <span className="s-now-card-live s-now-card-live--observed">
           <span className="s-now-card-live-dot" aria-hidden="true" />
-          live
+          recent
         </span>
       </div>
 
@@ -960,7 +1092,7 @@ function ObservedActorCard({
       </div>
 
       <div className="s-now-card-footer">
-        <span>updated {formatAge(actor.ts, nowMs)}</span>
+        <span>last activity {lastActivityAge}</span>
         <span>unmanaged</span>
       </div>
     </div>

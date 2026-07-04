@@ -77,7 +77,8 @@ public final class ScoutComposeService: ObservableObject {
         if isAssistantDefault {
             return [.text(body)]
         }
-        return [.mention("@\(target)"), .text(" \(body)")]
+        let label = ScoutComposeRouting.isRouteDirectiveTarget(target) ? target : "@\(target)"
+        return [.mention(label), .text(" \(body)")]
     }
 
     private static func clockNow() -> String {

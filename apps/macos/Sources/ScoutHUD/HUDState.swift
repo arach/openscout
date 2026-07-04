@@ -155,6 +155,7 @@ public enum HUDMotionPhase: Equatable, Sendable {
     case idle
     case warming
     case collapsing
+    case expanding
     case moving
 }
 

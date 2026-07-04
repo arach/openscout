@@ -61,10 +61,10 @@ export function ProjectsThreadAside({
 }) {
   const { model, nowMs, loading, error } = useProjectsInbox(route);
 
-  // The inspector earns its place for agent/thread peeks only. Session detail
-  // routes render their own glance + replay; duplicating identity here crowds
-  // the project rail and repeats the same path/ref.
-  if (route.sessionId || !route.selectedAgentId) return null;
+  // The inspector earns its place for agent/thread/session peeks. The center
+  // stays a project/session list; selected session identity and actions belong
+  // in this shell sidebar.
+  if (!route.sessionId && !route.selectedAgentId) return null;
 
   const selection = findSelection(model.threads, model.sessions, route);
   if (!selection) {

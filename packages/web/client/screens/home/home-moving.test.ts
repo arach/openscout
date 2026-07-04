@@ -5,13 +5,14 @@ import type { Agent, FleetAsk, TailEvent } from "../../lib/types.ts";
 import {
   agentHasRecentTailActivity,
   buildHomeNativeMovingLanes,
+  compareHomeMovingItems,
   dedupeWorkingAgentsByObservedSession,
   harnessTailSource,
-  HOME_MOVING_CARD_LIMIT,
   HOME_MOVING_WINDOW_MS,
-  homeMovingDisplayCounts,
   isHomeAgentMoving,
   isHomeObserveCandidate,
+  normalizeHomeMovingSort,
+  normalizeHomeMovingWindowKey,
   observedSessionKey,
 } from "./home-moving.ts";
 
@@ -36,49 +37,39 @@ describe("harnessTailSource", () => {
   });
 });
 
-describe("homeMovingDisplayCounts", () => {
-  test("caps the rendered home cards across all moving buckets", () => {
-    expect(
-      homeMovingDisplayCounts({
-        working: 2,
-        native: 6,
-        observed: 6,
-      }),
-    ).toEqual({
-      working: 2,
-      native: 6,
-      observed: 1,
-      cardCount: HOME_MOVING_CARD_LIMIT,
-      totalCount: 14,
-    });
+describe("moving settings", () => {
+  test("normalizes persisted moving sort values", () => {
+    expect(normalizeHomeMovingSort("grouped")).toBe("grouped");
+    expect(normalizeHomeMovingSort("recent")).toBe("recent");
+    expect(normalizeHomeMovingSort("nonsense")).toBe("recent");
   });
 
-  test("prioritizes managed working agents over native and observed actors", () => {
-    expect(
-      homeMovingDisplayCounts({
-        working: 12,
-        native: 8,
-        observed: 3,
-        movingAsks: 2,
-      }),
-    ).toEqual({
-      working: HOME_MOVING_CARD_LIMIT,
-      native: 0,
-      observed: 0,
-      cardCount: HOME_MOVING_CARD_LIMIT,
-      totalCount: 25,
-    });
+  test("normalizes persisted moving window values", () => {
+    expect(normalizeHomeMovingWindowKey("5m")).toBe("5m");
+    expect(normalizeHomeMovingWindowKey("4h")).toBe("4h");
+    expect(normalizeHomeMovingWindowKey("nonsense")).toBe("30m");
   });
 
-  test("counts moving ask rows even when there are no moving cards", () => {
-    expect(homeMovingDisplayCounts({ working: 0, native: 0, observed: 0, movingAsks: 2 }))
-      .toEqual({
-        working: 0,
-        native: 0,
-        observed: 0,
-        cardCount: 0,
-        totalCount: 2,
-      });
+  test("recent sort crosses moving buckets by last activity", () => {
+    const items = [
+      { id: "managed-old", bucket: "working" as const, lastActivityAt: 10 },
+      { id: "native-new", bucket: "native" as const, lastActivityAt: 30 },
+      { id: "observed-mid", bucket: "observed" as const, lastActivityAt: 20 },
+    ];
+
+    expect([...items].sort((left, right) => compareHomeMovingItems(left, right, "recent")).map((item) => item.id))
+      .toEqual(["native-new", "observed-mid", "managed-old"]);
+  });
+
+  test("grouped sort preserves bucket order before recency", () => {
+    const items = [
+      { id: "observed-new", bucket: "observed" as const, lastActivityAt: 30 },
+      { id: "native-mid", bucket: "native" as const, lastActivityAt: 20 },
+      { id: "managed-old", bucket: "working" as const, lastActivityAt: 10 },
+    ];
+
+    expect([...items].sort((left, right) => compareHomeMovingItems(left, right, "grouped")).map((item) => item.id))
+      .toEqual(["managed-old", "native-mid", "observed-new"]);
   });
 });
 
@@ -423,6 +414,45 @@ describe("buildHomeNativeMovingLanes", () => {
     expect(lanes).toHaveLength(1);
     expect(lanes[0]?.agent.harness).toBe("grok");
     expect(lanes[0]?.source).toBe("native");
+  });
+
+  test("respects the selected moving horizon", () => {
+    const tailEvents: TailEvent[] = [{
+      id: "tail-grok",
+      ts: nowMs - 10 * 60_000,
+      kind: "tool",
+      source: "grok",
+      harness: "unattributed",
+      project: "openscout",
+      cwd: "/Users/dev/openscout",
+      sessionId: "sess-grok",
+      summary: "Grep · pattern",
+    }];
+    const transcripts = [{
+      source: "grok",
+      transcriptPath: "/Users/art/.grok/sessions/openscout/sess-grok/events.jsonl",
+      sessionId: "sess-grok",
+      cwd: "/Users/dev/openscout",
+      project: "openscout",
+      harness: "unattributed",
+      mtimeMs: nowMs - 10 * 60_000,
+      size: 1200,
+    }] as const;
+
+    expect(buildHomeNativeMovingLanes({
+      agents: [],
+      tailEvents,
+      transcripts: [...transcripts],
+      nowMs,
+      horizon: "5m",
+    })).toHaveLength(0);
+    expect(buildHomeNativeMovingLanes({
+      agents: [],
+      tailEvents,
+      transcripts: [...transcripts],
+      nowMs,
+      horizon: "30m",
+    })).toHaveLength(1);
   });
 
   test("excludes native grok sessions with only streaming phase noise", () => {
