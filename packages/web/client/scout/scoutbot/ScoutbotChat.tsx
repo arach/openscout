@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, CheckCircle2, ChevronDown, ChevronUp, Copy, History, Loader2, Mic, SendHorizontal, Square } from "lucide-react";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { AgentMentionTextarea } from "../../lib/agent-autocomplete.tsx";
 import {
   formatAbsoluteTimestamp,
   formatClockTimestamp,
@@ -8,6 +9,7 @@ import {
 } from "../../lib/time.ts";
 import { ScoutbotMarkdown } from "../../lib/scoutbot-markdown.tsx";
 import { stripScoutbotUiFences } from "../../lib/scoutbot.ts";
+import type { Agent } from "../../lib/types.ts";
 import type {
   ScoutbotAssistantMessage,
   ScoutbotAssistantSessionState,
@@ -27,6 +29,8 @@ export function ChatHistory({
   onArchiveSession,
   archivingSessionId,
   onAssistantContextMenu,
+  suggestedPrompts,
+  onSelectPrompt,
 }: {
   state: ScoutbotAssistantSessionState;
   chatExpanded: boolean;
@@ -41,6 +45,8 @@ export function ChatHistory({
   onArchiveSession: (id: string) => void;
   archivingSessionId: string | null;
   onAssistantContextMenu?: (event: React.MouseEvent, body: string) => void;
+  suggestedPrompts?: readonly string[];
+  onSelectPrompt?: (prompt: string) => void;
 }) {
   const TRAIL = 4;
   const messages = state.session.messages;
@@ -49,10 +55,13 @@ export function ChatHistory({
   const totalCount = messages.length;
   const sessionsCount = state.sessions.length;
   const retention = state.retention;
+  const isEmptySession = messages.length === 0 && !pendingAsk && !sending && !briefing;
   const startedAt = state.session.createdAt
     ? formatClockTimestamp(state.session.createdAt)
     : null;
-  const titleLine = state.session.title && state.session.title !== "New Scout Session"
+  const titleLine = isEmptySession
+    ? "Scout conversation"
+    : state.session.title && state.session.title !== "New Scout Session"
     ? state.session.title
     : `Session ${state.session.id.slice(0, 8)}`;
 
@@ -72,10 +81,12 @@ export function ChatHistory({
           <span className="min-w-0 truncate text-[var(--scout-chrome-ink)]" title={state.session.id}>
             {titleLine}
           </span>
-          {startedAt && (
+          {startedAt && !isEmptySession && (
             <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">· {startedAt}</span>
           )}
-          <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">· {totalCount} msg{totalCount === 1 ? "" : "s"}</span>
+          {!isEmptySession && (
+            <span className="shrink-0 text-[var(--scout-chrome-ink-ghost)]">· {totalCount} msg{totalCount === 1 ? "" : "s"}</span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -179,8 +190,11 @@ export function ChatHistory({
             ↑ {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"}
           </button>
         )}
-        {visible.length === 0 && !pendingAsk && (
-          <p className="text-[var(--scout-chrome-ink-ghost)]">No messages yet — ask anything below.</p>
+        {isEmptySession && (
+          <ScoutbotZeroState
+            suggestedPrompts={suggestedPrompts}
+            onSelectPrompt={onSelectPrompt}
+          />
         )}
         {visible.map((message, index) => {
           const showTimestamp = shouldShowScoutbotMessageTimestamp(visible[index - 1], message);
@@ -230,7 +244,43 @@ export function ChatHistory({
   );
 }
 
+function ScoutbotZeroState({
+  suggestedPrompts = [],
+  onSelectPrompt,
+}: {
+  suggestedPrompts?: readonly string[];
+  onSelectPrompt?: (prompt: string) => void;
+}) {
+  return (
+    <div className="flex min-h-full flex-1 flex-col justify-center gap-2 px-1 py-2.5">
+      <div className="max-w-[30rem]">
+        <div className="font-sans text-[13px] font-semibold leading-tight text-[var(--scout-chrome-ink)]">
+          Coordinate from here.
+        </div>
+        <p className="mt-0.5 font-sans text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+          Tag agents, ask Scout to route work, or have it watch the active lanes.
+        </p>
+      </div>
+      {suggestedPrompts.length > 0 ? (
+        <div className="grid gap-1">
+          {suggestedPrompts.slice(0, 3).map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => onSelectPrompt?.(prompt)}
+              className="min-h-7 truncate rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 text-left font-mono text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ChatInput({
+  agents,
   draft,
   onDraftChange,
   onSubmit,
@@ -240,7 +290,9 @@ export function ChatInput({
   voiceBusy,
   voiceUnavailable,
   onMicClick,
+  prominent = false,
 }: {
+  agents: Agent[];
   draft: string;
   onDraftChange: (next: string) => void;
   onSubmit: () => void;
@@ -250,12 +302,19 @@ export function ChatInput({
   voiceBusy: boolean;
   voiceUnavailable: boolean;
   onMicClick: () => void;
+  prominent?: boolean;
 }) {
   let micTitle = "Start talking";
-  if (voiceUnavailable) micTitle = "Open Scout voice";
+  if (voiceUnavailable) micTitle = "Set up Scout voice";
   if (recording) micTitle = "Stop talking";
   if (voiceBusy) micTitle = voiceLabel;
-  const showVoiceLabel = voiceUnavailable || voiceBusy || recording;
+  const showVoiceLabel = voiceBusy || recording;
+  const textareaClassName = [
+    "w-full resize-none rounded border font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]",
+    prominent
+      ? "min-h-[88px] max-h-[170px] border-lime-300/30 bg-black/25 px-3 py-2 text-[12px]"
+      : "min-h-[44px] max-h-[124px] border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5",
+  ].join(" ");
   return (
     <form
       className="grid grid-cols-[auto_1fr_auto] gap-2"
@@ -285,18 +344,19 @@ export function ChatInput({
         )}
         {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
       </button>
-      <textarea
+      <AgentMentionTextarea
+        agents={agents}
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="Ask to inspect state or move the UI…"
-        rows={2}
-        className="w-full resize-none rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]"
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            if (draft.trim() && !sending) onSubmit();
-          }
+        onChange={onDraftChange}
+        onSubmit={() => {
+          if (draft.trim() && !sending) onSubmit();
         }}
+        placeholder={prominent ? "Ask Scout to watch, route, or coordinate with @agents…" : "Ask Scout…"}
+        rows={prominent ? 4 : 2}
+        disabled={sending}
+        submitOnEnter
+        className="min-w-0"
+        textareaClassName={textareaClassName}
       />
       <button
         type="submit"
