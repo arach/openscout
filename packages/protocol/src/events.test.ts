@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  OPENSCOUT_CONTROL_EVENT_VERSION,
+  normalizeControlEvent,
+} from "./events.js";
 import type {
   ControlEvent,
   NodeUpsertedEvent,
@@ -263,5 +267,74 @@ describe("ControlEvent variants", () => {
 
     expect(withNode.nodeId).toBe("node-1");
     expect(withoutNode.nodeId).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Envelope versioning
+// ---------------------------------------------------------------------------
+
+describe("control-event envelope version", () => {
+  test("OPENSCOUT_CONTROL_EVENT_VERSION is 1", () => {
+    expect(OPENSCOUT_CONTROL_EVENT_VERSION).toBe(1);
+  });
+
+  test("normalizeControlEvent stamps a missing v", () => {
+    const legacy: AgentEndpointDeletedEvent = {
+      id: "evt-100",
+      kind: "agent.endpoint.deleted",
+      ts: 1_700_000_009_000,
+      actorId: "actor-1",
+      payload: { endpointId: "ep-9" },
+    };
+
+    expect(legacy.v).toBeUndefined();
+
+    const normalized = normalizeControlEvent(legacy);
+
+    expect(normalized.v).toBe(1);
+    // Pure: the input is not mutated.
+    expect(legacy.v).toBeUndefined();
+    // Rest of the envelope is preserved.
+    expect(normalized.id).toBe("evt-100");
+    expect(normalized.payload.endpointId).toBe("ep-9");
+  });
+
+  test("normalizeControlEvent preserves an existing v", () => {
+    const versioned: AgentEndpointDeletedEvent = {
+      id: "evt-101",
+      kind: "agent.endpoint.deleted",
+      ts: 1_700_000_010_000,
+      actorId: "actor-1",
+      v: 1,
+      payload: { endpointId: "ep-10" },
+    };
+
+    const normalized = normalizeControlEvent(versioned);
+
+    expect(normalized.v).toBe(1);
+    expect(normalized.id).toBe("evt-101");
+  });
+
+  test("events with and without v both satisfy ControlEvent (legacy-compat)", () => {
+    // Compile-time check: the optional `v` keeps both shapes assignable.
+    const withoutV: ControlEvent = {
+      id: "evt-102",
+      kind: "agent.endpoint.deleted",
+      ts: 1_700_000_011_000,
+      actorId: "actor-1",
+      payload: { endpointId: "ep-11" },
+    };
+    const withV: ControlEvent = {
+      id: "evt-103",
+      kind: "agent.endpoint.deleted",
+      ts: 1_700_000_012_000,
+      actorId: "actor-1",
+      v: 1,
+      payload: { endpointId: "ep-12" },
+    };
+
+    expect(withoutV.v).toBeUndefined();
+    expect(withV.v).toBe(1);
   });
 });
