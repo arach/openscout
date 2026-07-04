@@ -42,7 +42,10 @@ import {
   readClaudeCodeQuotaObservation,
 } from "./quota.js";
 import { readClaudeAgentTeamTopology } from "./team-topology.js";
-import type { Subprocess } from "bun";
+import {
+  spawnHarnessProcess,
+  type HarnessProcess,
+} from "../../runtime/process.js";
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
 
@@ -59,7 +62,7 @@ interface ClaudeResumeContext {
 export class ClaudeCodeAdapter extends BaseAdapter {
   readonly type = "claude-code";
 
-  private process: Subprocess | null = null;
+  private process: HarnessProcess | null = null;
   private currentTurn: Turn | null = null;
   private blockIndex = 0;
   private claudeSessionId: string | null = null;
@@ -101,12 +104,6 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
-    if (typeof Bun === "undefined") {
-      throw new Error(
-        "The Claude Code adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
-      );
-    }
-
     const args = [
       "--print",
       "--input-format", "stream-json",
@@ -128,20 +125,31 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     const env = { ...process.env, ...this.config.env };
     const claudeExecutable = resolveExecutableFromPath("claude", env);
 
-    this.process = Bun.spawn([claudeExecutable, ...args], {
+    const child = await spawnHarnessProcess(claudeExecutable, args, {
       cwd: this.config.cwd,
       env,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
     });
+    this.process = child;
 
-    // Start reading stdout — runs for the lifetime of the process.
     this.readStdout();
+    child.drainStderr();
 
-    this.process.exited.then((code) => {
-      if (code !== 0 && this.session.status !== "closed") {
-        this.emit("error", new Error(`claude exited with code ${code}`));
+    child.onError((error) => {
+      if (this.process === child && this.session.status !== "closed") {
+        this.emit("error", error);
+        this.setStatus("error");
+      }
+    });
+    child.onExit((code, signal) => {
+      if (this.process !== child || this.session.status === "closed") {
+        return;
+      }
+      if (code !== 0) {
+        this.emit("error", new Error(
+          `claude exited`
+          + (code !== null ? ` with code ${code}` : "")
+          + (signal ? ` (${signal})` : ""),
+        ));
         this.setStatus("error");
       }
     });
@@ -150,7 +158,7 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   send(prompt: Prompt): void {
-    if (!this.process?.stdin || typeof this.process.stdin === "number") {
+    if (!this.process?.stdin.writable) {
       this.emit("error", new Error("Claude Code process not running"));
       return;
     }
@@ -202,7 +210,6 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     }) + "\n";
 
     this.process.stdin.write(msg);
-    this.process.stdin.flush();
   }
 
   interrupt(): void {
@@ -235,36 +242,24 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   // Persistent stdout reader
   // ---------------------------------------------------------------------------
 
-  private async readStdout(): Promise<void> {
-    const stdout = this.process?.stdout;
-    if (!stdout || typeof stdout === "number") return;
-
-    const reader = stdout.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            this.handleEvent(JSON.parse(trimmed));
-          } catch { /* skip malformed */ }
+  private readStdout(): void {
+    this.process?.readStdoutLines(
+      (line) => this.handleStdoutLine(line),
+      () => {
+        if (this.currentTurn && this.currentTurn.status !== "stopped") {
+          this.endTurn(this.currentTurn, "completed");
         }
-      }
-    } catch { /* stream closed */ }
+      },
+    );
+  }
 
-    // Process exited — if there's an active turn, end it.
-    if (this.currentTurn && this.currentTurn.status !== "stopped") {
-      this.endTurn(this.currentTurn, "completed");
+  private handleStdoutLine(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    try {
+      this.handleEvent(JSON.parse(trimmed));
+    } catch {
+      // Ignore malformed harness output.
     }
   }
 
@@ -639,14 +634,13 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     });
 
     // Write the answer back to Claude Code's stdin as a tool_result.
-    if (!this.process?.stdin || typeof this.process.stdin === "number") return;
+    if (!this.process?.stdin.writable) return;
     const response = JSON.stringify({
       type: "tool_result",
       tool_use_id: toolCallId,
       content: answer.join(", "),
     });
     this.process.stdin.write(response + "\n");
-    await this.process.stdin.flush();
   }
 
   // ---------------------------------------------------------------------------
@@ -764,11 +758,8 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 
 export const createAdapter = (config: AdapterConfig) => new ClaudeCodeAdapter(config);
 
-async function waitForSubprocessExit(child: Subprocess, timeoutMs: number): Promise<boolean> {
-  return await Promise.race([
-    child.exited.then(() => true, () => true),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
-  ]);
+async function waitForSubprocessExit(child: HarnessProcess, timeoutMs: number): Promise<boolean> {
+  return await child.waitForExit(timeoutMs);
 }
 
 function resolveClaudeResumeContext(config: AdapterConfig): ClaudeResumeContext | null {

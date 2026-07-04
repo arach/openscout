@@ -10,17 +10,17 @@ Scout is a local-first control plane for orchestrating AI agents across harnesse
 
 Remember these three things:
 
-- **Broker**: the local daemon that stores state, routes messages, and acts as the source of truth.
-- **Protocol**: the shared language for agent identities, records, and requests.
-- **Runtime**: the part that starts, stops, and health-checks agent sessions on a given harness.
+- **Runtime / broker** (`packages/runtime`): accepts commands, routes messages, and writes Scout-owned coordination records.
+- **Protocol** (`packages/protocol`): the shared language for agent identities, records, and requests.
+- **Agent sessions** (`packages/agent-sessions`): normalizes harness-owned sessions into observed events, snapshots, approvals, and topology hints.
 
-It does not replace Claude Code, Codex, or any other agent tool. It is the substrate: the layer where agents get discovered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on. A harness is just the agent runner and transport wrapper for a specific tool. The agent itself may live outside Scout; what Scout owns is the local routing, binding, session, and durable coordination state around that agent.
+Scout does not replace Claude Code, Codex, or any other agent tool. It handles discovery, addressing, observation, and coordination around those tools, regardless of which harness runs them or which machine they live on. A harness is the agent runner and transport wrapper for a specific tool. The agent itself may live outside Scout; what Scout owns is the local routing, binding, session, and durable coordination state around that agent.
 
 In practice, the architecture is aiming for three stable outcomes:
 
-- one canonical writer for local state: the broker
-- one shared model for messages, invocations, flights, and identities: the protocol
-- many possible operator surfaces and harness adapters around that core
+- `packages/runtime`: clients and adapters submit commands to the local broker instead of writing Scout-owned records directly
+- `packages/protocol`: one shared model for messages, invocations, flights, identities, and collaboration records
+- `packages/agent-sessions`: many operator surfaces and harness adapters can observe sessions around that core
 
 Platform Scout is distinct from the conversational assistant handle
 `@scoutbot`. The product, broker, CLI, protocol, and coordination model remain
@@ -39,9 +39,9 @@ A small set of constraints shape every design decision.
 
 **High-trust local pilot, not hardened enterprise perimeter.** Scout assumes trusted local users, trusted local agents, and explicit pairing/mesh choices; it is not yet a multi-tenant, compliance-ready system. See [`current-posture.md`](./current-posture.md).
 
-**Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes and observes external harness transcripts without importing them wholesale. This boundary is central enough to have its own section below; see [The Data Model](#the-data-model).
+**Observe, don't absorb.** Harnesses own their primary transcripts and logs. Scout observes them through adapters and tail views, then stores links, metadata, and Scout-owned coordination records without importing external turns wholesale. This boundary is central enough to have its own section below; see [The Data Model](#the-data-model).
 
-**Multi-harness.** Agents run on Claude Code, Codex, or anything that speaks the protocol. Scout doesn't assume one execution backend.
+**Multi-harness.** Agents run wherever they naturally run, with or without Scout. Scout observes and coordinates across those harnesses without assuming one execution backend.
 
 **Multi-machine.** Agents on different machines discover and message each other through mesh forwarding. Pair a phone or a second workstation and the agent graph extends with it.
 
@@ -86,7 +86,7 @@ Anything that crosses a boundary — between agents, harnesses, or machines — 
 
 ### Broker
 
-A single local daemon per machine. Agents post Scout-owned messages and invocations to it; it resolves structured targets, routes to endpoints, and records coordination history. It is the canonical writer for Scout control-plane state. Exposes HTTP for reads and writes, SSE for live updates.
+A single local daemon per machine. Agents and surfaces submit commands to it; it resolves structured targets, routes to endpoints, and records coordination history. They do not write Scout-owned control-plane records directly. Exposes HTTP for reads and writes, SSE for live updates.
 
 ```bash
 # What the broker handles
@@ -127,9 +127,6 @@ Shared runtime primitives (`broker.ts` in-memory registry, `scout-dispatcher.ts`
 resolution, `local-agents.ts` harness transports) sit beside this map and are called
 from the services above.
 
-For the June 2026 refactor context, behavioral findings, and remaining cleanup items,
-see [`eng/broker-daemon-architecture-review-2026-06-18.md`](./eng/broker-daemon-architecture-review-2026-06-18.md).
-
 ### Runtime
 
 Manages agent sessions across harnesses — starting them, stopping them, health-checking them. Handles system prompt generation, tmux session management, and transport adapters for each harness type.
@@ -152,7 +149,7 @@ why the Rust binary is named `scoutd`, while the Bun orchestrator keeps the
 
 ### CLI
 
-The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Legacy body-mention shortcuts still exist for compatibility, but new flows should keep target metadata out of the message body.
+The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Target metadata belongs in structured command fields, not in the message body.
 
 ### Surfaces
 
@@ -170,7 +167,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 ## The Data Model
 
-Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or any future harness.
+Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or another harness.
 
 Scout's coordination vocabulary is small. A **conversation** groups related turns; a **message** is a durable "say this" record; an **invocation** is a request for work; a **flight** is the lifecycle record attached to an invocation; a **delivery** is one routed attempt to reach a target; a **binding** maps a project path and branch to an addressable target; a **question** asks for an answer; and a **work item** owns a durable piece of execution. [`concepts.md`](./concepts.md) defines each precisely and maps them onto external protocols. This section is about who owns them.
 

@@ -31,7 +31,10 @@ import type {
   Turn,
   TurnStatus,
 } from "../../protocol/primitives.js";
-import type { Subprocess } from "bun";
+import {
+  spawnHarnessProcess,
+  type HarnessProcess,
+} from "../../runtime/process.js";
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -40,7 +43,7 @@ import type { Subprocess } from "bun";
 export class OpenCodeAdapter extends BaseAdapter {
   readonly type = "opencode";
 
-  private serverProcess: Subprocess | null = null;
+  private serverProcess: HarnessProcess | null = null;
   private serverPort: number = 0;
   private serverUrl: string = "";
   private currentTurn: Turn | null = null;
@@ -57,24 +60,19 @@ export class OpenCodeAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
-    if (typeof Bun === "undefined") {
-      throw new Error(
-        "The opencode adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
-      );
-    }
-
     // Pick a random port for the server.
     this.serverPort = 10000 + Math.floor(Math.random() * 50000);
     this.serverUrl = `http://127.0.0.1:${this.serverPort}`;
 
     const args = ["serve", "--port", String(this.serverPort)];
 
-    this.serverProcess = Bun.spawn(["opencode", ...args], {
+    const child = await spawnHarnessProcess("opencode", args, {
       cwd: this.config.cwd,
       env: { ...process.env, ...this.config.env },
-      stdout: "pipe",
-      stderr: "pipe",
     });
+    this.serverProcess = child;
+    child.drainStdout();
+    child.drainStderr();
 
     // Wait for the server to be ready.
     await this.waitForServer();
@@ -85,9 +83,22 @@ export class OpenCodeAdapter extends BaseAdapter {
     // Connect to the SSE event stream.
     this.connectEventStream();
 
-    this.serverProcess.exited.then((code) => {
-      if (code !== 0 && this.session.status !== "closed") {
-        this.emit("error", new Error(`opencode serve exited with code ${code}`));
+    child.onError((error) => {
+      if (this.serverProcess === child && this.session.status !== "closed") {
+        this.emit("error", error);
+        this.setStatus("error");
+      }
+    });
+    child.onExit((code, signal) => {
+      if (this.serverProcess !== child || this.session.status === "closed") {
+        return;
+      }
+      if (code !== 0) {
+        this.emit("error", new Error(
+          `opencode serve exited`
+          + (code !== null ? ` with code ${code}` : "")
+          + (signal ? ` (${signal})` : ""),
+        ));
         this.setStatus("error");
       }
     });
