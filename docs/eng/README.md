@@ -26,7 +26,7 @@ implementation specs.
 
 **Any file matching `sco-*.md` in this folder auto-registers as a studio
 page.** No manual entry in `design/studio/lib/studio-pages.ts` or in this
-README is required, or wanted — the studio reads this folder live via
+README is required or wanted; the studio reads this folder live via
 `design/studio/lib/eng-docs.ts`. Hand-maintained index lists drift the
 moment someone adds a doc.
 

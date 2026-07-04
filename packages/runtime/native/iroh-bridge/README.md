@@ -11,7 +11,7 @@ This crate owns the first Iroh boundary for issue #48:
 
 It does not own Scout broker state. Future forwarding commands should continue to
 carry the existing broker `/v1/mesh/*` JSON bundles so the TypeScript broker
-remains the canonical writer.
+handles Scout coordination writes.
 
 ## Commands
 

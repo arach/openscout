@@ -56,7 +56,7 @@ For agent-ready entry points, read [`llms.txt`](./llms.txt), [`llms-full.txt`](.
 OpenScout is not just "chat between terminals." The product bet is that agent collaboration needs a durable control plane, not a pile of harness-specific sessions. The current direction is:
 
 - explicit: conversation, work, delivery, and bindings are different records
-- durable: the broker is the only writer and local state is stored canonically
+- durable: clients and adapters submit commands to the broker instead of writing coordination records directly
 - addressable: agents, conversations, messages, invocations, and flights all have stable IDs
 - replayable: surfaces rebuild from stored records instead of terminal scrollback
 - observable: you can inspect ownership, status, failures, and outputs
@@ -112,7 +112,7 @@ command shown by `scout doctor`.
 
 Scout runs on Bun, but the web terminal additionally needs a system **Node.js**
 (20+) on `PATH`: the PTY relay behind web terminal sessions is spawned under Node
-and loads a prebuilt `@lydell/node-pty` binary. Nothing else requires Node — if
+and loads a prebuilt `@lydell/node-pty` binary. Nothing else requires Node; if
 you never open a web terminal you can skip it. `scout doctor` probes this
 ("Web terminal (Node PTY relay)") and points you at `brew install node` or a
 reinstall when the runtime or its native binding is missing.

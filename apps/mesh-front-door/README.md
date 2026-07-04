@@ -32,7 +32,7 @@ messages, conversations, flights, collaboration records, or replay state.
 `/v1/push/*` (other than `/health`) require an authenticated OpenScout session
 bearer: `Authorization: Bearer osn_session_<token>`. The session is minted by
 the existing GitHub OAuth flow (`/v1/auth/github/start`). All push-relay
-operations are scoped to the session's GitHub user — a user can only register,
+operations are scoped to the session's GitHub user; a user can only register,
 list, and notify their own devices. There is no shared admin token.
 
 The managed OSN auth path uses GitHub OAuth first. The Worker asks GitHub for
@@ -92,7 +92,7 @@ broker.
 ### Push Relay defensive controls
 
 All limits below have sensible defaults and are tunable via `vars` in
-`wrangler.jsonc` — set them to override:
+`wrangler.jsonc`; set them to override:
 
 | Var | Default | What it caps |
 |---|---|---|
@@ -138,10 +138,10 @@ POST /v1/auth/apple/native
 
 The Worker verifies the token against Apple's published keys
 (`https://appleid.apple.com/auth/keys`), checking the RS256 signature plus
-`iss`/`aud`/`exp`/`nonce`, then returns `{ session, expires_at }` — the same
+`iss`/`aud`/`exp`/`nonce`, then returns `{ session, expires_at }`, the same
 signed OSN session the GitHub flow produces (here with `provider: "apple"`).
 No Apple `.p8` key or token exchange is needed for the native flow; the only
-config is `OPENSCOUT_APPLE_CLIENT_IDS` (accepted token audiences — the app
+config is `OPENSCOUT_APPLE_CLIENT_IDS` (accepted token audiences: the app
 bundle id, comma-separated to add a web Services ID later).
 
 ## Local Commands

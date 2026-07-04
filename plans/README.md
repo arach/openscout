@@ -5,9 +5,9 @@ is rendered by the studio at `/plans` (see `design/studio`).
 
 Difference from `docs/`:
 
-- **docs/** — reference material, architecture notes, integration
+- **docs/**: reference material, architecture notes, integration
   guides. Long-lived, often-read, written once.
-- **plans/** — what we're going to do and why. Each plan has a status
+- **plans/**: what we're going to do and why. Each plan has a status
   (draft / in-flight / shipped / shelved / concept) and decays over
   time. A shipped plan is a record, not a TODO.
 

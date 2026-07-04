@@ -98,7 +98,7 @@ only when you mean one specific known target.
 
 ## Non-Negotiable Rules
 
-- Broker is the canonical writer for Scout-owned coordination records.
+- Clients and adapters submit commands to the broker; they do not write Scout-owned coordination records directly.
 - Do not make external harness transcripts canonical Scout messages.
 - Use explicit target metadata; message body is payload, not routing.
 - One target means DM; group coordination means explicit channel; shared

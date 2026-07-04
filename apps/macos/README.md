@@ -3,7 +3,7 @@
 Native macOS shells for OpenScout. The release installer is built through the
 local Hudson `hkit package macos` packager and currently installs one app:
 
-- `OpenScout.app` — HudsonKit-native chat/work surface with the menu bar/HUD
+- `OpenScout.app`: HudsonKit-native chat/work surface with the menu bar/HUD
   helper embedded under `Contents/Library/LoginItems`
 
 The menu app is intentionally thin:

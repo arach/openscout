@@ -23,7 +23,7 @@ recorded the old hash. Fix mistakes with a new migration, not an edit.
 
 Run these from `packages/runtime`.
 
-1. **Edit the model** in `../src/drizzle-schema.ts` — and only the model. Never
+1. **Edit the model** in `../src/drizzle-schema.ts`, and only the model. Never
    author schema in the raw string (`CONTROL_PLANE_SQLITE_SCHEMA`) or the
    imperative array (`CONTROL_PLANE_SCHEMA_MIGRATIONS`); those follow the model.
 2. **Generate** the migration: `bun run db:generate`
@@ -61,7 +61,7 @@ Run these from `packages/runtime`.
   baseline's `CREATE TABLE`s entirely; only a truly virgin database runs the
   baseline for real.
 - Column ADDs that must also repair very old databases do **not** belong in a
-  generated migration — a `CREATE TABLE IF NOT EXISTS` repair layer cannot add a
+  generated migration; a `CREATE TABLE IF NOT EXISTS` repair layer cannot add a
   column to a table that already exists. Put those in the guarded imperative
   array `CONTROL_PLANE_SCHEMA_MIGRATIONS` (`../src/control-plane-migrations.ts`),
   each guarded by a `hasColumn` check. See the `briefings-markdown-column` entry.
