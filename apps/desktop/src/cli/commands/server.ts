@@ -778,7 +778,7 @@ async function spawnDetachedServer(entry: string, env: NodeJS.ProcessEnv): Promi
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn(
       bunExecutable,
-      entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
+      ["run", entry],
       {
         detached: true,
         stdio: ["ignore", logFd, logFd],

@@ -838,7 +838,9 @@ export function readClaudeWorkflowTopology(
 ): ObservedHarnessTopology | null {
   const homeDir = options.homeDir ?? homedir();
   const maxRuns = options.maxWorkflowRuns ?? DEFAULT_MAX_WORKFLOW_RUNS;
+  const sessionId = options.claudeSessionId?.trim();
   const runs = discoverWorkflowDirs(homeDir, maxRuns)
+    .filter((workflowDir) => !sessionId || workflowDir.parentSessionId === sessionId)
     .map((workflowDir) => readWorkflowRun(homeDir, workflowDir))
     .filter((run) => workflowMatchesOptions(run, options));
 

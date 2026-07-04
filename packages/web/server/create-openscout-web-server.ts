@@ -4714,11 +4714,14 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
-async function readLocalHarnessTopologySnapshot() {
+async function readLocalHarnessTopologySnapshot(options: { claudeSessionId?: string | null } = {}) {
   try {
     const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
     const observer = new HarnessTopologyObserver({
       cwd: process.env.OPENSCOUT_SETUP_CWD || process.cwd(),
+      claudeSessionId: options.claudeSessionId ?? null,
+      includeUnmatchedClaudeSubagents: !options.claudeSessionId,
+      includeUnmatchedClaudeWorkflows: !options.claudeSessionId,
     });
     return await observer.getSnapshot(true);
   } catch {
@@ -6153,6 +6156,12 @@ export async function createOpenScoutWebServer(
   });
   app.get("/api/activity", (c) => c.json(queryActivity()));
   app.get("/api/topology/snapshot", async (c) => {
+    const sessionId = c.req.query("sessionId")?.trim() || null;
+    if (sessionId) {
+      const localSnapshot = await readLocalHarnessTopologySnapshot({ claudeSessionId: sessionId });
+      if (localSnapshot) return c.json(localSnapshot);
+    }
+
     const url = new URL(scoutBrokerPaths.v1.topologySnapshot, resolveScoutBrokerUrl());
     if (c.req.query("force") === "1") {
       url.searchParams.set("force", "1");
@@ -7344,7 +7353,12 @@ export async function createOpenScoutWebServer(
       const sendMode = (optionalString(intent)?.trim()
         || optionalString(mode)?.trim()
         || defaultSendModeForConversationSession(routeSession)).toLowerCase();
-      const shouldCommentOnly = sendMode === "comment" || sendMode === "tell" || !messageBody;
+      const isOperatorDirectConversation =
+        routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
+      const shouldCommentOnly =
+        sendMode === "comment"
+        || !messageBody
+        || (sendMode === "tell" && !isOperatorDirectConversation);
       const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
         ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
         : undefined;
@@ -7363,6 +7377,7 @@ export async function createOpenScoutWebServer(
             body: messageBody,
             attachments,
             ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
+            intent: sendMode === "tell" ? "tell" : "steer",
             currentDirectory,
             source: "scout-web",
           });

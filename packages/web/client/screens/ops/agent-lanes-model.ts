@@ -1472,6 +1472,16 @@ function shouldUseSessionBackedPlaceholderLane(
   return updatedAt > 0 && now - updatedAt <= windowMs;
 }
 
+function agentProviderPresenceAt(
+  agent: Agent,
+): number {
+  if (agent.retiredFromFleet || agent.staleLocalRegistration) return 0;
+  if (!hasDesignedAgentCard(agent, "scout")) return 0;
+  if (!hasProviderHarnessSession(agent)) return 0;
+  if (isIdleCodexRelay(agent)) return 0;
+  return Math.max(agent.updatedAt ?? 0, agent.createdAt ?? 0);
+}
+
 function agentSessionBackedObserveData(
   agent: Agent,
   current: boolean,
@@ -1489,6 +1499,27 @@ function agentSessionBackedObserveData(
       .filter(Boolean)
       .join(" · ") || null,
   });
+}
+
+function agentPresenceObserveData(
+  agent: Agent,
+  lastActiveAt: number,
+): ObserveData {
+  return {
+    events: [],
+    files: [],
+    live: false,
+    metadata: {
+      session: {
+        adapterType: agent.harness ?? undefined,
+        cwd: agent.cwd ?? agent.projectRoot ?? undefined,
+        externalSessionId: agent.harnessSessionId ?? undefined,
+        sessionStart: lastActiveAt,
+        model: agent.model ?? undefined,
+        source: "agent-presence",
+      },
+    },
+  };
 }
 
 function hasNativeLaneWorkingSignal(
@@ -1963,9 +1994,15 @@ export function buildAgentLanes(input: {
       agent.harnessSessionId,
       eventsBySession,
     );
+    const providerPresenceAt = agentProviderPresenceAt(agent);
     const placeholderEligible = shouldUseSessionBackedPlaceholderLane(agent, now, windowMs);
     const placeholderAt = placeholderEligible ? agent.updatedAt ?? 0 : 0;
-    const lastActiveAt = Math.max(laneActivityAt(agent, observeEntry, now), sessionSubstantiveAt, placeholderAt);
+    const lastActiveAt = Math.max(
+      laneActivityAt(agent, observeEntry, now),
+      sessionSubstantiveAt,
+      placeholderAt,
+      providerPresenceAt,
+    );
     const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
     let observe = filterObserveDataForHorizon(observeEntry?.data ?? null, now, windowMs);
     if (
@@ -1975,6 +2012,8 @@ export function buildAgentLanes(input: {
       && !isAgentLaneLive(observe)
     ) {
       observe = agentSessionBackedObserveData(agent, current, lastActiveAt);
+    } else if (!observe && providerPresenceAt > 0) {
+      observe = agentPresenceObserveData(agent, lastActiveAt);
     }
     const lane: AgentLane = {
       id: agent.id,
@@ -1985,10 +2024,11 @@ export function buildAgentLanes(input: {
       lastActiveAt,
       current,
     };
-    if (workingOnly && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
+    const present = providerPresenceAt > 0;
+    if (workingOnly && !present && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
       continue;
     }
-    if (!hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
+    if (!present && !hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
       continue;
     }
     lanes.push(lane);

@@ -51,6 +51,19 @@ echo "    Config: $CONFIG_PATH"
 
 node "${args[@]}"
 
+verify_args=("$REPO_ROOT/scripts/verify-macos-dmg.mjs" "$DMG_PATH")
+if [ "$SKIP_SIGN" = "1" ]; then
+    verify_args+=(--skip-codesign)
+fi
+
+echo ""
+echo "==> Verifying OpenScout installer"
+node "${verify_args[@]}"
+
+if [ -f "$LATEST_DMG_PATH" ]; then
+    cmp -s "$DMG_PATH" "$LATEST_DMG_PATH"
+fi
+
 echo ""
 echo "==> Done: $DMG_PATH"
 if [ -f "$DMG_PATH" ]; then

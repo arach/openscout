@@ -43,6 +43,32 @@ Extra context follows here.`);
     expect(laneAskPreview(event)).toContain("Extra context follows here.");
   });
 
+  test("skips a generic leading Ask label before injected instructions", () => {
+    const event = ask(`Ask
+
+# AGENTS.md instructions for /Users/art/dev/openscout
+
+<INSTRUCTIONS>
+Do not put DerivedData under /tmp.
+</INSTRUCTIONS>
+
+Ship the message-card design pass.`);
+
+    const model = buildLaneAskDisplay(event);
+
+    expect(model.title).toBe("Ship the message-card design pass.");
+    expect(model.preview).not.toContain("DerivedData");
+    expect(model.preview).not.toBe("Ask");
+  });
+
+  test("strips Scout routed ask envelopes from the request title", () => {
+    const model = buildLaneAskDisplay(ask("⌖ Claude (@claude) → openscout-pauli-2 (@session-mr5ogsi1-q7eoiz) · ask:wej9zx › # Codex task — review OPEN PRs for merge-readiness\nYou are doing an adversarial merge-readiness pass over the diff."));
+
+    expect(model.title).toBe("review OPEN PRs for merge-readiness");
+    expect(model.preview).toContain("adversarial merge-readiness");
+    expect(model.preview).not.toContain("ask:wej9zx");
+  });
+
   test("records human answers with delay metadata", () => {
     const model = buildLaneAskDisplay(ask("Proceed with the migration?", {
       to: "human",
@@ -50,8 +76,33 @@ Extra context follows here.`);
       answerT: 75,
     }));
 
-    expect(model.label).toBe("ask -> operator");
+    expect(model.label).toBe("Asked operator");
     expect(model.fields).toContainEqual({ label: "answer", value: "1m 5s" });
     expect(model.answer).toEqual({ label: "answered after 1m 5s", text: "Yes" });
+  });
+
+  test("prefers the explicit user request over attachments and project instructions", () => {
+    const model = buildLaneAskDisplay(ask(`# AGENTS.md instructions for /Users/art/dev/openscout
+
+<INSTRUCTIONS>
+# Global Codex Build Hygiene
+
+Do not put DerivedData under /tmp.
+</INSTRUCTIONS>
+
+# Files mentioned by the user:
+
+## Talkie Capture.png: /Users/art/Library/Application Support/Talkie/Screenshots/Talkie Capture.png
+
+## My request for Codex:
+ask claude to come up with a much nicer user message presentation
+
+also let's have a filter on the lanes that collapses technical events in turns (as a toggle of course)`));
+
+    expect(model.label).toBe("User request");
+    expect(model.title).toBe("ask claude to come up with a much nicer user message presentation");
+    expect(model.preview).toContain("filter on the lanes");
+    expect(model.preview).not.toContain("DerivedData");
+    expect(model.preview).not.toContain("Talkie Capture");
   });
 });

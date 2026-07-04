@@ -18,6 +18,7 @@ type TopologyPanelSize = "full" | "compact" | "rail";
 
 type ObservedTopologyPanelProps = {
   topology?: ObservedHarnessTopology | null;
+  sessionId?: string | null;
   size?: TopologyPanelSize;
   title?: string;
   maxAgents?: number;
@@ -224,6 +225,7 @@ function flattenSnapshot(snapshot: HarnessTopologySnapshot | null): TopologySour
 
 export function ObservedTopologyPanel({
   topology,
+  sessionId,
   size = "full",
   title = "Internal topology",
   maxAgents = size === "rail" ? 5 : 8,
@@ -236,7 +238,8 @@ export function ObservedTopologyPanel({
   useEffect(() => {
     if (topology) return;
     let cancelled = false;
-    api<HarnessTopologySnapshot>("/api/topology/snapshot")
+    const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+    api<HarnessTopologySnapshot>(`/api/topology/snapshot${query}`)
       .then((result) => {
         if (!cancelled) {
           setSnapshot(result);
@@ -249,7 +252,7 @@ export function ObservedTopologyPanel({
     return () => {
       cancelled = true;
     };
-  }, [topology]);
+  }, [sessionId, topology]);
 
   const sources = useMemo<TopologySourceModel[]>(() => {
     if (topology) {

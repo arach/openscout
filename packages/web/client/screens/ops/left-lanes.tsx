@@ -1,42 +1,11 @@
 import { useMemo } from "react";
 import "../../scout/slots/ctx-panel.css";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
-import type { Route } from "../../lib/types.ts";
-import {
-  isIdleCodexRelay,
-  isLaneRosterFleetAgent,
-  lanePrimaryLabel,
-  laneStatusLabel,
-} from "./agent-lanes-model.ts";
+import { focusDeckLane } from "./lane-focus.ts";
+import { buildFallbackLaneRoster } from "./lane-roster-fallback.ts";
 import { useLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts";
-
-/** Scroll the deck to a lane column and hand it the deck's own keyboard cursor
- *  (the same-document `data-lane-id` anchor the columns render). Because the deck
- *  publishes the roster it actually rendered, the matching column should be
- *  present; when it is momentarily absent we fall back to the agent profile only
- *  for registered agents. Native/terminal lanes have no profile to open, so a
- *  missing column is simply a no-op rather than a broken navigate. */
-function focusDeckLane(
-  laneId: string,
-  agentId: string | undefined,
-  navigate: (route: Route) => void,
-): void {
-  const selector = `[data-lane-id="${laneId.replace(/["\\]/g, "\\$&")}"]`;
-  const column = typeof document !== "undefined"
-    ? document.querySelector<HTMLElement>(selector)
-    : null;
-  if (column) {
-    column.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    column.focus();
-    return;
-  }
-  if (agentId) {
-    navigate({ view: "agents-v2", agentId, tab: "profile" });
-  }
-}
 
 /** Lanes-mode left rail: a 1:1 mirror of the deck's rendered columns so the
  *  count and order always match the strip on screen, and off-viewport lanes
@@ -54,22 +23,7 @@ export function OpsLanesLeft() {
   // idle codex relays), read from the already-loaded fleet without the deck's
   // tail/observe polling. Ignored the moment `published` (the real mirror) lands.
   const fallback = useMemo<LaneRosterEntry[]>(
-    () =>
-      agents
-        .filter((agent) => !isIdleCodexRelay(agent) && isLaneRosterFleetAgent(agent))
-        .sort((left, right) => {
-          const recency = (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
-          if (recency !== 0) return recency;
-          return lanePrimaryLabel(left, "scout").localeCompare(lanePrimaryLabel(right, "scout"));
-        })
-        .map((agent) => ({
-          id: agent.id,
-          label: lanePrimaryLabel(agent, "scout"),
-          statusLabel: laneStatusLabel(agent, "scout"),
-          tone: normalizeAgentState(agent.state, agent),
-          agentId: agent.id,
-          updatedAt: agent.updatedAt ?? undefined,
-        })),
+    () => buildFallbackLaneRoster(agents),
     [agents],
   );
 

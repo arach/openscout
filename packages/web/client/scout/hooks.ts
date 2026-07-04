@@ -9,6 +9,7 @@ import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
+import { NEW_CHAT_SHORTCUT_LABEL } from "../lib/new-chat-shortcut.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -50,12 +51,12 @@ export function useScoutCommands(): CommandOption[] {
     const commands: CommandOption[] = [
       {
         id: "session:new",
-        label: "New Session",
+        label: "New Chat",
         action: () => {
           const context = resolveCaptureRouteContext(route, agents);
           openContextCapture({ agentId: context.agentId ?? undefined });
         },
-        shortcut: "Cmd+Shift+N",
+        shortcut: NEW_CHAT_SHORTCUT_LABEL,
       },
       {
         id: "nav:home",

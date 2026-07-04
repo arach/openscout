@@ -46,4 +46,5 @@ export type HarnessTopologyObserverOptions = {
   claudeSessionId?: string | null;
   includeUnmatchedClaudeTeams?: boolean;
   includeUnmatchedClaudeWorkflows?: boolean;
+  includeUnmatchedClaudeSubagents?: boolean;
 };

@@ -88,7 +88,15 @@ function isScoutbotPromptAgent(agent: { handle: string | null; name: string; id:
   return values.some((value) => value === "scoutbot" || value.includes("scoutbot"));
 }
 
-export function ScoutbotPanel({ height }: { height?: number } = {}) {
+export function ScoutbotPanel({
+  height,
+  forceExpanded = false,
+  fill = false,
+}: {
+  height?: number;
+  forceExpanded?: boolean;
+  fill?: boolean;
+} = {}) {
   const {
     applyScoutbotUiAction,
     agents,
@@ -1192,7 +1200,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     && sessionState.session.messages.length === 0
     && !sending
     && !briefing;
-  if (collapsed) {
+  if (collapsed && !forceExpanded) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">
         <ScoutbotBroadcastChip />
@@ -1200,10 +1208,12 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     );
   }
 
-  const expandedClassName = height === undefined
-    ? "flex max-h-[60vh] shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]"
-    : "flex shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]";
-  const expandedStyle = height === undefined ? undefined : { height: `${height}px` };
+  const expandedClassName = fill
+    ? "flex h-full min-h-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]"
+    : height === undefined
+      ? "flex max-h-[60vh] shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]"
+      : "flex shrink-0 flex-col overflow-hidden border-t border-[var(--scout-chrome-border-soft)]";
+  const expandedStyle = height === undefined || fill ? undefined : { height: `${height}px` };
 
   return (
     <section className={expandedClassName} style={expandedStyle}>
@@ -1223,11 +1233,13 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
             }}
             active={voiceReplies}
           />
-          <ScoutbotIconButton
-            icon={<ChevronDown size={11} />}
-            title="Minimize"
-            onClick={() => setCollapsed(true)}
-          />
+          {!forceExpanded && (
+            <ScoutbotIconButton
+              icon={<ChevronDown size={11} />}
+              title="Minimize"
+              onClick={() => setCollapsed(true)}
+            />
+          )}
         </div>
       </div>
 
@@ -1370,6 +1382,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
             void (recording ? stopVoice() : startVoice());
           }}
           prominent={isEmptyChat}
+          autoFocus={forceExpanded}
         />
 
         {error && (

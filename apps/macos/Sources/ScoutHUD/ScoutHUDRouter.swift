@@ -38,7 +38,7 @@ public enum ScoutHUDRouter {
             }
             return true
         case "tail":
-            TailModeController.shared.show(size: value.flatMap(parseSize), expand: true)
+            prepareHUDTail(size: value.flatMap(parseSize))
             return true
         case "tail-show":
             TailModeController.shared.show(size: value.flatMap(parseSize), expand: true)
@@ -141,10 +141,21 @@ public enum ScoutHUDRouter {
         HUDState.shared.setTailCollapsed(false)
     }
 
+    private static func prepareHUDTail(size: HUDSize?) {
+        prepareGenericHUD()
+        HUDState.shared.select(.tail)
+        if let size {
+            HUDState.shared.setSize(size)
+        }
+        HUDState.shared.setTailCollapsed(false)
+        HUDController.shared.show()
+    }
+
     private static func parseView(_ raw: String) -> HUDView? {
         switch raw.lowercased() {
         case "agents": return .agents
         case "activity": return .activity
+        case "tail": return .tail
         case "sessions": return .sessions
         case "assistant": return .assistant
         default: return nil

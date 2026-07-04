@@ -310,6 +310,11 @@ function OpsInspectorPanel({
 
   const activeAsks = (fleet?.activeAsks ?? []).filter((ask) => ask.status !== "needs_attention");
   const needsAttention = fleet?.needsAttention ?? [];
+
+  if (mode === "lanes") {
+    return null;
+  }
+
   const workingAgents = agents.filter((agent) => isAgentBusy(agent.state));
   const onlineAgents = agents.filter((agent) => isAgentOnline(agent.state));
   const recentAgents = [...agents]

@@ -65,6 +65,7 @@ async function main() {
     try {
       const options = parseImplicitAskCommandOptions(implicitPromptArgs, defaultScoutContextDirectory(context));
       await runAskWithOptions(context, options);
+      exitAfterCompletedCommand("ask");
       return;
     } catch (error) {
       if (error instanceof ScoutCliError && error.message.startsWith("implicit ask requires")) {
@@ -81,6 +82,16 @@ async function main() {
   const resolvedCommand = registration.canonicalName ?? registration.name;
   const handler = await loadScoutCommandHandler(resolvedCommand as Parameters<typeof loadScoutCommandHandler>[0]);
   await handler(context, commandArgs);
+  exitAfterCompletedCommand(resolvedCommand);
+}
+
+const FORCE_EXIT_AFTER_COMPLETED_COMMANDS = new Set(["ask"]);
+
+function exitAfterCompletedCommand(command: string | null): void {
+  if (!command || !FORCE_EXIT_AFTER_COMPLETED_COMMANDS.has(command)) {
+    return;
+  }
+  process.exit(process.exitCode ?? 0);
 }
 
 /** Cached scout shim path — resolved once per process. */

@@ -9,7 +9,7 @@ const GROUPS: Group[] = [
   {
     title: "App shell",
     bindings: [
-      { keys: ["⌘", "⇧", "N"], label: "New session" },
+      { keys: ["⌘", "⌥", "N"], label: "New chat" },
       { keys: ["⌘", "K"], label: "Command palette" },
       { keys: ["⌘", "["], label: "Toggle left panel" },
       { keys: ["⌘", "]"], label: "Toggle right panel" },

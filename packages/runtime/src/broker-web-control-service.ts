@@ -427,7 +427,7 @@ export class BrokerWebControlService {
     });
     const child = this.spawnImpl(
       bun.path,
-      entry.endsWith(".ts") ? ["run", "--hot", entry] : ["run", entry],
+      ["run", entry],
       {
         argv0: this.webProcessName,
         detached: true,

@@ -1148,6 +1148,52 @@ describe("isAgentLaneWorking", () => {
 
     expect(lanes).toHaveLength(0);
   });
+
+  test("keeps provider-present scout lanes when trace rows fall outside the horizon", () => {
+    const agent = stubAgent("dewey-present");
+    agent.state = "callable";
+    agent.transport = "codex_app_server";
+    agent.harnessSessionId = "sess-dewey-present";
+    agent.updatedAt = NOW - 60 * 60_000;
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [agent],
+      observeCache: {
+        [agent.id]: {
+          source: "history",
+          fidelity: "timestamped",
+          historyPath: "/tmp/dewey-present.jsonl",
+          sessionId: "sess-dewey-present",
+          updatedAt: NOW,
+          data: {
+            events: [{
+              id: "evt-1",
+              t: 612,
+              kind: "message",
+              text: "old reply",
+              to: "human",
+            }],
+            files: [],
+            live: false,
+            metadata: {
+              session: {
+                sessionStart: NOW - 3 * 60 * 60_000,
+              },
+            },
+          },
+        },
+      },
+      transcripts: [],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.id).toBe(agent.id);
+    expect(lanes[0]?.current).toBe(false);
+    expect(lanes[0]?.observe?.events).toEqual([]);
+  });
 });
 
 describe("sortLanesWithStableOrder", () => {

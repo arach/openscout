@@ -69,6 +69,11 @@
       "import": "./dist/adapters/claude-code/workflow-topology.js",
       "default": "./dist/adapters/claude-code/workflow-topology.js"
     },
+    "./adapters/claude-code/subagent-topology": {
+      "types": "./src/adapters/claude-code/subagent-topology.ts",
+      "bun": "./src/adapters/claude-code/subagent-topology.ts",
+      "default": "./dist/adapters/claude-code/subagent-topology.js"
+    },
     "./adapters/codex": {
       "bun": "./src/adapters/codex/index.ts",
       "types": "./dist/adapters/codex/index.d.ts",

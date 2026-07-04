@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Plus, Wrench } from "lucide-react";
 
 import type {
   ObserveData,
@@ -20,7 +20,12 @@ import type {
   ObserveUsageMeta,
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
-import { collapseObserveDisplayRows, isSimpleLaneToolEvent } from "../../lib/observe-display.ts";
+import {
+  collapseObserveDisplayRows,
+  collapseTechnicalObserveDisplayRows,
+  isSimpleLaneToolEvent,
+  type ObserveTechnicalSummary,
+} from "../../lib/observe-display.ts";
 import {
   grokLaneGutterLabel,
   humanizeGrokLanePhase,
@@ -49,6 +54,7 @@ import {
 import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
 import { api } from "../../lib/api.ts";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
+import { renderWithMentions } from "../../lib/mentions.tsx";
 import { DictationMic } from "../../components/DictationMic.tsx";
 import {
   formatClockTimestamp,
@@ -411,12 +417,14 @@ function LaneExpandableText({
   laneMode = false,
   live = false,
   renderExpanded,
+  renderCollapsed,
 }: {
   text: string;
   className: string;
   laneMode?: boolean;
   live?: boolean;
   renderExpanded?: (value: string) => ReactNode;
+  renderCollapsed?: (value: string) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const normalized = text.trim();
@@ -433,7 +441,7 @@ function LaneExpandableText({
   const snippet = laneSnippetText(normalized);
   const body = expanded
     ? (renderExpanded ? renderExpanded(normalized) : normalized)
-    : snippet;
+    : (renderCollapsed ? renderCollapsed(snippet) : snippet);
 
   return (
     <div className={`s-observe-lane-expandable${expanded ? " s-observe-lane-expandable--open" : ""}`}>
@@ -455,6 +463,20 @@ function LaneExpandableText({
 
 function ThinkBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const text = event.text ?? "";
+  if (laneMode && !event.live) {
+    const snippet = laneSnippetText(text, 120, 1);
+    return (
+      <div className="s-observe-block s-observe-think-compact">
+        <span className="s-observe-think-compact-label">reasoning</span>
+        {snippet ? (
+          <span className="s-observe-think-compact-text" title={text}>
+            {snippet}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={`s-observe-block${laneMode ? " s-observe-think--lane" : ""}`}>
       <div className="s-observe-think-label">thinking</div>
@@ -995,9 +1017,8 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
           className="s-observe-ask-text"
           laneMode={laneMode}
           live={event.live}
-          renderExpanded={(value) => laneMode
-            ? value
-            : <MessageMarkup text={value} />}
+          renderCollapsed={(value) => renderWithMentions(value)}
+          renderExpanded={(value) => <MessageMarkup text={value} />}
         />
       ) : event.live ? (
         <span className="s-observe-cursor" />
@@ -1015,21 +1036,85 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
   );
 }
 
+function messageDisplayLabel(event: Pick<SessionEvent, "to">): string | null {
+  const to = event.to?.trim();
+  if (!to) return null;
+  if (to === "human") return "→ you";
+  return `→ ${to}`;
+}
+
+function isLaneThinkingPlaceholderEvent(event: Pick<SessionEvent, "kind" | "text">): boolean {
+  return event.kind === "message" && (event.text ?? "").trim().toLowerCase() === "[thinking]";
+}
+
 function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
-  const toLabel = event.to === "human" ? "you" : event.to ?? "?";
-  const text = event.text ?? "";
+  const rawText = event.text ?? "";
+  const thinking = laneMode && isLaneThinkingPlaceholderEvent(event);
+  const text = thinking ? "Thinking..." : rawText;
+  const label = thinking ? "Agent thinking" : messageDisplayLabel(event);
   return (
-    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}`}>
-      <div className="s-observe-message-label">→ message → {toLabel}</div>
+    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}${thinking ? " s-observe-message--thinking" : ""}`}>
+      {label ? <div className="s-observe-message-label">{label}</div> : null}
       <LaneExpandableText
         text={text}
         className="s-observe-message-text"
         laneMode={laneMode}
         live={event.live}
+        renderCollapsed={(value) => renderWithMentions(value)}
         renderExpanded={(value) => <MessageMarkup text={value} />}
       />
-      {!laneMode && <CopyButton text={text} label="Copy message" />}
+      {!laneMode && <CopyButton text={rawText} label="Copy message" />}
     </div>
+  );
+}
+
+function TechnicalSummaryLine({ summary }: { summary: ObserveTechnicalSummary }) {
+  const eventLabel = summary.totalCount === 1 ? "technical event" : "technical events";
+  return (
+    <div className="s-observe-tech-summary s-observe-block s-observe-block--inline">
+      <span className="s-observe-tech-summary-count">
+        {summary.totalCount} {eventLabel}
+      </span>
+      {summary.labels.length > 0 ? (
+        <span className="s-observe-tech-summary-detail">
+          {summary.labels.join(" · ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function LaneTraceModeToggle({
+  collapseTechnicalEvents,
+  onChange,
+}: {
+  collapseTechnicalEvents: boolean;
+  onChange?: (enabled: boolean) => void;
+}) {
+  if (!onChange) return null;
+
+  const label = collapseTechnicalEvents ? "Concise" : "Details";
+  const title = collapseTechnicalEvents
+    ? "Show detailed trace events"
+    : "Show concise trace summaries";
+  const Icon = collapseTechnicalEvents ? MessageCircle : Wrench;
+
+  return (
+    <label
+      className={`s-observe-lane-trace-mode${
+        collapseTechnicalEvents ? " s-observe-lane-trace-mode--concise" : " s-observe-lane-trace-mode--details"
+      }`}
+      title={title}
+    >
+      <input
+        type="checkbox"
+        checked={collapseTechnicalEvents}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        aria-label={title}
+      />
+      <Icon size={12} strokeWidth={1.8} aria-hidden="true" />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -1207,6 +1292,7 @@ function StreamRow({
   onLaneEventSelect,
   laneToolHover,
   hoverPreviewActive = false,
+  technicalSummary,
 }: {
   event: SessionEvent;
   prevT: number;
@@ -1231,9 +1317,10 @@ function StreamRow({
     sessionOffset?: string;
   }) => LaneToolHoverBindings;
   hoverPreviewActive?: boolean;
+  technicalSummary?: ObserveTechnicalSummary;
 }) {
   const gap = event.t - prevT;
-  const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
+  const accent = technicalSummary ? "var(--dim)" : KIND_COLOR[event.kind] ?? "var(--dim)";
   const rowTime = laneMode
     ? fmtLaneRowTime(event, sessionStartMs, nowMs, preferWallAge)
     : fmtObserveRowTime(event, sessionStartMs);
@@ -1244,7 +1331,7 @@ function StreamRow({
   const sessionGapLabel = !preferWallAge && gap > 15 ? `${fmtGap(gap)} gap` : null;
   const gapLabel = wallGapLabel ?? sessionGapLabel;
 
-  const laneSelectable = laneMode && Boolean(onLaneEventSelect);
+  const laneSelectable = laneMode && Boolean(onLaneEventSelect) && !technicalSummary;
   const rowClass = [
     "s-observe-row",
     `s-observe-row--kind-${event.kind}`,
@@ -1256,6 +1343,7 @@ function StreamRow({
     simpleTool ? "s-observe-row--tool-simple" : "",
     stackedTool ? "s-observe-row--tool-stacked" : "",
     hoverPreviewActive ? "s-observe-row--hover-preview" : "",
+    technicalSummary ? "s-observe-row--tech-summary" : "",
   ].filter(Boolean).join(" ");
 
   const rowBody = (
@@ -1276,21 +1364,27 @@ function StreamRow({
 
       <span className="s-observe-row-bead" style={{ background: accent }} />
 
-      {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
-      {event.kind === "tool" && (
-        <ToolBlock
-          event={event}
-          laneMode={laneMode}
-          simple={simpleTool}
-          wallLabel={simpleTool ? rowTime.label : undefined}
-          wallTitle={simpleTool ? rowTime.title : undefined}
-        />
-      )}
-      {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
-      {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
-      {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
-      {(event.kind === "system" || event.kind === "boot") && (
-        <SystemLine event={event} laneMode={laneMode} />
+      {technicalSummary ? (
+        <TechnicalSummaryLine summary={technicalSummary} />
+      ) : (
+        <>
+          {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
+          {event.kind === "tool" && (
+            <ToolBlock
+              event={event}
+              laneMode={laneMode}
+              simple={simpleTool}
+              wallLabel={simpleTool ? rowTime.label : undefined}
+              wallTitle={simpleTool ? rowTime.title : undefined}
+            />
+          )}
+          {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
+          {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
+          {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
+          {(event.kind === "system" || event.kind === "boot") && (
+            <SystemLine event={event} laneMode={laneMode} />
+          )}
+        </>
       )}
     </>
   );
@@ -1376,6 +1470,7 @@ function ReplayStream({
   onLaneEventSelect,
   laneGutter = "time",
   richSimpleTools = false,
+  collapseTechnicalEvents = false,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
@@ -1389,6 +1484,7 @@ function ReplayStream({
   onLaneEventSelect?: (event: SessionEvent) => void;
   laneGutter?: "time" | "label-time";
   richSimpleTools?: boolean;
+  collapseTechnicalEvents?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -1399,10 +1495,19 @@ function ReplayStream({
   const [streamScrollNudge, setStreamScrollNudge] = useState(false);
 
   const displayRows = useMemo(
-    () => (laneMode
-      ? collapseObserveDisplayRows(events)
-      : events.map((event) => ({ event, repeatCount: 1 }))),
-    [events, laneMode],
+    () => {
+      const rows = laneMode
+        ? collapseObserveDisplayRows(events)
+        : events.map((event) => ({ event, repeatCount: 1 }));
+      if (!laneMode) return rows;
+      const visibleRows = rows.filter((row) => (
+        row.event.live || !isLaneThinkingPlaceholderEvent(row.event)
+      ));
+      return collapseTechnicalEvents
+        ? collapseTechnicalObserveDisplayRows(visibleRows)
+        : visibleRows;
+    },
+    [events, laneMode, collapseTechnicalEvents],
   );
 
   useEffect(() => {
@@ -1467,12 +1572,14 @@ function ReplayStream({
       <div className="s-observe-spine" />
       {displayRows.map((row, index) => {
         const prevEvent = index > 0 ? displayRows[index - 1]!.event : null;
+        const prevRow = index > 0 ? displayRows[index - 1] : null;
         const prevWallMs = prevEvent
           ? laneEventWallMs(prevEvent, sessionStartMs)
           : null;
-        const simpleTool = laneMode && !richSimpleTools && isSimpleLaneToolEvent(row.event);
+        const simpleTool = laneMode && !row.technicalSummary && !richSimpleTools && isSimpleLaneToolEvent(row.event);
         const stackedTool = simpleTool
           && prevEvent != null
+          && !prevRow?.technicalSummary
           && isSimpleLaneToolEvent(prevEvent);
         const isInlineFocus = inlineFocusEventId === row.event.id && Boolean(inlineFocusContent);
         const rowEl = (
@@ -1500,6 +1607,7 @@ function ReplayStream({
             onLaneEventSelect={onLaneEventSelect}
             laneToolHover={laneMode ? laneToolHover.bind : undefined}
             hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
+            technicalSummary={row.technicalSummary}
           />
         );
 
@@ -2343,6 +2451,7 @@ export function SessionObserveContextRail({
         <div className="s-observe-rail-label">Interacted agents</div>
         <ObservedTopologyPanel
           topology={metadata?.topology ?? null}
+          sessionId={sessionId ?? metadata?.session?.externalSessionId ?? null}
           size="rail"
           maxAgents={4}
         />
@@ -2539,6 +2648,8 @@ export function SessionObserve({
   surface = "scout",
   laneGutter,
   richSimpleTools,
+  laneCollapseTechnicalEvents,
+  onLaneCollapseTechnicalEventsChange,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -2552,6 +2663,10 @@ export function SessionObserve({
   laneGutter?: "time" | "label-time";
   /** Lane mode: render bash pills and per-family tool chrome even for single-token commands. */
   richSimpleTools?: boolean;
+  /** Lane mode: collapse low-signal technical rows into turn-level summaries. */
+  laneCollapseTechnicalEvents?: boolean;
+  /** Lane mode: update the per-lane trace density preference. */
+  onLaneCollapseTechnicalEventsChange?: (enabled: boolean) => void;
   /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
@@ -2742,7 +2857,13 @@ export function SessionObserve({
         )}
         {!scopeSurface && useHorizonTrace && laneTraceStats ? (
           <div className="s-observe-lane-trace-meta">
-            <span className="s-observe-lane-trace-meta-label">Trace</span>
+            <span className="s-observe-lane-trace-meta-leading">
+              <span className="s-observe-lane-trace-meta-label">Trace</span>
+              <LaneTraceModeToggle
+                collapseTechnicalEvents={Boolean(laneCollapseTechnicalEvents)}
+                onChange={onLaneCollapseTechnicalEventsChange}
+              />
+            </span>
             <span className="s-observe-lane-trace-meta-stats">
               <span className="s-observe-lane-trace-meta-window">
                 last {traceWindowLabel ?? fmtTraceSpanMs(traceWindowMs ?? 0)}
@@ -2781,6 +2902,7 @@ export function SessionObserve({
           onLaneEventSelect={onLaneEventSelect}
           laneGutter={effectiveLaneGutter}
           richSimpleTools={effectiveRichSimpleTools}
+          collapseTechnicalEvents={laneMode && Boolean(laneCollapseTechnicalEvents)}
         />
       </main>
 

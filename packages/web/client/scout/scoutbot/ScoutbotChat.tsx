@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, CheckCircle2, ChevronDown, ChevronUp, Copy, History, Loader2, Mic, SendHorizontal, Square } from "lucide-react";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
-import { AgentMentionTextarea } from "../../lib/agent-autocomplete.tsx";
+import { AgentMentionTextarea, type AgentMentionTextareaHandle } from "../../lib/agent-autocomplete.tsx";
 import {
   formatAbsoluteTimestamp,
   formatClockTimestamp,
@@ -291,6 +291,7 @@ export function ChatInput({
   voiceUnavailable,
   onMicClick,
   prominent = false,
+  autoFocus,
 }: {
   agents: Agent[];
   draft: string;
@@ -303,7 +304,20 @@ export function ChatInput({
   voiceUnavailable: boolean;
   onMicClick: () => void;
   prominent?: boolean;
+  autoFocus?: boolean;
 }) {
+  const textareaRef = useRef<AgentMentionTextareaHandle>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    const handle = textareaRef.current;
+    if (!handle) return;
+    if (handle.textarea) {
+      handle.textarea.focus({ preventScroll: true });
+    } else {
+      handle.focus();
+    }
+  }, [autoFocus]);
+
   let micTitle = "Start talking";
   if (voiceUnavailable) micTitle = "Set up Scout voice";
   if (recording) micTitle = "Stop talking";
@@ -345,6 +359,7 @@ export function ChatInput({
         {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
       </button>
       <AgentMentionTextarea
+        ref={textareaRef}
         agents={agents}
         value={draft}
         onChange={onDraftChange}

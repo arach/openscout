@@ -78,8 +78,8 @@ export function AgentsLeft() {
         <button
           type="button"
           className="s-rail-icon"
-          title="New session (⌘⇧N)"
-          aria-label="New session"
+          title="New chat (⌘⌥N)"
+          aria-label="New chat"
           onClick={() => openContextCapture({ agentId: selectedAgentId })}
         >
           <IcoPlus />
