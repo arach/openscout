@@ -1,7 +1,6 @@
-// Canonical client-side paths for the broker HTTP API. The routes themselves
-// are served by @openscout/runtime (broker-http-router.ts and
-// broker-http-entity-write-routes.ts); the route-inventory test there asserts
-// that every entry in this map matches a live route.
+// Canonical client-side paths for the broker HTTP API. The routes defined here
+// are served by the broker runtime; a route-inventory test ensures every entry
+// in this map matches a live implementation.
 
 export const scoutBrokerPaths = {
   health: "/health",

@@ -102,9 +102,8 @@ export interface FlightRecord {
 }
 
 /**
- * Mutable execution status for an invocation. Pre-merge this lived on a sibling
- * {@link FlightRecord}; Phase 3 folds it onto the invocation itself. Every field
- * is optional — a freshly-created invocation has no flight or status yet.
+ * Mutable execution status for an invocation. Every field is optional — a
+ * freshly-created invocation has no flight or status yet.
  *
  * Note the dispatch job's scheduler state (attempts / leaseOwner /
  * leaseExpiresAt / lastError) is deliberately NOT part of this: it is a distinct
@@ -128,10 +127,10 @@ export interface InvocationStatus {
 
 /**
  * The merged invocation record: the immutable request ({@link InvocationRequest})
- * plus its mutable execution status ({@link InvocationStatus}). This is Phase 3's
+ * plus its mutable execution status ({@link InvocationStatus}). This is the
  * single source of truth, from which the flight / work-item / agent-run views are
  * projected. The standalone {@link FlightRecord} remains a compatibility shape
- * over the same status subset until the storage merge (Phase 3 PR B+) lands.
+ * over the same status subset.
  */
 export type Invocation = InvocationRequest & InvocationStatus;
 

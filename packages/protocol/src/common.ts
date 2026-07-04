@@ -26,7 +26,7 @@ export type AgentState =
 export type VisibilityScope = "private" | "workspace" | "public" | "system";
 
 export type DeliveryStatus =
-  // Outbox lifecycle (Issue 3 of broker-three-contracts)
+  // Outbox lifecycle
   | "accepted"        // local journal write done, awaiting forward
   | "peer_acked"      // peer broker journaled the envelope
   | "running"         // target agent claimed the flight
