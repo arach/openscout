@@ -73,6 +73,7 @@ describe("execSystemFile scoutd verb transport", () => {
         { schema: "openscout.probe.capabilities/v1" },
         {
           schema: "openscout.exec.request/v1",
+          schemaVersion: 1,
           verb: "tmux.sendKeys",
           args: {
             target: "scout-test",
@@ -82,6 +83,7 @@ describe("execSystemFile scoutd verb transport", () => {
         },
         {
           schema: "openscout.exec.request/v1",
+          schemaVersion: 1,
           verb: "tmux.killSession",
           args: {
             target: "scout-test",
@@ -90,6 +92,7 @@ describe("execSystemFile scoutd verb transport", () => {
         },
         {
           schema: "openscout.exec.request/v1",
+          schemaVersion: 1,
           verb: "tmux.newSession",
           args: {
             detached: true,
@@ -123,6 +126,34 @@ describe("execSystemFile scoutd verb transport", () => {
         backend: "local-fallback",
         verb: "tmux.sendKeys",
       });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test("falls back locally without sending an exec request when a verb schema version differs", async () => {
+    const socketPath = join(tempRoot, "probes.sock");
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    const requests: Array<Record<string, unknown>> = [];
+    const server = await startExecServer(socketPath, (request) => {
+      requests.push(request);
+      if (request.schema === "openscout.probe.capabilities/v1") {
+        return capabilities(["tmux.sendKeys"], 2);
+      }
+      throw new Error("exec request should not be sent when schema versions differ");
+    });
+    const tmux = writeFakeTmux();
+
+    try {
+      const output = await execSystemFile(tmux, ["send-keys", "-t", "scout-test", "Enter"], { timeoutMs: 2_000 });
+
+      expect(output.stdout.trim()).toBe("fake tmux send-keys -t scout-test Enter");
+      expect(execSystemTransportMetadata(output)).toMatchObject({
+        backend: "local-fallback",
+        fallbackReason: expect.stringContaining("schema v2"),
+        verb: "tmux.sendKeys",
+      });
+      expect(requests).toEqual([{ schema: "openscout.probe.capabilities/v1" }]);
     } finally {
       await closeServer(server);
     }
@@ -172,12 +203,12 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
 }
 
-function capabilities(verbs: string[]): Record<string, unknown> {
+function capabilities(verbs: string[], schemaVersion = 1): Record<string, unknown> {
   return {
     schema: "openscout.probe.capabilities/v1",
     daemonVersion: "test-daemon",
     families: [],
-    verbs: verbs.map((verb) => ({ verb, schemaVersion: 1 })),
+    verbs: verbs.map((verb) => ({ verb, schemaVersion })),
   };
 }
 

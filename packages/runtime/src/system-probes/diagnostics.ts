@@ -1,7 +1,15 @@
 import { gitBuildInfoProbe } from "./git-build-info.js";
 import { getScoutdProbeClient } from "./scoutd-client.js";
 import { tailscaleStatusProbe } from "./tailscale-status.js";
-import type { ProbeBackend, ProbeStatus } from "./registry.js";
+import { tmuxSessionsProbe } from "./tmux.js";
+import {
+  registeredSystemProbes,
+  type ProbeBackend,
+  type ProbeHandle,
+  type ProbeMetrics,
+  type ProbeSnapshot,
+  type ProbeStatus,
+} from "./registry.js";
 
 const FALLBACK_WARNING_MS = 30_000;
 
@@ -35,22 +43,11 @@ export async function loadSystemProbeDoctorReport(input: { repoRoot: string }): 
   await Promise.allSettled([
     tailscaleStatusProbe.fresh(),
     gitBuildInfoProbe.for(input.repoRoot).fresh(),
+    tmuxSessionsProbe.for({}).fresh(),
   ]);
 
   const diagnostics = getScoutdProbeClient().diagnostics();
-  const families = [
-    familyReport({
-      id: "tailscale.status",
-      snapshot: tailscaleStatusProbe.snapshot(),
-      metrics: tailscaleStatusProbe.metrics(),
-    }),
-    familyReport({
-      id: "git.buildInfo",
-      key: gitBuildInfoProbe.for(input.repoRoot).snapshot().key,
-      snapshot: gitBuildInfoProbe.for(input.repoRoot).snapshot(),
-      metrics: gitBuildInfoProbe.for(input.repoRoot).metrics(),
-    }),
-  ];
+  const families = activeDoctorFamilies();
   const warnings = families.flatMap((family) => family.warning ? [family.warning] : []);
 
   return {
@@ -66,22 +63,42 @@ export async function loadSystemProbeDoctorReport(input: { repoRoot: string }): 
   };
 }
 
+function activeDoctorFamilies(): SystemProbeDoctorFamily[] {
+  const families: SystemProbeDoctorFamily[] = [];
+  for (const entry of registeredSystemProbes()) {
+    if (entry.kind === "probe") {
+      const report = reportForHandle(entry.id, entry.handle);
+      if (report) families.push(report);
+      continue;
+    }
+    for (const key of entry.family.keys()) {
+      const handle = entry.family.for(key);
+      const report = reportForHandle(entry.id, handle);
+      if (report) families.push(report);
+    }
+  }
+  return families;
+}
+
+function reportForHandle<T>(id: string, handle: ProbeHandle<T>): SystemProbeDoctorFamily | null {
+  const snapshot = handle.snapshot();
+  const metrics = handle.metrics();
+  if (snapshot.status === "empty" && metrics.runCount === 0 && !metrics.fallbackSince) {
+    return null;
+  }
+  return familyReport({
+    id,
+    key: snapshot.key,
+    snapshot,
+    metrics,
+  });
+}
+
 function familyReport(input: {
   id: string;
   key?: string;
-  snapshot: {
-    status: ProbeStatus;
-    backend: ProbeBackend;
-    fallbackSince?: number;
-    fallbackReason?: string;
-  };
-  metrics: {
-    lastRunAt: number | null;
-    lastSuccessAt: number | null;
-    consecutiveFailures: number;
-    fallbackSince?: number;
-    fallbackReason?: string;
-  };
+  snapshot: Pick<ProbeSnapshot<unknown>, "status" | "backend" | "fallbackSince" | "fallbackReason">;
+  metrics: Pick<ProbeMetrics, "lastRunAt" | "lastSuccessAt" | "consecutiveFailures" | "fallbackSince" | "fallbackReason">;
 }): SystemProbeDoctorFamily {
   const fallbackSince = input.snapshot.fallbackSince ?? input.metrics.fallbackSince ?? null;
   const fallbackReason = input.snapshot.fallbackReason ?? input.metrics.fallbackReason ?? null;

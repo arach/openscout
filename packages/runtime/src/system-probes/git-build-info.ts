@@ -57,7 +57,8 @@ export function canonicalRepoRoot(rawPath: string): string {
 
 async function gitOutput(repoRoot: string, args: readonly string[], ctx: ProbeCtx): Promise<string | null> {
   try {
-    const { stdout } = await execProbeFile(ctx, "git", ["-C", repoRoot, ...args], {
+    const gitBin = process.env.OPENSCOUT_GIT_BIN?.trim() || "git";
+    const { stdout } = await execProbeFile(ctx, gitBin, ["-C", repoRoot, ...args], {
       maxStdoutBytes: 256 * 1024,
       maxStderrBytes: 64 * 1024,
     });

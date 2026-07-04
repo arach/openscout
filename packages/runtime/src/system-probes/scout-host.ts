@@ -1,0 +1,211 @@
+import type { RuntimeBinaryInput, RuntimeEnv } from "../portable-types.js";
+import { resolveRepoServiceCommand, runRepoServiceJson } from "../repo-service/process.js";
+import { execSystemFile, type ExecProbeFileResult } from "./exec.js";
+import { gitBuildInfoProbe } from "./git-build-info.js";
+import type { ProbeFreshOptions, ProbeSnapshot } from "./registry.js";
+import { tailscaleStatusProbe } from "./tailscale-status.js";
+import {
+  captureTmuxPane,
+  invalidateTmuxSessions,
+  readTmuxPaneDetail,
+  readTmuxSessionExists,
+  tmuxSessionsProbe,
+  type TmuxSessionInfo,
+} from "./tmux.js";
+
+export type ScoutHostRepoOptions = {
+  timeoutMs?: number;
+};
+
+export type ScoutHostTmuxSocketOptions = {
+  socketPath?: string | null;
+  env?: RuntimeEnv;
+};
+
+export type ScoutHostTmuxCommandOptions = {
+  socketPath?: string | null;
+  timeoutMs?: number;
+};
+
+export type ScoutHostTmuxNewSessionOptions = ScoutHostTmuxCommandOptions & {
+  detached?: boolean;
+  printPane?: boolean;
+  sessionName: string;
+  windowName?: string;
+  cwd?: string;
+  format?: "#{pane_id}";
+  columns?: number;
+  rows?: number;
+  command: string;
+};
+
+export type ScoutHostRevealMode =
+  | "darwinReveal"
+  | "darwinOpen"
+  | "xdgOpen"
+  | "windowsSelect";
+
+function tmuxSocketArgs(socketPath: string | null | undefined): string[] {
+  const socket = socketPath?.trim();
+  return socket ? ["-S", socket] : [];
+}
+
+function timeoutMs(options: { timeoutMs?: number } | undefined, fallback: number): number {
+  return Number.isFinite(options?.timeoutMs) && (options?.timeoutMs ?? 0) > 0
+    ? options!.timeoutMs!
+    : fallback;
+}
+
+function repoTimeoutMs(options: ScoutHostRepoOptions | undefined): number {
+  return timeoutMs(options, 20_000);
+}
+
+function tmuxTimeoutMs(options: ScoutHostTmuxCommandOptions | undefined): number {
+  return timeoutMs(options, 2_000);
+}
+
+function tmuxCommand(
+  command: string,
+  args: readonly string[],
+  options: ScoutHostTmuxCommandOptions | undefined,
+  input?: string | RuntimeBinaryInput,
+): Promise<ExecProbeFileResult> {
+  return execSystemFile("tmux", [...tmuxSocketArgs(options?.socketPath), command, ...args], {
+    timeoutMs: tmuxTimeoutMs(options),
+    ...(input === undefined ? {} : { input }),
+  });
+}
+
+export const scoutHost = {
+  tailscale: {
+    status(options?: ProbeFreshOptions) {
+      return tailscaleStatusProbe.fresh(options);
+    },
+    snapshot() {
+      return tailscaleStatusProbe.snapshot();
+    },
+    invalidate(reason?: string) {
+      tailscaleStatusProbe.invalidate(reason);
+    },
+    cert(input: {
+      certFile: string;
+      keyFile: string;
+      hostname: string;
+      timeoutMs?: number;
+    }) {
+      return execSystemFile("tailscale", [
+        "cert",
+        "--cert-file",
+        input.certFile,
+        "--key-file",
+        input.keyFile,
+        input.hostname,
+      ], { timeoutMs: timeoutMs(input, 30_000) });
+    },
+  },
+  git: {
+    buildInfo(repoRoot: string, options?: ProbeFreshOptions) {
+      return gitBuildInfoProbe.for(repoRoot).fresh(options);
+    },
+    buildInfoSnapshot(repoRoot: string) {
+      return gitBuildInfoProbe.for(repoRoot).snapshot();
+    },
+    invalidateBuildInfo(repoRoot: string, reason?: string) {
+      gitBuildInfoProbe.invalidate(repoRoot, reason);
+    },
+  },
+  tmux: {
+    sessions(input: ScoutHostTmuxSocketOptions = {}, options?: ProbeFreshOptions): Promise<ProbeSnapshot<TmuxSessionInfo[]>> {
+      return tmuxSessionsProbe.for(input).fresh(options);
+    },
+    sessionSnapshot(input: ScoutHostTmuxSocketOptions = {}) {
+      return tmuxSessionsProbe.for(input).snapshot();
+    },
+    sessionExists(sessionName: string, options: ScoutHostTmuxSocketOptions & { maxAgeMs?: number } = {}) {
+      return readTmuxSessionExists(sessionName, options);
+    },
+    invalidateSessions(options: ScoutHostTmuxSocketOptions & { reason?: string } = {}) {
+      invalidateTmuxSessions(options);
+    },
+    paneDetail(target: string, options: { socketPath?: string | null; maxAgeMs?: number } = {}) {
+      return readTmuxPaneDetail(target, options);
+    },
+    capturePane(target: string, input: {
+      start: string;
+      end?: string;
+      joinWrapped?: boolean;
+      maxBytes?: number;
+      maxAgeMs?: number;
+      socketPath?: string | null;
+    }) {
+      return captureTmuxPane(target, input);
+    },
+    sendKeys(target: string, keys: readonly string[], options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("send-keys", ["-t", target, ...keys], options);
+    },
+    sendKeysLiteral(target: string, text: string, options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("send-keys", ["-t", target, "-l", text], options);
+    },
+    loadBuffer(bufferName: string, content: string | RuntimeBinaryInput, options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("load-buffer", ["-b", bufferName, "-"], options, content);
+    },
+    pasteBuffer(target: string, bufferName: string, flags = "-dpr", options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("paste-buffer", [flags, "-b", bufferName, "-t", target], options);
+    },
+    deleteBuffer(bufferName: string, options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("delete-buffer", ["-b", bufferName], options);
+    },
+    killSession(target: string, options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("kill-session", ["-t", target], options);
+    },
+    detachClient(sessionName: string, options?: ScoutHostTmuxCommandOptions) {
+      return tmuxCommand("detach-client", ["-s", sessionName], options);
+    },
+    newSession(input: ScoutHostTmuxNewSessionOptions) {
+      const args: string[] = [];
+      if (input.detached === true && input.printPane === true) {
+        args.push("-dP");
+      } else {
+        if (input.detached !== false) args.push("-d");
+        if (input.printPane === true) args.push("-P");
+      }
+      if (input.windowName) args.push("-n", input.windowName);
+      if (input.cwd) args.push("-c", input.cwd);
+      if (input.format) args.push("-F", input.format);
+      if (input.columns !== undefined) args.push("-x", String(input.columns));
+      if (input.rows !== undefined) args.push("-y", String(input.rows));
+      args.push("-s", input.sessionName, input.command);
+      return tmuxCommand("new-session", args, input);
+    },
+  },
+  repo: {
+    scan(input: unknown, options?: ScoutHostRepoOptions) {
+      return runRepoServiceJson(resolveRepoServiceCommand("scan"), input, repoTimeoutMs(options), "scan");
+    },
+    diff(input: unknown, options?: ScoutHostRepoOptions) {
+      return runRepoServiceJson(resolveRepoServiceCommand("diff"), input, repoTimeoutMs(options), "diff");
+    },
+  },
+  reveal: {
+    open(targetPath: string, mode: ScoutHostRevealMode, options: { timeoutMs?: number } = {}) {
+      if (mode === "darwinReveal") {
+        return execSystemFile("open", ["-R", targetPath], { timeoutMs: timeoutMs(options, 1_500) });
+      }
+      if (mode === "darwinOpen") {
+        return execSystemFile("open", [targetPath], { timeoutMs: timeoutMs(options, 1_500) });
+      }
+      if (mode === "xdgOpen") {
+        return execSystemFile("xdg-open", [targetPath], { timeoutMs: timeoutMs(options, 1_500) });
+      }
+      return execSystemFile("explorer.exe", [`/select,${targetPath}`], { timeoutMs: timeoutMs(options, 1_500) });
+    },
+  },
+} as const;
+
+export const scout = {
+  host: scoutHost,
+} as const;
+
+export type ScoutHostClient = typeof scoutHost;
+export type ScoutHost = typeof scout.host;
+export type ScoutHostTmuxSessions = TmuxSessionInfo[];

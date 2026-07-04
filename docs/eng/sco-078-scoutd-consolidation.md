@@ -1,6 +1,6 @@
 # SCO-078 — Consolidating all OS calls under scoutd
 
-**Status:** proposed (2026-07-02)
+**Status:** in progress — M3/B0 guardrails landing (2026-07-04)
 **Owner:** runtime / scout-web
 **Depends on:** [SCO-077](./sco-077-system-probe-discipline.md) (probe registry contract, TTL table, lint fence)
 
@@ -21,9 +21,9 @@ From the 2026-07-02 exec census (227 sites under `packages/` + `apps/`; full per
 
 ## What exists today
 
-- **`crates/scoutd`** — 2.6k-line, deliberately **zero-dependency** supervisor: launchctl install/start/stop/uninstall, supervise loop spawning the base process with log rotation, doctor report, repo-watch warmer (already speaks UDS/TCP to the broker). No probe surface.
-- **`crates/openscout-repo-service`** — one-shot JSON-over-stdin/stdout exec layer (worktree scan + diff), serde-only. TS spawns it per request via `runtime/src/repo-service/process.ts` (bounded buffer, SIGTERM→SIGKILL escalation). It proves the Rust-owns-the-parsing pattern but pays process startup per call.
-- **TS probe registry** (SCO-077 Phase 1) — not built yet. It is the client of everything below; its `backend: "local" | "scoutd" | "local-fallback"` field is the seam this plan plugs into.
+- **`crates/scoutd`** — supervisor plus the existing `scoutd probes serve` supervised child. The probe child serves `tailscale.status`, `git.buildInfo`, `repo.scan`/`repo.diff`, and enumerated exec verbs over the existing UDS protocol.
+- **`crates/openscout-repo-service`** — one-shot JSON-over-stdin/stdout exec layer (worktree scan + diff), serde-only. It remains the bounded spawn fallback while the resident `scoutd` repo path proves parity.
+- **TS probe registry** (SCO-077 Phase 1) — built and serving `backend: "local" | "scoutd" | "local-fallback"` snapshots. B0 adds version-skew enforcement, derived socket timeouts, conformance tests, and doctor visibility before more families migrate.
 
 ## Shape decision: which Rust process?
 
@@ -96,9 +96,9 @@ Probes cover reads. The ~30 sync imperative sites (tmux send-keys/paste/kill/new
 | # | deliverable | acceptance |
 |---|---|---|
 | M0 ✅ | SCO-077 design (codex-reviewed) + 227-site census | done 2026-07-02 |
-| M1 | TS registry + sanctioned async, output-capped exec helper + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
-| M2 | `scoutd probes serve` spike: envelope + capabilities + those same two families over UDS; supervisor spawns/restarts it; doctor shows backend | kill the probe child → registry falls back visibly within one TTL, nothing user-facing breaks |
-| M3 | Family burn-down: `tmux.*`, `ps.runtime`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
+| M1 ✅ | TS registry + sanctioned async, output-capped exec helper + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
+| M2 ✅ | `scoutd probes serve` spike: envelope + capabilities + those same two families over UDS; supervisor spawns/restarts it; doctor shows backend | kill the probe child → registry falls back visibly within one TTL, nothing user-facing breaks |
+| M3 ◐ | Family burn-down: `tmux.*`, `ps.runtime`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green. B0 guardrails now precede new-family migration: scoutd/local conformance diff, schema-version fallback, socket timeout hierarchy, registry-driven doctor report, typed `scout.host` facade, and capped probe-connection workers. | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
 | M4 | repo-service subsumption: repo-watch/repo-diff route over the resident socket; spawn-per-request retired | one Rust artifact owns all git reads; `openscout-repo-service` binary retired or wrapper-only |
 | M5 | Imperative verbs over `exec.request/v1`; lint fence Phase B | server trees import no subprocess APIs |
 | M6 | Swift adoption (ScoutMenu → socket) | zero `tailscale` execs machine-wide outside the daemon |

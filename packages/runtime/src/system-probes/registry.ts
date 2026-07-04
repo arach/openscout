@@ -106,6 +106,18 @@ export type ProbeFamilyHandle<K, T> = {
   keys: () => string[];
 };
 
+export type RegisteredSystemProbe =
+  | {
+      kind: "probe";
+      id: string;
+      handle: ProbeHandle<unknown>;
+    }
+  | {
+      kind: "family";
+      id: string;
+      family: ProbeFamilyHandle<unknown, unknown>;
+    };
+
 type ProbeState<T> = {
   value: T | null;
   at: number | null;
@@ -132,6 +144,7 @@ type ProbeInstanceOptions<T> = {
 
 const DEFAULT_MIN_MAX_STALE_MS = 2 * 60_000;
 const PROBE_RUN_OUTPUT = Symbol("openscout.probeRunOutput");
+const registeredProbes: RegisteredSystemProbe[] = [];
 
 type InternalProbeRunOutput<T> = ProbeRunOutput<T> & {
   [PROBE_RUN_OUTPUT]: true;
@@ -141,13 +154,22 @@ export class ProbeBackendError extends Error {
   backend: ProbeBackend;
   fallbackSince?: number;
   fallbackReason?: string;
+  code?: string;
+  timedOut?: boolean;
 
-  constructor(message: string, metadata: Omit<ProbeBackendMetadata, "generatedAt">) {
+  constructor(message: string, metadata: Omit<ProbeBackendMetadata, "generatedAt">, cause?: unknown) {
     super(message);
     this.name = "ProbeBackendError";
     this.backend = metadata.backend;
     this.fallbackSince = metadata.fallbackSince;
     this.fallbackReason = metadata.fallbackReason;
+    const details = probeErrorDetails(cause);
+    if (details.code) {
+      this.code = details.code;
+    }
+    if (details.timedOut !== undefined) {
+      this.timedOut = details.timedOut;
+    }
   }
 }
 
@@ -182,6 +204,26 @@ function backendMetadataFromError(error: unknown): Omit<ProbeBackendMetadata, "g
     }
   }
   return null;
+}
+
+function probeErrorDetails(error: unknown): { code?: string; timedOut?: boolean } {
+  if (typeof error !== "object" || error === null) {
+    return {};
+  }
+  const record = error as { code?: unknown; timedOut?: unknown };
+  const code = typeof record.code === "string" && record.code.trim()
+    ? record.code.trim()
+    : undefined;
+  const timedOut = record.timedOut === true || code === "timeout"
+    ? true
+    : record.timedOut === false
+      ? false
+      : undefined;
+  return { code, timedOut };
+}
+
+export function registeredSystemProbes(): RegisteredSystemProbe[] {
+  return [...registeredProbes];
 }
 
 function assertProbeSpec(spec: Pick<ProbeSpec<unknown>, "id" | "ttlMs" | "timeoutMs" | "maxStaleMs">): void {
@@ -255,6 +297,21 @@ function isFreshEnough<T>(state: ProbeState<T>, maxAgeMs: number): boolean {
     return false;
   }
   return Date.now() - state.at <= maxAgeMs;
+}
+
+function logBackendTransition(input: {
+  id: string;
+  key?: string;
+  from: ProbeBackend;
+  to: ProbeBackend;
+  reason?: string | null;
+}): void {
+  if (input.from === input.to) {
+    return;
+  }
+  const keySuffix = input.key === undefined ? "" : ` key=${JSON.stringify(input.key)}`;
+  const reasonSuffix = input.reason ? ` (${input.reason})` : "";
+  console.warn(`[openscout] system probe ${input.id}${keySuffix} backend ${input.from} -> ${input.to}${reasonSuffix}`);
 }
 
 class ProbeInstance<T> implements ProbeHandle<T> {
@@ -426,6 +483,7 @@ class ProbeInstance<T> implements ProbeHandle<T> {
 
   private async executeRun(maxAgeMs: number): Promise<void> {
     const startedAt = Date.now();
+    const previousBackend = this.state.backend;
     // Used to detect invalidate() calls that happen while this run is in flight.
     // Such runs must not clear the invalidation they did not observe.
     const invalidationSerialAtStart = this.state.invalidationSerial;
@@ -472,9 +530,19 @@ class ProbeInstance<T> implements ProbeHandle<T> {
       this.state.fallbackReason = output.fallbackReason ?? null;
       this.metricState.backend = output.backend;
       this.metricState.lastSuccessAt = this.state.at;
+      logBackendTransition({
+        id: this.spec.id,
+        key: this.key,
+        from: previousBackend,
+        to: output.backend,
+        reason: output.fallbackReason,
+      });
     } catch (error) {
       const timedOut = error === timeoutProbeError
-        || (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "timeout");
+        || (typeof error === "object" && error !== null && (
+          (error as { code?: unknown }).code === "timeout"
+          || (error as { timedOut?: unknown }).timedOut === true
+        ));
       const at = Date.now();
       this.state.error = error === timeoutProbeError
         ? timeoutProbeError
@@ -487,6 +555,13 @@ class ProbeInstance<T> implements ProbeHandle<T> {
         this.state.fallbackSince = backendMetadata.fallbackSince ?? null;
         this.state.fallbackReason = backendMetadata.fallbackReason ?? null;
         this.metricState.backend = backendMetadata.backend;
+        logBackendTransition({
+          id: this.spec.id,
+          key: this.key,
+          from: previousBackend,
+          to: backendMetadata.backend,
+          reason: backendMetadata.fallbackReason,
+        });
       }
       this.metricState.failureCount += 1;
       if (this.state.error.timedOut || this.state.error.code === "timeout") {
@@ -628,12 +703,24 @@ class ProbeFamily<K, T> implements ProbeFamilyHandle<K, T> {
 
 export function defineProbe<T>(spec: ProbeSpec<T>): ProbeHandle<T> {
   assertProbeSpec(spec);
-  return new ProbeInstance<T>({
+  const handle = new ProbeInstance<T>({
     spec,
     run: spec.run,
   });
+  registeredProbes.push({
+    kind: "probe",
+    id: spec.id,
+    handle: handle as ProbeHandle<unknown>,
+  });
+  return handle;
 }
 
 export function defineProbeFamily<K, T>(spec: ProbeFamilySpec<K, T>): ProbeFamilyHandle<K, T> {
-  return new ProbeFamily<K, T>(spec);
+  const family = new ProbeFamily<K, T>(spec);
+  registeredProbes.push({
+    kind: "family",
+    id: spec.id,
+    family: family as unknown as ProbeFamilyHandle<unknown, unknown>,
+  });
+  return family;
 }

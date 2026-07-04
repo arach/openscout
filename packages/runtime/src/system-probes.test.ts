@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,10 @@ const originalTailscaleBin = process.env.OPENSCOUT_TAILSCALE_BIN;
 const originalTailscaleFixture = process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
 const originalProbesSocket = process.env.OPENSCOUT_PROBES_SOCKET;
 const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
+const originalGitBin = process.env.OPENSCOUT_GIT_BIN;
+const originalTestGitMode = process.env.OPENSCOUT_TEST_GIT_MODE;
+const repositoryRoot = join(import.meta.dir, "../../..");
+let scoutdBinaryPromise: Promise<string> | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,7 +48,7 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
-async function startScoutdProbeServer(socketPath: string, handler: (request: any) => any): Promise<Server> {
+async function startScoutdProbeServer(socketPath: string, handler: (request: any) => any | Promise<any>): Promise<Server> {
   rmSync(socketPath, { force: true });
   const server = createServer((socket: Socket) => {
     let raw = "";
@@ -55,7 +59,18 @@ async function startScoutdProbeServer(socketPath: string, handler: (request: any
       const body = raw.trim();
       try {
         const request = JSON.parse(body);
-        socket.end(`${JSON.stringify(handler(request))}\n`);
+        Promise.resolve(handler(request)).then((response) => {
+          socket.end(`${JSON.stringify(response)}\n`);
+        }, (error) => {
+          socket.end(JSON.stringify({
+            schema: "openscout.probe.error/v1",
+            error: {
+              code: "test_error",
+              message: error instanceof Error ? error.message : String(error),
+            },
+            daemonVersion: "test",
+          }));
+        });
       } catch (error) {
         socket.end(JSON.stringify({
           schema: "openscout.probe.error/v1",
@@ -86,8 +101,139 @@ async function startScoutdProbeServer(socketPath: string, handler: (request: any
   return server;
 }
 
+async function requestProbeSocket(socketPath: string, payload: Record<string, unknown>, timeoutMs = 5_000): Promise<any> {
+  return await new Promise<any>((resolve, reject) => {
+    const socket = createConnection(socketPath);
+    let raw = "";
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error(`socket request timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer.unref?.();
+
+    function finish(error: Error | null, value?: any): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(value);
+    }
+
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.write(`${JSON.stringify(payload)}\n`));
+    socket.on("data", (chunk) => {
+      raw += chunk;
+    });
+    socket.on("error", (error) => finish(error));
+    socket.on("end", () => {
+      try {
+        finish(null, JSON.parse(raw.trim()));
+      } catch (error) {
+        finish(new Error(`socket response was not JSON: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    });
+    socket.on("close", () => {
+      if (!settled && raw.length > 0) {
+        try {
+          finish(null, JSON.parse(raw.trim()));
+        } catch (error) {
+          finish(new Error(`socket response was not JSON: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      }
+    });
+  });
+}
+
+async function waitForSocket(socketPath: string, stderr: () => string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (existsSync(socketPath)) {
+      try {
+        await requestProbeSocket(socketPath, { schema: "openscout.probe.capabilities/v1" }, 250);
+        return;
+      } catch {
+        // Keep polling until the server accepts connections.
+      }
+    }
+    await sleep(25);
+  }
+  throw new Error(`scoutd probe server did not become ready at ${socketPath}: ${stderr()}`);
+}
+
+async function ensureScoutdBinary(): Promise<string> {
+  if (!scoutdBinaryPromise) {
+    scoutdBinaryPromise = Promise.resolve().then(() => {
+      execFileSync("bash", [
+        join(repositoryRoot, "scripts/cargo.sh"),
+        "build",
+        "--manifest-path",
+        join(repositoryRoot, "crates/scoutd/Cargo.toml"),
+      ], {
+        cwd: repositoryRoot,
+        stdio: "inherit",
+      });
+      return join(repositoryRoot, "target/debug/scoutd");
+    });
+  }
+  return await scoutdBinaryPromise;
+}
+
+async function startRealScoutdProbeServer(input: {
+  socketPath: string;
+  env: Record<string, string | undefined>;
+}): Promise<{ stop: () => Promise<void>; stderr: () => string }> {
+  const scoutd = await ensureScoutdBinary();
+  let stderr = "";
+  const child = spawn(scoutd, ["probes", "serve"], {
+    cwd: repositoryRoot,
+    env: {
+      ...process.env,
+      OPENSCOUT_PROBES_SOCKET: input.socketPath,
+      ...input.env,
+    },
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  child.once("exit", (code, signal) => {
+    if (code !== null && code !== 0) {
+      stderr += `\nscoutd exited with ${code}`;
+    } else if (signal) {
+      stderr += `\nscoutd exited with ${signal}`;
+    }
+  });
+  await waitForSocket(input.socketPath, () => stderr);
+  return {
+    stderr: () => stderr,
+    stop: async () => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return;
+      }
+      child.kill("SIGTERM");
+      await Promise.race([
+        new Promise<void>((resolve) => child.once("exit", () => resolve())),
+        sleep(1_000).then(() => {
+          child.kill("SIGKILL");
+        }),
+      ]);
+    },
+  };
+}
+
 function tempDir(prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
+  tempDirectories.add(directory);
+  return directory;
+}
+
+let shortTempCounter = 0;
+function shortTempDir(prefix: string): string {
+  shortTempCounter += 1;
+  const safePrefix = prefix.replace(/[^A-Za-z0-9_-]/gu, "").slice(0, 12);
+  const directory = join("/tmp", `${safePrefix}-${process.pid}-${shortTempCounter}`);
+  rmSync(directory, { recursive: true, force: true });
+  mkdirSync(directory, { recursive: true });
   tempDirectories.add(directory);
   return directory;
 }
@@ -118,6 +264,16 @@ afterEach(() => {
     delete process.env.OPENSCOUT_HOME;
   } else {
     process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
+  if (originalGitBin === undefined) {
+    delete process.env.OPENSCOUT_GIT_BIN;
+  } else {
+    process.env.OPENSCOUT_GIT_BIN = originalGitBin;
+  }
+  if (originalTestGitMode === undefined) {
+    delete process.env.OPENSCOUT_TEST_GIT_MODE;
+  } else {
+    process.env.OPENSCOUT_TEST_GIT_MODE = originalTestGitMode;
   }
   tailscaleStatusProbe.invalidate("test.reset");
   gitBuildInfoProbe.for(process.cwd()).invalidate("test.reset");
@@ -452,6 +608,108 @@ describe("scoutd probe backend", () => {
       await closeServer(server);
     }
   });
+
+  test("falls back locally instead of sending a request when a probe schema version differs", async () => {
+    const directory = tempDir("openscout-scoutd-schema-skew-");
+    const socketPath = join(directory, "probes.sock");
+    const fixture = join(directory, "tailscale.json");
+    writeFileSync(fixture, JSON.stringify({
+      BackendState: "Running",
+      Health: [],
+      Self: {
+        ID: "local-self",
+        HostName: "schema-local",
+        TailscaleIPs: ["100.64.0.9"],
+        Online: true,
+      },
+      Peer: {},
+    }), "utf8");
+    process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = fixture;
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    resetScoutdProbeClientForTests();
+    const requests: any[] = [];
+
+    const server = await startScoutdProbeServer(socketPath, (request) => {
+      requests.push(request);
+      if (request.schema === "openscout.probe.capabilities/v1") {
+        return {
+          schema: "openscout.probe.capabilities/v1",
+          daemonVersion: "skewed-daemon",
+          families: [
+            { probeId: "tailscale.status", schemaVersion: 2, ttlMs: 30_000 },
+          ],
+        };
+      }
+      throw new Error("probe request should not be sent when schema versions differ");
+    });
+
+    try {
+      tailscaleStatusProbe.invalidate("test.schema-skew");
+      const snapshot = await tailscaleStatusProbe.fresh({ maxAgeMs: 0 });
+
+      expect(snapshot.backend).toBe("local-fallback");
+      expect(snapshot.fallbackReason).toContain("schema v2");
+      expect(snapshot.value?.self?.hostName).toBe("schema-local");
+      expect(requests).toEqual([{ schema: "openscout.probe.capabilities/v1" }]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test("keeps the socket timeout above the probe operation timeout to avoid duplicate local exec", async () => {
+    const directory = tempDir("openscout-scoutd-timeout-hierarchy-");
+    const socketPath = join(directory, "probes.sock");
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    resetScoutdProbeClientForTests();
+    let localRuns = 0;
+    const tailscale = join(directory, "tailscale");
+    writeFileSync(tailscale, `#!/bin/sh
+printf x >> ${JSON.stringify(join(directory, "local-count"))}
+exit 64
+`, "utf8");
+    chmodSync(tailscale, 0o755);
+    process.env.OPENSCOUT_TAILSCALE_BIN = tailscale;
+
+    const server = await startScoutdProbeServer(socketPath, async (request) => {
+      if (request.schema === "openscout.probe.capabilities/v1") return capabilities();
+      localRuns += 1;
+      await sleep(950);
+      return {
+        schema: "openscout.probe.snapshot/v1",
+        probeId: "tailscale.status",
+        key: null,
+        generatedAt: Date.now(),
+        ttlMs: 30_000,
+        value: {
+          backendState: "Running",
+          running: true,
+          health: [],
+          peers: [],
+          self: {
+            id: "slow-daemon",
+            name: "slow-daemon",
+            addresses: ["100.64.0.4"],
+            online: true,
+            hostName: "slow-daemon",
+          },
+        },
+        error: null,
+        daemonVersion: "test-daemon",
+      };
+    });
+
+    try {
+      tailscaleStatusProbe.invalidate("test.timeout-hierarchy");
+      const snapshot = await tailscaleStatusProbe.fresh({ maxAgeMs: 0 });
+
+      expect(snapshot.backend).toBe("scoutd");
+      expect(snapshot.value?.self?.hostName).toBe("slow-daemon");
+      expect(localRuns).toBe(1);
+      expect(existsSync(join(directory, "local-count"))).toBe(false);
+    } finally {
+      await closeServer(server);
+    }
+  });
 });
 
 describe("git.buildInfo probe", () => {
@@ -484,4 +742,168 @@ describe("git.buildInfo probe", () => {
     expect(second.value?.dirty).toBe(true);
     expect(second.value?.commit).toBe(first.value?.commit);
   });
+});
+
+describe("scoutd conformance diff harness", () => {
+  type GitFixtureMode = "success" | "missing-binary" | "timeout" | "output_cap";
+
+  function writeGitFixture(directory: string): string {
+    const script = join(directory, "git-fixture.sh");
+    writeFileSync(script, `#!/bin/sh
+if [ "$1" = "-C" ]; then
+  shift 2
+fi
+mode="\${OPENSCOUT_TEST_GIT_MODE:-success}"
+if [ "$1" = "rev-parse" ] && [ "$2" = "--short" ]; then
+  printf 'abc123\\n'
+  exit 0
+fi
+if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then
+  printf 'main\\n'
+  exit 0
+fi
+if [ "$1" = "status" ] && [ "$2" = "--porcelain" ]; then
+  case "$mode" in
+    timeout)
+      sleep 3
+      printf 'late\\n'
+      exit 0
+      ;;
+    output_cap)
+      dd if=/dev/zero bs=300000 count=1 2>/dev/null | tr '\\000' x
+      exit 0
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+fi
+exit 1
+`, "utf8");
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  function normalizeGitSnapshot(value: any): any {
+    if (!value || typeof value !== "object") return value ?? null;
+    return {
+      ...value,
+      metadataAt: 0,
+      statusAt: value.statusAt === null ? null : 0,
+    };
+  }
+
+  function normalizeProbeError(error: any): any {
+    if (!error) return null;
+    return {
+      code: String(error.code ?? "error"),
+      timedOut: error.timedOut === true || error.timed_out === true || error.code === "timeout",
+    };
+  }
+
+  function normalizeLocalSnapshot(snapshot: Awaited<ReturnType<ReturnType<typeof gitBuildInfoProbe.for>["fresh"]>>): any {
+    if (snapshot.status === "failed") {
+      return {
+        status: "failed",
+        value: null,
+        error: normalizeProbeError(snapshot.error),
+      };
+    }
+    return {
+      status: snapshot.status,
+      value: normalizeGitSnapshot(snapshot.value),
+      error: null,
+    };
+  }
+
+  function normalizeDaemonSnapshot(response: any): any {
+    if (response.error) {
+      return {
+        status: "failed",
+        value: null,
+        error: normalizeProbeError(response.error),
+      };
+    }
+    return {
+      status: "fresh",
+      value: normalizeGitSnapshot(response.value),
+      error: null,
+    };
+  }
+
+  async function runLocalGitFixture(repoRoot: string, gitBin: string): Promise<any> {
+    process.env.OPENSCOUT_PROBES_SOCKET = join(repoRoot, "missing-probes.sock");
+    process.env.OPENSCOUT_GIT_BIN = gitBin;
+    resetScoutdProbeClientForTests();
+    resetGitBuildInfoProbeForTests();
+    gitBuildInfoProbe.invalidate(repoRoot, "test.conformance.local");
+    const snapshot = await gitBuildInfoProbe.for(repoRoot).fresh({ maxAgeMs: 0 });
+    return normalizeLocalSnapshot(snapshot);
+  }
+
+  async function runDaemonGitFixture(input: {
+    repoRoot: string;
+    gitBin: string;
+    mode: GitFixtureMode;
+    directory: string;
+  }): Promise<any> {
+    const socketPath = join(input.directory, `scoutd-${input.mode}.sock`);
+    const server = await startRealScoutdProbeServer({
+      socketPath,
+      env: {
+        OPENSCOUT_HOME: input.directory,
+        OPENSCOUT_GIT_BIN: input.gitBin,
+        OPENSCOUT_TEST_GIT_MODE: input.mode,
+      },
+    });
+    try {
+      const response = await requestProbeSocket(socketPath, {
+        schema: "openscout.probe.request/v1",
+        schemaVersion: 1,
+        probeId: "git.buildInfo",
+        key: input.repoRoot,
+        maxAgeMs: 0,
+      }, 6_000);
+      return normalizeDaemonSnapshot(response);
+    } finally {
+      await server.stop();
+    }
+  }
+
+  for (const mode of ["success", "missing-binary", "timeout", "output_cap"] as const) {
+    test(`git.buildInfo ${mode} fixture matches between scoutd and the TS local twin`, async () => {
+      const directory = shortTempDir(`oscd-${mode}`);
+      const repoRoot = join(directory, "repo");
+      const gitFixture = writeGitFixture(directory);
+      writeFileSync(join(directory, "repo-placeholder"), "x", "utf8");
+      const gitBin = mode === "missing-binary" ? join(directory, "missing-git") : gitFixture;
+      mkdirSync(repoRoot);
+
+      process.env.OPENSCOUT_TEST_GIT_MODE = mode;
+      const [daemon, local] = await Promise.all([
+        runDaemonGitFixture({ repoRoot, gitBin, mode, directory }),
+        runLocalGitFixture(repoRoot, gitBin),
+      ]);
+
+      expect(daemon).toEqual(local);
+      if (mode === "timeout") {
+        expect(daemon.error).toEqual({ code: "timeout", timedOut: true });
+      }
+      if (mode === "output_cap") {
+        expect(daemon.error).toEqual({ code: "output_cap", timedOut: false });
+      }
+      if (mode === "missing-binary") {
+        expect(daemon).toMatchObject({
+          status: "fresh",
+          value: {
+            commit: null,
+            bootBranch: null,
+            branch: null,
+            dirty: null,
+          },
+          error: null,
+        });
+      }
+    }, 15_000);
+  }
 });
