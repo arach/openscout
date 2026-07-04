@@ -1,4 +1,5 @@
 import AppKit
+import HudsonObservability
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
@@ -82,6 +83,8 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     private var distributedObserverInstalled = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        HudLoggerSinks.install(HudLogStore.shared)
+        HudLogger(category: "scout").info("Scout app booted", metadata: ["state": "ready"])
         launchMenuHelperIfNeeded()
         installScoutURLHandler()
         installHUDCommandObserver()

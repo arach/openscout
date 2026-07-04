@@ -44,6 +44,9 @@ let package = Package(
                 "ScoutHUD",
                 "ScoutSharedUI",
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
+                .product(name: "HudsonObservability", package: "hudson"),
+                .product(name: "HudsonUI", package: "hudson"),
+                .product(name: "HudsonShell", package: "hudson"),
             ],
             path: "Sources/ScoutMenu"
         ),
@@ -79,6 +82,7 @@ let package = Package(
                 "ScoutHUD",
                 "ScoutSharedUI",
                 .product(name: "ScoutCapabilities", package: "scout-native-core"),
+                .product(name: "HudsonObservability", package: "hudson"),
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),
             ] + terminalDependencies,

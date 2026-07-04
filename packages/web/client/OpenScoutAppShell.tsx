@@ -27,7 +27,12 @@ import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
+import {
+  ScoutActivityLogOverlay,
+  ScoutActivityLogStatusButton,
+} from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
+import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
 
 interface OpenScoutAppShellProps {
@@ -215,12 +220,16 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
 function OpenScoutStatusBarRight({
   statusBar,
   onOpenFlagPanel,
+  onOpenActivityLog,
 }: {
   statusBar: ScoutStatusBarState;
   onOpenFlagPanel: () => void;
+  onOpenActivityLog: () => void;
 }) {
   return (
     <div className="flex max-w-[42vw] items-center gap-3">
+      <ScoutActivityLogStatusButton onOpen={onOpenActivityLog} />
+      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
       <DevFlagToggle onOpenPanel={onOpenFlagPanel} />
       <div
         className="truncate font-mono text-[10px] leading-none text-muted-foreground"
@@ -236,7 +245,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route, agents, openContextCapture } = useScout();
+  const { route, agents, openContextCapture, apiConnection } = useScout();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -251,7 +260,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const takeoverOnDismiss = takeover?.onDismiss;
   const TakeoverSlot = app.slots.Takeover;
   const statusBar = useScoutStatusBarState();
+  useScoutActivityLogBridge(statusBar, apiConnection);
   const canvasMinimap = useCanvasMinimap();
+  const [showActivityLog, setShowActivityLog] = useState(false);
 
   const [leftCollapsed, setLeftCollapsed] = usePersistentState(`appshell.${app.id}.left`, false);
   const [rightCollapsed, setRightCollapsed] = usePersistentState(`appshell.${app.id}.right`, false);
@@ -725,9 +736,20 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <StatusBar
                 status={statusBar.status}
                 left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
-                right={<OpenScoutStatusBarRight statusBar={statusBar} onOpenFlagPanel={() => setShowFlagPanel(true)} />}
+                right={(
+                  <OpenScoutStatusBarRight
+                    statusBar={statusBar}
+                    onOpenFlagPanel={() => setShowFlagPanel(true)}
+                    onOpenActivityLog={() => setShowActivityLog(true)}
+                  />
+                )}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
+              />
+
+              <ScoutActivityLogOverlay
+                open={showActivityLog}
+                onClose={() => setShowActivityLog(false)}
               />
 
               <div

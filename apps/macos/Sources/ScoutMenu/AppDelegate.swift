@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import HudsonObservability
 import ScoutAppCore
 import ScoutHUD
 import SwiftUI
@@ -13,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        HudLoggerSinks.install(HudLogStore.shared)
+        HudLogger(category: "menu").info("Scout menu helper booted", metadata: ["state": "ready"])
         NSApp.setActivationPolicy(.accessory)
 
         // scout:// URL scheme ingress. Service restart links stay here;

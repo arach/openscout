@@ -1,3 +1,4 @@
+import HudsonObservability
 import SwiftUI
 import HudsonUI
 import ScoutIOSCore
@@ -11,12 +12,17 @@ struct ConnectionView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                    statusSection
-                    logSection
-                }
-                .padding(HudSpacing.xxl)
+            VStack(alignment: .leading, spacing: 0) {
+                statusSection
+                    .padding(HudSpacing.xxl)
+                Divider()
+                    .overlay(HudHairline.subtle)
+                HudLoggerView(
+                    store: .shared,
+                    title: "Connection",
+                    showHeader: true,
+                    emptySubtitle: "Route attempts and pairing events will appear here."
+                )
             }
             .background(HudPalette.bg)
             .navigationTitle("Connection")
@@ -85,69 +91,4 @@ struct ConnectionView: View {
         return false
     }
 
-    // MARK: - Log
-
-    private var logSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HStack {
-                HudSectionLabel("Log · \(model.connectionLog.entries.count)")
-                Spacer()
-                if !model.connectionLog.entries.isEmpty {
-                    Button("Clear") { model.connectionLog.clear() }
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutInk.muted)
-                }
-            }
-            if model.connectionLog.entries.isEmpty {
-                HudEmptyState(title: "No connection activity yet", icon: "dot.radiowaves.left.and.right")
-            } else {
-                VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                    ForEach(model.connectionLog.entries.reversed()) { entry in
-                        logRow(entry)
-                    }
-                }
-            }
-        }
-    }
-
-    private func logRow(_ entry: ConnectionLogEntry) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.sm) {
-            Text(routeLabel(entry))
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(entry.route == nil ? ScoutInk.dim : HudPalette.accent)
-                .frame(width: 34, alignment: .leading)
-            Text(entry.event.label)
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(eventColor(entry.event, level: entry.level))
-                .frame(width: 82, alignment: .leading)
-            Text(entry.message)
-                .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(levelColor(entry.level))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func routeLabel(_ entry: ConnectionLogEntry) -> String {
-        guard let route = entry.route, !route.label.isEmpty else { return "SYS" }
-        return route.label
-    }
-
-    private func eventColor(_ event: ConnectionLogEvent, level: ConnectionLogLevel) -> Color {
-        switch event {
-        case .connected: return HudPalette.accent
-        case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
-        case .handshake, .resolve, .discover, .fallback, .pairing, .trust, .auth: return levelColor(level)
-        case .lifecycle: return ScoutInk.dim
-        }
-    }
-
-    private func levelColor(_ level: ConnectionLogLevel) -> Color {
-        switch level {
-        case .info: return ScoutInk.muted
-        case .success: return HudPalette.accent
-        case .warning: return HudPalette.statusWarn
-        case .error: return HudPalette.statusError
-        }
-    }
 }
