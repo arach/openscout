@@ -63,6 +63,7 @@ describe("repo-service scoutd transport", () => {
         "openscout.probe.capabilities/v1",
         "openscout.repo.scan/v1",
       ]);
+      expect(requests[1]?.schemaVersion).toBe(1);
     } finally {
       await closeServer(server);
     }
@@ -103,6 +104,31 @@ describe("repo-service scoutd transport", () => {
         projects: [{ root: "/socket" }],
       });
       expect(repoServiceTransportMetadata(readopted)).toMatchObject({ backend: "scoutd" });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test("falls back without sending a repo request when a repo capability schema version differs", async () => {
+    const socketPath = join(tempRoot, "probes.sock");
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    const fallbackCommand = writeFallbackRepoService();
+    const requests: Array<Record<string, unknown>> = [];
+    const server = await startRepoServer(socketPath, (request) => {
+      requests.push(request);
+      if (request.schema === "openscout.probe.capabilities/v1") return capabilities(2);
+      throw new Error("repo request should not be sent when schema versions differ");
+    });
+
+    try {
+      const output = await runRepoServiceJson(fallbackCommand, { hints: [], limits: {} }, 1_000, "scan");
+
+      expect(output).toMatchObject({ schema: "openscout.repo.scan/v1", projects: [] });
+      expect(repoServiceTransportMetadata(output)).toMatchObject({
+        backend: "spawn-fallback",
+        fallbackReason: expect.stringContaining("schema v2"),
+      });
+      expect(requests).toEqual([{ schema: "openscout.probe.capabilities/v1" }]);
     } finally {
       await closeServer(server);
     }
@@ -161,13 +187,13 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
 }
 
-function capabilities(): Record<string, unknown> {
+function capabilities(schemaVersion = 1): Record<string, unknown> {
   return {
     schema: "openscout.probe.capabilities/v1",
     daemonVersion: "test-daemon",
     families: [
-      { probeId: "repo.scan", schemaVersion: 1, ttlMs: 0 },
-      { probeId: "repo.diff", schemaVersion: 1, ttlMs: 0 },
+      { probeId: "repo.scan", schemaVersion, ttlMs: 0 },
+      { probeId: "repo.diff", schemaVersion, ttlMs: 0 },
     ],
   };
 }

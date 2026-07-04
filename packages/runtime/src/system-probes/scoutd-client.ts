@@ -11,6 +11,10 @@ import {
   type ProbeCtx,
   type ProbeRunOutput,
 } from "./registry.js";
+import {
+  expectedScoutHostExecVerbSchemaVersion,
+  expectedScoutHostProbeSchemaVersion,
+} from "./scout-host-catalog.js";
 
 const CAPABILITIES_SCHEMA = "openscout.probe.capabilities/v1";
 const REQUEST_SCHEMA = "openscout.probe.request/v1";
@@ -154,8 +158,10 @@ export class ScoutdProbeClient {
     probeId: string;
     key?: string;
     maxAgeMs?: number;
+    timeoutMs?: number;
   }): Promise<ScoutdProbeOutcome<T>> {
     const socketPath = resolveScoutdProbesSocketPath(this.env);
+    const socketTimeoutMs = probeSocketTimeoutMs(input.timeoutMs);
     const socketExists = existsSync(socketPath);
     if (!socketExists) {
       this.capabilities = null;
@@ -166,21 +172,34 @@ export class ScoutdProbeClient {
     }
     this.daemonObserved = true;
 
-    const capabilities = await this.ensureCapabilities(socketPath);
+    const capabilities = await this.ensureCapabilities(socketPath, socketTimeoutMs);
     if (!capabilities) {
       return this.fallback(input.probeId, input.key, this.lastError ?? "probe capabilities unavailable");
     }
-    if (!capabilities.families.has(input.probeId)) {
+    const capability = capabilities.families.get(input.probeId);
+    if (!capability) {
       return this.fallback(input.probeId, input.key, `scoutd does not serve ${input.probeId}`);
+    }
+    const expectedSchemaVersion = expectedScoutHostProbeSchemaVersion(input.probeId);
+    if (expectedSchemaVersion === null) {
+      return this.fallback(input.probeId, input.key, `client has no compiled schema version for ${input.probeId}`);
+    }
+    if (capability.schemaVersion !== expectedSchemaVersion) {
+      return this.fallback(
+        input.probeId,
+        input.key,
+        `scoutd serves ${input.probeId} schema v${capability.schemaVersion}, expected v${expectedSchemaVersion}`,
+      );
     }
 
     try {
       const response = await requestJson<ScoutdSnapshotResponse<T>>(socketPath, {
         schema: REQUEST_SCHEMA,
+        schemaVersion: expectedSchemaVersion,
         probeId: input.probeId,
         key: input.key ?? null,
         maxAgeMs: input.maxAgeMs,
-      });
+      }, { timeoutMs: socketTimeoutMs });
       if (!isRecord(response) || response.schema !== SNAPSHOT_SCHEMA) {
         throw new Error("scoutd returned an invalid probe snapshot envelope");
       }
@@ -209,6 +228,7 @@ export class ScoutdProbeClient {
     args: Record<string, unknown>;
   }): Promise<ScoutdExecOutcome<T>> {
     const socketPath = resolveScoutdProbesSocketPath(this.env);
+    const socketTimeoutMs = execSocketTimeoutMs(input.args);
     const socketExists = existsSync(socketPath);
     if (!socketExists) {
       this.capabilities = null;
@@ -219,20 +239,32 @@ export class ScoutdProbeClient {
     }
     this.daemonObserved = true;
 
-    const capabilities = await this.ensureCapabilities(socketPath);
+    const capabilities = await this.ensureCapabilities(socketPath, socketTimeoutMs);
     if (!capabilities) {
       return this.execFallback(input.verb, this.lastError ?? "probe capabilities unavailable");
     }
-    if (!capabilities.verbs.has(input.verb)) {
+    const capability = capabilities.verbs.get(input.verb);
+    if (!capability) {
       return this.execFallback(input.verb, `scoutd does not serve ${input.verb}`);
+    }
+    const expectedSchemaVersion = expectedScoutHostExecVerbSchemaVersion(input.verb);
+    if (expectedSchemaVersion === null) {
+      return this.execFallback(input.verb, `client has no compiled schema version for ${input.verb}`);
+    }
+    if (capability.schemaVersion !== expectedSchemaVersion) {
+      return this.execFallback(
+        input.verb,
+        `scoutd serves ${input.verb} schema v${capability.schemaVersion}, expected v${expectedSchemaVersion}`,
+      );
     }
 
     try {
       const response = await requestJson<ScoutdExecResponse<T>>(socketPath, {
         schema: EXEC_REQUEST_SCHEMA,
+        schemaVersion: expectedSchemaVersion,
         verb: input.verb,
         args: input.args,
-      }, { timeoutMs: execSocketTimeoutMs(input.args) });
+      }, { timeoutMs: socketTimeoutMs });
       if (!isRecord(response) || response.schema !== EXEC_RESPONSE_SCHEMA) {
         throw new Error("scoutd returned an invalid exec response envelope");
       }
@@ -284,7 +316,7 @@ export class ScoutdProbeClient {
     this.fallbackByExec.clear();
   }
 
-  private async ensureCapabilities(socketPath: string): Promise<Capabilities | null> {
+  private async ensureCapabilities(socketPath: string, timeoutMs = SOCKET_TIMEOUT_MS): Promise<Capabilities | null> {
     const now = Date.now();
     if (this.capabilities && this.lastCapabilityCheckAt !== null && now - this.lastCapabilityCheckAt < CAPABILITY_RECHECK_MS) {
       return this.capabilities;
@@ -292,7 +324,7 @@ export class ScoutdProbeClient {
 
     this.lastCapabilityCheckAt = now;
     try {
-      const response = await requestJson<unknown>(socketPath, { schema: CAPABILITIES_SCHEMA });
+      const response = await requestJson<unknown>(socketPath, { schema: CAPABILITIES_SCHEMA }, { timeoutMs });
       if (!isRecord(response) || response.schema !== CAPABILITIES_SCHEMA) {
         throw new Error("scoutd returned an invalid capabilities envelope");
       }
@@ -382,6 +414,7 @@ export async function runWithScoutdFallback<T>(input: {
     probeId: input.probeId,
     key: input.key,
     maxAgeMs: input.ctx.maxAgeMs,
+    timeoutMs: input.ctx.timeoutMs,
   });
 
   if (scoutd.state === "scoutd") {
@@ -406,8 +439,16 @@ export async function runWithScoutdFallback<T>(input: {
     throw new ProbeBackendError(
       error instanceof Error ? error.message : String(error),
       metadata,
+      error,
     );
   }
+}
+
+function probeSocketTimeoutMs(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+    return SOCKET_TIMEOUT_MS;
+  }
+  return Math.max(SOCKET_TIMEOUT_MS, Math.min(Math.max(0, timeoutMs) + 1_000, 31_000));
 }
 
 function execSocketTimeoutMs(args: Record<string, unknown>): number {

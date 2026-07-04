@@ -36,6 +36,8 @@ const DEFAULT_REPO_JOB_WORKERS: usize = 4;
 const DEFAULT_REPO_JOB_QUEUE: usize = 32;
 const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
 const DEFAULT_EXEC_JOB_QUEUE: usize = 32;
+const DEFAULT_CONNECTION_WORKERS: usize = 32;
+const DEFAULT_CONNECTION_QUEUE: usize = 64;
 const REQUEST_READ_CAP_BYTES: u64 = 8 * 1024 * 1024;
 const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -67,6 +69,8 @@ pub struct ProbeServerOptions {
     pub repo_job_queue: usize,
     pub exec_job_workers: usize,
     pub exec_job_queue: usize,
+    pub connection_workers: usize,
+    pub connection_queue: usize,
 }
 
 impl ProbeServerOptions {
@@ -95,6 +99,11 @@ impl ProbeServerOptions {
                 .unwrap_or(DEFAULT_EXEC_JOB_WORKERS)
                 .max(1),
             exec_job_queue: env_usize("OPENSCOUT_EXEC_JOB_QUEUE").unwrap_or(DEFAULT_EXEC_JOB_QUEUE),
+            connection_workers: env_usize("OPENSCOUT_PROBE_CONNECTION_WORKERS")
+                .unwrap_or(DEFAULT_CONNECTION_WORKERS)
+                .max(1),
+            connection_queue: env_usize("OPENSCOUT_PROBE_CONNECTION_QUEUE")
+                .unwrap_or(DEFAULT_CONNECTION_QUEUE),
         }
     }
 }
@@ -264,6 +273,7 @@ struct JobLimiterState {
 
 #[derive(Clone, Debug)]
 struct JobLimiter {
+    label: &'static str,
     max_active: usize,
     max_queue: usize,
     state: Arc<(Mutex<JobLimiterState>, Condvar)>,
@@ -284,8 +294,9 @@ impl Drop for JobPermit {
 }
 
 impl JobLimiter {
-    fn new(max_active: usize, max_queue: usize) -> Self {
+    fn new(label: &'static str, max_active: usize, max_queue: usize) -> Self {
         Self {
+            label,
             max_active: max_active.max(1),
             max_queue,
             state: Arc::new((Mutex::new(JobLimiterState::default()), Condvar::new())),
@@ -305,8 +316,8 @@ impl JobLimiter {
             return Err(ProbeFailure {
                 code: "busy".to_string(),
                 message: format!(
-                    "repo job queue is full (active={}, queued={}, maxQueue={})",
-                    state.active, state.queued, self.max_queue
+                    "{} queue is full (active={}, queued={}, maxQueue={})",
+                    self.label, state.active, state.queued, self.max_queue
                 ),
                 timed_out: false,
             });
@@ -337,8 +348,10 @@ struct ProbeEngine {
 
 impl ProbeEngine {
     fn new(options: ProbeServerOptions) -> Self {
-        let repo_jobs = JobLimiter::new(options.repo_job_workers, options.repo_job_queue);
-        let exec_jobs = JobLimiter::new(options.exec_job_workers, options.exec_job_queue);
+        let repo_jobs =
+            JobLimiter::new("repo job", options.repo_job_workers, options.repo_job_queue);
+        let exec_jobs =
+            JobLimiter::new("exec job", options.exec_job_workers, options.exec_job_queue);
         Self {
             options,
             state: Arc::new((Mutex::new(ProbeEngineState::default()), Condvar::new())),
@@ -791,9 +804,9 @@ impl ProbeEngine {
     }
 
     fn run_git_build_info(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
-        let metadata = self.load_static_git_metadata(repo_root);
-        let branch = self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]);
-        let dirty_status = self.git_output(repo_root, &["status", "--porcelain"]);
+        let metadata = self.load_static_git_metadata(repo_root)?;
+        let branch = self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        let dirty_status = self.git_output(repo_root, &["status", "--porcelain"])?;
         Ok(json!({
             "repoRoot": repo_root,
             "commit": metadata.commit,
@@ -805,29 +818,32 @@ impl ProbeEngine {
         }))
     }
 
-    fn load_static_git_metadata(&self, repo_root: &str) -> StaticGitBuildMetadata {
+    fn load_static_git_metadata(
+        &self,
+        repo_root: &str,
+    ) -> Result<StaticGitBuildMetadata, ProbeFailure> {
         {
             let (lock, _) = &*self.state;
             let state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if let Some(metadata) = state.git_static.get(repo_root) {
-                return metadata.clone();
+                return Ok(metadata.clone());
             }
         }
         let metadata = StaticGitBuildMetadata {
-            commit: self.git_value(repo_root, &["rev-parse", "--short", "HEAD"]),
-            boot_branch: self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            commit: self.git_value(repo_root, &["rev-parse", "--short", "HEAD"])?,
+            boot_branch: self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?,
             metadata_at: epoch_ms(),
         };
         let (lock, _) = &*self.state;
         let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state
+        Ok(state
             .git_static
             .entry(repo_root.to_string())
             .or_insert_with(|| metadata.clone())
-            .clone()
+            .clone())
     }
 
-    fn git_output(&self, repo_root: &str, args: &[&str]) -> Option<String> {
+    fn git_output(&self, repo_root: &str, args: &[&str]) -> Result<Option<String>, ProbeFailure> {
         let mut command_args = vec!["-C", repo_root];
         command_args.extend(args.iter().copied());
         match run_capped_command(
@@ -838,16 +854,17 @@ impl ProbeEngine {
             256 * 1024,
             64 * 1024,
         ) {
-            Ok(output) => Some(output.stdout),
-            Err(error) if is_domain_unavailable_command_error(&error) => None,
-            Err(_) => None,
+            Ok(output) => Ok(Some(output.stdout)),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(None),
+            Err(error) => Err(command_failure_to_probe(error, GIT_BUILD_INFO_ID)),
         }
     }
 
-    fn git_value(&self, repo_root: &str, args: &[&str]) -> Option<String> {
-        self.git_output(repo_root, args)
+    fn git_value(&self, repo_root: &str, args: &[&str]) -> Result<Option<String>, ProbeFailure> {
+        Ok(self
+            .git_output(repo_root, args)?
             .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.is_empty()))
     }
 }
 
@@ -870,11 +887,28 @@ pub fn serve(options: ProbeServerOptions) -> Result<(), String> {
     eprintln!("[scoutd probes] serving {}", options.socket_path.display());
 
     let engine = ProbeEngine::new(options);
+    let connection_jobs = JobLimiter::new(
+        "probe connection",
+        engine.options.connection_workers,
+        engine.options.connection_queue,
+    );
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
+            Ok(mut stream) => {
+                let permit = match connection_jobs.acquire() {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        let response = error_response(&error.code, &error.message);
+                        if let Ok(payload) = serde_json::to_vec(&response) {
+                            let _ = stream.write_all(&payload);
+                            let _ = stream.write_all(b"\n");
+                        }
+                        continue;
+                    }
+                };
                 let engine = engine.clone();
                 thread::spawn(move || {
+                    let _permit = permit;
                     if let Err(error) = handle_connection(stream, engine) {
                         eprintln!("[scoutd probes] connection failed: {error}");
                     }
@@ -2180,6 +2214,8 @@ mod tests {
             repo_job_queue: 32,
             exec_job_workers: 4,
             exec_job_queue: 32,
+            connection_workers: 32,
+            connection_queue: 64,
         }
     }
 

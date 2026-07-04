@@ -5,6 +5,7 @@ import { Socket } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { expectedScoutHostProbeSchemaVersion } from "../system-probes/scout-host-catalog.js";
 import { resolveScoutdProbesSocketPath } from "../system-probes/scoutd-client.js";
 
 // Shared launcher for the native `openscout-repo-service` binary. Both the
@@ -271,17 +272,33 @@ class RepoServiceSocketClient {
     }
     this.daemonObserved = true;
 
-    const capabilities = await this.ensureCapabilities(socketPath, Math.min(timeoutMs, 900));
+    const socketTimeoutMs = repoSocketTimeoutMs(timeoutMs);
+    const capabilities = await this.ensureCapabilities(socketPath, socketTimeoutMs);
     if (!capabilities) {
       return this.fallback(operation.capabilityId, this.lastError ?? "probe capabilities unavailable");
     }
-    if (!capabilities.families.has(operation.capabilityId)) {
+    const capability = capabilities.families.get(operation.capabilityId);
+    if (!capability) {
       return this.fallback(operation.capabilityId, `scoutd does not serve ${operation.capabilityId}`);
+    }
+    const expectedSchemaVersion = expectedScoutHostProbeSchemaVersion(operation.capabilityId);
+    if (expectedSchemaVersion === null) {
+      return this.fallback(operation.capabilityId, `client has no compiled schema version for ${operation.capabilityId}`);
+    }
+    if (capability.schemaVersion !== expectedSchemaVersion) {
+      return this.fallback(
+        operation.capabilityId,
+        `scoutd serves ${operation.capabilityId} schema v${capability.schemaVersion}, expected v${expectedSchemaVersion}`,
+      );
     }
 
     let response: unknown;
     try {
-      response = await requestJson(socketPath, repoRequestPayload(operation.schema, input), timeoutMs);
+      response = await requestJson(
+        socketPath,
+        repoRequestPayload(operation.schema, input, expectedSchemaVersion),
+        socketTimeoutMs,
+      );
     } catch (error) {
       this.capabilities = null;
       this.lastCapabilityCheckAt = null;
@@ -386,11 +403,11 @@ function operationForSubcommand(subcommand: string): { capabilityId: string; sch
   }
 }
 
-function repoRequestPayload(schema: string, input: unknown): Record<string, unknown> {
+function repoRequestPayload(schema: string, input: unknown, schemaVersion: number): Record<string, unknown> {
   if (isRecord(input)) {
-    return { ...input, schema };
+    return { ...input, schema, schemaVersion };
   }
-  return { schema, value: input };
+  return { schema, schemaVersion, value: input };
 }
 
 function inferSubcommand(command: RepoServiceCommand | null): string {
@@ -425,6 +442,10 @@ function fallbackMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function repoSocketTimeoutMs(timeoutMs: number): number {
+  return Math.max(900, Math.min(Math.max(0, timeoutMs) + 1_000, 31_000));
 }
 
 async function requestJson(socketPath: string, payload: unknown, timeoutMs: number): Promise<unknown> {
