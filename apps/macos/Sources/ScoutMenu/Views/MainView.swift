@@ -1,4 +1,7 @@
 import AppKit
+import HudsonObservability
+import HudsonShell
+import HudsonUI
 import ScoutAppCore
 import SwiftUI
 
@@ -6,6 +9,8 @@ struct MainView: View {
     @ObservedObject var controller: OpenScoutAppController
 
     @State private var showQR: Bool = false
+    @State private var showingActivityLog = false
+    @ObservedObject private var activityLog = HudLogStore.shared
 
     static let baseHeight: CGFloat = 232
     static let errorHeight: CGFloat = 240
@@ -31,7 +36,13 @@ struct MainView: View {
                     surfaceLauncher
 
                     if let lastError = controller.lastError, !lastError.isEmpty {
-                        errorBanner(lastError)
+                        Button {
+                            showingActivityLog = true
+                        } label: {
+                            errorBanner(lastError)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open activity log")
                     }
 
                     if let request = controller.pendingPairingRequests.first {
@@ -80,6 +91,16 @@ struct MainView: View {
         .animation(.easeInOut(duration: 0.18), value: showQR)
         .animation(.easeInOut(duration: 0.18), value: controller.pendingPairingRequests.count)
         .preferredColorScheme(.dark)
+        .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing, fraction: 0.92) {
+            HudLoggerPanel(title: "Activity Log") {
+                showingActivityLog = false
+            }
+        }
+        .onChange(of: controller.lastError) { _, value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else { return }
+            HudLogStore.shared.record(trimmed, level: .error, category: "menu-status")
+        }
     }
 
     private var hasError: Bool {
@@ -129,6 +150,15 @@ struct MainView: View {
 
             HStack(spacing: 6) {
                 Button {
+                    showingActivityLog = true
+                } label: {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(HeaderIconButtonStyle())
+                .help("Open activity log")
+
+                Button {
                     showQR.toggle()
                     if showQR && !controller.pairing.isRunning {
                         controller.startPairing()
@@ -176,6 +206,14 @@ struct MainView: View {
 
     private var footerBar: some View {
         HStack(spacing: 12) {
+            Button {
+                showingActivityLog = true
+            } label: {
+                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
+            }
+            .buttonStyle(.plain)
+            .help("Open activity log")
+
             Button {
                 SettingsWindowController.shared.show(controller: controller)
             } label: {

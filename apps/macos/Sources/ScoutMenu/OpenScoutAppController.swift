@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import HudsonObservability
 import ScoutAppCore
 
 @MainActor
@@ -427,6 +428,17 @@ final class OpenScoutAppController: ObservableObject {
         if actionLog.count > Self.actionLogMaxEntries {
             actionLog.removeFirst(actionLog.count - Self.actionLogMaxEntries)
         }
+
+        let level: HudLogLevel = switch kind {
+        case .info: .notice
+        case .success: .info
+        case .error: .error
+        }
+        var metadata: [String: String] = [:]
+        if let copyDetails, !copyDetails.isEmpty {
+            metadata["details"] = copyDetails
+        }
+        HudLogStore.shared.record(trimmed, level: level, category: "menu", metadata: metadata)
     }
 
     private func resetActionLog() {

@@ -1,3 +1,4 @@
+import HudsonObservability
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
@@ -112,6 +113,8 @@ struct ScoutRootView: View {
     /// Incoming LAN pairing requests awaiting approval on this Mac.
     @StateObject private var pairingApprovals = ScoutPairingApprovalStore()
     @ObservedObject private var voice = ScoutVoiceService.shared
+    @ObservedObject private var activityLog = HudLogStore.shared
+    @State private var showingActivityLog = false
     @State private var section: ScoutSection = .comms
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
@@ -294,6 +297,12 @@ struct ScoutRootView: View {
             motion: .base
         ))
         .hudsonSidebarMotionMode(.smoothFade)
+        .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
+        .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
+            HudLoggerPanel(title: "Activity Log") {
+                showingActivityLog = false
+            }
+        }
         .toolbarBackground(ScoutDesign.chrome, for: .windowToolbar)
         .toolbarColorScheme(appearance.themeMode.colorScheme, for: .windowToolbar)
         .background {
@@ -3015,49 +3024,65 @@ struct ScoutRootView: View {
 
     private var statusBar: some View {
         HStack(spacing: HudSpacing.xl) {
-            HudStatusDot(color: store.lastError == nil ? ScoutPalette.statusOk : ScoutPalette.statusError)
+            HudStatusDot(color: statusBarToneColor)
             Text("SCOUT")
                 .font(HudFont.mono(HudTextSize.xxs, weight: .bold))
                 .tracking(1.4)
                 .foregroundStyle(ScoutPalette.muted)
 
-            if let error = store.lastError {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
-                Text(error)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.statusError)
-                    .lineLimit(1)
+            if let preview = statusPreviewMessage {
+                Button {
+                    showingActivityLog = true
+                } label: {
+                    HStack(spacing: HudSpacing.sm) {
+                        Text("·")
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(ScoutPalette.dim)
+                        Text(preview)
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(ScoutPalette.statusError)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Open activity log")
             }
 
-            if let error = store.observeError {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
-                Text(error)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.statusError)
-                    .lineLimit(1)
+            Button {
+                showingActivityLog = true
+            } label: {
+                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
             }
-
-            ScoutTailErrorItem(tail: tail)
-
-            if let error = repos.lastError {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
-                Text(error)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.statusError)
-                    .lineLimit(1)
-            }
+            .buttonStyle(.plain)
+            .help("Open activity log")
 
             Spacer()
         }
         .padding(.horizontal, HudSpacing.xxl)
         .frame(height: 24)
         .background(ScoutDesign.chrome)
+    }
+
+    private var statusPreviewMessage: String? {
+        [
+            store.lastError,
+            store.observeError,
+            tail.lastError,
+            repos.lastError,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty }
+        .first
+    }
+
+    private var statusBarToneColor: Color {
+        if statusPreviewMessage != nil || activityLog.summary.tone == .error {
+            return ScoutPalette.statusError
+        }
+        if activityLog.summary.tone == .warning {
+            return ScoutPalette.statusWarn
+        }
+        return ScoutPalette.statusOk
     }
 }
 
@@ -3244,27 +3269,7 @@ struct ScoutColumnHeader<Primary: View, Secondary: View, Trailing: View>: View {
     }
 }
 
-/// Status-bar tail counter — observes the tail store directly so its ~1.4s
-/// updates re-render only this label, not the whole window. (The root reaches
-/// tail through a non-publishing box precisely so this stays scoped.)
-/// Status-bar tail error — isolated so a tail error toggling on/off doesn't
-/// relayout the window.
-private struct ScoutTailErrorItem: View {
-    @ObservedObject var tail: ScoutTailStore
-    var body: some View {
-        if let error = tail.lastError {
-            HStack(spacing: HudSpacing.xl) {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
-                Text(error)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.statusError)
-                    .lineLimit(1)
-            }
-        }
-    }
-}
+
 
 /// Two-segment All/Live scope for the Agents pane. Visually matches
 /// ScoutConversationFilterControl (inset pill, accent-selected segment).
