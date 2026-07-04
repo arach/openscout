@@ -2278,6 +2278,7 @@
   flex: none;
 }
 .s-lane-sheet-anchor {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-3xs);
@@ -2295,6 +2296,26 @@
   color: var(--ink);
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
+.s-lane-sheet-anchor--active {
+  color: var(--ink);
+  background: transparent;
+}
+
+.s-lane-sheet-anchor--active::after {
+  content: "";
+  position: absolute;
+  left: var(--space-xs);
+  right: var(--space-xs);
+  bottom: -5px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.s-lane-sheet-anchor--active .s-lane-sheet-anchor-n {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--ink);
+}
 .s-lane-sheet-anchor-n {
   display: inline-flex;
   align-items: center;
@@ -2310,7 +2331,7 @@
 
 /* the anchored sections jump just below the sticky bar */
 .s-lane-sheet-section[id] {
-  scroll-margin-top: 3rem;
+  scroll-margin-top: 12px;
 }
 
 /* ── VITALS — the cockpit hero: alive · how full · how busy ──────────────────

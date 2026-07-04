@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ExternalLink } from "lucide-react";
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
@@ -52,6 +52,26 @@ const PLAN_STEP_LABELS: Record<PlanDocumentStepStatus, string> = {
   pending: "todo",
   unknown: "step",
 };
+
+const LANE_SHEET_SECTION_IDS = [
+  "s-lane-sheet-vitals",
+  "s-lane-sheet-runtime",
+  "s-lane-sheet-files",
+  "s-lane-sheet-commands",
+  "s-lane-sheet-plans",
+  "s-lane-sheet-docs",
+] as const;
+type LaneSheetSectionId = typeof LANE_SHEET_SECTION_IDS[number];
+
+function isLaneSheetSectionId(value: string | null | undefined): value is LaneSheetSectionId {
+  return Boolean(value && LANE_SHEET_SECTION_IDS.includes(value as LaneSheetSectionId));
+}
+
+function currentLaneSheetHash(): LaneSheetSectionId | null {
+  if (typeof window === "undefined") return null;
+  const value = window.location.hash.replace(/^#/, "");
+  return isLaneSheetSectionId(value) ? value : null;
+}
 
 function fmtCount(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
@@ -621,10 +641,48 @@ export function AgentLaneDetailSheet({
   const [changedCopied, setChangedCopied] = useState(false);
   const [compactPending, setCompactPending] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<LaneSheetSectionId>("s-lane-sheet-vitals");
   const changedCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => () => {
     if (changedCopyTimer.current) clearTimeout(changedCopyTimer.current);
   }, []);
+
+  const setLocationHash = useCallback((id: LaneSheetSectionId) => {
+    if (typeof window === "undefined") return;
+    const next = `${window.location.pathname}${window.location.search}#${id}`;
+    if (window.location.hash === `#${id}`) return;
+    window.history.pushState(null, "", next);
+  }, []);
+
+  const scrollToSection = useCallback((
+    id: LaneSheetSectionId,
+    behavior: ScrollBehavior = "smooth",
+  ) => {
+    const body = bodyRef.current;
+    const target = body?.querySelector<HTMLElement>(`#${id}`);
+    if (!body || !target) return false;
+    const bodyTop = body.getBoundingClientRect().top;
+    const targetTop = target.getBoundingClientRect().top;
+    const reducedMotion = typeof window !== "undefined"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    body.scrollTo({
+      top: Math.max(0, body.scrollTop + targetTop - bodyTop),
+      behavior: reducedMotion ? "auto" : behavior,
+    });
+    setActiveSectionId(id);
+    return true;
+  }, []);
+
+  const jumpToSection = useCallback((
+    event: ReactMouseEvent<HTMLAnchorElement>,
+    id: LaneSheetSectionId,
+  ) => {
+    event.preventDefault();
+    if (scrollToSection(id)) {
+      setLocationHash(id);
+    }
+  }, [scrollToSection, setLocationHash]);
 
   const primaryLabel = lanePrimaryLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
@@ -856,6 +914,62 @@ export function AgentLaneDetailSheet({
     };
   }, [lane.id]);
 
+  useEffect(() => {
+    const syncFromHash = () => {
+      const id = currentLaneSheetHash();
+      if (!id) return;
+      window.requestAnimationFrame(() => {
+        scrollToSection(id, "auto");
+      });
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    window.addEventListener("popstate", syncFromHash);
+    return () => {
+      window.removeEventListener("hashchange", syncFromHash);
+      window.removeEventListener("popstate", syncFromHash);
+    };
+  }, [lane.id, commands.length, scrollToSection]);
+
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    let frame = 0;
+    const updateActiveSection = () => {
+      frame = 0;
+      const sections = LANE_SHEET_SECTION_IDS
+        .map((id) => body.querySelector<HTMLElement>(`#${id}`))
+        .filter((section): section is HTMLElement => Boolean(section));
+      if (sections.length === 0) return;
+      if (body.scrollTop + body.clientHeight >= body.scrollHeight - 2) {
+        const lastId = sections[sections.length - 1].id;
+        if (isLaneSheetSectionId(lastId)) {
+          setActiveSectionId(lastId);
+        }
+        return;
+      }
+      const activationTop = body.getBoundingClientRect().top + 18;
+      const next = sections.reduce<HTMLElement>((current, section) => (
+        section.getBoundingClientRect().top <= activationTop ? section : current
+      ), sections[0]);
+      if (isLaneSheetSectionId(next.id)) {
+        setActiveSectionId(next.id);
+      }
+    };
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateActiveSection);
+    };
+    updateActiveSection();
+    body.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      body.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [commands.length, documentsLoaded, plans.length, docs.length]);
+
   return (
     <SlidePanel
       open
@@ -910,18 +1024,56 @@ export function AgentLaneDetailSheet({
       </div>
 
       <nav className="s-lane-sheet-anchors" aria-label="Jump to section">
-        <a href="#s-lane-sheet-vitals" className="s-lane-sheet-anchor">Vitals</a>
-        <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Runtime</a>
-        <a href="#s-lane-sheet-files" className="s-lane-sheet-anchor">
+        <a
+          href="#s-lane-sheet-vitals"
+          className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-vitals" ? " s-lane-sheet-anchor--active" : ""}`}
+          aria-current={activeSectionId === "s-lane-sheet-vitals" ? "location" : undefined}
+          onClick={(event) => jumpToSection(event, "s-lane-sheet-vitals")}
+        >
+          Vitals
+        </a>
+        <a
+          href="#s-lane-sheet-runtime"
+          className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-runtime" ? " s-lane-sheet-anchor--active" : ""}`}
+          aria-current={activeSectionId === "s-lane-sheet-runtime" ? "location" : undefined}
+          onClick={(event) => jumpToSection(event, "s-lane-sheet-runtime")}
+        >
+          Runtime
+        </a>
+        <a
+          href="#s-lane-sheet-files"
+          className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-files" ? " s-lane-sheet-anchor--active" : ""}`}
+          aria-current={activeSectionId === "s-lane-sheet-files" ? "location" : undefined}
+          onClick={(event) => jumpToSection(event, "s-lane-sheet-files")}
+        >
           Files{touchedCount > 0 && <span className="s-lane-sheet-anchor-n">{touchedCount}</span>}
         </a>
         {commands.length > 0 && (
-          <a href="#s-lane-sheet-commands" className="s-lane-sheet-anchor">
+          <a
+            href="#s-lane-sheet-commands"
+            className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-commands" ? " s-lane-sheet-anchor--active" : ""}`}
+            aria-current={activeSectionId === "s-lane-sheet-commands" ? "location" : undefined}
+            onClick={(event) => jumpToSection(event, "s-lane-sheet-commands")}
+          >
             Commands<span className="s-lane-sheet-anchor-n">{commands.length}</span>
           </a>
         )}
-        <a href="#s-lane-sheet-plans" className="s-lane-sheet-anchor">Plans</a>
-        <a href="#s-lane-sheet-docs" className="s-lane-sheet-anchor">Docs</a>
+        <a
+          href="#s-lane-sheet-plans"
+          className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-plans" ? " s-lane-sheet-anchor--active" : ""}`}
+          aria-current={activeSectionId === "s-lane-sheet-plans" ? "location" : undefined}
+          onClick={(event) => jumpToSection(event, "s-lane-sheet-plans")}
+        >
+          Plans
+        </a>
+        <a
+          href="#s-lane-sheet-docs"
+          className={`s-lane-sheet-anchor${activeSectionId === "s-lane-sheet-docs" ? " s-lane-sheet-anchor--active" : ""}`}
+          aria-current={activeSectionId === "s-lane-sheet-docs" ? "location" : undefined}
+          onClick={(event) => jumpToSection(event, "s-lane-sheet-docs")}
+        >
+          Docs
+        </a>
         {isLive && facts?.turn && (
           <span className="s-lane-sheet-anchorbar-turn">
             turn {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
@@ -929,7 +1081,10 @@ export function AgentLaneDetailSheet({
         )}
       </nav>
 
-      <div className={`s-slide-body s-lane-sheet-body${isLive ? " s-lane-sheet-body--working" : " s-lane-sheet-body--idle"}`}>
+      <div
+        ref={bodyRef}
+        className={`s-slide-body s-lane-sheet-body${isLive ? " s-lane-sheet-body--working" : " s-lane-sheet-body--idle"}`}
+      >
         {/* VITALS — the cockpit hero: alive · how full · how busy, in one look.
             A flat section (soft emerald top wash) holding the live action well,
             the context-budget gauge, and a calm one-line cadence readout. When

@@ -393,7 +393,10 @@ function OpsInspectorPanel({
       </section>
 
       <section className="ctx-panel-section">
-        <div className="ctx-panel-section-label">Agent Pulse</div>
+        <div className="ctx-panel-section-label">
+          Recent activity
+          {recentAgents.length > 0 && <span className="ctx-panel-count">{recentAgents.length}</span>}
+        </div>
         <div className="ctx-panel-pulse-list">
           {recentAgents.map((agent) => (
             <button
