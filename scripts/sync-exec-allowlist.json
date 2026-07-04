@@ -217,13 +217,6 @@
     "owner": "runtime"
   },
   {
-    "path": "packages/runtime/src/codex-app-server.ts",
-    "symbol": "node:child_process",
-    "category": "process-lifecycle",
-    "reason": "owns Codex app-server harness process lifecycle",
-    "owner": "runtime"
-  },
-  {
     "path": "packages/runtime/src/cursor-transport-spike/cli-transport.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",

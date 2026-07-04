@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import {
   endpointStateAfterSuccessfulSessionWarmup,
   areHarnessBinariesAvailable,
   brokerSnapshotMessages,
+  invokeLocalAgentEndpoint,
   loadRegisteredLocalAgentBindings,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeGrokRuntimeLaunchArgs,
@@ -26,6 +27,7 @@ import {
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
+import { shutdownCodexAppServerAgent } from "./codex-app-server";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const scoutCli = `bun ${JSON.stringify(join(repoRoot, "packages", "cli", "bin", "scout.mjs"))}`;
@@ -105,6 +107,69 @@ function writeFakeCodexExecutable(directory: string): string {
   writeFileSync(executablePath, "#!/bin/sh\necho codex-cli 0.999.0\n", "utf8");
   chmodSync(executablePath, 0o755);
   return executablePath;
+}
+
+function writeReplyContextAwareCodexExecutable(directory: string): {
+  executablePath: string;
+  observedContextPath: string;
+} {
+  const executablePath = join(directory, "codex-app-server");
+  const observedContextPath = join(directory, "observed-reply-context.json");
+  writeFileSync(executablePath, `#!/usr/bin/env bun
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import readline from "node:readline";
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
+
+let activeThreadId = "thread-unknown";
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({ id, result: {} }));
+    continue;
+  }
+
+  if (method === "thread/resume") {
+    activeThreadId = String(params.threadId ?? "thread-unknown");
+    const thread = { id: activeThreadId, path: \`/tmp/\${activeThreadId}.jsonl\` };
+    console.log(JSON.stringify({ id, result: { thread } }));
+    console.log(JSON.stringify({ method: "thread/started", params: { thread } }));
+    continue;
+  }
+
+  if (method === "turn/start") {
+    const contextPath = process.env.OPENSCOUT_REPLY_CONTEXT_FILE ?? "";
+    const observed = {
+      contextPath,
+      exists: contextPath ? existsSync(contextPath) : false,
+      context: contextPath && existsSync(contextPath) ? JSON.parse(readFileSync(contextPath, "utf8")) : null,
+    };
+    writeFileSync(${JSON.stringify(observedContextPath)}, JSON.stringify(observed, null, 2));
+    activeThreadId = String(params.threadId ?? activeThreadId);
+    console.log(JSON.stringify({ id, result: { turn: { id: "turn-1" } } }));
+    console.log(JSON.stringify({ method: "turn/started", params: { threadId: activeThreadId, turn: { id: "turn-1", status: "inProgress", items: [] } } }));
+    console.log(JSON.stringify({ method: "item/started", params: { threadId: activeThreadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "" } } }));
+    console.log(JSON.stringify({ method: "item/agentMessage/delta", params: { threadId: activeThreadId, turnId: "turn-1", itemId: "msg-1", delta: "Reply context observed" } }));
+    console.log(JSON.stringify({ method: "item/completed", params: { threadId: activeThreadId, turnId: "turn-1", item: { type: "agentMessage", id: "msg-1", text: "Reply context observed" } } }));
+    console.log(JSON.stringify({ method: "turn/completed", params: { threadId: activeThreadId, turn: { id: "turn-1", status: "completed", error: null } } }));
+    continue;
+  }
+
+  console.log(JSON.stringify({ id, result: {} }));
+}
+`, "utf8");
+  chmodSync(executablePath, 0o755);
+  return { executablePath, observedContextPath };
 }
 
 describe("local agent prompts", () => {
@@ -527,6 +592,91 @@ describe("local agent prompts", () => {
     expect(prompt).not.toContain("OpenScout invocation for");
     expect(prompt).not.toContain("Requester:");
     expect(prompt).not.toContain("Action:");
+  });
+
+  test("Codex broker invocation writes reply context outside the app-server driver", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-local-codex-reply-context-test-"));
+    tempPaths.add(tempRoot);
+    const supportDirectory = join(tempRoot, "support");
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = supportDirectory;
+    const { executablePath, observedContextPath } = writeReplyContextAwareCodexExecutable(tempRoot);
+    process.env.OPENSCOUT_CODEX_BIN = executablePath;
+
+    const agentName = "codex-here";
+    const sessionId = "attached-codex-reply-context";
+    const cwd = process.cwd();
+    const runtimeDirectory = join(supportDirectory, "runtime", "agents", agentName);
+    const logsDirectory = join(runtimeDirectory, "logs");
+
+    try {
+      const result = await invokeLocalAgentEndpoint(
+        {
+          agentId: agentName,
+          harness: "codex",
+          transport: "codex_app_server",
+          cwd,
+          projectRoot: cwd,
+          sessionId,
+          metadata: {
+            agentName,
+            source: "local-session",
+            attachedTransport: "codex_app_server",
+            threadId: "thread-reply-context-1",
+            sessionBacked: true,
+          },
+        } as any,
+        {
+          id: "inv-reply-context",
+          requesterId: "sender.agent",
+          requesterNodeId: "node-1",
+          targetAgentId: agentName,
+          action: "consult",
+          task: "observe reply context",
+          conversationId: "dm.sender.codex",
+          messageId: "msg-original",
+          ensureAwake: true,
+          stream: false,
+          createdAt: 1,
+          timeoutMs: 5_000,
+        } as any,
+      );
+
+      expect(result.output).toBe("Reply context observed");
+
+      const observed = JSON.parse(readFileSync(observedContextPath, "utf8")) as {
+        contextPath?: string;
+        exists?: boolean;
+        context?: {
+          conversationId?: string;
+          replyToMessageId?: string;
+          replyPath?: string;
+        } | null;
+      };
+      const expectedContextPath = join(runtimeDirectory, "scout-reply-context.json");
+      expect(observed.exists).toBe(true);
+      expect(observed.contextPath).toBe(expectedContextPath);
+      expect(observed.context).toMatchObject({
+        conversationId: "dm.sender.codex",
+        replyToMessageId: "msg-original",
+        replyPath: "final_response",
+      });
+      expect(existsSync(expectedContextPath)).toBe(false);
+    } finally {
+      await shutdownCodexAppServerAgent({
+        agentName,
+        sessionId,
+        cwd,
+        systemPrompt: "Resume the existing session without changing its identity or prior context.",
+        runtimeDirectory,
+        logsDirectory,
+        threadId: "thread-reply-context-1",
+        requireExistingThread: true,
+        launchArgs: [],
+        env: {
+          OPENSCOUT_REPLY_CONTEXT_FILE: join(runtimeDirectory, "scout-reply-context.json"),
+        },
+      }, { resetThread: true }).catch(() => undefined);
+    }
   });
 
   test("direct wake follow-up prompt does not expose the standing collaboration contract", () => {
