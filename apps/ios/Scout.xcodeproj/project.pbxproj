@@ -14,30 +14,31 @@
 		14F08F2F75CF5F96EA75BEE5 /* TailSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB98C7CE1E51DB391A2D819A /* TailSurface.swift */; };
 		303328DF199EE1CE7C92FF06 /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249B0F2A9EE4C13ECCA19AF9 /* StatusBar.swift */; };
 		326E75ED261973A9CD055271 /* ResponsiveFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D794A6F847385880257434 /* ResponsiveFrame.swift */; };
-		3CDCD4A615702482C48F67AE /* HudsonUIKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = 584654D474049D1CBCF23765 /* HudsonUIKeyboard */; };
-		4AC4AD2ADD8B0788006ECE37 /* HudsonUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD61C1C8D14331233860CC9F /* HudsonUI */; };
-		4EEE7E3E4129899DC1C8C24C /* HudsonShell in Frameworks */ = {isa = PBXBuildFile; productRef = 85C0404F44F1316C390D30E2 /* HudsonShell */; };
+		3CDCD4A615702482C48F67AE /* HudsonTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 786902EB94C9072D331CC743 /* HudsonTerminal */; };
+		4AC4AD2ADD8B0788006ECE37 /* HudsonShell in Frameworks */ = {isa = PBXBuildFile; productRef = 85C0404F44F1316C390D30E2 /* HudsonShell */; };
+		4EEE7E3E4129899DC1C8C24C /* HudsonObservability in Frameworks */ = {isa = PBXBuildFile; productRef = D43D8044F60C98D1D493961A /* HudsonObservability */; };
 		551CFE5D8613F46B7118283D /* TerminalHostedKeyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = E275231B2EFA1F4912EFE090 /* TerminalHostedKeyboard.swift */; };
-		55E167251A256BE2C2D3F59A /* HudsonVoice in Frameworks */ = {isa = PBXBuildFile; productRef = 602DA29274B5DD101F081947 /* HudsonVoice */; };
+		55E167251A256BE2C2D3F59A /* HudsonUICapture in Frameworks */ = {isa = PBXBuildFile; productRef = 3A3097C0321EC5248EA70115 /* HudsonUICapture */; };
 		577ACC07D24970910FF7C90D /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE6AE0FA16BF46CEE025503 /* RootView.swift */; };
 		60257FA1FB01CD1D81E45FFA /* AgentsSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6644B5F9FD4D074EC7D5C75E /* AgentsSurface.swift */; };
 		64ECE2518093B8B754483519 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A9756949044BB4C30C7783 /* AppModel.swift */; };
+		741F2DAB4801448A9F10E6A4 /* ScoutIOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = CEBCFCBB87F4295D2AC474DF /* ScoutIOSCore */; };
 		85B694654037EF9C27946559 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 40896C5C3766C4916251E5A6 /* Assets.xcassets */; };
 		9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */; };
 		9BDEC97D48105B41E523268A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A316466B11B7AC47D040624 /* ConnectionView.swift */; };
 		B4ABFE9168E650E489CB69B9 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DFB2A1CDEC721D8EA6132A /* Theme.swift */; };
-		B5906155C97B01F118DD0A6A /* TerminiSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 5C9903116CF457A8149B37E9 /* TerminiSSH */; };
+		B5906155C97B01F118DD0A6A /* HudsonUIKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = 584654D474049D1CBCF23765 /* HudsonUIKeyboard */; };
 		BEAE4D10226EAD1A7F75A3B4 /* CommsSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419862F7904F1963377872F4 /* CommsSurface.swift */; };
 		C1A3DF233AF56A460A20CF66 /* SessionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44820B8B1196840637856BA7 /* SessionSettingsView.swift */; };
-		C32E5DED9C03450E9847BF3E /* ScoutIOSCore in Frameworks */ = {isa = PBXBuildFile; productRef = CEBCFCBB87F4295D2AC474DF /* ScoutIOSCore */; };
+		C32E5DED9C03450E9847BF3E /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = F960FAE5750A226F975A1D4A /* ScoutCapabilities */; };
 		CF3F004E5F669BC339DA7B9F /* Glyphs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224426EC424CB028C59AC70A /* Glyphs.swift */; };
-		D2EFD5F1B42A20E550217EF6 /* HudsonTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 786902EB94C9072D331CC743 /* HudsonTerminal */; };
+		D2EFD5F1B42A20E550217EF6 /* HudsonVoice in Frameworks */ = {isa = PBXBuildFile; productRef = 602DA29274B5DD101F081947 /* HudsonVoice */; };
 		D519634F832221E01877AE42 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 968AD5AEE705455890FF8202 /* PairingView.swift */; };
-		DB8F903E04363889BD812D92 /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = F960FAE5750A226F975A1D4A /* ScoutCapabilities */; };
+		DB8F903E04363889BD812D92 /* TerminiSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 5C9903116CF457A8149B37E9 /* TerminiSSH */; };
 		DE1F33605C41B333D2C5A32E /* TerminalIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3EA06DF3A1A0BCFCD51F73C /* TerminalIdentity.swift */; };
 		E2D01EE306008EF0180E9119 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DED02FFDAD0ED3E523A9B0E /* TerminalSurface.swift */; };
 		EF2AD30B027E43A99EFDE01A /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769BB6D71500EDFD3E91FF5F /* ScoutApp.swift */; };
-		F2FEA97EC4E6AEE631C77A87 /* HudsonUICapture in Frameworks */ = {isa = PBXBuildFile; productRef = 3A3097C0321EC5248EA70115 /* HudsonUICapture */; };
+		F2FEA97EC4E6AEE631C77A87 /* HudsonUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD61C1C8D14331233860CC9F /* HudsonUI */; };
 		F5FAEF989FB9533485D7A3D9 /* ConnectScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6169E474B4A7208F0E38C3 /* ConnectScreen.swift */; };
 /* End PBXBuildFile section */
 
@@ -79,15 +80,16 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4EEE7E3E4129899DC1C8C24C /* HudsonShell in Frameworks */,
-				4AC4AD2ADD8B0788006ECE37 /* HudsonUI in Frameworks */,
-				F2FEA97EC4E6AEE631C77A87 /* HudsonUICapture in Frameworks */,
-				55E167251A256BE2C2D3F59A /* HudsonVoice in Frameworks */,
-				D2EFD5F1B42A20E550217EF6 /* HudsonTerminal in Frameworks */,
-				3CDCD4A615702482C48F67AE /* HudsonUIKeyboard in Frameworks */,
-				B5906155C97B01F118DD0A6A /* TerminiSSH in Frameworks */,
-				DB8F903E04363889BD812D92 /* ScoutCapabilities in Frameworks */,
-				C32E5DED9C03450E9847BF3E /* ScoutIOSCore in Frameworks */,
+				4EEE7E3E4129899DC1C8C24C /* HudsonObservability in Frameworks */,
+				4AC4AD2ADD8B0788006ECE37 /* HudsonShell in Frameworks */,
+				F2FEA97EC4E6AEE631C77A87 /* HudsonUI in Frameworks */,
+				55E167251A256BE2C2D3F59A /* HudsonUICapture in Frameworks */,
+				D2EFD5F1B42A20E550217EF6 /* HudsonVoice in Frameworks */,
+				3CDCD4A615702482C48F67AE /* HudsonTerminal in Frameworks */,
+				B5906155C97B01F118DD0A6A /* HudsonUIKeyboard in Frameworks */,
+				DB8F903E04363889BD812D92 /* TerminiSSH in Frameworks */,
+				C32E5DED9C03450E9847BF3E /* ScoutCapabilities in Frameworks */,
+				741F2DAB4801448A9F10E6A4 /* ScoutIOSCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,6 +173,7 @@
 			);
 			name = Scout;
 			packageProductDependencies = (
+				D43D8044F60C98D1D493961A /* HudsonObservability */,
 				85C0404F44F1316C390D30E2 /* HudsonShell */,
 				CD61C1C8D14331233860CC9F /* HudsonUI */,
 				3A3097C0321EC5248EA70115 /* HudsonUICapture */,
@@ -517,6 +520,10 @@
 		CEBCFCBB87F4295D2AC474DF /* ScoutIOSCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ScoutIOSCore;
+		};
+		D43D8044F60C98D1D493961A /* HudsonObservability */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HudsonObservability;
 		};
 		F960FAE5750A226F975A1D4A /* ScoutCapabilities */ = {
 			isa = XCSwiftPackageProductDependency;

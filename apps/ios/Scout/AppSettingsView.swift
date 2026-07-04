@@ -1,3 +1,4 @@
+import HudsonObservability
 import SwiftUI
 import HudsonUI
 import HudsonVoice
@@ -582,19 +583,6 @@ private struct ConnectionLogViewer: View {
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
                         .foregroundStyle(HudPalette.accent)
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(copiedLogs ? "Copied" : "Copy") { copyConnectionLog() }
-                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.accent)
-                        .disabled(model.connectionLog.entries.isEmpty)
-                    Button("Clear") {
-                        model.connectionLog.clear()
-                        copiedLogs = false
-                    }
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(model.connectionLog.entries.isEmpty ? ScoutInk.dim : HudPalette.statusWarn)
-                    .disabled(model.connectionLog.entries.isEmpty)
-                }
             }
         }
         .preferredColorScheme(.dark)
@@ -616,122 +604,13 @@ private struct ConnectionLogViewer: View {
         .padding(.vertical, HudSpacing.md)
     }
 
-    @ViewBuilder
     private var logBody: some View {
-        if model.connectionLog.entries.isEmpty {
-            HudEmptyState(title: "No connection activity yet", icon: "dot.radiowaves.left.and.right")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(HudSpacing.xxl)
-        } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.connectionLog.entries) { entry in
-                            logRow(entry)
-                                .id(entry.id)
-                        }
-                    }
-                    .padding(.horizontal, HudSpacing.md)
-                    .padding(.vertical, HudSpacing.sm)
-                }
-                .onAppear {
-                    scrollToLatest(proxy, animated: false)
-                }
-                .onChange(of: model.connectionLog.entries.count) {
-                    scrollToLatest(proxy, animated: true)
-                }
-            }
-        }
-    }
-
-    private func scrollToLatest(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard let latest = model.connectionLog.entries.last else { return }
-        if animated {
-            withAnimation(.easeOut(duration: 0.18)) {
-                proxy.scrollTo(latest.id, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(latest.id, anchor: .bottom)
-        }
-    }
-
-    private func logRow(_ entry: ConnectionLogEntry) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xxs) {
-            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-                Text(logTime(entry))
-                    .foregroundStyle(ScoutInk.dim)
-                    .frame(width: 70, alignment: .leading)
-                Text(routeToken(entry.route))
-                    .foregroundStyle(entry.route == nil ? ScoutInk.dim : HudPalette.accent)
-                    .frame(width: 32, alignment: .leading)
-                Text(entry.event.label)
-                    .foregroundStyle(logEventColor(entry))
-                    .frame(width: 82, alignment: .leading)
-                Text(entry.level.rawValue.uppercased())
-                    .foregroundStyle(levelColor(entry.level))
-                    .frame(width: 54, alignment: .leading)
-            }
-            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-
-            Text(entry.message)
-                .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(levelColor(entry.level))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, HudSpacing.sm)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(HudHairline.subtle)
-                .frame(height: HudStrokeWidth.thin)
-        }
-    }
-
-    private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
-        switch entry.event {
-        case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
-        default: break
-        }
-        switch entry.level {
-        case .error: return HudPalette.statusError
-        case .warning: return HudPalette.statusWarn
-        case .success: return HudPalette.accent
-        case .info: return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
-        }
-    }
-
-    private func levelColor(_ level: ConnectionLogLevel) -> Color {
-        switch level {
-        case .info: return ScoutInk.muted
-        case .success: return HudPalette.accent
-        case .warning: return HudPalette.statusWarn
-        case .error: return HudPalette.statusError
-        }
-    }
-
-    private func logTime(_ entry: ConnectionLogEntry) -> String {
-        (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
-            .formatted(.dateTime.hour().minute().second())
-    }
-
-    private func routeToken(_ route: TransportKind?) -> String {
-        guard let route, !route.label.isEmpty else { return "SYS" }
-        return route.label
-    }
-
-    private var connectionLogText: String {
-        model.connectionLog.entries
-            .map { entry in
-                "[\(logTime(entry))] \(routeToken(entry.route)) \(entry.event.label) \(entry.message)"
-            }
-            .joined(separator: "\n")
-    }
-
-    private func copyConnectionLog() {
-        #if canImport(UIKit)
-        UIPasteboard.general.string = connectionLogText
-        copiedLogs = true
-        #endif
+        HudLoggerView(
+            store: .shared,
+            title: "Connection",
+            showHeader: true,
+            emptySubtitle: "Route attempts and pairing events will appear here."
+        )
     }
 }
 

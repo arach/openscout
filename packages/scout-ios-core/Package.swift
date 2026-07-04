@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../scout-native-core"),
+        .package(path: "../../../hudson"),
     ],
     targets: [
         .target(
             name: "ScoutIOSCore",
             dependencies: [
                 .product(name: "ScoutCapabilities", package: "scout-native-core"),
+                .product(name: "HudsonObservability", package: "hudson"),
             ]
         ),
         .testTarget(

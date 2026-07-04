@@ -1,3 +1,4 @@
+import HudsonObservability
 import SwiftUI
 import HudsonUI
 
@@ -9,6 +10,11 @@ import HudsonUI
 struct ScoutApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        HudLoggerSinks.install(HudLogStore.shared)
+        HudLogger(category: "scout-ios").info("Scout iOS booted", metadata: ["state": "ready"])
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -34,6 +34,8 @@ targets:
       - Scout
     dependencies:
       - package: Hudson
+        product: HudsonObservability
+      - package: Hudson
         product: HudsonShell
       - package: Hudson
         product: HudsonUI
