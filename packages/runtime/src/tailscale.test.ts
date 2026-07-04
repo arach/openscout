@@ -12,12 +12,18 @@ import {
   readTailscaleStatusSummary,
   tailscaleStatusProbe,
 } from "./tailscale";
+import { resetScoutdProbeClientForTests } from "./system-probes";
 
 const originalFixturePath = process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
+const originalProbesSocket = process.env.OPENSCOUT_PROBES_SOCKET;
 const tempDirectories = new Set<string>();
 const tailscaleModuleUrl = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), "tailscale.ts")).href;
 
 beforeEach(() => {
+  const directory = mkdtempSync(join(tmpdir(), "openscout-tailscale-probes-disabled-"));
+  tempDirectories.add(directory);
+  process.env.OPENSCOUT_PROBES_SOCKET = join(directory, "missing.sock");
+  resetScoutdProbeClientForTests();
   tailscaleStatusProbe.invalidate("test.reset");
 });
 
@@ -28,6 +34,12 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = originalFixturePath;
   }
+  if (originalProbesSocket === undefined) {
+    delete process.env.OPENSCOUT_PROBES_SOCKET;
+  } else {
+    process.env.OPENSCOUT_PROBES_SOCKET = originalProbesSocket;
+  }
+  resetScoutdProbeClientForTests();
 
   for (const directory of tempDirectories) {
     rmSync(directory, { recursive: true, force: true });

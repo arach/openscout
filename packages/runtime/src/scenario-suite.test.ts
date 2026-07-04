@@ -224,14 +224,7 @@ describe("runtime scenario suite", () => {
           reason: "direct_message",
         })),
       ));
-      expect(sortSummaries(mentionRequestDeliveries.map(deliverySummary))).toEqual(sortSummaries(
-        tasks.map((task, index) => ({
-          messageId: requestMessageIds[index] ?? null,
-          targetId: task.targetAgentId,
-          transport: task.expectedTransport,
-          reason: "mention",
-        })),
-      ));
+      expect(mentionRequestDeliveries).toEqual([]);
 
       for (const [index, task] of tasks.entries()) {
         const delivery = deliveries[index];
@@ -860,7 +853,8 @@ describe("runtime scenario suite", () => {
 
       const response = await scenario.post<{
         ok: boolean;
-        mesh?: { forwarded?: boolean; authorityNodeId?: string };
+        forwarded?: boolean;
+        authorityNodeId?: string;
       }>(remote, "/v1/messages", {
         id: "msg-remote-authority-1",
         conversationId: conversation.id,
@@ -873,7 +867,7 @@ describe("runtime scenario suite", () => {
         createdAt: Date.now(),
       });
       expect(response.ok).toBe(true);
-      expect(response.mesh).toEqual(expect.objectContaining({
+      expect(response).toEqual(expect.objectContaining({
         forwarded: true,
         authorityNodeId: authority.nodeId,
       }));

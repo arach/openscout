@@ -187,6 +187,7 @@ export class RuntimeScenarioHarness {
     env?: Record<string, string | undefined>;
   } = {}): Promise<ScenarioBroker> {
     const controlHome = input.controlHome ?? mkdtempSync(join(tmpdir(), "openscout-runtime-scenario-"));
+    const brokerSocketPath = input.env?.OPENSCOUT_BROKER_SOCKET_PATH ?? join(controlHome, "broker.sock");
     const port = await allocateFreePort();
     const baseUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, port);
     const derivedNodeId = `node-${basename(controlHome).toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`;
@@ -199,6 +200,7 @@ export class RuntimeScenarioHarness {
         OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
         OPENSCOUT_BROKER_PORT: String(port),
         OPENSCOUT_BROKER_URL: baseUrl,
+        OPENSCOUT_BROKER_SOCKET_PATH: brokerSocketPath,
         OPENSCOUT_NODE_ID: derivedNodeId,
         OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
         OPENSCOUT_PARENT_PID: "0",
