@@ -8,6 +8,34 @@ For the definitive Scout vocabulary and A2A posture, see [docs/concepts.md](../.
 
 Scout is aware of adjacent standards such as A2A, but this package is not trying to become an A2A clone. The goal is clean correspondence without giving up Scout-specific mechanics such as broker-owned routing, `invocation` plus `flight`, or the `question` / `work_item` collaboration model.
 
+## Quickstart
+
+`@openscout/protocol` is pure, dependency-free TypeScript: typed records, discriminated-union control events, and hand-written validators for the OpenScout control plane. There is no runtime and no side effects — import the contract and the helpers you need.
+
+```ts
+import {
+  parseScoutComposerRoute,
+  normalizeControlEvent,
+  OPENSCOUT_CONTROL_EVENT_VERSION,
+  validateCollaborationRecord,
+} from "@openscout/protocol";
+
+// Parse Scout's `>>` routing operator out of composer input.
+const { route, body } = parseScoutComposerRoute(">> hudson Review the parser.");
+route?.target; // { kind: "agent_label", label: "hudson", … }
+body;          // "Review the parser."
+
+// Stamp the current envelope version onto a control event before persisting it.
+const event = normalizeControlEvent(rawEvent);
+event.v; // === OPENSCOUT_CONTROL_EVENT_VERSION
+
+// Validate a record — validators return a list of problems; empty means valid.
+const problems = validateCollaborationRecord(record);
+if (problems.length > 0) throw new Error(problems.join("; "));
+```
+
+> `@openscout/protocol` currently ships inside the OpenScout monorepo. The package is built for standalone publication — MIT-licensed, typed `dist` output, `publint`/`attw` clean — and is headed for npm; until it lands there, consume it from the workspace.
+
 ## What Makes This A Good Local Communication Protocol
 
 The target is a protocol that is:
@@ -63,10 +91,13 @@ Acceptance is modeled separately from workflow state so that a reply and satisfa
 not collapse into one transition. A work item can be done without peer acceptance, and a
 question can be answered without being closed yet.
 
-The exported collaboration shapes are a protocol vocabulary for upcoming runtime and UI
-work. They do not yet imply that the broker persists the full collaboration layer today.
-See [docs/agents-and-collaboration.md](../../docs/agents-and-collaboration.md) for the
-full collaboration model.
+These collaboration shapes are backed by the runtime: the broker persists collaboration
+records and events to its local store (`collaboration.upsert` and
+`collaboration.event.append` commands, `collaboration_records` and `collaboration_events`
+tables) and emits `collaboration.upserted` / `collaboration.event.appended` control events.
+The surface layer — UI and higher-level tooling on top of these records — is still being
+built out. See [docs/agents-and-collaboration.md](../../docs/agents-and-collaboration.md)
+for the full collaboration model.
 
 ## Local Commands
 
