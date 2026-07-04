@@ -1,22 +1,48 @@
 {
   "name": "@openscout/protocol",
   "version": "0.2.73",
-  "private": true,
   "description": "Typed protocol for the OpenScout local control plane",
+  "license": "MIT",
   "type": "module",
+  "author": "Arach Tchoupani",
+  "homepage": "https://github.com/arach/openscout/tree/main/packages/protocol#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arach/openscout.git",
+    "directory": "packages/protocol"
+  },
+  "bugs": {
+    "url": "https://github.com/arach/openscout/issues"
+  },
+  "keywords": [
+    "openscout",
+    "protocol",
+    "agents",
+    "broker",
+    "control-plane",
+    "a2a",
+    "typescript"
+  ],
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./src/index.ts",
       "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "files": [
-    "src",
     "dist",
-    "README.md"
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",

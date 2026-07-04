@@ -4,6 +4,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "customConditions": ["bun"],
     "strict": true,
     "skipLibCheck": true,
     "declaration": true,

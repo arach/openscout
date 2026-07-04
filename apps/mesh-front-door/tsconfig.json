@@ -4,6 +4,7 @@
     "lib": ["ES2022", "WebWorker"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "customConditions": ["bun"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
