@@ -1,6 +1,6 @@
 // State tracker — accumulates session state from streaming session events.
 //
-// The embedding runtime feeds every PairingEvent into the tracker.  At any
+// The embedding runtime feeds every AgentSessionStreamEvent into the tracker.  At any
 // point, a client can request a full snapshot (all turns + accumulated block
 // content) to recover state after reconnect.  This is the "pull" complement
 // to the "push" event stream.
@@ -10,7 +10,7 @@
 import type {
   ActionBlock,
   Block,
-  PairingEvent,
+  AgentSessionStreamEvent,
   QuestionBlock,
   Session,
   TextBlock,
@@ -139,7 +139,7 @@ export class StateTracker {
   /** Process one session event and update internal state. */
   trackEvent(
     sessionId: string,
-    event: PairingEvent,
+    event: AgentSessionStreamEvent,
     capturedAt?: number | string | Date,
   ): void {
     const state = this.states.get(sessionId);
@@ -205,7 +205,7 @@ export class StateTracker {
 
   private handleTurnStart(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "turn:start" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "turn:start" }>,
     capturedAt?: number | string | Date,
   ): void {
     const turn: TurnState = {
@@ -222,7 +222,7 @@ export class StateTracker {
 
   private handleTurnEnd(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "turn:end" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "turn:end" }>,
     capturedAt?: number | string | Date,
   ): void {
     const turn = this.findTurn(state, event.turnId);
@@ -255,7 +255,7 @@ export class StateTracker {
 
   private handleTurnError(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "turn:error" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "turn:error" }>,
     capturedAt?: number | string | Date,
   ): void {
     const turn = this.findTurn(state, event.turnId);
@@ -275,7 +275,7 @@ export class StateTracker {
 
   private handleBlockStart(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:start" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:start" }>,
   ): void {
     const turn = this.findTurn(state, event.turnId);
     if (!turn) return;
@@ -290,7 +290,7 @@ export class StateTracker {
 
   private handleBlockTextDelta(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:delta" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:delta" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;
@@ -307,7 +307,7 @@ export class StateTracker {
 
   private handleBlockActionOutput(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:action:output" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:action:output" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;
@@ -320,7 +320,7 @@ export class StateTracker {
 
   private handleBlockActionStatus(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:action:status" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:action:status" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;
@@ -333,7 +333,7 @@ export class StateTracker {
 
   private handleBlockActionApproval(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:action:approval" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:action:approval" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;
@@ -347,7 +347,7 @@ export class StateTracker {
 
   private handleBlockQuestionAnswer(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:question:answer" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:question:answer" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;
@@ -362,7 +362,7 @@ export class StateTracker {
 
   private handleBlockEnd(
     state: SessionState,
-    event: Extract<PairingEvent, { event: "block:end" }>,
+    event: Extract<AgentSessionStreamEvent, { event: "block:end" }>,
   ): void {
     const blockState = this.findBlock(state, event.turnId, event.blockId);
     if (!blockState) return;

@@ -3,7 +3,7 @@ import type {
   Adapter,
   AdapterConfig,
   AdapterFactory,
-  PairingEvent,
+  AgentSessionStreamEvent,
   Prompt,
   QuestionAnswer,
   Session,
@@ -78,7 +78,7 @@ export class SessionRegistry {
       this.broadcast(sessionId, event);
     });
     adapter.on("error", (error) => {
-      const errorEvent: PairingEvent = {
+      const errorEvent: AgentSessionStreamEvent = {
         event: "session:update",
         session: { ...adapter.session, status: "error" },
       };
@@ -161,7 +161,7 @@ export class SessionRegistry {
     await adapter.shutdown();
     this.sessions.delete(sessionId);
 
-    const closedEvent: PairingEvent = { event: "session:closed", sessionId };
+    const closedEvent: AgentSessionStreamEvent = { event: "session:closed", sessionId };
     this.stateTracker.trackEvent(sessionId, closedEvent);
     this.broadcast(sessionId, closedEvent);
     this.stateTracker.removeSession(sessionId);
@@ -202,7 +202,7 @@ export class SessionRegistry {
     return this.buffers.get(sessionId)?.oldestSeq() ?? 0;
   }
 
-  private broadcast(sessionId: string, event: PairingEvent): void {
+  private broadcast(sessionId: string, event: AgentSessionStreamEvent): void {
     const seq = this.ensureBuffer(sessionId).push(event);
     const sequenced: SequencedEvent = {
       seq,

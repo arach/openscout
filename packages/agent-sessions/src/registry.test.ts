@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Adapter, AdapterConfig, PairingEvent } from "./protocol/index.ts";
+import type { Adapter, AdapterConfig, AgentSessionStreamEvent } from "./protocol/index.ts";
 import { SessionRegistry } from "./registry.ts";
 
 class TestApprovalAdapter implements Adapter {
   readonly type = "test";
   readonly session;
 
-  private eventListeners = new Set<(event: PairingEvent) => void>();
+  private eventListeners = new Set<(event: AgentSessionStreamEvent) => void>();
   private errorListeners = new Set<(error: Error) => void>();
   readonly decisions: Array<{
     turnId: string;
@@ -46,25 +46,25 @@ class TestApprovalAdapter implements Adapter {
     this.decisions.push({ turnId, blockId, decision, reason });
   }
 
-  on(event: "event" | "error", listener: ((event: PairingEvent) => void) | ((error: Error) => void)): void {
+  on(event: "event" | "error", listener: ((event: AgentSessionStreamEvent) => void) | ((error: Error) => void)): void {
     if (event === "event") {
-      this.eventListeners.add(listener as (event: PairingEvent) => void);
+      this.eventListeners.add(listener as (event: AgentSessionStreamEvent) => void);
       return;
     }
 
     this.errorListeners.add(listener as (error: Error) => void);
   }
 
-  off(event: "event" | "error", listener: ((event: PairingEvent) => void) | ((error: Error) => void)): void {
+  off(event: "event" | "error", listener: ((event: AgentSessionStreamEvent) => void) | ((error: Error) => void)): void {
     if (event === "event") {
-      this.eventListeners.delete(listener as (event: PairingEvent) => void);
+      this.eventListeners.delete(listener as (event: AgentSessionStreamEvent) => void);
       return;
     }
 
     this.errorListeners.delete(listener as (error: Error) => void);
   }
 
-  emit(event: PairingEvent): void {
+  emit(event: AgentSessionStreamEvent): void {
     for (const listener of this.eventListeners) {
       listener(event);
     }

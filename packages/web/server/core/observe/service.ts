@@ -9,7 +9,7 @@ import {
   type ObservedHarnessTopology,
   type Block,
   type HistorySessionEvent,
-  type PairingEvent,
+  type AgentSessionStreamEvent,
   type SessionState,
 } from "@openscout/agent-sessions";
 import {
@@ -144,7 +144,7 @@ export interface AgentObservePayload {
 
 type TimestampedPairingEvent = {
   timestamp: number;
-  event: PairingEvent;
+  event: AgentSessionStreamEvent;
 };
 
 type ObserveBrokerContext = Awaited<ReturnType<typeof loadScoutBrokerContext>>;

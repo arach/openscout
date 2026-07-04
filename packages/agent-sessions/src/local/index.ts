@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createAdapter as createGrokAcpAdapter } from "../adapters/grok-acp/index.js";
 import { createAdapter as createPiAdapter } from "../adapters/pi/index.js";
 import type { SequencedEvent } from "../buffer.js";
-import type { AdapterFactory, PairingEvent, Session } from "../protocol/index.js";
+import type { AdapterFactory, AgentSessionStreamEvent, Session } from "../protocol/index.js";
 import { SessionRegistry } from "../registry.js";
 import type { SessionState, TurnState } from "../state.js";
 import {
@@ -241,11 +241,11 @@ function textForTurn(options: {
   ].join("\n");
 }
 
-function eventSessionId(event: PairingEvent): string | undefined {
+function eventSessionId(event: AgentSessionStreamEvent): string | undefined {
   return "sessionId" in event && typeof event.sessionId === "string" ? event.sessionId : undefined;
 }
 
-function terminalTurnEvent(event: PairingEvent, sessionId: string): {
+function terminalTurnEvent(event: AgentSessionStreamEvent, sessionId: string): {
   kind: "resolved" | "rejected";
   turnId?: string;
   message?: string;

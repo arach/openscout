@@ -390,10 +390,10 @@ export type SessionEvent =
   | { event: "session:closed"; sessionId: string };
 
 // ---------------------------------------------------------------------------
-// PairingEvent — the wire union of all session messages
+// AgentSessionStreamEvent — the wire union of all session messages
 // ---------------------------------------------------------------------------
 
-export type PairingEvent = Delta | TurnEvent | SessionEvent;
+export type AgentSessionStreamEvent = Delta | TurnEvent | SessionEvent;
 
 // ---------------------------------------------------------------------------
 // Prompt — user input going into a session

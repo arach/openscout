@@ -5,7 +5,7 @@
 // last-seen seq and the embedding runtime replays everything after that point.
 // This gives us seamless reconnection without persistence.
 
-import type { PairingEvent } from "./protocol/index.js";
+import type { AgentSessionStreamEvent } from "./protocol/index.js";
 
 // ---------------------------------------------------------------------------
 // Sequenced event — a session event annotated with ordering metadata
@@ -15,7 +15,7 @@ export interface SequencedEvent {
   /** Monotonic sequence number (starts at 1, never resets). */
   seq: number;
   /** The original session event. */
-  event: PairingEvent;
+  event: AgentSessionStreamEvent;
   /** Unix epoch milliseconds when the event was buffered. */
   timestamp: number;
 }
@@ -52,7 +52,7 @@ export class OutboundBuffer {
    *
    * @returns The assigned sequence number.
    */
-  push(event: PairingEvent): number {
+  push(event: AgentSessionStreamEvent): number {
     const seq = this.nextSeq++;
     const entry: SequencedEvent = {
       seq,

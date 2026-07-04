@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import { OutboundBuffer } from "./buffer.ts";
-import type { PairingEvent } from "./protocol/index.ts";
+import type { AgentSessionStreamEvent } from "./protocol/index.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Minimal valid PairingEvent for testing purposes. */
-function makeEvent(id: number): PairingEvent {
+/** Minimal valid AgentSessionStreamEvent for testing purposes. */
+function makeEvent(id: number): AgentSessionStreamEvent {
   return {
     event: "session:closed",
     sessionId: `session-${id}`,
