@@ -13,6 +13,8 @@ export type TmuxSessionInfo = {
   windows: number;
   attached: number;
   createdAt: number | null;
+  currentCommand: string | null;
+  currentPath: string | null;
 };
 
 export type ZellijSessionInfo = {
@@ -50,6 +52,17 @@ type TmuxPaneProbeKey =
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function cleanOptionalString(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function splitDelimitedLine(line: string, delimiter: "|" | "\t", fieldCount: number): string[] {
+  const parts = line.split(delimiter);
+  if (parts.length <= fieldCount) return parts;
+  return [...parts.slice(0, fieldCount - 1), parts.slice(fieldCount - 1).join(delimiter)];
 }
 
 function parseProcessNumber(value: string | undefined): number | null {
@@ -98,13 +111,17 @@ export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, windows, attached, createdAt] = line.includes("|") ? line.split("|") : line.split("\t");
+      const [name, windows, attached, createdAt, currentCommand, currentPath] = line.includes("|")
+        ? splitDelimitedLine(line, "|", 6)
+        : splitDelimitedLine(line, "\t", 6);
       if (!name) return null;
       return {
         name,
         windows: parsePositiveInteger(windows, 1),
         attached: parsePositiveInteger(attached, 0),
         createdAt: createdAt ? Number.parseInt(createdAt, 10) || null : null,
+        currentCommand: cleanOptionalString(currentCommand),
+        currentPath: cleanOptionalString(currentPath),
       };
     })
     .filter((session): session is TmuxSessionInfo => Boolean(session));
@@ -145,7 +162,7 @@ export const tmuxSessionsProbe = defineProbeFamily<string | { env?: NodeJS.Proce
         ...tmuxSocketArgs(key),
         "list-sessions",
         "-F",
-        "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}",
+        "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
       ], {
         maxStdoutBytes: 512 * 1024,
         maxStderrBytes: 64 * 1024,

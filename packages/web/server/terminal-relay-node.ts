@@ -14,6 +14,7 @@ import {
   send,
   sessionOwnsSocket,
   sessions,
+  verifyReconnectToken,
   writeSession,
 } from "./terminal-relay-session.ts";
 import type {
@@ -440,7 +441,7 @@ wss.on("connection", (ws: any) => {
         }
         relaySocket.bindSession(session);
         sessionId = session.id;
-        send(ws, { type: "session:ready", sessionId: session.id });
+        send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
         if (pending) {
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
         }
@@ -469,12 +470,17 @@ wss.on("connection", (ws: any) => {
           }
           relaySocket.bindSession(session);
           sessionId = session.id;
-          send(ws, { type: "session:ready", sessionId: session.id });
+          send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
           break;
         }
         const existing = sessions.get(msg.sessionId);
-        if (existing && !existing.exited) {
+        const requestedControlMode = msg.controlMode || "owner";
+        const canReconnect = existing
+          && !existing.exited
+          && existing.controlMode === requestedControlMode
+          && verifyReconnectToken(existing, msg.reconnectToken);
+        if (canReconnect) {
           if (sessionId && sessionId !== msg.sessionId) {
             const previous = sessions.get(sessionId);
             if (previous && sessionOwnsSocket(previous, relaySocket)) {
@@ -490,6 +496,7 @@ wss.on("connection", (ws: any) => {
           send(ws, {
             type: "session:ready",
             sessionId: existing.id,
+            reconnectToken: existing.reconnectToken,
             reconnected: true,
           });
           if (pending) {

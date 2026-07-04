@@ -15,6 +15,11 @@
       "bun": "./src/client.ts",
       "default": "./dist/client.js"
     },
+    "./local": {
+      "types": "./src/local/index.ts",
+      "bun": "./src/local/index.ts",
+      "default": "./dist/local/index.js"
+    },
     "./adapters/acp": {
       "types": "./src/adapters/acp/index.ts",
       "bun": "./src/adapters/acp/index.ts",

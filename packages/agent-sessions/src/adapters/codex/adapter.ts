@@ -1,10 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
-import { buildScoutMcpCodexLaunchArgs } from "../../codex-launch-config.js";
-import { resolveCodexExecutable } from "../../codex-executable.js";
+import {
+  CodexAppServerTransport,
+  type CodexAppServerNotification,
+  type CodexAppServerSessionOptions,
+} from "../../local/transports/codex-app-server.js";
 import { BaseAdapter } from "../../protocol/adapter.js";
 import type { AdapterConfig } from "../../protocol/adapter.js";
 import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../../protocol/primitives.js";
@@ -18,58 +19,12 @@ import type {
   Turn,
   TurnStatus,
 } from "../../protocol/primitives.js";
-import { projectCodexAssistantStreamText, projectCodexAssistantText, type CodexHostMetadata } from "./host-metadata.js";
+import {
+  projectCodexAssistantStreamText,
+  projectCodexAssistantText,
+  type CodexHostMetadata,
+} from "./host-metadata.js";
 import { CodexObservedTopologyTracker } from "./topology.js";
-
-type CodexRequest = {
-  id: string | number;
-  method: string;
-  params?: unknown;
-};
-
-type CodexResponse = {
-  id: string | number;
-  result?: unknown;
-  error?: {
-    message?: string;
-    code?: string | number;
-    data?: unknown;
-  };
-};
-
-type CodexNotification = {
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type CodexServerRequest = {
-  id: string | number;
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type CodexErrorResponse = {
-  code: number;
-  message: string;
-  data?: unknown;
-};
-
-type ThreadStartResult = {
-  thread: {
-    id: string;
-    path?: string | null;
-    cwd?: string | null;
-    name?: string | null;
-  };
-};
-
-type ThreadResumeResult = ThreadStartResult;
-
-type TurnStartResult = {
-  turn: {
-    id: string;
-  };
-};
 
 type TurnCompletedParams = {
   threadId?: string;
@@ -83,28 +38,9 @@ type TurnCompletedParams = {
   };
 };
 
-type CodexSessionOptions = {
-  agentName: string;
-  sessionId: string;
-  cwd: string;
-  systemPrompt: string;
-  runtimeDirectory: string;
-  logsDirectory: string;
-  launchArgs: string[];
-  approvalPolicy?: "untrusted" | "on-request" | "on-failure" | "never";
-  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
-  threadId?: string;
-  requireExistingThread?: boolean;
-};
-
 type ActiveTurnState = {
   turn: Turn;
   blocksByItemId: Map<string, Block>;
-};
-
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
 };
 
 type AgentMessageStreamState = {
@@ -112,75 +48,12 @@ type AgentMessageStreamState = {
   emittedText: string;
 };
 
-function parseJsonLine(line: string): CodexResponse | CodexNotification | CodexServerRequest | null {
-  try {
-    return JSON.parse(line) as CodexResponse | CodexNotification | CodexServerRequest;
-  } catch {
-    return null;
-  }
-}
-
-function buildUnsupportedServerRequestError(message: CodexServerRequest): CodexErrorResponse {
-  if (message.method === "item/tool/call") {
-    const tool = typeof message.params?.tool === "string" ? message.params.tool : null;
-    const toolLabel = tool ? `dynamic tool call \`${tool}\`` : "dynamic tool call";
-    return {
-      code: -32000,
-      message: `${toolLabel} is not supported by openscout-runtime`,
-    };
-  }
-
-  return {
-    code: -32000,
-    message: `Unsupported server request: ${message.method}`,
-  };
-}
-
-function isResponse(message: unknown): message is CodexResponse {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "id" in message
-    && ("result" in message || "error" in message),
-  );
-}
-
-function isServerRequest(message: unknown): message is CodexServerRequest {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "id" in message
-    && "method" in message
-    && !("result" in message)
-    && !("error" in message),
-  );
-}
-
-function isNotification(message: unknown): message is CodexNotification {
-  return Boolean(
-    message
-    && typeof message === "object"
-    && "method" in message
-    && !("id" in message),
-  );
-}
-
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
 
   return String(error);
-}
-
-async function readOptionalFile(filePath: string): Promise<string | null> {
-  try {
-    const raw = await readFile(filePath, "utf8");
-    const trimmed = raw.trim();
-    return trimmed || null;
-  } catch {
-    return null;
-  }
 }
 
 function stringifyValue(value: unknown): string {
@@ -275,10 +148,6 @@ function renderActionOutput(item: Record<string, unknown>): string {
   return stringifyValue(item);
 }
 
-function isMissingCodexRolloutError(error: unknown): boolean {
-  return errorMessage(error).toLowerCase().includes("no rollout found for thread id");
-}
-
 function threadStatusToSessionStatus(status: string | undefined): SessionStatus {
   switch (status) {
     case "active":
@@ -295,10 +164,9 @@ function threadStatusToSessionStatus(status: string | undefined): SessionStatus 
 export class CodexAdapter extends BaseAdapter {
   readonly type = "codex";
 
-  private process: ChildProcessWithoutNullStreams | null = null;
-  private lineBuffer = "";
-  private nextRequestId = 1;
-  private readonly pendingRequests = new Map<string | number, PendingRequest>();
+  private transport: CodexAppServerTransport | null = null;
+  private removeTransportNotificationListener: (() => void) | null = null;
+  private removeTransportErrorListener: (() => void) | null = null;
   private serialized = Promise.resolve();
   private starting: Promise<void> | null = null;
 
@@ -327,32 +195,17 @@ export class CodexAdapter extends BaseAdapter {
     void this.enqueue(async () => {
       try {
         await this.ensureStarted();
-        if (!this.currentThreadId) {
+        const transport = this.requireTransport();
+        if (!transport.currentThreadId) {
           throw new Error(`Codex adapter for ${this.session.name} has no active thread.`);
         }
 
-        const input = [
-          {
-            type: "text",
-            text: prompt.text,
-            text_elements: [],
-          },
-        ];
-
         if (this.currentTurnState?.turn.id) {
-          await this.request("turn/steer", {
-            threadId: this.currentThreadId,
-            expectedTurnId: this.currentTurnState.turn.id,
-            input,
-          });
+          await transport.steerTurn(prompt.text, this.currentTurnState.turn.id);
           return;
         }
 
-        await this.request<TurnStartResult>("turn/start", {
-          threadId: this.currentThreadId,
-          cwd: this.codexOptions.cwd,
-          input,
-        });
+        await transport.startTurn(prompt.text);
       } catch (error) {
         this.emit("error", error instanceof Error ? error : new Error(errorMessage(error)));
       }
@@ -363,14 +216,12 @@ export class CodexAdapter extends BaseAdapter {
     void this.enqueue(async () => {
       try {
         await this.ensureStarted();
-        if (!this.currentThreadId || !this.currentTurnState?.turn.id) {
+        const transport = this.requireTransport();
+        if (!transport.currentThreadId || !this.currentTurnState?.turn.id) {
           return;
         }
 
-        await this.request("turn/interrupt", {
-          threadId: this.currentThreadId,
-          turnId: this.currentTurnState.turn.id,
-        });
+        await transport.interruptTurn(this.currentTurnState.turn.id);
       } catch (error) {
         this.emit("error", error instanceof Error ? error : new Error(errorMessage(error)));
       }
@@ -378,10 +229,13 @@ export class CodexAdapter extends BaseAdapter {
   }
 
   async shutdown(): Promise<void> {
-    const child = this.process;
-    this.process = null;
+    const transport = this.transport;
+    this.transport = null;
     this.starting = null;
-    this.lineBuffer = "";
+    this.removeTransportNotificationListener?.();
+    this.removeTransportNotificationListener = null;
+    this.removeTransportErrorListener?.();
+    this.removeTransportErrorListener = null;
 
     const turnState = this.currentTurnState;
     this.currentTurnState = null;
@@ -390,24 +244,14 @@ export class CodexAdapter extends BaseAdapter {
       this.finishTurn(turnState, "stopped");
     }
 
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(new Error(`Codex adapter for ${this.session.name} was shut down.`));
-    }
-    this.pendingRequests.clear();
-
-    if (child && child.exitCode === null && !child.killed) {
-      child.kill("SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      if (child.exitCode === null && !child.killed) {
-        child.kill("SIGKILL");
-      }
+    if (transport) {
+      await transport.shutdown({ reason: `Codex adapter for ${this.session.name} was shut down` });
     }
 
     this.setStatus("closed");
-    await this.persistState();
   }
 
-  private get codexOptions(): CodexSessionOptions {
+  private get codexOptions(): CodexAppServerSessionOptions {
     const runtimeRoot = join(homedir(), ".scout/pairing", "codex", this.session.id);
     const configuredThreadId = this.config.options?.["threadId"] as string | undefined;
     const requireExistingThread = this.config.options?.["requireExistingThread"] as boolean | undefined;
@@ -415,6 +259,8 @@ export class CodexAdapter extends BaseAdapter {
     const launchArgs = Array.isArray(rawLaunchArgs)
       ? rawLaunchArgs.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
       : [];
+    const approvalPolicy = this.config.options?.["approvalPolicy"];
+    const sandbox = this.config.options?.["sandbox"];
 
     return {
       agentName: this.session.name,
@@ -423,11 +269,23 @@ export class CodexAdapter extends BaseAdapter {
       systemPrompt: this.systemPrompt,
       runtimeDirectory: join(runtimeRoot, "runtime"),
       logsDirectory: join(runtimeRoot, "logs"),
+      env: this.config.env,
       launchArgs,
       threadId: typeof configuredThreadId === "string" && configuredThreadId.trim().length > 0
         ? configuredThreadId.trim()
         : undefined,
       requireExistingThread: requireExistingThread ?? Boolean(configuredThreadId),
+      approvalPolicy: approvalPolicy === "untrusted" || approvalPolicy === "on-request" || approvalPolicy === "on-failure" || approvalPolicy === "never"
+        ? approvalPolicy
+        : undefined,
+      sandbox: sandbox === "read-only" || sandbox === "workspace-write" || sandbox === "danger-full-access"
+        ? sandbox
+        : undefined,
+      clientInfo: {
+        name: "openscout-pairing",
+        title: "OpenScout Pairing",
+        version: "0.0.0",
+      },
     };
   }
 
@@ -438,20 +296,12 @@ export class CodexAdapter extends BaseAdapter {
       : "You are a helpful agent working through Pairing.";
   }
 
-  private get threadIdPath(): string {
-    return join(this.codexOptions.runtimeDirectory, "codex-thread-id.txt");
-  }
-
-  private get statePath(): string {
-    return join(this.codexOptions.runtimeDirectory, "state.json");
-  }
-
   private get stdoutLogPath(): string {
-    return join(this.codexOptions.logsDirectory, "stdout.log");
+    return this.transport?.stdoutLogFile ?? join(this.codexOptions.logsDirectory, "stdout.log");
   }
 
   private get stderrLogPath(): string {
-    return join(this.codexOptions.logsDirectory, "stderr.log");
+    return this.transport?.stderrLogFile ?? join(this.codexOptions.logsDirectory, "stderr.log");
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -460,8 +310,15 @@ export class CodexAdapter extends BaseAdapter {
     return next;
   }
 
+  private requireTransport(): CodexAppServerTransport {
+    if (!this.transport) {
+      throw new Error(`Codex app-server for ${this.session.name} is not running.`);
+    }
+    return this.transport;
+  }
+
   private async ensureStarted(): Promise<void> {
-    if (this.process && !this.process.killed && this.process.exitCode === null && this.currentThreadId) {
+    if (this.transport?.isAlive() && this.transport.currentThreadId) {
       return;
     }
 
@@ -479,191 +336,25 @@ export class CodexAdapter extends BaseAdapter {
 
   private async startSession(): Promise<void> {
     const options = this.codexOptions;
-    await mkdir(options.runtimeDirectory, { recursive: true });
-    await mkdir(options.logsDirectory, { recursive: true });
-    await writeFile(join(options.runtimeDirectory, "prompt.txt"), options.systemPrompt);
+    this.removeTransportNotificationListener?.();
+    this.removeTransportErrorListener?.();
+    const transport = new CodexAppServerTransport(options);
+    this.transport = transport;
+    this.removeTransportNotificationListener = transport.onNotification((message) => this.handleNotification(message));
+    this.removeTransportErrorListener = transport.onError((error) => this.failSession(error));
 
-    const codexExecutable = resolveCodexExecutable();
-    const childEnv = {
-      ...process.env,
-      ...(this.config.env ?? {}),
-    };
-    const child = spawn(codexExecutable, [
-      "app-server",
-      ...buildScoutMcpCodexLaunchArgs({
-        currentDirectory: options.cwd,
-        env: childEnv,
-      }),
-      ...options.launchArgs,
-    ], {
-      cwd: options.cwd,
-      env: childEnv,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    this.process = child;
-    this.lineBuffer = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-
-    child.stdout.on("data", (chunk: string) => {
-      void appendFile(this.stdoutLogPath, chunk).catch(() => undefined);
-      this.handleStdoutChunk(chunk);
-    });
-    child.stderr.on("data", (chunk: string) => {
-      void appendFile(this.stderrLogPath, chunk).catch(() => undefined);
-    });
-    child.once("error", (error) => {
-      this.failSession(new Error(`Codex app-server failed for ${this.session.name}: ${errorMessage(error)}`));
-    });
-    child.once("exit", (code, signal) => {
-      if (this.session.status === "closed") {
-        return;
-      }
-      this.failSession(
-        new Error(
-          `Codex app-server exited for ${this.session.name}`
-          + (code !== null ? ` with code ${code}` : "")
-          + (signal ? ` (${signal})` : ""),
-        ),
-      );
-    });
-
-    await this.request("initialize", {
-      clientInfo: {
-        name: "openscout-pairing",
-        title: "OpenScout Pairing",
-        version: "0.0.0",
-      },
-      capabilities: {
-        experimentalApi: true,
-      },
-    });
-    this.notify("initialized");
-
-    await this.resumeOrStartThread();
+    await transport.ensureOnline();
+    if (transport.currentThreadId || transport.currentThreadPath) {
+      this.updateSessionFromThread({
+        ...(transport.currentThreadId ? { id: transport.currentThreadId } : {}),
+        ...(transport.currentThreadPath ? { path: transport.currentThreadPath } : {}),
+        cwd: options.cwd,
+      });
+    }
     this.setStatus("idle");
-    await this.persistState();
   }
 
-  private async resumeOrStartThread(): Promise<void> {
-    const options = this.codexOptions;
-    const requestedThreadId = options.threadId?.trim() || null;
-    const storedThreadId = requestedThreadId ?? await readOptionalFile(this.threadIdPath);
-
-    if (storedThreadId) {
-      try {
-        const resumed = await this.request<ThreadResumeResult>("thread/resume", {
-          threadId: storedThreadId,
-          cwd: options.cwd,
-          approvalPolicy: options.approvalPolicy ?? "never",
-          sandbox: options.sandbox ?? "danger-full-access",
-          baseInstructions: options.systemPrompt,
-          persistExtendedHistory: true,
-        });
-        this.currentThreadId = resumed.thread.id;
-        this.currentThreadPath = resumed.thread.path ?? null;
-        this.updateSessionFromThread(resumed.thread);
-        await this.persistThreadId();
-        return;
-      } catch (error) {
-        await appendFile(
-          this.stderrLogPath,
-          `[openscout] failed to resume stored Codex thread ${storedThreadId}: ${errorMessage(error)}\n`,
-        ).catch(() => undefined);
-
-        if (!requestedThreadId && isMissingCodexRolloutError(error)) {
-          await rm(this.threadIdPath, { force: true }).catch(() => undefined);
-        }
-
-        if (requestedThreadId || options.requireExistingThread) {
-          throw new Error(`Failed to resume requested Codex thread ${storedThreadId}: ${errorMessage(error)}`);
-        }
-      }
-    }
-
-    if (options.requireExistingThread) {
-      const detail = requestedThreadId
-        ? ` for requested thread ${requestedThreadId}`
-        : "";
-      throw new Error(`Codex adapter for ${this.session.name} requires an existing thread${detail}.`);
-    }
-
-    const started = await this.request<ThreadStartResult>("thread/start", {
-      cwd: options.cwd,
-      approvalPolicy: options.approvalPolicy ?? "never",
-      sandbox: options.sandbox ?? "danger-full-access",
-      baseInstructions: options.systemPrompt,
-      ephemeral: false,
-      experimentalRawEvents: false,
-      persistExtendedHistory: true,
-    });
-    this.currentThreadId = started.thread.id;
-    this.currentThreadPath = started.thread.path ?? null;
-    this.updateSessionFromThread(started.thread);
-    await this.persistThreadId();
-  }
-
-  private handleStdoutChunk(chunk: string): void {
-    this.lineBuffer += chunk;
-    while (true) {
-      const newlineIndex = this.lineBuffer.indexOf("\n");
-      if (newlineIndex === -1) {
-        break;
-      }
-
-      const line = this.lineBuffer.slice(0, newlineIndex).trim();
-      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
-      if (!line) {
-        continue;
-      }
-
-      const message = parseJsonLine(line);
-      if (!message) {
-        void appendFile(this.stderrLogPath, `[openscout] unparsable app-server output: ${line}\n`).catch(() => undefined);
-        continue;
-      }
-
-      if (isResponse(message)) {
-        this.handleResponse(message);
-        continue;
-      }
-
-      if (isServerRequest(message)) {
-        this.handleServerRequest(message);
-        continue;
-      }
-
-      if (isNotification(message)) {
-        this.handleNotification(message);
-      }
-    }
-  }
-
-  private handleResponse(message: CodexResponse): void {
-    const pending = this.pendingRequests.get(message.id);
-    if (!pending) {
-      return;
-    }
-
-    this.pendingRequests.delete(message.id);
-    if (message.error) {
-      pending.reject(new Error(message.error.message || `Codex app-server request failed: ${String(message.id)}`));
-      return;
-    }
-
-    pending.resolve(message.result);
-  }
-
-  private handleServerRequest(message: CodexServerRequest): void {
-    this.writeMessage({
-      id: message.id,
-      error: buildUnsupportedServerRequestError(message),
-    });
-  }
-
-  private handleNotification(message: CodexNotification): void {
+  private handleNotification(message: CodexAppServerNotification): void {
     const params = message.params ?? {};
     const turnId = typeof params.turnId === "string" ? params.turnId : null;
 
@@ -673,7 +364,6 @@ export class CodexAdapter extends BaseAdapter {
         const thread = params.thread as Record<string, unknown> | undefined;
         if (thread) {
           this.updateSessionFromThread(thread);
-          void this.persistThreadId();
         }
         return;
       }
@@ -1385,12 +1075,6 @@ export class CodexAdapter extends BaseAdapter {
   }
 
   private failSession(error: Error): void {
-    if (this.process) {
-      this.process.removeAllListeners();
-      this.process.stdout.removeAllListeners();
-      this.process.stderr.removeAllListeners();
-    }
-    this.process = null;
     this.starting = null;
 
     const turnState = this.currentTurnState;
@@ -1401,79 +1085,8 @@ export class CodexAdapter extends BaseAdapter {
       this.finishTurn(turnState, "failed");
     }
 
-    for (const pending of this.pendingRequests.values()) {
-      pending.reject(error);
-    }
-    this.pendingRequests.clear();
-
     this.emit("error", error);
     this.setStatus("error");
-    void appendFile(this.stderrLogPath, `[openscout] ${error.message}\n`).catch(() => undefined);
-    void this.persistState();
-  }
-
-  private async persistThreadId(): Promise<void> {
-    if (!this.currentThreadId) {
-      await rm(this.threadIdPath, { force: true });
-      return;
-    }
-
-    await writeFile(this.threadIdPath, `${this.currentThreadId}\n`);
-    await this.persistState();
-  }
-
-  private async persistState(): Promise<void> {
-    const options = this.codexOptions;
-    await writeFile(
-      this.statePath,
-      JSON.stringify({
-        agentId: options.agentName,
-        transport: "codex_app_server",
-        sessionId: options.sessionId,
-        projectRoot: options.cwd,
-        cwd: options.cwd,
-        threadId: this.currentThreadId,
-        threadPath: this.currentThreadPath,
-        requestedThreadId: options.threadId ?? null,
-        requireExistingThread: options.requireExistingThread === true,
-        pid: this.process?.pid ?? null,
-        stdoutLogFile: this.stdoutLogPath,
-        stderrLogFile: this.stderrLogPath,
-        updatedAt: new Date().toISOString(),
-      }, null, 2) + "\n",
-    );
-  }
-
-  private async request<T>(method: string, params: unknown): Promise<T> {
-    const id = String(this.nextRequestId++);
-
-    return new Promise<T>((resolve, reject) => {
-      this.pendingRequests.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-      });
-
-      try {
-        const request: CodexRequest = { id, method, params };
-        this.writeMessage(request);
-      } catch (error) {
-        this.pendingRequests.delete(id);
-        reject(error instanceof Error ? error : new Error(errorMessage(error)));
-      }
-    });
-  }
-
-  private notify(method: string, params?: unknown): void {
-    this.writeMessage(params === undefined ? { method } : { method, params });
-  }
-
-  private writeMessage(message: Record<string, unknown>): void {
-    const child = this.process;
-    if (!child || child.killed || child.exitCode !== null) {
-      throw new Error(`Codex app-server for ${this.session.name} is not running.`);
-    }
-
-    child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 }
 
