@@ -8,7 +8,7 @@
 // speaks primitives.
 
 import type {
-  PairingEvent,
+  AgentSessionStreamEvent,
   Prompt,
   QuestionAnswer,
   Session,
@@ -82,10 +82,10 @@ export interface Adapter {
 
   // -- Event emitter surface ------------------------------------------------
 
-  on(event: "event", listener: (e: PairingEvent) => void): void;
+  on(event: "event", listener: (e: AgentSessionStreamEvent) => void): void;
   on(event: "error", listener: (e: Error) => void): void;
 
-  off(event: "event", listener: (e: PairingEvent) => void): void;
+  off(event: "event", listener: (e: AgentSessionStreamEvent) => void): void;
   off(event: "error", listener: (e: Error) => void): void;
 }
 
@@ -112,7 +112,7 @@ export abstract class BaseAdapter implements Adapter {
 
   readonly session: Session;
 
-  private eventListeners = new Set<(e: PairingEvent) => void>();
+  private eventListeners = new Set<(e: AgentSessionStreamEvent) => void>();
   private errorListeners = new Set<(e: Error) => void>();
 
   constructor(protected config: AdapterConfig) {
@@ -130,14 +130,14 @@ export abstract class BaseAdapter implements Adapter {
   abstract interrupt(): void;
   abstract shutdown(): Promise<void>;
 
-  on(event: "event", listener: (e: PairingEvent) => void): void;
+  on(event: "event", listener: (e: AgentSessionStreamEvent) => void): void;
   on(event: "error", listener: (e: Error) => void): void;
   on(event: string, listener: (...args: any[]) => void): void {
     if (event === "event") this.eventListeners.add(listener);
     else if (event === "error") this.errorListeners.add(listener);
   }
 
-  off(event: "event", listener: (e: PairingEvent) => void): void;
+  off(event: "event", listener: (e: AgentSessionStreamEvent) => void): void;
   off(event: "error", listener: (e: Error) => void): void;
   off(event: string, listener: (...args: any[]) => void): void {
     if (event === "event") this.eventListeners.delete(listener);
@@ -145,7 +145,7 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /** Emit a session event. */
-  protected emit(event: "event", payload: PairingEvent): void;
+  protected emit(event: "event", payload: AgentSessionStreamEvent): void;
   protected emit(event: "error", payload: Error): void;
   protected emit(event: string, payload: any): void {
     if (event === "event") {

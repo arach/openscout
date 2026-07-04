@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import {
   OBSERVED_HARNESS_TOPOLOGY_META_KEY,
-  type PairingEvent,
+  type AgentSessionStreamEvent,
 } from "../../protocol/primitives.ts";
 import { createAdapter } from "./adapter.ts";
 
@@ -46,18 +46,18 @@ function writeFakeClaudeExecutable(baseDirectory: string, body: string): string 
 }
 
 function createEventCollector() {
-  const events: PairingEvent[] = [];
+  const events: AgentSessionStreamEvent[] = [];
   const listeners = new Set<() => void>();
 
   return {
     events,
-    push(event: PairingEvent) {
+    push(event: AgentSessionStreamEvent) {
       events.push(event);
       for (const listener of listeners) {
         listener();
       }
     },
-    async waitFor(predicate: (events: PairingEvent[]) => boolean, timeoutMs = 5_000): Promise<void> {
+    async waitFor(predicate: (events: AgentSessionStreamEvent[]) => boolean, timeoutMs = 5_000): Promise<void> {
       if (predicate(events)) {
         return;
       }

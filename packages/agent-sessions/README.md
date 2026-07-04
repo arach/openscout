@@ -77,7 +77,7 @@ import {
   extractPendingApprovalRequests,
   inferModelContextWindowTokens,
   type SessionState,
-  type PairingEvent,
+  type AgentSessionStreamEvent,
   type NormalizedApprovalRequest,
 } from "@openscout/agent-sessions/client";
 
@@ -87,7 +87,7 @@ function pendingApprovals(snapshot: SessionState): NormalizedApprovalRequest[] {
 }
 
 // Fold a streamed event into your view state.
-function reduce(event: PairingEvent): string {
+function reduce(event: AgentSessionStreamEvent): string {
   return event.event; // discriminated union — narrow on `event.event`
 }
 
@@ -137,7 +137,7 @@ For a warm, multi-turn client that reuses one local session, use `createLocalAge
 | `@openscout/agent-sessions/adapters/opencode` | opencode adapter (`createOpencodeAdapter`). |
 | `@openscout/agent-sessions/adapters/pi` | pi adapter (`createPiAdapter`). |
 | `@openscout/agent-sessions/codex-executable` | Resolve the Codex executable and inventory candidates on the host. |
-| `@openscout/agent-sessions/protocol/primitives` | The pure protocol vocabulary: `Session`, `Turn`, `Block`, `Action`, `Delta`, `PairingEvent`, and the observed-topology types. |
+| `@openscout/agent-sessions/protocol/primitives` | The pure protocol vocabulary: `Session`, `Turn`, `Block`, `Action`, `Delta`, `AgentSessionStreamEvent`, and the observed-topology types. |
 
 ## Runtime Support
 

@@ -12,7 +12,7 @@ import {
   isSessionRegistryError,
   normalizeApprovalRequest,
   type ActionBlock,
-  type PairingEvent,
+  type AgentSessionStreamEvent,
   type Prompt,
   type SequencedEvent,
   type SessionState,
@@ -486,7 +486,7 @@ function lookupMobileInboxItemForBlock(
 
 export function lookupMobileInboxItemForEvent(
   bridge: Bridge,
-  event: PairingEvent,
+  event: AgentSessionStreamEvent,
 ): MobileInboxItem | null {
   switch (event.event) {
     case "block:start": {

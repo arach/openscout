@@ -8,7 +8,7 @@ import {
   StateTracker,
   createPiAdapter,
   type Adapter,
-  type PairingEvent,
+  type AgentSessionStreamEvent,
   type SessionState,
 } from "@openscout/agent-sessions";
 
@@ -434,7 +434,7 @@ class PiRpcAgentSession {
       const onError = (error: Error) => {
         finish(() => reject(error));
       };
-      const onEvent = (event: PairingEvent) => {
+      const onEvent = (event: AgentSessionStreamEvent) => {
         if (event.event === "turn:start" && !turnId) {
           turnId = event.turn.id;
           return;

@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { PairingEvent } from "../../protocol/primitives.js";
+import type { AgentSessionStreamEvent } from "../../protocol/primitives.js";
 import { createAdapter } from "./adapter.js";
 
 const tempPaths = new Set<string>();
@@ -23,18 +23,18 @@ function writeFakeAcpExecutable(baseDirectory: string, body: string): string {
 }
 
 function createEventCollector() {
-  const events: PairingEvent[] = [];
+  const events: AgentSessionStreamEvent[] = [];
   const listeners = new Set<() => void>();
 
   return {
     events,
-    push(event: PairingEvent) {
+    push(event: AgentSessionStreamEvent) {
       events.push(event);
       for (const listener of listeners) {
         listener();
       }
     },
-    async waitFor(predicate: (events: PairingEvent[]) => boolean, timeoutMs = 5_000): Promise<void> {
+    async waitFor(predicate: (events: AgentSessionStreamEvent[]) => boolean, timeoutMs = 5_000): Promise<void> {
       if (predicate(events)) {
         return;
       }

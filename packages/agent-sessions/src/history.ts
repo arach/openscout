@@ -15,7 +15,7 @@ import {
 import type {
   Action,
   Block,
-  PairingEvent,
+  AgentSessionStreamEvent,
   QuestionOption,
   Session,
   Turn,
@@ -40,7 +40,7 @@ type ClaudeObserveUsageEntry = {
 
 export type HistorySessionEvent = {
   capturedAt: number;
-  event: PairingEvent;
+  event: AgentSessionStreamEvent;
 };
 
 export type SupportedHistoryAdapterType = "claude-code" | "codex" | "pi";
@@ -1193,7 +1193,7 @@ class ClaudeCodeHistoryParser {
     this.emitBlockEnd(capturedAt, turn, block, "completed");
   }
 
-  private emitEvent(capturedAt: number, event: PairingEvent): void {
+  private emitEvent(capturedAt: number, event: AgentSessionStreamEvent): void {
     this.events.push({
       capturedAt,
       event: structuredClone(event),
@@ -1577,7 +1577,7 @@ class PiHistoryParser {
     });
   }
 
-  private emitEvent(capturedAt: number, event: PairingEvent): void {
+  private emitEvent(capturedAt: number, event: AgentSessionStreamEvent): void {
     this.events.push({
       capturedAt,
       event: structuredClone(event),
@@ -2314,7 +2314,7 @@ class CodexHistoryParser {
     });
   }
 
-  private emitEvent(capturedAt: number, event: PairingEvent): void {
+  private emitEvent(capturedAt: number, event: AgentSessionStreamEvent): void {
     this.events.push({
       capturedAt,
       event: structuredClone(event),
