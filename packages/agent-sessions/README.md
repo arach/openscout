@@ -1,59 +1,190 @@
 # OpenScout Agent Sessions
 
-`@openscout/agent-sessions` is the shared session capability substrate for
-OpenScout. It normalizes live harness sessions into a small stream of session
-events, snapshots, approvals, topology hints, and replayable state that the
-runtime and surfaces can consume.
+`@openscout/agent-sessions` is the shared session substrate for OpenScout. It normalizes live harness sessions — Claude Code, Codex, pi, Grok ACP, opencode, OpenAI-compatible processes, and any ACP stdio agent — into one small stream of session events, snapshots, approvals, topology hints, and replayable state that the runtime and surfaces can consume.
 
-This package observes harness-owned material. It should not make Claude Code,
-Codex, pi, or future harness transcripts into first-party Scout conversation
-messages. Durable coordination records belong in the broker/runtime; adapter
-state here is the bridge between a concrete harness session and Scout's control
-plane.
+This package observes harness-owned material. It does not turn Claude Code, Codex, pi, or future harness transcripts into first-party Scout conversation messages. Durable coordination records belong in the broker and runtime; adapter state here is the bridge between a concrete harness session and Scout's control plane.
 
-## What This Package Owns
+## Quickstart
 
-- protocol primitives and adapter types
-- adapter implementations for ACP stdio agents, Grok ACP, Codex, Claude Code,
-  pi, opencode, OpenAI-compatible processes, and the echo test harness
-- in-memory session state and replay helpers
-- `SessionRegistry`
-- a browser-safe `./client` boundary for trace consumers
-- a broker-free `./local` boundary for embedding local pi / Grok ACP turns
-- adapter spec fixtures and validation tooling
+Register the adapters you want to observe, then drive a session through a `SessionRegistry`. Every adapter — regardless of backend — emits the same event vocabulary (`turn:start`, `block:*`, `block:action:approval`, `turn:end`) and tracks a replayable snapshot you can read at any point.
 
-`./client` is intentionally narrower than the package root. It exposes only
-browser-safe protocol, snapshot, event, and approval helper types so web and
-mobile trace consumers can avoid pulling in registry or adapter code paths.
+The `echo` adapter is a built-in test harness that streams a full turn — reasoning, text, and a tool call — so you can wire up a consumer without a live harness. Here it also asks for an approval, which we grant through the registry:
 
-`./local` exposes `completeLocalAgentTurn` and `createLocalAgentClient` for
-apps that need a direct local turn without broker records or runtime imports.
+```ts
+import { SessionRegistry } from "@openscout/agent-sessions";
+import { createAdapter as createEchoAdapter } from "@openscout/agent-sessions/adapters/echo";
+
+const registry = new SessionRegistry({
+  adapters: { echo: createEchoAdapter },
+});
+
+// One normalized event stream for every session in the registry.
+registry.onEvent(({ event }) => {
+  // An action paused for a human decision. Approve it — off the broadcast loop,
+  // so the awaiting turn can resume.
+  if (event.event === "block:action:approval") {
+    queueMicrotask(() =>
+      registry.decide({
+        sessionId: event.sessionId,
+        turnId: event.turnId,
+        blockId: event.blockId,
+        version: event.approval.version,
+        decision: "approve",
+      }),
+    );
+  }
+});
+
+const session = await registry.createSession("echo", {
+  name: "echo demo",
+  options: { requireApproval: true },
+});
+
+// Drive one turn and wait for it to reach a terminal state.
+await new Promise<void>((resolve) => {
+  const stop = registry.onEvent(({ event }) => {
+    if (event.event === "turn:end") {
+      stop();
+      resolve();
+    }
+  });
+  registry.send({ sessionId: session.id, text: "ship it" });
+});
+
+// Read the replayable snapshot — turns, blocks, and their text.
+const snapshot = registry.getSessionSnapshot(session.id);
+const reply = snapshot?.turns
+  .at(-1)
+  ?.blocks.map(({ block }) => (block.type === "text" ? block.text : ""))
+  .join("");
+
+reply; // "Echo: ship it"
+
+await registry.shutdown();
+```
+
+> `registry.decide()` resolves the adapter's pending approval. Call it *outside*
+> the `onEvent` broadcast loop (as above, via `queueMicrotask`) — deciding
+> synchronously while an approval event is still being broadcast can stall the
+> turn that is awaiting it.
+
+### Browser-safe trace consumers
+
+Web and mobile surfaces should import from `@openscout/agent-sessions/client`. This surface is intentionally narrower than the package root: it exposes only the browser-safe protocol, snapshot, event, and approval helper types, with no registry, adapter, or Node/Bun process code. A trace consumer can render a snapshot and pending approvals without pulling in any harness spawning:
+
+```ts
+import {
+  extractPendingApprovalRequests,
+  inferModelContextWindowTokens,
+  type SessionState,
+  type PairingEvent,
+  type NormalizedApprovalRequest,
+} from "@openscout/agent-sessions/client";
+
+// Pull actions awaiting a decision straight from a snapshot.
+function pendingApprovals(snapshot: SessionState): NormalizedApprovalRequest[] {
+  return extractPendingApprovalRequests(snapshot);
+}
+
+// Fold a streamed event into your view state.
+function reduce(event: PairingEvent): string {
+  return event.event; // discriminated union — narrow on `event.event`
+}
+
+inferModelContextWindowTokens("claude-sonnet-4-20250514"); // 200000
+```
+
+### One-shot local turns
+
+`@openscout/agent-sessions/local` runs a single turn against a local harness with no broker records and no runtime imports. `completeLocalAgentTurn` opens a lazy session, runs one turn, and closes it — returning the text, resolved harness, transport, session identity, and any usage the harness reported:
+
+```ts
+import { completeLocalAgentTurn } from "@openscout/agent-sessions/local";
+
+// Illustrative: this call requires a live local harness (codex / pi / grok) on
+// the host. The shape is exact; the result depends on your installed harness.
+const result = await completeLocalAgentTurn({
+  harness: "codex",
+  cwd: process.cwd(),
+  input: "Summarize the repository layout in two sentences.",
+  model: "gpt-5-codex",
+});
+
+result.text;         // the harness's reply
+result.harness;      // "codex"
+result.session.id;   // stable session id for this turn
+result.usage;        // token usage, when the harness reports it
+```
+
+For a warm, multi-turn client that reuses one local session, use `createLocalAgentClient` from the same surface.
+
+## Subpath Exports
+
+| Import | Purpose |
+| --- | --- |
+| `@openscout/agent-sessions` | Root surface: `SessionRegistry`, `StateTracker`, protocol primitives, adapter factories, history snapshots, budget/cost observations, and Codex launch helpers. |
+| `@openscout/agent-sessions/client` | Browser-safe boundary — snapshot, event, and approval types plus `inferModelContextWindowTokens`, with no registry or adapter code. |
+| `@openscout/agent-sessions/local` | Broker-free local turns: `completeLocalAgentTurn`, `createLocalAgentClient`, and the Codex app-server transport. |
+| `@openscout/agent-sessions/adapters/acp` | ACP stdio agent adapter (`createAcpAdapter`). |
+| `@openscout/agent-sessions/adapters/claude-code` | Claude Code adapter (`createClaudeCodeAdapter`). |
+| `@openscout/agent-sessions/adapters/claude-code/team-topology` | Read observed Claude Code team topology (`readClaudeAgentTeamTopology`). |
+| `@openscout/agent-sessions/adapters/claude-code/workflow-topology` | Read observed Claude Code workflow topology (`readClaudeWorkflowTopology`). |
+| `@openscout/agent-sessions/adapters/codex` | Codex adapter (`createCodexAdapter`). |
+| `@openscout/agent-sessions/adapters/codex/topology` | Observed Codex topology tracker (`CodexObservedTopologyTracker`). |
+| `@openscout/agent-sessions/adapters/echo` | Echo test harness that streams a full turn (`createEchoAdapter`). |
+| `@openscout/agent-sessions/adapters/grok-acp` | Grok ACP adapter (`createGrokAcpAdapter`). |
+| `@openscout/agent-sessions/adapters/openai-compat` | OpenAI-compatible chat/completions adapter (`createOpenAiCompatAdapter`). |
+| `@openscout/agent-sessions/adapters/opencode` | opencode adapter (`createOpencodeAdapter`). |
+| `@openscout/agent-sessions/adapters/pi` | pi adapter (`createPiAdapter`). |
+| `@openscout/agent-sessions/codex-executable` | Resolve the Codex executable and inventory candidates on the host. |
+| `@openscout/agent-sessions/protocol/primitives` | The pure protocol vocabulary: `Session`, `Turn`, `Block`, `Action`, `Delta`, `PairingEvent`, and the observed-topology types. |
+
+## Runtime Support
+
+Adapters differ in what runtime they need, because some shell out to a harness process and some are pure. This is load-bearing — pick your import accordingly.
+
+| Surface | Browser | Node | Bun |
+| --- | :---: | :---: | :---: |
+| `./client`, `./protocol/primitives` | ✅ | ✅ | ✅ |
+| Root observability / history / budget helpers | — | ✅ | ✅ |
+| `./local` (codex, grok) | — | ✅ | ✅ |
+| `./codex-executable` | — | ✅ | ✅ |
+| `adapters/acp` | — | ✅ | ✅ |
+| `adapters/codex` (observe/topology/usage) | — | ✅ | ✅ |
+| `adapters/grok-acp` | — | ✅ | ✅ |
+| `adapters/openai-compat` (pure `fetch`) | — | ✅ | ✅ |
+| `adapters/echo` | — | ✅ | ✅ |
+| `adapters/claude-code` | — | — | ✅ |
+| `adapters/opencode` | — | — | ✅ |
+| `adapters/pi` | — | — | ✅ |
+| `./local` (pi) | — | — | ✅ |
+
+The pure protocol and `./client` surfaces are browser-safe: no process spawning, no Node built-ins. Node-and-Bun surfaces use `node:child_process` (the ACP, Grok ACP, and Codex app-server transports) or plain `fetch` (OpenAI-compatible). The `claude-code`, `opencode`, and `pi` adapters call `Bun.spawn` directly and are Bun-only, and so is the pi path of `./local`. `SessionRegistry` itself runs on both Node and Bun — its git-branch detection uses `Bun.spawnSync` guarded in a `try`/`catch`, so it simply skips branch detection when Bun is unavailable.
+
+## Important Boundaries
+
+- Adapter code may inspect harness transcripts, topology, logs, and process signals, but must not bulk-import external turns as Scout `message` records.
+- Browser-facing imports should come from `@openscout/agent-sessions/client` unless registry or adapter code is explicitly needed.
+- Adapter behavior should fail with actionable diagnostics when a harness, executable, cwd, or session is unavailable.
+- Observed harness topology (`ObservedHarnessTopology`, attached to `Session.providerMeta`) is read-only. It explains what a harness is doing; Scout must not mutate the upstream files or runtime state that produced it.
 
 ## Local Commands
 
 From the repo root:
 
 ```bash
-npm --prefix packages/agent-sessions run build
-npm --prefix packages/agent-sessions run check
-npm --prefix packages/agent-sessions run test
-npm --prefix packages/agent-sessions run adapter:validate-specs
+bun run --cwd packages/agent-sessions test
+bun run --cwd packages/agent-sessions check
+bun run --cwd packages/agent-sessions build
+bun run --cwd packages/agent-sessions adapter:validate-specs
 ```
 
-## Important Boundaries
+## Install
 
-- Adapter code may inspect harness transcripts, topology, logs, and process
-  signals, but must not bulk-import external turns as Scout `message` records.
-- Browser-facing imports should come from `@openscout/agent-sessions/client`
-  unless registry or adapter code is explicitly needed.
-- Adapter behavior should fail with actionable diagnostics when a harness,
-  executable, cwd, or session is unavailable.
+`@openscout/agent-sessions` is published on npm; the latest published release is `0.2.64`. The package is being restored and expanded to the current workspace line, so if you need a subpath or symbol that is newer than the published release, consume it from the workspace until the next publish lands. Do not pin to a version that is not yet on npm.
 
 ## Read Next
 
-- [Data model](../../docs/architecture.md#the-data-model) for the Scout-owned versus
-  harness-owned boundary.
-- [Agent integration contract](../../docs/agent-integration-contract.md) for
-  adapter expectations.
-- [Architecture](../../docs/architecture.md) for how sessions connect to the
-  broker and runtime.
+- [Data model](../../docs/architecture.md#the-data-model) for the Scout-owned versus harness-owned boundary.
+- [Agent integration contract](../../docs/agent-integration-contract.md) for adapter expectations.
+- [Architecture](../../docs/architecture.md) for how sessions connect to the broker and runtime.

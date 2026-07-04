@@ -36,5 +36,5 @@ The human references and extractor output are inputs to the spec, not the spec i
 ## Validate
 
 ```bash
-npm --prefix /Users/arach/dev/openscout/packages/agent-sessions run adapter:validate-specs
+npm --prefix packages/agent-sessions run adapter:validate-specs
 ```
