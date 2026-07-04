@@ -1,4 +1,4 @@
-import type { RuntimeChildProcessLike, RuntimeEnv, RuntimeSignal, RuntimeSpawnFunction } from "../portable-types.js";
+import type { RuntimeBinaryInput, RuntimeChildProcessLike, RuntimeEnv, RuntimeSignal, RuntimeSpawnFunction } from "../portable-types.js";
 import { spawn } from "node:child_process";
 
 import type { ProbeCtx } from "./registry.js";
@@ -7,7 +7,7 @@ import { getScoutdProbeClient, ScoutdExecResponseError } from "./scoutd-client.j
 export type ExecProbeFileOptions = {
   cwd?: string;
   env?: RuntimeEnv;
-  input?: string | Buffer;
+  input?: string | RuntimeBinaryInput;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
 };
@@ -362,7 +362,7 @@ function mapTmuxVerb(rawArgs: readonly string[], options: ExecSystemFileOptions)
       args: {
         ...base,
         bufferName,
-        content: typeof options.input === "string" ? options.input : Buffer.from(options.input).toString("utf8"),
+        content: typeof options.input === "string" ? options.input : Buffer.from(options.input as any).toString("utf8"),
       },
     };
   }

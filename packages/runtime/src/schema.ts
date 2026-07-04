@@ -1,5 +1,3 @@
-export * from "./drizzle-schema.js";
-
 export const CONTROL_PLANE_SCHEMA_VERSION = 13;
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `

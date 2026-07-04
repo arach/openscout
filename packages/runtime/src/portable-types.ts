@@ -35,6 +35,11 @@ export type RuntimeTypedArray =
   | BigInt64Array
   | BigUint64Array;
 
+export type RuntimeBinaryInput =
+  | RuntimeTypedArray
+  | ArrayBuffer
+  | DataView;
+
 export type RuntimeReadableLike = {
   on(event: "data", listener: (chunk: any) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;

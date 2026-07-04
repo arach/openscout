@@ -71,7 +71,7 @@ import { Conversations, type ConversationsApi } from "./conversations/api.js";
 import {
   deliveryAttemptsTable,
   deliveriesTable,
-} from "./schema.js";
+} from "./drizzle-schema.js";
 import { budgetObservationsFromEndpoint } from "./budget-observations.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
