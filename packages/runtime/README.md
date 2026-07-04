@@ -97,6 +97,7 @@ imported as first-party Scout messages.
 | `@openscout/runtime/mesh/iroh-bridge` | Iroh bridge process helpers. |
 | `@openscout/runtime/mobile-push` | Local mobile push registration and audit store. |
 | `@openscout/runtime/sqlite-adapter` | Runtime SQLite adapter selection for Bun/Node hosts. |
+| `@openscout/runtime/drizzle` | Host-bound control-plane DB bridge for internal server code that queries runtime-owned tables. |
 | `@openscout/runtime/tool-resolution` | Portable executable/path resolution helpers. |
 
 Additional exports provide focused slices for setup/onboarding, agent workspace

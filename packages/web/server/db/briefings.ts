@@ -26,7 +26,7 @@ import {
   eq,
   openControlPlaneDrizzle,
   sql,
-} from "@openscout/runtime";
+} from "@openscout/runtime/drizzle";
 
 const MAX_BRIEFINGS = 100;
 const DB_BUSY_TIMEOUT_MS = 2_500;
