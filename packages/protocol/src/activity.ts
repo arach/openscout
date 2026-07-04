@@ -39,7 +39,6 @@ export type ScoutActivitySourceKind =
   | "collaboration_record"
   | "work_item"
   | "question"
-  | "unblock_request"
   | "endpoint"
   | "tail_event"
   | "session_projection"

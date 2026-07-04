@@ -17,7 +17,6 @@ describe("native interaction mappings", () => {
   test("returns Scout targets for known native interaction kinds", () => {
     expect(scoutTargetsForNativeInteraction("question")).toEqual([
       "question",
-      "unblock_request",
       "session_projection",
     ]);
     expect(scoutTargetsForNativeInteraction("subagent_activity")).toContain("flight");
