@@ -10,6 +10,8 @@ export type ObserveDisplayRow = {
   event: ObserveEvent;
   repeatCount: number;
   technicalSummary?: ObserveTechnicalSummary;
+  /** Original rows represented by a concise-mode technical rollup. */
+  technicalSourceRows?: ObserveDisplayRow[];
 };
 
 export type ObserveTechnicalSummary = {
@@ -306,6 +308,7 @@ function collapsedTechnicalRow(rows: ObserveDisplayRow[]): ObserveDisplayRow {
     },
     repeatCount: 1,
     technicalSummary: summary,
+    technicalSourceRows: rows,
   };
 }
 
