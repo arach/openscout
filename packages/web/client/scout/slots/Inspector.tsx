@@ -10,7 +10,7 @@ import { usePersistentBoolean, usePersistentNumber } from "../../lib/persistent-
 import { VerticalResizeHandle } from "./VerticalResizeHandle.tsx";
 import type { Route } from "../../lib/types.ts";
 
-const SCOUTBOT_MIN_HEIGHT = 180;
+const SCOUTBOT_MIN_HEIGHT = 260;
 const SCOUTBOT_MAX_HEIGHT_RATIO = 0.7;
 const SCOUTBOT_DEFAULT_HEIGHT = 260;
 

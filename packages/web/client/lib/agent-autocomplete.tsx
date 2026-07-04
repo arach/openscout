@@ -385,6 +385,7 @@ export type AgentMentionTextareaProps = {
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
+  submitOnEnter?: boolean;
   className?: string;
   textareaClassName?: string;
   emptyHint?: ReactNode;
@@ -405,6 +406,7 @@ export const AgentMentionTextarea = forwardRef<
     placeholder,
     rows = 1,
     disabled,
+    submitOnEnter = false,
     className,
     textareaClassName,
     emptyHint,
@@ -513,7 +515,15 @@ export const AgentMentionTextarea = forwardRef<
   );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isComposerSendShortcut(e)) {
+    const submitRequested = isComposerSendShortcut(e)
+      || (
+        submitOnEnter
+        && e.key === "Enter"
+        && !e.shiftKey
+        && !e.nativeEvent?.isComposing
+        && !(mention && filtered.length > 0)
+      );
+    if (submitRequested) {
       e.preventDefault();
       onSubmit?.();
       return;

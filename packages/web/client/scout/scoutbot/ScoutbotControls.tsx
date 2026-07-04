@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Loader2, RefreshCw, Rocket, Settings } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Settings, X } from "lucide-react";
 import type { VoiceProbeState } from "./scoutbot-model.ts";
 
 export function ScoutbotIconButton({
@@ -74,23 +74,25 @@ export function ScoutVoiceSetupPanel({
   onLaunch,
   onRetry,
   onSettings,
+  onDismiss,
 }: {
   issue: string | null;
   probeState: VoiceProbeState;
   onLaunch: () => void;
   onRetry: () => void;
   onSettings: () => void;
+  onDismiss?: () => void;
 }) {
   const isBusy = probeState === "probing" || probeState === "launching";
 
   return (
-    <div className="rounded border border-lime-300/25 bg-lime-300/[0.06] px-3 py-3 font-mono text-[10px] text-[var(--scout-chrome-ink)]">
+    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/15 px-2.5 py-2 font-mono text-[10px] text-[var(--scout-chrome-ink)]">
       <div className="flex items-start gap-2">
-        <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
-        <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Scout Voice</div>
-          <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Start Scout services, then retry once the menu bar icon is visible.
+        <Rocket size={13} className="mt-0.5 shrink-0 text-[var(--scout-chrome-ink-faint)]" />
+        <div className="min-w-0 flex-1">
+          <div className="uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">Scout Voice</div>
+          <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
+            Open Scout Menu to use speech.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -98,12 +100,23 @@ export function ScoutVoiceSetupPanel({
             </p>
           )}
         </div>
+        {onDismiss ? (
+          <button
+            type="button"
+            title="Hide voice setup"
+            aria-label="Hide voice setup"
+            onClick={onDismiss}
+            className="shrink-0 rounded border border-transparent p-1 text-[var(--scout-chrome-ink-ghost)] transition-colors hover:border-[var(--scout-chrome-border-soft)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+          >
+            <X size={11} />
+          </button>
+        ) : null}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
         <ScoutVoiceSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Open Scout"}
+          label={probeState === "launching" ? "Opening" : "Open"}
           onClick={onLaunch}
           disabled={probeState === "probing"}
           title="Open Scout services"
@@ -117,7 +130,7 @@ export function ScoutVoiceSetupPanel({
         />
         <ScoutVoiceSetupButton
           icon={<Settings size={12} />}
-          label="Settings"
+          label="Voice"
           onClick={onSettings}
           disabled={probeState === "probing"}
           title="Open Scoutbot voice settings"
@@ -146,7 +159,7 @@ function ScoutVoiceSetupButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="flex min-h-8 items-center justify-center gap-1.5 rounded border border-lime-300/20 px-2 text-[9px] uppercase tracking-[0.12em] text-lime-100 transition-colors hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-45"
+      className="flex min-h-7 items-center justify-center gap-1.5 rounded border border-[var(--scout-chrome-border-soft)] px-2 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)] transition-colors hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-not-allowed disabled:opacity-45"
     >
       {icon}
       {label}

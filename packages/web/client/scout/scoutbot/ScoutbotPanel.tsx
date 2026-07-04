@@ -78,9 +78,20 @@ import {
   type ScoutVoiceCancelReason,
 } from "./scoutbot-model.ts";
 
+function agentPromptHandle(agent: { handle: string | null; name: string; id: string }): string {
+  const raw = agent.handle?.trim() || agent.name.trim() || agent.id;
+  return raw.replace(/^@+/, "").replace(/\s+/g, "-");
+}
+
+function isScoutbotPromptAgent(agent: { handle: string | null; name: string; id: string; role?: string | null }): boolean {
+  const values = [agent.handle, agent.name, agent.id, agent.role].filter(Boolean).map((value) => value!.toLowerCase());
+  return values.some((value) => value === "scoutbot" || value.includes("scoutbot"));
+}
+
 export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const {
     applyScoutbotUiAction,
+    agents,
     route,
     onlineCount,
   } = useScout();
@@ -107,6 +118,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [askStatus, setAskStatus] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [voiceSetupOpen, setVoiceSetupOpen] = useState(false);
   const [sessionState, setSessionState] = useState<ScoutbotAssistantSessionState | null>(null);
   const [resettingSession, setResettingSession] = useState(false);
   const [archivingSessionId, setArchivingSessionId] = useState<string | null>(null);
@@ -245,6 +257,17 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     briefRunRef.current = null;
     stopSpeech();
   }, [stopSpeech]);
+
+  const suggestedPrompts = useMemo(() => {
+    const promptAgent = agents.find((agent) => !isScoutbotPromptAgent(agent) && agent.state === "working")
+      ?? agents.find((agent) => !isScoutbotPromptAgent(agent));
+    const mention = promptAgent ? `@${agentPromptHandle(promptAgent)}` : "@agent";
+    return [
+      "Let me know when this turn finishes.",
+      `Ask ${mention} what needs me next.`,
+      "Summarize these lanes and call out blockers.",
+    ];
+  }, [agents]);
 
   const syncLastMessages = useCallback((session: ScoutbotAssistantSession) => {
     const lastUser = [...session.messages].reverse().find((message) => message.role === "user");
@@ -1142,14 +1165,9 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   }, [dueReminderCount]);
 
   useEffect(() => {
-    if (voiceAvailable === false) {
-      emitClientBroadcast({
-        key: "voice.offline",
-        tier: "warn",
-        text: "Voice setup needed",
-      });
-    } else if (voiceAvailable === true) {
-      clearClientBroadcast("voice.offline");
+    clearClientBroadcast("voice.offline");
+    if (voiceAvailable === true) {
+      setVoiceSetupOpen(false);
     }
   }, [voiceAvailable]);
 
@@ -1170,6 +1188,10 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     : voiceProbeState === "probing" ? "Checking Voice"
     : voiceProbeState === "launching" ? "Opening Scout"
     : voiceAvailable === false ? "Open Scout" : "Start Talking";
+  const isEmptyChat = sessionState !== null
+    && sessionState.session.messages.length === 0
+    && !sending
+    && !briefing;
   if (collapsed) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">
@@ -1209,7 +1231,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         </div>
       </div>
 
-      {promotedBroadcast && (
+      {promotedBroadcast && !(isEmptyChat && promotedBroadcast.tier === "info") && (
         <div className={`rounded border px-2.5 py-1.5 font-mono text-[10px] leading-relaxed ${
           promotedBroadcast.tier === "error"
             ? "border-rose-300/30 bg-rose-300/[0.07] text-rose-50"
@@ -1287,18 +1309,24 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
             onArchiveSession={(id) => void archiveScoutbotSession(id)}
             archivingSessionId={archivingSessionId}
             onAssistantContextMenu={onAssistantMessageContextMenu}
+            suggestedPrompts={suggestedPrompts}
+            onSelectPrompt={(prompt) => {
+              setDraft(prompt);
+              setChatExpanded(false);
+            }}
           />
         )}
       </div>
 
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 pt-2 pb-2.5">
-        {voiceAvailable === false && (
+        {voiceAvailable === false && voiceSetupOpen && (
           <ScoutVoiceSetupPanel
             issue={voiceIssue}
             probeState={voiceProbeState}
             onLaunch={launchScoutVoice}
             onRetry={() => void probeVoice(true)}
             onSettings={() => setSettingsOpen(true)}
+            onDismiss={() => setVoiceSetupOpen(false)}
           />
         )}
 
@@ -1325,6 +1353,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         )}
 
         <ChatInput
+          agents={agents}
           draft={draft}
           onDraftChange={setDraft}
           onSubmit={() => void askScoutbot(draft)}
@@ -1335,11 +1364,12 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           voiceUnavailable={voiceAvailable === false}
           onMicClick={() => {
             if (voiceAvailable === false) {
-              launchScoutVoice();
+              setVoiceSetupOpen(true);
               return;
             }
             void (recording ? stopVoice() : startVoice());
           }}
+          prominent={isEmptyChat}
         />
 
         {error && (
