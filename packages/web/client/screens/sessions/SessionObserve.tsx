@@ -24,6 +24,7 @@ import {
   collapseObserveDisplayRows,
   collapseTechnicalObserveDisplayRows,
   isSimpleLaneToolEvent,
+  type ObserveDisplayRow,
   type ObserveTechnicalSummary,
 } from "../../lib/observe-display.ts";
 import {
@@ -1068,10 +1069,18 @@ function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMod
   );
 }
 
-function TechnicalSummaryLine({ summary }: { summary: ObserveTechnicalSummary }) {
+function TechnicalSummaryLine({
+  summary,
+  expanded = false,
+  onToggle,
+}: {
+  summary: ObserveTechnicalSummary;
+  expanded?: boolean;
+  onToggle?: () => void;
+}) {
   const eventLabel = summary.totalCount === 1 ? "technical event" : "technical events";
-  return (
-    <div className="s-observe-tech-summary s-observe-block s-observe-block--inline">
+  const body = (
+    <>
       <span className="s-observe-tech-summary-count">
         {summary.totalCount} {eventLabel}
       </span>
@@ -1080,7 +1089,41 @@ function TechnicalSummaryLine({ summary }: { summary: ObserveTechnicalSummary })
           {summary.labels.join(" · ")}
         </span>
       ) : null}
-    </div>
+      {onToggle ? (
+        expanded
+          ? <ChevronUp size={12} strokeWidth={1.8} className="s-observe-tech-summary-chevron" aria-hidden />
+          : <ChevronDown size={12} strokeWidth={1.8} className="s-observe-tech-summary-chevron" aria-hidden />
+      ) : null}
+    </>
+  );
+
+  if (!onToggle) {
+    return (
+      <div className="s-observe-tech-summary s-observe-block s-observe-block--inline">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`s-observe-tech-summary s-observe-tech-summary--toggle s-observe-block s-observe-block--inline${
+        expanded ? " is-expanded" : ""
+      }`}
+      onClick={(clickEvent) => {
+        clickEvent.stopPropagation();
+        onToggle();
+      }}
+      aria-expanded={expanded}
+      aria-label={
+        expanded
+          ? `Collapse ${summary.totalCount} ${eventLabel}`
+          : `Expand ${summary.totalCount} ${eventLabel}`
+      }
+    >
+      {body}
+    </button>
   );
 }
 
@@ -1293,6 +1336,8 @@ function StreamRow({
   laneToolHover,
   hoverPreviewActive = false,
   technicalSummary,
+  technicalExpanded = false,
+  onTechnicalToggle,
 }: {
   event: SessionEvent;
   prevT: number;
@@ -1318,6 +1363,8 @@ function StreamRow({
   }) => LaneToolHoverBindings;
   hoverPreviewActive?: boolean;
   technicalSummary?: ObserveTechnicalSummary;
+  technicalExpanded?: boolean;
+  onTechnicalToggle?: () => void;
 }) {
   const gap = event.t - prevT;
   const accent = technicalSummary ? "var(--dim)" : KIND_COLOR[event.kind] ?? "var(--dim)";
@@ -1365,7 +1412,11 @@ function StreamRow({
       <span className="s-observe-row-bead" style={{ background: accent }} />
 
       {technicalSummary ? (
-        <TechnicalSummaryLine summary={technicalSummary} />
+        <TechnicalSummaryLine
+          summary={technicalSummary}
+          expanded={technicalExpanded}
+          onToggle={onTechnicalToggle}
+        />
       ) : (
         <>
           {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
@@ -1493,6 +1544,24 @@ function ReplayStream({
   const [enteringEventIds, setEnteringEventIds] = useState<ReadonlySet<string>>(() => new Set());
   const [nudgingEventIds, setNudgingEventIds] = useState<ReadonlySet<string>>(() => new Set());
   const [streamScrollNudge, setStreamScrollNudge] = useState(false);
+  const [expandedTechnicalRollups, setExpandedTechnicalRollups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  const toggleTechnicalRollup = useCallback((rollupId: string) => {
+    setExpandedTechnicalRollups((current) => {
+      const next = new Set(current);
+      if (next.has(rollupId)) next.delete(rollupId);
+      else next.add(rollupId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!collapseTechnicalEvents) {
+      setExpandedTechnicalRollups(new Set());
+    }
+  }, [collapseTechnicalEvents]);
 
   const displayRows = useMemo(
     () => {
@@ -1567,65 +1636,115 @@ function ReplayStream({
   const laneNudgeCapMs = 154;
   const laneToolHover = useLaneToolHoverCard(laneMode);
 
+  const renderDisplayRow = (
+    row: ObserveDisplayRow,
+    index: number,
+    prevRow: ObserveDisplayRow | null,
+    options: {
+      keySuffix?: string;
+      technicalExpanded?: boolean;
+      onTechnicalToggle?: () => void;
+      suppressInlineFocus?: boolean;
+    } = {},
+  ) => {
+    const prevEvent = prevRow?.event ?? null;
+    const prevWallMs = prevEvent
+      ? laneEventWallMs(prevEvent, sessionStartMs)
+      : null;
+    const simpleTool = laneMode && !row.technicalSummary && !richSimpleTools && isSimpleLaneToolEvent(row.event);
+    const stackedTool = simpleTool
+      && prevEvent != null
+      && !prevRow?.technicalSummary
+      && isSimpleLaneToolEvent(prevEvent);
+    const isInlineFocus = !options.suppressInlineFocus
+      && inlineFocusEventId === row.event.id
+      && Boolean(inlineFocusContent);
+    const rowEl = (
+      <StreamRow
+        event={row.event}
+        prevT={prevEvent?.t ?? 0}
+        prevWallMs={prevWallMs}
+        laneMode={laneMode}
+        simpleTool={simpleTool}
+        stackedTool={stackedTool}
+        laneGutter={laneGutter}
+        entering={laneMode && enteringEventIds.has(row.event.id)}
+        nudging={laneMode && nudgingEventIds.has(row.event.id)}
+        repeatCount={row.repeatCount}
+        nudgeDelayMs={
+          laneMode && nudgingEventIds.has(row.event.id)
+            ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
+            : 0
+        }
+        sessionStartMs={sessionStartMs}
+        nowMs={nowMs}
+        preferWallAge={preferWallAge}
+        highlighted={!laneMode && focusEventId === row.event.id}
+        focusAnchor={isInlineFocus}
+        onLaneEventSelect={onLaneEventSelect}
+        laneToolHover={laneMode ? laneToolHover.bind : undefined}
+        hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
+        technicalSummary={row.technicalSummary}
+        technicalExpanded={options.technicalExpanded}
+        onTechnicalToggle={options.onTechnicalToggle}
+      />
+    );
+
+    return (
+      <div
+        key={`${row.event.id}:${row.repeatCount}:${index}${options.keySuffix ?? ""}`}
+        className={`s-observe-focus-group${isInlineFocus ? " s-observe-focus-group--active" : ""}`}
+        data-focus-group={isInlineFocus ? "true" : undefined}
+      >
+        {rowEl}
+        {isInlineFocus ? (
+          <>
+            <div className="s-observe-focus-connector" aria-hidden />
+            <div className="s-observe-focus-detail">{inlineFocusContent}</div>
+          </>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
       <div className="s-observe-spine" />
       {displayRows.map((row, index) => {
-        const prevEvent = index > 0 ? displayRows[index - 1]!.event : null;
-        const prevRow = index > 0 ? displayRows[index - 1] : null;
-        const prevWallMs = prevEvent
-          ? laneEventWallMs(prevEvent, sessionStartMs)
-          : null;
-        const simpleTool = laneMode && !row.technicalSummary && !richSimpleTools && isSimpleLaneToolEvent(row.event);
-        const stackedTool = simpleTool
-          && prevEvent != null
-          && !prevRow?.technicalSummary
-          && isSimpleLaneToolEvent(prevEvent);
-        const isInlineFocus = inlineFocusEventId === row.event.id && Boolean(inlineFocusContent);
-        const rowEl = (
-          <StreamRow
-            event={row.event}
-            prevT={prevEvent?.t ?? 0}
-            prevWallMs={prevWallMs}
-            laneMode={laneMode}
-            simpleTool={simpleTool}
-            stackedTool={stackedTool}
-            laneGutter={laneGutter}
-            entering={laneMode && enteringEventIds.has(row.event.id)}
-            nudging={laneMode && nudgingEventIds.has(row.event.id)}
-            repeatCount={row.repeatCount}
-            nudgeDelayMs={
-              laneMode && nudgingEventIds.has(row.event.id)
-                ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
-                : 0
-            }
-            sessionStartMs={sessionStartMs}
-            nowMs={nowMs}
-            preferWallAge={preferWallAge}
-            highlighted={!laneMode && focusEventId === row.event.id}
-            focusAnchor={isInlineFocus}
-            onLaneEventSelect={onLaneEventSelect}
-            laneToolHover={laneMode ? laneToolHover.bind : undefined}
-            hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
-            technicalSummary={row.technicalSummary}
-          />
-        );
+        const prevRow = index > 0 ? displayRows[index - 1]! : null;
+        const sourceRows = row.technicalSourceRows;
+        const isTechnicalRollup = Boolean(row.technicalSummary && sourceRows && sourceRows.length > 0);
+        const isExpanded = isTechnicalRollup && expandedTechnicalRollups.has(row.event.id);
 
-        return (
-          <div
-            key={`${row.event.id}:${row.repeatCount}:${index}`}
-            className={`s-observe-focus-group${isInlineFocus ? " s-observe-focus-group--active" : ""}`}
-            data-focus-group={isInlineFocus ? "true" : undefined}
-          >
-            {rowEl}
-            {isInlineFocus ? (
-              <>
-                <div className="s-observe-focus-connector" aria-hidden />
-                <div className="s-observe-focus-detail">{inlineFocusContent}</div>
-              </>
-            ) : null}
-          </div>
-        );
+        if (isTechnicalRollup && isExpanded) {
+          return (
+            <div
+              key={`${row.event.id}:${row.repeatCount}:${index}:rollup`}
+              className="s-observe-tech-rollup s-observe-tech-rollup--expanded"
+            >
+              {renderDisplayRow(row, index, prevRow, {
+                technicalExpanded: true,
+                onTechnicalToggle: () => toggleTechnicalRollup(row.event.id),
+                suppressInlineFocus: true,
+              })}
+              <div className="s-observe-tech-rollup-details">
+                {sourceRows!.map((sourceRow, sourceIndex) => {
+                  const sourcePrev = sourceIndex > 0 ? sourceRows![sourceIndex - 1]! : null;
+                  return renderDisplayRow(sourceRow, sourceIndex, sourcePrev, {
+                    keySuffix: `:rollup:${row.event.id}:detail`,
+                    suppressInlineFocus: true,
+                  });
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        return renderDisplayRow(row, index, prevRow, {
+          onTechnicalToggle: isTechnicalRollup
+            ? () => toggleTechnicalRollup(row.event.id)
+            : undefined,
+        });
       })}
       <div ref={endRef} />
       {laneToolHover.card}

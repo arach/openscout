@@ -341,6 +341,7 @@ describe("collapseTechnicalObserveDisplayRows", () => {
     expect(rows[2]?.technicalSummary?.totalCount).toBe(3);
     expect(rows[2]?.technicalSummary?.toolCount).toBe(1);
     expect(rows[2]?.technicalSummary?.thinkCount).toBe(2);
+    expect(rows[2]?.technicalSourceRows).toHaveLength(2);
     expect(rows[2]?.event.text).toBe("1 tool · 2 reasoning updates");
     expect(rows[3]?.event.kind).toBe("message");
   });

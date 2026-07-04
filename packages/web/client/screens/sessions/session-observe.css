@@ -696,6 +696,43 @@
   color: var(--dim);
 }
 
+.s-observe--lane .s-observe-tech-summary--toggle {
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.s-observe--lane .s-observe-tech-summary--toggle:hover,
+.s-observe--lane .s-observe-tech-summary--toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface) 34%);
+  color: color-mix(in srgb, var(--ink) 72%, var(--accent) 28%);
+  outline: none;
+}
+
+.s-observe--lane .s-observe-tech-summary--toggle.is-expanded {
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface) 34%);
+}
+
+.s-observe--lane .s-observe-tech-summary-chevron {
+  flex: none;
+  align-self: center;
+  opacity: 0.72;
+}
+
+.s-observe--lane .s-observe-tech-rollup-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0 0 var(--space-xs) calc(var(--space-md) + 6px);
+  padding-left: var(--space-md);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
 .s-observe--lane .s-observe-tech-summary-count {
   flex: none;
   color: color-mix(in srgb, var(--dim) 72%, var(--accent) 28%);
