@@ -71,7 +71,7 @@ public enum ScoutAttachmentUploadService {
             id: uploaded.id ?? "att-\(UUID().uuidString)",
             mediaType: uploaded.mediaType,
             fileName: uploaded.fileName ?? attachment.fileName,
-            url: uploaded.url
+            url: ScoutWeb.attachmentURL(uploaded.url)?.absoluteString ?? uploaded.url
         )
     }
 

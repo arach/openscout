@@ -52,11 +52,36 @@ public enum ScoutWeb {
         return URL(string: normalized, relativeTo: baseURL())?.absoluteURL
     }
 
+    public static func attachmentURL(_ raw: String?) -> URL? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        if let absolute = URL(string: value), absolute.scheme != nil {
+            if ScoutEndpointResolver.shouldRouteAttachmentThroughLocalWeb(absolute) {
+                return localURL(mirroringPathOf: absolute)
+            }
+            return absolute
+        }
+        if value.hasPrefix("/") {
+            return url(path: value)
+        }
+        return URL(string: value)
+    }
+
     public static func open(path: String) {
         #if os(macOS)
         guard let url = url(path: path) else { return }
         NSWorkspace.shared.open(url)
         #endif
+    }
+
+    private static func localURL(mirroringPathOf source: URL) -> URL? {
+        var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false)
+        components?.path = source.path.isEmpty ? "/" : source.path
+        components?.query = source.query
+        components?.fragment = source.fragment
+        return components?.url
     }
 }
 
@@ -201,6 +226,21 @@ private enum ScoutEndpointResolver {
         return URL(string: "http://\(endpoint.host):\(endpoint.port)")
     }
 
+    static func shouldRouteAttachmentThroughLocalWeb(_ url: URL) -> Bool {
+        guard isBlobAttachmentPath(url.path),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return false
+        }
+        if let publicOrigin = publicOriginFromEnvironment(), sameOrigin(url, publicOrigin) {
+            return true
+        }
+        guard let host = url.host(percentEncoded: false)?.lowercased() else {
+            return false
+        }
+        return host == "scout.local" || host.hasSuffix(".scout.local")
+    }
+
     static func brokerEndpointFromConfig() -> (host: String, port: Int)? {
         guard let cfg = readConfig(),
               let port = cfg.ports?.broker,
@@ -208,6 +248,29 @@ private enum ScoutEndpointResolver {
             return nil
         }
         return (clientHost(from: cfg.host), port)
+    }
+
+    static func publicOriginFromEnvironment() -> URL? {
+        httpURL(ProcessInfo.processInfo.environment["OPENSCOUT_WEB_PUBLIC_ORIGIN"])
+    }
+
+    private static func isBlobAttachmentPath(_ path: String) -> Bool {
+        path == "/api/blobs" || path.hasPrefix("/api/blobs/")
+    }
+
+    private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host(percentEncoded: false)?.lowercased() == rhs.host(percentEncoded: false)?.lowercased()
+            && effectivePort(lhs) == effectivePort(rhs)
+    }
+
+    private static func effectivePort(_ url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
     }
 
     static func httpURL(_ rawValue: String?) -> URL? {

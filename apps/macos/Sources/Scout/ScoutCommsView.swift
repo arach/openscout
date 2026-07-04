@@ -1650,14 +1650,7 @@ private struct ScoutFileAttachmentChipContent: View {
 }
 
 private func resolveAttachmentURL(_ raw: String?) -> URL? {
-    guard let raw = raw?.nilIfEmpty else { return nil }
-    if let absolute = URL(string: raw), absolute.scheme != nil {
-        return absolute
-    }
-    if raw.hasPrefix("/") {
-        return URL(string: raw, relativeTo: ScoutWeb.baseURL())?.absoluteURL
-    }
-    return URL(string: raw)
+    ScoutWeb.attachmentURL(raw)
 }
 
 private func open(_ url: URL) {
