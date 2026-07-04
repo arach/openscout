@@ -35,6 +35,14 @@
   --lane-spine-x: 64px;
   padding: 0 var(--space-lg) var(--space-lg);
   overflow-x: hidden;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.s-observe--lane .s-observe-main::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Lane trace header: one calm row — an uppercase eyebrow on the left, the
