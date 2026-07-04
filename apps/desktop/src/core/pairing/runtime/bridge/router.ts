@@ -21,6 +21,10 @@ import {
   projectSessionAttention,
   type SessionAttentionItem,
 } from "@openscout/runtime";
+import {
+  readSessionFileScan,
+  readSessionSearch,
+} from "@openscout/runtime/system-probes";
 
 import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
@@ -57,7 +61,6 @@ import {
 } from "./fileserver.ts";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
-import { execSync } from "child_process";
 import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
 
@@ -192,13 +195,6 @@ function extractProjectName(filePath: string): string {
   return parts[parts.length - 2] || "unknown";
 }
 
-function detectAgent(filePath: string): string {
-  if (filePath.includes(".claude")) return "claude-code";
-  if (filePath.includes(".codex") || filePath.includes("codex")) return "codex";
-  if (filePath.includes(".aider") || filePath.includes("aider")) return "aider";
-  return "unknown";
-}
-
 interface DiscoveredSession {
   path: string;
   project: string;
@@ -212,79 +208,20 @@ async function discoverSessionFiles(
   maxAgeDays: number,
   limit: number,
 ): Promise<DiscoveredSession[]> {
-  const home = homedir();
-  const results: DiscoveredSession[] = [];
-
-  const searchPaths = [
-    { pattern: `${home}/.claude/projects`, agent: "claude-code" },
-    { pattern: `${home}/.codex`, agent: "codex" },
-    { pattern: `${home}/.openai-codex`, agent: "codex" },
-  ];
-
-  for (const { pattern, agent } of searchPaths) {
-    try {
-      statSync(pattern);
-    } catch {
-      continue;
-    }
-    try {
-      const cmd = `find "${pattern}" -name subagents -prune -o -name "*.jsonl" -mtime -${maxAgeDays} -type f -print0 2>/dev/null | xargs -0 stat -f "%m %z %N" 2>/dev/null | sort -rn | head -${limit}`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 5000 }).trim();
-      if (!output) continue;
-      for (const line of output.split("\n")) {
-        if (!line.trim()) continue;
-        const firstSpace = line.indexOf(" ");
-        const secondSpace = line.indexOf(" ", firstSpace + 1);
-        if (firstSpace === -1 || secondSpace === -1) continue;
-        const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
-        const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
-        const filePath = line.slice(secondSpace + 1);
-        results.push({
-          path: filePath,
-          project: extractProjectName(filePath),
-          agent,
-          modifiedAt,
-          sizeBytes,
-          lineCount: 0,
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
   const config = resolveConfig();
-  if (config.workspace?.root) {
-    const existingPaths = new Set(results.map((r) => r.path));
-    try {
-      const root = resolveWorkspaceRoot(config.workspace.root);
-      const cmd = `find "${root}" -maxdepth 4 -name "*.jsonl" -mtime -${maxAgeDays} -type f -exec stat -f "%m %z %N" {} + 2>/dev/null`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 10000 }).trim();
-      if (output) {
-        for (const line of output.split("\n")) {
-          if (!line.trim()) continue;
-          const firstSpace = line.indexOf(" ");
-          const secondSpace = line.indexOf(" ", firstSpace + 1);
-          if (firstSpace === -1 || secondSpace === -1) continue;
-          const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
-          const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
-          const filePath = line.slice(secondSpace + 1);
-          if (existingPaths.has(filePath)) continue;
-          results.push({
-            path: filePath,
-            project: extractProjectName(filePath),
-            agent: detectAgent(filePath),
-            modifiedAt,
-            sizeBytes,
-            lineCount: 0,
-          });
-        }
-      }
-    } catch {}
-  }
-
-  results.sort((a, b) => b.modifiedAt - a.modifiedAt);
-  return results.slice(0, limit);
+  const workspaceRoot = config.workspace?.root
+    ? resolveWorkspaceRoot(config.workspace.root)
+    : null;
+  const sessions = await readSessionFileScan({
+    home: homedir(),
+    workspaceRoot,
+    maxAgeDays,
+    limit,
+  });
+  return sessions.map((session) => ({
+    ...session,
+    lineCount: 0,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,7 +1056,7 @@ const mobileRouter = t.router({
         fileName: z.string().nullable().optional(),
       }),
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -1135,14 +1072,14 @@ const mobileRouter = t.router({
   // -- Terminal (in-app SSH/PTY) ------------------------------------------
   terminalProvision: procedure
     .input(z.object({ sshPublicKey: z.string() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: "Terminal provisioning requires a trusted paired device over the encrypted bridge.",
         });
       }
-      return provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
+      return await provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
     }),
 });
 
@@ -1269,45 +1206,19 @@ const historyRouter = t.router({
       const limit = input.limit ?? 50;
 
       const candidateLimit = Math.max(limit * 10, 1000);
-      const sessions = await discoverSessionFiles(maxAge, candidateLimit);
-      const matches: Array<{
-        path: string;
-        project: string;
-        agent: string;
-        matchCount: number;
-        preview: string[];
-      }> = [];
+      const config = resolveConfig();
+      const workspaceRoot = config.workspace?.root
+        ? resolveWorkspaceRoot(config.workspace.root)
+        : null;
+      const matches = await readSessionSearch({
+        home: homedir(),
+        workspaceRoot,
+        maxAgeDays: maxAge,
+        limit,
+        query: input.query,
+        candidateLimit,
+      });
 
-      for (const session of sessions) {
-        try {
-          const cmd = `grep -i -c "${input.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-          const countStr = execSync(cmd, {
-            encoding: "utf-8",
-            timeout: 2000,
-          }).trim();
-          const count = parseInt(countStr, 10);
-          if (count > 0) {
-            const previewCmd = `grep -i -m 3 "${input.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-            const previewLines = execSync(previewCmd, {
-              encoding: "utf-8",
-              timeout: 2000,
-            })
-              .trim()
-              .split("\n")
-              .slice(0, 3);
-
-            matches.push({
-              path: session.path,
-              project: session.project,
-              agent: session.agent,
-              matchCount: count,
-              preview: previewLines,
-            });
-          }
-        } catch {}
-      }
-
-      matches.sort((a, b) => b.matchCount - a.matchCount);
       return { query: input.query, matches: matches.slice(0, limit) };
     }),
 

@@ -59,7 +59,7 @@ export function ProjectsThreadAside({
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
 }) {
-  const { model, nowMs } = useProjectsInbox(route);
+  const { model, nowMs, loading, error } = useProjectsInbox(route);
 
   // The inspector earns its place for agent/thread peeks only. Session detail
   // routes render their own glance + replay; duplicating identity here crowds
@@ -67,7 +67,32 @@ export function ProjectsThreadAside({
   if (route.sessionId || !route.selectedAgentId) return null;
 
   const selection = findSelection(model.threads, model.sessions, route);
-  if (!selection) return null;
+  if (!selection) {
+    return (
+      <div className="s-pi s-pi-aside">
+        <header className="pi-asideHead">
+          <div className="pi-asideIdent">
+            <div className="pi-asideTop">
+              <span className="pi-asideName">
+                {loading ? "Resolving selection" : error ? "Project data unavailable" : "Selection unavailable"}
+              </span>
+            </div>
+            <div className="pi-asideSub">
+              <span className="pi-asideStatus" data-tone={loading ? "working" : "recent"}>
+                {loading ? <span className="pi-asidePulse" aria-hidden /> : null}
+                {loading ? "loading" : "idle"}
+              </span>
+            </div>
+          </div>
+        </header>
+        <div className="pi-asideBody">
+          <p className="pi-asideMuted">
+            {error ?? "The selected item is not in the current project snapshot."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const thread = selection.kind === "thread" ? selection.thread : null;
   const session = selection.kind === "session" ? selection.session : null;

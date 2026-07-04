@@ -8,9 +8,6 @@
 // Ownership mirrors repo-watch: Rust observes the machine, TypeScript
 // interprets Scout. Raw patch text is never persisted here.
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import {
   normalizeHints,
   normalizePath,
@@ -22,9 +19,11 @@ import {
   type RepoWatchSessionRef,
 } from "../repo-watch/index.js";
 import {
+  repoServiceTransportMetadata,
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
+import { readGitRepoStatusCommand } from "../system-probes/git-repo-status.js";
 
 // ── Native contract (mirrors crates/openscout-repo-service/src/diff.rs) ─────
 
@@ -174,7 +173,6 @@ const RENDER_OPTIONS_VERSION = 1;
 const DEFAULT_PREFERRED_THEME = "pierre-dark";
 const DEFAULT_PREFERRED_LAYOUT: "split" | "stacked" = "split";
 const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
-const execFileAsync = promisify(execFile);
 const TRUNK_REFS = [
   "origin/main",
   "main",
@@ -186,12 +184,8 @@ const TRUNK_REFS = [
 
 async function defaultNativeRepoDiff(request: RepoDiffNativeRequest): Promise<RepoDiffResponse> {
   const command = resolveRepoServiceCommand("diff");
-  if (!command) {
-    throw new Error("Repo service binary was not found.");
-  }
-
   const timeoutMs = Math.max(2_000, (request.limits?.timeoutMs ?? DEFAULT_NATIVE_TIMEOUT_MS) + 1_500);
-  const output = await runRepoServiceJson(command, request, timeoutMs);
+  const output = await runRepoServiceJson(command, request, timeoutMs, "diff");
 
   if (!output || typeof output !== "object") {
     throw new Error("Repo service returned a non-object response.");
@@ -199,6 +193,18 @@ async function defaultNativeRepoDiff(request: RepoDiffNativeRequest): Promise<Re
   const response = output as RepoDiffResponse;
   if (response.schema !== "openscout.repo.diff/v1" || !Array.isArray(response.layers)) {
     throw new Error("Repo service returned an unsupported diff response.");
+  }
+  const transport = repoServiceTransportMetadata(output);
+  if (transport?.backend === "spawn-fallback") {
+    response.diagnostics = [
+      ...(response.diagnostics ?? []),
+      {
+        level: "warning",
+        kind: "repo_service_transport_fallback",
+        message: `Repo service used spawn fallback because scoutd was unavailable: ${transport.fallbackReason ?? "unknown reason"}`,
+        path: null,
+      },
+    ];
   }
   return response;
 }
@@ -240,12 +246,14 @@ export async function getRepoDiffSnapshot(
 }
 
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
-    encoding: "utf8",
-    timeout: 2_000,
-    maxBuffer: 512 * 1024,
+  const output = await readGitRepoStatusCommand(cwd, args, {
+    maxAgeMs: 0,
+    maxStdoutBytes: 512 * 1024,
   });
-  return stdout;
+  if (output === null) {
+    throw new Error(`git ${args.join(" ")} returned no output`);
+  }
+  return output;
 }
 
 async function safeGit(git: RepoDiffGitExec, cwd: string, args: string[]): Promise<string | null> {

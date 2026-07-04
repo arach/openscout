@@ -50,6 +50,61 @@
   border: 0;
 }
 
+.pi-loadingLine {
+  display: block;
+  min-width: 0;
+  height: 8px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--hud-ink) 6%, transparent),
+      color-mix(in srgb, var(--hud-ink) 13%, transparent),
+      color-mix(in srgb, var(--hud-ink) 6%, transparent)
+    );
+  background-size: 220% 100%;
+  animation: pi-shimmer 1.35s ease-in-out infinite;
+}
+
+.pi-stateBlock {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 42px 24px;
+  color: var(--pi-dim);
+  text-align: center;
+  animation: pi-fade-in 0.16s var(--pi-ease);
+}
+.pi-statePulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pi-muted) 64%, transparent);
+}
+.pi-stateBlock[data-tone="loading"] .pi-statePulse {
+  background: var(--pi-accent);
+  box-shadow: 0 0 0 3px var(--pi-accent-soft);
+  animation: pi-pulse 1.8s ease-in-out infinite;
+}
+.pi-stateBlock[data-tone="error"] .pi-statePulse {
+  background: color-mix(in srgb, #ff6b57 72%, var(--pi-accent));
+}
+.pi-stateTitle {
+  color: var(--pi-muted);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.pi-stateDetail {
+  max-width: 420px;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    RAIL — places + smart views
    ════════════════════════════════════════════════════════════════════════ */
@@ -281,6 +336,22 @@
 .pi-projectGroup {
   position: relative;
   margin: 5px 0 9px;
+}
+.pi-projectGroup--loading {
+  opacity: 0.78;
+  pointer-events: none;
+}
+.pi-projectGroup--loading .pi-projectPath {
+  cursor: default;
+}
+.pi-loadingLine--railProject {
+  width: 72%;
+  height: 9px;
+}
+.pi-loadingLine--railSession {
+  width: calc(100% - 42px);
+  height: 7px;
+  margin: 7px 10px 7px 35px;
 }
 .pi-projectGroup[data-selected] {
   padding: 3px;
@@ -1003,6 +1074,7 @@
   flex-direction: column;
   overflow: hidden;
   background: color-mix(in srgb, var(--pi-bg) 96%, black);
+  animation: pi-fade-in 0.14s var(--pi-ease);
 }
 .pi-sessionOverview {
   flex: none;
@@ -1493,6 +1565,21 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+  animation: pi-fade-in 0.14s var(--pi-ease);
+}
+
+.pi-loadingRows {
+  animation: pi-fade-in 0.16s var(--pi-ease);
+}
+
+.pi-sectionHead--loading {
+  min-height: 31px;
+}
+.pi-loadingLine--label {
+  width: 90px;
+}
+.pi-loadingLine--count {
+  width: 20px;
 }
 
 .pi-sectionHead {
@@ -1536,6 +1623,25 @@
   cursor: pointer;
   padding: 10px 16px;
   transition: background 0.1s var(--pi-ease);
+}
+.pi-row--loading {
+  cursor: default;
+  pointer-events: none;
+}
+.pi-row--loading .pi-rowDot {
+  background: color-mix(in srgb, var(--hud-ink) 12%, transparent);
+}
+.pi-loadingLine--title {
+  width: min(420px, 72%);
+  height: 10px;
+}
+.pi-loadingLine--meta {
+  width: min(260px, 52%);
+  height: 7px;
+}
+.pi-loadingLine--time {
+  width: 36px;
+  height: 7px;
 }
 .pi-row:hover { background: color-mix(in srgb, var(--hud-surface) 45%, transparent); }
 .pi-row[data-selected] { background: color-mix(in srgb, var(--pi-accent-soft) 24%, var(--pi-surface)); }
@@ -1878,6 +1984,7 @@
   border-left: 1px solid var(--pi-hairline);
   background: var(--pi-bg);
   color: var(--pi-ink);
+  animation: pi-fade-in 0.14s var(--pi-ease);
 }
 .pi-asideHead {
   flex: none;
@@ -1954,6 +2061,13 @@
   line-height: 1.35;
   letter-spacing: -0.01em;
   color: var(--pi-ink);
+}
+.pi-asideMuted {
+  margin: 0;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
 }
 
 .pi-asideReadouts {
@@ -2035,10 +2149,30 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+@keyframes pi-shimmer {
+  0% { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+@keyframes pi-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .pi-foldPip,
   .pi-rowDot,
-  .pi-asidePulse { animation: none; }
+  .pi-asidePulse,
+  .pi-statePulse,
+  .pi-loadingLine,
+  .pi-loadingRows,
+  .pi-threads,
+  .pi-sessionDetail,
+  .s-pi-aside { animation: none; }
 }
 
 @media (max-width: 860px) {

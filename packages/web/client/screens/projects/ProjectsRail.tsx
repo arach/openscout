@@ -8,6 +8,7 @@ import { useProjectsInbox, useProjectsInboxView } from "./useProjectsInbox.ts";
 import {
   isDormantProject,
   isSessionSelected,
+  sessionOpenRoute,
   sessionRouteRef,
   sessionsForProject,
   type InboxProject,
@@ -75,6 +76,27 @@ function SmartViewRow({
   );
 }
 
+function RailLoadingRows({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="pi-railLoading" aria-hidden="true">
+      {Array.from({ length: rows }, (_, index) => (
+        <div className="pi-projectGroup pi-projectGroup--loading" key={index}>
+          <div className="pi-projectGroupHead">
+            <span className="pi-projectPath">
+              <Folder size={13} strokeWidth={1.6} aria-hidden />
+              <span className="pi-loadingLine pi-loadingLine--railProject" />
+            </span>
+          </div>
+          <div className="pi-projectSessionList">
+            <span className="pi-loadingLine pi-loadingLine--railSession" />
+            <span className="pi-loadingLine pi-loadingLine--railSession" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ProjectsRail({
   route,
   navigate,
@@ -84,7 +106,7 @@ export function ProjectsRail({
   navigate: Navigate;
   zeroPreview?: boolean;
 }) {
-  const { model, nowMs } = useProjectsInbox(route);
+  const { model, nowMs, loading, error } = useProjectsInbox(route);
   const [view, setView] = useProjectsInboxView();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ProjectSort>("recent");
@@ -97,6 +119,7 @@ export function ProjectsRail({
   const scoped = Boolean(route.projectSlug);
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
   const ephemeralScope = route.showEphemeral ? { showEphemeral: true } : {};
+  const initialLoading = loading && model.projects.length === 0 && model.sessions.length === 0;
 
   const projectGroups = useMemo(
     () => zeroPreview ? [] : buildProjectGroups(model.projects, model.sessions),
@@ -142,17 +165,13 @@ export function ProjectsRail({
 
   const openSession = (session: InboxSession) => {
     setCollapsedProjects((current) => withoutValue(current, session.projectSlug));
-    const sessionRef = sessionRouteRef(session);
-    if (!sessionRef) return;
-    navigate({
+    navigate(sessionOpenRoute(session, {
       view: "agents-v2",
       projectSlug: session.projectSlug,
       indexView: "sessions",
-      sessionId: sessionRef,
-      selectedAgentId: undefined,
       ...machineScope,
       ...ephemeralScope,
-    });
+    }));
   };
 
   const togglePinnedSession = (session: InboxSession) => {
@@ -176,7 +195,7 @@ export function ProjectsRail({
   };
 
   return (
-    <nav className="s-pi s-pi-rail" aria-label="Projects">
+    <nav className="s-pi s-pi-rail" aria-label="Projects" aria-busy={loading || undefined} data-loading={loading || undefined}>
       <div className="pi-railFind" role="search">
         <Search size={13} strokeWidth={1.8} aria-hidden />
         <input
@@ -234,86 +253,94 @@ export function ProjectsRail({
             </label>
           </div>
 
-          {visiblePinnedSessions.length > 0 ? (
-            <div className="pi-pinnedSessions">
-              <div className="pi-pinnedLabel">Pinned</div>
-              <div className="pi-projectSessionList">
-                {visiblePinnedSessions.map((session) => (
-                  <ProjectSessionRailRow
-                    key={`pinned:${session.id}`}
-                    session={session}
-                    pinned
-                    selected={isSessionSelected(session, route)}
-                    showProject
-                    nowMs={nowMs}
-                    onOpenSession={openSession}
-                    onTogglePinnedSession={togglePinnedSession}
-                    onPreviewSession={showSessionPreview}
-                    onClearPreview={() => setPreviewSession(null)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {activeGroups.map((group) => (
-            <ProjectRailGroup
-              key={group.project.slug}
-              group={group}
-              selected={route.projectSlug === group.project.slug}
-              collapsed={collapsedProjects.has(group.project.slug)}
-              expanded={expandedProjects.has(group.project.slug)}
-              pinnedSessions={pinnedSessions}
-              nowMs={nowMs}
-              route={route}
-              onOpenProject={openProject}
-              onOpenSession={openSession}
-              onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
-              onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
-              onTogglePinnedSession={togglePinnedSession}
-              onPreviewSession={showSessionPreview}
-              onClearPreview={() => setPreviewSession(null)}
-            />
-          ))}
-
-          {activeGroups.length === 0 && dormantGroups.length === 0 ? (
-            <div className="pi-railEmpty">{query ? "No projects matched." : "No projects yet."}</div>
-          ) : null}
-
-          {dormantGroups.length > 0 ? (
+          {initialLoading ? (
+            <RailLoadingRows />
+          ) : error && visibleGroups.length === 0 ? (
+            <div className="pi-railEmpty">Projects unavailable.</div>
+          ) : (
             <>
-              <button
-                type="button"
-                className="pi-railDisclosure"
-                data-open={showDormant || undefined}
-                onClick={() => setShowDormant((open) => !open)}
-              >
-                <ChevronRight className="pi-railChev" size={12} strokeWidth={2} aria-hidden />
-                All projects · {dormantGroups.length} quiet
-              </button>
-              {showDormant
-                ? dormantGroups.map((group) => (
-                    <ProjectRailGroup
-                      key={group.project.slug}
-                      group={group}
-                      selected={route.projectSlug === group.project.slug}
-                      collapsed={collapsedProjects.has(group.project.slug)}
-                      expanded={expandedProjects.has(group.project.slug)}
-                      pinnedSessions={pinnedSessions}
-                      nowMs={nowMs}
-                      route={route}
-                      onOpenProject={openProject}
-                      onOpenSession={openSession}
-                      onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
-                      onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
-                      onTogglePinnedSession={togglePinnedSession}
-                      onPreviewSession={showSessionPreview}
-                      onClearPreview={() => setPreviewSession(null)}
-                    />
-                  ))
-                : null}
+              {visiblePinnedSessions.length > 0 ? (
+                <div className="pi-pinnedSessions">
+                  <div className="pi-pinnedLabel">Pinned</div>
+                  <div className="pi-projectSessionList">
+                    {visiblePinnedSessions.map((session) => (
+                      <ProjectSessionRailRow
+                        key={`pinned:${session.id}`}
+                        session={session}
+                        pinned
+                        selected={isSessionSelected(session, route)}
+                        showProject
+                        nowMs={nowMs}
+                        onOpenSession={openSession}
+                        onTogglePinnedSession={togglePinnedSession}
+                        onPreviewSession={showSessionPreview}
+                        onClearPreview={() => setPreviewSession(null)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {activeGroups.map((group) => (
+                <ProjectRailGroup
+                  key={group.project.slug}
+                  group={group}
+                  selected={route.projectSlug === group.project.slug}
+                  collapsed={collapsedProjects.has(group.project.slug)}
+                  expanded={expandedProjects.has(group.project.slug)}
+                  pinnedSessions={pinnedSessions}
+                  nowMs={nowMs}
+                  route={route}
+                  onOpenProject={openProject}
+                  onOpenSession={openSession}
+                  onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
+                  onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
+                  onTogglePinnedSession={togglePinnedSession}
+                  onPreviewSession={showSessionPreview}
+                  onClearPreview={() => setPreviewSession(null)}
+                />
+              ))}
+
+              {activeGroups.length === 0 && dormantGroups.length === 0 ? (
+                <div className="pi-railEmpty">{query ? "No projects matched." : "No projects yet."}</div>
+              ) : null}
+
+              {dormantGroups.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className="pi-railDisclosure"
+                    data-open={showDormant || undefined}
+                    onClick={() => setShowDormant((open) => !open)}
+                  >
+                    <ChevronRight className="pi-railChev" size={12} strokeWidth={2} aria-hidden />
+                    All projects · {dormantGroups.length} quiet
+                  </button>
+                  {showDormant
+                    ? dormantGroups.map((group) => (
+                        <ProjectRailGroup
+                          key={group.project.slug}
+                          group={group}
+                          selected={route.projectSlug === group.project.slug}
+                          collapsed={collapsedProjects.has(group.project.slug)}
+                          expanded={expandedProjects.has(group.project.slug)}
+                          pinnedSessions={pinnedSessions}
+                          nowMs={nowMs}
+                          route={route}
+                          onOpenProject={openProject}
+                          onOpenSession={openSession}
+                          onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
+                          onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
+                          onTogglePinnedSession={togglePinnedSession}
+                          onPreviewSession={showSessionPreview}
+                          onClearPreview={() => setPreviewSession(null)}
+                        />
+                      ))
+                    : null}
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -376,10 +403,20 @@ function ProjectRailGroup({
         <button
           type="button"
           className="pi-projectPath"
+          aria-expanded={selected ? !collapsed : undefined}
           title={projectTitle(project)}
           aria-current={selected ? "page" : undefined}
-          aria-label={`Open /${project.title}`}
-          onClick={() => onOpenProject(project.slug)}
+          aria-label={
+            selected
+              ? collapsed
+                ? `Expand /${project.title}`
+                : `Collapse /${project.title}`
+              : `Open /${project.title}`
+          }
+          onClick={() => {
+            if (selected) onToggleCollapsed();
+            else onOpenProject(project.slug);
+          }}
         >
           <Folder size={13} strokeWidth={1.6} aria-hidden />
           <span className="pi-projectPathText">/{project.title}</span>
@@ -519,7 +556,7 @@ function ProjectSessionHoverCard({
         {session.branch ? <span>{session.branch}</span> : null}
         {agent ? <span>{agent}</span> : null}
       </div>
-      <div className="pi-sessionHoverRef">{ref ?? session.id}</div>
+      <div className="pi-sessionHoverRef">{ref ?? "No session archive yet"}</div>
     </div>
   );
 }

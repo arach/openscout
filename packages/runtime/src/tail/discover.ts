@@ -1,9 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import type { DiscoveredProcess, TailAttribution } from "./types.js";
-
-const execFileAsync = promisify(execFile);
+import { readProcessCwd, readProcessDiscoveryRows } from "../system-probes/ps.js";
 
 const PARENT_HOP_LIMIT = 10;
 const PROCESS_LIST_CACHE_MS = readNonNegativeIntEnv("OPENSCOUT_TAIL_PROCESS_CACHE_MS", 1000);
@@ -23,22 +19,7 @@ function readNonNegativeIntEnv(name: string, fallback: number): number {
 }
 
 async function readProcessListUncached(): Promise<RawProcess[]> {
-  const { stdout } = await execFileAsync("ps", ["-axww", "-o", "pid=,ppid=,etime=,command="], {
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  const lines = stdout.split("\n");
-  const out: RawProcess[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-    if (!match) continue;
-    const pid = Number.parseInt(match[1], 10);
-    const ppid = Number.parseInt(match[2], 10);
-    if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
-    out.push({ pid, ppid, etime: match[3], command: match[4] });
-  }
-  return out;
+  return await readProcessDiscoveryRows(PROCESS_LIST_CACHE_MS);
 }
 
 export async function listProcesses(): Promise<RawProcess[]> {
@@ -76,20 +57,7 @@ export function isClaudeBinary(command: string): boolean {
 }
 
 export async function readCwd(pid: number): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
-      maxBuffer: 1 * 1024 * 1024,
-    });
-    for (const line of stdout.split("\n")) {
-      if (line.startsWith("n")) {
-        const value = line.slice(1).trim();
-        if (value) return value;
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  return await readProcessCwd(pid, 1_000);
 }
 
 export function classifyAttribution(parentChain: { command: string }[]): TailAttribution {

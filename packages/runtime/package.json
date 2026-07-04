@@ -123,6 +123,12 @@
       "bun": "./src/tailscale.ts",
       "default": "./dist/tailscale.js"
     },
+    "./system-probes": {
+      "types": "./src/system-probes/index.ts",
+      "bun": "./src/system-probes/index.ts",
+      "node": "./src/system-probes/index.ts",
+      "default": "./dist/system-probes/index.js"
+    },
     "./mesh/iroh-bridge": {
       "types": "./src/iroh-bridge.ts",
       "bun": "./src/iroh-bridge.ts",

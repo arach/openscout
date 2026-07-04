@@ -1,8 +1,7 @@
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { promisify } from "node:util";
 
 import {
   buildScoutVantagePlan,
@@ -11,10 +10,16 @@ import {
   type TmuxSession,
 } from "@openscout/runtime/vantage-plan";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import {
+  execSystemFile,
+  pgrepCommand,
+  readTmuxSessionExists,
+  tmuxSessionsProbe,
+  invalidateTmuxSessions,
+} from "@openscout/runtime/system-probes";
 
 import { loadScoutBrokerContext } from "./core/broker/service.ts";
 
-const execFileAsync = promisify(execFile);
 const VANTAGE_BROKER_CONTEXT_TIMEOUT_MS = 2_000;
 
 export type OpenScoutVantageHandoffInput = {
@@ -52,9 +57,9 @@ export async function createOpenScoutVantageHandoff(
     : input.broker;
   const nativeSessions = [...(input.nativeSessions ?? [])];
   if (input.tmuxSessions === undefined) {
-    ensureNativeTailTmuxSessions(nativeSessions);
+    await ensureNativeTailTmuxSessions(nativeSessions);
   }
-  const tmuxSessions = input.tmuxSessions ?? readTmuxSessions();
+  const tmuxSessions = input.tmuxSessions ?? await readTmuxSessions();
   const selectedAgentIds = uniqueIds(input.agentIds ?? []);
   const selectedNativeSessionIds = uniqueIds(
     input.nativeSessionIds ?? nativeSessions.map((session) => session.id),
@@ -146,52 +151,31 @@ function emptyVantagePlanMessage(plan: ScoutVantagePlan): string {
   return `No Vantage windows could be built from the current Scout state.${reason}`;
 }
 
-function readTmuxSessions(): TmuxSession[] {
-  try {
-    const stdout = execFileSync("tmux", ["ls", "-F", "#{session_name}\t#{session_created}"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [name, createdAtRaw] = line.split("\t");
-        return {
-          name,
-          createdAt: createdAtRaw ? Number.parseInt(createdAtRaw, 10) : null,
-        };
-      });
-  } catch {
-    return [];
-  }
+async function readTmuxSessions(): Promise<TmuxSession[]> {
+  const snapshot = await tmuxSessionsProbe.for({ env: process.env }).fresh({ maxAgeMs: 5_000 });
+  return (snapshot.value ?? []).map((session) => ({
+    name: session.name,
+    createdAt: session.createdAt,
+  }));
 }
 
-function ensureNativeTailTmuxSessions(nativeSessions: readonly ScoutVantageNativeSession[]): void {
+async function ensureNativeTailTmuxSessions(nativeSessions: readonly ScoutVantageNativeSession[]): Promise<void> {
   for (const nativeSession of nativeSessions) {
     if (!nativeSession.tmuxSessionName || !nativeSession.transcriptPath) {
       continue;
     }
-    if (tmuxSessionExists(nativeSession.tmuxSessionName)) {
+    if (await tmuxSessionExists(nativeSession.tmuxSessionName)) {
       continue;
     }
-    createNativeTailTmuxSession(nativeSession);
+    await createNativeTailTmuxSession(nativeSession);
   }
 }
 
-function tmuxSessionExists(sessionName: string): boolean {
-  try {
-    execFileSync("tmux", ["has-session", "-t", sessionName], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+async function tmuxSessionExists(sessionName: string): Promise<boolean> {
+  return await readTmuxSessionExists(sessionName, { maxAgeMs: 5_000 });
 }
 
-function createNativeTailTmuxSession(nativeSession: ScoutVantageNativeSession): void {
+async function createNativeTailTmuxSession(nativeSession: ScoutVantageNativeSession): Promise<void> {
   try {
     const args = [
       "new-session",
@@ -205,9 +189,8 @@ function createNativeTailTmuxSession(nativeSession: ScoutVantageNativeSession): 
       args.push("-c", nativeSession.cwd);
     }
     args.push(nativeTailCommand(nativeSession));
-    execFileSync("tmux", args, {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
+    await execSystemFile("tmux", args, { timeoutMs: 5_000 });
+    invalidateTmuxSessions({ reason: "vantage.native-tail" });
   } catch {
     // The planner will diagnose the missing tmux session if creation failed.
   }
@@ -312,12 +295,12 @@ async function launchVantageOpenUrl(
   }
 
   try {
-    await execFileAsync("/usr/bin/open", [openUrl]);
+    await execSystemFile("/usr/bin/open", [openUrl], { timeoutMs: 1_500 });
     return { attempted: true, ok: true, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (isMissingUrlHandlerError(message)) {
-      const fallback = launchHudsonTerminiCanvas(input);
+      const fallback = await launchHudsonTerminiCanvas(input);
       if (fallback.ok) {
         return { attempted: true, ok: true, error: null };
       }
@@ -340,11 +323,11 @@ function isMissingUrlHandlerError(message: string): boolean {
     || message.includes("No application knows how to open URL");
 }
 
-function launchHudsonTerminiCanvas(input: {
+async function launchHudsonTerminiCanvas(input: {
   handoffId: string;
   setupPath: string;
   currentDirectory: string;
-}): { ok: true } | { ok: false; error: string } {
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   const packagePath = findHudsonTerminiCanvasPackage(input.currentDirectory);
   if (!packagePath) {
     return {
@@ -354,9 +337,7 @@ function launchHudsonTerminiCanvas(input: {
   }
 
   try {
-    execFileSync("/usr/bin/xcrun", ["--find", "swift"], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
+    await execSystemFile("/usr/bin/xcrun", ["--find", "swift"], { timeoutMs: 2_000 });
   } catch {
     return {
       ok: false,
@@ -365,7 +346,7 @@ function launchHudsonTerminiCanvas(input: {
   }
 
   try {
-    if (isHudsonTerminiCanvasRunning()) {
+    if (await isHudsonTerminiCanvasRunning()) {
       queueHudsonTerminiCanvasSetup(input);
       return { ok: true };
     }
@@ -416,15 +397,9 @@ function queueHudsonTerminiCanvasSetup(input: { handoffId: string; setupPath: st
   appendFileSync(controlPath, `${JSON.stringify(command)}\n`, "utf8");
 }
 
-function isHudsonTerminiCanvasRunning(): boolean {
-  try {
-    execFileSync("/usr/bin/pgrep", ["-f", "[T]erminiCanvas"], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+async function isHudsonTerminiCanvasRunning(): Promise<boolean> {
+  const matches = await pgrepCommand(/[T]erminiCanvas/u);
+  return matches.length > 0;
 }
 
 function findHudsonTerminiCanvasPackage(currentDirectory: string): string | null {

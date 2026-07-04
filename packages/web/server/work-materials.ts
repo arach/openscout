@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -28,6 +27,7 @@ import {
   resolveMaterialClassifier,
   type MaterialClassifier,
 } from "./material-heuristics.ts";
+import { readGitRepoStatusCommand } from "@openscout/runtime/system-probes";
 
 export type WorkInventoryMode =
   | "isolated-git-worktree"
@@ -282,18 +282,10 @@ function looksTextual(path: string, buffer: Buffer): boolean {
   return !sample.includes(0);
 }
 
-function runGit(cwd: string, args: string[], trim = true): string | null {
-  try {
-    const output = execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1200,
-    });
-    return trim ? output.trim() : output;
-  } catch {
-    return null;
-  }
+async function runGit(cwd: string, args: string[], trim = true): Promise<string | null> {
+  const output = await readGitRepoStatusCommand(cwd, args, { maxStdoutBytes: 1024 * 1024 });
+  if (output === null) return null;
+  return trim ? output.trim() : output;
 }
 
 function gitPathspecArgs(scopeArg: string, classifier: MaterialClassifier): string[] {
@@ -438,12 +430,12 @@ function mergeMaterialDiffStat(
   };
 }
 
-function resolveTrunkRef(root: string, branch: string | null): string | null {
+async function resolveTrunkRef(root: string, branch: string | null): Promise<string | null> {
   if (branch === "main" || branch === "master") {
     return null;
   }
   for (const ref of ["origin/main", "main", "origin/master", "master"]) {
-    const resolved = runGit(root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+    const resolved = await runGit(root, ["rev-parse", "--verify", `${ref}^{commit}`]);
     if (resolved) {
       return resolved;
     }
@@ -451,8 +443,8 @@ function resolveTrunkRef(root: string, branch: string | null): string | null {
   return null;
 }
 
-function resolveGitContext(candidatePath: string): GitContext | null {
-  const root = runGit(candidatePath, ["rev-parse", "--show-toplevel"]);
+async function resolveGitContext(candidatePath: string): Promise<GitContext | null> {
+  const root = await runGit(candidatePath, ["rev-parse", "--show-toplevel"]);
   if (!root) {
     return null;
   }
@@ -460,24 +452,24 @@ function resolveGitContext(candidatePath: string): GitContext | null {
   const scopedPath = pathInsideRoot(candidatePath, absoluteRoot)
     ? relative(absoluteRoot, candidatePath) || null
     : null;
-  const gitDir = runGit(absoluteRoot, ["rev-parse", "--git-dir"]);
+  const gitDir = await runGit(absoluteRoot, ["rev-parse", "--git-dir"]);
   const scopeArg = scopedPath ?? ".";
   const classifier = resolveMaterialClassifier(absoluteRoot);
   const pathspecArgs = gitPathspecArgs(scopeArg, classifier);
   const status = parseGitStatus(
-    runGit(absoluteRoot, ["status", "--porcelain=v1", "-z", "--", ...pathspecArgs], false),
+    await runGit(absoluteRoot, ["status", "--porcelain=v1", "-z", "--", ...pathspecArgs], false),
   );
-  const headRef = runGit(absoluteRoot, ["rev-parse", "--short", "HEAD"]);
-  const branch = headRef ? runGit(absoluteRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) : null;
-  const trunkRef = headRef ? resolveTrunkRef(absoluteRoot, branch) : null;
-  const mergeBase = trunkRef ? runGit(absoluteRoot, ["merge-base", trunkRef, "HEAD"]) : null;
+  const headRef = await runGit(absoluteRoot, ["rev-parse", "--short", "HEAD"]);
+  const branch = headRef ? await runGit(absoluteRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) : null;
+  const trunkRef = headRef ? await resolveTrunkRef(absoluteRoot, branch) : null;
+  const mergeBase = trunkRef ? await runGit(absoluteRoot, ["merge-base", trunkRef, "HEAD"]) : null;
   const branchStats = mergeBase
     ? parseDiffStats(
-      runGit(absoluteRoot, ["diff", "--numstat", `${mergeBase}...HEAD`, "--", ...pathspecArgs]),
+      await runGit(absoluteRoot, ["diff", "--numstat", `${mergeBase}...HEAD`, "--", ...pathspecArgs]),
     )
     : new Map<string, WorkMaterialDiffPart>();
   const inflightStats = headRef
-    ? parseDiffStats(runGit(absoluteRoot, ["diff", "--numstat", "HEAD", "--", ...pathspecArgs]))
+    ? parseDiffStats(await runGit(absoluteRoot, ["diff", "--numstat", "HEAD", "--", ...pathspecArgs]))
     : new Map<string, WorkMaterialDiffPart>();
   const diffStats = combineDiffStats(branchStats, inflightStats);
 
@@ -687,10 +679,10 @@ function addTracePathMentions(
   }
 }
 
-function addObservePayload(
+async function addObservePayload(
   state: InventoryBuildState,
   payload: AgentObservePayload | SessionRefObservePayload,
-): void {
+): Promise<void> {
   const agentId = "agentId" in payload ? payload.agentId : null;
   const sessionId = payload.sessionId ?? payload.data.metadata?.session?.externalSessionId ?? null;
   const sessionMeta = payload.data.metadata?.session;
@@ -708,7 +700,7 @@ function addObservePayload(
 
   if (sessionMeta?.cwd) {
     const normalized = normalizeExistingPath(sessionMeta.cwd);
-    const context = normalized ? resolveGitContext(normalized) : null;
+    const context = normalized ? await resolveGitContext(normalized) : null;
     if (context && !state.gitContexts.some((existing) =>
       existing.root === context.root && existing.scopePath === context.scopePath
     )) {
@@ -895,7 +887,7 @@ function addGitMaterials(state: InventoryBuildState, context: GitContext, agentI
   }
 }
 
-function addGitContextsForAgents(state: InventoryBuildState): void {
+async function addGitContextsForAgents(state: InventoryBuildState): Promise<void> {
   const candidateByKey = new Map<string, { path: string; agentId: string | null }>();
   for (const ref of state.agentRefs.values()) {
     for (const candidate of [ref.cwd, ref.projectRoot]) {
@@ -920,7 +912,7 @@ function addGitContextsForAgents(state: InventoryBuildState): void {
       state.limitations.push("Git inventory was capped to keep the work page responsive.");
       break;
     }
-    const context = resolveGitContext(candidate.path);
+    const context = await resolveGitContext(candidate.path);
     if (!context) {
       continue;
     }
@@ -1002,7 +994,7 @@ async function addObserveEvidence(state: InventoryBuildState): Promise<void> {
   }
 
   for (const payload of payloads) {
-    addObservePayload(state, payload);
+    await addObservePayload(state, payload);
   }
 }
 
@@ -1049,9 +1041,9 @@ export async function buildWorkMaterialsInventory(
   const runs = queryRuns({ workId: work.id, active: false, limit: 100 });
   addRunEvidence(state, runs);
   addConversationSession(state, work.conversationId ? querySessionById(work.conversationId) : null);
-  addGitContextsForAgents(state);
+  await addGitContextsForAgents(state);
   await addObserveEvidence(state);
-  addGitContextsForAgents(state);
+  await addGitContextsForAgents(state);
 
   if (state.gitContexts.length === 0) {
     state.limitations.push("No related git repository was detected; inventory is trace-derived.");

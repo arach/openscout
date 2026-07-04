@@ -1,4 +1,4 @@
-import { readTailscaleStatusSummary } from "@openscout/runtime/mesh/tailscale";
+import { tailscaleStatusProbe } from "@openscout/runtime/system-probes";
 
 import {
   createScoutDesktopAppInfo,
@@ -52,7 +52,7 @@ export async function getScoutDesktopServicesState(
   const [servicesState, pairingState, tailscale] = await Promise.all([
     loadScoutDesktopServicesState(),
     getScoutDesktopPairingState(currentDirectory),
-    readTailscaleStatusSummary(),
+    Promise.resolve(tailscaleStatusProbe.read().value),
   ]);
 
   const pairingService = {

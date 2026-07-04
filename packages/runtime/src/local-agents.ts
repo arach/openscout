@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -20,6 +19,13 @@ import type {
 import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import { DispatchStalledError } from "./dispatch-stalled.js";
+import {
+  captureTmuxPane,
+  execSystemFile,
+  invalidateTmuxSessions,
+  readTmuxSessionExists,
+  readTmuxSessionExistsSnapshot,
+} from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 
 import {
@@ -2512,12 +2518,11 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
 }
 
 export function isLocalAgentSessionAlive(sessionName: string): boolean {
-  try {
-    execFileSync("tmux", ["has-session", "-t", sessionName], { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
+  return readTmuxSessionExistsSnapshot(sessionName);
+}
+
+export async function isLocalAgentSessionAliveAsync(sessionName: string): Promise<boolean> {
+  return readTmuxSessionExists(sessionName, { maxAgeMs: 0 });
 }
 
 export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
@@ -2553,6 +2558,17 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     endpoint.sessionId
     ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
   return sessionId ? isLocalAgentSessionAlive(sessionId) : false;
+}
+
+export async function isLocalAgentEndpointAliveAsync(endpoint: AgentEndpoint): Promise<boolean> {
+  if (endpoint.transport !== "tmux") {
+    return isLocalAgentEndpointAlive(endpoint);
+  }
+
+  const sessionId =
+    endpoint.sessionId
+    ?? (typeof endpoint.metadata?.tmuxSession === "string" ? String(endpoint.metadata.tmuxSession) : null);
+  return sessionId ? isLocalAgentSessionAliveAsync(sessionId) : false;
 }
 
 async function readBrokerMessagesSince(sinceSeconds: number): Promise<BrokerSnapshotMessage[]> {
@@ -2983,22 +2999,22 @@ export async function sendTmuxPrompt(
   let bufferOwned = true;
   try {
     if (effectiveStrategy.pre && effectiveStrategy.pre.length > 0) {
-      execFileSync("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.pre], { stdio: "pipe" });
+      await execSystemFile("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.pre], { timeoutMs: 2_000 });
     }
-    execFileSync("tmux", ["load-buffer", "-b", bufferName, "-"], {
-      stdio: "pipe",
+    await execSystemFile("tmux", ["load-buffer", "-b", bufferName, "-"], {
       input: prompt,
+      timeoutMs: 5_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
     });
-    execFileSync("tmux", buildTmuxPasteBufferArgs(bufferName, sessionName), {
-      stdio: "pipe",
-    });
+    await execSystemFile("tmux", buildTmuxPasteBufferArgs(bufferName, sessionName), { timeoutMs: 2_000 });
     // paste-buffer -d deletes the buffer after consumption; no manual cleanup needed.
     bufferOwned = false;
 
     // Let the target PTY drain the bracketed paste before the submit chord lands —
     // without this gap, the submit keys can race the paste tail and get swallowed.
     await tmuxDispatchSleep(TMUX_PASTE_DRAIN_MS);
-    execFileSync("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.submit], { stdio: "pipe" });
+    await execSystemFile("tmux", ["send-keys", "-t", sessionName, ...effectiveStrategy.submit], { timeoutMs: 2_000 });
 
     // Sample twice: a fast probe at ~250ms catches the common-case clear; a
     // slower probe at ~1s catches harnesses that take a beat to flush the
@@ -3013,20 +3029,20 @@ export async function sendTmuxPrompt(
     // Still stuck — retry with a bare Enter. Covers the case where the submit chord
     // landed while the harness was in a transient state (popup, suggestion menu)
     // that absorbed it.
-    execFileSync("tmux", ["send-keys", "-t", sessionName, "Enter"], { stdio: "pipe" });
+    await execSystemFile("tmux", ["send-keys", "-t", sessionName, "Enter"], { timeoutMs: 2_000 });
     if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_RETRY_SAMPLE_MS)) {
       return { submitted: true, retries: 1 };
     }
 
     throw new DispatchStalledError({
       sessionName,
-      paneTail: captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES).slice(0, 2_000),
+      paneTail: (await captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES)).slice(0, 2_000),
       retries: 1,
     });
   } catch (error) {
     if (bufferOwned) {
       try {
-        execFileSync("tmux", ["delete-buffer", "-b", bufferName], { stdio: "pipe" });
+        await execSystemFile("tmux", ["delete-buffer", "-b", bufferName], { timeoutMs: 2_000 });
       } catch {
         // Ignore cleanup failures after a tmux delivery error.
       }
@@ -3049,7 +3065,7 @@ async function dispatchVerifiedAfter(
   delayMs: number,
 ): Promise<boolean> {
   await tmuxDispatchSleep(delayMs);
-  const paneTail = captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES);
+  const paneTail = await captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES);
   if (!paneTail) {
     // Capture failed (session gone, tmux unavailable). Treat as verified to avoid
     // throwing a spurious stall — the broker's normal error paths will surface any
@@ -3059,16 +3075,13 @@ async function dispatchVerifiedAfter(
   return strategy.verify(paneTail);
 }
 
-function captureTmuxPaneTail(sessionName: string, lines: number): string {
-  try {
-    return execFileSync(
-      "tmux",
-      ["capture-pane", "-p", "-t", sessionName, "-S", `-${lines}`, "-E", "-"],
-      { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
-    );
-  } catch {
-    return "";
-  }
+async function captureTmuxPaneTail(sessionName: string, lines: number): Promise<string> {
+  return await captureTmuxPane(sessionName, {
+    start: `-${lines}`,
+    end: "-",
+    joinWrapped: false,
+    maxAgeMs: 0,
+  }) ?? "";
 }
 
 async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarness): Promise<void> {
@@ -3084,7 +3097,7 @@ async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarnes
       throw new Error(`tmux session ${sessionName} exited before ${harnessLabel} was ready.`);
     }
 
-    paneTail = captureTmuxPaneTail(sessionName, TMUX_READY_TAIL_LINES);
+    paneTail = await captureTmuxPaneTail(sessionName, TMUX_READY_TAIL_LINES);
     if (tmuxPaneTailShowsReadyComposer(paneTail)) {
       return;
     }
@@ -3417,24 +3430,24 @@ export function buildTmuxLaunchShellCommand(launchScript: string): string {
   return `exec bash ${JSON.stringify(launchScript)}`;
 }
 
-function killAgentSession(sessionName: string): void {
+async function killAgentSession(sessionName: string): Promise<void> {
   try {
-    execSync(`tmux kill-session -t ${JSON.stringify(sessionName)}`, { stdio: "pipe" });
+    await execSystemFile("tmux", ["kill-session", "-t", sessionName], { timeoutMs: 3_000 });
+    invalidateTmuxSessions({ reason: "local-agent.kill-session" });
   } catch {
     // Ignore missing sessions during restart.
   }
 }
 
 function isShellCommandAvailable(binary: string): boolean {
-  try {
-    execFileSync("sh", ["-lc", `command -v ${JSON.stringify(binary)}`], {
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf8",
-    });
-    return true;
-  } catch {
-    return false;
+  if (!binary.trim()) return false;
+  if (binary.includes("/")) return existsSync(binary);
+  const pathValue = process.env.PATH ?? "";
+  for (const directory of pathValue.split(":")) {
+    if (!directory) continue;
+    if (existsSync(join(directory, binary))) return true;
   }
+  return false;
 }
 
 function isCodexExecutableAvailable(): boolean {
@@ -3591,8 +3604,8 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
       buildLocalAgentLaunchCommand(agentName, normalizedRecord, projectPath, promptFile, workerScript),
     ].filter(Boolean).join("\n") + "\n",
   );
-  execFileSync("chmod", ["755", launchScript], { stdio: "pipe" });
-  const paneId = execFileSync(
+  await execSystemFile("chmod", ["755", launchScript], { timeoutMs: 2_000 });
+  const paneResult = await execSystemFile(
     "tmux",
     [
       "new-session",
@@ -3609,14 +3622,16 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
       projectPath,
       buildTmuxLaunchShellCommand(launchScript),
     ],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  ).trim();
+    { timeoutMs: 5_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024 },
+  );
+  invalidateTmuxSessions({ reason: "local-agent.new-session" });
+  const paneId = paneResult.stdout.trim();
   if (paneId) {
     try {
-      execFileSync(
+      await execSystemFile(
         "tmux",
         ["pipe-pane", "-o", "-t", paneId, `cat >> ${JSON.stringify(stdoutLogFile)}`],
-        { stdio: "pipe" },
+        { timeoutMs: 2_000 },
       );
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -3662,7 +3677,7 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
   try {
     await waitForTmuxHarnessReady(normalizedRecord.tmuxSession, normalizeLocalAgentHarness(normalizedRecord.harness));
   } catch (error) {
-    killAgentSession(normalizedRecord.tmuxSession);
+    await killAgentSession(normalizedRecord.tmuxSession);
     throw error;
   }
 
@@ -3721,7 +3736,7 @@ export async function restartLocalAgent(
     }
   } else {
     for (const sessionName of sessionsToStop) {
-      killAgentSession(sessionName);
+      await killAgentSession(sessionName);
     }
   }
 
@@ -4259,7 +4274,7 @@ export async function stopLocalAgent(agentId: string): Promise<ScoutLocalAgentSt
     }
   } else {
     for (const sessionName of sessionsToStop) {
-      killAgentSession(sessionName);
+      await killAgentSession(sessionName);
     }
   }
 
@@ -4280,7 +4295,7 @@ export async function interruptLocalAgent(agentId: string): Promise<{ ok: boolea
   const sessionName = normalizedRecord.tmuxSession;
 
   try {
-    execSync(`tmux send-keys -t ${JSON.stringify(sessionName)} C-c`, { stdio: "pipe" });
+    await execSystemFile("tmux", ["send-keys", "-t", sessionName, "C-c"], { timeoutMs: 2_000 });
     return { ok: true, agentId };
   } catch {
     return { ok: false, agentId };

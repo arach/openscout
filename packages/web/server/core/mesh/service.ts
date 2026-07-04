@@ -5,8 +5,7 @@
  * broker helpers already available in the web server package.
  */
 
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 
 import type { NodeDefinition } from "@openscout/protocol";
 import {
@@ -16,11 +15,10 @@ import {
   type BrokerServiceConfig,
 } from "@openscout/runtime/broker-process-manager";
 import {
-  readTailscaleStatusSummary,
-  readTailscaleSelf,
   type TailscalePeerCandidate,
   type TailscaleSelfCandidate,
 } from "@openscout/runtime/mesh/tailscale";
+import { execSystemFile, tailscaleStatusProbe } from "@openscout/runtime/system-probes";
 
 import {
   readScoutBrokerHealth,
@@ -30,8 +28,6 @@ import {
   type ScoutBrokerHealthState,
   type ScoutBrokerNodeRecord,
 } from "../broker/service.ts";
-
-const execFileAsync = promisify(execFile);
 
 /* ── Types ── */
 
@@ -122,7 +118,7 @@ function stripTrailingDot(value: string | null | undefined): string | null {
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus> {
-  const summary = await readTailscaleStatusSummary();
+  const summary = tailscaleStatusProbe.read().value;
   const peers = summary?.peers ?? [];
   return {
     available: summary !== null,
@@ -356,7 +352,8 @@ const { restartBrokerService } = await import("./src/broker-process-manager.ts")
 await restartBrokerService();
 `;
 
-  const child = spawn(config.bunExecutable, ["--eval", restartScript], {
+  const bunExecutable = config.bunExecutable ?? process.execPath;
+  const child = spawn(bunExecutable, ["--eval", restartScript], {
     cwd: config.runtimePackageDir,
     detached: true,
     stdio: "ignore",
@@ -382,8 +379,8 @@ await restartBrokerService();
 
 export async function announceMeshVisibility(): Promise<MeshStatusReport> {
   const current = resolveBrokerServiceConfig();
-  const self = await readTailscaleSelf();
-  const announceHost = preferredAnnounceHost(self, current.brokerUrl);
+  const status = await tailscaleStatusProbe.fresh({ maxAgeMs: 5_000 });
+  const announceHost = preferredAnnounceHost(status.value?.self ?? null, current.brokerUrl);
 
   if (!announceHost) {
     throw new Error(
@@ -411,7 +408,7 @@ async function openTailscaleApp(): Promise<void> {
   }
 
   try {
-    await execFileAsync("open", ["-a", "Tailscale"]);
+    await execSystemFile("open", ["-a", "Tailscale"], { timeoutMs: 1_500 });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
@@ -425,6 +422,7 @@ export async function controlTailscale(
 ): Promise<MeshStatusReport> {
   if (action === "open_app") {
     await openTailscaleApp();
+    tailscaleStatusProbe.invalidate("tailscale.start");
     return loadMeshStatus();
   }
 
