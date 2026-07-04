@@ -9,12 +9,21 @@ import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js"
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 import type { ScoutDispatchRecord } from "./scout-dispatch.js";
 
+export const OPENSCOUT_CONTROL_EVENT_VERSION = 1 as const;
+
 export interface ControlEventBase<K extends string, P> {
   id: ScoutId;
   kind: K;
   ts: number;
   actorId: ScoutId;
   nodeId?: ScoutId;
+  /**
+   * Schema version of the control-event envelope. Optional by design: legacy
+   * persisted events pre-date the version field and carry no `v`, yet must
+   * still satisfy this type so they can be replayed. After
+   * {@link normalizeControlEvent}, `v` is always present.
+   */
+  readonly v?: typeof OPENSCOUT_CONTROL_EVENT_VERSION;
   payload: P;
 }
 
@@ -105,3 +114,19 @@ export type ControlEvent =
   | CollaborationUpsertedEvent
   | CollaborationEventAppendedEvent
   | ScoutDispatchedEvent;
+
+/**
+ * Stamp the current envelope version onto a control event when it is missing.
+ *
+ * The `v` field is optional on {@link ControlEventBase} so that legacy events
+ * persisted before versioning existed still satisfy the type (the package
+ * deliberately preserves legacy shapes for replay). This helper is the bridge:
+ * use it on the stamp-on-write path so newly produced events carry `v`, and on
+ * the normalize-on-read path so replayed legacy events are upgraded to the
+ * current version. It is a pure function — the input is never mutated.
+ */
+export function normalizeControlEvent<E extends ControlEvent>(
+  event: E,
+): E & { v: typeof OPENSCOUT_CONTROL_EVENT_VERSION } {
+  return { ...event, v: event.v ?? OPENSCOUT_CONTROL_EVENT_VERSION };
+}

@@ -14,6 +14,8 @@ import type {
 import {
   OPENSCOUT_IROH_MESH_ALPN,
   OPENSCOUT_MESH_PROTOCOL_VERSION,
+  collaborationRequesterId,
+  isWorkItem,
 } from "@openscout/protocol";
 import type { DeliveryIntent, ScoutId } from "@openscout/protocol";
 import {
@@ -148,8 +150,10 @@ function actorIdsForCollaboration(
   if (record.ownerId) ids.add(record.ownerId);
   if (record.nextMoveOwnerId) ids.add(record.nextMoveOwnerId);
 
-  if (record.requestedById) ids.add(record.requestedById);
-  if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
+  // requestedById (work item) / askedById (question) — never drop questions.
+  const requesterId = collaborationRequesterId(record);
+  if (requesterId) ids.add(requesterId);
+  if (isWorkItem(record) && record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
     ids.add(record.waitingOn.targetId);
   }
 

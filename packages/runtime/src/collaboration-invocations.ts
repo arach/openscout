@@ -4,6 +4,7 @@ import type {
   InvocationRequest,
   MetadataMap,
 } from "@openscout/protocol";
+import { isWorkItem } from "@openscout/protocol";
 
 export type CollaborationWakeReason =
   | "explicit_target"
@@ -52,11 +53,19 @@ export function resolveCollaborationWakeTarget(
   record: CollaborationRecord,
   explicitTargetAgentId?: string,
 ): { targetAgentId: string; wakeReason: CollaborationWakeReason } {
+  // The requester field and its wake reason differ by kind: a work item is
+  // requested_by requestedById, a question is asked_of askedById. Collapsing
+  // to requestedById would leave questions unwakeable.
+  const requesterCandidate: { targetAgentId?: string; wakeReason: CollaborationWakeReason } =
+    isWorkItem(record)
+      ? { targetAgentId: record.requestedById, wakeReason: "requested_by" }
+      : { targetAgentId: record.askedById, wakeReason: "asked_of" };
+
   const candidates: Array<{ targetAgentId?: string; wakeReason: CollaborationWakeReason }> = [
     { targetAgentId: explicitTargetAgentId, wakeReason: "explicit_target" },
     { targetAgentId: record.nextMoveOwnerId, wakeReason: "next_move_owner" },
     { targetAgentId: record.ownerId, wakeReason: "owner" },
-    { targetAgentId: record.requestedById, wakeReason: "requested_by" },
+    requesterCandidate,
   ];
 
   for (const candidate of candidates) {
@@ -78,6 +87,30 @@ function defaultTaskForRecord(
   const title = record.title.trim();
   const summary = record.summary?.trim();
   const reasonLabel = titleCase(wakeReason.replaceAll("_", " "));
+
+  if (record.kind === "question") {
+    const instruction = (() => {
+      switch (record.state) {
+        case "open":
+          return "Answer this question directly. If you cannot answer, say so and explain what is needed or decline it.";
+        case "answered":
+          return "Confirm the answer resolves the question, or follow up with what remains unresolved.";
+        case "closed":
+          return "This question is closed. Review the resolution and report any follow-up.";
+        case "declined":
+        default:
+          return "This question was declined. Report whether it needs to be reopened or asked differently.";
+      }
+    })();
+
+    return [
+      `Wake reason: ${reasonLabel}.`,
+      `Question: ${title}`,
+      summary ? `Summary: ${summary}` : undefined,
+      record.answer?.trim() ? `Answer: ${record.answer.trim()}` : undefined,
+      instruction,
+    ].filter((value): value is string => Boolean(value)).join("\n");
+  }
 
   const instruction = (() => {
     switch (record.state) {

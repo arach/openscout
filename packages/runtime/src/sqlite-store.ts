@@ -19,6 +19,7 @@ import type {
   CollaborationWaitingOn,
   CollaborationProgress,
   WorkItemState,
+  QuestionState,
   ControlEvent,
   ConversationBinding,
   ConversationDefinition,
@@ -1061,11 +1062,29 @@ function buildCollaborationRecord(row: CollaborationRecordRow): CollaborationRec
     metadata: (detail as { metadata?: Record<string, unknown> }).metadata,
   };
 
+  const acceptanceState = row.acceptance_state as CollaborationRecord["acceptanceState"];
+
+  // Reconstruct the correct record kind — hardcoding "work_item" here would silently
+  // rewrite persisted questions as work items on read (data corruption).
+  if (row.kind === "question") {
+    return {
+      ...base,
+      kind: "question",
+      state: row.state as QuestionState,
+      acceptanceState,
+      askedById: detail.askedById as string | undefined,
+      answeredById: detail.answeredById as string | undefined,
+      answer: detail.answer as string | undefined,
+      answeredAt: detail.answeredAt as number | undefined,
+      closedAt: detail.closedAt as number | undefined,
+    };
+  }
+
   return {
     ...base,
     kind: "work_item",
     state: row.state as WorkItemState,
-    acceptanceState: row.acceptance_state as CollaborationRecord["acceptanceState"],
+    acceptanceState,
     requestedById: detail.requestedById as string | undefined,
     waitingOn: detail.waitingOn as CollaborationWaitingOn | undefined,
     progress: detail.progress as CollaborationProgress | undefined,
@@ -2533,12 +2552,20 @@ export class SQLiteControlPlaneStore {
       metadata: record.metadata,
     };
 
-    detail.requestedById = record.requestedById;
-    detail.waitingOn = record.waitingOn;
-    detail.progress = record.progress;
-    detail.startedAt = record.startedAt;
-    detail.reviewRequestedAt = record.reviewRequestedAt;
-    detail.completedAt = record.completedAt;
+    if (record.kind === "question") {
+      detail.askedById = record.askedById;
+      detail.answeredById = record.answeredById;
+      detail.answer = record.answer;
+      detail.answeredAt = record.answeredAt;
+      detail.closedAt = record.closedAt;
+    } else {
+      detail.requestedById = record.requestedById;
+      detail.waitingOn = record.waitingOn;
+      detail.progress = record.progress;
+      detail.startedAt = record.startedAt;
+      detail.reviewRequestedAt = record.reviewRequestedAt;
+      detail.completedAt = record.completedAt;
+    }
 
     this.db.query(
       `INSERT INTO collaboration_records (

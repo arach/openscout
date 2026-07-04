@@ -1,6 +1,6 @@
 import type { MetadataMap, ScoutId } from "./common.js";
 
-export type CollaborationKind = "work_item";
+export type CollaborationKind = "work_item" | "question";
 
 export type CollaborationPriority = "low" | "normal" | "high" | "urgent";
 
@@ -17,6 +17,12 @@ export type WorkItemState =
   | "review"
   | "done"
   | "cancelled";
+
+export type QuestionState =
+  | "open"
+  | "answered"
+  | "closed"
+  | "declined";
 
 export type CollaborationRelationKind =
   | "blocks"
@@ -75,7 +81,29 @@ export interface WorkItemRecord extends CollaborationRecordBase {
   completedAt?: number;
 }
 
-export type CollaborationRecord = WorkItemRecord;
+/**
+ * A lightweight information-seeking interaction. A peer of {@link WorkItemRecord},
+ * not a point on the same severity ladder: a question can resolve directly, attach
+ * to a work item, or spawn one.
+ *
+ * Acceptance is modeled separately from workflow state (via `acceptanceState`) so a
+ * reply and satisfaction do not collapse into one transition — a question can be
+ * `answered` without yet being `closed`.
+ */
+export interface QuestionRecord extends CollaborationRecordBase {
+  kind: "question";
+  state: QuestionState;
+  acceptanceState: CollaborationAcceptanceState;
+  /** The actor being asked to answer. */
+  askedById?: ScoutId;
+  answeredById?: ScoutId;
+  /** The delivered answer text, present once `state` is `answered`. */
+  answer?: string;
+  answeredAt?: number;
+  closedAt?: number;
+}
+
+export type CollaborationRecord = WorkItemRecord | QuestionRecord;
 
 export type CollaborationEventKind =
   | "created"
@@ -105,8 +133,43 @@ export function isWorkItemTerminalState(state: WorkItemState): boolean {
   return state === "done" || state === "cancelled";
 }
 
+/**
+ * A question is terminal once it is `closed` or `declined`. `answered` is NOT terminal
+ * — acceptance is tracked separately, so an answered question may still await closure.
+ */
+export function isQuestionTerminalState(state: QuestionState): boolean {
+  return state === "closed" || state === "declined";
+}
+
+/** Terminal-state check across both collaboration kinds. */
+export function isCollaborationTerminalState(record: CollaborationRecord): boolean {
+  return record.kind === "work_item"
+    ? isWorkItemTerminalState(record.state)
+    : isQuestionTerminalState(record.state);
+}
+
+/** Narrow a {@link CollaborationRecord} to a {@link WorkItemRecord}. */
+export function isWorkItem(record: CollaborationRecord): record is WorkItemRecord {
+  return record.kind === "work_item";
+}
+
+/** Narrow a {@link CollaborationRecord} to a {@link QuestionRecord}. */
+export function isQuestion(record: CollaborationRecord): record is QuestionRecord {
+  return record.kind === "question";
+}
+
+/**
+ * The actor a collaboration record is directed at / awaiting acceptance from: the
+ * `requestedById` for a work item, the `askedById` for a question. Consumers that
+ * route or attribute a record by its requester should use this rather than reaching
+ * for a kind-specific field, so questions are handled instead of silently dropped.
+ */
+export function collaborationRequesterId(record: CollaborationRecord): ScoutId | undefined {
+  return isWorkItem(record) ? record.requestedById : record.askedById;
+}
+
 export function collaborationRequiresNextMoveOwner(record: CollaborationRecord): boolean {
-  return !isWorkItemTerminalState(record.state);
+  return !isCollaborationTerminalState(record);
 }
 
 export function collaborationRequiresOwner(record: CollaborationRecord): boolean {
@@ -122,7 +185,7 @@ export function collaborationRequiresAcceptance(record: CollaborationRecord): bo
     return false;
   }
 
-  return Boolean(record.requestedById);
+  return Boolean(collaborationRequesterId(record));
 }
 
 export function validateCollaborationRecord(record: CollaborationRecord): string[] {
@@ -160,8 +223,16 @@ export function validateCollaborationRecord(record: CollaborationRecord): string
     errors.push("waiting work items require waitingOn");
   }
 
-  if (record.waitingOn?.targetId && record.waitingOn.targetId === record.id) {
+  if (
+    record.kind === "work_item"
+    && record.waitingOn?.targetId
+    && record.waitingOn.targetId === record.id
+  ) {
     errors.push("waitingOn.targetId cannot reference the work item itself");
+  }
+
+  if (record.kind === "question" && record.state === "answered" && !record.answer?.trim()) {
+    errors.push("answered questions require an answer");
   }
 
   if (record.acceptanceState !== "none" && !collaborationRequiresAcceptance(record)) {
@@ -210,7 +281,8 @@ export function validateCollaborationEvent(
       || event.kind === "progressed"
       || event.kind === "review_requested"
       || event.kind === "done"
-      || event.kind === "cancelled")
+      || event.kind === "cancelled"
+      || event.kind === "claimed")
     && event.recordKind !== "work_item"
   ) {
     errors.push(`${event.kind} events only apply to work items`);
