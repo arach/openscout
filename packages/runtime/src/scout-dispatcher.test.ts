@@ -788,6 +788,92 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("keeps project path routing ahead of mismatched agent id hints", () => {
+    const projectRoot = "/tmp/talkie";
+    const otherRoot = "/tmp/other";
+    const target = makeAgent({
+      id: "talkie.main",
+      definitionId: "talkie",
+      metadata: { projectRoot },
+    });
+    const wrongProject = makeAgent({
+      id: "other.main",
+      definitionId: "other",
+      metadata: { projectRoot: otherRoot },
+    });
+    const snapshot = makeSnapshot(
+      [target, wrongProject],
+      [
+        makeEndpoint({
+          id: "endpoint.talkie",
+          agentId: target.id,
+          harness: "codex",
+          projectRoot,
+          state: "idle",
+        }),
+        makeEndpoint({
+          id: "endpoint.other",
+          agentId: wrongProject.id,
+          harness: "codex",
+          projectRoot: otherRoot,
+          state: "idle",
+        }),
+      ],
+    );
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: { kind: "project_path", projectPath: projectRoot },
+        targetAgentId: wrongProject.id,
+      },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+  });
+
+  test("uses matching agent id hints within a project path route", () => {
+    const projectRoot = "/tmp/talkie";
+    const defaultTarget = makeAgent({
+      id: "talkie.default",
+      definitionId: "talkie",
+      metadata: { projectRoot },
+    });
+    const selectedTarget = makeAgent({
+      id: "talkie.selected",
+      definitionId: "talkie-alt",
+      metadata: { projectRoot },
+    });
+    const snapshot = makeSnapshot(
+      [defaultTarget, selectedTarget],
+      [
+        makeEndpoint({
+          id: "endpoint.default",
+          agentId: defaultTarget.id,
+          harness: "codex",
+          projectRoot,
+          state: "idle",
+        }),
+      ],
+    );
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: { kind: "project_path", projectPath: projectRoot },
+        targetAgentId: selectedTarget.id,
+      },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(selectedTarget.id);
+    }
+  });
+
   test("keeps project path routing ambiguous when the broker cannot choose", () => {
     const projectRoot = "/tmp/talkie";
     const snapshot = makeSnapshot([

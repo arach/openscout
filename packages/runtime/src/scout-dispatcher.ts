@@ -468,7 +468,11 @@ function projectCandidateRank(
 function resolveProjectPathTarget(
   snapshot: RuntimeSnapshot,
   projectPath: string,
-  options: { preferLocalNodeId?: string; helpers: Pick<DispatcherHelpers, "isStale"> },
+  options: {
+    preferLocalNodeId?: string;
+    preferredAgentId?: string;
+    helpers: Pick<DispatcherHelpers, "isStale">;
+  },
 ): BrokerLabelResolution {
   const normalizedProjectPath = normalizeProjectPath(projectPath);
   if (!normalizedProjectPath) {
@@ -490,6 +494,14 @@ function resolveProjectPathTarget(
 
   if (candidates.length === 0) {
     return { kind: "unknown", label: projectPath };
+  }
+
+  const preferredAgentId = options.preferredAgentId?.trim();
+  const preferred = preferredAgentId
+    ? candidates.find((candidate) => candidate.agent.id === preferredAgentId)
+    : undefined;
+  if (preferred) {
+    return { kind: "resolved", agent: preferred.agent };
   }
 
   const first = candidates[0]!;
@@ -576,9 +588,9 @@ export function resolveBrokerRouteTarget(
   const policy = input.routePolicy;
   const routeTarget = input.target;
   const preferLocalNodeId = policy?.preferLocalNodeId?.trim() || options.preferLocalNodeId;
-  const directId = routeTarget?.kind === "agent_id"
+  const directRouteAgentId = routeTarget?.kind === "agent_id"
     ? normalizedRouteTargetValue(routeTarget)
-    : input.targetAgentId?.trim();
+    : undefined;
 
   const directSessionId = routeTarget?.kind === "session_id"
     ? normalizedRouteTargetValue(routeTarget)
@@ -593,6 +605,28 @@ export function resolveBrokerRouteTarget(
     });
   }
 
+  if (directRouteAgentId) {
+    const agent = snapshot.agents[directRouteAgentId];
+    if (agent && (policy?.allowHistoricalDirectId ?? policy?.allowStaleDirectId ?? true)) {
+      return { kind: "resolved", agent };
+    }
+    if (agent && !options.helpers.isStale(agent)) {
+      return { kind: "resolved", agent };
+    }
+  }
+
+  const projectPath = routeTarget?.kind === "project_path"
+    ? normalizedRouteTargetValue(routeTarget)
+    : "";
+  if (projectPath) {
+    return resolveProjectPathTarget(snapshot, projectPath, {
+      preferLocalNodeId,
+      preferredAgentId: input.targetAgentId?.trim() || undefined,
+      helpers: options.helpers,
+    });
+  }
+
+  const directId = input.targetAgentId?.trim();
   if (directId) {
     const agent = snapshot.agents[directId];
     if (agent && (policy?.allowHistoricalDirectId ?? policy?.allowStaleDirectId ?? true)) {
@@ -635,16 +669,6 @@ export function resolveBrokerRouteTarget(
       };
     }
     return { kind: "unknown", label: `ref:${bindingRef}` };
-  }
-
-  const projectPath = routeTarget?.kind === "project_path"
-    ? normalizedRouteTargetValue(routeTarget)
-    : "";
-  if (projectPath) {
-    return resolveProjectPathTarget(snapshot, projectPath, {
-      preferLocalNodeId,
-      helpers: options.helpers,
-    });
   }
 
   const label = routeTarget?.kind === "agent_label"

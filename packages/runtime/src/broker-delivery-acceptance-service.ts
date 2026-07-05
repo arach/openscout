@@ -592,6 +592,7 @@ export class BrokerDeliveryAcceptanceService {
     const shouldCreateCardlessProjectSession =
       Boolean(projectPath)
       && payload.intent === "consult"
+      && !payload.targetAgentId?.trim()
       && !targetSessionId
       && ((execution?.session ?? "new") === "new" || execution?.session === "fork")
       && Boolean(this.options.createCardlessProjectSession);
