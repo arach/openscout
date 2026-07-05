@@ -20,6 +20,7 @@ export * from "./durable-actions.js";
 export * from "./observed-status.js";
 export * from "./activity.js";
 export * from "./harness-feature-support.js";
+export * from "./host-integrations.js";
 export * from "./native-interactions.js";
 export * from "./session-display-state.js";
 export * from "./capability-matrix.js";

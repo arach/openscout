@@ -154,6 +154,11 @@
       {
         "host": "pi",
         "name": "Pi Scout",
+        "roles": [
+          "execution_harness",
+          "agent_host"
+        ],
+        "harness": "pi",
         "repository": "https://github.com/arach/pi-scout",
         "page": "https://arach.github.io/pi-scout/",
         "install": "pi install git:github.com/arach/pi-scout"
@@ -161,6 +166,12 @@
       {
         "host": "Claude Code",
         "name": "Claude Scout",
+        "roles": [
+          "execution_harness",
+          "agent_host",
+          "mcp_host"
+        ],
+        "harness": "claude",
         "repository": "https://github.com/arach/claude-scout",
         "page": "https://arach.github.io/claude-scout/",
         "install": "/plugin marketplace add arach/claude-scout"
@@ -168,6 +179,12 @@
       {
         "host": "Codex",
         "name": "Codex Scout",
+        "roles": [
+          "execution_harness",
+          "agent_host",
+          "mcp_host"
+        ],
+        "harness": "codex",
         "repository": "https://github.com/arach/codex-scout",
         "page": "https://arach.github.io/codex-scout/",
         "install": "/plugin marketplace add arach/codex-scout"
@@ -175,9 +192,37 @@
       {
         "host": "Cursor",
         "name": "Cursor Scout",
+        "roles": [
+          "execution_harness",
+          "agent_host",
+          "mcp_host"
+        ],
+        "harness": "cursor",
         "repository": "https://github.com/arach/cursor-scout",
         "page": "https://arach.github.io/cursor-scout/",
         "install": "bun run install:global"
+      },
+      {
+        "host": "Hermes Agent",
+        "name": "Hermes Scout",
+        "roles": [
+          "agent_host",
+          "mcp_host"
+        ],
+        "repository": "https://github.com/arach/hermes-scout",
+        "page": "https://github.com/arach/hermes-scout",
+        "install": "Install Hermes Scout as a Hermes plugin after Scout is healthy."
+      },
+      {
+        "host": "Herdr",
+        "name": "Herdr",
+        "roles": [
+          "terminal_host",
+          "agent_state_surface"
+        ],
+        "repository": "https://github.com/ogulcancelik/herdr",
+        "page": "https://herdr.dev/docs/",
+        "install": "Install Herdr integrations for the agent hosts you use."
       }
     ]
   }

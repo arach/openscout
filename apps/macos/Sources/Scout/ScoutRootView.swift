@@ -694,9 +694,15 @@ struct ScoutRootView: View {
         observeAgent(agent)
     }
 
-    /// Jump into the selected row's chat (⌘↩, Agents page) — the focused
-    /// session if a session row is selected, else the agent's channel.
+    /// Handle the global ⌘↩ command. When the normal chat composer owns focus,
+    /// ⌘↩ means “send” even if AppKit routes the chord through the menu command
+    /// before the TextField's local key handler sees it. Outside the composer it
+    /// keeps the existing Agents/Repos “open selection” behavior.
     private func openSelectedAgentChannel() {
+        if composerFocused, section == .comms {
+            requestSend()
+            return
+        }
         if section == .repos {
             activateSelectedRepoRow()
             return

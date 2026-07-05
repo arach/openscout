@@ -163,6 +163,18 @@ export const STUDIO_PAGES: StudioPage[] = [
 
   // ── Studies · Scout ─────────────────────────────────────────────
   {
+    href: "/studies/session-harness-state",
+    label: "Session Harness State",
+    bucket: "studies",
+    surface: "cross",
+    status: "draft",
+    source: [
+      "design/studio/views/session-harness-state.tsx",
+      "docs/eng/sco-079-session-harness-state-machine.md",
+    ],
+    blurb: "A styled state-machine view for agent sessions as durable context plus live harness attachment; separates session lifecycle from invocation delivery.",
+  },
+  {
     href: "/studies/scout-shell",
     label: "Scout Design System",
     bucket: "studies",

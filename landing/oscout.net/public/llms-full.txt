@@ -152,7 +152,8 @@ trust, mesh, or license claims.
 
 Host-specific integrations live in standalone repositories when they are
 independently installable packages. See [`docs/integrations.md`](./docs/integrations.md)
-for the current pi, Claude Code, Codex, and Hermes integration map.
+for the current pi, Claude Code, Codex, Cursor, Hermes, and Herdr integration
+map.
 
 ## Start Here
 
@@ -367,10 +368,18 @@ already work.
 | pi | [Pi Scout](https://github.com/arach/pi-scout) | `pi install git:github.com/arach/pi-scout` |
 | Claude Code | [Claude Scout](https://github.com/arach/claude-scout) | `/plugin marketplace add arach/claude-scout` |
 | Codex | [Codex Scout](https://github.com/arach/codex-scout) | `/plugin marketplace add arach/codex-scout` |
+| Cursor | [Cursor Scout](https://github.com/arach/cursor-scout) | See the host-specific installer. |
+| Hermes Agent | [Hermes Scout](https://github.com/arach/hermes-scout) | Install the Hermes plugin after Scout is healthy. |
+| Herdr | [Herdr](https://github.com/ogulcancelik/herdr) | Install Herdr integrations for the agent hosts you use. |
 
 Install these after `scout setup` and `scout doctor` pass. Each companion
 package should use the installed `scout` CLI or the local broker rather than
 vendoring OpenScout internals.
+
+Some companion hosts are also Scout harnesses, and some are not. Hermes and
+Herdr are first-class compatibility targets in the host integration layer, but
+they are not valid `--harness` values unless a future adapter explicitly makes
+them execution backends.
 
 See [docs/integrations.md](./docs/integrations.md) for the current integration
 map, repository links, and sibling-checkout guidance.
@@ -897,17 +906,17 @@ Scout is a local-first control plane for orchestrating AI agents across harnesse
 
 Remember these three things:
 
-- **Broker**: the local daemon that stores state, routes messages, and acts as the source of truth.
-- **Protocol**: the shared language for agent identities, records, and requests.
-- **Runtime**: the part that starts, stops, and health-checks agent sessions on a given harness.
+- **Runtime / broker** (`packages/runtime`): accepts commands, routes messages, and writes Scout-owned coordination records.
+- **Protocol** (`packages/protocol`): the shared language for agent identities, records, and requests.
+- **Agent sessions** (`packages/agent-sessions`): normalizes harness-owned sessions into observed events, snapshots, approvals, and topology hints.
 
-It does not replace Claude Code, Codex, or any other agent tool. It is the substrate: the layer where agents get discovered, addressed, observed, and composed, regardless of which harness runs them or which machine they live on. A harness is just the agent runner and transport wrapper for a specific tool. The agent itself may live outside Scout; what Scout owns is the local routing, binding, session, and durable coordination state around that agent.
+Scout does not replace Claude Code, Codex, or any other agent tool. It handles discovery, addressing, observation, and coordination around those tools, regardless of which harness runs them or which machine they live on. A harness is the agent runner and transport wrapper for a specific tool. The agent itself may live outside Scout; what Scout owns is the local routing, binding, session, and durable coordination state around that agent.
 
 In practice, the architecture is aiming for three stable outcomes:
 
-- one canonical writer for local state: the broker
-- one shared model for messages, invocations, flights, and identities: the protocol
-- many possible operator surfaces and harness adapters around that core
+- `packages/runtime`: clients and adapters submit commands to the local broker instead of writing Scout-owned records directly
+- `packages/protocol`: one shared model for messages, invocations, flights, identities, and collaboration records
+- `packages/agent-sessions`: many operator surfaces and harness adapters can observe sessions around that core
 
 Platform Scout is distinct from the conversational assistant handle
 `@scoutbot`. The product, broker, CLI, protocol, and coordination model remain
@@ -926,9 +935,9 @@ A small set of constraints shape every design decision.
 
 **High-trust local pilot, not hardened enterprise perimeter.** Scout assumes trusted local users, trusted local agents, and explicit pairing/mesh choices; it is not yet a multi-tenant, compliance-ready system. See [`current-posture.md`](./current-posture.md).
 
-**Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes and observes external harness transcripts without importing them wholesale. This boundary is central enough to have its own section below; see [The Data Model](#the-data-model).
+**Observe, don't absorb.** Harnesses own their primary transcripts and logs. Scout observes them through adapters and tail views, then stores links, metadata, and Scout-owned coordination records without importing external turns wholesale. This boundary is central enough to have its own section below; see [The Data Model](#the-data-model).
 
-**Multi-harness.** Agents run on Claude Code, Codex, or anything that speaks the protocol. Scout doesn't assume one execution backend.
+**Multi-harness.** Agents run wherever they naturally run, with or without Scout. Scout observes and coordinates across those harnesses without assuming one execution backend.
 
 **Multi-machine.** Agents on different machines discover and message each other through mesh forwarding. Pair a phone or a second workstation and the agent graph extends with it.
 
@@ -973,7 +982,7 @@ Anything that crosses a boundary — between agents, harnesses, or machines — 
 
 ### Broker
 
-A single local daemon per machine. Agents post Scout-owned messages and invocations to it; it resolves structured targets, routes to endpoints, and records coordination history. It is the canonical writer for Scout control-plane state. Exposes HTTP for reads and writes, SSE for live updates.
+A single local daemon per machine. Agents and surfaces submit commands to it; it resolves structured targets, routes to endpoints, and records coordination history. They do not write Scout-owned control-plane records directly. Exposes HTTP for reads and writes, SSE for live updates.
 
 ```bash
 # What the broker handles
@@ -1014,9 +1023,6 @@ Shared runtime primitives (`broker.ts` in-memory registry, `scout-dispatcher.ts`
 resolution, `local-agents.ts` harness transports) sit beside this map and are called
 from the services above.
 
-For the June 2026 refactor context, behavioral findings, and remaining cleanup items,
-see [`eng/broker-daemon-architecture-review-2026-06-18.md`](./eng/broker-daemon-architecture-review-2026-06-18.md).
-
 ### Runtime
 
 Manages agent sessions across harnesses — starting them, stopping them, health-checking them. Handles system prompt generation, tmux session management, and transport adapters for each harness type.
@@ -1039,7 +1045,7 @@ why the Rust binary is named `scoutd`, while the Bun orchestrator keeps the
 
 ### CLI
 
-The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Legacy body-mention shortcuts still exist for compatibility, but new flows should keep target metadata out of the message body.
+The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Target metadata belongs in structured command fields, not in the message body.
 
 ### Surfaces
 
@@ -1057,7 +1063,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 ## The Data Model
 
-Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or any future harness.
+Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or another harness.
 
 Scout's coordination vocabulary is small. A **conversation** groups related turns; a **message** is a durable "say this" record; an **invocation** is a request for work; a **flight** is the lifecycle record attached to an invocation; a **delivery** is one routed attempt to reach a target; a **binding** maps a project path and branch to an addressable target; a **question** asks for an answer; and a **work item** owns a durable piece of execution. [`concepts.md`](./concepts.md) defines each precisely and maps them onto external protocols. This section is about who owns them.
 
@@ -1645,12 +1651,20 @@ is deliberately multi-harness: it does not assume one backend, and a harness is
 just the agent runner plus its transport wrapper. The agent itself may live
 outside Scout entirely; the harness is only how a given session is executed.
 
-**Protocol.** The protocol is the shared grammar every surface and harness
-speaks: the TypeScript shapes for identities, messages, invocations, flights,
-conversations, delivery, reply context, and collaboration records. Anything
-that crosses a boundary — between agents, harnesses, or machines — is described
-here. Scout is protocol-over-product: surfaces are built on the protocol, not
-beside it.
+**Host Integration.** A host integration is first-class compatibility with an
+outside agent tool, IDE, terminal host, or agent-state surface. Some host
+integrations are also harnesses because Scout can execute sessions through them.
+Others are not: Hermes can host Scout tools through plugin and MCP surfaces,
+while Herdr can expose terminal panes and agent state around Scout-compatible
+sessions. Treat host integration as the umbrella and harness as the execution
+backend subset.
+
+**Protocol.** The protocol is the shared grammar every surface, host
+integration, and harness speaks: the TypeScript shapes for identities,
+messages, invocations, flights, conversations, delivery, reply context, and
+collaboration records. Anything that crosses a boundary — between agents,
+harnesses, or machines — is described here. Scout is protocol-over-product:
+surfaces are built on the protocol, not beside it.
 
 **Mesh.** Mesh is how agents on different machines reach and coordinate with
 each other. Each broker advertises its local agents to peers and syncs endpoint
@@ -3106,6 +3120,22 @@ A good Scout integration should let an agent:
 - receive broker-authored guidance when routing or runtime state is incomplete,
   instead of having to rediscover topology manually
 
+## Host Integration Vs Harness
+
+Scout compatibility starts at the host integration layer. A host integration is
+any first-class bridge to another agent tool, IDE, terminal host, or
+agent-state surface. It can expose Scout commands, connect to `scout mcp`,
+report lifecycle state, forward approvals, focus or control sessions, or host a
+plugin that talks to the broker.
+
+A harness is narrower: it is only the execution backend for a Scout session.
+Populate `harness`, endpoint harness metadata, or CLI `--harness` values only
+when Scout can actually route work into that runtime as an execution target.
+Hermes and Herdr should be represented as host integrations, not harnesses:
+Hermes is an agent/MCP host, and Herdr is a terminal host plus agent-state
+surface. If a future adapter makes either one an execution backend, add that
+explicitly instead of relying on the host name.
+
 ## Minimum Contract
 
 At minimum, an integration needs five pieces.
@@ -3415,6 +3445,28 @@ making the integration surface discoverable.
 | Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | [`arach.github.io/codex-scout`](https://arach.github.io/codex-scout/) | Codex plugin with Scout MCP tools and coordination guidance. |
 | Cursor | [`arach/cursor-scout`](https://github.com/arach/cursor-scout) | [`arach.github.io/cursor-scout`](https://arach.github.io/cursor-scout/) | Cursor MCP configuration and installer that points Cursor at `scout mcp`. |
 | Hermes Agent | [`arach/hermes-scout`](https://github.com/arach/hermes-scout) | [`github.com/arach/hermes-scout`](https://github.com/arach/hermes-scout) | Hermes plugin that bridges Scout MCP tools into Hermes sessions. |
+| Herdr | [`ogulcancelik/herdr`](https://github.com/ogulcancelik/herdr) | [`herdr.dev/docs`](https://herdr.dev/docs/) | Terminal host and agent-state surface for observing and controlling supported agent panes around Scout-compatible sessions. |
+
+## Compatibility Model
+
+Scout uses **host integration** as the umbrella term for first-class
+compatibility with another agent tool, terminal host, or IDE. A host integration
+can contribute one or more roles:
+
+- execution harness: Scout can route work into a session backed by that runtime
+- agent host: the tool can host a Scout-aware agent surface or plugin
+- MCP host: the tool can connect to `scout mcp`
+- terminal host: the tool can expose or control terminal panes that contain
+  Scout-compatible sessions
+- agent-state surface: the tool can report lifecycle, focus, approval, or
+  session state around agents Scout cares about
+
+`harness` remains the narrower runtime field. Claude Code, Codex, Cursor, and
+pi can be harness-backed execution targets. Hermes and Herdr are first-class
+host integrations, but they are not Scout harnesses: Hermes is an agent/MCP
+host, and Herdr is a terminal host plus agent-state surface. Do not add
+`hermes` or `herdr` to `--harness` or `execution.harness` unless an explicit
+execution adapter is implemented.
 
 ## Shared Routing Guidance For Integrations
 
@@ -3470,7 +3522,8 @@ Recommended sibling checkout layout:
 ├── claude-scout/
 ├── codex-scout/
 ├── cursor-scout/
-└── hermes-scout/
+├── hermes-scout/
+└── herdr/
 ```
 
 That layout keeps the product repo clean while making related host integrations

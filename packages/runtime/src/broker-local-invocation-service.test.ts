@@ -286,6 +286,7 @@ describe("BrokerLocalInvocationService", () => {
     ]);
     expect(harness.persistedEndpoints).toEqual([]);
     expect(harness.postedMessages).toEqual([]);
+    expect(harness.statusMessages).toEqual([]);
   });
 
   test("runs a pairing endpoint to completion and posts a broker reply", async () => {

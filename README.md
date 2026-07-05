@@ -34,7 +34,8 @@ trust, mesh, or license claims.
 
 Host-specific integrations live in standalone repositories when they are
 independently installable packages. See [`docs/integrations.md`](./docs/integrations.md)
-for the current pi, Claude Code, Codex, and Hermes integration map.
+for the current pi, Claude Code, Codex, Cursor, Hermes, and Herdr integration
+map.
 
 ## Start Here
 

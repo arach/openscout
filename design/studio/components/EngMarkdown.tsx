@@ -1,10 +1,27 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import ReactMarkdown, { type Components } from "react-markdown";
+import type { ComponentType } from "react";
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+} from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+
+const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
+  () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
+  { ssr: false },
+);
+
+const DIAGRAM_CODES: Record<string, string> = {
+  "communication-flow": "SCOUT-001-COMM",
+  "agent-lifecycle": "SCOUT-002-LIFE",
+  "mesh-topology": "SCOUT-003-MESH",
+  "session-harness-lifecycle": "SCO-079-SESSION",
+};
 
 /** Set true while rendering inside an `<a>`. Prevents the inline-code
  *  renderer from wrapping a path-like span in a second <Link> — which
@@ -38,6 +55,9 @@ export function EngMarkdown({
     <article className={`eng-doc ${compact ? "eng-doc--compact" : ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url) => (
+          url.startsWith("arc:") ? url : defaultUrlTransform(url)
+        )}
         rehypePlugins={[
           [rehypeHighlight, { detect: true, ignoreMissing: true }],
         ]}
@@ -118,6 +138,18 @@ function buildComponents(fromSlug: string | undefined): Components {
         </InsideAnchorContext.Provider>
       </a>
     ),
+    img: ({ src, alt }) => {
+      if (typeof src === "string" && src.startsWith("arc:")) {
+        return <ArcMarkdownDiagram src={src.slice("arc:".length)} alt={alt} />;
+      }
+      return (
+        <img
+          src={src}
+          alt={alt ?? ""}
+          className="my-5 rounded-lg border border-studio-edge"
+        />
+      );
+    },
     ul: ({ children }) => (
       <ul className="font-sans text-[14px] leading-[1.65] text-studio-ink my-3 ml-5 list-disc space-y-1">
         {children}
@@ -168,6 +200,85 @@ function buildComponents(fromSlug: string | undefined): Components {
       </td>
     ),
   };
+}
+
+function ArcMarkdownDiagram({ src, alt }: { src: string; alt?: string }) {
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setError(null);
+    fetch(
+      `/api/repo-file?path=${encodeURIComponent(`docs/diagrams/${src}.arc.json`)}&full=1`,
+    )
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
+      .then((payload) => {
+        const raw = typeof payload.excerpt === "string" ? payload.excerpt : "";
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (!cancelled) setData(parsed);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  if (error) {
+    return (
+      <div className="my-5 rounded-lg border border-rose-300/30 bg-rose-300/[0.07] px-4 py-3 font-mono text-[11px] text-rose-100/80">
+        Could not load Arc diagram: {src}
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="my-5 aspect-[10/6] animate-pulse rounded-lg border border-studio-edge bg-studio-canvas-alt" />
+    );
+  }
+
+  const layout = data.layout as { width?: number; height?: number } | undefined;
+  const aspectRatio = layout?.width && layout?.height
+    ? `${layout.width}/${layout.height}`
+    : "10/6";
+
+  return (
+    <figure className="my-6">
+      <div
+        className="overflow-hidden rounded-xl border border-studio-edge bg-studio-canvas-alt"
+        style={{ aspectRatio }}
+      >
+        <ArcDiagram
+          data={data}
+          className="h-full w-full !rounded-none !border-0 !bg-studio-canvas-alt !shadow-none"
+          mode="dark"
+          theme="cool"
+          interactive={true}
+          showArcToggle={false}
+          label={formatDiagramLabel(src)}
+          defaultZoom="fit"
+          maxFitZoom={0.95}
+          hoverEffects={{ dim: true, lift: true, glow: true, highlightEdges: true }}
+        />
+      </div>
+      {alt ? (
+        <figcaption className="mt-2 font-mono text-[10px] text-studio-ink-faint">
+          {alt}
+        </figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+function formatDiagramLabel(src: string) {
+  return DIAGRAM_CODES[src] ?? `SCOUT-${src.toUpperCase().replace(/-/g, "")}`;
 }
 
 function CodeRenderer({

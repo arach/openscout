@@ -53,12 +53,20 @@ is deliberately multi-harness: it does not assume one backend, and a harness is
 just the agent runner plus its transport wrapper. The agent itself may live
 outside Scout entirely; the harness is only how a given session is executed.
 
-**Protocol.** The protocol is the shared grammar every surface and harness
-speaks: the TypeScript shapes for identities, messages, invocations, flights,
-conversations, delivery, reply context, and collaboration records. Anything
-that crosses a boundary — between agents, harnesses, or machines — is described
-here. Scout is protocol-over-product: surfaces are built on the protocol, not
-beside it.
+**Host Integration.** A host integration is first-class compatibility with an
+outside agent tool, IDE, terminal host, or agent-state surface. Some host
+integrations are also harnesses because Scout can execute sessions through them.
+Others are not: Hermes can host Scout tools through plugin and MCP surfaces,
+while Herdr can expose terminal panes and agent state around Scout-compatible
+sessions. Treat host integration as the umbrella and harness as the execution
+backend subset.
+
+**Protocol.** The protocol is the shared grammar every surface, host
+integration, and harness speaks: the TypeScript shapes for identities,
+messages, invocations, flights, conversations, delivery, reply context, and
+collaboration records. Anything that crosses a boundary — between agents,
+harnesses, or machines — is described here. Scout is protocol-over-product:
+surfaces are built on the protocol, not beside it.
 
 **Mesh.** Mesh is how agents on different machines reach and coordinate with
 each other. Each broker advertises its local agents to peers and syncs endpoint
