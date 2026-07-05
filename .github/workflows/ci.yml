@@ -65,6 +65,8 @@ jobs:
           bun run --cwd apps/mesh-front-door check
 
       - name: Unit tests
+        env:
+          OPENSCOUT_CONFORMANCE: "1"
         run: |
           if bun -e "const pkg = require('./package.json'); process.exit(pkg.scripts?.['test:unit'] ? 0 : 1)"; then
             bun run test:unit
