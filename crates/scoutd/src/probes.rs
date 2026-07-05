@@ -26,12 +26,24 @@ const REPO_SCAN_CAPABILITY_ID: &str = "repo.scan";
 const REPO_DIFF_CAPABILITY_ID: &str = "repo.diff";
 const TAILSCALE_STATUS_ID: &str = "tailscale.status";
 const GIT_BUILD_INFO_ID: &str = "git.buildInfo";
+const PS_RUNTIME_ID: &str = "ps.runtime";
+const PS_DISCOVERY_ID: &str = "ps.discovery";
+const PS_CWD_ID: &str = "ps.cwd";
+const NET_LISTENERS_ID: &str = "net.listeners";
 const TAILSCALE_STATUS_TTL_MS: u64 = 30_000;
 const GIT_BUILD_INFO_TTL_MS: u64 = 60_000;
+const PS_RUNTIME_TTL_MS: u64 = 5_000;
+const PS_DISCOVERY_TTL_MS: u64 = 1_000;
+const PS_CWD_TTL_MS: u64 = 5_000;
+const NET_LISTENERS_TTL_MS: u64 = 5_000;
 const DEFAULT_TAILSCALE_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_millis(1_500);
+const DEFAULT_PS_TIMEOUT: Duration = Duration::from_millis(1_500);
+const DEFAULT_LSOF_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_REPO_JOB_TIMEOUT: Duration = Duration::from_millis(20_000);
 const DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_PS_DISCOVERY_MAX_ROWS: usize = 4_096;
+const PS_DISCOVERY_MAX_COMMAND_CHARS: usize = 1_024;
 const DEFAULT_REPO_JOB_WORKERS: usize = 4;
 const DEFAULT_REPO_JOB_QUEUE: usize = 32;
 const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
@@ -60,9 +72,14 @@ pub struct ProbeServerOptions {
     pub tailscale_bin: String,
     pub git_bin: String,
     pub tmux_bin: String,
+    pub ps_bin: String,
+    pub lsof_bin: String,
     pub tailscale_status_fixture: Option<PathBuf>,
     pub tailscale_timeout: Duration,
     pub git_timeout: Duration,
+    pub ps_timeout: Duration,
+    pub lsof_timeout: Duration,
+    pub ps_discovery_max_rows: usize,
     pub repo_job_timeout: Duration,
     pub repo_job_response_cap_bytes: usize,
     pub repo_job_workers: usize,
@@ -81,12 +98,21 @@ impl ProbeServerOptions {
                 .unwrap_or_else(|| "tailscale".to_string()),
             git_bin: env_nonempty("OPENSCOUT_GIT_BIN").unwrap_or_else(|| "git".to_string()),
             tmux_bin: env_nonempty("OPENSCOUT_TMUX_BIN").unwrap_or_else(|| "tmux".to_string()),
+            ps_bin: env_nonempty("OPENSCOUT_PS_BIN").unwrap_or_else(|| "ps".to_string()),
+            lsof_bin: env_nonempty("OPENSCOUT_LSOF_BIN").unwrap_or_else(|| "lsof".to_string()),
             tailscale_status_fixture: env_nonempty("OPENSCOUT_TAILSCALE_STATUS_JSON")
                 .map(PathBuf::from),
             tailscale_timeout: env_duration_ms("OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_TAILSCALE_TIMEOUT),
             git_timeout: env_duration_ms("OPENSCOUT_GIT_BUILD_INFO_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_GIT_TIMEOUT),
+            ps_timeout: env_duration_ms("OPENSCOUT_PS_PROBE_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_PS_TIMEOUT),
+            lsof_timeout: env_duration_ms("OPENSCOUT_LSOF_PROBE_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_LSOF_TIMEOUT),
+            ps_discovery_max_rows: env_usize("OPENSCOUT_PS_DISCOVERY_MAX_ROWS")
+                .unwrap_or(DEFAULT_PS_DISCOVERY_MAX_ROWS)
+                .max(1),
             repo_job_timeout: env_duration_ms("OPENSCOUT_REPO_JOB_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_REPO_JOB_TIMEOUT),
             repo_job_response_cap_bytes: env_usize("OPENSCOUT_REPO_JOB_RESPONSE_MAX_BYTES")
@@ -765,6 +791,24 @@ impl ProbeEngine {
                 })?;
                 self.run_git_build_info(&repo_root)
             }
+            PS_RUNTIME_ID => self.run_ps_runtime(),
+            PS_DISCOVERY_ID => self.run_ps_discovery(),
+            PS_CWD_ID => {
+                let pid = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "ps.cwd requires a pid key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_ps_cwd(&pid)
+            }
+            NET_LISTENERS_ID => {
+                let port = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "net.listeners requires a port key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_net_listeners(&port)
+            }
             _ => Err(ProbeFailure {
                 code: "unknown_probe".to_string(),
                 message: format!("unknown probeId: {probe_id}"),
@@ -865,6 +909,103 @@ impl ProbeEngine {
             .git_output(repo_root, args)?
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()))
+    }
+
+    fn run_ps_runtime(&self) -> Result<Value, ProbeFailure> {
+        let rows = match run_capped_command(
+            &self.options.ps_bin,
+            &["-axo", "pid=,ppid=,pgid=,tty=,comm="],
+            None,
+            self.options.ps_timeout,
+            4 * 1024 * 1024,
+            128 * 1024,
+        ) {
+            Ok(output) => parse_process_rows(&output.stdout),
+            Err(error) if is_domain_unavailable_command_error(&error) => Vec::new(),
+            Err(error) => return Err(command_failure_to_probe(error, PS_RUNTIME_ID)),
+        };
+        let command_rows = match run_capped_command(
+            &self.options.ps_bin,
+            &["-axo", "pid=,ppid=,pgid=,tty=,command="],
+            None,
+            self.options.ps_timeout,
+            8 * 1024 * 1024,
+            128 * 1024,
+        ) {
+            Ok(output) => parse_process_command_rows(&output.stdout),
+            Err(error) if is_domain_unavailable_command_error(&error) => Vec::new(),
+            Err(error) => return Err(command_failure_to_probe(error, PS_RUNTIME_ID)),
+        };
+        Ok(json!({
+            "rows": rows,
+            "commandRows": command_rows,
+        }))
+    }
+
+    fn run_ps_discovery(&self) -> Result<Value, ProbeFailure> {
+        match run_capped_command(
+            &self.options.ps_bin,
+            &["-axww", "-o", "pid=,ppid=,etime=,command="],
+            None,
+            self.options.ps_timeout,
+            32 * 1024 * 1024,
+            128 * 1024,
+        ) {
+            Ok(output) => Ok(process_discovery_snapshot(
+                parse_process_discovery_rows(&output.stdout),
+                self.options.ps_discovery_max_rows,
+            )),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(
+                process_discovery_snapshot(Vec::new(), self.options.ps_discovery_max_rows),
+            ),
+            Err(error) => Err(command_failure_to_probe(error, PS_DISCOVERY_ID)),
+        }
+    }
+
+    fn run_ps_cwd(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let Some(pid) = positive_u32(key) else {
+            return Ok(Value::Null);
+        };
+        let pid_arg = pid.to_string();
+        match run_capped_command(
+            &self.options.lsof_bin,
+            &["-a", "-p", pid_arg.as_str(), "-d", "cwd", "-Fn"],
+            None,
+            self.options.lsof_timeout,
+            64 * 1024,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(parse_lsof_cwd(&output.stdout)
+                .map(Value::String)
+                .unwrap_or(Value::Null)),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(Value::Null),
+            Err(error) => Err(command_failure_to_probe(error, PS_CWD_ID)),
+        }
+    }
+
+    fn run_net_listeners(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let Some(port) = positive_u32(key) else {
+            return Ok(json!({ "port": 0, "pid": Value::Null }));
+        };
+        let port_arg = format!("-iTCP:{port}");
+        match run_capped_command(
+            &self.options.lsof_bin,
+            &["-nP", port_arg.as_str(), "-sTCP:LISTEN", "-Fp"],
+            None,
+            self.options.lsof_timeout,
+            64 * 1024,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(json!({
+                "port": port,
+                "pid": parse_lsof_listener_pid(&output.stdout),
+            })),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(json!({
+                "port": port,
+                "pid": Value::Null,
+            })),
+            Err(error) => Err(command_failure_to_probe(error, NET_LISTENERS_ID)),
+        }
     }
 }
 
@@ -1168,6 +1309,26 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             ttl_ms: GIT_BUILD_INFO_TTL_MS,
         },
         ProbeCapability {
+            probe_id: PS_RUNTIME_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: PS_RUNTIME_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: PS_DISCOVERY_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: PS_DISCOVERY_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: PS_CWD_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: PS_CWD_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: NET_LISTENERS_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: NET_LISTENERS_TTL_MS,
+        },
+        ProbeCapability {
             probe_id: REPO_SCAN_CAPABILITY_ID.to_string(),
             schema_version: 1,
             ttl_ms: 0,
@@ -1367,13 +1528,25 @@ fn snapshot_is_fresh_for(snapshot: &ProbeSnapshotResponse, max_age_ms: u64) -> b
 }
 
 fn is_supported_probe(probe_id: &str) -> bool {
-    matches!(probe_id, TAILSCALE_STATUS_ID | GIT_BUILD_INFO_ID)
+    matches!(
+        probe_id,
+        TAILSCALE_STATUS_ID
+            | GIT_BUILD_INFO_ID
+            | PS_RUNTIME_ID
+            | PS_DISCOVERY_ID
+            | PS_CWD_ID
+            | NET_LISTENERS_ID
+    )
 }
 
 fn probe_ttl_ms(probe_id: &str) -> Option<u64> {
     match probe_id {
         TAILSCALE_STATUS_ID => Some(TAILSCALE_STATUS_TTL_MS),
         GIT_BUILD_INFO_ID => Some(GIT_BUILD_INFO_TTL_MS),
+        PS_RUNTIME_ID => Some(PS_RUNTIME_TTL_MS),
+        PS_DISCOVERY_ID => Some(PS_DISCOVERY_TTL_MS),
+        PS_CWD_ID => Some(PS_CWD_TTL_MS),
+        NET_LISTENERS_ID => Some(NET_LISTENERS_TTL_MS),
         _ => None,
     }
 }
@@ -1384,6 +1557,7 @@ fn normalize_probe_key(
 ) -> Result<Option<String>, ProbeFailure> {
     match probe_id {
         TAILSCALE_STATUS_ID => Ok(None),
+        PS_RUNTIME_ID | PS_DISCOVERY_ID => Ok(None),
         GIT_BUILD_INFO_ID => {
             let raw_key = key
                 .as_deref()
@@ -1396,8 +1570,206 @@ fn normalize_probe_key(
                 })?;
             Ok(Some(canonical_repo_root(raw_key)))
         }
+        PS_CWD_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "ps.cwd requires a pid key".to_string(),
+                    timed_out: false,
+                })?;
+            Ok(Some(normalized.to_string()))
+        }
+        NET_LISTENERS_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "net.listeners requires a port key".to_string(),
+                    timed_out: false,
+                })?;
+            Ok(Some(normalized.to_string()))
+        }
         _ => Ok(key),
     }
+}
+
+fn positive_u32(value: &str) -> Option<u32> {
+    value.trim().parse::<u32>().ok().filter(|value| *value > 0)
+}
+
+fn normalize_tty(value: Option<&str>) -> Value {
+    let normalized = value
+        .unwrap_or_default()
+        .trim()
+        .strip_prefix("/dev/")
+        .unwrap_or_else(|| value.unwrap_or_default().trim())
+        .trim();
+    if normalized.is_empty() || normalized == "??" || normalized == "?" {
+        Value::Null
+    } else {
+        Value::String(normalized.to_string())
+    }
+}
+
+fn parse_process_number(value: Option<&str>) -> Option<u32> {
+    value
+        .unwrap_or_default()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+}
+
+fn parse_process_rows(output: &str) -> Vec<Value> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid = parse_process_number(parts.next())?;
+            let ppid = parse_process_number(parts.next())?;
+            let pgid = parse_process_number(parts.next())?;
+            let tty = normalize_tty(parts.next());
+            let comm = parts.collect::<Vec<_>>().join(" ");
+            if comm.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "pid": pid,
+                "ppid": ppid,
+                "pgid": pgid,
+                "comm": comm,
+                "tty": tty,
+            }))
+        })
+        .collect()
+}
+
+fn parse_process_command_rows(output: &str) -> Vec<Value> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid = parse_process_number(parts.next())?;
+            let ppid = parse_process_number(parts.next())?;
+            let pgid = parse_process_number(parts.next())?;
+            let tty = normalize_tty(parts.next());
+            let command = parts.collect::<Vec<_>>().join(" ");
+            let comm = command.split_whitespace().next().unwrap_or_default();
+            if comm.is_empty() || command.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "pid": pid,
+                "ppid": ppid,
+                "pgid": pgid,
+                "comm": comm,
+                "tty": tty,
+                "command": command,
+            }))
+        })
+        .collect()
+}
+
+fn take_token(input: &str) -> Option<(&str, &str)> {
+    let trimmed = input.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let end = trimmed
+        .char_indices()
+        .find_map(|(index, ch)| ch.is_whitespace().then_some(index))
+        .unwrap_or(trimmed.len());
+    let token = &trimmed[..end];
+    let rest = &trimmed[end..];
+    Some((token, rest))
+}
+
+fn parse_process_discovery_rows(output: &str) -> Vec<Value> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (pid_raw, rest) = take_token(line)?;
+            let (ppid_raw, rest) = take_token(rest)?;
+            let (etime, rest) = take_token(rest)?;
+            let pid = parse_process_number(Some(pid_raw))?;
+            let ppid = parse_process_number(Some(ppid_raw))?;
+            let command = rest.trim();
+            if etime.is_empty() || command.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "pid": pid,
+                "ppid": ppid,
+                "etime": etime,
+                "command": command,
+            }))
+        })
+        .collect()
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> (String, bool) {
+    let mut out = String::new();
+    let mut count = 0;
+    for ch in value.chars() {
+        if count >= max_chars {
+            return (out, true);
+        }
+        out.push(ch);
+        count += 1;
+    }
+    (out, false)
+}
+
+fn process_discovery_snapshot(rows: Vec<Value>, max_rows: usize) -> Value {
+    let total_count = rows.len();
+    let mut command_truncated = false;
+    let capped = rows
+        .into_iter()
+        .take(max_rows)
+        .map(|row| {
+            let Value::Object(mut object) = row else {
+                return row;
+            };
+            if let Some(command) = object.get("command").and_then(Value::as_str) {
+                let (trimmed, truncated) = truncate_chars(command, PS_DISCOVERY_MAX_COMMAND_CHARS);
+                if truncated {
+                    command_truncated = true;
+                    object.insert("command".to_string(), Value::String(trimmed));
+                }
+            }
+            Value::Object(object)
+        })
+        .collect::<Vec<_>>();
+    let returned_count = capped.len();
+    json!({
+        "rows": capped,
+        "truncated": total_count > returned_count || command_truncated,
+        "totalCount": total_count,
+        "returnedCount": returned_count,
+    })
+}
+
+fn parse_lsof_cwd(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        line.strip_prefix('n')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn parse_lsof_listener_pid(output: &str) -> Value {
+    for line in output.lines() {
+        let Some(pid) = line.strip_prefix('p').and_then(positive_u32) else {
+            continue;
+        };
+        return json!(pid);
+    }
+    Value::Null
 }
 
 fn summarize_tailscale_status(status: &Value) -> Value {
@@ -2205,9 +2577,14 @@ mod tests {
             tailscale_bin: "tailscale".to_string(),
             git_bin: "git".to_string(),
             tmux_bin: "tmux".to_string(),
+            ps_bin: "ps".to_string(),
+            lsof_bin: "lsof".to_string(),
             tailscale_status_fixture: None,
             tailscale_timeout: Duration::from_millis(1_500),
             git_timeout: Duration::from_millis(1_500),
+            ps_timeout: Duration::from_millis(1_500),
+            lsof_timeout: Duration::from_millis(1_500),
+            ps_discovery_max_rows: 4_096,
             repo_job_timeout: Duration::from_millis(20_000),
             repo_job_response_cap_bytes: 8 * 1024 * 1024,
             repo_job_workers: 4,
@@ -2239,7 +2616,7 @@ mod tests {
                 .and_then(Value::as_array)
                 .unwrap()
                 .len(),
-            4
+            8
         );
         let family_ids = capabilities
             .get("families")
@@ -2250,6 +2627,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(family_ids.contains(&"repo.scan"));
         assert!(family_ids.contains(&"repo.diff"));
+        assert!(family_ids.contains(&"ps.runtime"));
+        assert!(family_ids.contains(&"ps.discovery"));
+        assert!(family_ids.contains(&"ps.cwd"));
+        assert!(family_ids.contains(&"net.listeners"));
         let verb_ids = capabilities
             .get("verbs")
             .and_then(Value::as_array)
