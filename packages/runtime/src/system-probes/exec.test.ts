@@ -158,6 +158,61 @@ describe("execSystemFile scoutd verb transport", () => {
       await closeServer(server);
     }
   });
+
+  test("rejects option-like tmux send-keys entries before scoutd or local spawn", async () => {
+    const socketPath = join(tempRoot, "probes.sock");
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    const requests: Array<Record<string, unknown>> = [];
+    const server = await startExecServer(socketPath, (request) => {
+      requests.push(request);
+      if (request.schema === "openscout.probe.capabilities/v1") {
+        return capabilities(["tmux.sendKeys"]);
+      }
+      throw new Error("option-like key must not be sent to scoutd");
+    });
+    let spawns = 0;
+    setExecSystemSpawnForTests((() => {
+      spawns += 1;
+      throw new Error("spawn should not be used for rejected tmux keys");
+    }) as never);
+
+    try {
+      await expect(execSystemFile("tmux", ["send-keys", "-t", "scout-test", "-X"], { timeoutMs: 2_000 }))
+        .rejects
+        .toMatchObject({ code: "invalid_request" });
+      expect(spawns).toBe(0);
+      expect(requests).toEqual([]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  test("keeps tmux send-keys literal payloads separate from key validation", async () => {
+    const socketPath = join(tempRoot, "probes.sock");
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    const requests: Array<Record<string, unknown>> = [];
+    const server = await startExecServer(socketPath, (request) => {
+      requests.push(request);
+      if (request.schema === "openscout.probe.capabilities/v1") {
+        return capabilities(["tmux.sendKeysLiteral"]);
+      }
+      return execEnvelope(String(request.verb), {
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
+    try {
+      await execSystemFile("tmux", ["send-keys", "-t", "scout-test", "-l", "-literal"], { timeoutMs: 2_000 });
+      expect(requests.at(-1)).toMatchObject({
+        verb: "tmux.sendKeysLiteral",
+        args: { target: "scout-test", text: "-literal" },
+      });
+    } finally {
+      await closeServer(server);
+    }
+  });
 });
 
 function writeFakeTmux(): string {

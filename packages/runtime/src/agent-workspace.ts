@@ -36,6 +36,12 @@ async function isGitRepo(projectRoot: string): Promise<boolean> {
   }
 }
 
+function validateWorktreeBranch(branch: string): void {
+  if (!branch || branch.includes("\0") || branch.startsWith("-")) {
+    throw new Error("git worktree branch must be non-empty and must not start with '-'");
+  }
+}
+
 /**
  * Materialize an isolated git worktree for `agentName` under
  * `<projectRoot>/.scout-worktrees/<agentName>`, on branch `scout/<agentName>`
@@ -56,6 +62,7 @@ export async function createAgentWorkspace(
   }
 
   const branch = requestedBranch?.trim() || `scout/${agentName}`;
+  validateWorktreeBranch(branch);
   const workspaceDir = join(projectRoot, SCOUT_WORKSPACES_DIRNAME);
   const workspacePath = join(workspaceDir, agentName);
 
@@ -68,12 +75,12 @@ export async function createAgentWorkspace(
 
   try {
     // Create the worktree on a new branch based on current HEAD.
-    await execSystemFile("git", ["worktree", "add", "-b", branch, workspacePath], { cwd: projectRoot, timeoutMs: 10_000 });
+    await execSystemFile("git", ["worktree", "add", "-b", branch, "--", workspacePath], { cwd: projectRoot, timeoutMs: 10_000 });
     return { path: workspacePath, branch };
   } catch {
     // Branch might already exist — retry attaching to it without -b.
     try {
-      await execSystemFile("git", ["worktree", "add", workspacePath, branch], { cwd: projectRoot, timeoutMs: 10_000 });
+      await execSystemFile("git", ["worktree", "add", workspacePath, "--", branch], { cwd: projectRoot, timeoutMs: 10_000 });
       return { path: workspacePath, branch };
     } catch {
       // If both fail, fall back to no worktree.

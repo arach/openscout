@@ -424,6 +424,10 @@ function parseTmuxSendKeys(args: readonly string[]): { target: string; keys: str
     }
     keys.push(arg);
   }
+  const optionLikeKey = keys.find((key) => key.startsWith("-"));
+  if (optionLikeKey) {
+    throw new ProbeCommandError(`tmux key must not start with '-': ${optionLikeKey}`, { code: "invalid_request" });
+  }
   if (literal !== null) return literal ? { target, keys: [], literal } : null;
   return keys.length > 0 ? { target, keys, literal: null } : null;
 }
