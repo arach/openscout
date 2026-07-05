@@ -24,6 +24,44 @@ function git(cwd: string, args: string[]): string {
   });
 }
 
+function fakeGitFromCommands(handler: (cwd: string, command: string) => string | null | Promise<string | null>) {
+  return {
+    revParse(input: { repoRoot: string; kind: string; ref?: string; quiet?: boolean }) {
+      const command = input.kind === "showToplevel"
+        ? "rev-parse --show-toplevel"
+        : input.kind === "gitCommonDir"
+          ? "rev-parse --git-common-dir"
+          : input.kind === "verifyCommit"
+            ? `rev-parse --verify ${input.quiet ? "--quiet " : ""}${input.ref}^{commit}`
+            : `rev-parse ${input.kind}`;
+      return handler(input.repoRoot, command);
+    },
+    statusPorcelain(input: { repoRoot: string; version: "v1" | "v2"; branch?: boolean; untrackedMode?: "normal" }) {
+      const args = [`status --porcelain=${input.version}`];
+      if (input.branch) args.push("--branch");
+      if (input.untrackedMode === "normal") args.push("-unormal");
+      return handler(input.repoRoot, args.join(" "));
+    },
+    mergeBase(input: { repoRoot: string; baseRef: string; compareRef: string }) {
+      return handler(input.repoRoot, `merge-base ${input.baseRef} ${input.compareRef}`);
+    },
+    diffShortstat(input: { repoRoot: string; selector: { kind: string; baseRef?: string; compareRef?: string } }) {
+      const command = input.selector.kind === "staged"
+        ? "diff --cached --shortstat"
+        : input.selector.kind === "range"
+          ? `diff --shortstat ${input.selector.baseRef}..${input.selector.compareRef}`
+          : "diff --shortstat";
+      return handler(input.repoRoot, command);
+    },
+    logLastCommitUnix(repoRoot: string) {
+      return handler(repoRoot, "log -1 --format=%ct");
+    },
+    worktreeListPorcelain(repoRoot: string) {
+      return handler(repoRoot, "worktree list --porcelain");
+    },
+  };
+}
+
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "openscout-repo-watch-"));
   delete process.env.OPENSCOUT_REPO_WATCH_ROOTS;
@@ -266,8 +304,7 @@ describe("repo-watch", () => {
           path: null,
         }],
       }),
-      git: async (_cwd, args) => {
-        const command = args.join(" ");
+      git: fakeGitFromCommands((_cwd, command) => {
         gitCalls.push(command);
         if (command === "rev-parse --show-toplevel") return `${repo}\n`;
         if (command === "rev-parse --git-common-dir") return ".git\n";
@@ -287,7 +324,7 @@ describe("repo-watch", () => {
           ].join("\n");
         }
         return "";
-      },
+      }),
     });
 
     expect(gitCalls).toContain("rev-parse --show-toplevel");
@@ -308,8 +345,7 @@ describe("repo-watch", () => {
       { path: firstRepo, source: "endpoint" as const },
       { path: secondRepo, source: "endpoint" as const },
     ];
-    const fakeGit = async (cwd: string, args: string[]) => {
-      const command = args.join(" ");
+    const fakeGit = fakeGitFromCommands((cwd, command) => {
       if (command === "rev-parse --show-toplevel") return `${cwd}\n`;
       if (command === "rev-parse --git-common-dir") return ".git\n";
       if (command === "worktree list --porcelain") {
@@ -328,7 +364,7 @@ describe("repo-watch", () => {
         ].join("\n");
       }
       return "";
-    };
+    });
 
     const smallerSnapshot = await getRepoWatchSnapshot({
       force: true,
@@ -376,11 +412,11 @@ describe("repo-watch", () => {
         { path: repo, source: "endpoint", agentId: "agent.one" },
         { path: repo, source: "tail-transcript", sessionId: "session.one" },
       ],
-      git: async (_cwd, args) => {
-        calls.push(args.join(" "));
-        if (args.join(" ") === "rev-parse --show-toplevel") return `${repo}\n`;
-        if (args.join(" ") === "rev-parse --git-common-dir") return ".git\n";
-        if (args.join(" ") === "worktree list --porcelain") {
+      git: fakeGitFromCommands((_cwd, command) => {
+        calls.push(command);
+        if (command === "rev-parse --show-toplevel") return `${repo}\n`;
+        if (command === "rev-parse --git-common-dir") return ".git\n";
+        if (command === "worktree list --porcelain") {
           return [
             `worktree ${repo}`,
             "HEAD abc123",
@@ -388,7 +424,7 @@ describe("repo-watch", () => {
             "",
           ].join("\n");
         }
-        if (args.join(" ") === "status --porcelain=v2 --branch -unormal") {
+        if (command === "status --porcelain=v2 --branch -unormal") {
           return [
             "# branch.oid abc123",
             "# branch.head feature",
@@ -396,7 +432,7 @@ describe("repo-watch", () => {
           ].join("\n");
         }
         return "";
-      },
+      }),
     });
 
     expect(calls.filter((call) => call === "rev-parse --show-toplevel")).toHaveLength(1);
@@ -416,10 +452,10 @@ describe("repo-watch", () => {
       includeDiff: true,
       includeLastCommit: true,
       hints: [{ path: repo, source: "environment" }],
-      git: async (_cwd, args) => {
-        if (args.join(" ") === "rev-parse --show-toplevel") return `${repo}\n`;
-        if (args.join(" ") === "rev-parse --git-common-dir") return ".git\n";
-        if (args.join(" ") === "worktree list --porcelain") {
+      git: fakeGitFromCommands((_cwd, command) => {
+        if (command === "rev-parse --show-toplevel") return `${repo}\n`;
+        if (command === "rev-parse --git-common-dir") return ".git\n";
+        if (command === "worktree list --porcelain") {
           return [
             `worktree ${repo}`,
             "HEAD abc123",
@@ -427,21 +463,21 @@ describe("repo-watch", () => {
             "",
           ].join("\n");
         }
-        if (args.join(" ") === "status --porcelain=v2 --branch -unormal") {
+        if (command === "status --porcelain=v2 --branch -unormal") {
           return [
             "# branch.oid abc123",
             "# branch.head feature",
             "",
           ].join("\n");
         }
-        if (args.join(" ") === "diff --shortstat") return " 1 file changed, 2 insertions(+)\n";
-        if (args.join(" ") === "diff --cached --shortstat") return "";
-        if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") return "base-ref\n";
-        if (args.join(" ") === "merge-base origin/main HEAD") return "base-sha\n";
-        if (args.join(" ") === "diff --shortstat base-sha..HEAD") return " 3 files changed, 10 insertions(+), 4 deletions(-)\n";
-        if (args.join(" ") === "log -1 --format=%ct") return "1780460000\n";
+        if (command === "diff --shortstat") return " 1 file changed, 2 insertions(+)\n";
+        if (command === "diff --cached --shortstat") return "";
+        if (command === "rev-parse --verify --quiet origin/main^{commit}") return "base-ref\n";
+        if (command === "merge-base origin/main HEAD") return "base-sha\n";
+        if (command === "diff --shortstat base-sha..HEAD") return " 3 files changed, 10 insertions(+), 4 deletions(-)\n";
+        if (command === "log -1 --format=%ct") return "1780460000\n";
         return "";
-      },
+      }),
     });
 
     const worktree = snapshot.projects[0]!.worktrees[0]!;
@@ -456,8 +492,7 @@ describe("repo-watch", () => {
     mkdirSync(repo, { recursive: true });
     const calls: string[] = [];
 
-    const fakeGit = async (_cwd: string, args: string[]) => {
-      const command = args.join(" ");
+    const fakeGit = fakeGitFromCommands((_cwd, command) => {
       calls.push(command);
       if (command === "rev-parse --show-toplevel") return `${repo}\n`;
       if (command === "rev-parse --git-common-dir") return ".git\n";
@@ -480,7 +515,7 @@ describe("repo-watch", () => {
       if (command === "diff --cached --shortstat") return "";
       if (command === "log -1 --format=%ct") return "1780460000\n";
       return "";
-    };
+    });
 
     const baseOptions = {
       cacheTtlMs: 10_000,

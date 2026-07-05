@@ -5,7 +5,7 @@ export * from "./scout-host.js";
 export * from "./scoutd-client.js";
 export * from "./tailscale-status.js";
 export * from "./git-build-info.js";
-export * from "./git-repo-status.js";
+export * from "./git.js";
 export * from "./tmux.js";
 export * from "./ps.js";
 export * from "./net-listeners.js";

@@ -203,9 +203,18 @@ import {
   captureTmuxPane,
   execSystemFile,
   gitBuildInfoProbe,
+  gitDiffCommandArgs,
+  gitDiffNumstat,
+  gitDiffPatch,
+  gitDiffRaw,
+  gitDiffShortstat,
+  gitLogNameOnly,
+  gitMergeBase,
+  gitRemoteGetUrlOrigin,
+  gitRevParse,
+  gitStatusPorcelain,
   readAllProcessCommandRows,
   readAllProcessRows,
-  readGitRepoStatusCommand,
   readProcessCwd as readProcessCwdProbe,
   readProcessRowsForTty,
   readTmuxPaneDetail,
@@ -656,23 +665,12 @@ const REPO_DIFF_TRUNK_REFS = [
   "trunk",
 ];
 
-async function runGitRaw(currentDirectory: string, args: string[], maxBuffer = 1024 * 1024): Promise<string | null> {
-  return await readGitRepoStatusCommand(currentDirectory, args, {
-    maxStdoutBytes: maxBuffer,
-  });
-}
-
 async function resolveGitCommitRef(worktreePath: string, ref: string): Promise<string | null> {
-  return await runGitValue(worktreePath, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  return await gitRevParse({ repoRoot: worktreePath, kind: "verifyCommit", ref });
 }
 
 async function preferredRepoDiffBaseRef(worktreePath: string): Promise<string | null> {
-  const upstream = await runGitValue(worktreePath, [
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    "@{upstream}",
-  ]);
+  const upstream = await gitRevParse({ repoRoot: worktreePath, kind: "upstreamSymbolicFullName" });
   for (const candidate of [...REPO_DIFF_TRUNK_REFS, upstream].filter(Boolean) as string[]) {
     if (candidate === "HEAD") continue;
     if (await resolveGitCommitRef(worktreePath, candidate)) return candidate;
@@ -702,7 +700,11 @@ async function resolveRepoDiffBranchRefs(input: {
   if (!baseOid) {
     return { baseRef: baseCandidate, compareRef: compareOid };
   }
-  const mergeBase = await runGitValue(input.worktreePath, ["merge-base", baseOid, compareOid]);
+  const mergeBase = await gitMergeBase({
+    repoRoot: input.worktreePath,
+    baseRef: baseOid,
+    compareRef: compareOid,
+  });
   return {
     baseRef: mergeBase ?? baseOid,
     compareRef: compareOid,
@@ -720,31 +722,27 @@ async function repoDiffStateKey(input: {
   if (input.layers.includes("branch")) {
     parts.push(`branch:${input.baseRef ?? ""}..${input.compareRef ?? ""}`);
   }
-  const pathArgs = input.paths?.length ? ["--", ...input.paths] : [];
   if (input.layers.includes("staged")) {
-    const staged = await runGitRaw(input.worktreePath, [
-      "diff",
-      "--cached",
-      "--raw",
-      "-z",
-      ...pathArgs,
-    ]);
+    const staged = await gitDiffRaw({
+      repoRoot: input.worktreePath,
+      selector: { kind: "staged" },
+      paths: input.paths,
+    });
     parts.push(`staged:${stableHash(staged ?? "unavailable")}`);
   }
   if (input.layers.includes("unstaged")) {
-    const status = await runGitRaw(input.worktreePath, [
-      "status",
-      "--porcelain=v2",
-      "-z",
-      "--",
-      ...(input.paths ?? []),
-    ]);
-    const diff = await runGitRaw(input.worktreePath, [
-      "diff",
-      "--numstat",
-      "-z",
-      ...pathArgs,
-    ]);
+    const status = await gitStatusPorcelain({
+      repoRoot: input.worktreePath,
+      version: "v2",
+      z: true,
+      paths: input.paths,
+    });
+    const diff = await gitDiffNumstat({
+      repoRoot: input.worktreePath,
+      selector: { kind: "unstaged" },
+      paths: input.paths,
+      z: true,
+    });
     parts.push(`unstaged:${stableHash(`${status ?? "unavailable"}\0${diff ?? ""}`)}`);
   }
   return parts.join("|");
@@ -805,21 +803,28 @@ function repoDiffLayerLabels(kind: RepoDiffLayerKind): { base: string | null; co
   }
 }
 
-function repoDiffGitArgs(input: {
+type RepoDiffGitSelectorResult = {
+  selector: Parameters<typeof gitDiffRaw>[0]["selector"];
+  baseLabel: string | null;
+  compareLabel: string | null;
+  missing?: string;
+};
+
+function repoDiffGitSelector(input: {
   kind: RepoDiffLayerKind;
   baseRef?: string;
   compareRef?: string;
-}): { selector: string[]; baseLabel: string | null; compareLabel: string | null; missing?: string } {
+}): RepoDiffGitSelectorResult {
   switch (input.kind) {
     case "unstaged":
-      return { selector: ["diff"], baseLabel: "index", compareLabel: "working tree" };
+      return { selector: { kind: "unstaged" }, baseLabel: "index", compareLabel: "working tree" };
     case "staged":
-      return { selector: ["diff", "--cached"], baseLabel: "HEAD", compareLabel: "index" };
+      return { selector: { kind: "staged" }, baseLabel: "HEAD", compareLabel: "index" };
     case "branch": {
       const base = input.baseRef?.trim();
       if (!base) {
         return {
-          selector: ["diff"],
+          selector: { kind: "unstaged" },
           baseLabel: null,
           compareLabel: input.compareRef ?? null,
           missing: "Branch layer requires a base ref.",
@@ -827,22 +832,12 @@ function repoDiffGitArgs(input: {
       }
       const compare = input.compareRef?.trim() || "HEAD";
       return {
-        selector: ["diff", base, compare],
+        selector: { kind: "twoRefs", baseRef: base, compareRef: compare },
         baseLabel: base,
         compareLabel: compare,
       };
     }
   }
-}
-
-async function runRepoDiffGit(worktreePath: string, args: string[], maxBuffer = REPO_DIFF_GIT_MAX_BUFFER): Promise<string | null> {
-  return await readGitRepoStatusCommand(worktreePath, args, {
-    maxStdoutBytes: maxBuffer,
-  });
-}
-
-function repoDiffPathArgs(paths: readonly string[] | undefined): string[] {
-  return paths && paths.length > 0 ? ["--", ...paths] : [];
 }
 
 function repoDiffFileStatus(statusCode: string): RepoDiffFile["status"] {
@@ -948,15 +943,12 @@ async function recentBranchDiffPaths(input: {
   paths?: readonly string[];
 }): Promise<string[]> {
   if (!input.baseRef) return [];
-  const range = `${input.baseRef}..${input.compareRef || "HEAD"}`;
-  const output = await runRepoDiffGit(input.worktreePath, [
-    "log",
-    "--name-only",
-    "--pretty=format:",
-    "--diff-filter=ACMRTUXB",
-    range,
-    ...repoDiffPathArgs(input.paths),
-  ]);
+  const output = await gitLogNameOnly({
+    repoRoot: input.worktreePath,
+    baseRef: input.baseRef,
+    compareRef: input.compareRef || "HEAD",
+    paths: input.paths,
+  }, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER });
   return uniqueNonEmpty((output ?? "").split(/\r?\n/));
 }
 
@@ -983,7 +975,7 @@ async function buildGitRepoDiffLayer(input: {
   tier: RepoDiffTier;
   diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }>;
 }): Promise<RepoDiffLayer | null> {
-  const resolved = repoDiffGitArgs(input);
+  const resolved = repoDiffGitSelector(input);
   if (resolved.missing) {
     input.diagnostics.push({
       level: "warning",
@@ -993,31 +985,27 @@ async function buildGitRepoDiffLayer(input: {
     });
     return null;
   }
-  const pathArgs = repoDiffPathArgs(input.paths);
-  const raw = await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--raw", "-z", ...pathArgs]) ?? "";
-  const numstat = await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--numstat", "-z", ...pathArgs]) ?? "";
-  const shortstat = (await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--shortstat", ...pathArgs]))
-    ?.trim() || null;
+  const diffInput = {
+    repoRoot: input.worktreePath,
+    selector: resolved.selector,
+    paths: input.paths,
+  };
+  const raw = await gitDiffRaw(diffInput, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
+  const numstat = await gitDiffNumstat({ ...diffInput, z: true }, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
+  const shortstat = await gitDiffShortstat(diffInput);
   let files = parseRepoDiffRawZ(raw, parseRepoDiffNumstatZ(numstat));
   if (input.kind === "branch") {
     files = sortRepoDiffFilesRecentFirst(files, await recentBranchDiffPaths(input));
   }
 
-  const patchFlags = [
-    "--no-color",
-    "--no-ext-diff",
-    "--default-prefix",
-    "--full-index",
-    "-U3",
-  ];
-  const patchArgs = [...resolved.selector, ...patchFlags, ...pathArgs];
+  const patchArgs = gitDiffCommandArgs({ ...diffInput, output: "patch" });
   const command = ["git", ...patchArgs];
   let rawPatch: string | null = null;
   let rawPatchBytes = 0;
   let truncated = false;
 
   if (input.tier === "patch") {
-    const patch = await runRepoDiffGit(input.worktreePath, patchArgs, REPO_DIFF_GIT_MAX_BUFFER) ?? "";
+    const patch = await gitDiffPatch(diffInput, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
     rawPatchBytes = Buffer.byteLength(patch);
     const maxPatchBytes = REPO_DIFF_VIEWER_LIMITS.maxPatchBytes ?? 2_000_000;
     if (rawPatchBytes > maxPatchBytes) {
@@ -3711,11 +3699,6 @@ function readWebPackageVersion(): string | null {
   return cachedWebPackageVersion;
 }
 
-async function runGitValue(currentDirectory: string, args: string[]): Promise<string | null> {
-  const value = (await runGitRaw(currentDirectory, args, 1024 * 1024))?.trim() ?? "";
-  return value.length > 0 ? value : null;
-}
-
 function openScoutBuildInfoFromGit(value: GitBuildInfo | null): OpenScoutBuildInfo {
   return {
     version: readWebPackageVersion(),
@@ -3744,7 +3727,7 @@ async function repoPullRequestRoot(rawPath: string): Promise<string | null> {
   } catch {
     return null;
   }
-  return await runGitValue(candidate, ["rev-parse", "--show-toplevel"]) ?? candidate;
+  return await gitRevParse({ repoRoot: candidate, kind: "showToplevel" }) ?? candidate;
 }
 
 async function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): Promise<string[]> {
@@ -3818,7 +3801,7 @@ async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promis
   const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
   const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
   const results = await Promise.all(paths.map(async (path) => {
-    const remote = await runGitValue(path, ["remote", "get-url", "origin"]);
+    const remote = await gitRemoteGetUrlOrigin(path);
     const repo = repoNameFromGitRemote(remote, path);
     try {
       const result = await execSystemFile("gh", [

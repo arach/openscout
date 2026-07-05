@@ -134,12 +134,16 @@ describe("getRepoDiffSnapshot", () => {
     const snapshot = await getRepoDiffSnapshot({
       worktreePath: worktree,
       layers: ["branch"],
-      git: async (_cwd, args) => {
-        const command = args.join(" ");
-        if (command === "rev-parse --verify HEAD^{commit}") return "head-sha\n";
-        if (command === "rev-parse --verify origin/main^{commit}") return "trunk-sha\n";
-        if (command === "merge-base trunk-sha head-sha") return "base-sha\n";
-        return "";
+      git: {
+        revParse: async (input) => {
+          if (input.kind === "verifyCommit" && input.ref === "HEAD") return "head-sha";
+          if (input.kind === "verifyCommit" && input.ref === "origin/main") return "trunk-sha";
+          return null;
+        },
+        mergeBase: async (input) => {
+          if (input.baseRef === "trunk-sha" && input.compareRef === "head-sha") return "base-sha";
+          return null;
+        },
       },
       nativeDiff: async (request) => {
         captured = request;

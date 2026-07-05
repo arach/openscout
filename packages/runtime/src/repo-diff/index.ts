@@ -23,7 +23,7 @@ import {
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
-import { readGitRepoStatusCommand } from "../system-probes/git-repo-status.js";
+import { gitMergeBase, gitRevParse, GitCatalogValidationError, type GitCommandOptions, type GitMergeBaseInput, type GitRevParseInput } from "../system-probes/git.js";
 
 // ── Native contract (mirrors crates/openscout-repo-service/src/diff.rs) ─────
 
@@ -151,7 +151,10 @@ export type RepoDiffNativeExec = (
   request: RepoDiffNativeRequest,
 ) => Promise<RepoDiffResponse>;
 
-export type RepoDiffGitExec = (cwd: string, args: string[]) => Promise<string>;
+export type RepoDiffGitExec = {
+  revParse: (input: GitRevParseInput, options?: GitCommandOptions) => Promise<string | null>;
+  mergeBase: (input: GitMergeBaseInput, options?: GitCommandOptions) => Promise<string | null>;
+};
 
 export type RepoDiffSnapshotOptions = {
   worktreePath: string;
@@ -245,22 +248,17 @@ export async function getRepoDiffSnapshot(
   return { ...response, scout, render };
 }
 
-async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const output = await readGitRepoStatusCommand(cwd, args, {
-    maxAgeMs: 0,
-    maxStdoutBytes: 512 * 1024,
-  });
-  if (output === null) {
-    throw new Error(`git ${args.join(" ")} returned no output`);
-  }
-  return output;
-}
+const defaultGit: RepoDiffGitExec = {
+  revParse: gitRevParse,
+  mergeBase: gitMergeBase,
+};
 
-async function safeGit(git: RepoDiffGitExec, cwd: string, args: string[]): Promise<string | null> {
+async function safeGit(run: () => Promise<string | null>): Promise<string | null> {
   try {
-    const output = await git(cwd, args);
-    return output.trim() ? output.trim() : null;
-  } catch {
+    const output = await run();
+    return output?.trim() ? output.trim() : null;
+  } catch (error) {
+    if (error instanceof GitCatalogValidationError) throw error;
     return null;
   }
 }
@@ -270,19 +268,14 @@ async function resolveCommit(
   cwd: string,
   ref: string,
 ): Promise<string | null> {
-  return safeGit(git, cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  return safeGit(() => git.revParse({ repoRoot: cwd, kind: "verifyCommit", ref }, { maxAgeMs: 0 }));
 }
 
 async function preferredBranchBaseRef(
   git: RepoDiffGitExec,
   cwd: string,
 ): Promise<string | null> {
-  const upstream = await safeGit(git, cwd, [
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    "@{upstream}",
-  ]);
+  const upstream = await safeGit(() => git.revParse({ repoRoot: cwd, kind: "upstreamSymbolicFullName" }, { maxAgeMs: 0 }));
   const candidates = [
     ...TRUNK_REFS,
     upstream,
@@ -325,7 +318,11 @@ async function resolveBranchLayerRefs(
   if (!baseOid) {
     return { baseRef: baseCandidate, compareRef: compareOid };
   }
-  const mergeBase = await safeGit(git, worktreePath, ["merge-base", baseOid, compareOid]);
+  const mergeBase = await safeGit(() => git.mergeBase({
+    repoRoot: worktreePath,
+    baseRef: baseOid,
+    compareRef: compareOid,
+  }));
   return {
     baseRef: mergeBase ?? baseOid,
     compareRef: compareOid,

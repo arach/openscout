@@ -27,7 +27,12 @@ import {
   resolveMaterialClassifier,
   type MaterialClassifier,
 } from "./material-heuristics.ts";
-import { readGitRepoStatusCommand } from "@openscout/runtime/system-probes";
+import {
+  gitDiffNumstat,
+  gitMergeBase,
+  gitRevParse,
+  gitStatusPorcelain,
+} from "@openscout/runtime/system-probes";
 
 export type WorkInventoryMode =
   | "isolated-git-worktree"
@@ -282,12 +287,6 @@ function looksTextual(path: string, buffer: Buffer): boolean {
   return !sample.includes(0);
 }
 
-async function runGit(cwd: string, args: string[], trim = true): Promise<string | null> {
-  const output = await readGitRepoStatusCommand(cwd, args, { maxStdoutBytes: 1024 * 1024 });
-  if (output === null) return null;
-  return trim ? output.trim() : output;
-}
-
 function gitPathspecArgs(scopeArg: string, classifier: MaterialClassifier): string[] {
   return [
     scopeArg,
@@ -435,7 +434,7 @@ async function resolveTrunkRef(root: string, branch: string | null): Promise<str
     return null;
   }
   for (const ref of ["origin/main", "main", "origin/master", "master"]) {
-    const resolved = await runGit(root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+    const resolved = await gitRevParse({ repoRoot: root, kind: "verifyCommit", ref });
     if (resolved) {
       return resolved;
     }
@@ -444,7 +443,7 @@ async function resolveTrunkRef(root: string, branch: string | null): Promise<str
 }
 
 async function resolveGitContext(candidatePath: string): Promise<GitContext | null> {
-  const root = await runGit(candidatePath, ["rev-parse", "--show-toplevel"]);
+  const root = await gitRevParse({ repoRoot: candidatePath, kind: "showToplevel" });
   if (!root) {
     return null;
   }
@@ -452,24 +451,39 @@ async function resolveGitContext(candidatePath: string): Promise<GitContext | nu
   const scopedPath = pathInsideRoot(candidatePath, absoluteRoot)
     ? relative(absoluteRoot, candidatePath) || null
     : null;
-  const gitDir = await runGit(absoluteRoot, ["rev-parse", "--git-dir"]);
+  const gitDir = await gitRevParse({ repoRoot: absoluteRoot, kind: "gitDir" });
   const scopeArg = scopedPath ?? ".";
   const classifier = resolveMaterialClassifier(absoluteRoot);
   const pathspecArgs = gitPathspecArgs(scopeArg, classifier);
   const status = parseGitStatus(
-    await runGit(absoluteRoot, ["status", "--porcelain=v1", "-z", "--", ...pathspecArgs], false),
+    await gitStatusPorcelain({
+      repoRoot: absoluteRoot,
+      version: "v1",
+      z: true,
+      paths: pathspecArgs,
+    }),
   );
-  const headRef = await runGit(absoluteRoot, ["rev-parse", "--short", "HEAD"]);
-  const branch = headRef ? await runGit(absoluteRoot, ["rev-parse", "--abbrev-ref", "HEAD"]) : null;
+  const headRef = await gitRevParse({ repoRoot: absoluteRoot, kind: "shortHead" });
+  const branch = headRef ? await gitRevParse({ repoRoot: absoluteRoot, kind: "abbrevRefHead" }) : null;
   const trunkRef = headRef ? await resolveTrunkRef(absoluteRoot, branch) : null;
-  const mergeBase = trunkRef ? await runGit(absoluteRoot, ["merge-base", trunkRef, "HEAD"]) : null;
+  const mergeBase = trunkRef
+    ? await gitMergeBase({ repoRoot: absoluteRoot, baseRef: trunkRef, compareRef: "HEAD" })
+    : null;
   const branchStats = mergeBase
     ? parseDiffStats(
-      await runGit(absoluteRoot, ["diff", "--numstat", `${mergeBase}...HEAD`, "--", ...pathspecArgs]),
+      await gitDiffNumstat({
+        repoRoot: absoluteRoot,
+        selector: { kind: "range", notation: "ellipsis", baseRef: mergeBase, compareRef: "HEAD" },
+        paths: pathspecArgs,
+      }),
     )
     : new Map<string, WorkMaterialDiffPart>();
   const inflightStats = headRef
-    ? parseDiffStats(await runGit(absoluteRoot, ["diff", "--numstat", "HEAD", "--", ...pathspecArgs]))
+    ? parseDiffStats(await gitDiffNumstat({
+      repoRoot: absoluteRoot,
+      selector: { kind: "fromRef", ref: "HEAD" },
+      paths: pathspecArgs,
+    }))
     : new Map<string, WorkMaterialDiffPart>();
   const diffStats = combineDiffStats(branchStats, inflightStats);
 
