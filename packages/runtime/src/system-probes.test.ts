@@ -717,6 +717,87 @@ describe("scoutd probe backend", () => {
     }
   });
 
+  test("keeps capabilities cached across per-probe scoutd errors", async () => {
+    const directory = tempDir("openscout-scoutd-probe-error-cache-");
+    const socketPath = join(directory, "probes.sock");
+    const fixture = join(directory, "tailscale.json");
+    writeFileSync(fixture, JSON.stringify({
+      BackendState: "Running",
+      Health: [],
+      Self: {
+        ID: "local-self",
+        HostName: "local-after-probe-error",
+        TailscaleIPs: ["100.64.0.10"],
+        Online: true,
+      },
+      Peer: {},
+    }), "utf8");
+    process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = fixture;
+    process.env.OPENSCOUT_PROBES_SOCKET = socketPath;
+    resetScoutdProbeClientForTests();
+    const requestSchemas: string[] = [];
+    let probeRequests = 0;
+
+    const server = await startScoutdProbeServer(socketPath, (request) => {
+      requestSchemas.push(request.schema);
+      if (request.schema === "openscout.probe.capabilities/v1") return capabilities();
+      probeRequests += 1;
+      if (probeRequests === 1) {
+        return {
+          schema: "openscout.probe.snapshot/v1",
+          probeId: "tailscale.status",
+          key: null,
+          generatedAt: Date.now(),
+          ttlMs: 30_000,
+          value: null,
+          error: { code: "timeout", message: "slow probe", timed_out: true },
+          daemonVersion: "test-daemon",
+        };
+      }
+      return {
+        schema: "openscout.probe.snapshot/v1",
+        probeId: "tailscale.status",
+        key: null,
+        generatedAt: Date.now(),
+        ttlMs: 30_000,
+        value: {
+          backendState: "Running",
+          running: true,
+          health: [],
+          peers: [],
+          self: {
+            id: "daemon-after-error",
+            name: "daemon-after-error",
+            addresses: ["100.64.0.11"],
+            online: true,
+            hostName: "daemon-after-error",
+          },
+        },
+        error: null,
+        daemonVersion: "test-daemon",
+      };
+    });
+
+    try {
+      tailscaleStatusProbe.invalidate("test.first-probe-error");
+      const fallback = await tailscaleStatusProbe.fresh({ maxAgeMs: 0 });
+      expect(fallback.backend).toBe("local-fallback");
+      expect(fallback.value?.self?.hostName).toBe("local-after-probe-error");
+
+      tailscaleStatusProbe.invalidate("test.second-with-cached-capabilities");
+      const recovered = await tailscaleStatusProbe.fresh({ maxAgeMs: 0 });
+      expect(recovered.backend).toBe("scoutd");
+      expect(recovered.value?.self?.hostName).toBe("daemon-after-error");
+      expect(requestSchemas).toEqual([
+        "openscout.probe.capabilities/v1",
+        "openscout.probe.request/v1",
+        "openscout.probe.request/v1",
+      ]);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   test("keeps the socket timeout above the probe operation timeout to avoid duplicate local exec", async () => {
     const directory = tempDir("openscout-scoutd-timeout-hierarchy-");
     const socketPath = join(directory, "probes.sock");
@@ -901,7 +982,7 @@ exit 0
 });
 
 describe("scoutd conformance diff harness", () => {
-  type GitFixtureMode = "success" | "missing-binary" | "timeout" | "output_cap";
+  type GitFixtureMode = "success" | "missing-binary" | "slow_success" | "timeout" | "output_cap";
   const SCOUTD_CONFORMANCE_TIMEOUT_MS = 45_000;
 
   function writeGitFixture(directory: string): string {
@@ -946,6 +1027,20 @@ if [ "$1" = "status" ] && [ "$2" = "--porcelain" ]; then
   esac
 fi
 if [ "$1" = "status" ] && { [ "$2" = "--porcelain=v1" ] || [ "$2" = "--porcelain=v2" ]; }; then
+  case "$mode" in
+    slow_success)
+      sleep 2.2
+      ;;
+    timeout)
+      sleep 6
+      printf 'late\\n'
+      exit 0
+      ;;
+    output_cap)
+      dd if=/dev/zero bs=1200000 count=1 2>/dev/null | tr '\\000' x
+      exit 0
+      ;;
+  esac
   if [ "$2" = "--porcelain=v2" ]; then
     printf '# branch.oid abc123\\n# branch.head main\\n1 .M N... 100644 100644 100644 aaa bbb src/index.ts\\n'
     exit 0
@@ -1181,6 +1276,7 @@ exit 64
   function writeTmuxFixture(directory: string): string {
     const script = join(directory, "tmux-fixture.sh");
     writeFileSync(script, `#!/bin/sh
+mode="\${OPENSCOUT_TEST_TMUX_MODE:-success}"
 if [ "$1" = "-S" ]; then
   shift 2
 fi
@@ -1196,6 +1292,17 @@ if [ "$1" = "display-message" ]; then
   exit 0
 fi
 if [ "$1" = "capture-pane" ]; then
+  case "$mode" in
+    timeout)
+      sleep 2
+      printf 'late\\n'
+      exit 0
+      ;;
+    output_cap)
+      dd if=/dev/zero bs=10000 count=1 2>/dev/null | tr '\\000' x
+      exit 0
+      ;;
+  esac
   printf 'line one\\nline two\\n'
   exit 0
 fi
@@ -1273,6 +1380,8 @@ exit 64
     probeId: string;
     key?: string;
     env: Record<string, string | undefined>;
+    opTimeoutMs?: number;
+    requestTimeoutMs?: number;
   }): Promise<any> {
     const socketPath = join(input.directory, `scoutd-${input.probeId.replace(/\W/gu, "-")}-${Math.random().toString(36).slice(2)}.sock`);
     const server = await startRealScoutdProbeServer({
@@ -1289,7 +1398,8 @@ exit 64
         probeId: input.probeId,
         key: input.key ?? null,
         maxAgeMs: 0,
-      }, 6_000);
+        opTimeoutMs: input.opTimeoutMs,
+      }, input.requestTimeoutMs ?? 6_000);
       return normalizeDaemonProbeSnapshot(response);
     } finally {
       await server.stop();
@@ -1301,6 +1411,11 @@ exit 64
     env: Record<string, string | undefined>,
     run: () => Promise<T>,
   ): Promise<T> {
+    const previousSocket = process.env.OPENSCOUT_PROBES_SOCKET;
+    const previous = new Map<string, string | undefined>();
+    for (const key of Object.keys(env)) {
+      previous.set(key, process.env[key]);
+    }
     process.env.OPENSCOUT_PROBES_SOCKET = join(directory, "missing-probes.sock");
     for (const [key, value] of Object.entries(env)) {
       if (value === undefined) {
@@ -1310,7 +1425,23 @@ exit 64
       }
     }
     resetScoutdProbeClientForTests();
-    return await run();
+    try {
+      return await run();
+    } finally {
+      if (previousSocket === undefined) {
+        delete process.env.OPENSCOUT_PROBES_SOCKET;
+      } else {
+        process.env.OPENSCOUT_PROBES_SOCKET = previousSocket;
+      }
+      for (const [key, value] of previous) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      resetScoutdProbeClientForTests();
+    }
   }
 
   async function runLocalPsRuntimeFixture(directory: string, env: Record<string, string | undefined>): Promise<any> {
@@ -1462,6 +1593,94 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toBe("# branch.oid abc123\n# branch.head main\n1 .M N... 100644 100644 100644 aaa bbb src/index.ts\n");
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.statusPorcelain slow fixture succeeds through scoutd within the TS op budget", async () => {
+    const directory = shortTempDir("oscd-gitstslow");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = {
+      OPENSCOUT_GIT_BIN: gitBin,
+      OPENSCOUT_TEST_GIT_MODE: "slow_success",
+    };
+    const key = {
+      repoRoot,
+      version: "v2" as const,
+      branch: true,
+      untrackedMode: "normal" as const,
+      paths: ["src/index.ts"],
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({
+        directory,
+        probeId: "git.statusPorcelain",
+        key: JSON.stringify(key),
+        env,
+        opTimeoutMs: 5_000,
+        requestTimeoutMs: 7_000,
+      }),
+      runLocalGitStatusPorcelainFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.status).toBe("fresh");
+    expect(daemon.value).toContain("# branch.head main");
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.statusPorcelain timeout fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitsttimeout");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = {
+      OPENSCOUT_GIT_BIN: gitBin,
+      OPENSCOUT_TEST_GIT_MODE: "timeout",
+    };
+    const key = { repoRoot, version: "v1" as const };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({
+        directory,
+        probeId: "git.statusPorcelain",
+        key: JSON.stringify(key),
+        env,
+        opTimeoutMs: 5_000,
+        requestTimeoutMs: 8_000,
+      }),
+      runLocalGitStatusPorcelainFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.error).toEqual({ code: "timeout", timedOut: true });
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.statusPorcelain output-cap fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitstcap");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = {
+      OPENSCOUT_GIT_BIN: gitBin,
+      OPENSCOUT_TEST_GIT_MODE: "output_cap",
+    };
+    const key = { repoRoot, version: "v1" as const };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({
+        directory,
+        probeId: "git.statusPorcelain",
+        key: JSON.stringify(key),
+        env,
+        opTimeoutMs: 5_000,
+        requestTimeoutMs: 7_000,
+      }),
+      runLocalGitStatusPorcelainFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.error).toEqual({ code: "output_cap", timedOut: false });
   }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("git.mergeBase fixture matches between scoutd and the TS local twin", async () => {
@@ -1761,7 +1980,7 @@ exit 64
     const env = { OPENSCOUT_TMUX_BIN: tmuxBin };
     const paneKey = {
       kind: "capture" as const,
-      target: "%1",
+      target: "%timeout",
       start: "-20",
       end: "-",
       joinWrapped: true,
@@ -1775,6 +1994,70 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toEqual({ body: "line one\nline two\n" });
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("tmux.panes capture timeout fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxtimeout");
+    const tmuxBin = writeTmuxFixture(directory);
+    const env = {
+      OPENSCOUT_TMUX_BIN: tmuxBin,
+      OPENSCOUT_TEST_TMUX_MODE: "timeout",
+    };
+    const paneKey = {
+      kind: "capture" as const,
+      target: "%1",
+      start: "-20",
+      end: "-",
+      joinWrapped: true,
+      maxBytes: 4096,
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({
+        directory,
+        probeId: "tmux.panes",
+        key: tmuxCaptureKey("%timeout"),
+        env,
+        opTimeoutMs: 1_500,
+        requestTimeoutMs: 4_000,
+      }),
+      runLocalTmuxPaneFixture(directory, paneKey, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.error).toEqual({ code: "timeout", timedOut: true });
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("tmux.panes capture output-cap fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxcap");
+    const tmuxBin = writeTmuxFixture(directory);
+    const env = {
+      OPENSCOUT_TMUX_BIN: tmuxBin,
+      OPENSCOUT_TEST_TMUX_MODE: "output_cap",
+    };
+    const paneKey = {
+      kind: "capture" as const,
+      target: "%cap",
+      start: "-20",
+      end: "-",
+      joinWrapped: true,
+      maxBytes: 4096,
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({
+        directory,
+        probeId: "tmux.panes",
+        key: tmuxCaptureKey("%cap"),
+        env,
+        opTimeoutMs: 1_500,
+        requestTimeoutMs: 4_000,
+      }),
+      runLocalTmuxPaneFixture(directory, paneKey, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.error).toEqual({ code: "output_cap", timedOut: false });
   }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("tmux read probes missing-binary fixtures match between scoutd and the TS local twin", async () => {
