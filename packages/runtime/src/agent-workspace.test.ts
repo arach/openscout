@@ -58,6 +58,13 @@ describe("createAgentWorkspace", () => {
     expect(head).toBe("feature/thing");
   });
 
+  test("rejects option-like requested branch names before git worktree add", async () => {
+    const root = makeGitRepo();
+
+    await expect(createAgentWorkspace(root, "explorer", "--orphan=/tmp/x")).rejects.toThrow("must not start with '-'");
+    expect(existsSync(join(root, SCOUT_WORKSPACES_DIRNAME, "explorer"))).toBe(false);
+  });
+
   test("reuses an existing workspace at the same path", async () => {
     const root = makeGitRepo();
     const first = await createAgentWorkspace(root, "explorer");

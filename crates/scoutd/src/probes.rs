@@ -3209,6 +3209,9 @@ fn validate_tmux_buffer_name(value: &str) -> Result<(), ProbeFailure> {
 
 fn validate_tmux_key(value: &str) -> Result<(), ProbeFailure> {
     validate_no_shell_meta(value, "tmux key")?;
+    if value.starts_with('-') {
+        return Err(invalid_args("tmux key must not start with '-'"));
+    }
     if value.chars().all(|ch| {
         ch.is_ascii_alphanumeric()
             || matches!(
@@ -3911,6 +3914,21 @@ exit 0
         assert_eq!(malformed.get("ok").and_then(Value::as_bool), Some(false));
         assert_eq!(
             malformed.pointer("/error/code").and_then(Value::as_str),
+            Some("invalid_request")
+        );
+
+        let option_like_key = request(
+            &socket_path,
+            r#"{"schema":"openscout.exec.request/v1","verb":"tmux.sendKeys","args":{"target":"scout-test","keys":["-X"]}}"#,
+        );
+        assert_eq!(
+            option_like_key.get("ok").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            option_like_key
+                .pointer("/error/code")
+                .and_then(Value::as_str),
             Some("invalid_request")
         );
 
