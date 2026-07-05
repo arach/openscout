@@ -263,6 +263,7 @@
     "db:migrate": "bun ./src/drizzle-migrate.ts",
     "check": "npm --prefix ../agent-sessions run build && tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts",
+    "test:conformance": "OPENSCOUT_CONFORMANCE=1 bun test src/system-probes.test.ts --test-name-pattern='scoutd conformance diff harness'",
     "test:scenarios": "bun test src/scenario-suite.test.ts",
     "test:live:codex-app-server": "bun test src/codex-app-server-live.test.ts",
     "test:e2e:local-agent-pass": "bash ../../scripts/run-live-local-agent-pass.sh",

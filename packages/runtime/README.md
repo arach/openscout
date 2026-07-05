@@ -135,6 +135,24 @@ subprocess when available, and finally use existing TypeScript/local fallback
 paths where the feature supports them. Fallback metadata is attached to relevant
 responses so operators can diagnose when the daemon is unavailable.
 
+### No daemon required
+
+`scoutd` is an optional accelerator, not a requirement for adopting the package.
+The TypeScript/local backend is a first-class, permanent mode: imports, ordinary
+unit tests, and supported runtime operations continue to work without a Rust
+toolchain or a running daemon. When `scoutd` is present, the runtime verifies the
+advertised capability and schema version before using it; when it is absent,
+stale, or incompatible, the same typed APIs fall back locally and expose backend
+metadata for diagnostics.
+
+The real-daemon conformance harness is intentionally opt-in for contributors:
+
+```bash
+OPENSCOUT_CONFORMANCE=1 bun test packages/runtime/src/system-probes.test.ts --test-name-pattern='scoutd conformance diff harness'
+```
+
+CI runs that conformance suite, but casual `bun test` does not need Cargo.
+
 ## Local development
 
 From the repo root:

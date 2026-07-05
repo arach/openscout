@@ -45,6 +45,12 @@ const originalZellijBin = process.env.OPENSCOUT_ZELLIJ_BIN;
 const originalZellijSocketDir = process.env.ZELLIJ_SOCKET_DIR;
 const repositoryRoot = join(import.meta.dir, "../../..");
 let scoutdBinaryPromise: Promise<string> | null = null;
+const runScoutdConformance = /^(1|true|yes)$/iu.test(process.env.OPENSCOUT_CONFORMANCE ?? "");
+const describeScoutdConformance = runScoutdConformance ? describe : describe.skip;
+
+if (!runScoutdConformance) {
+  console.warn("[openscout] skipping real scoutd conformance harness; set OPENSCOUT_CONFORMANCE=1 to run it.");
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -981,7 +987,7 @@ exit 0
   });
 });
 
-describe("scoutd conformance diff harness", () => {
+describeScoutdConformance("scoutd conformance diff harness", () => {
   type GitFixtureMode = "success" | "missing-binary" | "slow_success" | "timeout" | "output_cap";
   const SCOUTD_CONFORMANCE_TIMEOUT_MS = 45_000;
 
