@@ -16,10 +16,14 @@ import { tailscaleStatusProbe } from "./tailscale-status.js";
 import {
   captureTmuxPane,
   invalidateTmuxSessions,
+  invalidateZellijSessions,
   readTmuxPaneDetail,
   readTmuxSessionExists,
+  readZellijSessionExists,
   tmuxSessionsProbe,
   type TmuxSessionInfo,
+  zellijSessionsProbe,
+  type ZellijSessionInfo,
 } from "./tmux.js";
 
 export type ScoutHostRepoOptions = {
@@ -28,6 +32,11 @@ export type ScoutHostRepoOptions = {
 
 export type ScoutHostTmuxSocketOptions = {
   socketPath?: string | null;
+  env?: RuntimeEnv;
+};
+
+export type ScoutHostZellijSocketOptions = {
+  socketDir?: string | null;
   env?: RuntimeEnv;
 };
 
@@ -185,6 +194,20 @@ export const scoutHost = {
       if (input.rows !== undefined) args.push("-y", String(input.rows));
       args.push("-s", input.sessionName, input.command);
       return tmuxCommand("new-session", args, input);
+    },
+  },
+  zellij: {
+    sessions(input: ScoutHostZellijSocketOptions = {}, options?: ProbeFreshOptions): Promise<ProbeSnapshot<ZellijSessionInfo[]>> {
+      return zellijSessionsProbe.for(input).fresh(options);
+    },
+    sessionSnapshot(input: ScoutHostZellijSocketOptions = {}) {
+      return zellijSessionsProbe.for(input).snapshot();
+    },
+    sessionExists(sessionName: string, options: ScoutHostZellijSocketOptions & { maxAgeMs?: number } = {}) {
+      return readZellijSessionExists(sessionName, options);
+    },
+    invalidateSessions(options: ScoutHostZellijSocketOptions & { reason?: string } = {}) {
+      invalidateZellijSessions(options);
     },
   },
   ps: {
