@@ -4,6 +4,9 @@ import {
   type SessionState,
 } from "@openscout/agent-sessions";
 
+import type { RuntimeTimer } from "./portable-types.js";
+import { RequesterWaitTimeoutError, isRequesterWaitTimeoutError } from "./requester-timeout.js";
+
 export interface GrokAcpInvocationOptions {
   sessionId: string;
   cwd: string;
@@ -18,7 +21,7 @@ export interface GrokAcpInvocationResult {
   metadata?: Record<string, unknown>;
 }
 
-const DEFAULT_GROK_ACP_TIMEOUT_MS = 60_000;
+const GROK_ACP_HARD_CEILING_MS = 30 * 60_000;
 
 function completedText(snapshot: SessionState | null): string {
   const turn = snapshot?.turns.at(-1);
@@ -42,51 +45,115 @@ export async function invokeGrokAcpAgent(
       "grok-acp": createGrokAcpAdapter,
     },
   });
-  const timeoutMs = Math.max(5_000, options.timeoutMs ?? DEFAULT_GROK_ACP_TIMEOUT_MS);
   const session = await registry.createSession("grok-acp", {
     sessionId: options.sessionId,
     name: options.name ?? "Grok ACP",
     cwd: options.cwd,
   });
+  const turn = runGrokAcpTurn(registry, session.id, options.prompt);
 
+  try {
+    return await waitForRequesterResult(turn, options.timeoutMs, "Grok ACP");
+  } catch (error) {
+    if (isRequesterWaitTimeoutError(error)) {
+      // The caller's wait budget is not the harness execution budget. Keep the
+      // per-invocation ACP session alive so a later MCP/broker reply can
+      // complete the flight, and let runGrokAcpTurn own cleanup on terminal
+      // turn events or the hard ceiling.
+      turn.catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function runGrokAcpTurn(
+  registry: SessionRegistry,
+  sessionId: string,
+  prompt: string,
+): Promise<GrokAcpInvocationResult> {
   try {
     await new Promise<void>((resolve, reject) => {
       let unsubscribe = () => {};
-      const timeout = setTimeout(() => {
+      let settled = false;
+      const finish = (error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardCeiling);
         unsubscribe();
-        reject(new Error(`Timed out waiting for Grok ACP after ${timeoutMs}ms.`));
-      }, timeoutMs);
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      };
+      const hardCeiling = setTimeout(() => {
+        finish(new Error(`Grok ACP exceeded the ${GROK_ACP_HARD_CEILING_MS}ms hard ceiling.`));
+      }, GROK_ACP_HARD_CEILING_MS);
+      hardCeiling.unref?.();
 
       unsubscribe = registry.onEvent(({ event }) => {
+        if ("sessionId" in event && event.sessionId !== sessionId) {
+          return;
+        }
         if (event.event === "turn:end") {
-          clearTimeout(timeout);
-          unsubscribe();
-          resolve();
+          finish();
           return;
         }
         if (event.event === "turn:error") {
-          clearTimeout(timeout);
-          unsubscribe();
-          reject(new Error(event.message || "Grok ACP turn failed."));
+          finish(new Error(event.message || "Grok ACP turn failed."));
         }
       });
 
-      registry.send({
-        sessionId: session.id,
-        text: options.prompt,
+      Promise.resolve(registry.send({
+        sessionId,
+        text: prompt,
+      })).catch((error) => {
+        finish(error instanceof Error ? error : new Error(String(error)));
       });
     });
 
-    const snapshot = registry.getSessionSnapshot(session.id);
+    const snapshot = registry.getSessionSnapshot(sessionId);
     return {
       output: completedText(snapshot),
-      sessionId: session.id,
+      sessionId,
       metadata: {
         adapterType: "grok-acp",
         providerMeta: snapshot?.session.providerMeta,
       },
     };
   } finally {
-    await registry.closeSession(session.id).catch(() => undefined);
+    await registry.closeSession(sessionId).catch(() => undefined);
   }
+}
+
+function requesterTimeoutMs(timeoutMs: number | undefined): number | null {
+  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return null;
+  }
+  return Math.floor(timeoutMs);
+}
+
+async function waitForRequesterResult<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  label: string,
+): Promise<T> {
+  const effectiveTimeoutMs = requesterTimeoutMs(timeoutMs);
+  if (effectiveTimeoutMs === null) {
+    return await promise;
+  }
+
+  let timer: RuntimeTimer | null = null;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new RequesterWaitTimeoutError({ label, timeoutMs: effectiveTimeoutMs }));
+    }, effectiveTimeoutMs);
+    timer.unref?.();
+  });
+
+  return await Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
 }
