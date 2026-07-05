@@ -1,6 +1,6 @@
 # SCO-078 — Consolidating all OS calls under scoutd
 
-**Status:** in progress — M3/B3 named git catalog replacing the generic repo-status relay (2026-07-05)
+**Status:** in progress — M4a recurring git read probes routing through scoutd (2026-07-05)
 **Owner:** runtime / scout-web
 **Depends on:** [SCO-077](./sco-077-system-probe-discipline.md) (probe registry contract, TTL table, lint fence)
 
@@ -21,9 +21,9 @@ From the 2026-07-02 exec census (227 sites under `packages/` + `apps/`; full per
 
 ## What exists today
 
-- **`crates/scoutd`** — supervisor plus the existing `scoutd probes serve` supervised child. The probe child serves `tailscale.status`, `git.buildInfo`, `git.revParse`, `git.diffShortstat`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `tmux.sessions`, `tmux.panes`, `zellij.sessions`, `repo.scan`/`repo.diff`, and enumerated exec verbs over the existing UDS protocol.
+- **`crates/scoutd`** — supervisor plus the existing `scoutd probes serve` supervised child. The probe child serves `tailscale.status`, `git.buildInfo`, `git.revParse`, `git.diffShortstat`, the recurring git read probes (`git.statusPorcelain`, `git.mergeBase`, `git.logLastCommitUnix`, `git.worktreeListPorcelain`), `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `tmux.sessions`, `tmux.panes`, `zellij.sessions`, `repo.scan`/`repo.diff`, and enumerated exec verbs over the existing UDS protocol.
 - **`crates/openscout-repo-service`** — one-shot JSON-over-stdin/stdout exec layer (worktree scan + diff), serde-only. It remains the bounded spawn fallback while the resident `scoutd` repo path proves parity.
-- **TS probe registry** (SCO-077 Phase 1) — built and serving `backend: "local" | "scoutd" | "local-fallback"` snapshots. B0 added version-skew enforcement, derived socket timeouts, conformance tests, and doctor visibility; B1 started the family burn-down by routing process and listener reads through `scoutd` with TS-local fallback; B2 does the same for tmux/zellij read probes while leaving tmux imperative verbs unchanged; B3 removes the generic `git -C <repo> <caller argv>` relay in favor of a closed, fixed-argument git intent catalog and routes the scalar `git.revParse` / `git.diffShortstat` intents through scoutd.
+- **TS probe registry** (SCO-077 Phase 1) — built and serving `backend: "local" | "scoutd" | "local-fallback"` snapshots. B0 added version-skew enforcement, derived socket timeouts, conformance tests, and doctor visibility; B1 started the family burn-down by routing process and listener reads through `scoutd` with TS-local fallback; B2 does the same for tmux/zellij read probes while leaving tmux imperative verbs unchanged; B3 removes the generic `git -C <repo> <caller argv>` relay in favor of a closed, fixed-argument git intent catalog and routes the scalar `git.revParse` / `git.diffShortstat` intents through scoutd; M4a moves the recurring/polled git reads (`statusPorcelain`, `mergeBase`, `logLastCommitUnix`, `worktreeListPorcelain`) to scoutd while keeping TS-local twins for fallback and conformance.
 
 ## Shape decision: which Rust process?
 
@@ -67,7 +67,7 @@ v0 is the daemon running the *same commands* the TS sites run today. That alone 
 | `tailscale.status` | `tailscale status --json` | LocalAPI over tailscaled's own unix socket |
 | `ps.runtime` | `ps -axo …` | `libproc`/`sysctl` (macOS-native process listing) |
 | `net.listeners` | `lsof -iTCP:<port>` | `libproc` fd enumeration |
-| `git.buildInfo` / `git.revParse` / `git.diffShortstat` + TS-only named git catalog | fixed-argument git exec; no caller-supplied argv relay | `gitoxide` status — optional; resident-daemon git exec is already off the hot path |
+| `git.buildInfo` / `git.revParse` / `git.diffShortstat` / recurring read probes (`statusPorcelain`, `mergeBase`, `logLastCommitUnix`, `worktreeListPorcelain`) + TS-only on-demand diff catalog | fixed-argument git exec; no caller-supplied argv relay; refs/pathspecs rejected if option-like and guarded with `--end-of-options` / `--` | `gitoxide` status — optional; resident-daemon git exec is already off the hot path |
 | `tmux.sessions` / `tmux.panes` | `tmux list-sessions` / `display-message` | one persistent control-mode (`tmux -C`) connection per socket — event-driven, near-zero cost |
 | `sessions.scan` / `sessions.search` | — (skip exec parity) | native from day one: `std::fs` dir walk replaces `find | xargs stat`; `rusqlite` read-only replaces FTS exec |
 | `cert.status` | `openssl x509 …` | x509 crate, or keep exec — low frequency, low value |
@@ -99,11 +99,15 @@ Probes cover reads. The ~30 sync imperative sites (tmux send-keys/paste/kill/new
 | M1 ✅ | TS registry + sanctioned async, output-capped exec helper + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
 | M2 ✅ | `scoutd probes serve` spike: envelope + capabilities + those same two families over UDS; supervisor spawns/restarts it; doctor shows backend | kill the probe child → registry falls back visibly within one TTL, nothing user-facing breaks |
 | M3 ◐ | Family burn-down: `tmux.*`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green. B0 guardrails now precede new-family migration: scoutd/local conformance diff, schema-version fallback, socket timeout hierarchy, registry-driven doctor report, typed `scout.host` facade, and capped probe-connection workers. B1 migrates `ps.runtime`, `ps.discovery`, `ps.cwd`, and `net.listeners` to `scoutd` exec-parity probes with typed truncation for large process-discovery payloads. B2 migrates `tmux.sessions`, `tmux.panes`, and `zellij.sessions` to `scoutd` exec-parity probes with Rust-side typed parsing and TS-local twins. B3 deletes the generic repo-status relay, lands a closed named git catalog (refs/pathspec validation plus `--end-of-options`/`--` guards), and routes `git.revParse` and `git.diffShortstat` through scoutd with TS-local twins. | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
-| M4 | repo-service subsumption: repo-watch/repo-diff route over the resident socket; spawn-per-request retired | one Rust artifact owns all git reads; `openscout-repo-service` binary retired or wrapper-only |
+| M4 ◐ | repo-service subsumption: repo-watch/repo-diff route over the resident socket; spawn-per-request retired. M4a routes the recurring/polled git reads (`git.statusPorcelain`, `git.mergeBase`, `git.logLastCommitUnix`, `git.worktreeListPorcelain`) through scoutd for machine-wide single-flight/dedup while leaving low-dedup, large-output diff render ops TS-local. | one Rust artifact owns all recurring git reads; `openscout-repo-service` binary retired or wrapper-only |
 | M5 | Imperative verbs over `exec.request/v1`; lint fence Phase B | server trees import no subprocess APIs |
 | M6 | Swift adoption (ScoutMenu → socket) | zero `tailscale` execs machine-wide outside the daemon |
 
 Each milestone ships independently; through M3 the daemon is an optimization (fallback keeps everything working without it), from M4 it's a dependency of repo-watch only, and Phase B is the point of no return — deliberately last.
+
+### M4a deferral: on-demand diff render ops stay TS-local
+
+`git.diffRaw`, `git.diffNumstat`, `git.diffPatch`, and `git.logNameOnly` intentionally remain behind the closed TS git catalog for this slice. They are invoked when rendering a specific diff rather than on a polling cadence, so they do not benefit much from daemon single-flight. More importantly, `diffRaw`/`diffPatch` can exceed the 8 MiB probe socket and repo-response caps (`REQUEST_READ_CAP_BYTES`, `DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES`). Moving them safely needs a typed envelope with explicit truncation/streaming semantics instead of returning raw stdout over the probe socket; that is a separate M4 follow-up.
 
 ## Risks
 

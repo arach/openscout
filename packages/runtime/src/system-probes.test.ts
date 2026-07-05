@@ -12,8 +12,12 @@ import {
   gitBuildInfoProbe,
   gitDiffNumstat,
   gitDiffShortstatProbe,
+  gitLogLastCommitUnixProbe,
+  gitMergeBaseProbe,
   gitRevParse,
   gitRevParseProbe,
+  gitStatusPorcelainProbe,
+  gitWorktreeListPorcelainProbe,
   netListenersProbe,
   processCwdProbe,
   psDiscoveryProbe,
@@ -898,6 +902,7 @@ exit 0
 
 describe("scoutd conformance diff harness", () => {
   type GitFixtureMode = "success" | "missing-binary" | "timeout" | "output_cap";
+  const SCOUTD_CONFORMANCE_TIMEOUT_MS = 45_000;
 
   function writeGitFixture(directory: string): string {
     const script = join(directory, "git-fixture.sh");
@@ -940,8 +945,28 @@ if [ "$1" = "status" ] && [ "$2" = "--porcelain" ]; then
       ;;
   esac
 fi
+if [ "$1" = "status" ] && { [ "$2" = "--porcelain=v1" ] || [ "$2" = "--porcelain=v2" ]; }; then
+  if [ "$2" = "--porcelain=v2" ]; then
+    printf '# branch.oid abc123\\n# branch.head main\\n1 .M N... 100644 100644 100644 aaa bbb src/index.ts\\n'
+    exit 0
+  fi
+  printf ' M src/index.ts\\n'
+  exit 0
+fi
 if [ "$1" = "diff" ] && [ "$2" = "--shortstat" ]; then
   printf ' 1 file changed, 2 insertions(+), 1 deletion(-)\\n'
+  exit 0
+fi
+if [ "$1" = "merge-base" ] && [ "$2" = "--end-of-options" ]; then
+  printf 'merge-base-sha\\n'
+  exit 0
+fi
+if [ "$1" = "log" ] && [ "$2" = "-1" ] && [ "$3" = "--format=%ct" ]; then
+  printf '1780460000\\n'
+  exit 0
+fi
+if [ "$1" = "worktree" ] && [ "$2" = "list" ] && [ "$3" = "--porcelain" ]; then
+  printf 'worktree %s\\nHEAD abc123\\nbranch refs/heads/main\\n\\n' "$repo"
   exit 0
 fi
 exit 1
@@ -1026,6 +1051,50 @@ exit 1
     return await withLocalProbeEnv(directory, env, async () => {
       gitDiffShortstatProbe.invalidate(key, "test.conformance.local");
       return normalizeLocalProbeSnapshot(await gitDiffShortstatProbe.for(key).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalGitStatusPorcelainFixture(
+    directory: string,
+    key: Parameters<typeof gitStatusPorcelainProbe.for>[0],
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitStatusPorcelainProbe.invalidate(key, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitStatusPorcelainProbe.for(key).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalGitMergeBaseFixture(
+    directory: string,
+    key: Parameters<typeof gitMergeBaseProbe.for>[0],
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitMergeBaseProbe.invalidate(key, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitMergeBaseProbe.for(key).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalGitLogLastCommitUnixFixture(
+    directory: string,
+    repoRoot: string,
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitLogLastCommitUnixProbe.invalidate(repoRoot, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitLogLastCommitUnixProbe.for(repoRoot).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalGitWorktreeListPorcelainFixture(
+    directory: string,
+    repoRoot: string,
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitWorktreeListPorcelainProbe.invalidate(repoRoot, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitWorktreeListPorcelainProbe.for(repoRoot).fresh({ maxAgeMs: 0 }));
     });
   }
 
@@ -1331,7 +1400,7 @@ exit 64
           error: null,
         });
       }
-    }, 15_000);
+    }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
   }
 
   test("git.revParse fixture matches between scoutd and the TS local twin", async () => {
@@ -1349,7 +1418,7 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toBe("feedfacecafebeef");
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("git.diffShortstat fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-gitds");
@@ -1370,7 +1439,79 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toBe("1 file changed, 2 insertions(+), 1 deletion(-)");
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.statusPorcelain fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitst");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+    const key = {
+      repoRoot,
+      version: "v2" as const,
+      branch: true,
+      untrackedMode: "normal" as const,
+      paths: ["src/index.ts"],
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.statusPorcelain", key: JSON.stringify(key), env }),
+      runLocalGitStatusPorcelainFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("# branch.oid abc123\n# branch.head main\n1 .M N... 100644 100644 100644 aaa bbb src/index.ts\n");
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.mergeBase fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitmb");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+    const key = { repoRoot, baseRef: "base-sha", compareRef: "HEAD" };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.mergeBase", key: JSON.stringify(key), env }),
+      runLocalGitMergeBaseFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("merge-base-sha");
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.logLastCommitUnix fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitlog");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.logLastCommitUnix", key: repoRoot, env }),
+      runLocalGitLogLastCommitUnixFixture(directory, repoRoot, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("1780460000");
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git.worktreeListPorcelain fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitwt");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.worktreeListPorcelain", key: repoRoot, env }),
+      runLocalGitWorktreeListPorcelainFixture(directory, repoRoot, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe(`worktree ${realpathSync(repoRoot)}\nHEAD abc123\nbranch refs/heads/main\n\n`);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("git catalog missing-binary fixtures match between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-gitmiss");
@@ -1379,19 +1520,84 @@ exit 64
     const env = { OPENSCOUT_GIT_BIN: join(directory, "missing-git") };
     const revParseKey = { repoRoot, kind: "showToplevel" as const };
     const diffShortstatKey = { repoRoot, selector: { kind: "unstaged" as const } };
+    const statusKey = { repoRoot, version: "v1" as const };
+    const mergeBaseKey = { repoRoot, baseRef: "base-sha", compareRef: "HEAD" };
 
-    const [revDaemon, revLocal, diffDaemon, diffLocal] = await Promise.all([
+    const [
+      revDaemon,
+      revLocal,
+      diffDaemon,
+      diffLocal,
+      statusDaemon,
+      statusLocal,
+      mergeDaemon,
+      mergeLocal,
+      logDaemon,
+      logLocal,
+      worktreeDaemon,
+      worktreeLocal,
+    ] = await Promise.all([
       requestDaemonProbe({ directory, probeId: "git.revParse", key: JSON.stringify(revParseKey), env }),
       runLocalGitRevParseFixture(directory, revParseKey, env),
       requestDaemonProbe({ directory, probeId: "git.diffShortstat", key: JSON.stringify(diffShortstatKey), env }),
       runLocalGitDiffShortstatFixture(directory, diffShortstatKey, env),
+      requestDaemonProbe({ directory, probeId: "git.statusPorcelain", key: JSON.stringify(statusKey), env }),
+      runLocalGitStatusPorcelainFixture(directory, statusKey, env),
+      requestDaemonProbe({ directory, probeId: "git.mergeBase", key: JSON.stringify(mergeBaseKey), env }),
+      runLocalGitMergeBaseFixture(directory, mergeBaseKey, env),
+      requestDaemonProbe({ directory, probeId: "git.logLastCommitUnix", key: repoRoot, env }),
+      runLocalGitLogLastCommitUnixFixture(directory, repoRoot, env),
+      requestDaemonProbe({ directory, probeId: "git.worktreeListPorcelain", key: repoRoot, env }),
+      runLocalGitWorktreeListPorcelainFixture(directory, repoRoot, env),
     ]);
 
     expect(revDaemon).toEqual(revLocal);
     expect(revDaemon.value).toBeNull();
     expect(diffDaemon).toEqual(diffLocal);
     expect(diffDaemon.value).toBeNull();
-  }, 15_000);
+    expect(statusDaemon).toEqual(statusLocal);
+    expect(statusDaemon.value).toBeNull();
+    expect(mergeDaemon).toEqual(mergeLocal);
+    expect(mergeDaemon.value).toBeNull();
+    expect(logDaemon).toEqual(logLocal);
+    expect(logDaemon.value).toBeNull();
+    expect(worktreeDaemon).toEqual(worktreeLocal);
+    expect(worktreeDaemon.value).toBeNull();
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("git recurring daemon probes reject option-like merge refs and status pathspecs", async () => {
+    const directory = shortTempDir("oscd-gitsec");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+    const invalidMergeKey = { repoRoot, baseRef: "-c core.fsmonitor=touch /tmp/x", compareRef: "HEAD" };
+    const invalidStatusKey = { repoRoot, version: "v1" as const, paths: ["--upload-pack=x"] };
+
+    const [mergeDaemon, statusDaemon] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.mergeBase", key: JSON.stringify(invalidMergeKey), env }),
+      requestDaemonProbe({ directory, probeId: "git.statusPorcelain", key: JSON.stringify(invalidStatusKey), env }),
+    ]);
+    let mergeLocalError: unknown = null;
+    try {
+      await runLocalGitMergeBaseFixture(directory, invalidMergeKey, env);
+    } catch (error) {
+      mergeLocalError = error;
+    }
+    let statusLocalError: unknown = null;
+    try {
+      await runLocalGitStatusPorcelainFixture(directory, invalidStatusKey, env);
+    } catch (error) {
+      statusLocalError = error;
+    }
+
+    expect(mergeDaemon.status).toBe("failed");
+    expect(mergeDaemon.error.code).toBe("invalid_request");
+    expect(mergeLocalError).toBeInstanceOf(GitCatalogValidationError);
+    expect(statusDaemon.status).toBe("failed");
+    expect(statusDaemon.error.code).toBe("invalid_request");
+    expect(statusLocalError).toBeInstanceOf(GitCatalogValidationError);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.runtime fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-psrt");
@@ -1408,7 +1614,7 @@ exit 64
       { pid: 101, ppid: 1, pgid: 101, tty: "ttys001", comm: "/bin/zsh" },
       { pid: 202, ppid: 101, pgid: 101, tty: null, comm: "/usr/bin/node" },
     ]);
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.discovery truncation fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-psdisc");
@@ -1430,7 +1636,7 @@ exit 64
       returnedCount: 3,
     });
     expect(daemon.value.rows.map((row: any) => row.pid)).toEqual([101, 202, 303]);
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps probes missing-binary fixtures match between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-psmiss");
@@ -1452,7 +1658,7 @@ exit 64
       totalCount: 0,
       returnedCount: 0,
     });
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.cwd fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-pscwd");
@@ -1466,7 +1672,7 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toBe("/Users/art/dev/openscout");
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("net.listeners fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-net");
@@ -1480,7 +1686,7 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toEqual({ port: 5173, pid: 4242 });
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.cwd and net.listeners missing-binary fixtures match between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-lsofmiss");
@@ -1497,7 +1703,7 @@ exit 64
     expect(cwdDaemon.value).toBeNull();
     expect(netDaemon).toEqual(netLocal);
     expect(netDaemon.value).toEqual({ port: 5173, pid: null });
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("tmux.sessions fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-tmuxs");
@@ -1528,7 +1734,7 @@ exit 64
         currentPath: null,
       },
     ]);
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("tmux.panes detail fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-tmuxp");
@@ -1547,7 +1753,7 @@ exit 64
       paneTty: "ttys003",
       paneCurrentPath: "/Users/art/dev/project",
     });
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("tmux.panes capture fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-tmuxc");
@@ -1569,7 +1775,7 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toEqual({ body: "line one\nline two\n" });
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("tmux read probes missing-binary fixtures match between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-tmuxmiss");
@@ -1587,7 +1793,7 @@ exit 64
     expect(sessionsDaemon.value).toEqual([]);
     expect(paneDaemon).toEqual(paneLocal);
     expect(paneDaemon.value).toBeNull();
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("zellij.sessions fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-zellij");
@@ -1606,7 +1812,7 @@ exit 64
       { name: "alpha", state: "live", raw: "alpha" },
       { name: "beta", state: "exited", raw: "beta EXITED" },
     ]);
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("zellij.sessions missing-binary fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-zelmiss");
@@ -1620,5 +1826,5 @@ exit 64
 
     expect(daemon).toEqual(local);
     expect(daemon.value).toEqual([]);
-  }, 15_000);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 });
