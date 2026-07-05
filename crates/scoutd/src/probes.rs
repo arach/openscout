@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
@@ -68,8 +69,11 @@ const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
 const DEFAULT_EXEC_JOB_QUEUE: usize = 32;
 const DEFAULT_CONNECTION_WORKERS: usize = 32;
 const DEFAULT_CONNECTION_QUEUE: usize = 64;
+const DEFAULT_CONNECTION_IO_TIMEOUT: Duration = Duration::from_millis(5_000);
 const REQUEST_READ_CAP_BYTES: u64 = 8 * 1024 * 1024;
 const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
+#[cfg(test)]
+const TEST_PANIC_PROBE_ID: &str = "__test.panic";
 
 const EXEC_VERBS: &[&str] = &[
     "tmux.sendKeys",
@@ -111,6 +115,7 @@ pub struct ProbeServerOptions {
     pub exec_job_queue: usize,
     pub connection_workers: usize,
     pub connection_queue: usize,
+    pub connection_io_timeout: Duration,
 }
 
 impl ProbeServerOptions {
@@ -164,6 +169,8 @@ impl ProbeServerOptions {
                 .max(1),
             connection_queue: env_usize("OPENSCOUT_PROBE_CONNECTION_QUEUE")
                 .unwrap_or(DEFAULT_CONNECTION_QUEUE),
+            connection_io_timeout: env_duration_ms("OPENSCOUT_PROBE_CONNECTION_IO_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_CONNECTION_IO_TIMEOUT),
         }
     }
 }
@@ -604,8 +611,11 @@ impl ProbeEngine {
             break;
         }
 
-        let snapshot = match self.run_probe(probe_id, normalized_key.clone(), op_timeout_ms) {
-            Ok(value) => ProbeSnapshotResponse {
+        let probe_result = catch_unwind(AssertUnwindSafe(|| {
+            self.run_probe(probe_id, normalized_key.clone(), op_timeout_ms)
+        }));
+        let snapshot = match probe_result {
+            Ok(Ok(value)) => ProbeSnapshotResponse {
                 schema: SNAPSHOT_SCHEMA.to_string(),
                 probe_id: probe_id.to_string(),
                 key: normalized_key.clone(),
@@ -615,7 +625,17 @@ impl ProbeEngine {
                 error: None,
                 daemon_version: DAEMON_VERSION.to_string(),
             },
-            Err(error) => error_snapshot(probe_id, normalized_key.clone(), ttl_ms, error),
+            Ok(Err(error)) => error_snapshot(probe_id, normalized_key.clone(), ttl_ms, error),
+            Err(_) => error_snapshot(
+                probe_id,
+                normalized_key.clone(),
+                ttl_ms,
+                ProbeFailure {
+                    code: "panic".to_string(),
+                    message: format!("{probe_id} panicked while serving a probe snapshot"),
+                    timed_out: false,
+                },
+            ),
         };
 
         let (lock, cvar) = &*self.state;
@@ -964,6 +984,8 @@ impl ProbeEngine {
         op_timeout_ms: Option<u64>,
     ) -> Result<Value, ProbeFailure> {
         match probe_id {
+            #[cfg(test)]
+            TEST_PANIC_PROBE_ID => panic!("intentional test probe panic"),
             TAILSCALE_STATUS_ID => self.run_tailscale_status(op_timeout_ms),
             GIT_BUILD_INFO_ID => {
                 let repo_root = key.ok_or_else(|| ProbeFailure {
@@ -1697,6 +1719,13 @@ fn request_capabilities(
 }
 
 fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), String> {
+    let timeout = engine.options.connection_io_timeout;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|error| error.to_string())?;
     let bytes = read_one_request(&mut stream)?;
     let response = if bytes.len() as u64 > REQUEST_READ_CAP_BYTES {
         error_response("request_too_large", "probe request exceeded the read limit")
@@ -2145,6 +2174,10 @@ fn snapshot_is_fresh_for(snapshot: &ProbeSnapshotResponse, max_age_ms: u64) -> b
 }
 
 fn is_supported_probe(probe_id: &str) -> bool {
+    #[cfg(test)]
+    if probe_id == TEST_PANIC_PROBE_ID {
+        return true;
+    }
     matches!(
         probe_id,
         TAILSCALE_STATUS_ID
@@ -2166,6 +2199,10 @@ fn is_supported_probe(probe_id: &str) -> bool {
 }
 
 fn probe_ttl_ms(probe_id: &str) -> Option<u64> {
+    #[cfg(test)]
+    if probe_id == TEST_PANIC_PROBE_ID {
+        return Some(1_000);
+    }
     match probe_id {
         TAILSCALE_STATUS_ID => Some(TAILSCALE_STATUS_TTL_MS),
         GIT_BUILD_INFO_ID => Some(GIT_BUILD_INFO_TTL_MS),
@@ -3632,7 +3669,7 @@ fn env_usize(name: &str) -> Option<usize> {
 mod tests {
     use super::{
         serve, ProbeCacheKey, ProbeEngine, ProbeServerOptions, CAPABILITIES_SCHEMA, ERROR_SCHEMA,
-        PS_CWD_ID, SNAPSHOT_SCHEMA,
+        PS_CWD_ID, SNAPSHOT_SCHEMA, TEST_PANIC_PROBE_ID,
     };
     use scoutd::repo_service;
     use serde_json::json;
@@ -3713,6 +3750,7 @@ mod tests {
             exec_job_queue: 32,
             connection_workers: 32,
             connection_queue: 64,
+            connection_io_timeout: Duration::from_millis(5_000),
         }
     }
 
@@ -3773,6 +3811,66 @@ mod tests {
             probe_id: PS_CWD_ID.to_string(),
             key: Some("not-a-pid-new".to_string()),
         }));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn probe_panic_clears_in_flight_and_notifies_waiters() {
+        let dir = unique_temp_dir("scoutd-probe-panic");
+        let socket_path = dir.join("probes.sock");
+        let engine = ProbeEngine::new(base_options(socket_path));
+        let key = Some("panic-key".to_string());
+
+        let first = engine.snapshot(TEST_PANIC_PROBE_ID, key.clone(), Some(0), Some(1_500));
+        assert_eq!(
+            first.error.as_ref().map(|error| error.code.as_str()),
+            Some("panic")
+        );
+        {
+            let (lock, _) = &*engine.state;
+            let state = lock.lock().unwrap();
+            let entry = state
+                .entries
+                .get(&ProbeCacheKey {
+                    probe_id: TEST_PANIC_PROBE_ID.to_string(),
+                    key: key.clone(),
+                })
+                .expect("panic probe should leave a cache entry");
+            assert!(
+                !entry.in_flight,
+                "panic left the probe key wedged in-flight"
+            );
+        }
+
+        let second = engine.snapshot(TEST_PANIC_PROBE_ID, key, Some(0), Some(1_500));
+        assert_eq!(
+            second.error.as_ref().map(|error| error.code.as_str()),
+            Some("panic")
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn accepted_connections_time_out_and_release_worker_permits() {
+        let dir = unique_temp_dir("scoutd-probe-connection-timeout");
+        let socket_path = dir.join("probes.sock");
+        let mut options = base_options(socket_path.clone());
+        options.connection_workers = 1;
+        options.connection_queue = 0;
+        options.connection_io_timeout = Duration::from_millis(75);
+        start_test_server(options);
+
+        let stalled = UnixStream::connect(&socket_path).unwrap();
+        thread::sleep(Duration::from_millis(200));
+        let capabilities = request(
+            &socket_path,
+            r#"{"schema":"openscout.probe.capabilities/v1"}"#,
+        );
+        assert_eq!(
+            capabilities.get("schema").and_then(Value::as_str),
+            Some(CAPABILITIES_SCHEMA)
+        );
+        drop(stalled);
         let _ = fs::remove_dir_all(dir);
     }
 
