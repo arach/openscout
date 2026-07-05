@@ -3022,6 +3022,49 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
+  test("keeps project-path ask routing when session initiation targets an existing agent", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        definitionId: "agent-1",
+        name: "Hudson",
+        projectRoot: "/tmp/openscout",
+        cwd: "/tmp/openscout",
+        harness: "codex",
+        model: "gpt-test",
+      },
+    ];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/fallback",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { agentId: "agent-1" },
+        seed: { instructions: "Please take this on." },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(askScoutQuestionCalls).toHaveLength(1);
+    expect(askScoutQuestionCalls[0]).toMatchObject({
+      senderId: "operator",
+      target: { kind: "project_path", projectPath: "/tmp/openscout" },
+      targetAgentId: "agent-1",
+      body: "Please take this on.",
+      executionHarness: "codex",
+      executionModel: "gpt-test",
+      currentDirectory: "/tmp/openscout",
+      source: "scout-session-initiation",
+    });
+    expect(askScoutQuestionCalls[0]).not.toHaveProperty("targetLabel");
+  });
+
   test("rejects session initiation fork without a source", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

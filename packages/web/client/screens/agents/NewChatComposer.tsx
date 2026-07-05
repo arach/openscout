@@ -110,12 +110,17 @@ export function NewChatComposer({
   const isStarting = state === "starting";
   const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
   const title = hasAttachments ? "Route capture" : "New chat";
+  const committedMessage = message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
     : hasAttachments
       ? "Routing capture"
-      : "Starting chat";
-  const committedMessage = message.trim();
+      : "Sending ask";
+  const progressDetail = hasAttachments
+    ? "Submitted. Opening the chat when the broker returns it."
+    : committedMessage
+      ? "Submitting your first message to Scout."
+      : "Starting a new ask with Scout.";
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
@@ -177,17 +182,21 @@ export function NewChatComposer({
       const result = await startAgentSession(agent, committedMessage ? { instructions: committedMessage } : undefined);
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
-        throw new Error("Session started, but no conversation was returned.");
+        throw new Error("Ask submitted, but no conversation was returned.");
       }
       navigate({
-        view: "agents",
-        agentId: result.agentId?.trim() || agent.id,
+        view: "conversation",
         conversationId,
-        tab: "message",
       });
       onClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not start session.");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : hasAttachments
+            ? "Could not route capture."
+            : "Could not send ask.",
+      );
       setState("idle");
       setPhase("idle");
     }
@@ -323,7 +332,7 @@ export function NewChatComposer({
               <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
               <div className="s-newchat-progress-copy">
                 <span className="s-newchat-progress-title">{phaseLabel}</span>
-                <span className="s-newchat-progress-detail">Submitted. Opening the chat when the broker returns it.</span>
+                <span className="s-newchat-progress-detail">{progressDetail}</span>
                 {committedMessage && (
                   <span className="s-newchat-progress-message">{committedMessage}</span>
                 )}
@@ -344,7 +353,7 @@ export function NewChatComposer({
               {isStarting ? (
                 <>
                   <Loader2 size={14} className="s-newchat-start-spinner" aria-hidden="true" />
-                  {phase === "uploading" ? "Uploading..." : "Starting..."}
+                  {phase === "uploading" ? "Uploading..." : hasAttachments ? "Routing..." : "Sending..."}
                 </>
               ) : hasAttachments ? (
                 "Route"

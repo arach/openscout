@@ -5917,11 +5917,12 @@ export async function createOpenScoutWebServer(
 
     const result = await askScoutQuestion({
       senderId: resolveOperatorName().trim() || "operator",
-      ...(targetAgentId
-        ? { targetLabel: targetAgentId, targetAgentId }
-        : {
-            target: { kind: "project_path", projectPath: projectPath! },
-          }),
+      ...(projectPath
+        ? {
+            target: { kind: "project_path", projectPath },
+            ...(targetAgentId ? { targetAgentId } : {}),
+          }
+        : { targetLabel: targetAgentId!, targetAgentId: targetAgentId! }),
       body: instructions && instructions.length > 0 ? instructions : "New session started.",
       ...(harness ? { executionHarness: harness } : {}),
       ...(model ? { executionModel: model } : {}),

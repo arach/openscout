@@ -111,6 +111,13 @@ function createHarness(input: {
   const postedMessages: MessageRecord[] = [];
   const acceptedInvocations: InvocationRequest[] = [];
   const dispatchedInvocations: InvocationRequest[] = [];
+  const cardlessProjectSessionCalls: Array<{
+    projectPath: string;
+    execution?: InvocationRequest["execution"];
+    projectAgent?: ScoutDeliverRequest["projectAgent"];
+    requesterId: string;
+    createdAt: number;
+  }> = [];
   const recordedDispatches: Array<{ envelope: ScoutDispatchEnvelope; requesterId?: string }> = [];
   const operatorIssues: Array<{
     kind: "unassigned_scout" | "rejected" | "unavailable";
@@ -160,6 +167,24 @@ function createHarness(input: {
     onlineConversationNotifyTargets: () => ["agent-1"],
     resolveBrokerDeliveryTargetWithImplicitProjectAgent: async () =>
       input.resolution ?? { kind: "resolved", agent },
+    async createCardlessProjectSession(request) {
+      cardlessProjectSessionCalls.push(request);
+      const cardlessEndpoint = testEndpoint({
+        id: "endpoint-cardless",
+        agentId: "cardless-agent",
+        sessionId: "session-cardless",
+      });
+      return {
+        kind: "resolved_session",
+        session: {
+          sessionId: "session-cardless",
+          actorId: "cardless-agent",
+          endpoint: cardlessEndpoint,
+          label: "Cardless Session",
+          nodeId: "node-1",
+        },
+      };
+    },
     async recordScoutDispatch(envelope, options) {
       recordedDispatches.push({ envelope, requesterId: options?.requesterId });
       const record: ScoutDispatchRecord = {
@@ -202,6 +227,7 @@ function createHarness(input: {
 
   return {
     acceptedInvocations,
+    cardlessProjectSessionCalls,
     conversationsRequested,
     dispatchedInvocations,
     ensuredActors,
@@ -300,6 +326,29 @@ describe("BrokerDeliveryAcceptanceService", () => {
       }),
     }));
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
+  });
+
+  test("project-path consult with an explicit agent target does not synthesize a cardless session", async () => {
+    const harness = createHarness({ now: 20_500 });
+
+    const result = await harness.service.accept({
+      id: "deliver-project-agent",
+      body: "start from this project context",
+      intent: "consult",
+      target: { kind: "project_path", projectPath: "/tmp/openscout" },
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      execution: { session: "new", harness: "codex" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(harness.cardlessProjectSessionCalls).toEqual([]);
+    expect(harness.acceptedInvocations).toHaveLength(1);
+    expect(harness.acceptedInvocations[0]).toEqual(expect.objectContaining({
+      targetAgentId: "agent-1",
+      execution: { session: "new", harness: "codex" },
+      task: "start from this project context",
+    }));
   });
 
   test("preserves requested fork execution when accepting a consult", async () => {
