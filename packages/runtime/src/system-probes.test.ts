@@ -1325,6 +1325,48 @@ exit 64
     return script;
   }
 
+  function writeTailscaleStatusFixture(directory: string): string {
+    const fixture = join(directory, "tailscale-status.json");
+    writeFileSync(fixture, `{
+  "BackendState": "Running",
+  "Health": ["healthy enough"],
+  "Self": {
+    "ID": "self-id",
+    "HostName": "workstation",
+    "DNSName": "workstation.tailnet.example.",
+    "TailscaleIPs": ["100.64.0.10"],
+    "Online": true,
+    "OS": "macOS"
+  },
+  "Peer": {
+    "peer-z-key": {
+      "ID": "peer-z-id",
+      "HostName": "zulu",
+      "DNSName": "zulu.tailnet.example.",
+      "TailscaleIPs": ["100.64.0.20"],
+      "Online": true,
+      "OS": "linux",
+      "Tags": ["tag:dev"]
+    },
+    "peer-a-key": {
+      "ID": "peer-a-id",
+      "HostName": "alpha",
+      "DNSName": "alpha.tailnet.example.",
+      "TailscaleIPs": ["100.64.0.21"],
+      "Online": false,
+      "OS": "darwin",
+      "Tags": ["tag:ops"]
+    }
+  },
+  "CurrentTailnet": {
+    "Name": "tailnet.example",
+    "MagicDNSSuffix": "tailnet.example"
+  }
+}
+`, "utf8");
+    return fixture;
+  }
+
   function tmuxDetailKey(target: string, socketPath = "default"): string {
     return JSON.stringify({ kind: "detail", socketPath, target });
   }
@@ -1494,6 +1536,13 @@ exit 64
     return await withLocalProbeEnv(directory, env, async () => {
       zellijSessionsProbe.invalidate(socketDir, "test.conformance.local");
       return normalizeLocalProbeSnapshot(await zellijSessionsProbe.for(socketDir).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalTailscaleStatusFixture(directory: string, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      tailscaleStatusProbe.invalidate("test.conformance.local");
+      return normalizeLocalProbeSnapshot(await tailscaleStatusProbe.fresh({ maxAgeMs: 0 }));
     });
   }
 
@@ -1816,6 +1865,36 @@ exit 64
     expect(statusDaemon.status).toBe("failed");
     expect(statusDaemon.error.code).toBe("invalid_request");
     expect(statusLocalError).toBeInstanceOf(GitCatalogValidationError);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("tailscale.status preserves JSON peer order between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tsok");
+    const fixturePath = writeTailscaleStatusFixture(directory);
+    const env = { OPENSCOUT_TAILSCALE_STATUS_JSON: fixturePath };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tailscale.status", env }),
+      runLocalTailscaleStatusFixture(directory, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value.peers.map((peer: any) => peer.id)).toEqual(["peer-z-id", "peer-a-id"]);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("tailscale.status missing-binary fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tsmiss");
+    const env = {
+      OPENSCOUT_TAILSCALE_BIN: join(directory, "missing-tailscale"),
+      OPENSCOUT_TAILSCALE_STATUS_JSON: undefined,
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tailscale.status", env }),
+      runLocalTailscaleStatusFixture(directory, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBeNull();
   }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.runtime fixture matches between scoutd and the TS local twin", async () => {
