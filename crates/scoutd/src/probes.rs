@@ -28,6 +28,10 @@ const TAILSCALE_STATUS_ID: &str = "tailscale.status";
 const GIT_BUILD_INFO_ID: &str = "git.buildInfo";
 const GIT_REV_PARSE_ID: &str = "git.revParse";
 const GIT_DIFF_SHORTSTAT_ID: &str = "git.diffShortstat";
+const GIT_STATUS_PORCELAIN_ID: &str = "git.statusPorcelain";
+const GIT_MERGE_BASE_ID: &str = "git.mergeBase";
+const GIT_LOG_LAST_COMMIT_UNIX_ID: &str = "git.logLastCommitUnix";
+const GIT_WORKTREE_LIST_PORCELAIN_ID: &str = "git.worktreeListPorcelain";
 const PS_RUNTIME_ID: &str = "ps.runtime";
 const PS_DISCOVERY_ID: &str = "ps.discovery";
 const PS_CWD_ID: &str = "ps.cwd";
@@ -317,6 +321,31 @@ struct GitDiffShortstatKey {
     selector: GitDiffSelectorKey,
     #[serde(default)]
     paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GitStatusPorcelainKey {
+    #[serde(rename = "repoRoot")]
+    repo_root: String,
+    version: String,
+    #[serde(default)]
+    branch: Option<bool>,
+    #[serde(default)]
+    z: Option<bool>,
+    #[serde(rename = "untrackedMode", default)]
+    untracked_mode: Option<String>,
+    #[serde(default)]
+    paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GitMergeBaseKey {
+    #[serde(rename = "repoRoot")]
+    repo_root: String,
+    #[serde(rename = "baseRef")]
+    base_ref: String,
+    #[serde(rename = "compareRef")]
+    compare_ref: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -887,6 +916,38 @@ impl ProbeEngine {
                 })?;
                 self.run_git_diff_shortstat(&key)
             }
+            GIT_STATUS_PORCELAIN_ID => {
+                let key = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.statusPorcelain requires a typed key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_status_porcelain(&key)
+            }
+            GIT_MERGE_BASE_ID => {
+                let key = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.mergeBase requires a typed key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_merge_base(&key)
+            }
+            GIT_LOG_LAST_COMMIT_UNIX_ID => {
+                let repo_root = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.logLastCommitUnix requires a repo root key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_log_last_commit_unix(&repo_root)
+            }
+            GIT_WORKTREE_LIST_PORCELAIN_ID => {
+                let repo_root = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.worktreeListPorcelain requires a repo root key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_worktree_list_porcelain(&repo_root)
+            }
             PS_RUNTIME_ID => self.run_ps_runtime(),
             PS_DISCOVERY_ID => self.run_ps_discovery(),
             PS_CWD_ID => {
@@ -1051,6 +1112,69 @@ impl ProbeEngine {
             GIT_DIFF_SHORTSTAT_ID,
         ) {
             Ok(output) => Ok(trimmed_string_value(output.as_deref())),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_status_porcelain(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let parsed: GitStatusPorcelainKey =
+            serde_json::from_str(key).map_err(|error| ProbeFailure {
+                code: "invalid_request".to_string(),
+                message: format!("invalid git.statusPorcelain key: {error}"),
+                timed_out: false,
+            })?;
+        let args = git_status_porcelain_args(&parsed)?;
+        match self.run_git_catalog_command(
+            &parsed.repo_root,
+            &args,
+            1024 * 1024,
+            GIT_STATUS_PORCELAIN_ID,
+        ) {
+            Ok(output) => Ok(output.map(Value::String).unwrap_or(Value::Null)),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_merge_base(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let parsed: GitMergeBaseKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("invalid git.mergeBase key: {error}"),
+            timed_out: false,
+        })?;
+        let args = git_merge_base_args(&parsed)?;
+        match self.run_git_catalog_command(&parsed.repo_root, &args, 256 * 1024, GIT_MERGE_BASE_ID)
+        {
+            Ok(output) => Ok(trimmed_string_value(output.as_deref())),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_log_last_commit_unix(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
+        let args = vec![
+            "log".to_string(),
+            "-1".to_string(),
+            "--format=%ct".to_string(),
+        ];
+        match self.run_git_catalog_command(repo_root, &args, 64 * 1024, GIT_LOG_LAST_COMMIT_UNIX_ID)
+        {
+            Ok(output) => Ok(trimmed_string_value(output.as_deref())),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_worktree_list_porcelain(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
+        let args = vec![
+            "worktree".to_string(),
+            "list".to_string(),
+            "--porcelain".to_string(),
+        ];
+        match self.run_git_catalog_command(
+            repo_root,
+            &args,
+            1024 * 1024,
+            GIT_WORKTREE_LIST_PORCELAIN_ID,
+        ) {
+            Ok(output) => Ok(output.map(Value::String).unwrap_or(Value::Null)),
             Err(error) => Err(error),
         }
     }
@@ -1599,6 +1723,26 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             ttl_ms: GIT_CATALOG_TTL_MS,
         },
         ProbeCapability {
+            probe_id: GIT_STATUS_PORCELAIN_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: GIT_MERGE_BASE_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: GIT_LOG_LAST_COMMIT_UNIX_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: GIT_WORKTREE_LIST_PORCELAIN_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
             probe_id: PS_RUNTIME_ID.to_string(),
             schema_version: 1,
             ttl_ms: PS_RUNTIME_TTL_MS,
@@ -1839,6 +1983,10 @@ fn is_supported_probe(probe_id: &str) -> bool {
             | GIT_BUILD_INFO_ID
             | GIT_REV_PARSE_ID
             | GIT_DIFF_SHORTSTAT_ID
+            | GIT_STATUS_PORCELAIN_ID
+            | GIT_MERGE_BASE_ID
+            | GIT_LOG_LAST_COMMIT_UNIX_ID
+            | GIT_WORKTREE_LIST_PORCELAIN_ID
             | PS_RUNTIME_ID
             | PS_DISCOVERY_ID
             | PS_CWD_ID
@@ -1853,7 +2001,12 @@ fn probe_ttl_ms(probe_id: &str) -> Option<u64> {
     match probe_id {
         TAILSCALE_STATUS_ID => Some(TAILSCALE_STATUS_TTL_MS),
         GIT_BUILD_INFO_ID => Some(GIT_BUILD_INFO_TTL_MS),
-        GIT_REV_PARSE_ID | GIT_DIFF_SHORTSTAT_ID => Some(GIT_CATALOG_TTL_MS),
+        GIT_REV_PARSE_ID
+        | GIT_DIFF_SHORTSTAT_ID
+        | GIT_STATUS_PORCELAIN_ID
+        | GIT_MERGE_BASE_ID
+        | GIT_LOG_LAST_COMMIT_UNIX_ID
+        | GIT_WORKTREE_LIST_PORCELAIN_ID => Some(GIT_CATALOG_TTL_MS),
         PS_RUNTIME_ID => Some(PS_RUNTIME_TTL_MS),
         PS_DISCOVERY_ID => Some(PS_DISCOVERY_TTL_MS),
         PS_CWD_ID => Some(PS_CWD_TTL_MS),
@@ -1900,7 +2053,7 @@ fn normalize_probe_key(
                 })?;
             Ok(Some(canonical_repo_root(raw_key)))
         }
-        GIT_REV_PARSE_ID | GIT_DIFF_SHORTSTAT_ID => {
+        GIT_REV_PARSE_ID | GIT_DIFF_SHORTSTAT_ID | GIT_STATUS_PORCELAIN_ID | GIT_MERGE_BASE_ID => {
             let normalized = key
                 .as_deref()
                 .map(str::trim)
@@ -1911,6 +2064,18 @@ fn normalize_probe_key(
                     timed_out: false,
                 })?;
             Ok(Some(normalized.to_string()))
+        }
+        GIT_LOG_LAST_COMMIT_UNIX_ID | GIT_WORKTREE_LIST_PORCELAIN_ID => {
+            let raw_key = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: format!("{probe_id} requires a repo root key"),
+                    timed_out: false,
+                })?;
+            Ok(Some(canonical_repo_root(raw_key)))
         }
         PS_CWD_ID => {
             let normalized = key
@@ -2102,6 +2267,57 @@ fn git_diff_shortstat_args(input: &GitDiffShortstatKey) -> Result<Vec<String>, P
         }
     }
     Ok(args)
+}
+
+fn git_status_porcelain_args(input: &GitStatusPorcelainKey) -> Result<Vec<String>, ProbeFailure> {
+    let version = match input.version.as_str() {
+        "v1" | "v2" => input.version.as_str(),
+        other => {
+            return Err(ProbeFailure {
+                code: "invalid_request".to_string(),
+                message: format!("unsupported git status porcelain version: {other}"),
+                timed_out: false,
+            })
+        }
+    };
+    let mut args = vec!["status".to_string(), format!("--porcelain={version}")];
+    if input.branch.unwrap_or(false) {
+        args.push("--branch".to_string());
+    }
+    if input.z.unwrap_or(false) {
+        args.push("-z".to_string());
+    }
+    if let Some(mode) = input.untracked_mode.as_deref() {
+        match mode {
+            "normal" => args.push("-unormal".to_string()),
+            other => {
+                return Err(ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: format!("unsupported git status untrackedMode: {other}"),
+                    timed_out: false,
+                })
+            }
+        }
+    }
+    if !input.paths.is_empty() {
+        args.push("--".to_string());
+        for (index, path) in input.paths.iter().enumerate() {
+            args.push(validate_git_pathspec(
+                path,
+                &format!("git pathspec {}", index + 1),
+            )?);
+        }
+    }
+    Ok(args)
+}
+
+fn git_merge_base_args(input: &GitMergeBaseKey) -> Result<Vec<String>, ProbeFailure> {
+    Ok(vec![
+        "merge-base".to_string(),
+        "--end-of-options".to_string(),
+        validate_git_ref(&input.base_ref, "git merge-base base ref")?,
+        validate_git_ref(&input.compare_ref, "git merge-base compare ref")?,
+    ])
 }
 
 fn trimmed_string_value(value: Option<&str>) -> Value {
@@ -3340,7 +3556,7 @@ mod tests {
                 .and_then(Value::as_array)
                 .unwrap()
                 .len(),
-            13
+            17
         );
         let family_ids = capabilities
             .get("families")
@@ -3353,6 +3569,10 @@ mod tests {
         assert!(family_ids.contains(&"repo.diff"));
         assert!(family_ids.contains(&"git.revParse"));
         assert!(family_ids.contains(&"git.diffShortstat"));
+        assert!(family_ids.contains(&"git.statusPorcelain"));
+        assert!(family_ids.contains(&"git.mergeBase"));
+        assert!(family_ids.contains(&"git.logLastCommitUnix"));
+        assert!(family_ids.contains(&"git.worktreeListPorcelain"));
         assert!(family_ids.contains(&"ps.runtime"));
         assert!(family_ids.contains(&"ps.discovery"));
         assert!(family_ids.contains(&"ps.cwd"));

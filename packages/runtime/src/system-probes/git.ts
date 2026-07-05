@@ -181,6 +181,50 @@ function parseDiffKey(key: string): GitDiffInput {
   return JSON.parse(key) as GitDiffInput;
 }
 
+function normalizedMergeBaseInput(input: GitMergeBaseInput): GitMergeBaseInput {
+  return {
+    repoRoot: normalizeRepoRoot(input.repoRoot),
+    baseRef: validateGitRefValue(input.baseRef, "git merge-base base ref"),
+    compareRef: validateGitRefValue(input.compareRef, "git merge-base compare ref"),
+  };
+}
+
+function normalizeMergeBaseKey(input: GitMergeBaseInput): string {
+  return JSON.stringify(normalizedMergeBaseInput(input));
+}
+
+function parseMergeBaseKey(key: string): GitMergeBaseInput {
+  return JSON.parse(key) as GitMergeBaseInput;
+}
+
+function validateGitStatusVersion(value: GitStatusPorcelainInput["version"]): "v1" | "v2" {
+  if (value === "v1" || value === "v2") return value;
+  throw new GitCatalogValidationError("git status porcelain version must be v1 or v2");
+}
+
+function normalizedStatusPorcelainInput(input: GitStatusPorcelainInput): GitStatusPorcelainInput {
+  const untrackedMode = input.untrackedMode;
+  if (untrackedMode !== undefined && untrackedMode !== "normal") {
+    throw new GitCatalogValidationError("git status untrackedMode must be normal when provided");
+  }
+  return {
+    repoRoot: normalizeRepoRoot(input.repoRoot),
+    version: validateGitStatusVersion(input.version),
+    branch: input.branch === true ? true : undefined,
+    z: input.z === true ? true : undefined,
+    untrackedMode,
+    paths: validateGitPathspecs(input.paths),
+  };
+}
+
+function normalizeStatusPorcelainKey(input: GitStatusPorcelainInput): string {
+  return JSON.stringify(normalizedStatusPorcelainInput(input));
+}
+
+function parseStatusPorcelainKey(key: string): GitStatusPorcelainInput {
+  return JSON.parse(key) as GitStatusPorcelainInput;
+}
+
 function revParseArgs(input: GitRevParseInput): string[] {
   switch (input.kind) {
     case "showToplevel":
@@ -255,20 +299,22 @@ export function gitDiffCommandArgs(input: GitDiffInput & { output: "rawZ" | "num
 }
 
 function mergeBaseArgs(input: GitMergeBaseInput): string[] {
+  const normalized = normalizedMergeBaseInput(input);
   return [
     "merge-base",
     "--end-of-options",
-    validateGitRefValue(input.baseRef, "git merge-base base ref"),
-    validateGitRefValue(input.compareRef, "git merge-base compare ref"),
+    normalized.baseRef,
+    normalized.compareRef,
   ];
 }
 
 function statusPorcelainArgs(input: GitStatusPorcelainInput): string[] {
-  const paths = validateGitPathspecs(input.paths);
-  const args = ["status", `--porcelain=${input.version}`];
-  if (input.branch) args.push("--branch");
-  if (input.z) args.push("-z");
-  if (input.untrackedMode === "normal") args.push("-unormal");
+  const normalized = normalizedStatusPorcelainInput(input);
+  const paths = normalized.paths ?? [];
+  const args = ["status", `--porcelain=${normalized.version}`];
+  if (normalized.branch) args.push("--branch");
+  if (normalized.z) args.push("-z");
+  if (normalized.untrackedMode === "normal") args.push("-unormal");
   if (paths.length > 0) args.push("--", ...paths);
   return args;
 }
@@ -369,6 +415,76 @@ export const gitDiffShortstatProbe = defineProbeFamily<GitDiffInput, string | nu
   }),
 });
 
+export const gitMergeBaseProbe = defineProbeFamily<GitMergeBaseInput, string | null>({
+  id: "git.mergeBase",
+  ttlMs: GIT_PROBE_TTL_MS,
+  timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+  maxKeys: 256,
+  idleKeyTtlMs: 10 * 60_000,
+  maxConcurrentKeys: 4,
+  normalizeKey: normalizeMergeBaseKey,
+  run: (key, ctx) => runWithScoutdFallback({
+    probeId: "git.mergeBase",
+    key,
+    ctx,
+    local: async () => {
+      const input = parseMergeBaseKey(key);
+      return trimOutput(await runGitProbeCommandLocal(ctx, input.repoRoot, mergeBaseArgs(input), 256 * 1024));
+    },
+  }),
+});
+
+export const gitStatusPorcelainProbe = defineProbeFamily<GitStatusPorcelainInput, string | null>({
+  id: "git.statusPorcelain",
+  ttlMs: GIT_PROBE_TTL_MS,
+  timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+  maxKeys: 256,
+  idleKeyTtlMs: 10 * 60_000,
+  maxConcurrentKeys: 4,
+  normalizeKey: normalizeStatusPorcelainKey,
+  run: (key, ctx) => runWithScoutdFallback({
+    probeId: "git.statusPorcelain",
+    key,
+    ctx,
+    local: async () => {
+      const input = parseStatusPorcelainKey(key);
+      return await runGitProbeCommandLocal(ctx, input.repoRoot, statusPorcelainArgs(input), DEFAULT_GIT_STDOUT_BYTES);
+    },
+  }),
+});
+
+export const gitLogLastCommitUnixProbe = defineProbeFamily<string, string | null>({
+  id: "git.logLastCommitUnix",
+  ttlMs: GIT_PROBE_TTL_MS,
+  timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+  maxKeys: 256,
+  idleKeyTtlMs: 10 * 60_000,
+  maxConcurrentKeys: 4,
+  normalizeKey: (repoRoot) => normalizeRepoRoot(repoRoot),
+  run: (repoRoot, ctx) => runWithScoutdFallback({
+    probeId: "git.logLastCommitUnix",
+    key: repoRoot,
+    ctx,
+    local: async () => trimOutput(await runGitProbeCommandLocal(ctx, repoRoot, ["log", "-1", "--format=%ct"], 64 * 1024)),
+  }),
+});
+
+export const gitWorktreeListPorcelainProbe = defineProbeFamily<string, string | null>({
+  id: "git.worktreeListPorcelain",
+  ttlMs: GIT_PROBE_TTL_MS,
+  timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+  maxKeys: 256,
+  idleKeyTtlMs: 10 * 60_000,
+  maxConcurrentKeys: 4,
+  normalizeKey: (repoRoot) => normalizeRepoRoot(repoRoot),
+  run: (repoRoot, ctx) => runWithScoutdFallback({
+    probeId: "git.worktreeListPorcelain",
+    key: repoRoot,
+    ctx,
+    local: async () => await runGitProbeCommandLocal(ctx, repoRoot, ["worktree", "list", "--porcelain"], DEFAULT_GIT_STDOUT_BYTES),
+  }),
+});
+
 export async function gitRevParse(input: GitRevParseInput, options: GitCommandOptions = {}): Promise<string | null> {
   const snapshot = await gitRevParseProbe.for(input).fresh({ maxAgeMs: options.maxAgeMs ?? GIT_PROBE_TTL_MS });
   return snapshot.value ?? null;
@@ -380,17 +496,13 @@ export async function gitDiffShortstat(input: GitDiffInput, options: GitCommandO
 }
 
 export async function gitMergeBase(input: GitMergeBaseInput, options: GitCommandOptions = {}): Promise<string | null> {
-  return trimOutput(await runGitCommandLocal(input.repoRoot, mergeBaseArgs(input), {
-    maxStdoutBytes: options.maxStdoutBytes ?? 256 * 1024,
-    timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-  }));
+  const snapshot = await gitMergeBaseProbe.for(input).fresh({ maxAgeMs: options.maxAgeMs ?? GIT_PROBE_TTL_MS });
+  return snapshot.value ?? null;
 }
 
 export async function gitStatusPorcelain(input: GitStatusPorcelainInput, options: GitCommandOptions = {}): Promise<string | null> {
-  return await runGitCommandLocal(input.repoRoot, statusPorcelainArgs(input), {
-    maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_GIT_STDOUT_BYTES,
-    timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-  });
+  const snapshot = await gitStatusPorcelainProbe.for(input).fresh({ maxAgeMs: options.maxAgeMs ?? GIT_PROBE_TTL_MS });
+  return snapshot.value ?? null;
 }
 
 export async function gitDiffRaw(input: GitDiffInput, options: GitCommandOptions = {}): Promise<string | null> {
@@ -422,17 +534,13 @@ export async function gitLogNameOnly(input: GitLogNameOnlyInput, options: GitCom
 }
 
 export async function gitLogLastCommitUnix(repoRoot: string, options: GitCommandOptions = {}): Promise<string | null> {
-  return trimOutput(await runGitCommandLocal(repoRoot, ["log", "-1", "--format=%ct"], {
-    maxStdoutBytes: options.maxStdoutBytes ?? 64 * 1024,
-    timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-  }));
+  const snapshot = await gitLogLastCommitUnixProbe.for(repoRoot).fresh({ maxAgeMs: options.maxAgeMs ?? GIT_PROBE_TTL_MS });
+  return snapshot.value ?? null;
 }
 
 export async function gitWorktreeListPorcelain(repoRoot: string, options: GitCommandOptions = {}): Promise<string | null> {
-  return await runGitCommandLocal(repoRoot, ["worktree", "list", "--porcelain"], {
-    maxStdoutBytes: options.maxStdoutBytes ?? DEFAULT_GIT_STDOUT_BYTES,
-    timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-  });
+  const snapshot = await gitWorktreeListPorcelainProbe.for(repoRoot).fresh({ maxAgeMs: options.maxAgeMs ?? GIT_PROBE_TTL_MS });
+  return snapshot.value ?? null;
 }
 
 export async function gitRemoteGetUrlOrigin(repoRoot: string, options: GitCommandOptions = {}): Promise<string | null> {
