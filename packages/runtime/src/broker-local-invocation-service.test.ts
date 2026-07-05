@@ -480,6 +480,37 @@ describe("BrokerLocalInvocationService", () => {
     ]);
   });
 
+  test("keeps grok-acp requester wait timeouts running instead of failing", async () => {
+    const endpoint = testEndpoint({
+      id: "endpoint-grok-acp",
+      transport: "grok_acp",
+      harness: "grok-acp",
+      metadata: { agentName: "Grok ACP" },
+    });
+    const harness = createHarness({
+      endpoint,
+      invokeError: new RequesterWaitTimeoutError({ label: "Grok ACP", timeoutMs: 100 }),
+      now: 31_000,
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation({ timeoutMs: 100 }));
+
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "running"]);
+    expect(harness.persistedFlights[1]).toEqual(expect.objectContaining({
+      state: "running",
+      summary: "Agent One is still working.",
+      error: undefined,
+      completedAt: undefined,
+      metadata: expect.objectContaining({
+        requesterTimedOut: true,
+        timeoutMs: 100,
+        timeoutScope: "requester_wait",
+      }),
+    }));
+    expect(harness.statusMessages).toEqual([]);
+  });
+
   test("a late transport error does not overwrite a broker-reply completion", async () => {
     // Reproduced by adversarial review on #296: broker reply completes the
     // invocation mid-invoke, then the transport errors. The failure path must
