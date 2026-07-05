@@ -29,9 +29,10 @@ private enum SessionStatus: Sendable {
 }
 
 private struct SynthesizedSession: Identifiable {
-    let id: String           // Broker agent ID
-    let refId: String        // Display-truncated agent ID
-    let harnessSessionId: String?  // Real ref resolvable via /api/session-ref
+    let id: String           // Stable row identity: source + transcript path
+    let sessionRef: String   // Real ref resolvable via /api/session-ref
+    let displayRef: String
+    let agentId: String?
     let conversationId: String?    // Canonical operator DM thread
     let agentName: String
     let agentHandle: String?
@@ -48,18 +49,22 @@ private struct SynthesizedSession: Identifiable {
 }
 
 struct HUDSessionsView: View {
+    private static let log = ScoutLog.hud("sessions")
+    private static let sessionLimit = 10
+
     let agents: [HudAgent]
+    @ObservedObject var tail: ScoutTailStore
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
 
     private var sessions: [SynthesizedSession] {
-        Self.synthesize(from: agents)
+        Self.synthesize(from: tail.discovery, events: tail.events, agents: agents)
     }
 
     var body: some View {
         Group {
-            if agents.isEmpty {
+            if sessions.isEmpty {
                 EmptySessions()
             } else {
                 switch state.size {
@@ -69,8 +74,30 @@ struct HUDSessionsView: View {
                 }
             }
         }
-        .onAppear { wireNavBus() }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onAppear {
+            logSnapshot("appear")
+            tail.start()
+            tail.refreshDiscovery()
+            wireNavBus()
+        }
+        .onDisappear {
+            logSnapshot("disappear")
+            tail.stop()
+            HUDNavBus.shared.clear()
+        }
+        .onChange(of: tail.discovery?.generatedAt) { _, _ in
+            logSnapshot("discovery")
+        }
+        .onChange(of: tail.lastError) { _, error in
+            guard let error else { return }
+            Self.log.error("sessions tail error=\(error, privacy: .public)")
+        }
+    }
+
+    private func logSnapshot(_ phase: String) {
+        let processCount = tail.discovery?.processes.count ?? 0
+        let transcriptCount = tail.discovery?.transcripts.count ?? 0
+        Self.log.info("sessions \(phase, privacy: .public) rows=\(sessions.count, privacy: .public) events=\(tail.events.count, privacy: .public) processes=\(processCount, privacy: .public) transcripts=\(transcriptCount, privacy: .public)")
     }
 
     // Register cycle/engage closures with the global key bus. Mirrors the
@@ -178,38 +205,169 @@ struct HUDSessionsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private static func synthesize(from agents: [HudAgent]) -> [SynthesizedSession] {
-        agents.map { agent in
-            let status: SessionStatus = {
-                switch agent.state {
-                case .working, .needsAttention: return .running
-                case .available, .done: return .idle
-                case .offline: return .ended
-                }
-            }()
-            let project = (agent.projectRoot as NSString?)?.lastPathComponent
-                ?? agent.hudRole.split(separator: "·").first.map { String($0).trimmingCharacters(in: .whitespaces) }
-                ?? "—"
-            let refId = String(agent.id.prefix(8))
-            return SynthesizedSession(
-                id: agent.id,
-                refId: refId,
-                harnessSessionId: agent.harnessSessionId,
-                conversationId: agent.conversationId,
-                agentName: agent.name,
-                agentHandle: agent.handle,
-                harness: agent.harness ?? "raw",
-                status: status,
-                project: project,
-                branch: agent.branchLabel,
-                duration: agent.runtime,
-                messageCount: agent.capabilities.count,
-                lastTurn: agent.lastTurn,
-                ago: agent.ago,
-                model: agent.tokens,
-                startedAt: nil
+    private static func synthesize(
+        from discovery: ScoutTailDiscoverySnapshot?,
+        events: [ScoutTailEvent],
+        agents: [HudAgent]
+    ) -> [SynthesizedSession] {
+        guard let discovery else { return [] }
+
+        let nowMs = Date().timeIntervalSince1970 * 1_000
+        let latestEventBySession = latestEventsBySession(events)
+        let eventCountBySession = eventCountsBySession(events)
+        let agentsBySessionRef = agentsBySessionRef(agents)
+        let processByCwd = processByCwd(discovery.processes)
+        let latestTranscriptByCwd = latestTranscriptsByCwd(discovery.transcripts)
+
+        return discovery.transcripts.compactMap { transcript -> (session: SynthesizedSession, lastActivity: TimeInterval)? in
+            guard let sessionRef = normalizeSessionRef(transcript.sessionId)
+                    ?? normalizeSessionRef(transcript.transcriptPath) else {
+                return nil
+            }
+
+            let latestEvent = latestEventBySession[sessionRef]
+            let lastActivity = max(transcript.mtimeMs, latestEvent?.ts ?? 0)
+            let cwdKey = clean(transcript.cwd).map { processKey(source: transcript.source, cwd: $0) }
+            let isLatestForLiveProcess = cwdKey.flatMap { key in
+                processByCwd[key] != nil && latestTranscriptByCwd[key]?.id == transcript.id
+            } ?? false
+            let hasRecentActivity = nowMs - lastActivity <= 60_000
+            guard isLatestForLiveProcess || hasRecentActivity else { return nil }
+
+            let process = isLatestForLiveProcess ? cwdKey.flatMap { processByCwd[$0] } : nil
+            let status: SessionStatus = .running
+            let agent = agentsBySessionRef[sessionRef]
+            let project = clean(transcript.project)
+                ?? clean(transcript.cwd).flatMap(pathLeaf)
+                ?? pathParent(transcript.transcriptPath)
+                ?? agent.flatMap { clean($0.projectRoot).flatMap(pathLeaf) }
+                ?? "unknown"
+            let lastTurn = clean(latestEvent?.summary)
+                ?? process.flatMap { clean($0.command) }
+                ?? transcript.transcriptPath
+            let harness = clean(transcript.source)
+                ?? clean(transcript.harness)
+                ?? agent.flatMap { clean($0.harness) }
+                ?? "raw"
+
+            return (
+                SynthesizedSession(
+                    id: "\(transcript.source)\u{0}\(transcript.transcriptPath)",
+                    sessionRef: sessionRef,
+                    displayRef: String(sessionRef.prefix(8)),
+                    agentId: agent?.id,
+                    conversationId: agent?.conversationId,
+                    agentName: agent?.name ?? project,
+                    agentHandle: agent?.handle,
+                    harness: harness,
+                    status: status,
+                    project: project,
+                    branch: agent?.branchLabel ?? "—",
+                    duration: process.flatMap { clean($0.etime) } ?? formatBytes(transcript.size),
+                    messageCount: eventCountBySession[sessionRef] ?? 0,
+                    lastTurn: lastTurn,
+                    ago: ScoutAgent.formatAgo(sinceMs: lastActivity),
+                    model: agent?.tokens ?? clean(transcript.harness) ?? harness,
+                    startedAt: nil
+                ),
+                lastActivity
             )
         }
+        .sorted {
+            if $0.lastActivity == $1.lastActivity {
+                return $0.session.project.localizedCaseInsensitiveCompare($1.session.project) == .orderedAscending
+            }
+            return $0.lastActivity > $1.lastActivity
+        }
+        .prefix(sessionLimit)
+        .map(\.session)
+    }
+
+    private static func agentsBySessionRef(_ agents: [HudAgent]) -> [String: HudAgent] {
+        var result: [String: HudAgent] = [:]
+        for agent in agents {
+            guard let ref = normalizeSessionRef(agent.harnessSessionId) else { continue }
+            result[ref] = agent
+        }
+        return result
+    }
+
+    private static func latestEventsBySession(_ events: [ScoutTailEvent]) -> [String: ScoutTailEvent] {
+        var result: [String: ScoutTailEvent] = [:]
+        for event in events {
+            guard let ref = normalizeSessionRef(event.sessionId) else { continue }
+            if let current = result[ref], current.ts >= event.ts { continue }
+            result[ref] = event
+        }
+        return result
+    }
+
+    private static func eventCountsBySession(_ events: [ScoutTailEvent]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for event in events {
+            guard let ref = normalizeSessionRef(event.sessionId) else { continue }
+            result[ref, default: 0] += 1
+        }
+        return result
+    }
+
+    private static func processByCwd(_ processes: [ScoutTailDiscoveredProcess]) -> [String: ScoutTailDiscoveredProcess] {
+        var result: [String: ScoutTailDiscoveredProcess] = [:]
+        for process in processes {
+            guard let cwd = clean(process.cwd) else { continue }
+            let key = processKey(source: process.source, cwd: cwd)
+            if let current = result[key], current.pid <= process.pid { continue }
+            result[key] = process
+        }
+        return result
+    }
+
+    private static func latestTranscriptsByCwd(
+        _ transcripts: [ScoutTailDiscoveredTranscript]
+    ) -> [String: ScoutTailDiscoveredTranscript] {
+        var result: [String: ScoutTailDiscoveredTranscript] = [:]
+        for transcript in transcripts {
+            guard let cwd = clean(transcript.cwd) else { continue }
+            let key = processKey(source: transcript.source, cwd: cwd)
+            if let current = result[key], current.mtimeMs >= transcript.mtimeMs { continue }
+            result[key] = transcript
+        }
+        return result
+    }
+
+    private static func processKey(source: String, cwd: String) -> String {
+        "\(source)\u{0}\(cwd)"
+    }
+
+    private static func normalizeSessionRef(_ value: String?) -> String? {
+        guard let trimmed = clean(value) else { return nil }
+        let leaf = (trimmed as NSString).lastPathComponent
+        let ref = leaf.hasSuffix(".jsonl") ? String(leaf.dropLast(".jsonl".count)) : leaf
+        return clean(ref)
+    }
+
+    private static func pathLeaf(_ value: String) -> String? {
+        clean((value as NSString).lastPathComponent)
+    }
+
+    private static func pathParent(_ value: String) -> String? {
+        let parent = (value as NSString).deletingLastPathComponent
+        return pathLeaf(parent)
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static func formatBytes(_ bytes: Int) -> String {
+        guard bytes >= 0 else { return "—" }
+        if bytes < 1_024 { return "\(bytes) B" }
+        let kib = Double(bytes) / 1_024
+        if kib < 1_024 { return "\(Int(kib.rounded())) KiB" }
+        let mib = kib / 1_024
+        return String(format: "%.1f MiB", mib)
     }
 }
 
@@ -294,11 +452,13 @@ private struct SessionRow: View {
         .contextMenu {
             Button("Copy session ref") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.refId, forType: .string)
+                NSPasteboard.general.setString(session.sessionRef, forType: .string)
             }
-            Button("Copy agent ID") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.id, forType: .string)
+            if let agentId = session.agentId {
+                Button("Copy agent ID") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(agentId, forType: .string)
+                }
             }
         }
     }
@@ -353,7 +513,7 @@ private struct SessionRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            // WHY: medium/large surfaces duration + message count on the meta strip.
+            // WHY: medium/large surfaces runtime/size + event count on the meta strip.
             if size != .compact {
                 metaDot
                 Text(session.duration)
@@ -361,7 +521,7 @@ private struct SessionRow: View {
                     .monospacedDigit()
                     .foregroundStyle(HUDChrome.inkFaint)
                 metaDot
-                Text("\(session.messageCount) msg")
+                Text("\(session.messageCount) evt")
                     .font(HUDType.mono(10))
                     .monospacedDigit()
                     .foregroundStyle(HUDChrome.inkFaint)
@@ -469,18 +629,18 @@ private struct SessionDetailInline: View {
                 .lineSpacing(2)
 
             VStack(alignment: .leading, spacing: 3) {
-                meta(label: "REF", value: session.refId)
+                meta(label: "REF", value: session.sessionRef)
                 meta(label: "HARNESS", value: session.harness)
                 meta(label: "MODEL", value: session.model)
                 meta(label: "BRANCH", value: session.branch)
-                meta(label: "DURATION", value: session.duration)
-                meta(label: "MESSAGES", value: "\(session.messageCount)")
+                meta(label: "RUNTIME", value: session.duration)
+                meta(label: "EVENTS", value: "\(session.messageCount)")
             }
 
             VStack(alignment: .leading, spacing: 3) {
                 HUDDrillLink(label: "OPEN TRANSCRIPT", url: transcriptURL)
                 HUDDrillLink(label: "FOLLOW LIVE", url: followURL)
-                HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
+                HUDDrillLink(label: session.agentId == nil ? "SESSION DETAIL" : "AGENT PROFILE", url: agentURL)
             }
             .padding(.top, 4)
         }
@@ -506,24 +666,19 @@ private struct SessionDetailInline: View {
         }
     }
 
-    // WHY: every session row exposes all three drills. The web's
-    // /api/session-ref only resolves real harness session IDs (e.g.
-    // "relay-hudson-claude"), session row PKs, or history file leaves —
-    // NOT broker agent IDs. So OPEN TRANSCRIPT must prefer
-    // harnessSessionId; if that's absent we route to the operator DM
-    // thread for this agent (which carries the same message history) or
-    // /messages scoped to that conversation. Live tail falls back to a
-    // scoped /ops/tail query, never an empty index.
+    // WHY: these rows are real tail-discovered transcript sessions. The
+    // web's /api/session-ref resolves provider session IDs and transcript
+    // file leaves, so use the session ref directly and treat agent links as
+    // optional enrichment.
 
     private var transcriptURL: URL {
         let base = ScoutWeb.baseURL()
-        if let ref = session.harnessSessionId, !ref.isEmpty {
-            return relativeURL("/sessions/\(percent(ref))", base: base)
-        }
+        let ref = session.sessionRef
+        if !ref.isEmpty { return relativeURL("/sessions/\(percent(ref))", base: base) }
         if let cid = session.conversationId, !cid.isEmpty {
             return relativeURL("/c/\(percent(cid))", base: base)
         }
-        let aid = session.id
+        let aid = session.agentId ?? ""
         if !aid.isEmpty {
             return relativeURL("/agents/\(percent(aid))?tab=message", base: base)
         }
@@ -537,12 +692,13 @@ private struct SessionDetailInline: View {
             resolvingAgainstBaseURL: false
         )
         var items = [URLQueryItem(name: "view", value: "tail")]
-        if let ref = session.harnessSessionId, !ref.isEmpty {
+        let ref = session.sessionRef
+        if !ref.isEmpty {
             items.append(URLQueryItem(name: "sessionId", value: ref))
             components?.queryItems = items
             return components?.url ?? relativeURL("/follow/session/\(percent(ref))", base: base)
         }
-        let aid = session.id
+        let aid = session.agentId ?? ""
         if !aid.isEmpty {
             items.append(URLQueryItem(name: "targetAgentId", value: aid))
             components?.queryItems = items
@@ -556,8 +712,9 @@ private struct SessionDetailInline: View {
 
     private var agentURL: URL {
         let base = ScoutWeb.baseURL()
-        let aid = session.id
-        if aid.isEmpty { return relativeURL("/agents", base: base) }
+        guard let aid = session.agentId, !aid.isEmpty else {
+            return relativeURL("/sessions/\(percent(session.sessionRef))", base: base)
+        }
         return relativeURL("/agents/\(percent(aid))", base: base)
     }
 

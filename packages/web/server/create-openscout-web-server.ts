@@ -119,6 +119,7 @@ import {
   snapshotRecentEvents,
   type DiscoverySnapshot,
   type DiscoveredTranscript,
+  type TailDiscoveryScope,
   type TailEvent,
 } from "@openscout/runtime/tail";
 import {
@@ -935,6 +936,67 @@ type TailRecentPayload = {
   events: TailEvent[];
 };
 
+const TAIL_DISCOVERY_SCOPES = new Set<TailDiscoveryScope>(["hot", "shallow", "deep"]);
+
+function parseTailDiscoveryScope(value: string | undefined): TailDiscoveryScope | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  return TAIL_DISCOVERY_SCOPES.has(normalized as TailDiscoveryScope)
+    ? (normalized as TailDiscoveryScope)
+    : undefined;
+}
+
+function tailDiscoveryProcessKey(source: string, cwd: string | null | undefined): string | null {
+  const cleanCwd = cwd?.trim();
+  return cleanCwd ? `${source}\u0000${cleanCwd}` : null;
+}
+
+function limitTailDiscoverySnapshot(
+  snapshot: DiscoverySnapshot,
+  limit: number | undefined,
+): DiscoverySnapshot {
+  if (!limit || limit <= 0) return snapshot;
+  const transcripts = snapshot.transcripts.slice(0, limit);
+  const transcriptProcessKeys = new Set(
+    transcripts
+      .map((transcript) => tailDiscoveryProcessKey(transcript.source, transcript.cwd))
+      .filter((key): key is string => Boolean(key)),
+  );
+  const processIds = new Set<string>();
+  const processes: DiscoverySnapshot["processes"] = [];
+  for (const process of snapshot.processes) {
+    const key = tailDiscoveryProcessKey(process.source, process.cwd);
+    if (!key || !transcriptProcessKeys.has(key)) continue;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+    if (processes.length >= limit) break;
+  }
+  for (const process of snapshot.processes) {
+    if (processes.length >= limit) break;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+  }
+  return {
+    ...snapshot,
+    processes,
+    transcripts,
+  };
+}
+
+function readTailDiscovery(
+  tailRuntime: WebTailRuntime,
+  options: { force: boolean; scope?: TailDiscoveryScope; limit?: number },
+): Promise<DiscoverySnapshot> {
+  if (!options.scope && options.limit === undefined) {
+    return tailRuntime.getTailDiscovery(options.force);
+  }
+  return tailRuntime.getTailDiscovery(options);
+}
+
 type BrokerJsonCache<T> = {
   data: T | null;
   inFlight: Promise<void> | null;
@@ -1046,7 +1108,7 @@ async function serveCachedBrokerJson<T>(
   url: URL,
   label: string,
   fallback: () => T | Promise<T>,
-  options: { forceRefresh?: boolean } = {},
+  options: { forceRefresh?: boolean; transform?: (data: T) => T } = {},
 ): Promise<Response> {
   const start = performance.now();
   if (options.forceRefresh) {
@@ -1058,7 +1120,9 @@ async function serveCachedBrokerJson<T>(
     scheduleBrokerJsonRefresh(cache, url, label);
   }
   const state = cachedBrokerJsonState(cache);
-  const data = cache.data ?? await fallback();
+  const data = options.transform
+    ? options.transform(cache.data ?? await fallback())
+    : cache.data ?? await fallback();
   c.header("Cache-Control", "no-store");
   c.header("X-OpenScout-Tail-State", state);
   if (cache.lastError) {
@@ -3943,7 +4007,7 @@ export async function createOpenScoutWebServer(
   }
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
-  const tailDiscoveryCache = createBrokerJsonCache<DiscoverySnapshot>();
+  const tailDiscoveryCaches = new Map<string, BrokerJsonCache<DiscoverySnapshot>>();
   const tailRecentCaches = new Map<string, BrokerJsonCache<TailRecentPayload>>();
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
     const now = Date.now();
@@ -6894,16 +6958,40 @@ export async function createOpenScoutWebServer(
   app.get("/api/tail/discover", async (c) => {
     const url = new URL(scoutBrokerPaths.v1.tailDiscover, resolveScoutBrokerUrl());
     const forceRefresh = c.req.query("force") === "true" || c.req.query("force") === "1";
+    const scope = parseTailDiscoveryScope(c.req.query("scope"));
+    const limitParam = parseOptionalPositiveInt(c.req.query("limit"));
     if (forceRefresh) {
       url.searchParams.set("force", "1");
     }
+    if (scope) {
+      url.searchParams.set("scope", scope);
+    }
+    if (limitParam !== undefined) {
+      url.searchParams.set("limit", String(limitParam));
+    }
+    const cacheKey = `scope=${scope ?? "default"};limit=${limitParam ?? "all"}`;
+    let cache = tailDiscoveryCaches.get(cacheKey);
+    if (!cache) {
+      cache = createBrokerJsonCache<DiscoverySnapshot>();
+      tailDiscoveryCaches.set(cacheKey, cache);
+    }
     return serveCachedBrokerJson(
       c,
-      tailDiscoveryCache,
+      cache,
       url,
       "broker tail discovery",
-      () => tailRuntime.getTailDiscovery(),
-      { forceRefresh },
+      async () => limitTailDiscoverySnapshot(
+        await readTailDiscovery(tailRuntime, {
+          force: forceRefresh,
+          ...(scope ? { scope } : {}),
+          ...(limitParam !== undefined ? { limit: limitParam } : {}),
+        }),
+        limitParam,
+      ),
+      {
+        forceRefresh,
+        transform: (data) => limitTailDiscoverySnapshot(data, limitParam),
+      },
     );
   });
 

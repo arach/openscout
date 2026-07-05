@@ -54,6 +54,14 @@ struct HUDStatusView: View {
     @StateObject private var agentsStore = ScoutAgentsStore()
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
+    @StateObject private var sessionsTail = ScoutTailStore(
+        recentLimit: 10,
+        discoveryScope: .hot,
+        discoveryLimit: 10,
+        primesTranscriptHistory: false,
+        maxRawEvents: 10,
+        maxWorkEvents: 10
+    )
     @State private var tailHovered = false
     @AppStorage(HUDTailAppearance.blurOpacityKey) private var tailBlurOpacity = HUDTailAppearance.defaultBlurOpacity
     @AppStorage(HUDTailAppearance.passiveBlurOpacityKey) private var tailPassiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
@@ -597,7 +605,7 @@ struct HUDStatusView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .sessions:
-                HUDSessionsView(agents: agents)
+                HUDSessionsView(agents: agents, tail: sessionsTail)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .assistant:

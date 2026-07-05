@@ -23,6 +23,7 @@ export type {
   DiscoverySnapshot,
   TailContext,
   TailDiscoveryIssue,
+  TailDiscoveryOptions,
   TailDiscoveryScope,
   TailEvent,
   TailEventKind,

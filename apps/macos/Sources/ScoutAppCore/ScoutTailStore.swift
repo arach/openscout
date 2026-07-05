@@ -1,8 +1,11 @@
 import Combine
 import Foundation
+import os.log
 
 @MainActor
 public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
+    private static let log = ScoutLog.logger(category: "tail.store")
+
     @Published public private(set) var events: [ScoutTailEvent] = []
     @Published public private(set) var discovery: ScoutTailDiscoverySnapshot?
     @Published public private(set) var isLoading = false
@@ -24,18 +27,37 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
     }
 
     private let client: ScoutTailClient
+    private let recentLimit: Int
+    private let discoveryScope: ScoutTailDiscoveryScope?
+    private let discoveryLimit: Int?
+    private let primesTranscriptHistory: Bool
     private let pollInterval: TimeInterval = 1.4
-    private let maxRawEvents = 700
-    private let maxWorkEvents = 700
+    private let maxRawEvents: Int
+    private let maxWorkEvents: Int
     private var rawEvents: [ScoutTailEvent] = []
     private var workEvents: [ScoutTailEvent] = []
     private var pollTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
+    private var discoveryTask: Task<Void, Never>?
     private var lastMergeAt: Date?
     private var lastDiscoveryFetchAt: Date?
 
-    public init(client: ScoutTailClient = ScoutTailClient()) {
+    public init(
+        client: ScoutTailClient = ScoutTailClient(),
+        recentLimit: Int = 500,
+        discoveryScope: ScoutTailDiscoveryScope? = nil,
+        discoveryLimit: Int? = nil,
+        primesTranscriptHistory: Bool = true,
+        maxRawEvents: Int = 700,
+        maxWorkEvents: Int = 700
+    ) {
         self.client = client
+        self.recentLimit = max(1, recentLimit)
+        self.discoveryScope = discoveryScope
+        self.discoveryLimit = discoveryLimit.map { max(1, $0) }
+        self.primesTranscriptHistory = primesTranscriptHistory
+        self.maxRawEvents = max(1, maxRawEvents)
+        self.maxWorkEvents = max(1, maxWorkEvents)
     }
 
     public var hasBufferedEvents: Bool {
@@ -165,7 +187,10 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
 
     public func start() {
         guard pollTask == nil else { return }
-        let needsTranscriptPrime = events.isEmpty
+        let needsTranscriptPrime = primesTranscriptHistory && events.isEmpty
+        let scopeLabel = discoveryScope?.rawValue ?? "default"
+        let limitLabel = discoveryLimit.map(String.init) ?? "default"
+        Self.log.info("tail store start recentLimit=\(self.recentLimit, privacy: .public) discoveryScope=\(scopeLabel, privacy: .public) discoveryLimit=\(limitLabel, privacy: .public) primeTranscripts=\(self.primesTranscriptHistory ? "1" : "0", privacy: .public)")
         // Fast first paint: live process inventory only — no transcript disk
         // reads — so the stream shows real rows almost immediately.
         refresh(includeTranscripts: false)
@@ -199,34 +224,77 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
     }
 
     public func stop() {
+        Self.log.info("tail store stop recentLimit=\(self.recentLimit, privacy: .public)")
         pollTask?.cancel()
         pollTask = nil
         fetchTask?.cancel()
         fetchTask = nil
+        discoveryTask?.cancel()
+        discoveryTask = nil
         scoutSetIfChanged(false, to: \.isLoading)
     }
 
     public func refresh(includeTranscripts: Bool = false) {
         if fetchTask != nil { return }
+        let includeTranscriptReplay = includeTranscripts && primesTranscriptHistory
         scoutSetIfChanged(events.isEmpty, to: \.isLoading)
         fetchTask = Task { [weak self] in
-            await self?.fetchRecent(includeTranscripts: includeTranscripts)
+            await self?.fetchRecent(includeTranscripts: includeTranscriptReplay)
+        }
+    }
+
+    public func refreshDiscovery(force: Bool = false) {
+        if discoveryTask != nil {
+            Self.log.debug("tail discovery skipped inFlight=1 force=\(force ? "1" : "0", privacy: .public)")
+            return
+        }
+        discoveryTask = Task { [weak self] in
+            await self?.fetchDiscovery(force: force)
         }
     }
 
     private func fetchRecent(includeTranscripts: Bool) async {
+        let startedAt = Date()
+        Self.log.info("tail recent start limit=\(self.recentLimit, privacy: .public) transcripts=\(includeTranscripts ? "1" : "0", privacy: .public)")
         defer {
             scoutSetIfChanged(false, to: \.isLoading)
             fetchTask = nil
         }
 
         do {
-            let payload = try await client.fetchRecent(limit: 500, includeTranscripts: includeTranscripts)
+            let payload = try await client.fetchRecent(limit: recentLimit, includeTranscripts: includeTranscripts)
             merge(payload.events)
-            try await refreshDiscoveryIfNeeded()
+            let fetchedDiscovery = try await refreshDiscoveryIfNeeded(force: false)
             scoutSetIfChanged(nil, to: \.lastError)
+            Self.log.info("tail recent ok limit=\(self.recentLimit, privacy: .public) transcripts=\(includeTranscripts ? "1" : "0", privacy: .public) fetchedEvents=\(payload.events.count, privacy: .public) visibleEvents=\(self.events.count, privacy: .public) discoveryFetched=\(fetchedDiscovery ? "1" : "0", privacy: .public) elapsedMs=\(self.elapsedMs(since: startedAt), privacy: .public)")
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
+            Self.log.error("tail recent failed limit=\(self.recentLimit, privacy: .public) transcripts=\(includeTranscripts ? "1" : "0", privacy: .public) elapsedMs=\(self.elapsedMs(since: startedAt), privacy: .public) error=\(String(describing: error), privacy: .public)")
+            scoutSetIfChanged(
+                ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."),
+                to: \.lastError
+            )
+        }
+    }
+
+    private func fetchDiscovery(force: Bool) async {
+        let startedAt = Date()
+        let scopeLabel = discoveryScope?.rawValue ?? "default"
+        let limitLabel = discoveryLimit.map(String.init) ?? "default"
+        Self.log.info("tail discovery start force=\(force ? "1" : "0", privacy: .public) scope=\(scopeLabel, privacy: .public) limit=\(limitLabel, privacy: .public)")
+        defer {
+            discoveryTask = nil
+        }
+
+        do {
+            let fetchedDiscovery = try await refreshDiscoveryIfNeeded(force: force)
+            scoutSetIfChanged(nil, to: \.lastError)
+            let processCount = discovery?.processes.count ?? 0
+            let transcriptCount = discovery?.transcripts.count ?? 0
+            Self.log.info("tail discovery ok force=\(force ? "1" : "0", privacy: .public) scope=\(scopeLabel, privacy: .public) limit=\(limitLabel, privacy: .public) fetched=\(fetchedDiscovery ? "1" : "0", privacy: .public) processes=\(processCount, privacy: .public) transcripts=\(transcriptCount, privacy: .public) elapsedMs=\(self.elapsedMs(since: startedAt), privacy: .public)")
+        } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            Self.log.error("tail discovery failed force=\(force ? "1" : "0", privacy: .public) scope=\(scopeLabel, privacy: .public) limit=\(limitLabel, privacy: .public) elapsedMs=\(self.elapsedMs(since: startedAt), privacy: .public) error=\(String(describing: error), privacy: .public)")
             scoutSetIfChanged(
                 ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."),
                 to: \.lastError
@@ -294,16 +362,27 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
             .map { $0 }
     }
 
-    private func refreshDiscoveryIfNeeded() async throws {
+    private func refreshDiscoveryIfNeeded(force: Bool) async throws -> Bool {
         let now = Date()
-        if let lastDiscoveryFetchAt,
+        let hasOversizedScopedDiscovery = discoveryLimit.map { limit in
+            guard let discovery else { return false }
+            return discovery.processes.count > limit || discovery.transcripts.count > limit
+        } ?? false
+        if !force,
+           let lastDiscoveryFetchAt,
            now.timeIntervalSince(lastDiscoveryFetchAt) < 30,
-           discovery != nil {
-            return
+           discovery != nil,
+           !hasOversizedScopedDiscovery {
+            return false
         }
-        let next = try await client.fetchDiscovery()
+        let next = try await client.fetchDiscovery(
+            force: force,
+            scope: discoveryScope,
+            limit: discoveryLimit
+        )
         scoutSetIfChanged(next, to: \.discovery)
         lastDiscoveryFetchAt = now
+        return true
     }
 
     private func counts(_ values: [String]) -> [ScoutTailCount] {
@@ -314,5 +393,9 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
                 if $0.count == $1.count { return $0.label < $1.label }
                 return $0.count > $1.count
             }
+    }
+
+    private func elapsedMs(since startedAt: Date) -> Double {
+        (Date().timeIntervalSince(startedAt) * 1_000).rounded()
     }
 }

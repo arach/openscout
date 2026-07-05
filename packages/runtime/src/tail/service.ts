@@ -12,6 +12,7 @@ import type {
   DiscoveredProcess,
   DiscoveredTranscript,
   DiscoverySnapshot,
+  TailDiscoveryOptions,
   TailDiscoveryScope,
   TailDiscoveryIssue,
   TailEvent,
@@ -590,15 +591,28 @@ function stopLoopIfIdle(): void {
   watchers.clear();
 }
 
-export async function getTailDiscovery(force = false): Promise<DiscoverySnapshot> {
+function normalizeTailDiscoveryOptions(
+  input: boolean | TailDiscoveryOptions = false,
+): Required<Pick<TailDiscoveryOptions, "force">> & Omit<TailDiscoveryOptions, "force"> {
+  if (typeof input === "boolean") {
+    return { force: input };
+  }
+  return { ...input, force: input.force === true };
+}
+
+export async function getTailDiscovery(
+  options: boolean | TailDiscoveryOptions = false,
+): Promise<DiscoverySnapshot> {
+  const { force, scope } = normalizeTailDiscoveryOptions(options);
+  const discoveryScope: TailDiscoveryScope = scope ?? (force ? "deep" : "shallow");
   if (force) {
-    scheduleDiscovery("deep", { pruneMissing: true });
+    scheduleDiscovery(discoveryScope, { pruneMissing: discoveryScope !== "hot" });
     return lastDiscovery ?? emptyDiscoverySnapshot();
   }
   if (lastDiscovery && Date.now() - lastDiscovery.generatedAt <= DISCOVERY_CACHE_MAX_AGE_MS) {
     return lastDiscovery;
   }
-  scheduleDiscovery("shallow", { pruneMissing: true });
+  scheduleDiscovery(discoveryScope, { pruneMissing: discoveryScope !== "hot" });
   return lastDiscovery ?? emptyDiscoverySnapshot();
 }
 
