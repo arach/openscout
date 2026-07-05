@@ -59,6 +59,9 @@ const DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_PS_DISCOVERY_MAX_ROWS: usize = 4_096;
 const PS_DISCOVERY_MAX_COMMAND_CHARS: usize = 1_024;
 const DEFAULT_TMUX_CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
+const DEFAULT_PROBE_CACHE_MAX_ENTRIES: usize = 4_096;
+const DEFAULT_PROBE_CACHE_IDLE_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_REQUESTED_PROBE_TIMEOUT: Duration = Duration::from_millis(30_000);
 const DEFAULT_REPO_JOB_WORKERS: usize = 4;
 const DEFAULT_REPO_JOB_QUEUE: usize = 32;
 const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
@@ -98,6 +101,8 @@ pub struct ProbeServerOptions {
     pub tmux_probe_timeout: Duration,
     pub zellij_probe_timeout: Duration,
     pub ps_discovery_max_rows: usize,
+    pub probe_cache_max_entries: usize,
+    pub probe_cache_idle_ttl: Duration,
     pub repo_job_timeout: Duration,
     pub repo_job_response_cap_bytes: usize,
     pub repo_job_workers: usize,
@@ -124,7 +129,7 @@ impl ProbeServerOptions {
                 .map(PathBuf::from),
             tailscale_timeout: env_duration_ms("OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_TAILSCALE_TIMEOUT),
-            git_timeout: env_duration_ms("OPENSCOUT_GIT_BUILD_INFO_TIMEOUT_MS")
+            git_timeout: env_duration_ms("OPENSCOUT_GIT_CATALOG_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_GIT_TIMEOUT),
             ps_timeout: env_duration_ms("OPENSCOUT_PS_PROBE_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_PS_TIMEOUT),
@@ -137,6 +142,11 @@ impl ProbeServerOptions {
             ps_discovery_max_rows: env_usize("OPENSCOUT_PS_DISCOVERY_MAX_ROWS")
                 .unwrap_or(DEFAULT_PS_DISCOVERY_MAX_ROWS)
                 .max(1),
+            probe_cache_max_entries: env_usize("OPENSCOUT_PROBE_CACHE_MAX_ENTRIES")
+                .unwrap_or(DEFAULT_PROBE_CACHE_MAX_ENTRIES)
+                .max(1),
+            probe_cache_idle_ttl: env_duration_ms("OPENSCOUT_PROBE_CACHE_IDLE_TTL_MS")
+                .unwrap_or(DEFAULT_PROBE_CACHE_IDLE_TTL),
             repo_job_timeout: env_duration_ms("OPENSCOUT_REPO_JOB_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_REPO_JOB_TIMEOUT),
             repo_job_response_cap_bytes: env_usize("OPENSCOUT_REPO_JOB_RESPONSE_MAX_BYTES")
@@ -261,6 +271,8 @@ struct ProbeRequest {
     key: Option<String>,
     #[serde(rename = "maxAgeMs")]
     max_age_ms: Option<u64>,
+    #[serde(rename = "opTimeoutMs")]
+    op_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -388,16 +400,49 @@ struct TmuxPaneProbeKey {
     max_bytes: Option<usize>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct ProbeCacheEntry {
     snapshot: Option<ProbeSnapshotResponse>,
     in_flight: bool,
+    last_access: Instant,
+}
+
+impl ProbeCacheEntry {
+    fn new(now: Instant) -> Self {
+        Self {
+            snapshot: None,
+            in_flight: false,
+            last_access: now,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct ProbeEngineState {
     entries: HashMap<ProbeCacheKey, ProbeCacheEntry>,
     git_static: HashMap<String, StaticGitBuildMetadata>,
+}
+
+impl ProbeEngineState {
+    fn evict_probe_cache(&mut self, now: Instant, idle_ttl: Duration, max_entries: usize) {
+        self.entries.retain(|_, entry| {
+            entry.in_flight || now.duration_since(entry.last_access) <= idle_ttl
+        });
+
+        let max_entries = max_entries.max(1);
+        while self.entries.len() > max_entries {
+            let Some(oldest_key) = self
+                .entries
+                .iter()
+                .filter(|(_, entry)| !entry.in_flight)
+                .min_by_key(|(_, entry)| entry.last_access)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            self.entries.remove(&oldest_key);
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -504,6 +549,7 @@ impl ProbeEngine {
         probe_id: &str,
         key: Option<String>,
         max_age_ms: Option<u64>,
+        op_timeout_ms: Option<u64>,
     ) -> ProbeSnapshotResponse {
         let ttl_ms = probe_ttl_ms(probe_id).unwrap_or(0);
         let normalized_key = match normalize_probe_key(probe_id, key) {
@@ -531,7 +577,17 @@ impl ProbeEngine {
         loop {
             let (lock, cvar) = &*self.state;
             let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            let entry = state.entries.entry(cache_key.clone()).or_default();
+            let now = Instant::now();
+            state.evict_probe_cache(
+                now,
+                self.options.probe_cache_idle_ttl,
+                self.options.probe_cache_max_entries,
+            );
+            let entry = state
+                .entries
+                .entry(cache_key.clone())
+                .or_insert_with(|| ProbeCacheEntry::new(now));
+            entry.last_access = now;
             if let Some(snapshot) = entry.snapshot.as_ref() {
                 if snapshot_is_fresh_for(snapshot, max_age_ms.unwrap_or(ttl_ms)) {
                     return snapshot.clone();
@@ -548,7 +604,7 @@ impl ProbeEngine {
             break;
         }
 
-        let snapshot = match self.run_probe(probe_id, normalized_key.clone()) {
+        let snapshot = match self.run_probe(probe_id, normalized_key.clone(), op_timeout_ms) {
             Ok(value) => ProbeSnapshotResponse {
                 schema: SNAPSHOT_SCHEMA.to_string(),
                 probe_id: probe_id.to_string(),
@@ -564,9 +620,21 @@ impl ProbeEngine {
 
         let (lock, cvar) = &*self.state;
         let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let entry = state.entries.entry(cache_key).or_default();
-        entry.snapshot = Some(snapshot.clone());
-        entry.in_flight = false;
+        let now = Instant::now();
+        {
+            let entry = state
+                .entries
+                .entry(cache_key)
+                .or_insert_with(|| ProbeCacheEntry::new(now));
+            entry.snapshot = Some(snapshot.clone());
+            entry.in_flight = false;
+            entry.last_access = now;
+        }
+        state.evict_probe_cache(
+            now,
+            self.options.probe_cache_idle_ttl,
+            self.options.probe_cache_max_entries,
+        );
         cvar.notify_all();
         snapshot
     }
@@ -889,16 +957,21 @@ impl ProbeEngine {
         }
     }
 
-    fn run_probe(&self, probe_id: &str, key: Option<String>) -> Result<Value, ProbeFailure> {
+    fn run_probe(
+        &self,
+        probe_id: &str,
+        key: Option<String>,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         match probe_id {
-            TAILSCALE_STATUS_ID => self.run_tailscale_status(),
+            TAILSCALE_STATUS_ID => self.run_tailscale_status(op_timeout_ms),
             GIT_BUILD_INFO_ID => {
                 let repo_root = key.ok_or_else(|| ProbeFailure {
                     code: "invalid_request".to_string(),
                     message: "git.buildInfo requires a repo root key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_build_info(&repo_root)
+                self.run_git_build_info(&repo_root, op_timeout_ms)
             }
             GIT_REV_PARSE_ID => {
                 let key = key.ok_or_else(|| ProbeFailure {
@@ -906,7 +979,7 @@ impl ProbeEngine {
                     message: "git.revParse requires a typed key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_rev_parse(&key)
+                self.run_git_rev_parse(&key, op_timeout_ms)
             }
             GIT_DIFF_SHORTSTAT_ID => {
                 let key = key.ok_or_else(|| ProbeFailure {
@@ -914,7 +987,7 @@ impl ProbeEngine {
                     message: "git.diffShortstat requires a typed key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_diff_shortstat(&key)
+                self.run_git_diff_shortstat(&key, op_timeout_ms)
             }
             GIT_STATUS_PORCELAIN_ID => {
                 let key = key.ok_or_else(|| ProbeFailure {
@@ -922,7 +995,7 @@ impl ProbeEngine {
                     message: "git.statusPorcelain requires a typed key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_status_porcelain(&key)
+                self.run_git_status_porcelain(&key, op_timeout_ms)
             }
             GIT_MERGE_BASE_ID => {
                 let key = key.ok_or_else(|| ProbeFailure {
@@ -930,7 +1003,7 @@ impl ProbeEngine {
                     message: "git.mergeBase requires a typed key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_merge_base(&key)
+                self.run_git_merge_base(&key, op_timeout_ms)
             }
             GIT_LOG_LAST_COMMIT_UNIX_ID => {
                 let repo_root = key.ok_or_else(|| ProbeFailure {
@@ -938,7 +1011,7 @@ impl ProbeEngine {
                     message: "git.logLastCommitUnix requires a repo root key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_log_last_commit_unix(&repo_root)
+                self.run_git_log_last_commit_unix(&repo_root, op_timeout_ms)
             }
             GIT_WORKTREE_LIST_PORCELAIN_ID => {
                 let repo_root = key.ok_or_else(|| ProbeFailure {
@@ -946,17 +1019,17 @@ impl ProbeEngine {
                     message: "git.worktreeListPorcelain requires a repo root key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_git_worktree_list_porcelain(&repo_root)
+                self.run_git_worktree_list_porcelain(&repo_root, op_timeout_ms)
             }
-            PS_RUNTIME_ID => self.run_ps_runtime(),
-            PS_DISCOVERY_ID => self.run_ps_discovery(),
+            PS_RUNTIME_ID => self.run_ps_runtime(op_timeout_ms),
+            PS_DISCOVERY_ID => self.run_ps_discovery(op_timeout_ms),
             PS_CWD_ID => {
                 let pid = key.ok_or_else(|| ProbeFailure {
                     code: "invalid_request".to_string(),
                     message: "ps.cwd requires a pid key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_ps_cwd(&pid)
+                self.run_ps_cwd(&pid, op_timeout_ms)
             }
             NET_LISTENERS_ID => {
                 let port = key.ok_or_else(|| ProbeFailure {
@@ -964,11 +1037,11 @@ impl ProbeEngine {
                     message: "net.listeners requires a port key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_net_listeners(&port)
+                self.run_net_listeners(&port, op_timeout_ms)
             }
             TMUX_SESSIONS_ID => {
                 let socket_path = key.unwrap_or_else(|| "default".to_string());
-                self.run_tmux_sessions(&socket_path)
+                self.run_tmux_sessions(&socket_path, op_timeout_ms)
             }
             TMUX_PANES_ID => {
                 let pane_key = key.ok_or_else(|| ProbeFailure {
@@ -976,11 +1049,11 @@ impl ProbeEngine {
                     message: "tmux.panes requires a pane key".to_string(),
                     timed_out: false,
                 })?;
-                self.run_tmux_panes(&pane_key)
+                self.run_tmux_panes(&pane_key, op_timeout_ms)
             }
             ZELLIJ_SESSIONS_ID => {
                 let socket_dir = key.unwrap_or_else(default_zellij_socket_dir);
-                self.run_zellij_sessions(&socket_dir)
+                self.run_zellij_sessions(&socket_dir, op_timeout_ms)
             }
             _ => Err(ProbeFailure {
                 code: "unknown_probe".to_string(),
@@ -990,7 +1063,8 @@ impl ProbeEngine {
         }
     }
 
-    fn run_tailscale_status(&self) -> Result<Value, ProbeFailure> {
+    fn run_tailscale_status(&self, op_timeout_ms: Option<u64>) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.tailscale_timeout, op_timeout_ms);
         let raw = if let Some(fixture_path) = self.options.tailscale_status_fixture.as_ref() {
             match fs::read_to_string(fixture_path) {
                 Ok(value) => value,
@@ -1001,7 +1075,7 @@ impl ProbeEngine {
                 &self.options.tailscale_bin,
                 &["status", "--json"],
                 None,
-                self.options.tailscale_timeout,
+                timeout,
                 4 * 1024 * 1024,
                 256 * 1024,
             ) {
@@ -1020,10 +1094,15 @@ impl ProbeEngine {
         Ok(summarize_tailscale_status(&parsed))
     }
 
-    fn run_git_build_info(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
-        let metadata = self.load_static_git_metadata(repo_root)?;
-        let branch = self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
-        let dirty_status = self.git_output(repo_root, &["status", "--porcelain"])?;
+    fn run_git_build_info(
+        &self,
+        repo_root: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.git_timeout, op_timeout_ms);
+        let metadata = self.load_static_git_metadata(repo_root, timeout)?;
+        let branch = self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"], timeout)?;
+        let dirty_status = self.git_output(repo_root, &["status", "--porcelain"], timeout)?;
         Ok(json!({
             "repoRoot": repo_root,
             "commit": metadata.commit,
@@ -1038,6 +1117,7 @@ impl ProbeEngine {
     fn load_static_git_metadata(
         &self,
         repo_root: &str,
+        timeout: Duration,
     ) -> Result<StaticGitBuildMetadata, ProbeFailure> {
         {
             let (lock, _) = &*self.state;
@@ -1047,8 +1127,12 @@ impl ProbeEngine {
             }
         }
         let metadata = StaticGitBuildMetadata {
-            commit: self.git_value(repo_root, &["rev-parse", "--short", "HEAD"])?,
-            boot_branch: self.git_value(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?,
+            commit: self.git_value(repo_root, &["rev-parse", "--short", "HEAD"], timeout)?,
+            boot_branch: self.git_value(
+                repo_root,
+                &["rev-parse", "--abbrev-ref", "HEAD"],
+                timeout,
+            )?,
             metadata_at: epoch_ms(),
         };
         let (lock, _) = &*self.state;
@@ -1060,14 +1144,19 @@ impl ProbeEngine {
             .clone())
     }
 
-    fn git_output(&self, repo_root: &str, args: &[&str]) -> Result<Option<String>, ProbeFailure> {
+    fn git_output(
+        &self,
+        repo_root: &str,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<Option<String>, ProbeFailure> {
         let mut command_args = vec!["-C", repo_root];
         command_args.extend(args.iter().copied());
         match run_capped_command(
             &self.options.git_bin,
             &command_args,
             None,
-            self.options.git_timeout,
+            timeout,
             256 * 1024,
             64 * 1024,
         ) {
@@ -1077,27 +1166,46 @@ impl ProbeEngine {
         }
     }
 
-    fn git_value(&self, repo_root: &str, args: &[&str]) -> Result<Option<String>, ProbeFailure> {
+    fn git_value(
+        &self,
+        repo_root: &str,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<Option<String>, ProbeFailure> {
         Ok(self
-            .git_output(repo_root, args)?
+            .git_output(repo_root, args, timeout)?
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()))
     }
 
-    fn run_git_rev_parse(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_rev_parse(
+        &self,
+        key: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let parsed: GitRevParseKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
             code: "invalid_request".to_string(),
             message: format!("invalid git.revParse key: {error}"),
             timed_out: false,
         })?;
         let args = git_rev_parse_args(&parsed)?;
-        match self.run_git_catalog_command(&parsed.repo_root, &args, 256 * 1024, GIT_REV_PARSE_ID) {
+        match self.run_git_catalog_command(
+            &parsed.repo_root,
+            &args,
+            256 * 1024,
+            GIT_REV_PARSE_ID,
+            op_timeout_ms,
+        ) {
             Ok(output) => Ok(trimmed_string_value(output.as_deref())),
             Err(error) => Err(error),
         }
     }
 
-    fn run_git_diff_shortstat(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_diff_shortstat(
+        &self,
+        key: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let parsed: GitDiffShortstatKey =
             serde_json::from_str(key).map_err(|error| ProbeFailure {
                 code: "invalid_request".to_string(),
@@ -1110,13 +1218,18 @@ impl ProbeEngine {
             &args,
             256 * 1024,
             GIT_DIFF_SHORTSTAT_ID,
+            op_timeout_ms,
         ) {
             Ok(output) => Ok(trimmed_string_value(output.as_deref())),
             Err(error) => Err(error),
         }
     }
 
-    fn run_git_status_porcelain(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_status_porcelain(
+        &self,
+        key: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let parsed: GitStatusPorcelainKey =
             serde_json::from_str(key).map_err(|error| ProbeFailure {
                 code: "invalid_request".to_string(),
@@ -1129,40 +1242,63 @@ impl ProbeEngine {
             &args,
             1024 * 1024,
             GIT_STATUS_PORCELAIN_ID,
+            op_timeout_ms,
         ) {
             Ok(output) => Ok(output.map(Value::String).unwrap_or(Value::Null)),
             Err(error) => Err(error),
         }
     }
 
-    fn run_git_merge_base(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_merge_base(
+        &self,
+        key: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let parsed: GitMergeBaseKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
             code: "invalid_request".to_string(),
             message: format!("invalid git.mergeBase key: {error}"),
             timed_out: false,
         })?;
         let args = git_merge_base_args(&parsed)?;
-        match self.run_git_catalog_command(&parsed.repo_root, &args, 256 * 1024, GIT_MERGE_BASE_ID)
-        {
+        match self.run_git_catalog_command(
+            &parsed.repo_root,
+            &args,
+            256 * 1024,
+            GIT_MERGE_BASE_ID,
+            op_timeout_ms,
+        ) {
             Ok(output) => Ok(trimmed_string_value(output.as_deref())),
             Err(error) => Err(error),
         }
     }
 
-    fn run_git_log_last_commit_unix(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_log_last_commit_unix(
+        &self,
+        repo_root: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let args = vec![
             "log".to_string(),
             "-1".to_string(),
             "--format=%ct".to_string(),
         ];
-        match self.run_git_catalog_command(repo_root, &args, 64 * 1024, GIT_LOG_LAST_COMMIT_UNIX_ID)
-        {
+        match self.run_git_catalog_command(
+            repo_root,
+            &args,
+            64 * 1024,
+            GIT_LOG_LAST_COMMIT_UNIX_ID,
+            op_timeout_ms,
+        ) {
             Ok(output) => Ok(trimmed_string_value(output.as_deref())),
             Err(error) => Err(error),
         }
     }
 
-    fn run_git_worktree_list_porcelain(&self, repo_root: &str) -> Result<Value, ProbeFailure> {
+    fn run_git_worktree_list_porcelain(
+        &self,
+        repo_root: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let args = vec![
             "worktree".to_string(),
             "list".to_string(),
@@ -1173,6 +1309,7 @@ impl ProbeEngine {
             &args,
             1024 * 1024,
             GIT_WORKTREE_LIST_PORCELAIN_ID,
+            op_timeout_ms,
         ) {
             Ok(output) => Ok(output.map(Value::String).unwrap_or(Value::Null)),
             Err(error) => Err(error),
@@ -1185,15 +1322,17 @@ impl ProbeEngine {
         args: &[String],
         max_stdout_bytes: usize,
         probe_id: &str,
+        op_timeout_ms: Option<u64>,
     ) -> Result<Option<String>, ProbeFailure> {
         let mut command_args = vec!["-C".to_string(), canonical_repo_root(repo_root)];
         command_args.extend(args.iter().cloned());
+        let timeout = effective_probe_timeout(self.options.git_timeout, op_timeout_ms);
         match run_capped_command_with_input(
             &self.options.git_bin,
             &command_args,
             None,
             None,
-            self.options.git_timeout,
+            timeout,
             max_stdout_bytes,
             64 * 1024,
         ) {
@@ -1203,7 +1342,12 @@ impl ProbeEngine {
         }
     }
 
-    fn run_tmux_sessions(&self, socket_path: &str) -> Result<Value, ProbeFailure> {
+    fn run_tmux_sessions(
+        &self,
+        socket_path: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.tmux_probe_timeout, op_timeout_ms);
         let args = tmux_socket_args(
             socket_path,
             &[
@@ -1217,7 +1361,7 @@ impl ProbeEngine {
             &args,
             None,
             None,
-            self.options.tmux_probe_timeout,
+            timeout,
             512 * 1024,
             64 * 1024,
         ) {
@@ -1227,12 +1371,17 @@ impl ProbeEngine {
         }
     }
 
-    fn run_zellij_sessions(&self, socket_dir: &str) -> Result<Value, ProbeFailure> {
+    fn run_zellij_sessions(
+        &self,
+        socket_dir: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.zellij_probe_timeout, op_timeout_ms);
         match run_capped_command_with_env(
             &self.options.zellij_bin,
             &["list-sessions"],
             &[("ZELLIJ_SOCKET_DIR", socket_dir)],
-            self.options.zellij_probe_timeout,
+            timeout,
             512 * 1024,
             64 * 1024,
         ) {
@@ -1242,17 +1391,17 @@ impl ProbeEngine {
         }
     }
 
-    fn run_tmux_panes(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_tmux_panes(&self, key: &str, op_timeout_ms: Option<u64>) -> Result<Value, ProbeFailure> {
         let parsed: TmuxPaneProbeKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
             code: "invalid_request".to_string(),
             message: format!("invalid tmux.panes key: {error}"),
             timed_out: false,
         })?;
         if parsed.kind == "detail" {
-            return self.run_tmux_pane_detail(&parsed);
+            return self.run_tmux_pane_detail(&parsed, op_timeout_ms);
         }
         if parsed.kind == "capture" {
-            return self.run_tmux_pane_capture(&parsed);
+            return self.run_tmux_pane_capture(&parsed, op_timeout_ms);
         }
         Err(ProbeFailure {
             code: "invalid_request".to_string(),
@@ -1261,7 +1410,12 @@ impl ProbeEngine {
         })
     }
 
-    fn run_tmux_pane_detail(&self, parsed: &TmuxPaneProbeKey) -> Result<Value, ProbeFailure> {
+    fn run_tmux_pane_detail(
+        &self,
+        parsed: &TmuxPaneProbeKey,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.tmux_probe_timeout, op_timeout_ms);
         let args = tmux_socket_args(
             &parsed.socket_path,
             &[
@@ -1277,7 +1431,7 @@ impl ProbeEngine {
             &args,
             None,
             None,
-            self.options.tmux_probe_timeout,
+            timeout,
             64 * 1024,
             64 * 1024,
         ) {
@@ -1287,7 +1441,12 @@ impl ProbeEngine {
         }
     }
 
-    fn run_tmux_pane_capture(&self, parsed: &TmuxPaneProbeKey) -> Result<Value, ProbeFailure> {
+    fn run_tmux_pane_capture(
+        &self,
+        parsed: &TmuxPaneProbeKey,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.tmux_probe_timeout, op_timeout_ms);
         let start = parsed.start.as_deref().unwrap_or("0");
         let end = parsed.end.as_deref().unwrap_or("-");
         let mut suffix = vec!["capture-pane", "-p"];
@@ -1305,7 +1464,7 @@ impl ProbeEngine {
             &args,
             None,
             None,
-            self.options.tmux_probe_timeout,
+            timeout,
             max_stdout,
             64 * 1024,
         ) {
@@ -1315,12 +1474,13 @@ impl ProbeEngine {
         }
     }
 
-    fn run_ps_runtime(&self) -> Result<Value, ProbeFailure> {
+    fn run_ps_runtime(&self, op_timeout_ms: Option<u64>) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.ps_timeout, op_timeout_ms);
         let rows = match run_capped_command(
             &self.options.ps_bin,
             &["-axo", "pid=,ppid=,pgid=,tty=,comm="],
             None,
-            self.options.ps_timeout,
+            timeout,
             4 * 1024 * 1024,
             128 * 1024,
         ) {
@@ -1332,7 +1492,7 @@ impl ProbeEngine {
             &self.options.ps_bin,
             &["-axo", "pid=,ppid=,pgid=,tty=,command="],
             None,
-            self.options.ps_timeout,
+            timeout,
             8 * 1024 * 1024,
             128 * 1024,
         ) {
@@ -1346,12 +1506,13 @@ impl ProbeEngine {
         }))
     }
 
-    fn run_ps_discovery(&self) -> Result<Value, ProbeFailure> {
+    fn run_ps_discovery(&self, op_timeout_ms: Option<u64>) -> Result<Value, ProbeFailure> {
+        let timeout = effective_probe_timeout(self.options.ps_timeout, op_timeout_ms);
         match run_capped_command(
             &self.options.ps_bin,
             &["-axww", "-o", "pid=,ppid=,etime=,command="],
             None,
-            self.options.ps_timeout,
+            timeout,
             32 * 1024 * 1024,
             128 * 1024,
         ) {
@@ -1366,16 +1527,17 @@ impl ProbeEngine {
         }
     }
 
-    fn run_ps_cwd(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_ps_cwd(&self, key: &str, op_timeout_ms: Option<u64>) -> Result<Value, ProbeFailure> {
         let Some(pid) = positive_u32(key) else {
             return Ok(Value::Null);
         };
         let pid_arg = pid.to_string();
+        let timeout = effective_probe_timeout(self.options.lsof_timeout, op_timeout_ms);
         match run_capped_command(
             &self.options.lsof_bin,
             &["-a", "-p", pid_arg.as_str(), "-d", "cwd", "-Fn"],
             None,
-            self.options.lsof_timeout,
+            timeout,
             64 * 1024,
             64 * 1024,
         ) {
@@ -1387,16 +1549,21 @@ impl ProbeEngine {
         }
     }
 
-    fn run_net_listeners(&self, key: &str) -> Result<Value, ProbeFailure> {
+    fn run_net_listeners(
+        &self,
+        key: &str,
+        op_timeout_ms: Option<u64>,
+    ) -> Result<Value, ProbeFailure> {
         let Some(port) = positive_u32(key) else {
             return Ok(json!({ "port": 0, "pid": Value::Null }));
         };
         let port_arg = format!("-iTCP:{port}");
+        let timeout = effective_probe_timeout(self.options.lsof_timeout, op_timeout_ms);
         match run_capped_command(
             &self.options.lsof_bin,
             &["-nP", port_arg.as_str(), "-sTCP:LISTEN", "-Fp"],
             None,
-            self.options.lsof_timeout,
+            timeout,
             64 * 1024,
             64 * 1024,
         ) {
@@ -1542,6 +1709,7 @@ fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), 
                     &probe_id,
                     request.key,
                     request.max_age_ms,
+                    request.op_timeout_ms,
                 )) {
                     Ok(value) => value,
                     Err(error) => error_response("serialize_error", &error.to_string()),
@@ -2987,6 +3155,13 @@ fn tmux_socket_prefix(args: &Map<String, Value>) -> Result<Vec<String>, ProbeFai
     Ok(vec!["-S".to_string(), socket_path])
 }
 
+fn effective_probe_timeout(default_timeout: Duration, op_timeout_ms: Option<u64>) -> Duration {
+    match op_timeout_ms {
+        None => default_timeout,
+        Some(ms) => Duration::from_millis(ms.max(1)).min(MAX_REQUESTED_PROBE_TIMEOUT),
+    }
+}
+
 fn requested_timeout(
     args: &Map<String, Value>,
     default_timeout: Duration,
@@ -3455,7 +3630,10 @@ fn env_usize(name: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{serve, ProbeServerOptions, CAPABILITIES_SCHEMA, ERROR_SCHEMA, SNAPSHOT_SCHEMA};
+    use super::{
+        serve, ProbeCacheKey, ProbeEngine, ProbeServerOptions, CAPABILITIES_SCHEMA, ERROR_SCHEMA,
+        PS_CWD_ID, SNAPSHOT_SCHEMA,
+    };
     use scoutd::repo_service;
     use serde_json::json;
     use serde_json::Value;
@@ -3525,6 +3703,8 @@ mod tests {
             tmux_probe_timeout: Duration::from_millis(1_500),
             zellij_probe_timeout: Duration::from_millis(1_500),
             ps_discovery_max_rows: 4_096,
+            probe_cache_max_entries: 4_096,
+            probe_cache_idle_ttl: Duration::from_secs(10 * 60),
             repo_job_timeout: Duration::from_millis(20_000),
             repo_job_response_cap_bytes: 8 * 1024 * 1024,
             repo_job_workers: 4,
@@ -3534,6 +3714,66 @@ mod tests {
             connection_workers: 32,
             connection_queue: 64,
         }
+    }
+
+    #[test]
+    fn probe_cache_enforces_max_entries_without_eviction_threads() {
+        let dir = unique_temp_dir("scoutd-probe-cache-max");
+        let socket_path = dir.join("probes.sock");
+        let mut options = base_options(socket_path);
+        options.probe_cache_max_entries = 3;
+        options.probe_cache_idle_ttl = Duration::from_secs(60);
+        let engine = ProbeEngine::new(options);
+
+        for index in 0..5 {
+            let _ = engine.snapshot(
+                PS_CWD_ID,
+                Some(format!("not-a-pid-{index}")),
+                Some(0),
+                Some(1_500),
+            );
+        }
+
+        let (lock, _) = &*engine.state;
+        let state = lock.lock().unwrap();
+        assert!(state.entries.len() <= 3, "entries={}", state.entries.len());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn probe_cache_evicts_idle_entries_on_insert() {
+        let dir = unique_temp_dir("scoutd-probe-cache-idle");
+        let socket_path = dir.join("probes.sock");
+        let mut options = base_options(socket_path);
+        options.probe_cache_max_entries = 100;
+        options.probe_cache_idle_ttl = Duration::from_millis(1);
+        let engine = ProbeEngine::new(options);
+
+        let _ = engine.snapshot(
+            PS_CWD_ID,
+            Some("not-a-pid-old".to_string()),
+            Some(0),
+            Some(1_500),
+        );
+        thread::sleep(Duration::from_millis(5));
+        let _ = engine.snapshot(
+            PS_CWD_ID,
+            Some("not-a-pid-new".to_string()),
+            Some(0),
+            Some(1_500),
+        );
+
+        let (lock, _) = &*engine.state;
+        let state = lock.lock().unwrap();
+        assert!(!state.entries.contains_key(&ProbeCacheKey {
+            probe_id: PS_CWD_ID.to_string(),
+            key: Some("not-a-pid-old".to_string()),
+        }));
+        assert!(state.entries.contains_key(&ProbeCacheKey {
+            probe_id: PS_CWD_ID.to_string(),
+            key: Some("not-a-pid-new".to_string()),
+        }));
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

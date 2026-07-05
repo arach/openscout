@@ -61,7 +61,7 @@ type ScoutdSnapshotResponse<T> = {
   generatedAt: number;
   ttlMs: number;
   value: T;
-  error: { code?: string; message?: string; timedOut?: boolean } | null;
+  error: { code?: string; message?: string; timedOut?: boolean; timed_out?: boolean } | null;
   daemonVersion: string;
 };
 
@@ -135,6 +135,18 @@ export class ScoutdExecResponseError extends Error {
   }
 }
 
+export class ScoutdProbeResponseError extends Error {
+  code: string;
+  timedOut: boolean;
+
+  constructor(message: string, options: { code?: string; timedOut?: boolean } = {}) {
+    super(message);
+    this.name = "ScoutdProbeResponseError";
+    this.code = options.code ?? "probe_error";
+    this.timedOut = options.timedOut ?? false;
+  }
+}
+
 export function resolveScoutdProbesSocketPath(env: RuntimeEnv = process.env): string {
   const explicit = env.OPENSCOUT_PROBES_SOCKET?.trim();
   if (explicit) {
@@ -199,13 +211,17 @@ export class ScoutdProbeClient {
         probeId: input.probeId,
         key: input.key ?? null,
         maxAgeMs: input.maxAgeMs,
+        opTimeoutMs: requestOpTimeoutMs(input.timeoutMs),
       }, { timeoutMs: socketTimeoutMs });
       if (!isRecord(response) || response.schema !== SNAPSHOT_SCHEMA) {
         throw new Error("scoutd returned an invalid probe snapshot envelope");
       }
       if (response.error) {
-        const message = readString(response.error.message) ?? readString(response.error.code) ?? "scoutd probe failed";
-        throw new Error(message);
+        const error = isRecord(response.error) ? response.error : {};
+        const code = readString(error.code) ?? "probe_error";
+        const message = readString(error.message) ?? code;
+        const timedOut = error.timedOut === true || error.timed_out === true;
+        throw new ScoutdProbeResponseError(message, { code, timedOut });
       }
       this.fallbackByProbe.delete(fallbackKey(input.probeId, input.key));
       this.lastError = null;
@@ -216,8 +232,10 @@ export class ScoutdProbeClient {
         daemonVersion: readString(response.daemonVersion) ?? capabilities.daemonVersion,
       };
     } catch (error) {
-      this.capabilities = null;
-      this.lastCapabilityCheckAt = null;
+      if (!(error instanceof ScoutdProbeResponseError)) {
+        this.capabilities = null;
+        this.lastCapabilityCheckAt = null;
+      }
       this.lastError = fallbackMessage(error);
       return this.fallback(input.probeId, input.key, this.lastError);
     }
@@ -449,6 +467,13 @@ function probeSocketTimeoutMs(timeoutMs: number | undefined): number {
     return SOCKET_TIMEOUT_MS;
   }
   return Math.max(SOCKET_TIMEOUT_MS, Math.min(Math.max(0, timeoutMs) + 1_000, 31_000));
+}
+
+function requestOpTimeoutMs(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(timeoutMs));
 }
 
 function execSocketTimeoutMs(args: Record<string, unknown>): number {
