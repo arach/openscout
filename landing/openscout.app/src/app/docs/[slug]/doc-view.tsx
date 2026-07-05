@@ -204,6 +204,7 @@ const DIAGRAM_CODES: Record<string, string> = {
   "communication-flow": "SCOUT-001-COMM",
   "agent-lifecycle": "SCOUT-002-LIFE",
   "mesh-topology": "SCOUT-003-MESH",
+  "session-harness-lifecycle": "SCO-079-SESSION",
 };
 
 function formatDiagramLabel(src: string) {

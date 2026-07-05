@@ -57,5 +57,7 @@ const body = [
 
 writeFileSync(join(ROOT, "llms-full.txt"), `${body}\n`);
 writeFileSync(join(ROOT, "landing/public/llms-full.txt"), `${body}\n`);
+writeFileSync(join(ROOT, "landing/openscout.app/public/llms-full.txt"), `${body}\n`);
+writeFileSync(join(ROOT, "landing/oscout.net/public/llms-full.txt"), `${body}\n`);
 
 console.log(`Wrote llms-full.txt from ${SOURCES.length} source files.`);

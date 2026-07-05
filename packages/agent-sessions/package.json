@@ -145,6 +145,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test src",
+    "test:node-opencode-launch-error": "npm run build && node scripts/opencode-node-launch-error-smoke.mjs",
     "adapter:validate-specs": "node ./src/adapters/spec/tools/validate-adapter-specs.mjs",
     "event-types": "bun ./src/adapters/tools/extract-event-types.ts",
     "codex:extract-protocol": "node ./src/adapters/codex/tools/extract-rust-protocol-spec.mjs",

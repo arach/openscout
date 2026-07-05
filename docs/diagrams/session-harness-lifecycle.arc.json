@@ -1,0 +1,375 @@
+{
+    "layout": {
+        "width": 980,
+        "height": 620
+    },
+    "nodes": {
+        "agent": {
+            "x": 70,
+            "y": 70,
+            "size": "l"
+        },
+        "session": {
+            "x": 385,
+            "y": 70,
+            "size": "l"
+        },
+        "attachment": {
+            "x": 700,
+            "y": 70,
+            "size": "l"
+        },
+        "referenced": {
+            "x": 60,
+            "y": 270,
+            "size": "s"
+        },
+        "materializing": {
+            "x": 205,
+            "y": 270,
+            "size": "m"
+        },
+        "detached": {
+            "x": 405,
+            "y": 255,
+            "size": "l"
+        },
+        "attaching": {
+            "x": 660,
+            "y": 270,
+            "size": "m"
+        },
+        "attached": {
+            "x": 835,
+            "y": 270,
+            "size": "s"
+        },
+        "running-turn": {
+            "x": 835,
+            "y": 390,
+            "size": "s"
+        },
+        "needs-input": {
+            "x": 660,
+            "y": 445,
+            "size": "m"
+        },
+        "blocked": {
+            "x": 405,
+            "y": 445,
+            "size": "m"
+        },
+        "invalid": {
+            "x": 205,
+            "y": 445,
+            "size": "s"
+        },
+        "invocation": {
+            "x": 65,
+            "y": 540,
+            "size": "m"
+        },
+        "awaiting": {
+            "x": 385,
+            "y": 540,
+            "size": "l"
+        },
+        "delivered": {
+            "x": 715,
+            "y": 540,
+            "size": "m"
+        }
+    },
+    "nodeData": {
+        "agent": {
+            "icon": "User",
+            "name": "Agent identity",
+            "subtitle": "stateless address",
+            "description": "Durable name/capability profile",
+            "color": "violet"
+        },
+        "session": {
+            "icon": "MessageSquare",
+            "name": "Session context",
+            "subtitle": "harness conversation",
+            "description": "Durable context Scout can reference",
+            "color": "sky"
+        },
+        "attachment": {
+            "icon": "Terminal",
+            "name": "Harness attachment",
+            "subtitle": "driveable runtime",
+            "description": "Current process able to accept work",
+            "color": "emerald"
+        },
+        "referenced": {
+            "icon": "Search",
+            "name": "referenced",
+            "subtitle": "handle / intent",
+            "color": "zinc"
+        },
+        "materializing": {
+            "icon": "Package",
+            "name": "materializing",
+            "subtitle": "create / import / load",
+            "color": "violet"
+        },
+        "detached": {
+            "icon": "Pause",
+            "name": "detached",
+            "subtitle": "context exists",
+            "description": "No running harness is currently driving it",
+            "color": "amber"
+        },
+        "attaching": {
+            "icon": "RefreshCw",
+            "name": "attaching",
+            "subtitle": "resume / start",
+            "color": "violet"
+        },
+        "attached": {
+            "icon": "Play",
+            "name": "attached",
+            "subtitle": "ready",
+            "color": "emerald"
+        },
+        "running-turn": {
+            "icon": "Activity",
+            "name": "running_turn",
+            "subtitle": "one active turn",
+            "color": "blue"
+        },
+        "needs-input": {
+            "icon": "Bell",
+            "name": "needs_input",
+            "subtitle": "approval / answer",
+            "color": "rose"
+        },
+        "blocked": {
+            "icon": "Settings",
+            "name": "blocked",
+            "subtitle": "operator / config",
+            "color": "rose"
+        },
+        "invalid": {
+            "icon": "Square",
+            "name": "invalid",
+            "subtitle": "not resumable",
+            "color": "zinc"
+        },
+        "invocation": {
+            "icon": "Mail",
+            "name": "Invocation",
+            "subtitle": "message / ask",
+            "color": "blue"
+        },
+        "awaiting": {
+            "icon": "ArrowDown",
+            "name": "awaiting attachment",
+            "subtitle": "invocation state",
+            "description": "Not a session state; not agent offline",
+            "color": "amber"
+        },
+        "delivered": {
+            "icon": "Zap",
+            "name": "delivered to harness",
+            "subtitle": "turn accepted",
+            "color": "emerald"
+        }
+    },
+    "connectors": [
+        {
+            "from": "agent",
+            "to": "session",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "reference"
+        },
+        {
+            "from": "session",
+            "to": "attachment",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "optional"
+        },
+        {
+            "from": "referenced",
+            "to": "materializing",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "session"
+        },
+        {
+            "from": "materializing",
+            "to": "detached",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "session"
+        },
+        {
+            "from": "detached",
+            "to": "attaching",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "attach"
+        },
+        {
+            "from": "attaching",
+            "to": "attached",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "attach"
+        },
+        {
+            "from": "attached",
+            "to": "running-turn",
+            "fromAnchor": "bottom",
+            "toAnchor": "top",
+            "style": "turn"
+        },
+        {
+            "from": "running-turn",
+            "to": "needs-input",
+            "fromAnchor": "left",
+            "toAnchor": "right",
+            "style": "needs"
+        },
+        {
+            "from": "needs-input",
+            "to": "running-turn",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "resume"
+        },
+        {
+            "from": "blocked",
+            "to": "attaching",
+            "fromAnchor": "right",
+            "toAnchor": "bottom",
+            "style": "resume"
+        },
+        {
+            "from": "materializing",
+            "to": "invalid",
+            "fromAnchor": "bottom",
+            "toAnchor": "top",
+            "style": "failure"
+        },
+        {
+            "from": "invocation",
+            "to": "awaiting",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "invocation"
+        },
+        {
+            "from": "awaiting",
+            "to": "delivered",
+            "fromAnchor": "right",
+            "toAnchor": "left",
+            "style": "invocation"
+        },
+        {
+            "from": "awaiting",
+            "to": "detached",
+            "fromAnchor": "top",
+            "toAnchor": "bottom",
+            "style": "projection",
+            "curve": "step"
+        },
+        {
+            "from": "delivered",
+            "to": "running-turn",
+            "fromAnchor": "top",
+            "toAnchor": "bottom",
+            "style": "projection",
+            "curve": "step"
+        }
+    ],
+    "connectorStyles": {
+        "reference": {
+            "color": "violet",
+            "strokeWidth": 2,
+            "label": "references"
+        },
+        "optional": {
+            "color": "emerald",
+            "strokeWidth": 2,
+            "label": "attached when live"
+        },
+        "session": {
+            "color": "sky",
+            "strokeWidth": 2,
+            "label": "session lifecycle"
+        },
+        "attach": {
+            "color": "violet",
+            "strokeWidth": 2,
+            "label": "attach"
+        },
+        "turn": {
+            "color": "blue",
+            "strokeWidth": 2,
+            "label": "accept turn"
+        },
+        "needs": {
+            "color": "rose",
+            "strokeWidth": 1.5,
+            "label": "needs input"
+        },
+        "resume": {
+            "color": "emerald",
+            "strokeWidth": 1.5,
+            "dashed": true,
+            "label": "resume"
+        },
+        "failure": {
+            "color": "zinc",
+            "strokeWidth": 1.5,
+            "dashed": true
+        },
+        "invocation": {
+            "color": "blue",
+            "strokeWidth": 2,
+            "label": "request lifecycle"
+        },
+        "projection": {
+            "color": "amber",
+            "strokeWidth": 1.5,
+            "dashed": true,
+            "label": "observes"
+        }
+    },
+    "groups": [
+        {
+            "id": "concepts",
+            "x": 35,
+            "y": 35,
+            "width": 910,
+            "height": 150,
+            "type": "rect",
+            "color": "violet",
+            "label": "Concept boundary"
+        },
+        {
+            "id": "session-lifecycle",
+            "x": 35,
+            "y": 225,
+            "width": 910,
+            "height": 285,
+            "type": "rect",
+            "color": "sky",
+            "label": "Agent session lifecycle"
+        },
+        {
+            "id": "invocation-lifecycle",
+            "x": 35,
+            "y": 515,
+            "width": 910,
+            "height": 80,
+            "type": "rect",
+            "color": "blue",
+            "label": "Invocation/message request lifecycle"
+        }
+    ]
+}

@@ -29,7 +29,10 @@ import type {
   Turn,
   TurnStatus,
 } from "../../protocol/primitives.js";
-import type { Subprocess } from "bun";
+import {
+  spawnHarnessProcess,
+  type HarnessProcess,
+} from "../../runtime/process.js";
 
 const BASE_PROCESS_ENV_KEYS = [
   "PATH",
@@ -201,7 +204,7 @@ export function buildPiProcessEnv(
 export class PiAdapter extends BaseAdapter {
   readonly type = "pi";
 
-  private process: Subprocess | null = null;
+  private process: HarnessProcess | null = null;
   private currentTurn: Turn | null = null;
   private blockIndex = 0;
 
@@ -218,12 +221,6 @@ export class PiAdapter extends BaseAdapter {
   }
 
   async start(): Promise<void> {
-    if (typeof Bun === "undefined") {
-      throw new Error(
-        "The pi adapter spawns its harness via Bun.spawn and requires the Bun runtime. See the runtime support matrix in the @openscout/agent-sessions README.",
-      );
-    }
-
     const args = ["--mode", "rpc"];
 
     // Model override.
@@ -295,19 +292,31 @@ export class PiAdapter extends BaseAdapter {
       },
     };
 
-    this.process = Bun.spawn(["pi", ...args], {
+    const child = await spawnHarnessProcess("pi", args, {
       cwd: this.config.cwd,
       env,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
     });
+    this.process = child;
 
     this.readStdout();
+    child.drainStderr();
 
-    this.process.exited.then((code) => {
-      if (code !== 0 && this.session.status !== "closed") {
-        this.emit("error", new Error(`pi exited with code ${code}`));
+    child.onError((error) => {
+      if (this.process === child && this.session.status !== "closed") {
+        this.emit("error", error);
+        this.setStatus("error");
+      }
+    });
+    child.onExit((code, signal) => {
+      if (this.process !== child || this.session.status === "closed") {
+        return;
+      }
+      if (code !== 0) {
+        this.emit("error", new Error(
+          `pi exited`
+          + (code !== null ? ` with code ${code}` : "")
+          + (signal ? ` (${signal})` : ""),
+        ));
         this.setStatus("error");
       }
     });
@@ -356,9 +365,8 @@ export class PiAdapter extends BaseAdapter {
 
   private sendRPC(command: Record<string, unknown>): void {
     const stdin = this.process?.stdin;
-    if (!stdin || typeof stdin === "number") return;
+    if (!stdin?.writable) return;
     stdin.write(JSON.stringify(command) + "\n");
-    stdin.flush();
   }
 
   private requestState(): void {
@@ -369,35 +377,24 @@ export class PiAdapter extends BaseAdapter {
   // Stdout reader
   // ---------------------------------------------------------------------------
 
-  private async readStdout(): Promise<void> {
-    const stdout = this.process?.stdout;
-    if (!stdout || typeof stdout === "number") return;
-
-    const reader = stdout.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            this.handleEvent(JSON.parse(trimmed));
-          } catch { /* skip malformed */ }
+  private readStdout(): void {
+    this.process?.readStdoutLines(
+      (line) => this.handleStdoutLine(line),
+      () => {
+        if (this.currentTurn && this.currentTurn.status !== "stopped") {
+          this.endTurn(this.currentTurn, "completed");
         }
-      }
-    } catch { /* stream closed */ }
+      },
+    );
+  }
 
-    if (this.currentTurn && this.currentTurn.status !== "stopped") {
-      this.endTurn(this.currentTurn, "completed");
+  private handleStdoutLine(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    try {
+      this.handleEvent(JSON.parse(trimmed));
+    } catch {
+      // Ignore malformed harness output.
     }
   }
 

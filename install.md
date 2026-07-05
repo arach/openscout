@@ -51,10 +51,18 @@ already work.
 | pi | [Pi Scout](https://github.com/arach/pi-scout) | `pi install git:github.com/arach/pi-scout` |
 | Claude Code | [Claude Scout](https://github.com/arach/claude-scout) | `/plugin marketplace add arach/claude-scout` |
 | Codex | [Codex Scout](https://github.com/arach/codex-scout) | `/plugin marketplace add arach/codex-scout` |
+| Cursor | [Cursor Scout](https://github.com/arach/cursor-scout) | See the host-specific installer. |
+| Hermes Agent | [Hermes Scout](https://github.com/arach/hermes-scout) | Install the Hermes plugin after Scout is healthy. |
+| Herdr | [Herdr](https://github.com/ogulcancelik/herdr) | Install Herdr integrations for the agent hosts you use. |
 
 Install these after `scout setup` and `scout doctor` pass. Each companion
 package should use the installed `scout` CLI or the local broker rather than
 vendoring OpenScout internals.
+
+Some companion hosts are also Scout harnesses, and some are not. Hermes and
+Herdr are first-class compatibility targets in the host integration layer, but
+they are not valid `--harness` values unless a future adapter explicitly makes
+them execution backends.
 
 See [docs/integrations.md](./docs/integrations.md) for the current integration
 map, repository links, and sibling-checkout guidance.

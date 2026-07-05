@@ -141,25 +141,31 @@ For a warm, multi-turn client that reuses one local session, use `createLocalAge
 
 ## Runtime Support
 
-Adapters differ in what runtime they need, because some shell out to a harness process and some are pure. This is load-bearing — pick your import accordingly.
+The runtime split is browser versus server. Browser imports must stay on the
+pure protocol/client surfaces. Server imports run on both Node and Bun.
 
-| Surface | Browser | Node | Bun |
-| --- | :---: | :---: | :---: |
-| `./client`, `./protocol/primitives` | ✅ | ✅ | ✅ |
-| Root observability / history / budget helpers | — | ✅ | ✅ |
-| `./local` (codex, grok) | — | ✅ | ✅ |
-| `./codex-executable` | — | ✅ | ✅ |
-| `adapters/acp` | — | ✅ | ✅ |
-| `adapters/codex` (observe/topology/usage) | — | ✅ | ✅ |
-| `adapters/grok-acp` | — | ✅ | ✅ |
-| `adapters/openai-compat` (pure `fetch`) | — | ✅ | ✅ |
-| `adapters/echo` | — | ✅ | ✅ |
-| `adapters/claude-code` | — | — | ✅ |
-| `adapters/opencode` | — | — | ✅ |
-| `adapters/pi` | — | — | ✅ |
-| `./local` (pi) | — | — | ✅ |
+| Surface | Browser | Server (Node/Bun) |
+| --- | :---: | :---: |
+| `./client`, `./protocol/primitives` | ✅ | ✅ |
+| Root observability / history / budget helpers | — | ✅ |
+| `./local` (codex, grok, pi) | — | ✅ |
+| `./codex-executable` | — | ✅ |
+| `adapters/acp` | — | ✅ |
+| `adapters/codex` (observe/topology/usage) | — | ✅ |
+| `adapters/grok-acp` | — | ✅ |
+| `adapters/openai-compat` (pure `fetch`) | — | ✅ |
+| `adapters/echo` | — | ✅ |
+| `adapters/claude-code` | — | ✅ |
+| `adapters/opencode` | — | ✅ |
+| `adapters/pi` | — | ✅ |
 
-The pure protocol and `./client` surfaces are browser-safe: no process spawning, no Node built-ins. Node-and-Bun surfaces use `node:child_process` (the ACP, Grok ACP, and Codex app-server transports) or plain `fetch` (OpenAI-compatible). The `claude-code`, `opencode`, and `pi` adapters call `Bun.spawn` directly and are Bun-only, and so is the pi path of `./local`. `SessionRegistry` itself runs on both Node and Bun — its git-branch detection uses `Bun.spawnSync` guarded in a `try`/`catch`, so it simply skips branch detection when Bun is unavailable.
+The pure protocol and `./client` surfaces are browser-safe: no process
+spawning, no Node built-ins. Server-side surfaces use standard Web APIs,
+plain `fetch`, or runtime-native process spawning for harness processes.
+Claude Code, opencode, and pi use `Bun.spawn` when running under Bun and fall
+back to `node:child_process` under Node. Existing ACP, Grok ACP, and Codex
+app-server transports use the Node child-process API, which is available in
+both runtimes.
 
 ## Important Boundaries
 

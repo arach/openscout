@@ -16,6 +16,28 @@ making the integration surface discoverable.
 | Codex | [`arach/codex-scout`](https://github.com/arach/codex-scout) | [`arach.github.io/codex-scout`](https://arach.github.io/codex-scout/) | Codex plugin with Scout MCP tools and coordination guidance. |
 | Cursor | [`arach/cursor-scout`](https://github.com/arach/cursor-scout) | [`arach.github.io/cursor-scout`](https://arach.github.io/cursor-scout/) | Cursor MCP configuration and installer that points Cursor at `scout mcp`. |
 | Hermes Agent | [`arach/hermes-scout`](https://github.com/arach/hermes-scout) | [`github.com/arach/hermes-scout`](https://github.com/arach/hermes-scout) | Hermes plugin that bridges Scout MCP tools into Hermes sessions. |
+| Herdr | [`ogulcancelik/herdr`](https://github.com/ogulcancelik/herdr) | [`herdr.dev/docs`](https://herdr.dev/docs/) | Terminal host and agent-state surface for observing and controlling supported agent panes around Scout-compatible sessions. |
+
+## Compatibility Model
+
+Scout uses **host integration** as the umbrella term for first-class
+compatibility with another agent tool, terminal host, or IDE. A host integration
+can contribute one or more roles:
+
+- execution harness: Scout can route work into a session backed by that runtime
+- agent host: the tool can host a Scout-aware agent surface or plugin
+- MCP host: the tool can connect to `scout mcp`
+- terminal host: the tool can expose or control terminal panes that contain
+  Scout-compatible sessions
+- agent-state surface: the tool can report lifecycle, focus, approval, or
+  session state around agents Scout cares about
+
+`harness` remains the narrower runtime field. Claude Code, Codex, Cursor, and
+pi can be harness-backed execution targets. Hermes and Herdr are first-class
+host integrations, but they are not Scout harnesses: Hermes is an agent/MCP
+host, and Herdr is a terminal host plus agent-state surface. Do not add
+`hermes` or `herdr` to `--harness` or `execution.harness` unless an explicit
+execution adapter is implemented.
 
 ## Shared Routing Guidance For Integrations
 
@@ -71,7 +93,8 @@ Recommended sibling checkout layout:
 ├── claude-scout/
 ├── codex-scout/
 ├── cursor-scout/
-└── hermes-scout/
+├── hermes-scout/
+└── herdr/
 ```
 
 That layout keeps the product repo clean while making related host integrations

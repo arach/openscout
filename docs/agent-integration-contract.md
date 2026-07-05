@@ -21,6 +21,22 @@ A good Scout integration should let an agent:
 - receive broker-authored guidance when routing or runtime state is incomplete,
   instead of having to rediscover topology manually
 
+## Host Integration Vs Harness
+
+Scout compatibility starts at the host integration layer. A host integration is
+any first-class bridge to another agent tool, IDE, terminal host, or
+agent-state surface. It can expose Scout commands, connect to `scout mcp`,
+report lifecycle state, forward approvals, focus or control sessions, or host a
+plugin that talks to the broker.
+
+A harness is narrower: it is only the execution backend for a Scout session.
+Populate `harness`, endpoint harness metadata, or CLI `--harness` values only
+when Scout can actually route work into that runtime as an execution target.
+Hermes and Herdr should be represented as host integrations, not harnesses:
+Hermes is an agent/MCP host, and Herdr is a terminal host plus agent-state
+surface. If a future adapter makes either one an execution backend, add that
+explicitly instead of relying on the host name.
+
 ## Minimum Contract
 
 At minimum, an integration needs five pieces.
