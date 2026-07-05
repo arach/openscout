@@ -4,6 +4,10 @@ export const SCOUT_HOST_PROBE_SCHEMA_VERSIONS = {
   "tmux.sessions": 1,
   "tmux.panes": 1,
   "zellij.sessions": 1,
+  "ps.runtime": 1,
+  "ps.discovery": 1,
+  "ps.cwd": 1,
+  "net.listeners": 1,
   "repo.scan": 1,
   "repo.diff": 1,
 } as const;

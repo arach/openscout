@@ -2,6 +2,15 @@ import type { RuntimeBinaryInput, RuntimeEnv } from "../portable-types.js";
 import { resolveRepoServiceCommand, runRepoServiceJson } from "../repo-service/process.js";
 import { execSystemFile, type ExecProbeFileResult } from "./exec.js";
 import { gitBuildInfoProbe } from "./git-build-info.js";
+import { netListenersProbe, type NetListenerSnapshot } from "./net-listeners.js";
+import {
+  processCwdProbe,
+  psDiscoveryProbe,
+  psRuntimeProbe,
+  readProcessCwd,
+  type ProcessDiscoverySnapshot,
+  type PsRuntimeSnapshot,
+} from "./ps.js";
 import type { ProbeFreshOptions, ProbeSnapshot } from "./registry.js";
 import { tailscaleStatusProbe } from "./tailscale-status.js";
 import {
@@ -176,6 +185,34 @@ export const scoutHost = {
       if (input.rows !== undefined) args.push("-y", String(input.rows));
       args.push("-s", input.sessionName, input.command);
       return tmuxCommand("new-session", args, input);
+    },
+  },
+  ps: {
+    runtime(options?: ProbeFreshOptions): Promise<ProbeSnapshot<PsRuntimeSnapshot>> {
+      return psRuntimeProbe.fresh(options);
+    },
+    runtimeSnapshot() {
+      return psRuntimeProbe.snapshot();
+    },
+    discovery(options?: ProbeFreshOptions): Promise<ProbeSnapshot<ProcessDiscoverySnapshot>> {
+      return psDiscoveryProbe.fresh(options);
+    },
+    discoverySnapshot() {
+      return psDiscoveryProbe.snapshot();
+    },
+    cwd(pid: number | string, options?: ProbeFreshOptions): Promise<ProbeSnapshot<string | null>> {
+      return processCwdProbe.for(pid).fresh(options);
+    },
+    readCwd(pid: number, maxAgeMs?: number) {
+      return readProcessCwd(pid, maxAgeMs);
+    },
+  },
+  net: {
+    listeners(port: number | string, options?: ProbeFreshOptions): Promise<ProbeSnapshot<NetListenerSnapshot>> {
+      return netListenersProbe.for(port).fresh(options);
+    },
+    listenerSnapshot(port: number | string) {
+      return netListenersProbe.for(port).snapshot();
     },
   },
   repo: {

@@ -1,4 +1,6 @@
 import { gitBuildInfoProbe } from "./git-build-info.js";
+import { netListenersProbe } from "./net-listeners.js";
+import { psDiscoveryProbe, psRuntimeProbe } from "./ps.js";
 import { getScoutdProbeClient } from "./scoutd-client.js";
 import { tailscaleStatusProbe } from "./tailscale-status.js";
 import { tmuxSessionsProbe } from "./tmux.js";
@@ -12,6 +14,7 @@ import {
 } from "./registry.js";
 
 const FALLBACK_WARNING_MS = 30_000;
+void netListenersProbe; // Import registers the keyed net.listeners family for registry-driven doctor sweeps.
 
 export type SystemProbeDoctorFamily = {
   id: string;
@@ -44,6 +47,8 @@ export async function loadSystemProbeDoctorReport(input: { repoRoot: string }): 
     tailscaleStatusProbe.fresh(),
     gitBuildInfoProbe.for(input.repoRoot).fresh(),
     tmuxSessionsProbe.for({}).fresh(),
+    psRuntimeProbe.fresh(),
+    psDiscoveryProbe.fresh(),
   ]);
 
   const diagnostics = getScoutdProbeClient().diagnostics();

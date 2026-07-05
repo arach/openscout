@@ -346,7 +346,7 @@
     "path": "packages/runtime/src/system-probes/exec.ts",
     "symbol": "node:child_process",
     "category": "imperative-fallback",
-    "reason": "single bounded local fallback for imperative verbs when scoutd is unavailable or older",
+    "reason": "single bounded local fallback for scout.host probes and imperative verbs when scoutd is unavailable or older",
     "owner": "runtime"
   },
   {

@@ -9,6 +9,10 @@ import {
   defineProbe,
   defineProbeFamily,
   gitBuildInfoProbe,
+  netListenersProbe,
+  processCwdProbe,
+  psDiscoveryProbe,
+  psRuntimeProbe,
   resetScoutdProbeClientForTests,
   resetGitBuildInfoProbeForTests,
   tailscaleStatusProbe
@@ -21,6 +25,9 @@ const originalProbesSocket = process.env.OPENSCOUT_PROBES_SOCKET;
 const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalGitBin = process.env.OPENSCOUT_GIT_BIN;
 const originalTestGitMode = process.env.OPENSCOUT_TEST_GIT_MODE;
+const originalPsBin = process.env.OPENSCOUT_PS_BIN;
+const originalLsofBin = process.env.OPENSCOUT_LSOF_BIN;
+const originalPsDiscoveryMaxRows = process.env.OPENSCOUT_PS_DISCOVERY_MAX_ROWS;
 const repositoryRoot = join(import.meta.dir, "../../..");
 let scoutdBinaryPromise: Promise<string> | null = null;
 
@@ -275,8 +282,27 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_TEST_GIT_MODE = originalTestGitMode;
   }
+  if (originalPsBin === undefined) {
+    delete process.env.OPENSCOUT_PS_BIN;
+  } else {
+    process.env.OPENSCOUT_PS_BIN = originalPsBin;
+  }
+  if (originalLsofBin === undefined) {
+    delete process.env.OPENSCOUT_LSOF_BIN;
+  } else {
+    process.env.OPENSCOUT_LSOF_BIN = originalLsofBin;
+  }
+  if (originalPsDiscoveryMaxRows === undefined) {
+    delete process.env.OPENSCOUT_PS_DISCOVERY_MAX_ROWS;
+  } else {
+    process.env.OPENSCOUT_PS_DISCOVERY_MAX_ROWS = originalPsDiscoveryMaxRows;
+  }
   tailscaleStatusProbe.invalidate("test.reset");
   gitBuildInfoProbe.for(process.cwd()).invalidate("test.reset");
+  psRuntimeProbe.invalidate("test.reset");
+  psDiscoveryProbe.invalidate("test.reset");
+  processCwdProbe.invalidate(String(process.pid), "test.reset");
+  netListenersProbe.invalidate("1", "test.reset");
   resetGitBuildInfoProbeForTests();
   resetScoutdProbeClientForTests();
   for (const directory of tempDirectories) {
@@ -870,6 +896,164 @@ exit 1
     }
   }
 
+  function writePsFixture(directory: string): string {
+    const script = join(directory, "ps-fixture.sh");
+    writeFileSync(script, `#!/bin/sh
+if [ "$1" = "-axo" ] && [ "$2" = "pid=,ppid=,pgid=,tty=,comm=" ]; then
+  cat <<'ROWS'
+101 1 101 ttys001 /bin/zsh
+202 101 101 ?? /usr/bin/node
+ROWS
+  exit 0
+fi
+if [ "$1" = "-axo" ] && [ "$2" = "pid=,ppid=,pgid=,tty=,command=" ]; then
+  cat <<'ROWS'
+101 1 101 ttys001 /bin/zsh -l
+202 101 101 ?? /usr/bin/node /Users/art/dev/app.js
+ROWS
+  exit 0
+fi
+if [ "$1" = "-axww" ] && [ "$2" = "-o" ] && [ "$3" = "pid=,ppid=,etime=,command=" ]; then
+  cat <<'ROWS'
+101 1 00:01 /bin/zsh -l
+202 101 00:02 /usr/bin/node /Users/art/dev/app.js
+303 202 00:03 claude --dangerously-skip-permissions
+404 202 00:04 /bin/sh -c echo hello
+505 202 00:05 /usr/bin/python3 worker.py
+ROWS
+  exit 0
+fi
+exit 64
+`, "utf8");
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  function writeLsofFixture(directory: string): string {
+    const script = join(directory, "lsof-fixture.sh");
+    writeFileSync(script, `#!/bin/sh
+if [ "$1" = "-a" ] && [ "$2" = "-p" ] && [ "$4" = "-d" ] && [ "$5" = "cwd" ] && [ "$6" = "-Fn" ]; then
+  printf 'p%s\\n' "$3"
+  printf 'n/Users/art/dev/openscout\\n'
+  exit 0
+fi
+if [ "$1" = "-nP" ] && [ "$3" = "-sTCP:LISTEN" ] && [ "$4" = "-Fp" ]; then
+  printf 'p4242\\n'
+  exit 0
+fi
+exit 64
+`, "utf8");
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  function normalizeProbeSnapshotValue(value: any): any {
+    return value === undefined ? null : value;
+  }
+
+  function normalizeLocalProbeSnapshot(snapshot: { status: string; value: unknown; error: unknown }): any {
+    if (snapshot.status === "failed") {
+      return {
+        status: "failed",
+        value: null,
+        error: normalizeProbeError(snapshot.error),
+      };
+    }
+    return {
+      status: snapshot.status,
+      value: normalizeProbeSnapshotValue(snapshot.value),
+      error: null,
+    };
+  }
+
+  function normalizeDaemonProbeSnapshot(response: any): any {
+    if (response.error) {
+      return {
+        status: "failed",
+        value: null,
+        error: normalizeProbeError(response.error),
+      };
+    }
+    return {
+      status: "fresh",
+      value: normalizeProbeSnapshotValue(response.value),
+      error: null,
+    };
+  }
+
+  async function requestDaemonProbe(input: {
+    directory: string;
+    probeId: string;
+    key?: string;
+    env: Record<string, string | undefined>;
+  }): Promise<any> {
+    const socketPath = join(input.directory, `scoutd-${input.probeId.replace(/\W/gu, "-")}-${Math.random().toString(36).slice(2)}.sock`);
+    const server = await startRealScoutdProbeServer({
+      socketPath,
+      env: {
+        OPENSCOUT_HOME: input.directory,
+        ...input.env,
+      },
+    });
+    try {
+      const response = await requestProbeSocket(socketPath, {
+        schema: "openscout.probe.request/v1",
+        schemaVersion: 1,
+        probeId: input.probeId,
+        key: input.key ?? null,
+        maxAgeMs: 0,
+      }, 6_000);
+      return normalizeDaemonProbeSnapshot(response);
+    } finally {
+      await server.stop();
+    }
+  }
+
+  async function withLocalProbeEnv<T>(
+    directory: string,
+    env: Record<string, string | undefined>,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    process.env.OPENSCOUT_PROBES_SOCKET = join(directory, "missing-probes.sock");
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    resetScoutdProbeClientForTests();
+    return await run();
+  }
+
+  async function runLocalPsRuntimeFixture(directory: string, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      psRuntimeProbe.invalidate("test.conformance.local");
+      return normalizeLocalProbeSnapshot(await psRuntimeProbe.fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalPsDiscoveryFixture(directory: string, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      psDiscoveryProbe.invalidate("test.conformance.local");
+      return normalizeLocalProbeSnapshot(await psDiscoveryProbe.fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalPsCwdFixture(directory: string, pid: number, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      processCwdProbe.invalidate(pid, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await processCwdProbe.for(pid).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalNetListenerFixture(directory: string, port: number, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      netListenersProbe.invalidate(port, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await netListenersProbe.for(port).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
   for (const mode of ["success", "missing-binary", "timeout", "output_cap"] as const) {
     test(`git.buildInfo ${mode} fixture matches between scoutd and the TS local twin`, async () => {
       const directory = shortTempDir(`oscd-${mode}`);
@@ -906,4 +1090,110 @@ exit 1
       }
     }, 15_000);
   }
+
+  test("ps.runtime fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-psrt");
+    const psBin = writePsFixture(directory);
+    const env = { OPENSCOUT_PS_BIN: psBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.runtime", env }),
+      runLocalPsRuntimeFixture(directory, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value.rows).toEqual([
+      { pid: 101, ppid: 1, pgid: 101, tty: "ttys001", comm: "/bin/zsh" },
+      { pid: 202, ppid: 101, pgid: 101, tty: null, comm: "/usr/bin/node" },
+    ]);
+  }, 15_000);
+
+  test("ps.discovery truncation fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-psdisc");
+    const psBin = writePsFixture(directory);
+    const env = {
+      OPENSCOUT_PS_BIN: psBin,
+      OPENSCOUT_PS_DISCOVERY_MAX_ROWS: "3",
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.discovery", env }),
+      runLocalPsDiscoveryFixture(directory, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toMatchObject({
+      truncated: true,
+      totalCount: 5,
+      returnedCount: 3,
+    });
+    expect(daemon.value.rows.map((row: any) => row.pid)).toEqual([101, 202, 303]);
+  }, 15_000);
+
+  test("ps probes missing-binary fixtures match between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-psmiss");
+    const env = { OPENSCOUT_PS_BIN: join(directory, "missing-ps") };
+
+    const [runtimeDaemon, runtimeLocal, discoveryDaemon, discoveryLocal] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.runtime", env }),
+      runLocalPsRuntimeFixture(directory, env),
+      requestDaemonProbe({ directory, probeId: "ps.discovery", env }),
+      runLocalPsDiscoveryFixture(directory, env),
+    ]);
+
+    expect(runtimeDaemon).toEqual(runtimeLocal);
+    expect(runtimeDaemon.value).toEqual({ rows: [], commandRows: [] });
+    expect(discoveryDaemon).toEqual(discoveryLocal);
+    expect(discoveryDaemon.value).toEqual({
+      rows: [],
+      truncated: false,
+      totalCount: 0,
+      returnedCount: 0,
+    });
+  }, 15_000);
+
+  test("ps.cwd fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-pscwd");
+    const lsofBin = writeLsofFixture(directory);
+    const env = { OPENSCOUT_LSOF_BIN: lsofBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.cwd", key: "202", env }),
+      runLocalPsCwdFixture(directory, 202, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("/Users/art/dev/openscout");
+  }, 15_000);
+
+  test("net.listeners fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-net");
+    const lsofBin = writeLsofFixture(directory);
+    const env = { OPENSCOUT_LSOF_BIN: lsofBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "net.listeners", key: "5173", env }),
+      runLocalNetListenerFixture(directory, 5173, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual({ port: 5173, pid: 4242 });
+  }, 15_000);
+
+  test("ps.cwd and net.listeners missing-binary fixtures match between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-lsofmiss");
+    const env = { OPENSCOUT_LSOF_BIN: join(directory, "missing-lsof") };
+
+    const [cwdDaemon, cwdLocal, netDaemon, netLocal] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.cwd", key: "202", env }),
+      runLocalPsCwdFixture(directory, 202, env),
+      requestDaemonProbe({ directory, probeId: "net.listeners", key: "5173", env }),
+      runLocalNetListenerFixture(directory, 5173, env),
+    ]);
+
+    expect(cwdDaemon).toEqual(cwdLocal);
+    expect(cwdDaemon.value).toBeNull();
+    expect(netDaemon).toEqual(netLocal);
+    expect(netDaemon.value).toEqual({ port: 5173, pid: null });
+  }, 15_000);
 });
