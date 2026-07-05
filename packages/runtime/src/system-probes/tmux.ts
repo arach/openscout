@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { defineProbeFamily, type ProbeCtx } from "./registry.js";
 import { execProbeFile, ProbeCommandError } from "./exec.js";
+import { runWithScoutdFallback } from "./scoutd-client.js";
 
 const TMUX_TTL_MS = 5_000;
 const TMUX_TIMEOUT_MS = 1_500;
@@ -74,6 +75,14 @@ function parseProcessNumber(value: string | undefined): number | null {
 function isUnavailable(error: unknown): boolean {
   return error instanceof ProbeCommandError
     && (error.code === "ENOENT" || error.code === "spawn" || error.code === "exit");
+}
+
+function tmuxBin(): string {
+  return process.env.OPENSCOUT_TMUX_BIN?.trim() || "tmux";
+}
+
+function zellijBin(): string {
+  return process.env.OPENSCOUT_ZELLIJ_BIN?.trim() || "zellij";
 }
 
 function tmuxSocketFromEnv(env: RuntimeEnv): string | null {
@@ -149,6 +158,24 @@ export function parseZellijSessionList(output: string): ZellijSessionInfo[] {
     .filter((session): session is ZellijSessionInfo => Boolean(session));
 }
 
+async function readTmuxSessionsLocal(key: string, ctx: ProbeCtx): Promise<TmuxSessionInfo[]> {
+  try {
+    const { stdout } = await execProbeFile(ctx, tmuxBin(), [
+      ...tmuxSocketArgs(key),
+      "list-sessions",
+      "-F",
+      "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
+    ], {
+      maxStdoutBytes: 512 * 1024,
+      maxStderrBytes: 64 * 1024,
+    });
+    return parseTmuxSessionList(stdout);
+  } catch (error) {
+    if (isUnavailable(error)) return [];
+    throw error;
+  }
+}
+
 export const tmuxSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv; socketPath?: string | null }, TmuxSessionInfo[]>({
   id: "tmux.sessions",
   ttlMs: TMUX_TTL_MS,
@@ -157,24 +184,27 @@ export const tmuxSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv; 
   idleKeyTtlMs: 5 * 60_000,
   maxConcurrentKeys: 2,
   normalizeKey: tmuxSocketKey,
-  run: async (key, ctx) => {
-    try {
-      const { stdout } = await execProbeFile(ctx, "tmux", [
-        ...tmuxSocketArgs(key),
-        "list-sessions",
-        "-F",
-        "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
-      ], {
-        maxStdoutBytes: 512 * 1024,
-        maxStderrBytes: 64 * 1024,
-      });
-      return parseTmuxSessionList(stdout);
-    } catch (error) {
-      if (isUnavailable(error)) return [];
-      throw error;
-    }
-  },
+  run: (key, ctx) => runWithScoutdFallback({
+    probeId: "tmux.sessions",
+    key,
+    ctx,
+    local: () => readTmuxSessionsLocal(key, ctx),
+  }),
 });
+
+async function readZellijSessionsLocal(socketDir: string, ctx: ProbeCtx): Promise<ZellijSessionInfo[]> {
+  try {
+    const { stdout } = await execProbeFile(ctx, zellijBin(), ["list-sessions"], {
+      env: { ...process.env, ZELLIJ_SOCKET_DIR: socketDir },
+      maxStdoutBytes: 512 * 1024,
+      maxStderrBytes: 64 * 1024,
+    });
+    return parseZellijSessionList(stdout);
+  } catch (error) {
+    if (isUnavailable(error)) return [];
+    throw error;
+  }
+}
 
 export const zellijSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv; socketDir?: string | null }, ZellijSessionInfo[]>({
   id: "zellij.sessions",
@@ -184,19 +214,12 @@ export const zellijSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv
   idleKeyTtlMs: 5 * 60_000,
   maxConcurrentKeys: 2,
   normalizeKey: zellijSocketKey,
-  run: async (socketDir, ctx) => {
-    try {
-      const { stdout } = await execProbeFile(ctx, "zellij", ["list-sessions"], {
-        env: { ...process.env, ZELLIJ_SOCKET_DIR: socketDir },
-        maxStdoutBytes: 512 * 1024,
-        maxStderrBytes: 64 * 1024,
-      });
-      return parseZellijSessionList(stdout);
-    } catch (error) {
-      if (isUnavailable(error)) return [];
-      throw error;
-    }
-  },
+  run: (socketDir, ctx) => runWithScoutdFallback({
+    probeId: "zellij.sessions",
+    key: socketDir,
+    ctx,
+    local: () => readZellijSessionsLocal(socketDir, ctx),
+  }),
 });
 
 function normalizeTmuxPaneKey(input: TmuxPaneProbeKey): string {
@@ -228,50 +251,57 @@ export const tmuxPanesProbe = defineProbeFamily<TmuxPaneProbeKey, TmuxPaneDetail
   idleKeyTtlMs: 2 * 60_000,
   maxConcurrentKeys: 4,
   normalizeKey: normalizeTmuxPaneKey,
-  run: async (key, ctx) => {
-    const parsed = parseTmuxPaneKey(key);
-    try {
-      if (parsed.kind === "detail") {
-        const { stdout } = await execProbeFile(ctx, "tmux", [
-          ...tmuxSocketArgs(parsed.socketPath),
-          "display-message",
-          "-p",
-          "-t",
-          parsed.target,
-          "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
-        ], {
-          maxStdoutBytes: 64 * 1024,
-          maxStderrBytes: 64 * 1024,
-        });
-        const [pidRaw, ttyRaw, pathRaw] = stdout.trim().split("\t");
-        const panePid = parseProcessNumber(pidRaw);
-        const paneTty = ttyRaw?.replace(/^\/dev\//u, "").trim();
-        const paneCurrentPath = pathRaw?.trim() || null;
-        return panePid && paneTty ? { panePid, paneTty, paneCurrentPath } : null;
-      }
+  run: (key, ctx) => runWithScoutdFallback({
+    probeId: "tmux.panes",
+    key,
+    ctx,
+    local: () => readTmuxPaneLocal(key, ctx),
+  }),
+});
 
-      const { stdout } = await execProbeFile(ctx, "tmux", [
+async function readTmuxPaneLocal(key: string, ctx: ProbeCtx): Promise<TmuxPaneDetail | TmuxPaneCapture | null> {
+  const parsed = parseTmuxPaneKey(key);
+  try {
+    if (parsed.kind === "detail") {
+      const { stdout } = await execProbeFile(ctx, tmuxBin(), [
         ...tmuxSocketArgs(parsed.socketPath),
-        "capture-pane",
+        "display-message",
         "-p",
-        ...(parsed.joinWrapped === false ? [] : ["-J"]),
         "-t",
         parsed.target,
-        "-S",
-        parsed.start,
-        "-E",
-        parsed.end,
+        "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
       ], {
-        maxStdoutBytes: parsed.maxBytes ?? 1024 * 1024,
+        maxStdoutBytes: 64 * 1024,
         maxStderrBytes: 64 * 1024,
       });
-      return { body: stdout };
-    } catch (error) {
-      if (isUnavailable(error)) return null;
-      throw error;
+      const [pidRaw, ttyRaw, pathRaw] = stdout.trim().split("\t");
+      const panePid = parseProcessNumber(pidRaw);
+      const paneTty = ttyRaw?.replace(/^\/dev\//u, "").trim();
+      const paneCurrentPath = pathRaw?.trim() || null;
+      return panePid && paneTty ? { panePid, paneTty, paneCurrentPath } : null;
     }
-  },
-});
+
+    const { stdout } = await execProbeFile(ctx, tmuxBin(), [
+      ...tmuxSocketArgs(parsed.socketPath),
+      "capture-pane",
+      "-p",
+      ...(parsed.joinWrapped === false ? [] : ["-J"]),
+      "-t",
+      parsed.target,
+      "-S",
+      parsed.start,
+      "-E",
+      parsed.end,
+    ], {
+      maxStdoutBytes: parsed.maxBytes ?? 1024 * 1024,
+      maxStderrBytes: 64 * 1024,
+    });
+    return { body: stdout };
+  } catch (error) {
+    if (isUnavailable(error)) return null;
+    throw error;
+  }
+}
 
 export async function readTmuxSessionExists(sessionName: string, options: { env?: RuntimeEnv; socketPath?: string | null; maxAgeMs?: number } = {}): Promise<boolean> {
   const name = sessionName.trim();

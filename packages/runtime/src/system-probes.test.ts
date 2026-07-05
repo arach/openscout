@@ -15,7 +15,10 @@ import {
   psRuntimeProbe,
   resetScoutdProbeClientForTests,
   resetGitBuildInfoProbeForTests,
-  tailscaleStatusProbe
+  tailscaleStatusProbe,
+  tmuxPanesProbe,
+  tmuxSessionsProbe,
+  zellijSessionsProbe
 } from "./system-probes/index";
 
 const tempDirectories = new Set<string>();
@@ -28,6 +31,9 @@ const originalTestGitMode = process.env.OPENSCOUT_TEST_GIT_MODE;
 const originalPsBin = process.env.OPENSCOUT_PS_BIN;
 const originalLsofBin = process.env.OPENSCOUT_LSOF_BIN;
 const originalPsDiscoveryMaxRows = process.env.OPENSCOUT_PS_DISCOVERY_MAX_ROWS;
+const originalTmuxBin = process.env.OPENSCOUT_TMUX_BIN;
+const originalZellijBin = process.env.OPENSCOUT_ZELLIJ_BIN;
+const originalZellijSocketDir = process.env.ZELLIJ_SOCKET_DIR;
 const repositoryRoot = join(import.meta.dir, "../../..");
 let scoutdBinaryPromise: Promise<string> | null = null;
 
@@ -297,12 +303,30 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_PS_DISCOVERY_MAX_ROWS = originalPsDiscoveryMaxRows;
   }
+  if (originalTmuxBin === undefined) {
+    delete process.env.OPENSCOUT_TMUX_BIN;
+  } else {
+    process.env.OPENSCOUT_TMUX_BIN = originalTmuxBin;
+  }
+  if (originalZellijBin === undefined) {
+    delete process.env.OPENSCOUT_ZELLIJ_BIN;
+  } else {
+    process.env.OPENSCOUT_ZELLIJ_BIN = originalZellijBin;
+  }
+  if (originalZellijSocketDir === undefined) {
+    delete process.env.ZELLIJ_SOCKET_DIR;
+  } else {
+    process.env.ZELLIJ_SOCKET_DIR = originalZellijSocketDir;
+  }
   tailscaleStatusProbe.invalidate("test.reset");
   gitBuildInfoProbe.for(process.cwd()).invalidate("test.reset");
   psRuntimeProbe.invalidate("test.reset");
   psDiscoveryProbe.invalidate("test.reset");
   processCwdProbe.invalidate(String(process.pid), "test.reset");
   netListenersProbe.invalidate("1", "test.reset");
+  tmuxSessionsProbe.invalidate("default", "test.reset");
+  zellijSessionsProbe.invalidate(process.env.ZELLIJ_SOCKET_DIR ?? "", "test.reset");
+  tmuxPanesProbe.invalidate({ kind: "detail", target: "test" }, "test.reset");
   resetGitBuildInfoProbeForTests();
   resetScoutdProbeClientForTests();
   for (const directory of tempDirectories) {
@@ -947,6 +971,62 @@ exit 64
     return script;
   }
 
+  function writeTmuxFixture(directory: string): string {
+    const script = join(directory, "tmux-fixture.sh");
+    writeFileSync(script, `#!/bin/sh
+if [ "$1" = "-S" ]; then
+  shift 2
+fi
+if [ "$1" = "list-sessions" ]; then
+  cat <<'ROWS'
+alpha|2|1|1710000000|zsh|/Users/art/dev/alpha
+beta|1|0||node|
+ROWS
+  exit 0
+fi
+if [ "$1" = "display-message" ]; then
+  printf '123\\t/dev/ttys003\\t/Users/art/dev/project\\n'
+  exit 0
+fi
+if [ "$1" = "capture-pane" ]; then
+  printf 'line one\\nline two\\n'
+  exit 0
+fi
+exit 64
+`, "utf8");
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  function writeZellijFixture(directory: string): string {
+    const script = join(directory, "zellij-fixture.sh");
+    writeFileSync(script, `#!/bin/sh
+if [ "$1" = "list-sessions" ]; then
+  printf 'alpha\\n\\033[31mbeta EXITED\\033[0m\\n'
+  exit 0
+fi
+exit 64
+`, "utf8");
+    chmodSync(script, 0o755);
+    return script;
+  }
+
+  function tmuxDetailKey(target: string, socketPath = "default"): string {
+    return JSON.stringify({ kind: "detail", socketPath, target });
+  }
+
+  function tmuxCaptureKey(target: string, socketPath = "default"): string {
+    return JSON.stringify({
+      kind: "capture",
+      socketPath,
+      target,
+      start: "-20",
+      end: "-",
+      joinWrapped: true,
+      maxBytes: 4096,
+    });
+  }
+
   function normalizeProbeSnapshotValue(value: any): any {
     return value === undefined ? null : value;
   }
@@ -1051,6 +1131,31 @@ exit 64
     return await withLocalProbeEnv(directory, env, async () => {
       netListenersProbe.invalidate(port, "test.conformance.local");
       return normalizeLocalProbeSnapshot(await netListenersProbe.for(port).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalTmuxSessionsFixture(directory: string, socketPath: string, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      tmuxSessionsProbe.invalidate(socketPath, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await tmuxSessionsProbe.for(socketPath).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalTmuxPaneFixture(
+    directory: string,
+    paneKey: Parameters<typeof tmuxPanesProbe.for>[0],
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      tmuxPanesProbe.invalidate(paneKey, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await tmuxPanesProbe.for(paneKey).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalZellijSessionsFixture(directory: string, socketDir: string, env: Record<string, string | undefined>): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      zellijSessionsProbe.invalidate(socketDir, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await zellijSessionsProbe.for(socketDir).fresh({ maxAgeMs: 0 }));
     });
   }
 
@@ -1195,5 +1300,128 @@ exit 64
     expect(cwdDaemon.value).toBeNull();
     expect(netDaemon).toEqual(netLocal);
     expect(netDaemon.value).toEqual({ port: 5173, pid: null });
+  }, 15_000);
+
+  test("tmux.sessions fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxs");
+    const tmuxBin = writeTmuxFixture(directory);
+    const env = { OPENSCOUT_TMUX_BIN: tmuxBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tmux.sessions", key: "default", env }),
+      runLocalTmuxSessionsFixture(directory, "default", env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual([
+      {
+        name: "alpha",
+        windows: 2,
+        attached: 1,
+        createdAt: 1710000000,
+        currentCommand: "zsh",
+        currentPath: "/Users/art/dev/alpha",
+      },
+      {
+        name: "beta",
+        windows: 1,
+        attached: 0,
+        createdAt: null,
+        currentCommand: "node",
+        currentPath: null,
+      },
+    ]);
+  }, 15_000);
+
+  test("tmux.panes detail fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxp");
+    const tmuxBin = writeTmuxFixture(directory);
+    const env = { OPENSCOUT_TMUX_BIN: tmuxBin };
+    const paneKey = { kind: "detail" as const, target: "%1" };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tmux.panes", key: tmuxDetailKey("%1"), env }),
+      runLocalTmuxPaneFixture(directory, paneKey, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual({
+      panePid: 123,
+      paneTty: "ttys003",
+      paneCurrentPath: "/Users/art/dev/project",
+    });
+  }, 15_000);
+
+  test("tmux.panes capture fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxc");
+    const tmuxBin = writeTmuxFixture(directory);
+    const env = { OPENSCOUT_TMUX_BIN: tmuxBin };
+    const paneKey = {
+      kind: "capture" as const,
+      target: "%1",
+      start: "-20",
+      end: "-",
+      joinWrapped: true,
+      maxBytes: 4096,
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tmux.panes", key: tmuxCaptureKey("%1"), env }),
+      runLocalTmuxPaneFixture(directory, paneKey, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual({ body: "line one\nline two\n" });
+  }, 15_000);
+
+  test("tmux read probes missing-binary fixtures match between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-tmuxmiss");
+    const env = { OPENSCOUT_TMUX_BIN: join(directory, "missing-tmux") };
+    const paneKey = { kind: "detail" as const, target: "%1" };
+
+    const [sessionsDaemon, sessionsLocal, paneDaemon, paneLocal] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "tmux.sessions", key: "default", env }),
+      runLocalTmuxSessionsFixture(directory, "default", env),
+      requestDaemonProbe({ directory, probeId: "tmux.panes", key: tmuxDetailKey("%1"), env }),
+      runLocalTmuxPaneFixture(directory, paneKey, env),
+    ]);
+
+    expect(sessionsDaemon).toEqual(sessionsLocal);
+    expect(sessionsDaemon.value).toEqual([]);
+    expect(paneDaemon).toEqual(paneLocal);
+    expect(paneDaemon.value).toBeNull();
+  }, 15_000);
+
+  test("zellij.sessions fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-zellij");
+    const zellijBin = writeZellijFixture(directory);
+    const socketDir = join(directory, "zellij-sockets");
+    mkdirSync(socketDir, { recursive: true });
+    const env = { OPENSCOUT_ZELLIJ_BIN: zellijBin };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "zellij.sessions", key: socketDir, env }),
+      runLocalZellijSessionsFixture(directory, socketDir, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual([
+      { name: "alpha", state: "live", raw: "alpha" },
+      { name: "beta", state: "exited", raw: "beta EXITED" },
+    ]);
+  }, 15_000);
+
+  test("zellij.sessions missing-binary fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-zelmiss");
+    const socketDir = join(directory, "zellij-sockets");
+    const env = { OPENSCOUT_ZELLIJ_BIN: join(directory, "missing-zellij") };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "zellij.sessions", key: socketDir, env }),
+      runLocalZellijSessionsFixture(directory, socketDir, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toEqual([]);
   }, 15_000);
 });

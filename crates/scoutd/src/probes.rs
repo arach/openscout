@@ -30,20 +30,28 @@ const PS_RUNTIME_ID: &str = "ps.runtime";
 const PS_DISCOVERY_ID: &str = "ps.discovery";
 const PS_CWD_ID: &str = "ps.cwd";
 const NET_LISTENERS_ID: &str = "net.listeners";
+const TMUX_SESSIONS_ID: &str = "tmux.sessions";
+const TMUX_PANES_ID: &str = "tmux.panes";
+const ZELLIJ_SESSIONS_ID: &str = "zellij.sessions";
 const TAILSCALE_STATUS_TTL_MS: u64 = 30_000;
 const GIT_BUILD_INFO_TTL_MS: u64 = 60_000;
 const PS_RUNTIME_TTL_MS: u64 = 5_000;
 const PS_DISCOVERY_TTL_MS: u64 = 1_000;
 const PS_CWD_TTL_MS: u64 = 5_000;
 const NET_LISTENERS_TTL_MS: u64 = 5_000;
+const TMUX_TTL_MS: u64 = 5_000;
+const ZELLIJ_TTL_MS: u64 = 5_000;
 const DEFAULT_TAILSCALE_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_PS_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_LSOF_TIMEOUT: Duration = Duration::from_millis(1_500);
+const DEFAULT_TMUX_PROBE_TIMEOUT: Duration = Duration::from_millis(1_500);
+const DEFAULT_ZELLIJ_PROBE_TIMEOUT: Duration = Duration::from_millis(1_500);
 const DEFAULT_REPO_JOB_TIMEOUT: Duration = Duration::from_millis(20_000);
 const DEFAULT_REPO_JOB_RESPONSE_CAP_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_PS_DISCOVERY_MAX_ROWS: usize = 4_096;
 const PS_DISCOVERY_MAX_COMMAND_CHARS: usize = 1_024;
+const DEFAULT_TMUX_CAPTURE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_REPO_JOB_WORKERS: usize = 4;
 const DEFAULT_REPO_JOB_QUEUE: usize = 32;
 const DEFAULT_EXEC_JOB_WORKERS: usize = 4;
@@ -72,6 +80,7 @@ pub struct ProbeServerOptions {
     pub tailscale_bin: String,
     pub git_bin: String,
     pub tmux_bin: String,
+    pub zellij_bin: String,
     pub ps_bin: String,
     pub lsof_bin: String,
     pub tailscale_status_fixture: Option<PathBuf>,
@@ -79,6 +88,8 @@ pub struct ProbeServerOptions {
     pub git_timeout: Duration,
     pub ps_timeout: Duration,
     pub lsof_timeout: Duration,
+    pub tmux_probe_timeout: Duration,
+    pub zellij_probe_timeout: Duration,
     pub ps_discovery_max_rows: usize,
     pub repo_job_timeout: Duration,
     pub repo_job_response_cap_bytes: usize,
@@ -98,6 +109,8 @@ impl ProbeServerOptions {
                 .unwrap_or_else(|| "tailscale".to_string()),
             git_bin: env_nonempty("OPENSCOUT_GIT_BIN").unwrap_or_else(|| "git".to_string()),
             tmux_bin: env_nonempty("OPENSCOUT_TMUX_BIN").unwrap_or_else(|| "tmux".to_string()),
+            zellij_bin: env_nonempty("OPENSCOUT_ZELLIJ_BIN")
+                .unwrap_or_else(|| "zellij".to_string()),
             ps_bin: env_nonempty("OPENSCOUT_PS_BIN").unwrap_or_else(|| "ps".to_string()),
             lsof_bin: env_nonempty("OPENSCOUT_LSOF_BIN").unwrap_or_else(|| "lsof".to_string()),
             tailscale_status_fixture: env_nonempty("OPENSCOUT_TAILSCALE_STATUS_JSON")
@@ -110,6 +123,10 @@ impl ProbeServerOptions {
                 .unwrap_or(DEFAULT_PS_TIMEOUT),
             lsof_timeout: env_duration_ms("OPENSCOUT_LSOF_PROBE_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_LSOF_TIMEOUT),
+            tmux_probe_timeout: env_duration_ms("OPENSCOUT_TMUX_PROBE_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_TMUX_PROBE_TIMEOUT),
+            zellij_probe_timeout: env_duration_ms("OPENSCOUT_ZELLIJ_PROBE_TIMEOUT_MS")
+                .unwrap_or(DEFAULT_ZELLIJ_PROBE_TIMEOUT),
             ps_discovery_max_rows: env_usize("OPENSCOUT_PS_DISCOVERY_MAX_ROWS")
                 .unwrap_or(DEFAULT_PS_DISCOVERY_MAX_ROWS)
                 .max(1),
@@ -277,6 +294,20 @@ struct StaticGitBuildMetadata {
     commit: Option<String>,
     boot_branch: Option<String>,
     metadata_at: u128,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct TmuxPaneProbeKey {
+    kind: String,
+    #[serde(rename = "socketPath")]
+    socket_path: String,
+    target: String,
+    start: Option<String>,
+    end: Option<String>,
+    #[serde(rename = "joinWrapped")]
+    join_wrapped: Option<bool>,
+    #[serde(rename = "maxBytes")]
+    max_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -809,6 +840,22 @@ impl ProbeEngine {
                 })?;
                 self.run_net_listeners(&port)
             }
+            TMUX_SESSIONS_ID => {
+                let socket_path = key.unwrap_or_else(|| "default".to_string());
+                self.run_tmux_sessions(&socket_path)
+            }
+            TMUX_PANES_ID => {
+                let pane_key = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "tmux.panes requires a pane key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_tmux_panes(&pane_key)
+            }
+            ZELLIJ_SESSIONS_ID => {
+                let socket_dir = key.unwrap_or_else(default_zellij_socket_dir);
+                self.run_zellij_sessions(&socket_dir)
+            }
             _ => Err(ProbeFailure {
                 code: "unknown_probe".to_string(),
                 message: format!("unknown probeId: {probe_id}"),
@@ -909,6 +956,118 @@ impl ProbeEngine {
             .git_output(repo_root, args)?
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()))
+    }
+
+    fn run_tmux_sessions(&self, socket_path: &str) -> Result<Value, ProbeFailure> {
+        let args = tmux_socket_args(
+            socket_path,
+            &[
+                "list-sessions",
+                "-F",
+                "#{session_name}|#{session_windows}|#{session_attached}|#{session_created}|#{pane_current_command}|#{pane_current_path}",
+            ],
+        );
+        match run_capped_command_with_input(
+            &self.options.tmux_bin,
+            &args,
+            None,
+            None,
+            self.options.tmux_probe_timeout,
+            512 * 1024,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(Value::Array(parse_tmux_session_list(&output.stdout))),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(Value::Array(vec![])),
+            Err(error) => Err(command_failure_to_probe(error, TMUX_SESSIONS_ID)),
+        }
+    }
+
+    fn run_zellij_sessions(&self, socket_dir: &str) -> Result<Value, ProbeFailure> {
+        match run_capped_command_with_env(
+            &self.options.zellij_bin,
+            &["list-sessions"],
+            &[("ZELLIJ_SOCKET_DIR", socket_dir)],
+            self.options.zellij_probe_timeout,
+            512 * 1024,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(Value::Array(parse_zellij_session_list(&output.stdout))),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(Value::Array(vec![])),
+            Err(error) => Err(command_failure_to_probe(error, ZELLIJ_SESSIONS_ID)),
+        }
+    }
+
+    fn run_tmux_panes(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let parsed: TmuxPaneProbeKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("invalid tmux.panes key: {error}"),
+            timed_out: false,
+        })?;
+        if parsed.kind == "detail" {
+            return self.run_tmux_pane_detail(&parsed);
+        }
+        if parsed.kind == "capture" {
+            return self.run_tmux_pane_capture(&parsed);
+        }
+        Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("unsupported tmux.panes key kind: {}", parsed.kind),
+            timed_out: false,
+        })
+    }
+
+    fn run_tmux_pane_detail(&self, parsed: &TmuxPaneProbeKey) -> Result<Value, ProbeFailure> {
+        let args = tmux_socket_args(
+            &parsed.socket_path,
+            &[
+                "display-message",
+                "-p",
+                "-t",
+                parsed.target.as_str(),
+                "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
+            ],
+        );
+        match run_capped_command_with_input(
+            &self.options.tmux_bin,
+            &args,
+            None,
+            None,
+            self.options.tmux_probe_timeout,
+            64 * 1024,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(parse_tmux_pane_detail(&output.stdout).unwrap_or(Value::Null)),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(Value::Null),
+            Err(error) => Err(command_failure_to_probe(error, TMUX_PANES_ID)),
+        }
+    }
+
+    fn run_tmux_pane_capture(&self, parsed: &TmuxPaneProbeKey) -> Result<Value, ProbeFailure> {
+        let start = parsed.start.as_deref().unwrap_or("0");
+        let end = parsed.end.as_deref().unwrap_or("-");
+        let mut suffix = vec!["capture-pane", "-p"];
+        if parsed.join_wrapped.unwrap_or(true) {
+            suffix.push("-J");
+        }
+        suffix.extend(["-t", parsed.target.as_str(), "-S", start, "-E", end]);
+        let args = tmux_socket_args(&parsed.socket_path, &suffix);
+        let max_stdout = parsed
+            .max_bytes
+            .unwrap_or(1024 * 1024)
+            .min(DEFAULT_TMUX_CAPTURE_MAX_BYTES);
+        match run_capped_command_with_input(
+            &self.options.tmux_bin,
+            &args,
+            None,
+            None,
+            self.options.tmux_probe_timeout,
+            max_stdout,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(json!({ "body": output.stdout })),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(Value::Null),
+            Err(error) => Err(command_failure_to_probe(error, TMUX_PANES_ID)),
+        }
     }
 
     fn run_ps_runtime(&self) -> Result<Value, ProbeFailure> {
@@ -1329,6 +1488,21 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             ttl_ms: NET_LISTENERS_TTL_MS,
         },
         ProbeCapability {
+            probe_id: TMUX_SESSIONS_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: TMUX_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: TMUX_PANES_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: TMUX_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: ZELLIJ_SESSIONS_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: ZELLIJ_TTL_MS,
+        },
+        ProbeCapability {
             probe_id: REPO_SCAN_CAPABILITY_ID.to_string(),
             schema_version: 1,
             ttl_ms: 0,
@@ -1536,6 +1710,9 @@ fn is_supported_probe(probe_id: &str) -> bool {
             | PS_DISCOVERY_ID
             | PS_CWD_ID
             | NET_LISTENERS_ID
+            | TMUX_SESSIONS_ID
+            | TMUX_PANES_ID
+            | ZELLIJ_SESSIONS_ID
     )
 }
 
@@ -1547,6 +1724,8 @@ fn probe_ttl_ms(probe_id: &str) -> Option<u64> {
         PS_DISCOVERY_ID => Some(PS_DISCOVERY_TTL_MS),
         PS_CWD_ID => Some(PS_CWD_TTL_MS),
         NET_LISTENERS_ID => Some(NET_LISTENERS_TTL_MS),
+        TMUX_SESSIONS_ID | TMUX_PANES_ID => Some(TMUX_TTL_MS),
+        ZELLIJ_SESSIONS_ID => Some(ZELLIJ_TTL_MS),
         _ => None,
     }
 }
@@ -1558,6 +1737,23 @@ fn normalize_probe_key(
     match probe_id {
         TAILSCALE_STATUS_ID => Ok(None),
         PS_RUNTIME_ID | PS_DISCOVERY_ID => Ok(None),
+        TMUX_SESSIONS_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("default");
+            Ok(Some(normalized.to_string()))
+        }
+        ZELLIJ_SESSIONS_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(default_zellij_socket_dir);
+            Ok(Some(normalized))
+        }
         GIT_BUILD_INFO_ID => {
             let raw_key = key
                 .as_deref()
@@ -1590,6 +1786,18 @@ fn normalize_probe_key(
                 .ok_or_else(|| ProbeFailure {
                     code: "invalid_request".to_string(),
                     message: "net.listeners requires a port key".to_string(),
+                    timed_out: false,
+                })?;
+            Ok(Some(normalized.to_string()))
+        }
+        TMUX_PANES_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "tmux.panes requires a pane key".to_string(),
                     timed_out: false,
                 })?;
             Ok(Some(normalized.to_string()))
@@ -1770,6 +1978,165 @@ fn parse_lsof_listener_pid(output: &str) -> Value {
         return json!(pid);
     }
     Value::Null
+}
+
+fn tmux_socket_args(socket_path: &str, suffix: &[&str]) -> Vec<String> {
+    let mut args = Vec::new();
+    let socket = socket_path.trim();
+    if !socket.is_empty() && socket != "default" {
+        args.push("-S".to_string());
+        args.push(socket.to_string());
+    }
+    args.extend(suffix.iter().map(|value| (*value).to_string()));
+    args
+}
+
+fn split_delimited_line(line: &str, delimiter: char, field_count: usize) -> Vec<String> {
+    let mut parts = line
+        .split(delimiter)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if parts.len() <= field_count {
+        return parts;
+    }
+    let rest = parts
+        .drain(field_count - 1..)
+        .collect::<Vec<_>>()
+        .join(&delimiter.to_string());
+    parts.push(rest);
+    parts
+}
+
+fn parse_nonnegative_integer(value: Option<&String>, fallback: u64) -> u64 {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(fallback)
+}
+
+fn optional_trimmed_string(value: Option<&String>) -> Value {
+    value
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Null)
+}
+
+fn parse_tmux_session_list(output: &str) -> Vec<Value> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let fields = if line.contains('|') {
+                split_delimited_line(line, '|', 6)
+            } else {
+                split_delimited_line(line, '\t', 6)
+            };
+            let name = fields.first()?.to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let created_at = fields
+                .get(3)
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| *value > 0)
+                .map(Value::from)
+                .unwrap_or(Value::Null);
+            Some(json!({
+                "name": name,
+                "windows": parse_nonnegative_integer(fields.get(1), 1),
+                "attached": parse_nonnegative_integer(fields.get(2), 0),
+                "createdAt": created_at,
+                "currentCommand": optional_trimmed_string(fields.get(4)),
+                "currentPath": optional_trimmed_string(fields.get(5)),
+            }))
+        })
+        .collect()
+}
+
+fn strip_ansi(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = String::with_capacity(value.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0x1b && index + 1 < bytes.len() && bytes[index + 1] == b'[' {
+            index += 2;
+            while index < bytes.len() {
+                let byte = bytes[index];
+                index += 1;
+                if (0x40..=0x7e).contains(&byte) {
+                    break;
+                }
+            }
+            continue;
+        }
+        let Some(ch) = value[index..].chars().next() else {
+            break;
+        };
+        out.push(ch);
+        index += ch.len_utf8();
+    }
+    out
+}
+
+fn parse_zellij_session_list(output: &str) -> Vec<Value> {
+    strip_ansi(output)
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let name = line.split_whitespace().next()?.to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let exited = line
+                .split_whitespace()
+                .any(|token| token.eq_ignore_ascii_case("EXITED"));
+            Some(json!({
+                "name": name,
+                "state": if exited { "exited" } else { "live" },
+                "raw": line,
+            }))
+        })
+        .collect()
+}
+
+fn parse_tmux_pane_detail(output: &str) -> Option<Value> {
+    let trimmed = output.trim();
+    let fields = trimmed.split('\t').collect::<Vec<_>>();
+    let pane_pid = parse_process_number(fields.first().copied())?;
+    let pane_tty = fields
+        .get(1)
+        .map(|value| {
+            value
+                .trim()
+                .strip_prefix("/dev/")
+                .unwrap_or(value.trim())
+                .trim()
+        })
+        .filter(|value| !value.is_empty())?;
+    let pane_current_path = fields
+        .get(2)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Null);
+    Some(json!({
+        "panePid": pane_pid,
+        "paneTty": pane_tty,
+        "paneCurrentPath": pane_current_path,
+    }))
+}
+
+fn default_zellij_socket_dir() -> String {
+    env_nonempty("ZELLIJ_SOCKET_DIR")
+        .or_else(|| env_nonempty("OPENSCOUT_ZELLIJ_SOCKET_DIR"))
+        .or_else(|| env_nonempty("HOME").map(|home| format!("{home}/.openscout/zellij-sockets")))
+        .unwrap_or_else(|| ".openscout/zellij-sockets".to_string())
 }
 
 fn summarize_tailscale_status(status: &Value) -> Value {
@@ -2292,11 +2659,56 @@ fn run_capped_command(
     )
 }
 
+fn run_capped_command_with_env(
+    command: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    timeout: Duration,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+) -> Result<CommandResult, CommandFailure> {
+    run_capped_command_with_input_and_env(
+        command,
+        &args
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>(),
+        None,
+        None,
+        envs,
+        timeout,
+        max_stdout_bytes,
+        max_stderr_bytes,
+    )
+}
+
 fn run_capped_command_with_input(
     command: &str,
     args: &[String],
     stdin: Option<&[u8]>,
     cwd: Option<&Path>,
+    timeout: Duration,
+    max_stdout_bytes: usize,
+    max_stderr_bytes: usize,
+) -> Result<CommandResult, CommandFailure> {
+    run_capped_command_with_input_and_env(
+        command,
+        args,
+        stdin,
+        cwd,
+        &[],
+        timeout,
+        max_stdout_bytes,
+        max_stderr_bytes,
+    )
+}
+
+fn run_capped_command_with_input_and_env(
+    command: &str,
+    args: &[String],
+    stdin: Option<&[u8]>,
+    cwd: Option<&Path>,
+    envs: &[(&str, &str)],
     timeout: Duration,
     max_stdout_bytes: usize,
     max_stderr_bytes: usize,
@@ -2313,6 +2725,9 @@ fn run_capped_command_with_input(
         .stderr(Stdio::piped());
     if let Some(cwd) = cwd {
         command_builder.current_dir(cwd);
+    }
+    for (key, value) in envs {
+        command_builder.env(key, value);
     }
     let mut child = command_builder.spawn().map_err(|error| CommandFailure {
         code: error
@@ -2577,6 +2992,7 @@ mod tests {
             tailscale_bin: "tailscale".to_string(),
             git_bin: "git".to_string(),
             tmux_bin: "tmux".to_string(),
+            zellij_bin: "zellij".to_string(),
             ps_bin: "ps".to_string(),
             lsof_bin: "lsof".to_string(),
             tailscale_status_fixture: None,
@@ -2584,6 +3000,8 @@ mod tests {
             git_timeout: Duration::from_millis(1_500),
             ps_timeout: Duration::from_millis(1_500),
             lsof_timeout: Duration::from_millis(1_500),
+            tmux_probe_timeout: Duration::from_millis(1_500),
+            zellij_probe_timeout: Duration::from_millis(1_500),
             ps_discovery_max_rows: 4_096,
             repo_job_timeout: Duration::from_millis(20_000),
             repo_job_response_cap_bytes: 8 * 1024 * 1024,
@@ -2616,7 +3034,7 @@ mod tests {
                 .and_then(Value::as_array)
                 .unwrap()
                 .len(),
-            8
+            11
         );
         let family_ids = capabilities
             .get("families")
@@ -2631,6 +3049,9 @@ mod tests {
         assert!(family_ids.contains(&"ps.discovery"));
         assert!(family_ids.contains(&"ps.cwd"));
         assert!(family_ids.contains(&"net.listeners"));
+        assert!(family_ids.contains(&"tmux.sessions"));
+        assert!(family_ids.contains(&"tmux.panes"));
+        assert!(family_ids.contains(&"zellij.sessions"));
         let verb_ids = capabilities
             .get("verbs")
             .and_then(Value::as_array)

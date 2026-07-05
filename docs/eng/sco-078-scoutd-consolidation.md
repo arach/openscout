@@ -1,6 +1,6 @@
 # SCO-078 — Consolidating all OS calls under scoutd
 
-**Status:** in progress — M3/B1 ps/net probe migration landing (2026-07-05)
+**Status:** in progress — M3/B2 tmux/zellij read probe migration landing (2026-07-05)
 **Owner:** runtime / scout-web
 **Depends on:** [SCO-077](./sco-077-system-probe-discipline.md) (probe registry contract, TTL table, lint fence)
 
@@ -21,9 +21,9 @@ From the 2026-07-02 exec census (227 sites under `packages/` + `apps/`; full per
 
 ## What exists today
 
-- **`crates/scoutd`** — supervisor plus the existing `scoutd probes serve` supervised child. The probe child serves `tailscale.status`, `git.buildInfo`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `repo.scan`/`repo.diff`, and enumerated exec verbs over the existing UDS protocol.
+- **`crates/scoutd`** — supervisor plus the existing `scoutd probes serve` supervised child. The probe child serves `tailscale.status`, `git.buildInfo`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `tmux.sessions`, `tmux.panes`, `zellij.sessions`, `repo.scan`/`repo.diff`, and enumerated exec verbs over the existing UDS protocol.
 - **`crates/openscout-repo-service`** — one-shot JSON-over-stdin/stdout exec layer (worktree scan + diff), serde-only. It remains the bounded spawn fallback while the resident `scoutd` repo path proves parity.
-- **TS probe registry** (SCO-077 Phase 1) — built and serving `backend: "local" | "scoutd" | "local-fallback"` snapshots. B0 added version-skew enforcement, derived socket timeouts, conformance tests, and doctor visibility; B1 starts the family burn-down by routing process and listener reads through `scoutd` with TS-local fallback.
+- **TS probe registry** (SCO-077 Phase 1) — built and serving `backend: "local" | "scoutd" | "local-fallback"` snapshots. B0 added version-skew enforcement, derived socket timeouts, conformance tests, and doctor visibility; B1 started the family burn-down by routing process and listener reads through `scoutd` with TS-local fallback; B2 does the same for tmux/zellij read probes while leaving tmux imperative verbs unchanged.
 
 ## Shape decision: which Rust process?
 
@@ -98,7 +98,7 @@ Probes cover reads. The ~30 sync imperative sites (tmux send-keys/paste/kill/new
 | M0 ✅ | SCO-077 design (codex-reviewed) + 227-site census | done 2026-07-02 |
 | M1 ✅ | TS registry + sanctioned async, output-capped exec helper + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
 | M2 ✅ | `scoutd probes serve` spike: envelope + capabilities + those same two families over UDS; supervisor spawns/restarts it; doctor shows backend | kill the probe child → registry falls back visibly within one TTL, nothing user-facing breaks |
-| M3 ◐ | Family burn-down: `tmux.*`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green. B0 guardrails now precede new-family migration: scoutd/local conformance diff, schema-version fallback, socket timeout hierarchy, registry-driven doctor report, typed `scout.host` facade, and capped probe-connection workers. B1 migrates `ps.runtime`, `ps.discovery`, `ps.cwd`, and `net.listeners` to `scoutd` exec-parity probes with typed truncation for large process-discovery payloads. | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
+| M3 ◐ | Family burn-down: `tmux.*`, `ps.runtime`, `ps.discovery`, `ps.cwd`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green. B0 guardrails now precede new-family migration: scoutd/local conformance diff, schema-version fallback, socket timeout hierarchy, registry-driven doctor report, typed `scout.host` facade, and capped probe-connection workers. B1 migrates `ps.runtime`, `ps.discovery`, `ps.cwd`, and `net.listeners` to `scoutd` exec-parity probes with typed truncation for large process-discovery payloads. B2 migrates `tmux.sessions`, `tmux.panes`, and `zellij.sessions` to `scoutd` exec-parity probes with Rust-side typed parsing and TS-local twins. | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
 | M4 | repo-service subsumption: repo-watch/repo-diff route over the resident socket; spawn-per-request retired | one Rust artifact owns all git reads; `openscout-repo-service` binary retired or wrapper-only |
 | M5 | Imperative verbs over `exec.request/v1`; lint fence Phase B | server trees import no subprocess APIs |
 | M6 | Swift adoption (ScoutMenu → socket) | zero `tailscale` execs machine-wide outside the daemon |
