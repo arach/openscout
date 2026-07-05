@@ -2,6 +2,25 @@ import type { RuntimeBinaryInput, RuntimeEnv } from "../portable-types.js";
 import { resolveRepoServiceCommand, runRepoServiceJson } from "../repo-service/process.js";
 import { execSystemFile, type ExecProbeFileResult } from "./exec.js";
 import { gitBuildInfoProbe } from "./git-build-info.js";
+import {
+  gitDiffNumstat,
+  gitDiffPatch,
+  gitDiffRaw,
+  gitDiffShortstat,
+  gitLogLastCommitUnix,
+  gitLogNameOnly,
+  gitMergeBase,
+  gitRemoteGetUrlOrigin,
+  gitRevParse,
+  gitStatusPorcelain,
+  gitWorktreeListPorcelain,
+  type GitCommandOptions,
+  type GitDiffInput,
+  type GitLogNameOnlyInput,
+  type GitMergeBaseInput,
+  type GitRevParseInput,
+  type GitStatusPorcelainInput,
+} from "./git.js";
 import { netListenersProbe, type NetListenerSnapshot } from "./net-listeners.js";
 import {
   processCwdProbe,
@@ -130,6 +149,39 @@ export const scoutHost = {
     },
     invalidateBuildInfo(repoRoot: string, reason?: string) {
       gitBuildInfoProbe.invalidate(repoRoot, reason);
+    },
+    revParse(input: GitRevParseInput, options?: GitCommandOptions) {
+      return gitRevParse(input, options);
+    },
+    diffShortstat(input: GitDiffInput, options?: GitCommandOptions) {
+      return gitDiffShortstat(input, options);
+    },
+    mergeBase(input: GitMergeBaseInput, options?: GitCommandOptions) {
+      return gitMergeBase(input, options);
+    },
+    statusPorcelain(input: GitStatusPorcelainInput, options?: GitCommandOptions) {
+      return gitStatusPorcelain(input, options);
+    },
+    diffRaw(input: GitDiffInput, options?: GitCommandOptions) {
+      return gitDiffRaw(input, options);
+    },
+    diffNumstat(input: GitDiffInput & { z?: boolean }, options?: GitCommandOptions) {
+      return gitDiffNumstat(input, options);
+    },
+    diffPatch(input: GitDiffInput, options?: GitCommandOptions) {
+      return gitDiffPatch(input, options);
+    },
+    logNameOnly(input: GitLogNameOnlyInput, options?: GitCommandOptions) {
+      return gitLogNameOnly(input, options);
+    },
+    logLastCommitUnix(repoRoot: string, options?: GitCommandOptions) {
+      return gitLogLastCommitUnix(repoRoot, options);
+    },
+    worktreeListPorcelain(repoRoot: string, options?: GitCommandOptions) {
+      return gitWorktreeListPorcelain(repoRoot, options);
+    },
+    remoteGetUrlOrigin(repoRoot: string, options?: GitCommandOptions) {
+      return gitRemoteGetUrlOrigin(repoRoot, options);
     },
   },
   tmux: {

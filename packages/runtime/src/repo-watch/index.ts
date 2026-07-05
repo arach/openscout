@@ -8,7 +8,20 @@ import {
   resolveRepoServiceCommand,
   runRepoServiceJson,
 } from "../repo-service/process.js";
-import { readGitRepoStatusCommand } from "../system-probes/git-repo-status.js";
+import {
+  GitCatalogValidationError,
+  gitDiffShortstat,
+  gitLogLastCommitUnix,
+  gitMergeBase,
+  gitRevParse,
+  gitStatusPorcelain,
+  gitWorktreeListPorcelain,
+  type GitCommandOptions,
+  type GitDiffInput,
+  type GitMergeBaseInput,
+  type GitRevParseInput,
+  type GitStatusPorcelainInput,
+} from "../system-probes/git.js";
 
 export type RepoWatchHintSource =
   | "agent"
@@ -137,7 +150,14 @@ export type RepoWatchSnapshot = {
   warnings: string[];
 };
 
-type GitExec = (cwd: string, args: string[]) => Promise<string>;
+type GitExec = {
+  revParse: (input: GitRevParseInput, options?: GitCommandOptions) => Promise<string | null>;
+  statusPorcelain: (input: GitStatusPorcelainInput, options?: GitCommandOptions) => Promise<string | null>;
+  mergeBase: (input: GitMergeBaseInput, options?: GitCommandOptions) => Promise<string | null>;
+  diffShortstat: (input: GitDiffInput, options?: GitCommandOptions) => Promise<string | null>;
+  logLastCommitUnix: (repoRoot: string, options?: GitCommandOptions) => Promise<string | null>;
+  worktreeListPorcelain: (repoRoot: string, options?: GitCommandOptions) => Promise<string | null>;
+};
 
 export type RepoWatchSnapshotOptions = {
   hints?: RepoWatchPathHint[];
@@ -227,7 +247,6 @@ const DEFAULT_MAX_ROOTS = 8;
 const DEFAULT_MAX_WORKTREES = 4;
 const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
 const DEFAULT_SCAN_BUDGET_MS = 4_000;
-const GIT_MAX_BUFFER = 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;
 let lastUsefulSnapshot: {
@@ -336,16 +355,14 @@ function uniqueBy<T>(items: T[], keyFor: (item: T) => string): T[] {
   return result;
 }
 
-async function defaultGit(cwd: string, args: string[]): Promise<string> {
-  const output = await readGitRepoStatusCommand(cwd, args, {
-    maxAgeMs: 0,
-    maxStdoutBytes: GIT_MAX_BUFFER,
-  });
-  if (output === null) {
-    throw new Error(`git ${args.join(" ")} returned no output`);
-  }
-  return output;
-}
+const defaultGit: GitExec = {
+  revParse: gitRevParse,
+  statusPorcelain: gitStatusPorcelain,
+  mergeBase: gitMergeBase,
+  diffShortstat: gitDiffShortstat,
+  logLastCommitUnix: gitLogLastCommitUnix,
+  worktreeListPorcelain: gitWorktreeListPorcelain,
+};
 
 function readBooleanEnv(name: string): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
@@ -477,14 +494,17 @@ async function discoverGitRoots(hints: NormalizedHint[], git: GitExec, maxRoots:
 
     let topLevel: string;
     try {
-      topLevel = normalizePath((await git(dir, ["rev-parse", "--show-toplevel"])).trim());
+      const rawTopLevel = await git.revParse({ repoRoot: dir, kind: "showToplevel" }, { maxAgeMs: 0 });
+      if (!rawTopLevel) continue;
+      topLevel = normalizePath(rawTopLevel.trim());
     } catch {
       continue;
     }
 
     let commonGitDir = topLevel;
     try {
-      const rawCommon = (await git(topLevel, ["rev-parse", "--git-common-dir"])).trim();
+      const rawCommon = (await git.revParse({ repoRoot: topLevel, kind: "gitCommonDir" }, { maxAgeMs: 0 }))?.trim();
+      if (!rawCommon) throw new Error("empty git common dir");
       commonGitDir = normalizePath(isAbsolute(rawCommon) ? rawCommon : resolve(topLevel, rawCommon));
     } catch {
       warnings.push(`Could not resolve Git common directory for ${topLevel}`);
@@ -732,10 +752,12 @@ function classifyWorktree(input: {
   return { attention: "quiet", reasons: [] };
 }
 
-async function safeGit(git: GitExec, cwd: string, args: string[]): Promise<string | null> {
+async function safeGit(run: () => Promise<string | null>): Promise<string | null> {
   try {
-    return await git(cwd, args);
-  } catch {
+    const output = await run();
+    return output?.trim() ? output.trim() : null;
+  } catch (error) {
+    if (error instanceof GitCatalogValidationError) throw error;
     return null;
   }
 }
@@ -750,7 +772,12 @@ const TRUNK_REFS = [
 ];
 
 async function gitRefExists(git: GitExec, cwd: string, ref: string): Promise<boolean> {
-  const output = await safeGit(git, cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  const output = await safeGit(() => git.revParse({
+    repoRoot: cwd,
+    kind: "verifyCommit",
+    ref,
+    quiet: true,
+  }, { maxAgeMs: 0 }));
   return Boolean(output?.trim());
 }
 
@@ -778,10 +805,17 @@ async function branchDiffShortstat(
 ): Promise<string | null> {
   const baseRef = await preferredBranchBaseRef(git, cwd, branch);
   if (!baseRef) return null;
-  const mergeBase = await safeGit(git, cwd, ["merge-base", baseRef, "HEAD"]);
+  const mergeBase = await safeGit(() => git.mergeBase({
+    repoRoot: cwd,
+    baseRef,
+    compareRef: "HEAD",
+  }));
   const base = mergeBase?.trim();
   if (!base) return null;
-  return safeGit(git, cwd, ["diff", "--shortstat", `${base}..HEAD`]);
+  return safeGit(() => git.diffShortstat({
+    repoRoot: cwd,
+    selector: { kind: "range", notation: "dotdot", baseRef: base, compareRef: "HEAD" },
+  }, { maxAgeMs: 0 }));
 }
 
 export function refsForHints(hints: NormalizedHint[]): {
@@ -825,7 +859,12 @@ async function scanWorktree(
     includeLastCommit: boolean;
   },
 ): Promise<RepoWatchWorktree> {
-  const statusOutput = await safeGit(git, worktree.path, ["status", "--porcelain=v2", "--branch", "-unormal"]);
+  const statusOutput = await safeGit(() => git.statusPorcelain({
+    repoRoot: worktree.path,
+    version: "v2",
+    branch: true,
+    untrackedMode: "normal",
+  }));
   const parsed = statusOutput
     ? parseGitStatusPorcelainV2(statusOutput, { maxFiles: options.maxFiles })
     : {
@@ -852,12 +891,18 @@ async function scanWorktree(
   const [branchDiff, unstagedDiff, stagedDiff] = options.includeDiff
     ? await Promise.all([
       branchDiffShortstat(git, worktree.path, branch),
-      safeGit(git, worktree.path, ["diff", "--shortstat"]),
-      safeGit(git, worktree.path, ["diff", "--cached", "--shortstat"]),
+      safeGit(() => git.diffShortstat({
+        repoRoot: worktree.path,
+        selector: { kind: "unstaged" },
+      }, { maxAgeMs: 0 })),
+      safeGit(() => git.diffShortstat({
+        repoRoot: worktree.path,
+        selector: { kind: "staged" },
+      }, { maxAgeMs: 0 })),
     ])
     : [null, null, null];
   const lastCommitRaw = options.includeLastCommit
-    ? await safeGit(git, worktree.path, ["log", "-1", "--format=%ct"])
+    ? await safeGit(() => git.logLastCommitUnix(worktree.path))
     : null;
   const refs = refsForHints(hints);
   const error = statusOutput ? null : "Could not read Git status";
@@ -926,7 +971,7 @@ async function scanProject(
   },
 ): Promise<{ project: RepoWatchProject; warnings: string[] }> {
   const warnings: string[] = [];
-  const rawWorktrees = await safeGit(git, root.topLevel, ["worktree", "list", "--porcelain"]);
+  const rawWorktrees = await safeGit(() => git.worktreeListPorcelain(root.topLevel));
   const parsedWorktrees = rawWorktrees
     ? parseGitWorktreeList(rawWorktrees)
     : [{ path: root.topLevel, head: null, branch: null, detached: false, bare: false }];

@@ -1,6 +1,8 @@
 export const SCOUT_HOST_PROBE_SCHEMA_VERSIONS = {
   "tailscale.status": 1,
   "git.buildInfo": 1,
+  "git.revParse": 1,
+  "git.diffShortstat": 1,
   "tmux.sessions": 1,
   "tmux.panes": 1,
   "zellij.sessions": 1,

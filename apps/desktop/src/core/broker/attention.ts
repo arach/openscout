@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { readGitRepoStatusCommand } from "@openscout/runtime/system-probes";
+import { gitLogLastCommitUnix, gitRevParse, gitStatusPorcelain } from "@openscout/runtime/system-probes";
 
 import type {
   AgentEndpoint,
@@ -348,7 +348,7 @@ function sourceAgentsMatchProject(source: ProjectAccumulator, projectRoot: strin
 }
 
 export async function findGitRoot(cwd: string): Promise<string | null> {
-  const output = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+  const output = await gitRevParse({ repoRoot: cwd, kind: "showToplevel" });
   return output ? resolve(output) : null;
 }
 
@@ -357,12 +357,16 @@ export async function readGitAttentionState(projectRoot: string): Promise<ScoutA
   if (!existsSync(normalizedRoot)) {
     return emptyGitState(normalizedRoot, "path does not exist");
   }
-  const inside = await runGit(normalizedRoot, ["rev-parse", "--is-inside-work-tree"]);
+  const inside = await gitRevParse({ repoRoot: normalizedRoot, kind: "isInsideWorkTree" });
   if (inside !== "true") {
     return emptyGitState(normalizedRoot, "not a git worktree");
   }
 
-  const statusOutput = await runGit(normalizedRoot, ["status", "--porcelain=v1", "--branch"]);
+  const statusOutput = await gitStatusPorcelain({
+    repoRoot: normalizedRoot,
+    version: "v1",
+    branch: true,
+  });
   if (statusOutput === null) {
     return emptyGitState(normalizedRoot, "git status failed");
   }
@@ -391,7 +395,7 @@ export async function readGitAttentionState(projectRoot: string): Promise<ScoutA
     }
   }
 
-  const lastCommit = await runGit(normalizedRoot, ["log", "-1", "--format=%ct"]);
+  const lastCommit = await gitLogLastCommitUnix(normalizedRoot);
   const lastCommitAt = lastCommit && /^\d+$/.test(lastCommit)
     ? Number.parseInt(lastCommit, 10) * 1000
     : null;
@@ -869,10 +873,6 @@ function isAncestorPath(parent: string, child: string): boolean {
   const normalizedChild = resolve(child);
   return normalizedChild !== normalizedParent
     && normalizedChild.startsWith(`${normalizedParent}/`);
-}
-
-async function runGit(cwd: string, args: string[]): Promise<string | null> {
-  return (await readGitRepoStatusCommand(cwd, args, { maxStdoutBytes: 1024 * 1024 }))?.trim() ?? null;
 }
 
 function emptyGitState(projectRoot: string, error: string): ScoutAttentionGitState {

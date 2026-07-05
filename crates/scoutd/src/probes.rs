@@ -26,6 +26,8 @@ const REPO_SCAN_CAPABILITY_ID: &str = "repo.scan";
 const REPO_DIFF_CAPABILITY_ID: &str = "repo.diff";
 const TAILSCALE_STATUS_ID: &str = "tailscale.status";
 const GIT_BUILD_INFO_ID: &str = "git.buildInfo";
+const GIT_REV_PARSE_ID: &str = "git.revParse";
+const GIT_DIFF_SHORTSTAT_ID: &str = "git.diffShortstat";
 const PS_RUNTIME_ID: &str = "ps.runtime";
 const PS_DISCOVERY_ID: &str = "ps.discovery";
 const PS_CWD_ID: &str = "ps.cwd";
@@ -35,6 +37,7 @@ const TMUX_PANES_ID: &str = "tmux.panes";
 const ZELLIJ_SESSIONS_ID: &str = "zellij.sessions";
 const TAILSCALE_STATUS_TTL_MS: u64 = 30_000;
 const GIT_BUILD_INFO_TTL_MS: u64 = 60_000;
+const GIT_CATALOG_TTL_MS: u64 = 60_000;
 const PS_RUNTIME_TTL_MS: u64 = 5_000;
 const PS_DISCOVERY_TTL_MS: u64 = 1_000;
 const PS_CWD_TTL_MS: u64 = 5_000;
@@ -294,6 +297,52 @@ struct StaticGitBuildMetadata {
     commit: Option<String>,
     boot_branch: Option<String>,
     metadata_at: u128,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GitRevParseKey {
+    #[serde(rename = "repoRoot")]
+    repo_root: String,
+    kind: String,
+    #[serde(default)]
+    r#ref: Option<String>,
+    #[serde(default)]
+    quiet: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct GitDiffShortstatKey {
+    #[serde(rename = "repoRoot")]
+    repo_root: String,
+    selector: GitDiffSelectorKey,
+    #[serde(default)]
+    paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind")]
+enum GitDiffSelectorKey {
+    #[serde(rename = "unstaged")]
+    Unstaged,
+    #[serde(rename = "staged")]
+    Staged,
+    #[serde(rename = "fromRef")]
+    FromRef { r#ref: String },
+    #[serde(rename = "twoRefs")]
+    TwoRefs {
+        #[serde(rename = "baseRef")]
+        base_ref: String,
+        #[serde(rename = "compareRef")]
+        compare_ref: String,
+    },
+    #[serde(rename = "range")]
+    Range {
+        notation: String,
+        #[serde(rename = "baseRef")]
+        base_ref: String,
+        #[serde(rename = "compareRef")]
+        compare_ref: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -822,6 +871,22 @@ impl ProbeEngine {
                 })?;
                 self.run_git_build_info(&repo_root)
             }
+            GIT_REV_PARSE_ID => {
+                let key = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.revParse requires a typed key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_rev_parse(&key)
+            }
+            GIT_DIFF_SHORTSTAT_ID => {
+                let key = key.ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "git.diffShortstat requires a typed key".to_string(),
+                    timed_out: false,
+                })?;
+                self.run_git_diff_shortstat(&key)
+            }
             PS_RUNTIME_ID => self.run_ps_runtime(),
             PS_DISCOVERY_ID => self.run_ps_discovery(),
             PS_CWD_ID => {
@@ -956,6 +1021,62 @@ impl ProbeEngine {
             .git_output(repo_root, args)?
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()))
+    }
+
+    fn run_git_rev_parse(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let parsed: GitRevParseKey = serde_json::from_str(key).map_err(|error| ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("invalid git.revParse key: {error}"),
+            timed_out: false,
+        })?;
+        let args = git_rev_parse_args(&parsed)?;
+        match self.run_git_catalog_command(&parsed.repo_root, &args, 256 * 1024, GIT_REV_PARSE_ID) {
+            Ok(output) => Ok(trimmed_string_value(output.as_deref())),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_diff_shortstat(&self, key: &str) -> Result<Value, ProbeFailure> {
+        let parsed: GitDiffShortstatKey =
+            serde_json::from_str(key).map_err(|error| ProbeFailure {
+                code: "invalid_request".to_string(),
+                message: format!("invalid git.diffShortstat key: {error}"),
+                timed_out: false,
+            })?;
+        let args = git_diff_shortstat_args(&parsed)?;
+        match self.run_git_catalog_command(
+            &parsed.repo_root,
+            &args,
+            256 * 1024,
+            GIT_DIFF_SHORTSTAT_ID,
+        ) {
+            Ok(output) => Ok(trimmed_string_value(output.as_deref())),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn run_git_catalog_command(
+        &self,
+        repo_root: &str,
+        args: &[String],
+        max_stdout_bytes: usize,
+        probe_id: &str,
+    ) -> Result<Option<String>, ProbeFailure> {
+        let mut command_args = vec!["-C".to_string(), canonical_repo_root(repo_root)];
+        command_args.extend(args.iter().cloned());
+        match run_capped_command_with_input(
+            &self.options.git_bin,
+            &command_args,
+            None,
+            None,
+            self.options.git_timeout,
+            max_stdout_bytes,
+            64 * 1024,
+        ) {
+            Ok(output) => Ok(Some(output.stdout)),
+            Err(error) if is_domain_unavailable_command_error(&error) => Ok(None),
+            Err(error) => Err(command_failure_to_probe(error, probe_id)),
+        }
     }
 
     fn run_tmux_sessions(&self, socket_path: &str) -> Result<Value, ProbeFailure> {
@@ -1468,6 +1589,16 @@ fn served_capabilities() -> Vec<ProbeCapability> {
             ttl_ms: GIT_BUILD_INFO_TTL_MS,
         },
         ProbeCapability {
+            probe_id: GIT_REV_PARSE_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
+            probe_id: GIT_DIFF_SHORTSTAT_ID.to_string(),
+            schema_version: 1,
+            ttl_ms: GIT_CATALOG_TTL_MS,
+        },
+        ProbeCapability {
             probe_id: PS_RUNTIME_ID.to_string(),
             schema_version: 1,
             ttl_ms: PS_RUNTIME_TTL_MS,
@@ -1706,6 +1837,8 @@ fn is_supported_probe(probe_id: &str) -> bool {
         probe_id,
         TAILSCALE_STATUS_ID
             | GIT_BUILD_INFO_ID
+            | GIT_REV_PARSE_ID
+            | GIT_DIFF_SHORTSTAT_ID
             | PS_RUNTIME_ID
             | PS_DISCOVERY_ID
             | PS_CWD_ID
@@ -1720,6 +1853,7 @@ fn probe_ttl_ms(probe_id: &str) -> Option<u64> {
     match probe_id {
         TAILSCALE_STATUS_ID => Some(TAILSCALE_STATUS_TTL_MS),
         GIT_BUILD_INFO_ID => Some(GIT_BUILD_INFO_TTL_MS),
+        GIT_REV_PARSE_ID | GIT_DIFF_SHORTSTAT_ID => Some(GIT_CATALOG_TTL_MS),
         PS_RUNTIME_ID => Some(PS_RUNTIME_TTL_MS),
         PS_DISCOVERY_ID => Some(PS_DISCOVERY_TTL_MS),
         PS_CWD_ID => Some(PS_CWD_TTL_MS),
@@ -1766,6 +1900,18 @@ fn normalize_probe_key(
                 })?;
             Ok(Some(canonical_repo_root(raw_key)))
         }
+        GIT_REV_PARSE_ID | GIT_DIFF_SHORTSTAT_ID => {
+            let normalized = key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: format!("{probe_id} requires a typed key"),
+                    timed_out: false,
+                })?;
+            Ok(Some(normalized.to_string()))
+        }
         PS_CWD_ID => {
             let normalized = key
                 .as_deref()
@@ -1804,6 +1950,166 @@ fn normalize_probe_key(
         }
         _ => Ok(key),
     }
+}
+
+fn validate_git_ref(value: &str, label: &str) -> Result<String, ProbeFailure> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} is required"),
+            timed_out: false,
+        });
+    }
+    if trimmed.starts_with('-') {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} must not start with '-'"),
+            timed_out: false,
+        });
+    }
+    if trimmed.contains('\0') {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} contains a NUL byte"),
+            timed_out: false,
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_git_pathspec(value: &str, label: &str) -> Result<String, ProbeFailure> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} is required"),
+            timed_out: false,
+        });
+    }
+    if trimmed.starts_with('-') {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} must not start with '-'"),
+            timed_out: false,
+        });
+    }
+    if trimmed.contains('\0') {
+        return Err(ProbeFailure {
+            code: "invalid_request".to_string(),
+            message: format!("{label} contains a NUL byte"),
+            timed_out: false,
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn git_rev_parse_args(input: &GitRevParseKey) -> Result<Vec<String>, ProbeFailure> {
+    let args = match input.kind.as_str() {
+        "showToplevel" => vec!["rev-parse", "--show-toplevel"],
+        "gitDir" => vec!["rev-parse", "--git-dir"],
+        "gitCommonDir" => vec!["rev-parse", "--git-common-dir"],
+        "isInsideWorkTree" => vec!["rev-parse", "--is-inside-work-tree"],
+        "shortHead" => vec!["rev-parse", "--short", "HEAD"],
+        "abbrevRefHead" => vec!["rev-parse", "--abbrev-ref", "HEAD"],
+        "upstreamSymbolicFullName" => {
+            vec![
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ]
+        }
+        "verifyCommit" => {
+            let ref_value =
+                validate_git_ref(input.r#ref.as_deref().unwrap_or_default(), "git verify ref")?;
+            let mut args = vec!["rev-parse", "--verify"];
+            if input.quiet.unwrap_or(false) {
+                args.push("--quiet");
+            }
+            args.push("--end-of-options");
+            return Ok(args
+                .into_iter()
+                .map(str::to_string)
+                .chain(std::iter::once(format!("{ref_value}^{{commit}}")))
+                .collect());
+        }
+        other => {
+            return Err(ProbeFailure {
+                code: "invalid_request".to_string(),
+                message: format!("unsupported git.revParse kind: {other}"),
+                timed_out: false,
+            })
+        }
+    };
+    Ok(args.into_iter().map(str::to_string).collect())
+}
+
+fn git_diff_selector_args(selector: &GitDiffSelectorKey) -> Result<Vec<String>, ProbeFailure> {
+    match selector {
+        GitDiffSelectorKey::Unstaged => Ok(vec![]),
+        GitDiffSelectorKey::Staged => Ok(vec!["--cached".to_string()]),
+        GitDiffSelectorKey::FromRef { r#ref } => Ok(vec![
+            "--end-of-options".to_string(),
+            validate_git_ref(r#ref, "git diff ref")?,
+        ]),
+        GitDiffSelectorKey::TwoRefs {
+            base_ref,
+            compare_ref,
+        } => Ok(vec![
+            "--end-of-options".to_string(),
+            validate_git_ref(base_ref, "git diff base ref")?,
+            validate_git_ref(compare_ref, "git diff compare ref")?,
+        ]),
+        GitDiffSelectorKey::Range {
+            notation,
+            base_ref,
+            compare_ref,
+        } => {
+            let operator = match notation.as_str() {
+                "dotdot" => "..",
+                "ellipsis" => "...",
+                other => {
+                    return Err(ProbeFailure {
+                        code: "invalid_request".to_string(),
+                        message: format!("unsupported git diff range notation: {other}"),
+                        timed_out: false,
+                    })
+                }
+            };
+            Ok(vec![
+                "--end-of-options".to_string(),
+                format!(
+                    "{}{operator}{}",
+                    validate_git_ref(base_ref, "git diff base ref")?,
+                    validate_git_ref(compare_ref, "git diff compare ref")?
+                ),
+            ])
+        }
+    }
+}
+
+fn git_diff_shortstat_args(input: &GitDiffShortstatKey) -> Result<Vec<String>, ProbeFailure> {
+    let mut args = vec!["diff".to_string(), "--shortstat".to_string()];
+    args.extend(git_diff_selector_args(&input.selector)?);
+    if !input.paths.is_empty() {
+        args.push("--".to_string());
+        for (index, path) in input.paths.iter().enumerate() {
+            args.push(validate_git_pathspec(
+                path,
+                &format!("git pathspec {}", index + 1),
+            )?);
+        }
+    }
+    Ok(args)
+}
+
+fn trimmed_string_value(value: Option<&str>) -> Value {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| Value::String(value.to_string()))
+        .unwrap_or(Value::Null)
 }
 
 fn positive_u32(value: &str) -> Option<u32> {
@@ -3034,7 +3340,7 @@ mod tests {
                 .and_then(Value::as_array)
                 .unwrap()
                 .len(),
-            11
+            13
         );
         let family_ids = capabilities
             .get("families")
@@ -3045,6 +3351,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(family_ids.contains(&"repo.scan"));
         assert!(family_ids.contains(&"repo.diff"));
+        assert!(family_ids.contains(&"git.revParse"));
+        assert!(family_ids.contains(&"git.diffShortstat"));
         assert!(family_ids.contains(&"ps.runtime"));
         assert!(family_ids.contains(&"ps.discovery"));
         assert!(family_ids.contains(&"ps.cwd"));

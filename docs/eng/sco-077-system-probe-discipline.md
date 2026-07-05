@@ -106,7 +106,7 @@ Initial probe set + TTLs:
 | `ps.runtime` | 5s (10–15s for overview surfaces) | runtime/atop telemetry ps sweeps |
 | `ps.cwd` (family, per pid) | 5s | `lsof` cwd lookups used to annotate short-lived process trees |
 | `net.listeners` (family, per port) | 5s | lsof sweeps in managed-terminal-relay |
-| `git.repoStatus` (family, per repo + git argv) | 60s | repo-diff/work-material git reads; status/diff pages tolerate short-lived reuse |
+| named git catalog (`git.revParse` / `git.diffShortstat` via scoutd; other fixed-arg intents TS-local) | 60s for scoutd scalar probes; call-specific for TS-local reads | repo-diff/work-material git reads without forwarding caller-supplied argv |
 | `mesh.peers` | 30s (pull-on-demand stays the model; delivery still does live health checks) | ad-hoc peer probes |
 | `sessions.scan` (family, per home/workspace/window) | 10s | JSONL history discovery walks; repeated mobile/web polls can reuse a short-lived file inventory |
 | `sessions.search` (family, per query/window) | 10s | JSONL text search previews; interactive retries tolerate brief staleness while avoiding repeated full-file grep scans |

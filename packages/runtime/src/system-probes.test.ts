@@ -8,7 +8,12 @@ import { join } from "node:path";
 import {
   defineProbe,
   defineProbeFamily,
+  GitCatalogValidationError,
   gitBuildInfoProbe,
+  gitDiffNumstat,
+  gitDiffShortstatProbe,
+  gitRevParse,
+  gitRevParseProbe,
   netListenersProbe,
   processCwdProbe,
   psDiscoveryProbe,
@@ -320,6 +325,8 @@ afterEach(() => {
   }
   tailscaleStatusProbe.invalidate("test.reset");
   gitBuildInfoProbe.for(process.cwd()).invalidate("test.reset");
+  gitRevParseProbe.invalidate({ repoRoot: process.cwd(), kind: "showToplevel" }, "test.reset");
+  gitDiffShortstatProbe.invalidate({ repoRoot: process.cwd(), selector: { kind: "unstaged" } }, "test.reset");
   psRuntimeProbe.invalidate("test.reset");
   psDiscoveryProbe.invalidate("test.reset");
   processCwdProbe.invalidate(String(process.pid), "test.reset");
@@ -794,16 +801,121 @@ describe("git.buildInfo probe", () => {
   });
 });
 
+describe("git catalog option-injection guardrails", () => {
+  function writeGitArgLogger(directory: string): { gitBin: string; logPath: string } {
+    const script = join(directory, "git-arg-logger.sh");
+    const logPath = join(directory, "git-args.log");
+    writeFileSync(script, `#!/bin/sh
+printf '%s\\n' "$@" >> "${logPath}"
+if [ "$1" = "-C" ]; then
+  shift 2
+fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'abc123\\n'
+  exit 0
+fi
+if [ "$1" = "diff" ]; then
+  exit 0
+fi
+exit 0
+`, "utf8");
+    chmodSync(script, 0o755);
+    return { gitBin: script, logPath };
+  }
+
+  function loggedArgs(logPath: string): string[] {
+    return readFileSync(logPath, "utf8").trim().split(/\n/).filter(Boolean);
+  }
+
+  test("uses --end-of-options for refs and -- for pathspecs", async () => {
+    const directory = tempDir("openscout-git-guards-");
+    const { gitBin, logPath } = writeGitArgLogger(directory);
+    process.env.OPENSCOUT_GIT_BIN = gitBin;
+    process.env.OPENSCOUT_PROBES_SOCKET = join(directory, "missing-probes.sock");
+    resetScoutdProbeClientForTests();
+
+    await gitRevParse({ repoRoot: directory, kind: "verifyCommit", ref: "feature/ref" }, { maxAgeMs: 0 });
+    await gitDiffNumstat({
+      repoRoot: directory,
+      selector: { kind: "range", notation: "ellipsis", baseRef: "origin/main", compareRef: "HEAD" },
+      paths: ["src/index.ts", ":(exclude)node_modules/**"],
+    });
+
+    const args = loggedArgs(logPath);
+    const endOfOptions = args.indexOf("--end-of-options");
+    const refValue = args.indexOf("feature/ref^{commit}");
+    expect(endOfOptions).toBeGreaterThanOrEqual(0);
+    expect(refValue).toBeGreaterThan(endOfOptions);
+    const pathSeparator = args.lastIndexOf("--");
+    expect(pathSeparator).toBeGreaterThan(args.lastIndexOf("origin/main...HEAD"));
+    expect(args.slice(pathSeparator + 1)).toEqual(["src/index.ts", ":(exclude)node_modules/**"]);
+  });
+
+  test("rejects option-like refs and pathspecs before git executes", async () => {
+    const directory = tempDir("openscout-git-reject-");
+    const { gitBin, logPath } = writeGitArgLogger(directory);
+    process.env.OPENSCOUT_GIT_BIN = gitBin;
+    process.env.OPENSCOUT_PROBES_SOCKET = join(directory, "missing-probes.sock");
+    resetScoutdProbeClientForTests();
+
+    const expectRejected = async (run: () => Promise<unknown>) => {
+      try {
+        await run();
+        throw new Error("expected git catalog validation to reject");
+      } catch (error) {
+        expect(error).toBeInstanceOf(GitCatalogValidationError);
+      }
+    };
+
+    await expectRejected(() => gitRevParse({
+      repoRoot: directory,
+      kind: "verifyCommit",
+      ref: "-c core.fsmonitor=touch /tmp/x",
+    }));
+    await expectRejected(() => gitRevParse({
+      repoRoot: directory,
+      kind: "verifyCommit",
+      ref: "--output=/tmp/x",
+    }));
+    await expectRejected(() => gitDiffNumstat({
+      repoRoot: directory,
+      selector: { kind: "fromRef", ref: "-leading-dash-branch" },
+    }));
+    await expectRejected(() => gitDiffNumstat({
+      repoRoot: directory,
+      selector: { kind: "unstaged" },
+      paths: ["--upload-pack=x"],
+    }));
+    await expectRejected(() => gitDiffNumstat({
+      repoRoot: directory,
+      selector: { kind: "unstaged" },
+      paths: ["-leading-dash-path"],
+    }));
+
+    expect(existsSync(logPath) ? readFileSync(logPath, "utf8") : "").toBe("");
+  });
+});
+
 describe("scoutd conformance diff harness", () => {
   type GitFixtureMode = "success" | "missing-binary" | "timeout" | "output_cap";
 
   function writeGitFixture(directory: string): string {
     const script = join(directory, "git-fixture.sh");
     writeFileSync(script, `#!/bin/sh
+repo=""
 if [ "$1" = "-C" ]; then
+  repo="$2"
   shift 2
 fi
 mode="\${OPENSCOUT_TEST_GIT_MODE:-success}"
+if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
+  printf '%s\\n' "$repo"
+  exit 0
+fi
+if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then
+  printf 'feedfacecafebeef\\n'
+  exit 0
+fi
 if [ "$1" = "rev-parse" ] && [ "$2" = "--short" ]; then
   printf 'abc123\\n'
   exit 0
@@ -827,6 +939,10 @@ if [ "$1" = "status" ] && [ "$2" = "--porcelain" ]; then
       exit 0
       ;;
   esac
+fi
+if [ "$1" = "diff" ] && [ "$2" = "--shortstat" ]; then
+  printf ' 1 file changed, 2 insertions(+), 1 deletion(-)\\n'
+  exit 0
 fi
 exit 1
 `, "utf8");
@@ -889,6 +1005,28 @@ exit 1
     gitBuildInfoProbe.invalidate(repoRoot, "test.conformance.local");
     const snapshot = await gitBuildInfoProbe.for(repoRoot).fresh({ maxAgeMs: 0 });
     return normalizeLocalSnapshot(snapshot);
+  }
+
+  async function runLocalGitRevParseFixture(
+    directory: string,
+    key: Parameters<typeof gitRevParseProbe.for>[0],
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitRevParseProbe.invalidate(key, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitRevParseProbe.for(key).fresh({ maxAgeMs: 0 }));
+    });
+  }
+
+  async function runLocalGitDiffShortstatFixture(
+    directory: string,
+    key: Parameters<typeof gitDiffShortstatProbe.for>[0],
+    env: Record<string, string | undefined>,
+  ): Promise<any> {
+    return await withLocalProbeEnv(directory, env, async () => {
+      gitDiffShortstatProbe.invalidate(key, "test.conformance.local");
+      return normalizeLocalProbeSnapshot(await gitDiffShortstatProbe.for(key).fresh({ maxAgeMs: 0 }));
+    });
   }
 
   async function runDaemonGitFixture(input: {
@@ -1195,6 +1333,65 @@ exit 64
       }
     }, 15_000);
   }
+
+  test("git.revParse fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitrp");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+    const key = { repoRoot, kind: "verifyCommit" as const, ref: "HEAD" };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.revParse", key: JSON.stringify(key), env }),
+      runLocalGitRevParseFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("feedfacecafebeef");
+  }, 15_000);
+
+  test("git.diffShortstat fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitds");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const gitBin = writeGitFixture(directory);
+    const env = { OPENSCOUT_GIT_BIN: gitBin };
+    const key = {
+      repoRoot,
+      selector: { kind: "range" as const, notation: "dotdot" as const, baseRef: "base-sha", compareRef: "HEAD" },
+      paths: ["src/index.ts"],
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.diffShortstat", key: JSON.stringify(key), env }),
+      runLocalGitDiffShortstatFixture(directory, key, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value).toBe("1 file changed, 2 insertions(+), 1 deletion(-)");
+  }, 15_000);
+
+  test("git catalog missing-binary fixtures match between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-gitmiss");
+    const repoRoot = join(directory, "repo");
+    mkdirSync(repoRoot);
+    const env = { OPENSCOUT_GIT_BIN: join(directory, "missing-git") };
+    const revParseKey = { repoRoot, kind: "showToplevel" as const };
+    const diffShortstatKey = { repoRoot, selector: { kind: "unstaged" as const } };
+
+    const [revDaemon, revLocal, diffDaemon, diffLocal] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "git.revParse", key: JSON.stringify(revParseKey), env }),
+      runLocalGitRevParseFixture(directory, revParseKey, env),
+      requestDaemonProbe({ directory, probeId: "git.diffShortstat", key: JSON.stringify(diffShortstatKey), env }),
+      runLocalGitDiffShortstatFixture(directory, diffShortstatKey, env),
+    ]);
+
+    expect(revDaemon).toEqual(revLocal);
+    expect(revDaemon.value).toBeNull();
+    expect(diffDaemon).toEqual(diffLocal);
+    expect(diffDaemon.value).toBeNull();
+  }, 15_000);
 
   test("ps.runtime fixture matches between scoutd and the TS local twin", async () => {
     const directory = shortTempDir("oscd-psrt");

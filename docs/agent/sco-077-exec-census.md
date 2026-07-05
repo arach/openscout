@@ -76,7 +76,7 @@ blast radius.
   `git rev-parse --short HEAD`, `git status --porcelain` — 3 git execs/request.
   **PROBE(git.buildInfo)**. *This is the exact incident cause.*
 - `:651` `runGitRaw` → repo-diff request: `git diff --cached` /
-  `git status --porcelain` / `git diff`. **PROBE(git.repoStatus)**
+  `git status --porcelain` / `git diff`. **NAMED_GIT_CATALOG**
 - `:837` `resolveGitCommitRef` (worktree) → repo-diff request:
   `git rev-parse --verify ...^{commit}`. **PROBE(git.buildInfo)**
 - `:2088` `tmuxPaneDetail` → runtime surface:
@@ -119,7 +119,7 @@ blast radius.
 
 ### packages/web/server/work-materials.ts
 
-- `:287` `execFileSync git -C <cwd> ...`. **PROBE(git.repoStatus)**
+- `:287` `execFileSync git -C <cwd> ...`. **NAMED_GIT_CATALOG**
 
 ### packages/web/server/core/pairing/runtime/bridge/router.ts (mobile bridge RPC handlers)
 
@@ -151,7 +151,7 @@ blast radius.
 
 ### apps/desktop/src/core/** (mirror of the web pairing/relay/bridge code — same host process class)
 
-- `core/broker/attention.ts:868` `runGit` → `git -C <cwd> ...`. **PROBE(git.repoStatus)**
+- `core/broker/attention.ts:868` `runGit` → `git -C <cwd> ...`. **NAMED_GIT_CATALOG**
 - `core/pairing/runtime/relay-runtime.ts:80` `tailscale status …`.
   **PROBE(tailscale.status)**; `:62/:66` openssl. **PROBE(cert.status)**
 - `core/pairing/runtime/bridge/router.ts:232,262,1284,1291` `execSync` session
