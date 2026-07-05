@@ -2132,6 +2132,32 @@ fn serialize_response_with_cap(
             false,
         );
         payload = serde_json::to_vec(&capped).map_err(|error| error.to_string())?;
+    } else if response.get("schema").and_then(Value::as_str) == Some(SNAPSHOT_SCHEMA) {
+        let probe_id = response
+            .get("probeId")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let key = response
+            .get("key")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
+        let ttl_ms = response.get("ttlMs").and_then(Value::as_u64).unwrap_or(0);
+        let capped = ProbeSnapshotResponse {
+            schema: SNAPSHOT_SCHEMA.to_string(),
+            probe_id,
+            key,
+            generated_at: epoch_ms(),
+            ttl_ms,
+            value: Value::Null,
+            error: Some(JsonError {
+                code: "output_cap".to_string(),
+                message: format!("probe snapshot response exceeded {repo_response_cap} bytes"),
+                timed_out: Some(false),
+            }),
+            daemon_version: DAEMON_VERSION.to_string(),
+        };
+        payload = serde_json::to_vec(&capped).map_err(|error| error.to_string())?;
     }
     Ok(payload)
 }
@@ -2593,6 +2619,7 @@ fn parse_process_command_rows(output: &str) -> Vec<Value> {
             let pgid = parse_process_number(parts.next())?;
             let tty = normalize_tty(parts.next());
             let command = parts.collect::<Vec<_>>().join(" ");
+            let (command, _) = truncate_chars(&command, PS_DISCOVERY_MAX_COMMAND_CHARS);
             let comm = command.split_whitespace().next().unwrap_or_default();
             if comm.is_empty() || command.is_empty() {
                 return None;
@@ -3671,8 +3698,8 @@ fn env_usize(name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        serve, ProbeCacheKey, ProbeEngine, ProbeServerOptions, CAPABILITIES_SCHEMA, ERROR_SCHEMA,
-        PS_CWD_ID, SNAPSHOT_SCHEMA, TEST_PANIC_PROBE_ID,
+        serialize_response_with_cap, serve, ProbeCacheKey, ProbeEngine, ProbeServerOptions,
+        CAPABILITIES_SCHEMA, ERROR_SCHEMA, PS_CWD_ID, SNAPSHOT_SCHEMA, TEST_PANIC_PROBE_ID,
     };
     use scoutd::repo_service;
     use serde_json::json;
@@ -4270,6 +4297,32 @@ exit 0
         );
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn probe_oversized_snapshot_returns_error_envelope() {
+        let response = json!({
+            "schema": SNAPSHOT_SCHEMA,
+            "probeId": "ps.runtime",
+            "key": null,
+            "generatedAt": 0,
+            "ttlMs": 5000,
+            "value": { "rows": [], "commandRows": [{ "pid": 1, "command": "x".repeat(1024) }] },
+            "error": null,
+            "daemonVersion": "test",
+        });
+
+        let payload = serialize_response_with_cap(response, 128).unwrap();
+        let capped: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(
+            capped.get("schema").and_then(Value::as_str),
+            Some(SNAPSHOT_SCHEMA)
+        );
+        assert_eq!(
+            capped.pointer("/error/code").and_then(Value::as_str),
+            Some("output_cap")
+        );
+        assert_eq!(capped.get("value"), Some(&Value::Null));
     }
 
     #[test]
