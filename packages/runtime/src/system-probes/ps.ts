@@ -105,7 +105,7 @@ function parseCommandRows(output: string): ProcessCommandRow[] {
       const ppid = parseProcessNumber(parts[1]);
       const pgid = parseProcessNumber(parts[2]);
       const tty = normalizeTty(parts[3]);
-      const command = parts.slice(4).join(" ");
+      const command = truncateCommand(parts.slice(4).join(" ")).command;
       const comm = command.split(/\s+/u)[0] ?? "";
       return pid && ppid && pgid && comm && command
         ? { pid, ppid, pgid, tty, comm, command }

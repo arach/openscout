@@ -1225,6 +1225,7 @@ exit 1
   function writePsFixture(directory: string): string {
     const script = join(directory, "ps-fixture.sh");
     writeFileSync(script, `#!/bin/sh
+mode="\${OPENSCOUT_TEST_PS_MODE:-success}"
 if [ "$1" = "-axo" ] && [ "$2" = "pid=,ppid=,pgid=,tty=,comm=" ]; then
   cat <<'ROWS'
 101 1 101 ttys001 /bin/zsh
@@ -1233,6 +1234,16 @@ ROWS
   exit 0
 fi
 if [ "$1" = "-axo" ] && [ "$2" = "pid=,ppid=,pgid=,tty=,command=" ]; then
+  if [ "$mode" = "runtime_long_command" ]; then
+    printf '606 202 101 ?? '
+    i=0
+    while [ "$i" -lt 1100 ]; do
+      printf 'x'
+      i=$((i + 1))
+    done
+    printf '\\n'
+    exit 0
+  fi
   cat <<'ROWS'
 101 1 101 ttys001 /bin/zsh -l
 202 101 101 ?? /usr/bin/node /Users/art/dev/app.js
@@ -1912,6 +1923,24 @@ exit 64
       { pid: 101, ppid: 1, pgid: 101, tty: "ttys001", comm: "/bin/zsh" },
       { pid: 202, ppid: 101, pgid: 101, tty: null, comm: "/usr/bin/node" },
     ]);
+  }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
+
+  test("ps.runtime command truncation fixture matches between scoutd and the TS local twin", async () => {
+    const directory = shortTempDir("oscd-psrttrunc");
+    const psBin = writePsFixture(directory);
+    const env = {
+      OPENSCOUT_PS_BIN: psBin,
+      OPENSCOUT_TEST_PS_MODE: "runtime_long_command",
+    };
+
+    const [daemon, local] = await Promise.all([
+      requestDaemonProbe({ directory, probeId: "ps.runtime", env }),
+      runLocalPsRuntimeFixture(directory, env),
+    ]);
+
+    expect(daemon).toEqual(local);
+    expect(daemon.value.commandRows[0].command.length).toBe(1024);
+    expect(daemon.value.commandRows[0].comm.length).toBe(1024);
   }, SCOUTD_CONFORMANCE_TIMEOUT_MS);
 
   test("ps.discovery truncation fixture matches between scoutd and the TS local twin", async () => {
