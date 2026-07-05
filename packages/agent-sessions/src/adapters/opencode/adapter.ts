@@ -74,36 +74,80 @@ export class OpenCodeAdapter extends BaseAdapter {
     child.drainStdout();
     child.drainStderr();
 
-    // Wait for the server to be ready.
-    await this.waitForServer();
-
-    // Create or resume a session.
-    await this.ensureSession();
-
-    // Connect to the SSE event stream.
-    this.connectEventStream();
-
-    child.onError((error) => {
-      if (this.serverProcess === child && this.session.status !== "closed") {
-        this.emit("error", error);
-        this.setStatus("error");
-      }
-    });
-    child.onExit((code, signal) => {
+    let startupComplete = false;
+    let startupErrorReported = false;
+    const startupAbort = new AbortController();
+    const reportStartupError = (error: Error) => {
       if (this.serverProcess !== child || this.session.status === "closed") {
         return;
       }
-      if (code !== 0) {
-        this.emit("error", new Error(
-          `opencode serve exited`
-          + (code !== null ? ` with code ${code}` : "")
-          + (signal ? ` (${signal})` : ""),
-        ));
-        this.setStatus("error");
-      }
+      startupErrorReported = true;
+      this.emit("error", error);
+      this.setStatus("error");
+    };
+
+    const startupFailure = new Promise<never>((_, reject) => {
+      const failStartup = (error: Error) => {
+        if (!startupComplete) {
+          startupAbort.abort(error);
+          reject(error);
+        }
+      };
+
+      child.onError((error) => {
+        reportStartupError(error);
+        failStartup(error);
+      });
+
+      child.onExit((code, signal) => {
+        if (this.serverProcess !== child || this.session.status === "closed") {
+          return;
+        }
+        if (code !== 0) {
+          const error = new Error(
+            `opencode serve exited`
+            + (code !== null ? ` with code ${code}` : "")
+            + (signal ? ` (${signal})` : ""),
+          );
+          reportStartupError(error);
+          failStartup(error);
+          return;
+        }
+        if (!startupComplete) {
+          const error = new Error("opencode serve exited before startup completed");
+          reportStartupError(error);
+          failStartup(error);
+        }
+      });
     });
 
-    this.setStatus("active");
+    try {
+      // Wait for the server to be ready.
+      await Promise.race([this.waitForServer(15_000, startupAbort.signal), startupFailure]);
+
+      // Create or resume a session.
+      await Promise.race([this.ensureSession(startupAbort.signal), startupFailure]);
+
+      // Connect to the SSE event stream.
+      this.connectEventStream();
+      startupComplete = true;
+      this.setStatus("active");
+    } catch (error) {
+      startupComplete = true;
+      const startupError = error instanceof Error ? error : new Error(String(error));
+      if (!startupErrorReported) {
+        reportStartupError(startupError);
+      }
+      if (this.serverProcess === child) {
+        this.serverProcess = null;
+      }
+      if (!child.killed) {
+        child.kill();
+      }
+      await child.waitForExit(250);
+      throw startupError;
+    }
+
   }
 
   send(prompt: Prompt): void {
@@ -177,19 +221,22 @@ export class OpenCodeAdapter extends BaseAdapter {
   // Server lifecycle
   // ---------------------------------------------------------------------------
 
-  private async waitForServer(timeoutMs = 15000): Promise<void> {
+  private async waitForServer(timeoutMs = 15000, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      throwIfAborted(signal);
       try {
-        const res = await fetch(`${this.serverUrl}/session`);
+        const res = await fetch(`${this.serverUrl}/session`, { signal });
         if (res.ok) return;
-      } catch { /* not ready yet */ }
-      await new Promise((r) => setTimeout(r, 200));
+      } catch (error) {
+        if (signal?.aborted) throw abortReason(signal);
+      }
+      await delay(200, signal);
     }
     throw new Error("OpenCode server did not start in time");
   }
 
-  private async ensureSession(): Promise<void> {
+  private async ensureSession(signal?: AbortSignal): Promise<void> {
     // Check for existing sessions to resume.
     const resume = this.config.options?.["resume"] as boolean | undefined;
     const sessionId = this.config.options?.["session"] as string | undefined;
@@ -200,7 +247,7 @@ export class OpenCodeAdapter extends BaseAdapter {
     }
 
     if (resume) {
-      const res = await fetch(`${this.serverUrl}/session`);
+      const res = await fetch(`${this.serverUrl}/session`, { signal });
       const sessions = (await res.json()) as any[];
       if (sessions.length > 0) {
         this.openCodeSessionId = sessions[0].id;
@@ -213,6 +260,7 @@ export class OpenCodeAdapter extends BaseAdapter {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
+      signal,
     });
     const session = (await res.json()) as any;
     this.openCodeSessionId = session.id;
@@ -536,3 +584,33 @@ export class OpenCodeAdapter extends BaseAdapter {
 // ---------------------------------------------------------------------------
 
 export const createAdapter = (config: AdapterConfig) => new OpenCodeAdapter(config);
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw abortReason(signal);
+  }
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(typeof signal.reason === "string" ? signal.reason : "OpenCode startup cancelled");
+}
+
+function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
