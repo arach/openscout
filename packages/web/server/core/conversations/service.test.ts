@@ -395,6 +395,100 @@ describe("getScoutConversations", () => {
     );
   });
 
+  test("keeps completed session-backed direct chats without an agent record", async () => {
+    const snapshot = baseSnapshot();
+    const sessionActorId = "session-mr8idz7a-gn5ntd";
+    const chatId = "chn-96b2fea9b3904b3ca6f88490f6d2c5f9";
+    snapshot.actors[sessionActorId] = {
+      id: sessionActorId,
+      kind: "session",
+      displayName: "openscout-haydn",
+      handle: "project-haydn",
+      labels: ["cardless-session", "session"],
+      metadata: {
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        cardless: true,
+        projectRoot: "/Users/arach/dev/openscout",
+      },
+    };
+    snapshot.endpoints["endpoint-session"] = {
+      id: "endpoint-session",
+      agentId: sessionActorId,
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "idle",
+      cwd: "/Users/arach/dev/openscout",
+      projectRoot: "/Users/arach/dev/openscout",
+      sessionId: sessionActorId,
+      metadata: {
+        source: "scout-cardless-session",
+        sessionBacked: true,
+        cardless: true,
+        pendingExternalSession: false,
+        externalSessionId: "019f34ec-a5d0-7dd2-9398-aae6c0c0336b",
+      },
+    };
+    snapshot.conversations[chatId] = {
+      id: chatId,
+      kind: "direct",
+      title: "Operator <> openscout-haydn",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", sessionActorId],
+    };
+    snapshot.messages["msg-session-seed"] = {
+      id: "msg-session-seed",
+      conversationId: chatId,
+      actorId: "operator",
+      originNodeId: "node-1",
+      class: "operator",
+      body: "Reply with exactly: ok",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_800_000,
+    };
+    snapshot.messages["msg-session-reply"] = {
+      id: "msg-session-reply",
+      conversationId: chatId,
+      actorId: sessionActorId,
+      originNodeId: "node-1",
+      class: "agent",
+      body: "ok",
+      replyToMessageId: "msg-session-seed",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+      metadata: {
+        flightId: "flt-session",
+        responderSessionId: sessionActorId,
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations();
+
+    expect(conversations).toContainEqual(
+      expect.objectContaining({
+        id: chatId,
+        chatId,
+        agentId: sessionActorId,
+        agentName: "Openscout",
+        harness: "codex",
+        sessionId: sessionActorId,
+        workspaceRoot: "/Users/arach/dev/openscout",
+        preview: "ok",
+        messageCount: 2,
+      }),
+    );
+  });
+
   test("omits failed cardless launch stubs without an external session", async () => {
     const snapshot = baseSnapshot();
     const sessionActorId = "session-mqmzik4c-zb8ocf";

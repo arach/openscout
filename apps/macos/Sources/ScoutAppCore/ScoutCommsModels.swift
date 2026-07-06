@@ -236,6 +236,23 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         actorId == "operator" || messageClass == "operator" || actorName.lowercased() == "operator"
     }
 
+    public func completesPendingConversation(messageId: String?, flightId: String?) -> Bool {
+        guard !isOperator else { return false }
+        guard messageClass != "status", messageClass != "system" else { return false }
+
+        if let messageId = nilIfEmpty(messageId),
+           replyToMessageId == messageId || metadata?.sourceMessageId == messageId {
+            return true
+        }
+
+        if let flightId = nilIfEmpty(flightId),
+           metadata?.flightId == flightId {
+            return true
+        }
+
+        return false
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case cId
