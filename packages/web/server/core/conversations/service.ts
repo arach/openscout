@@ -1,5 +1,6 @@
 import type {
   ActorKind,
+  ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
   ConversationKind,
@@ -456,7 +457,7 @@ function buildScopedParticipants(
 function directConversationAgent(
   snapshot: ScoutBrokerSnapshot,
   participantIds: string[],
-): { agentId: string | null; agent: AgentDefinition | null; endpoint: AgentEndpoint | null } {
+): { agentId: string | null; actor: ActorIdentity | null; agent: AgentDefinition | null; endpoint: AgentEndpoint | null } {
   const operatorActorIds = new Set(configuredOperatorActorIds());
   const agentId =
     participantIds.find((participantId) =>
@@ -465,9 +466,10 @@ function directConversationAgent(
     ?? participantIds.find((participantId) => Boolean(snapshot.agents[participantId]))
     ?? participantIds.find((participantId) => !operatorActorIds.has(participantId))
     ?? null;
+  const actor = agentId ? snapshot.actors[agentId] ?? null : null;
   const agent = agentId ? snapshot.agents[agentId] ?? null : null;
   const endpoint = agentId ? endpointForAgent(snapshot, agentId) : null;
-  return { agentId, agent, endpoint };
+  return { agentId, actor, agent, endpoint };
 }
 
 function includeConversation(
@@ -582,11 +584,12 @@ export async function getScoutConversations(
       );
 
       if (conversation.kind === "direct") {
-        const { agentId, agent, endpoint } = directConversationAgent(snapshot, conversation.participantIds);
+        const { agentId, actor, agent, endpoint } = directConversationAgent(snapshot, conversation.participantIds);
         if (
           !agentId
-          || !agent
-          || metadataBoolean(agent.metadata, "retiredFromFleet")
+          || (!agent && !actor)
+          || metadataBoolean(agent?.metadata, "retiredFromFleet")
+          || metadataBoolean(actor?.metadata, "retiredFromFleet")
           || isFailedCardlessLaunchStub(endpoint)
           || messageCount === 0
         ) {
@@ -611,8 +614,8 @@ export async function getScoutConversations(
           currentBranch:
             metadataString(endpoint?.metadata, "branch")
             ?? metadataString(endpoint?.metadata, "workspaceQualifier")
-            ?? metadataString(agent.metadata, "branch")
-            ?? metadataString(agent.metadata, "workspaceQualifier"),
+            ?? metadataString(agent?.metadata, "branch")
+            ?? metadataString(agent?.metadata, "workspaceQualifier"),
           preview: latestMessage?.body ?? null,
           messageCount,
           lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
