@@ -332,6 +332,9 @@ struct ScoutRootView: View {
             repos.stop()
             pairingApprovals.stop()
             cancelPendingFlightMonitors()
+            // No window means no visible conversation — clear the selection so
+            // attention banners for it aren't suppressed as "already on screen".
+            ScoutAttentionCenter.shared.noteSelection(cId: nil, isCommsVisible: false)
         }
         .onChange(of: store.selectedCId) { oldCId, newCId in
             // Preserve the in-progress draft for the chat we're leaving and

@@ -38,7 +38,10 @@ public struct ScoutAttentionTracker {
     }
 
     public mutating func ingest(agents: [ScoutAgent], at now: Date) -> Update {
-        let attentionAgents = agents.filter { $0.state == .needsAttention }
+        var seenIds = Set<String>()
+        let attentionAgents = agents.filter {
+            $0.state == .needsAttention && seenIds.insert($0.id).inserted
+        }
         let attentionIds = Set(attentionAgents.map(\.id))
         let attentionCount = attentionAgents.count
 
@@ -72,6 +75,11 @@ public struct ScoutAttentionTracker {
                     notify.append(agent)
                 }
             } else {
+                // The cooldown anchors to the last emit, not the episode end:
+                // this enforces "at most one banner per agent per cooldown
+                // window", while an agent that asks again long after its last
+                // banner (even seconds after resolving) may announce — a new
+                // ask after an answered one is fresh information.
                 let stage: EpisodeStage
                 if let last = lastEmit[agent.id], now.timeIntervalSince(last) < refireCooldown {
                     stage = .suppressed
@@ -80,6 +88,11 @@ public struct ScoutAttentionTracker {
                 }
                 episodes[agent.id] = Episode(stage: stage, candidateSince: now)
             }
+        }
+
+        // Cooldown entries for departed agents are dead weight once expired.
+        lastEmit = lastEmit.filter {
+            episodes[$0.key] != nil || now.timeIntervalSince($0.value) < refireCooldown
         }
 
         return Update(notify: notify, resolvedAgentIds: resolved, attentionCount: attentionCount)

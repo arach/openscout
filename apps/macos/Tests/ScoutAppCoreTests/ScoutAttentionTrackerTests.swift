@@ -120,6 +120,52 @@ final class ScoutAttentionTrackerTests: XCTestCase {
         XCTAssertEqual(matured.notify.count, 2)
     }
 
+    func testDuplicateAgentIdsCountOnce() {
+        var tracker = ScoutAttentionTracker()
+        _ = tracker.ingest(agents: [], at: at(0))
+        let entered = tracker.ingest(
+            agents: [agent("a", attention: true), agent("a", attention: true)],
+            at: at(1)
+        )
+        XCTAssertEqual(entered.attentionCount, 1)
+        let matured = tracker.ingest(
+            agents: [agent("a", attention: true), agent("a", attention: true)],
+            at: at(5)
+        )
+        XCTAssertEqual(matured.notify.map(\.id), ["a"])
+        XCTAssertEqual(matured.attentionCount, 1)
+    }
+
+    func testReEntryAfterLongEpisodeMayFireAgain() {
+        // The cooldown anchors to the last emit: an episode announced at t=5
+        // that runs long past the cooldown re-arms, so a fresh ask right
+        // after resolution is allowed to announce again.
+        var tracker = ScoutAttentionTracker(debounce: 3.0, refireCooldown: 90)
+        _ = tracker.ingest(agents: [], at: at(0))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(1))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(5))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(150))
+        _ = tracker.ingest(agents: [agent("a", attention: false)], at: at(200))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(201))
+        let matured = tracker.ingest(agents: [agent("a", attention: true)], at: at(205))
+        XCTAssertEqual(matured.notify.map(\.id), ["a"])
+    }
+
+    func testCooldownSurvivesPruningWhileRelevant() {
+        // Pruning of departed agents' emit stamps must not forget a cooldown
+        // that is still in force.
+        var tracker = ScoutAttentionTracker(debounce: 3.0, refireCooldown: 90)
+        _ = tracker.ingest(agents: [], at: at(0))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(1))
+        _ = tracker.ingest(agents: [agent("a", attention: true)], at: at(5))
+        _ = tracker.ingest(agents: [], at: at(6))
+        _ = tracker.ingest(agents: [], at: at(30))
+        let reentered = tracker.ingest(agents: [agent("a", attention: true)], at: at(40))
+        XCTAssertTrue(reentered.notify.isEmpty)
+        let stillSuppressed = tracker.ingest(agents: [agent("a", attention: true)], at: at(80))
+        XCTAssertTrue(stillSuppressed.notify.isEmpty)
+    }
+
     func testAttentionCountTracksLevel() {
         var tracker = ScoutAttentionTracker()
         let baseline = tracker.ingest(agents: [agent("a", attention: true), agent("b", attention: true)], at: at(0))

@@ -58,6 +58,8 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
 
     private var lastAttentionCount = 0
     private var appliedBadgeLabel: String?
+    private var currentAttentionIds: Set<String> = []
+    private var summaryMemberIds: Set<String> = []
 
     private var currentSelectionCId: String?
     private var isCommsVisible = false
@@ -114,7 +116,10 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
             $0.selectionCId = cId
             $0.isCommsVisible = isCommsVisible
         }
-        if let cId, !cId.isEmpty {
+        // Only a conversation the operator can actually see counts as read —
+        // a selection lingering behind another section must not clear its
+        // notification.
+        if isCommsVisible, let cId, !cId.isEmpty {
             removeDelivered(matchingCId: cId)
         }
     }
@@ -122,13 +127,15 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
     private func receive(_ agents: [ScoutAgent]) {
         let update = tracker.ingest(agents: agents, at: Date())
         lastAttentionCount = update.attentionCount
+        currentAttentionIds = Set(agents.filter { $0.state == .needsAttention }.map(\.id))
         applyBadge(count: update.attentionCount)
         retract(update.resolvedAgentIds)
-        // A coalesced summary can't be partially retracted; clear it once the
-        // last announced agent resolves so Notification Center doesn't hold a
-        // stale name list.
-        if update.attentionCount == 0, !update.resolvedAgentIds.isEmpty {
+        // A coalesced summary can't be partially retracted; drop it as soon as
+        // any listed agent resolves so Notification Center never shows a stale
+        // name list. The badge and the app remain the live source of truth.
+        if !summaryMemberIds.isEmpty, !summaryMemberIds.isSubset(of: currentAttentionIds) {
             retract(["summary"])
+            summaryMemberIds = []
         }
 
         guard notificationsEnabled else { return }
@@ -162,7 +169,13 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
     }
 
     private func deliver(_ agents: [ScoutAgent]) {
-        guard notificationsAvailable else { return }
+        guard notificationsAvailable, notificationsEnabled else { return }
+        // The authorization await in announce() can span anything from a
+        // runloop tick to a minutes-long permission prompt; agents may have
+        // resolved (or become visible) in the meantime. Re-check before
+        // posting so a retracted agent can't reappear as a fresh banner.
+        let agents = agents.filter { currentAttentionIds.contains($0.id) && !isSuppressed($0) }
+        guard !agents.isEmpty else { return }
         let center = UNUserNotificationCenter.current()
 
         if agents.count == 1, let agent = agents.first {
@@ -185,23 +198,36 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
             content.userInfo = ["cId": ""]
             content.sound = soundEnabled ? .default : nil
             center.add(UNNotificationRequest(identifier: "attention.summary", content: content, trigger: nil))
+            summaryMemberIds = Set(agents.map(\.id))
         }
     }
 
     private func retract(_ agentIds: [String]) {
         guard notificationsAvailable, !agentIds.isEmpty else { return }
         let ids = agentIds.map { "attention.\($0)" }
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        let center = UNUserNotificationCenter.current()
+        // A just-added request can still be pending (not yet delivered);
+        // remove it from both queues so it can't surface after resolution.
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+        center.removeDeliveredNotifications(withIdentifiers: ids)
     }
 
     private func removeDelivered(matchingCId cId: String) {
         guard notificationsAvailable else { return }
-        UNUserNotificationCenter.current().getDeliveredNotifications { notes in
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { requests in
+            let ids = requests
+                .filter { ($0.content.userInfo["cId"] as? String) == cId }
+                .map(\.identifier)
+            guard !ids.isEmpty else { return }
+            center.removePendingNotificationRequests(withIdentifiers: ids)
+        }
+        center.getDeliveredNotifications { notes in
             let ids = notes
                 .filter { ($0.request.content.userInfo["cId"] as? String) == cId }
                 .map(\.request.identifier)
             guard !ids.isEmpty else { return }
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
         }
     }
 
