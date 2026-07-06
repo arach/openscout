@@ -536,6 +536,41 @@ export async function markOpenScoutOnboardingCommand(input: {
   return state;
 }
 
+/**
+ * Persist onboarding completion once the core steps are all satisfied.
+ *
+ * Returning users can briefly see a broker dip (mid-session restart, sleep)
+ * that would otherwise re-arm the takeover. Stamping `completedAt` the moment
+ * everything is green makes completion sticky, so a later transient failure
+ * cannot resurrect first-run for someone who already finished. No-op once
+ * `completedAt`/`skippedAt` is set, or while any core step is still open.
+ */
+export async function ensureOpenScoutOnboardingCompletion(options: {
+  currentDirectory?: string;
+  now?: number;
+} = {}): Promise<OpenScoutOnboardingState> {
+  const state = await loadOpenScoutOnboardingState({ currentDirectory: options.currentDirectory });
+  if (state.completedAt || state.skippedAt) {
+    return state;
+  }
+  const complete = state.hasLocalConfig
+    && state.hasOperatorName
+    && state.hasProjectConfig
+    && state.brokerReachable
+    && state.hasReadyRuntime;
+  if (!complete) {
+    return state;
+  }
+  await writeOpenScoutSettings({
+    onboarding: {
+      completedAt: options.now ?? nowMs(),
+    },
+  }, {
+    currentDirectory: options.currentDirectory,
+  });
+  return loadOpenScoutOnboardingState({ currentDirectory: options.currentDirectory });
+}
+
 export async function skipOpenScoutOnboarding(options: {
   currentDirectory?: string;
   now?: number;

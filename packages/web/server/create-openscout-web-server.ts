@@ -230,8 +230,10 @@ import {
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
 import {
+  ensureOpenScoutOnboardingCompletion,
   ensureOpenScoutOnboardingLocalConfig,
   loadOpenScoutOnboardingState,
+  restartOpenScoutOnboarding,
   runOpenScoutOnboardingSetup,
   saveOpenScoutOnboardingIdentity,
   saveOpenScoutOnboardingProject,
@@ -4965,7 +4967,11 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/onboarding/state", async (c) => {
-    return c.json(await loadOpenScoutOnboardingState({ currentDirectory }));
+    return c.json(await ensureOpenScoutOnboardingCompletion({ currentDirectory }));
+  });
+
+  app.post("/api/onboarding/restart", async (c) => {
+    return c.json(await restartOpenScoutOnboarding({ currentDirectory }));
   });
 
   app.delete("/api/onboarding/state", (c) => {
@@ -5020,6 +5026,15 @@ export async function createOpenScoutWebServer(
       .map((entry) => entry?.trim())
       .filter((entry): entry is string => Boolean(entry && entry.length > 0));
     const harness = body.defaultHarness === "codex" ? "codex" : "claude";
+
+    // Reject folders that do not exist before we save — otherwise a typo'd
+    // root gets silently `mkdir -p`'d by downstream setup.
+    for (const candidate of [contextRoot, ...sourceRoots]) {
+      const expanded = resolve(expandHomePath(candidate));
+      if (!existsSync(expanded)) {
+        return c.json({ error: `That folder doesn't exist: ${expanded}` }, 400);
+      }
+    }
 
     try {
       await saveOpenScoutOnboardingProject({
