@@ -26,7 +26,7 @@ describe("fileRenderers", () => {
       rootPath: "/Users/art/dev/openscout",
       title: "report.html",
       mediaType: "text/html",
-      rawUrl: "/api/file/raw?path=%2FUsers%2Fart%2Fdev%2Fopenscout%2F.data%2Freport.html",
+      rawUrl: "/api/file/raw/Users/art/dev/openscout/.data/report.html",
       content: "<!doctype html><title>Report</title>",
       sizeBytes: 128,
       truncated: false,
@@ -38,7 +38,7 @@ describe("fileRenderers", () => {
 
     expect(renderer?.id).toBe("html");
     expect(html).toContain("s-file-preview-html-frame");
-    expect(html).toContain("src=\"/api/file/raw?path=%2FUsers%2Fart%2Fdev%2Fopenscout%2F.data%2Freport.html\"");
+    expect(html).toContain("src=\"/api/file/raw/Users/art/dev/openscout/.data/report.html\"");
     expect(html).toContain("sandbox=\"allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts\"");
   });
 });

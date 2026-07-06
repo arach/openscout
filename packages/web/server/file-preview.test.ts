@@ -28,6 +28,10 @@ function trustedRoot(path: string): TrustedRoot {
   return { path: realpathSync(path), source: "current-directory" };
 }
 
+function expectedRawUrl(path: string): string {
+  return `/api/file/raw${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 describe("file preview path resolution", () => {
   test("resolves relative paths inside a trusted workspace root", () => {
     const root = makeRoot();
@@ -100,7 +104,28 @@ describe("readFilePreview", () => {
       expect(result.content.previewable).toBe(false);
       expect(result.content.mediaType).toBe("image/png");
       expect(result.content.sizeBytes).toBe(5);
+      expect(result.content.rawUrl).toBe(expectedRawUrl(realpathSync(imagePath)));
       expect("content" in result.content).toBe(false);
+    }
+  });
+
+  test("uses path-shaped raw URLs so iframe-relative assets stay in the same folder", () => {
+    const root = makeRoot();
+    const pagePath = join(root, "reports", "daily summary.html");
+    mkdirSync(join(root, "reports"), { recursive: true });
+    writeFileSync(pagePath, "<!doctype html><link rel=\"stylesheet\" href=\"style.css\">", "utf8");
+
+    const result = readFilePreview({ requestedPath: pagePath, currentDirectory: root });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const realPagePath = realpathSync(pagePath);
+      const realReportsPath = realpathSync(join(root, "reports"));
+      expect(result.content.kind).toBe("file");
+      expect(result.content.rawUrl).toBe(expectedRawUrl(realPagePath));
+      expect(new URL("style.css", `http://localhost${result.content.rawUrl}`).pathname).toBe(
+        expectedRawUrl(join(realReportsPath, "style.css")),
+      );
     }
   });
 

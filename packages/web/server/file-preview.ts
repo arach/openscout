@@ -226,6 +226,14 @@ export function resolveTrustedPath(input: {
   return { ok: false, status: 404, error: "file not found in any trusted workspace root" };
 }
 
+function rawFileUrl(realPath: string): string {
+  const encodedPath = realPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `/api/file/raw${encodedPath.startsWith("/") ? encodedPath : `/${encodedPath}`}`;
+}
+
 export function readFilePreview(input: {
   requestedPath: string;
   currentDirectory: string;
@@ -259,7 +267,7 @@ export function readFilePreview(input: {
       return { ok: false, status: 415, error: "path is not a file or directory" };
     }
     const mediaType = mediaTypeFor(realPath);
-    const rawUrl = `/api/file/raw?path=${encodeURIComponent(realPath)}`;
+    const rawUrl = rawFileUrl(realPath);
     if (isRawMediaType(mediaType)) {
       return {
         ok: true,

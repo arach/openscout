@@ -853,6 +853,29 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(404);
   });
 
+  test("serves trusted raw files from path-shaped URLs for iframe-relative assets", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-web-raw-file-"));
+    testDirectories.add(root);
+    mkdirSync(join(root, "reports"), { recursive: true });
+    const stylesheetPath = join(root, "reports", "daily summary.css");
+    writeFileSync(stylesheetPath, "body { color: red; }\n", "utf8");
+    const rawPath = realpathSync(stylesheetPath)
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    const server = await createOpenScoutWebServer({
+      currentDirectory: root,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(`http://localhost/api/file/raw${rawPath}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/css");
+    await expect(response.text()).resolves.toBe("body { color: red; }\n");
+  });
+
   test("serves tail recent immediately while broker refresh is pending", async () => {
     const fetchUrls: string[] = [];
     globalThis.fetch = ((input) => {

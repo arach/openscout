@@ -210,7 +210,8 @@ struct HUDSessionsView: View {
         events: [ScoutTailEvent],
         agents: [HudAgent]
     ) -> [SynthesizedSession] {
-        guard let discovery else { return [] }
+        let brokerSessions = synthesizeBrokerSessions(from: agents)
+        guard let discovery else { return Array(brokerSessions.prefix(sessionLimit)) }
 
         let nowMs = Date().timeIntervalSince1970 * 1_000
         let latestEventBySession = latestEventsBySession(events)
@@ -219,7 +220,7 @@ struct HUDSessionsView: View {
         let processByCwd = processByCwd(discovery.processes)
         let latestTranscriptByCwd = latestTranscriptsByCwd(discovery.transcripts)
 
-        return discovery.transcripts.compactMap { transcript -> (session: SynthesizedSession, lastActivity: TimeInterval)? in
+        let tailSessions = discovery.transcripts.compactMap { transcript -> (session: SynthesizedSession, lastActivity: TimeInterval)? in
             guard let sessionRef = normalizeSessionRef(transcript.sessionId)
                     ?? normalizeSessionRef(transcript.transcriptPath) else {
                 return nil
@@ -281,6 +282,76 @@ struct HUDSessionsView: View {
         }
         .prefix(sessionLimit)
         .map(\.session)
+
+        return mergeTailSessions(tailSessions, withBrokerSessions: brokerSessions)
+    }
+
+    private static func mergeTailSessions(
+        _ tailSessions: [SynthesizedSession],
+        withBrokerSessions brokerSessions: [SynthesizedSession]
+    ) -> [SynthesizedSession] {
+        guard !tailSessions.isEmpty else {
+            return Array(brokerSessions.prefix(sessionLimit))
+        }
+
+        var usedAgentIds = Set(tailSessions.compactMap(\.agentId))
+        var usedSessionRefs = Set(tailSessions.map(\.sessionRef).filter { !$0.isEmpty })
+        var merged = tailSessions
+        for session in brokerSessions {
+            if let agentId = session.agentId, usedAgentIds.contains(agentId) {
+                continue
+            }
+            if !session.sessionRef.isEmpty && usedSessionRefs.contains(session.sessionRef) {
+                continue
+            }
+            merged.append(session)
+            if let agentId = session.agentId {
+                usedAgentIds.insert(agentId)
+            }
+            if !session.sessionRef.isEmpty {
+                usedSessionRefs.insert(session.sessionRef)
+            }
+            if merged.count >= sessionLimit {
+                break
+            }
+        }
+        return merged
+    }
+
+    private static func synthesizeBrokerSessions(from agents: [HudAgent]) -> [SynthesizedSession] {
+        agents.map { agent in
+            let status: SessionStatus = {
+                switch agent.state {
+                case .working, .needsAttention: return .running
+                case .available, .done: return .idle
+                case .offline: return .ended
+                }
+            }()
+            let project = clean(agent.projectRoot).flatMap(pathLeaf)
+                ?? agent.hudRole.split(separator: "·").first.map { String($0).trimmingCharacters(in: .whitespaces) }
+                ?? "—"
+            let sessionRef = normalizeSessionRef(agent.harnessSessionId) ?? ""
+            let displayRef = sessionRef.isEmpty ? String(agent.id.prefix(8)) : String(sessionRef.prefix(8))
+            return SynthesizedSession(
+                id: agent.id,
+                sessionRef: sessionRef,
+                displayRef: displayRef,
+                agentId: agent.id,
+                conversationId: agent.conversationId,
+                agentName: agent.name,
+                agentHandle: agent.handle,
+                harness: agent.harness ?? "raw",
+                status: status,
+                project: project,
+                branch: agent.branchLabel,
+                duration: agent.runtime,
+                messageCount: agent.capabilities.count,
+                lastTurn: agent.lastTurn,
+                ago: agent.ago,
+                model: agent.tokens,
+                startedAt: nil
+            )
+        }
     }
 
     private static func agentsBySessionRef(_ agents: [HudAgent]) -> [String: HudAgent] {

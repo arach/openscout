@@ -690,6 +690,48 @@ function readTailDiscovery(
   return tailRuntime.getTailDiscovery(options);
 }
 
+function rawFilePathFromRoute(requestUrl: string): string | null {
+  const pathname = new URL(requestUrl).pathname;
+  const prefix = "/api/file/raw";
+  if (!pathname.startsWith(`${prefix}/`)) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(pathname.slice(prefix.length));
+  } catch {
+    return null;
+  }
+}
+
+function serveRawFile(
+  c: Context,
+  currentDirectory: string,
+  requestedPath: string | null | undefined,
+): Response {
+  if (!requestedPath) {
+    return c.json({ error: "missing path" }, 400);
+  }
+  const roots = collectTrustedRoots({ currentDirectory });
+  const resolved = resolveTrustedPath({ requestedPath, roots });
+  if (!resolved.ok) {
+    return c.json({ error: resolved.error }, resolved.status as 400 | 403 | 404);
+  }
+  try {
+    if (!statSync(resolved.realPath).isFile()) {
+      return c.json({ error: "path is not a file" }, 415);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "could not read file";
+    return c.json({ error: message }, 500);
+  }
+  return new Response(Bun.file(resolved.realPath), {
+    headers: {
+      "content-type": mediaTypeFor(resolved.realPath),
+      "cache-control": "private, max-age=60",
+    },
+  });
+}
+
 type BrokerJsonCache<T> = {
   data: T | null;
   inFlight: Promise<void> | null;
@@ -3451,31 +3493,13 @@ export async function createOpenScoutWebServer(
     return c.json(result.content);
   });
 
-  app.get("/api/file/raw", (c) => {
-    const requestedPath = c.req.query("path");
-    if (!requestedPath) {
-      return c.json({ error: "missing path" }, 400);
-    }
-    const roots = collectTrustedRoots({ currentDirectory });
-    const resolved = resolveTrustedPath({ requestedPath, roots });
-    if (!resolved.ok) {
-      return c.json({ error: resolved.error }, resolved.status as 400 | 403 | 404);
-    }
-    try {
-      if (!statSync(resolved.realPath).isFile()) {
-        return c.json({ error: "path is not a file" }, 415);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "could not read file";
-      return c.json({ error: message }, 500);
-    }
-    return new Response(Bun.file(resolved.realPath), {
-      headers: {
-        "content-type": mediaTypeFor(resolved.realPath),
-        "cache-control": "private, max-age=60",
-      },
-    });
-  });
+  app.get("/api/file/raw/*", (c) =>
+    serveRawFile(c, currentDirectory, rawFilePathFromRoute(c.req.url)),
+  );
+
+  app.get("/api/file/raw", (c) =>
+    serveRawFile(c, currentDirectory, c.req.query("path")),
+  );
 
   app.post("/api/file/reveal", async (c) => {
     const body = await c.req.json<{ path?: unknown }>().catch(() => null);
