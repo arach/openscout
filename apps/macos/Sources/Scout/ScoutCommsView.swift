@@ -376,10 +376,14 @@ struct ScoutConversationListBar: View {
     let selectedCId: String?
     let newChannelIds: Set<String>
     let hasActivity: Bool
+    let serviceHealth: ScoutServiceHealth
+    let isStartingBroker: Bool
     let width: CGFloat
     let searchFocused: FocusState<Bool>.Binding
     let onNewConversation: () -> Void
     let onRefresh: () -> Void
+    let onStartBroker: () -> Void
+    let onOpenMenuBar: () -> Void
     let onRetryPending: (ScoutPendingConversation) -> Void
     let onSelectPending: (ScoutPendingConversation) -> Void
     let select: (ScoutChannel) -> Void
@@ -506,13 +510,20 @@ struct ScoutConversationListBar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if channels.isEmpty && pendingConversations.isEmpty {
-            HudEmptyState(
-                title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No chats" : "No matches",
-                subtitle: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No visible DMs or channels." : "Try another search or filter.",
-                icon: "bubble.left"
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(HudSpacing.xxl)
+            switch serviceHealth {
+            case .brokerDown:
+                brokerOfflineState
+            case .webDown:
+                webOfflineState
+            case .ok:
+                HudEmptyState(
+                    title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No chats" : "No matches",
+                    subtitle: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No visible DMs or channels." : "Try another search or filter.",
+                    icon: "bubble.left"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(HudSpacing.xxl)
+            }
         } else {
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -546,6 +557,52 @@ struct ScoutConversationListBar: View {
             }
             .scrollIndicators(.visible)
         }
+    }
+
+    // The broker is down but the web service is up — the app can honestly
+    // restart it. Show a spinner while the restart is in flight, then let the
+    // re-probe clear this state on its own.
+    private var brokerOfflineState: some View {
+        VStack(spacing: HudSpacing.xl) {
+            HudEmptyState(
+                title: "Broker offline",
+                subtitle: "Scout can't reach the broker, so conversations aren't loading.",
+                icon: "bolt.horizontal.circle"
+            )
+            .frame(maxWidth: 420)
+            if isStartingBroker {
+                HStack(spacing: HudSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting broker…")
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.muted)
+                }
+            } else {
+                HudButton("Start broker", icon: "bolt.fill", style: .secondary, action: onStartBroker)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(HudSpacing.xxl)
+    }
+
+    // The local web service itself isn't answering. The app can't start it —
+    // that's the menu-bar helper's job — so offer Retry plus a pointer to it.
+    private var webOfflineState: some View {
+        VStack(spacing: HudSpacing.xl) {
+            HudEmptyState(
+                title: "Scout services are offline",
+                subtitle: "The local Scout web service isn't responding. Start it from the menu bar, then retry.",
+                icon: "bolt.slash"
+            )
+            .frame(maxWidth: 420)
+            HStack(spacing: HudSpacing.sm) {
+                HudButton("Retry", icon: "arrow.clockwise", style: .secondary, action: onRefresh)
+                HudButton("Open menu bar controls", icon: "menubar.arrow.up.rectangle", style: .secondary, action: onOpenMenuBar)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(HudSpacing.xxl)
     }
 }
 

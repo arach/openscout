@@ -355,20 +355,7 @@ private struct ScoutTailSessionWebView: NSViewRepresentable {
         }
 
         static func message(for error: Error) -> String {
-            let ns = error as NSError
-            guard ns.domain == NSURLErrorDomain else { return ns.localizedDescription }
-            switch ns.code {
-            case NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
-                return "The local OpenScout web server isn't reachable. Make sure it's running, then retry."
-            case NSURLErrorTimedOut:
-                return "The session viewer took too long to respond. Retry once the local server is ready."
-            case NSURLErrorNotConnectedToInternet:
-                return "The web bundle couldn't be fetched on first load — connect once to cache it, then it works offline."
-            case NSURLErrorCancelled:
-                return "The load was cancelled."
-            default:
-                return ns.localizedDescription
-            }
+            ScoutAppError.userFacing(error, connectionMessage: ScoutServicesHelper.servicesOfflineMessage)
         }
     }
 }

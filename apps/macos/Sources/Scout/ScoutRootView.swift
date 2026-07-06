@@ -1269,10 +1269,14 @@ struct ScoutRootView: View {
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
                 hasActivity: store.workingAgentCount > 0,
+                serviceHealth: store.serviceHealth,
+                isStartingBroker: store.isStartingBroker,
                 width: effectiveConversationListWidth(layout: layout),
                 searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() },
                 onRefresh: { store.refresh(force: true) },
+                onStartBroker: { store.startBroker() },
+                onOpenMenuBar: { ScoutServicesHelper.openMenuBarHelper() },
                 onRetryPending: retryPendingConversation,
                 onSelectPending: selectPendingConversation
             ) { channel in
