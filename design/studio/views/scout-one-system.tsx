@@ -15,8 +15,9 @@ import { SpriteAvatar } from "@/components/SpriteAvatar";
  * as four apps. The One System proposal keeps each platform's *depth idiom*
  * (flat ruled panels on desktop, raised cards on phone, the broadsheet HUD) and
  * unifies the *grammar*: identity (sprites), status vocabulary, icon language,
- * and — the headline — theme inheritance, where a paired phone adopts the Mac's
- * theme.
+ * and — the headline — theme inheritance, where a paired phone picks up the
+ * Mac's accent and dark palette (the phone stays dark; a light Mac pairs to
+ * its dark kin).
  *
  * Four blocks:
  *   A  Four dialects — the honest diagnostic strip.
@@ -28,7 +29,7 @@ import { SpriteAvatar } from "@/components/SpriteAvatar";
  */
 
 type Treatment = "current" | "one-system";
-type Paired = "none" | "juniper-d" | "graphite" | "nocturne-indigo";
+type Paired = "none" | "juniper-d" | "graphite";
 
 /* ── shared segmented control (studio tokens, adapts to studio light/dark) ── */
 function Toggle<T extends string>({
@@ -89,8 +90,8 @@ const DIALECTS: {
 }[] = [
   {
     name: "Main window",
-    accent: "#493AC4",
-    hex: "Indigo · default",
+    accent: "#3e66cc",
+    hex: "Blue · de-purpled default",
     theming: "5 presets × 5 accents, user-swappable (Paper/Mist/Porcelain/Graphite/Nocturne)",
     depth: "flat ruled panels + hairlines",
     type: "system faces",
@@ -152,6 +153,11 @@ function BlockA() {
           </div>
         ))}
       </div>
+      <p className="mt-3 max-w-[76ch] text-[11.5px] leading-snug text-studio-ink-faint">
+        Read closely, the four accents are two families: one blue main window, and three near-neighbor greens —
+        HUD lime, menu green, iOS emerald. The greens could converge far more cheaply than &ldquo;four apps&rdquo; implies;
+        the strip diagnoses decision fragmentation, not equal distance.
+      </p>
     </section>
   );
 }
@@ -215,12 +221,16 @@ function MacRailIcon({ glyph, active }: { glyph: "comms" | "agents" | "pulse" | 
   return <span className="os1mac-ph" />;
 }
 
-function MacComms({ treatment }: { treatment: Treatment }) {
+function MacComms({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }) {
   const one = treatment === "one-system";
+  // The ScoutInk contrast lift is a dark-canvas rule: on light presets dim is
+  // LIGHTER than muted, so a blanket dim→muted swap makes secondary text
+  // heavier there. Apply the lift on dark skins only (delta ③).
+  const lift = one && skin !== "juniper-l";
   return (
     <div
       className="os1mac"
-      style={{ ["--sec" as string]: one ? "var(--s-muted)" : "var(--s-dim)" } as React.CSSProperties}
+      style={{ ["--sec" as string]: lift ? "var(--s-muted)" : "var(--s-dim)" } as React.CSSProperties}
     >
       {/* Nav rail */}
       <nav className="os1mac-rail">
@@ -249,10 +259,12 @@ function MacComms({ treatment }: { treatment: Treatment }) {
           <span className="os1mac-listtitle">Conversations</span>
           <span className="os1mac-listcount">4 · 2 unread</span>
         </div>
-        {/* Recency group — the eyebrow-grammar delta ①: sentence-case → mono
-            micro-caps with a leading "·". */}
+        {/* Recency group — delta ①. Native Comms already uppercases these
+            labels; the honest delta is the mono face + tracking only. The
+            leading "·" stays reserved for instrument surfaces (Tail, HUD) —
+            Comms is a human surface. */}
         <div className="os1mac-grp" data-g={one ? "mono" : "plain"}>
-          {one ? "· Now" : "Now"}
+          Now
           {one ? <DeltaMark n={1} /> : null}
         </div>
         {MAC_CONVOS.map((c, i) => (
@@ -268,7 +280,7 @@ function MacComms({ treatment }: { treatment: Treatment }) {
               </span>
               <span className="os1mac-prev">
                 {c.preview}
-                {i === 0 && one ? <DeltaMark n={3} /> : null}
+                {i === 0 && one && skin !== "juniper-l" ? <DeltaMark n={3} /> : null}
               </span>
             </span>
             {c.unread ? <span className="os1mac-num">{c.unread}</span> : null}
@@ -284,7 +296,7 @@ function MacComms({ treatment }: { treatment: Treatment }) {
           </span>
           <div className="os1mac-tident">
             <div className="os1mac-teyebrow" data-g={one ? "mono" : "plain"}>
-              {one ? "· Conversation" : "Conversation"}
+              Conversation
             </div>
             <div className="os1mac-tname">Talkie</div>
             <div className="os1mac-tfacts">~/dev/talkie · master · #ab3fd0</div>
@@ -325,9 +337,9 @@ function MacTurn({ author, text, time, me, agent }: { author: string; text: stri
 }
 
 const MAC_LEGEND: { n: number; text: React.ReactNode }[] = [
-  { n: 1, text: <>Status / eyebrow vocabulary aligned to the shared grammar — mono micro-caps with a leading <code className="os1-code">·</code>.</> },
-  { n: 2, text: <>Domain-object glyphs swap from generic placeholders to the hand-drawn 24-grid stroke style (comms / agents / tail only — Settings keeps its gear).</> },
-  { n: 3, text: <>Secondary-text contrast lifted from <code className="os1-code">dim</code> to the shared AA baseline (<code className="os1-code">muted</code>).</> },
+  { n: 1, text: <>Recency and header labels align to the shared mono micro-caps grammar. Native already uppercases these — the honest delta is the mono face + tracking. The leading <code className="os1-code">·</code> stays reserved for instrument surfaces (Tail, HUD); Comms is a human surface.</> },
+  { n: 2, text: <>Domain-object rows (comms / agents / tail) take the hand-drawn 24-grid stroke set — port direction is iOS → macOS, the language already ships on the phone. Caveat: a web mock can&rsquo;t render SF Symbols, so the other rows show neutral placeholders; the real hand-drawn-next-to-SF adjacency needs a native spike, and conversion is whole-sidebar-or-nothing to avoid a 3-of-7 seam.</> },
+  { n: 3, text: <>Secondary-text contrast lifted <code className="os1-code">dim</code> → <code className="os1-code">muted</code> on dark canvases only (the iOS ScoutInk rule). Light presets invert — dim is lighter than muted on paper — so they get an independent AA audit, not this swap. Flip to Juniper Light and this delta correctly disappears.</> },
 ];
 
 function BlockB({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }) {
@@ -342,7 +354,7 @@ function BlockB({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }
         Skin follows the toggle top-right ({skin === "juniper-l" ? "Juniper Light — the live app theme" : skin === "juniper-d" ? "Juniper Dark" : "Graphite"}).
       </p>
       <ScoutWindow title="scout · comms">
-        <MacComms treatment={treatment} />
+        <MacComms treatment={treatment} skin={skin} />
       </ScoutWindow>
       {/* Legend — only the One System treatment marks deltas. */}
       <div className="mt-3 max-w-[80ch]">
@@ -388,8 +400,12 @@ function IosAgentRow({ a, one }: { a: Agent; one: boolean }) {
   return (
     <div className="iLeafRow" style={{ background: "transparent", padding: "9px 13px", gap: 10 }}>
       {one ? (
-        <span style={{ flex: "none", display: "grid", placeItems: "center" }}>
+        // Sprite JOINS the state dot — identity and liveness coexist. The
+        // three-state marker (live pulses accent / idle fills muted / offline
+        // rings) moves to the sprite's corner; it is never traded away.
+        <span style={{ position: "relative", flex: "none", display: "grid", placeItems: "center" }}>
           <SpriteAvatar name={a.title} size={22} />
+          <span className={`os1-corner ${a.state === "live" ? "live" : a.state === "offline" ? "off" : ""}`} />
         </span>
       ) : (
         <span style={{ width: 22, flex: "none", display: "grid", placeItems: "center" }}>
@@ -440,19 +456,25 @@ const PAIRED_OPTS: { id: Paired; label: string }[] = [
   { id: "none", label: "Emerald" },
   { id: "juniper-d", label: "Juniper Dark" },
   { id: "graphite", label: "Graphite" },
-  { id: "nocturne-indigo", label: "Nocturne · Indigo" },
 ];
 
 const PAIRED_NOTE: Record<Paired, string> = {
   none: "Shipped — the native HudPalette emerald, dark-locked. No pairing override.",
   "juniper-d": "Inheriting the Mac's Juniper Dark preset — neutral charcoal, royal-blue accent (#5585e6).",
   graphite: "Inheriting Graphite — hueless dark, higher contrast, indigo accent (#6d7ae8).",
-  "nocturne-indigo": "Inheriting Nocturne · Indigo — deep indigo-tinted dark; accent derived from the main-window default #493AC4, lifted for dark legibility.",
 };
 
-function BlockC({ treatment }: { treatment: Treatment }) {
+/** The phone stays dark, so a light Mac pairs to its dark kin. */
+function pairedKinOf(skin: ScoutSkinId): Paired {
+  return skin === "graphite" ? "graphite" : "juniper-d";
+}
+
+function BlockC({ treatment, skin }: { treatment: Treatment; skin: ScoutSkinId }) {
   const one = treatment === "one-system";
-  const [paired, setPaired] = useState<Paired>("juniper-d");
+  // Follow the page skin (so the Mac pane and the phone actually MATCH) until
+  // the viewer explicitly picks a paired theme.
+  const [pairedOverride, setPairedOverride] = useState<Paired | null>(null);
+  const paired = pairedOverride ?? pairedKinOf(skin);
   const activePaired: Paired = one ? paired : "none";
 
   return (
@@ -476,16 +498,19 @@ function BlockC({ treatment }: { treatment: Treatment }) {
             <>
               <div className="mb-2 flex items-center gap-2.5">
                 <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-studio-ink-faint">Paired Mac theme</span>
-                <Toggle value={paired} onChange={setPaired} options={PAIRED_OPTS} />
+                <Toggle value={paired} onChange={(v) => setPairedOverride(v)} options={PAIRED_OPTS} />
               </div>
-              <p className="mb-4 max-w-[42ch] text-[12.5px] leading-relaxed text-studio-ink-muted">{PAIRED_NOTE[activePaired]}</p>
+              <p className="mb-4 max-w-[42ch] text-[12.5px] leading-relaxed text-studio-ink-muted">
+                {PAIRED_NOTE[activePaired]} Defaults to the page skin&rsquo;s dark kin — flip the study skin top-right
+                and the phone follows its Mac.
+              </p>
               <ul className="grid max-w-[42ch] list-none gap-2 p-0">
-                <IosDelta n={1}>Sprite avatars replace the plain state dots — the same name → same creature across macOS, iOS, and web.</IosDelta>
-                <IosDelta n={2}>Theme follows pairing — the phone overrides its <code className="os1-code">--i-*</code> accent + surface tokens with the paired Mac skin. Phone stays dark; light presets are omitted.</IosDelta>
-                <IosDelta n={3}>Shared eyebrow / status vocabulary — mono micro-caps section header with a leading <code className="os1-code">·</code> and a live pulse.</IosDelta>
+                <IosDelta n={1}>Sprite avatars join the state dots — identity and liveness coexist. The three-state marker (live pulses accent, idle fills muted, offline rings) moves to the sprite&rsquo;s corner; the same name → same creature across macOS, iOS, and web.</IosDelta>
+                <IosDelta n={2}>Theme follows pairing — opt-in: the phone overrides its <code className="os1-code">--i-*</code> accent + dark-surface tokens with the paired Mac&rsquo;s skin. The phone stays dark (a light Mac pairs to its dark kin), and with multiple Macs one explicit primary is inherited — never a blend.</IosDelta>
+                <IosDelta n={3}>Shared eyebrow / status vocabulary — mono micro-caps section header with a leading <code className="os1-code">·</code> and a live pulse (the roster is an instrument surface; Comms keeps plain labels).</IosDelta>
               </ul>
               <p className="mt-5 max-w-[42ch] text-[12.5px] font-medium leading-relaxed text-studio-ink">
-                Pair your phone, and it inherits your Mac's theme.
+                Pair your phone, and it picks up your Mac&rsquo;s accent and dark palette.
               </p>
             </>
           ) : (
@@ -527,39 +552,39 @@ const DISPO: Record<Disposition, { label: string; bg: string; fg: string }> = {
 
 const LEDGER: { proposal: string; dispo: Disposition; touch: React.ReactNode; honors: string }[] = [
   {
-    proposal: "Theme follows pairing (iOS inherits Mac preset + accent)",
-    dispo: "ship",
-    touch: <><code className="os1-code">apps/ios/Scout/Theme.swift</code> — ScoutTone → ScoutThemeColors mapping; pairing payload carries theme.</>,
+    proposal: "Theme follows pairing (iOS inherits Mac accent + dark palette)",
+    dispo: "refine",
+    touch: <>A feature, not a grammar tweak. Mac side is ready — <code className="os1-code">ScoutAppearance</code> holds preset / accent / mode as three raw-value strings. Everything else is new: <code className="os1-code">QRPayload</code> carries no theme and expires pre-connect, <code className="os1-code">ScoutBrokerClient</code> has no appearance capability (needs snapshot + subscribe for live changes), and iOS hardcodes <code className="os1-code">HudPalette.accent</code> at ~99 call sites across 14 files — a dynamic-accent shim, threaded everywhere. Fleet rule: one explicit primary Mac.</>,
     honors: "macOS theming is source of truth",
   },
   {
-    proposal: "Sprites on iOS agent rows",
+    proposal: "Sprites on iOS agent rows (state dot stays, on the corner)",
     dispo: "ship",
-    touch: <>Port <code className="os1-code">AgentSprite</code> hash to iOS — <code className="os1-code">apps/macos/Sources/ScoutAppCore/AgentSprite.swift</code> is the reference; the hash must stay bit-exact across ports.</>,
+    touch: <>Copy the pure <code className="os1-code">AgentSprite.swift</code> into the iOS target (ScoutAppCore isn&rsquo;t linked), port <code className="os1-code">SpriteAvatarView</code>, add a 4-case state → tone adapter. Hash verified bit-exact against <code className="os1-code">agent-identity.ts</code> (xmur3 / mulberry32 / curated hues); row model already has name, harness, state.</>,
     honors: "cross-port sprite identity",
   },
   {
     proposal: "Shared status vocabulary (dot sizes / pulse semantics, eyebrow grammar)",
     dispo: "ship",
-    touch: <><code className="os1-code">Scout/Theme.swift</code>, <code className="os1-code">ScoutTheme.swift</code> — HUD stays as-is.</>,
+    touch: <>View components, not theme files — <code className="os1-code">HudStatusDot</code> / <code className="os1-code">HudSectionLabel</code> (HudsonKit) + <code className="os1-code">AgentStateDot</code> (apps/ios). Both platforms already share HudStatusDot, and the eyebrow grammar is already iOS-native — lowest-risk row on the board. HUD stays as-is.</>,
     honors: "minimal dots, single accent",
   },
   {
     proposal: "Hand-drawn glyphs for domain objects on the macOS sidebar",
     dispo: "refine",
-    touch: <>Needs a macOS port of <code className="os1-code">Glyphs.swift</code> (<code className="os1-code">apps/ios/Scout/Glyphs.swift</code> is the reference); SF Symbols stay for OS actions.</>,
+    touch: <>Port direction iOS → macOS: the glyph language already ships on the phone (<code className="os1-code">apps/ios/Scout/Glyphs.swift</code>). Whole-sidebar conversion or nothing — a 3-of-7 hybrid against SF Symbols reads as a seam; judge the adjacency in a native spike.</>,
     honors: "icon language, not a costume change",
   },
   {
     proposal: "Contrast baseline (adopt the iOS ScoutInk lift as a shared rule)",
     dispo: "ship",
-    touch: <>Audit <code className="os1-code">ScoutThemePreset</code> muted / dim values against the AA baseline.</>,
+    touch: <>Per-preset re-derivation, not a copy: audit ≈20 <code className="os1-code">ScoutThemePreset</code> muted / dim values (5 presets × light + dark) against AA. Apply the lift on dark canvases only — light presets invert.</>,
     honors: "legibility across skins",
   },
   {
     proposal: "Accent unification across HUD / menu",
     dispo: "defer",
-    touch: <>HUD lime is a deliberate broadsheet costume; menu-bar green is low-traffic.</>,
+    touch: <>HUD lime, menu green, and iOS emerald are near-neighbor greens — a family convergence would be cheaper than &ldquo;four dialects&rdquo; implies, but the HUD broadsheet is a deliberate costume and it is a daily surface. Open brand question; revisit post-v1 rather than settle here.</>,
     honors: "accent-parity is low priority",
   },
 ];
@@ -627,8 +652,9 @@ export default function ScoutOneSystemStudy() {
           they read as four apps. <strong className="text-studio-ink">One System</strong> keeps each platform&rsquo;s depth
           idiom — flat ruled panels on desktop, raised cards on phone, the broadsheet HUD — and unifies the{" "}
           <strong className="text-studio-ink">grammar</strong>: identity, status vocabulary, icon language, and theme
-          inheritance. Toggle <code className="font-mono text-[11px] text-studio-ink">Current ⇄ One System</code> to flip
-          both platforms at once.
+          inheritance (a paired phone picks up the Mac&rsquo;s accent and dark palette). Toggle{" "}
+          <code className="font-mono text-[11px] text-studio-ink">Current ⇄ One System</code> to flip both platforms at
+          once; the phone&rsquo;s paired theme follows the study skin.
         </>
       }
     >
@@ -654,7 +680,7 @@ export default function ScoutOneSystemStudy() {
 
           <BlockA />
           <BlockB treatment={treatment} skin={skin} />
-          <BlockC treatment={treatment} />
+          <BlockC treatment={treatment} skin={skin} />
           <BlockD />
         </>
       )}
@@ -686,13 +712,26 @@ const ONE_SYSTEM_CSS = `
   --i-card-top:#2b2b30; --i-card-bottom:#202024; --i-card-edge-top:rgba(255,255,255,0.16); --i-card-edge-bottom:rgba(255,255,255,0.14);
   --i-wash-top:#0e0e10; --i-wash-bottom:#050506; --i-keylight:rgba(255,255,255,0.055);
 }
-[data-paired="nocturne-indigo"] .scoutios[data-v] {
-  --i-bg:#14131c; --i-surface:#221f30; --i-chrome:#0d0c14;
-  --i-ink:#f3f2f8; --i-muted:#b6b2c8; --i-dim:#8a869e;
-  --i-border:rgba(150,142,205,0.24); --i-hairline:rgba(150,142,205,0.12); --i-hairline-strong:rgba(150,142,205,0.30);
-  --i-accent:#7c6ff5; --i-accent-2:#6d5ef0; --i-accent-soft:rgba(124,111,245,0.18);
-  --i-card-top:#2a2740; --i-card-bottom:#1e1b2c; --i-card-edge-top:rgba(170,160,235,0.34); --i-card-edge-bottom:rgba(150,142,205,0.18);
-  --i-wash-top:#141320; --i-wash-bottom:#0a0910; --i-keylight:rgba(190,180,255,0.06);
+/* ── Corner state dot for sprite rows — identity + liveness coexist.
+   Phone tokens, not studio tokens (SpriteAvatar's own corner prop rings
+   with --studio-surface, which is wrong inside the phone). ─────────── */
+.os1-corner {
+  position:absolute; right:-2px; bottom:-2px;
+  width:7px; height:7px; border-radius:50%;
+  background:var(--i-muted);
+  box-shadow:0 0 0 2px var(--i-bg);
+}
+.os1-corner.live {
+  background:var(--i-accent);
+  animation:os1pulse 1.6s ease-in-out infinite;
+}
+.os1-corner.off {
+  background:transparent;
+  border:1px solid var(--i-dim);
+}
+@keyframes os1pulse {
+  0%, 100% { box-shadow:0 0 0 2px var(--i-bg); }
+  50%      { box-shadow:0 0 0 2px var(--i-bg), 0 0 0 5px var(--i-accent-soft); }
 }
 
 /* ── Quiet numbered delta marker — a thin accent ring, not a filled chip. ── */
