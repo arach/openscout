@@ -192,8 +192,9 @@ public struct MessageSendChip: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled || isSending)
+        .keyboardShortcut(.return, modifiers: .command)
         .onHover { hovered = $0 }
-        .help(isEnabled && !isSending ? "Send (↵)" : "")
+        .help(isEnabled && !isSending ? "Send (⌘↵)" : "")
     }
 
     private var color: Color {

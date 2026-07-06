@@ -1389,6 +1389,7 @@ struct ScoutReposInspector: View {
             .background(canSubmitAsk ? ScoutPalette.accent : ScoutPalette.surface)
             .clipShape(RoundedRectangle(cornerRadius: HudRadius.tight))
             .disabled(!canSubmitAsk)
+            .keyboardShortcut(.return, modifiers: .command)
             .help(canSubmitAsk ? "Send (⌘↵)" : "")
             .scoutPointerCursor()
         }
