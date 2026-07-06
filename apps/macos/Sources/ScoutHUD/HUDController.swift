@@ -74,6 +74,9 @@ public final class HUDController {
             panel.onFlagsChanged = { [weak self] event in
                 self?.handleFlagsChanged(event)
             }
+            panel.onKeyUp = { [weak self] event in
+                self?.handleKeyUp(event)
+            }
             OverlayPanelShell.position(
                 panel,
                 placement: placement(
@@ -129,6 +132,9 @@ public final class HUDController {
             guard let self else { return }
             self.handleKeyDown(event)
         }
+        config.onKeyUp = { [weak self] event in
+            self?.handleKeyUp(event)
+        }
         config.onFlagsChanged = { [weak self] event in
             self?.handleFlagsChanged(event)
         }
@@ -167,6 +173,7 @@ public final class HUDController {
         if HUDMotionState.shared.phase == .idle {
             HUDMotionState.shared.begin(.moving)
         }
+        resetMicKeyHold()
         preparePanelForMotion(p)
         removeMonitors()
         geometrySubscription?.cancel()
@@ -326,6 +333,13 @@ public final class HUDController {
     private var globalMouseUpMonitor: Any?
     private var outsideDismissTask: Task<Void, Never>?
 
+    // m-key push-to-talk. keyDown (non-repeat) starts a threshold timer;
+    // crossing 250ms enters hold mode; keyUp ends it. A short tap keeps the
+    // existing toggle behavior.
+    private var micKeyDownAt: Date?
+    private var micHoldActive = false
+    private var micHoldArmTask: Task<Void, Never>?
+
     private func installMonitors() {
         removeMonitors()
         // Global key monitor is only a backup for the non-activating
@@ -464,10 +478,10 @@ public final class HUDController {
             } else {
                 Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
             }
-        case 46: // m — toggle voice dictation
+        case 46: // m — hold to talk (push-to-talk); tap to toggle dictation
             guard HUDKeyboardInput.isUnmodifiedCharacterShortcut(event),
                   !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel) else { break }
-            Task { @MainActor in await Self.toggleMicWithFlash() }
+            handleMicKeyDown(event)
         case 5: // g — top; G with shift = bottom
             if event.modifierFlags.contains(.shift) {
                 Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
@@ -502,6 +516,55 @@ public final class HUDController {
             }
         default:
             break
+        }
+    }
+
+    // MARK: - m-key push-to-talk
+
+    private func handleKeyUp(_ event: NSEvent) {
+        if event.keyCode == 46 {
+            handleMicKeyUp(event)
+        }
+    }
+
+    private func handleMicKeyDown(_ event: NSEvent) {
+        guard !event.isARepeat else { return }   // ignore auto-repeat
+        guard micKeyDownAt == nil else { return }
+        micKeyDownAt = Date()
+        micHoldActive = false
+        micHoldArmTask?.cancel()
+        micHoldArmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled, self.micKeyDownAt != nil else { return }
+            self.micHoldActive = true
+            HUDDockState.shared.beginHoldToTalk()
+        }
+    }
+
+    private func handleMicKeyUp(_ event: NSEvent) {
+        guard micKeyDownAt != nil else { return }
+        micHoldArmTask?.cancel()
+        micHoldArmTask = nil
+        let wasHold = micHoldActive
+        micKeyDownAt = nil
+        micHoldActive = false
+        if wasHold {
+            HUDDockState.shared.endHoldToTalk()
+        } else {
+            Task { @MainActor in await Self.toggleMicWithFlash() }
+        }
+    }
+
+    /// Drop any in-flight m-key hold (HUD dismissed mid-hold, etc.) so the
+    /// next keyDown isn't blocked and no send is left armed.
+    private func resetMicKeyHold() {
+        micHoldArmTask?.cancel()
+        micHoldArmTask = nil
+        let wasHold = micHoldActive
+        micKeyDownAt = nil
+        micHoldActive = false
+        if wasHold {
+            HUDDockState.shared.cancelHoldToTalk()
         }
     }
 

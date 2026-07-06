@@ -34,6 +34,12 @@ public final class HUDDockState: ObservableObject {
     @Published private(set) var suggestions: [HUDDockSuggestion] = []
     @Published private(set) var selectedSuggestionIndex: Int = 0
 
+    /// True between `beginHoldToTalk()` and the moment the hold either sends,
+    /// is cancelled, or times out. While armed, an incoming final transcript
+    /// is auto-sent to the target instead of splicing into the buffer.
+    @Published private(set) var voiceSendArmed: Bool = false
+    private var holdToTalkTimeout: Task<Void, Never>?
+
     private var voiceSubscription: AnyCancellable?
     private var suggestionAgents: [HudAgent] = []
     private var currentSuggestionTrigger: HUDDockSuggestionTrigger?
@@ -57,6 +63,12 @@ public final class HUDDockState: ObservableObject {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.log.info("voice final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
+                // Hold-to-talk owns the transcript when armed: auto-send it to
+                // the target (or splice if no target) rather than editing.
+                if self.voiceSendArmed {
+                    self.completeHoldToTalk(with: trimmed)
+                    return
+                }
                 if self.shouldDeferDictationAppend() {
                     // Another foreground surface owns dictation; its own
                     // subscription splices the transcript and drains it.
@@ -100,6 +112,116 @@ public final class HUDDockState: ObservableObject {
         case .ignore:
             // already finalizing — ignore the second tap
             return
+        }
+    }
+
+    // MARK: - Hold to talk (push-to-talk)
+
+    /// The three ways an armed hold's final transcript can resolve.
+    enum HoldToTalkOutcome: Equatable {
+        case sendToTarget(String)      // trimmed body → send to the target chip
+        case spliceIntoBuffer(String)  // no target → edit-first fallback
+        case ignore                    // empty / not armed
+    }
+
+    /// Pure decision: given a final transcript, whether the dock is armed, and
+    /// whether a target chip is set, what should happen. Kept static + pure so
+    /// it's trivially testable.
+    static func holdToTalkOutcome(
+        finalText: String,
+        armed: Bool,
+        hasTarget: Bool
+    ) -> HoldToTalkOutcome {
+        let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard armed, !trimmed.isEmpty else { return .ignore }
+        return hasTarget ? .sendToTarget(trimmed) : .spliceIntoBuffer(trimmed)
+    }
+
+    /// Enter push-to-talk. Cuts any in-progress reply playback (half-duplex),
+    /// arms the dock so the next final transcript is auto-sent, and warms the
+    /// mic through the existing capture-access path.
+    func beginHoldToTalk() {
+        guard !voiceSendArmed else { return }
+        HUDReplySpeaker.shared.stopSpeaking()
+        voiceSendArmed = true
+        Task { @MainActor in
+            let voice = HudVoiceService.shared
+            let granted = await voice.ensureCaptureAccess()
+            guard voiceSendArmed else { return }   // cancelled while prompting
+            guard granted else {
+                voiceSendArmed = false
+                return
+            }
+            switch voice.state {
+            case .idle:
+                voice.start()
+            case .probing, .unavailable:
+                await voice.probe()
+                if voiceSendArmed, case .idle = voice.state {
+                    voice.start()
+                }
+            case .starting, .recording, .processing:
+                break   // already hot
+            }
+        }
+    }
+
+    /// Release push-to-talk. Stops the mic; the resulting final transcript is
+    /// picked up by the `$lastFinalText` sink and sent (see completeHoldToTalk).
+    /// A safety-net timeout disarms if no final ever arrives so a later
+    /// tap-dictation isn't hijacked into an auto-send.
+    func endHoldToTalk() {
+        guard voiceSendArmed else { return }
+        let voice = HudVoiceService.shared
+        if voice.state == .recording || voice.state == .starting {
+            voice.stop()
+        } else {
+            // Never got hot (permission denied / still probing) — nothing to send.
+            voiceSendArmed = false
+            return
+        }
+        holdToTalkTimeout?.cancel()
+        holdToTalkTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard let self, self.voiceSendArmed else { return }
+            self.voiceSendArmed = false
+        }
+    }
+
+    /// Cancel an armed hold: stop the mic, discard the pending transcript,
+    /// disarm, send nothing. Wired to Esc during a hold.
+    func cancelHoldToTalk() {
+        guard voiceSendArmed else { return }
+        holdToTalkTimeout?.cancel()
+        holdToTalkTimeout = nil
+        voiceSendArmed = false
+        let voice = HudVoiceService.shared
+        if voice.state == .recording || voice.state == .starting || voice.state == .processing {
+            voice.cancel()
+        }
+        HudVoiceService.shared.consumeFinalText()
+    }
+
+    /// Resolve an armed hold once its final transcript arrives.
+    private func completeHoldToTalk(with trimmed: String) {
+        holdToTalkTimeout?.cancel()
+        holdToTalkTimeout = nil
+        let outcome = Self.holdToTalkOutcome(
+            finalText: trimmed,
+            armed: true,
+            hasTarget: targetHandle != nil
+        )
+        voiceSendArmed = false
+        HudVoiceService.shared.consumeFinalText()
+        switch outcome {
+        case .sendToTarget(let body):
+            let label = targetHandle ?? targetLabel ?? "target"
+            HUDFlashState.shared.flash("sent → \(label)", kind: .success, duration: 1.6)
+            Task { await self.send(body: body) }
+        case .spliceIntoBuffer(let phrase):
+            appendDictatedText(phrase)
+        case .ignore:
+            break
         }
     }
 
@@ -240,6 +362,12 @@ public final class HUDDockState: ObservableObject {
     func escapePressed() -> Bool {
         if suggestionsVisible {
             dismissSuggestions()
+            return true
+        }
+        // A hold-to-talk in progress cancels cleanly — stop the mic, discard
+        // the pending transcript, disarm, send nothing.
+        if voiceSendArmed {
+            cancelHoldToTalk()
             return true
         }
         // Dictation in progress trumps everything — operator pressing ESC
