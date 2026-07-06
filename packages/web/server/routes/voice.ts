@@ -1,0 +1,437 @@
+import type { Hono } from "hono";
+
+import {
+  ensureScoutVoiceOrigins,
+  getScoutVoiceHealth,
+  resolveScoutSpeechDefaults,
+  synthesizeScoutSpeech,
+  transcribeScoutVoiceAudio,
+  type ScoutSpeechTimingRequest,
+} from "../scout-voice.ts";
+import { engageScoutVoiceDictation } from "../scout-voice-engage.ts";
+import {
+  ScoutVoiceSessionError,
+  awaitScoutVoiceHostCommand,
+  cancelScoutVoiceSession,
+  createScoutVoiceSession,
+  formatScoutVoiceSessionSse,
+  getScoutVoiceSettingsSnapshot,
+  isTerminalScoutVoiceSessionEvent,
+  listScoutVoiceSessionHistory,
+  openScoutVoicePrivacySettings,
+  pushScoutVoiceHostEvent,
+  registerScoutVoiceHost,
+  requestScoutVoicePermissions,
+  stopScoutVoiceSession,
+  subscribeScoutVoiceSession,
+  updateScoutVoiceSettings,
+  type ScoutVoiceSessionEventName,
+} from "../scout-voice-session.ts";
+
+function parseOptionalPositiveInt(
+  value: string | undefined,
+  fallback?: number,
+): number | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordInput(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function parseScoutSpeechTimingRequest(value: unknown): ScoutSpeechTimingRequest | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const record = recordInput(value);
+  if (!record) {
+    return null;
+  }
+  if (record.enabled !== true) {
+    return undefined;
+  }
+  const rawCues = record.cues;
+  if (rawCues !== undefined && !Array.isArray(rawCues)) {
+    return null;
+  }
+  const cues = rawCues?.map((rawCue) => {
+    const cue = recordInput(rawCue);
+    if (!cue) {
+      return null;
+    }
+    const id = optionalString(cue.id)?.trim();
+    if (!id) {
+      return null;
+    }
+    const text = optionalString(cue.text);
+    if (text !== undefined) {
+      return { id, text };
+    }
+    const textStart = optionalFiniteNumber(cue.textStart);
+    const textEnd = optionalFiniteNumber(cue.textEnd);
+    if (textStart === undefined || textEnd === undefined || textEnd < textStart) {
+      return null;
+    }
+    return { id, textStart, textEnd };
+  });
+  if (cues?.some((cue) => cue === null)) {
+    return null;
+  }
+  const modelId = optionalString(record.modelId)?.trim();
+  return {
+    enabled: true,
+    ...(modelId ? { modelId } : {}),
+    ...(typeof record.strict === "boolean" ? { strict: record.strict } : {}),
+    ...(cues ? { cues: cues as NonNullable<ScoutSpeechTimingRequest["cues"]> } : {}),
+  };
+}
+
+function jsonScoutVoiceSessionError(error: unknown): Response {
+  if (error instanceof ScoutVoiceSessionError) {
+    return Response.json({ error: error.message, code: error.code }, { status: error.status });
+  }
+  const message = error instanceof Error ? error.message : "Scout voice session failed";
+  return Response.json({ error: message }, { status: 500 });
+}
+
+function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | "aac" | "opus" | "pcm16" | null | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  switch (normalized) {
+    case "mp3":
+    case "wav":
+    case "aac":
+    case "opus":
+    case "pcm16":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+export function mountScoutVoiceRoutes(app: Hono): void {
+  ensureScoutVoiceOrigins();
+
+  app.get("/api/voice/health", async (c) => {
+    const health = await getScoutVoiceHealth();
+    const quietProbe = c.req.query("quiet") === "1";
+    return c.json(health, health.ok || quietProbe ? 200 : 503);
+  });
+
+  app.get("/api/voice/settings", (c) => {
+    return c.json(getScoutVoiceSettingsSnapshot());
+  });
+
+  app.post("/api/voice/engage", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      surface?: string;
+      requestPermissions?: boolean;
+    };
+    try {
+      return c.json(engageScoutVoiceDictation(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/history", (c) => {
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 20) ?? 20;
+    return c.json({ sessions: listScoutVoiceSessionHistory(limit) });
+  });
+
+  app.put("/api/voice/settings", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      preference?: "auto" | "parakeet" | "apple";
+      inputDeviceId?: string | null;
+    };
+    try {
+      return c.json(updateScoutVoiceSettings(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/permissions/open", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: "microphone" | "speechRecognition";
+    };
+    try {
+      return c.json(openScoutVoicePrivacySettings(body.kind ?? "microphone"));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/permissions/request", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: "microphone" | "speechRecognition";
+    };
+    try {
+      return c.json(requestScoutVoicePermissions(body.kind ?? "microphone"));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/host/register", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      hostId?: string;
+      platform?: string;
+      bundle?: string;
+      settings?: {
+        preference?: "auto" | "parakeet" | "apple";
+        inputDeviceId?: string | null;
+        inputDeviceName?: string | null;
+        modelReady?: boolean;
+        modelInstalled?: boolean;
+        permissions?: Array<{
+          kind?: "microphone" | "speechRecognition";
+          status?: string;
+          granted?: boolean;
+          canRequest?: boolean;
+        }>;
+      };
+      devices?: Array<{ id?: string; name?: string; isDefault?: boolean }>;
+    };
+    try {
+      return c.json(registerScoutVoiceHost({
+        hostId: body.hostId ?? "",
+        platform: body.platform ?? "unknown",
+        bundle: body.bundle,
+        settings: body.settings,
+        devices: (body.devices ?? [])
+          .map((device) => ({
+            id: device.id?.trim() ?? "",
+            name: device.name?.trim() ?? "Microphone",
+            isDefault: Boolean(device.isDefault),
+          }))
+          .filter((device) => device.id.length > 0),
+      }));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/host/commands", async (c) => {
+    const hostId = c.req.query("hostId")?.trim();
+    if (!hostId) {
+      return c.json({ error: "hostId is required" }, 400);
+    }
+    const timeoutMs = parseOptionalPositiveInt(c.req.query("timeoutMs"), 25_000) ?? 25_000;
+    try {
+      return c.json(await awaitScoutVoiceHostCommand(hostId, timeoutMs));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/host/events", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      hostId?: string;
+      sessionId?: string;
+      event?: string;
+      data?: Record<string, unknown>;
+    };
+    const hostId = body.hostId?.trim();
+    const sessionId = body.sessionId?.trim();
+    const event = body.event?.trim() as ScoutVoiceSessionEventName | undefined;
+    if (!hostId || !sessionId || !event) {
+      return c.json({ error: "hostId, sessionId, and event are required" }, 400);
+    }
+    try {
+      return c.json(pushScoutVoiceHostEvent({
+        hostId,
+        sessionId,
+        event,
+        data: body.data,
+      }));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      clientId?: string;
+      surface?: string;
+      language?: string;
+      sessionId?: string;
+    };
+    try {
+      return c.json(createScoutVoiceSession(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/session/:sessionId/events", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+
+    const encoder = new TextEncoder();
+    const signal = c.req.raw.signal;
+
+    try {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let closed = false;
+          const safeEnqueue = (chunk: Uint8Array) => {
+            if (closed) return;
+            try {
+              controller.enqueue(chunk);
+            } catch {
+              closed = true;
+            }
+          };
+
+          let heartbeat: ReturnType<typeof setInterval> | null = null;
+          let unsubscribe = () => undefined;
+
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            if (heartbeat) clearInterval(heartbeat);
+            unsubscribe();
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
+
+          heartbeat = setInterval(() => {
+            safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
+          }, 15_000);
+
+          unsubscribe = subscribeScoutVoiceSession(sessionId, (event) => {
+            safeEnqueue(encoder.encode(formatScoutVoiceSessionSse(event)));
+            if (isTerminalScoutVoiceSessionEvent(event)) {
+              close();
+            }
+          });
+
+          signal.addEventListener("abort", close, { once: true });
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+        },
+      });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session/:sessionId/stop", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+    try {
+      stopScoutVoiceSession(sessionId);
+      return c.json({ ok: true, sessionId });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session/:sessionId/cancel", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+    try {
+      cancelScoutVoiceSession(sessionId);
+      return c.json({ ok: true, sessionId });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/transcribe", async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const audio = form?.get("audio");
+    if (!(audio instanceof Blob)) {
+      return c.json({ error: "audio file is required" }, 400);
+    }
+    const format = parseScoutVoiceAudioFormat(optionalString(form?.get("format")));
+    if (format === null) {
+      return c.json({ error: "audio format is invalid" }, 400);
+    }
+
+    try {
+      return c.json(await transcribeScoutVoiceAudio({
+        audio,
+        ...(format ? { format } : {}),
+        language: optionalString(form?.get("language")),
+        modelId: optionalString(form?.get("modelId")),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Scout voice transcription failed";
+      return c.json({ error: message }, 503);
+    }
+  });
+
+  app.post("/api/voice/speak", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      text?: string;
+      modelId?: string;
+      voiceId?: string;
+      speed?: number;
+      instructions?: string;
+      originAppId?: string;
+      utteranceId?: string;
+      speechTiming?: unknown;
+    };
+    const text = body.text?.trim();
+    if (!text) {
+      return c.json({ error: "text is required" }, 400);
+    }
+    const speechTiming = parseScoutSpeechTimingRequest(body.speechTiming);
+    if (speechTiming === null) {
+      return c.json({ error: "speechTiming is invalid" }, 400);
+    }
+
+    try {
+      return c.json(await synthesizeScoutSpeech({
+        text,
+        modelId: body.modelId,
+        voiceId: body.voiceId,
+        speed: body.speed,
+        instructions: optionalString(body.instructions),
+        originAppId: optionalString(body.originAppId),
+        utteranceId: optionalString(body.utteranceId),
+        speechTiming,
+        signal: c.req.raw.signal,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Voice speech failed";
+      return c.json({ error: message }, 503);
+    }
+  });
+
+  app.get("/api/voice/defaults", (c) => {
+    return c.json(resolveScoutSpeechDefaults());
+  });
+}
