@@ -1104,7 +1104,6 @@ struct ScoutRootView: View {
         conversationId: String,
         pending: ScoutPendingConversation
     ) async throws -> ScoutPendingFlightStatus? {
-        guard let messageId = pending.messageId?.nilIfEmpty else { return nil }
         let url = ScoutWeb.baseURL()
             .appending(path: "api/messages")
             .appending(queryItems: [
@@ -1112,16 +1111,13 @@ struct ScoutRootView: View {
                 URLQueryItem(name: "limit", value: "24"),
             ])
         let messages = try await ScoutHTTP.fetch([ScoutMessage].self, from: url)
-        guard messages.contains(where: { message in
-            guard !message.isOperator else { return false }
-            guard message.messageClass != "status", message.messageClass != "system" else { return false }
-            return message.replyToMessageId == messageId
-                || message.metadata?.sourceMessageId == messageId
+        guard messages.contains(where: {
+            $0.completesPendingConversation(messageId: pending.messageId, flightId: pending.flightId)
         }) else {
             return nil
         }
         return ScoutPendingFlightStatus(
-            id: pending.flightId?.nilIfEmpty ?? messageId,
+            id: pending.flightId?.nilIfEmpty ?? pending.messageId?.nilIfEmpty ?? pending.id,
             state: "completed",
             summary: "Agent replied.",
             removePendingRow: true

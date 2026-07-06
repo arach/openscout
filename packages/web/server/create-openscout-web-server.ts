@@ -76,6 +76,7 @@ import {
   queryRuns,
   queryTerminalSessions,
   type WebAgent,
+  type WebFlight,
 } from "./db-queries.ts";
 import {
   configuredOperatorActorIds,
@@ -1663,6 +1664,57 @@ function brokerAgentFlightPhase(
     phase = "in_flight";
   }
   return phase;
+}
+
+function brokerFlightToWebFlight(
+  broker: ScoutBrokerContext,
+  flight: NonNullable<ScoutBrokerContext["snapshot"]["flights"]>[string],
+): WebFlight {
+  const invocation = broker.snapshot.invocations?.[flight.invocationId];
+  const metadata = recordInput(flight.metadata);
+  const returnAddress = metadataRecordValue(metadata, "returnAddress");
+  const agent = broker.snapshot.agents?.[flight.targetAgentId];
+  const actor = broker.snapshot.actors?.[flight.targetAgentId];
+  return {
+    id: flight.id,
+    invocationId: flight.invocationId,
+    agentId: flight.targetAgentId,
+    agentName: agent?.displayName ?? actor?.displayName ?? null,
+    conversationId:
+      invocation?.conversationId
+      ?? firstMetadataString(metadata?.conversationId, returnAddress?.conversationId),
+    collaborationRecordId:
+      invocation?.collaborationRecordId
+      ?? firstMetadataString(metadata?.collaborationRecordId),
+    state: flight.state,
+    summary: flight.summary ?? null,
+    startedAt: epochMs(flight.startedAt) ?? epochMs(invocation?.createdAt),
+    completedAt: epochMs(flight.completedAt),
+  };
+}
+
+function queryBrokerFlightsForWeb(
+  broker: ScoutBrokerContext,
+  opts: {
+    flightId?: string;
+    agentId?: string;
+    conversationId?: string;
+    collaborationRecordId?: string;
+    activeOnly?: boolean;
+  },
+): WebFlight[] {
+  return Object.values(broker.snapshot.flights ?? {})
+    .map((flight) => brokerFlightToWebFlight(broker, flight))
+    .filter((flight) => opts.flightId ? flight.id === opts.flightId : true)
+    .filter((flight) => opts.agentId ? flight.agentId === opts.agentId : true)
+    .filter((flight) => opts.conversationId ? flight.conversationId === opts.conversationId : true)
+    .filter((flight) => opts.collaborationRecordId ? flight.collaborationRecordId === opts.collaborationRecordId : true)
+    .filter((flight) => opts.activeOnly ? ACTIVE_BROKER_FLIGHT_STATES.has(flight.state) : true)
+    .sort((left, right) => (
+      (right.startedAt ?? right.completedAt ?? 0) - (left.startedAt ?? left.completedAt ?? 0)
+      || left.id.localeCompare(right.id)
+    ))
+    .slice(0, 100);
 }
 
 function summarizeBrokerAgentState(
@@ -4600,7 +4652,7 @@ export async function createOpenScoutWebServer(
       }),
     );
   });
-  app.get("/api/flights", (c) => {
+  app.get("/api/flights", async (c) => {
     const flightId = c.req.query("flightId");
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
@@ -4609,15 +4661,19 @@ export async function createOpenScoutWebServer(
     if (conversationId && !isOpaqueChannelId(conversationId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    return c.json(
-      queryFlights({
-        flightId: flightId || undefined,
-        agentId: agentId || undefined,
-        conversationId: conversationId || undefined,
-        collaborationRecordId: collaborationRecordId || undefined,
-        activeOnly,
-      }),
-    );
+    const query = {
+      flightId: flightId || undefined,
+      agentId: agentId || undefined,
+      conversationId: conversationId || undefined,
+      collaborationRecordId: collaborationRecordId || undefined,
+      activeOnly,
+    };
+    const flights = queryFlights(query);
+    if (flights.length > 0) {
+      return c.json(flights);
+    }
+    const broker = await loadScoutBrokerContext().catch(() => null);
+    return c.json(broker ? queryBrokerFlightsForWeb(broker, query) : flights);
   });
   app.get("/api/follow", (c) => {
     const conversationId = c.req.query("conversationId") || undefined;

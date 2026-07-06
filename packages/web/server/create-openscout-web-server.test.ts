@@ -1906,6 +1906,75 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
+  test("falls back to broker snapshot flights when the durable flight query misses", async () => {
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        actors: {
+          "session-1": {
+            id: "session-1",
+            kind: "session",
+            displayName: "openscout-haydn",
+          },
+        },
+        agents: {},
+        endpoints: {},
+        conversations: {},
+        messages: {},
+        invocations: {
+          "inv-session": {
+            id: "inv-session",
+            requesterId: "operator",
+            targetAgentId: "session-1",
+            conversationId: "chn-session",
+            messageId: "msg-session-seed",
+            body: "Reply with exactly: ok",
+            ensureAwake: true,
+            stream: false,
+            createdAt: 1_779_461_790_000,
+          },
+        },
+        flights: {
+          "flt-session": {
+            id: "flt-session",
+            invocationId: "inv-session",
+            requesterId: "operator",
+            targetAgentId: "session-1",
+            state: "completed",
+            summary: "openscout-haydn replied.",
+            startedAt: 1_779_461_800_000,
+            completedAt: 1_779_461_900_000,
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      "http://localhost/api/flights?active=false&flightId=flt-session",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      {
+        id: "flt-session",
+        invocationId: "inv-session",
+        agentId: "session-1",
+        agentName: "openscout-haydn",
+        conversationId: "chn-session",
+        collaborationRecordId: null,
+        state: "completed",
+        summary: "openscout-haydn replied.",
+        startedAt: 1_779_461_800_000,
+        completedAt: 1_779_461_900_000,
+      },
+    ]);
+  });
+
   test("opens a direct chat using the agent project path as resolution context", async () => {
     queryAgentsResult = [
       {
