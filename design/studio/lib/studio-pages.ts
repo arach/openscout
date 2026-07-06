@@ -1349,6 +1349,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Proposed Tier-1 atom from the inspector-bar audit.",
   },
 
+  {
+    href: "/studies/scout-one-system",
+    label: "One System",
+    bucket: "studies",
+    surface: "cross",
+    family: "one-system",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-one-system.tsx",
+      "apps/macos/Sources/Scout/ScoutTheme.swift",
+      "apps/ios/Scout/Theme.swift",
+    ],
+    blurb:
+      "Scout ships four visual dialects today — main-window indigo (themable, 5×5), the HUD lime broadsheet, the menu-bar green, and iOS emerald (dark-locked). One System keeps each platform's depth idiom (flat ruled panels on desktop, raised cards on phone, the broadsheet HUD) and unifies the grammar: sprite identity, status vocabulary, hand-drawn icon language, and theme inheritance — a paired phone adopts the Mac's theme. Current ⇄ One System flips both platforms; a ledger maps every proposal to ship/refine/defer.",
+  },
+
   // ── Meta ────────────────────────────────────────────────────────
   {
     href: "/",
