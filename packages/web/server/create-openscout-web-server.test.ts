@@ -21,6 +21,7 @@ const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
 const originalOpenAIKey = process.env.OPENAI_API_KEY;
 const originalOpenAIModel = process.env.OPENAI_MODEL;
 const originalScoutbotAssistantModel = process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL;
+const originalProbesSocket = process.env.OPENSCOUT_PROBES_SOCKET;
 const sendScoutMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutConversationMessageCalls: Array<Record<string, unknown>> = [];
 const sendScoutConversationSteerCalls: Array<Record<string, unknown>> = [];
@@ -265,7 +266,10 @@ const { createOpenScoutWebServer } =
   await import("./create-openscout-web-server.ts");
 const { resetScoutVoiceSessionStateForTests } =
   await import("./scout-voice-session.ts");
-const { gitBuildInfoProbe } = await import("@openscout/runtime/system-probes");
+const {
+  gitBuildInfoProbe,
+  resetScoutdProbeClientForTests,
+} = await import("@openscout/runtime/system-probes");
 
 mock.restore();
 
@@ -666,6 +670,11 @@ beforeEach(() => {
   } else {
     process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
+  process.env.OPENSCOUT_PROBES_SOCKET = join(
+    tmpdir(),
+    `openscout-web-test-missing-probes-${process.pid}.sock`,
+  );
+  resetScoutdProbeClientForTests();
   querySessionByIdImpl = () => null;
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
@@ -778,6 +787,12 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
+  if (originalProbesSocket === undefined) {
+    delete process.env.OPENSCOUT_PROBES_SOCKET;
+  } else {
+    process.env.OPENSCOUT_PROBES_SOCKET = originalProbesSocket;
+  }
+  resetScoutdProbeClientForTests();
 
   resetScoutVoiceSessionStateForTests();
 
