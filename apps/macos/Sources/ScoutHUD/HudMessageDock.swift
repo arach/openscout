@@ -472,6 +472,7 @@ private struct MicButton: View {
     @State private var pressBeganAt: Date?
     @State private var holdActive = false
     @State private var holdArmTask: Task<Void, Never>?
+    @State private var holdToken: UUID?
 
     private var pressGesture: some Gesture {
         DragGesture(minimumDistance: 0)
@@ -483,18 +484,25 @@ private struct MicButton: View {
                 holdArmTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 250_000_000)
                     guard !Task.isCancelled, pressBeganAt != nil else { return }
+                    // Crossing the threshold makes this press a hold even when
+                    // another source already owns the dock (token == nil) —
+                    // the release must then be inert, not a stray tap-toggle.
                     holdActive = true
-                    HUDDockState.shared.beginHoldToTalk()
+                    holdToken = HUDDockState.shared.beginHoldToTalk()
                 }
             }
             .onEnded { _ in
                 holdArmTask?.cancel()
                 holdArmTask = nil
                 let wasHold = holdActive
+                let token = holdToken
                 pressBeganAt = nil
                 holdActive = false
+                holdToken = nil
                 if wasHold {
-                    HUDDockState.shared.endHoldToTalk()
+                    if let token {
+                        HUDDockState.shared.endHoldToTalk(token: token)
+                    }
                 } else {
                     Task { @MainActor in await HUDDockState.shared.toggleDictation() }
                 }
@@ -527,6 +535,19 @@ private struct MicButton: View {
         .contentShape(Rectangle())
         .gesture(pressGesture)
         .help(tooltip)
+        .onDisappear {
+            // The dock can be torn down mid-press (HUD dismissed via IPC or
+            // Esc cascade) — onEnded never fires then, so release our hold
+            // here or the mic stays hot with nobody holding it.
+            holdArmTask?.cancel()
+            holdArmTask = nil
+            pressBeganAt = nil
+            holdActive = false
+            if let token = holdToken {
+                HUDDockState.shared.cancelHoldToTalk(token: token)
+                holdToken = nil
+            }
+        }
         .task { if voice.state == .probing { await voice.probe() } }
         .onChange(of: voice.state) { _, newValue in
             // Drive the pulse based on whether we're hot/processing.

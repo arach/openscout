@@ -39,6 +39,9 @@ public final class HUDDockState: ObservableObject {
     /// is auto-sent to the target instead of splicing into the buffer.
     @Published private(set) var voiceSendArmed: Bool = false
     private var holdToTalkTimeout: Task<Void, Never>?
+    /// Owner of the current hold. Begin hands it out; only the matching end/
+    /// cancel acts on it (nil cancel = force). Guards concurrent hold sources.
+    private var holdToken: UUID?
 
     private var voiceSubscription: AnyCancellable?
     private var suggestionAgents: [HudAgent] = []
@@ -140,16 +143,31 @@ public final class HUDDockState: ObservableObject {
     /// Enter push-to-talk. Cuts any in-progress reply playback (half-duplex),
     /// arms the dock so the next final transcript is auto-sent, and warms the
     /// mic through the existing capture-access path.
-    func beginHoldToTalk() {
-        guard !voiceSendArmed else { return }
+    ///
+    /// Returns an ownership token, or nil when another source already holds —
+    /// only the owner's `endHoldToTalk`/`cancelHoldToTalk` acts, so a mouse
+    /// hold and an m-key hold can't stop each other's capture mid-press.
+    @discardableResult
+    func beginHoldToTalk() -> UUID? {
+        guard !voiceSendArmed else { return nil }
         HUDReplySpeaker.shared.stopSpeaking()
+        let token = UUID()
+        holdToken = token
         voiceSendArmed = true
         Task { @MainActor in
             let voice = HudVoiceService.shared
+            let began = Date()
             let granted = await voice.ensureCaptureAccess()
-            guard voiceSendArmed else { return }   // cancelled while prompting
+            guard voiceSendArmed, holdToken == token else { return }   // cancelled while prompting
             guard granted else {
-                voiceSendArmed = false
+                disarmHold()
+                return
+            }
+            // A slow grant means a permission prompt (or similar) interposed —
+            // the physical hold has almost certainly been released without us
+            // ever seeing the up event. Don't start a mic nobody is holding.
+            if Date().timeIntervalSince(began) > 1.0 {
+                cancelHoldToTalk()
                 return
             }
             switch voice.state {
@@ -157,44 +175,49 @@ public final class HUDDockState: ObservableObject {
                 voice.start()
             case .probing, .unavailable:
                 await voice.probe()
-                if voiceSendArmed, case .idle = voice.state {
+                if voiceSendArmed, holdToken == token, case .idle = voice.state {
                     voice.start()
                 }
             case .starting, .recording, .processing:
                 break   // already hot
             }
         }
+        return token
     }
 
     /// Release push-to-talk. Stops the mic; the resulting final transcript is
     /// picked up by the `$lastFinalText` sink and sent (see completeHoldToTalk).
     /// A safety-net timeout disarms if no final ever arrives so a later
-    /// tap-dictation isn't hijacked into an auto-send.
-    func endHoldToTalk() {
-        guard voiceSendArmed else { return }
+    /// tap-dictation isn't hijacked into an auto-send. (A final that lands
+    /// after the timeout splices into the draft — visible and recoverable —
+    /// rather than being dropped or sent unexpectedly.)
+    func endHoldToTalk(token: UUID) {
+        guard voiceSendArmed, token == holdToken else { return }
         let voice = HudVoiceService.shared
         if voice.state == .recording || voice.state == .starting {
             voice.stop()
         } else {
             // Never got hot (permission denied / still probing) — nothing to send.
-            voiceSendArmed = false
+            disarmHold()
             return
         }
         holdToTalkTimeout?.cancel()
         holdToTalkTimeout = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 6_000_000_000)
             guard let self, self.voiceSendArmed else { return }
-            self.voiceSendArmed = false
+            self.disarmHold()
         }
     }
 
     /// Cancel an armed hold: stop the mic, discard the pending transcript,
-    /// disarm, send nothing. Wired to Esc during a hold.
-    func cancelHoldToTalk() {
+    /// disarm, send nothing. Pass the owner token from a specific source;
+    /// pass nil to force-cancel regardless of owner (Esc, HUD dismissal).
+    func cancelHoldToTalk(token: UUID? = nil) {
         guard voiceSendArmed else { return }
+        if let token, token != holdToken { return }
         holdToTalkTimeout?.cancel()
         holdToTalkTimeout = nil
-        voiceSendArmed = false
+        disarmHold()
         let voice = HudVoiceService.shared
         if voice.state == .recording || voice.state == .starting || voice.state == .processing {
             voice.cancel()
@@ -202,22 +225,30 @@ public final class HUDDockState: ObservableObject {
         HudVoiceService.shared.consumeFinalText()
     }
 
+    private func disarmHold() {
+        voiceSendArmed = false
+        holdToken = nil
+    }
+
     /// Resolve an armed hold once its final transcript arrives.
     private func completeHoldToTalk(with trimmed: String) {
         holdToTalkTimeout?.cancel()
         holdToTalkTimeout = nil
+        // Snapshot the target now so the flash and the actual wire send can't
+        // diverge if the target chip changes before the async send runs.
+        let resolvedTarget = targetHandle
         let outcome = Self.holdToTalkOutcome(
             finalText: trimmed,
             armed: true,
-            hasTarget: targetHandle != nil
+            hasTarget: resolvedTarget != nil
         )
-        voiceSendArmed = false
+        disarmHold()
         HudVoiceService.shared.consumeFinalText()
         switch outcome {
         case .sendToTarget(let body):
-            let label = targetHandle ?? targetLabel ?? "target"
+            let label = resolvedTarget ?? targetLabel ?? "target"
             HUDFlashState.shared.flash("sent → \(label)", kind: .success, duration: 1.6)
-            Task { await self.send(body: body) }
+            Task { await self.send(body: body, resolvedTarget: resolvedTarget) }
         case .spliceIntoBuffer(let phrase):
             appendDictatedText(phrase)
         case .ignore:
@@ -408,13 +439,20 @@ public final class HUDDockState: ObservableObject {
     /// `self.text` if the caller passes nil, and clears it after the
     /// guard so single-call sites still work.
     func send(body: String? = nil) async {
+        await send(body: body, resolvedTarget: targetHandle)
+    }
+
+    /// Variant that takes the target explicitly — the voice hold snapshots it
+    /// at completion so a target change during the async hop can't reroute a
+    /// message the flash already attributed.
+    func send(body: String?, resolvedTarget: String?) async {
         let source = body ?? text
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if body == nil { text = "" }
         isSending = true
         defer { isSending = false }
-        await ScoutComposeService.shared.send(body: trimmed, targetHandle: targetHandle)
+        await ScoutComposeService.shared.send(body: trimmed, targetHandle: resolvedTarget)
         lastError = ScoutComposeService.shared.lastError
         if let err = lastError, !err.isEmpty {
             HUDFlashState.shared.flash(err)

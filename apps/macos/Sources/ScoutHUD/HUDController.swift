@@ -174,6 +174,10 @@ public final class HUDController {
             HUDMotionState.shared.begin(.moving)
         }
         resetMicKeyHold()
+        // Force-cancel any hold regardless of source — the mouse path's own
+        // onDisappear may not fire if the panel is hidden rather than torn
+        // down, and a dismissed HUD must never leave the mic hot.
+        HUDDockState.shared.cancelHoldToTalk()
         preparePanelForMotion(p)
         removeMonitors()
         geometrySubscription?.cancel()
@@ -339,6 +343,7 @@ public final class HUDController {
     private var micKeyDownAt: Date?
     private var micHoldActive = false
     private var micHoldArmTask: Task<Void, Never>?
+    private var micHoldToken: UUID?
 
     private func installMonitors() {
         removeMonitors()
@@ -529,6 +534,15 @@ public final class HUDController {
 
     private func handleMicKeyDown(_ event: NSEvent) {
         guard !event.isARepeat else { return }   // ignore auto-repeat
+        // Host-forwarded keydowns (the main window is key, ScoutCommands'
+        // .keyDown-only monitor relays into here) have no matching keyup
+        // route — a hold begun there can never end and the mic sticks hot.
+        // Keep the tap toggle for that path; arm push-to-talk only when the
+        // panel itself is key and will see the release.
+        guard panel?.isKeyWindow == true else {
+            Task { @MainActor in await Self.toggleMicWithFlash() }
+            return
+        }
         guard micKeyDownAt == nil else { return }
         micKeyDownAt = Date()
         micHoldActive = false
@@ -537,7 +551,7 @@ public final class HUDController {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled, self.micKeyDownAt != nil else { return }
             self.micHoldActive = true
-            HUDDockState.shared.beginHoldToTalk()
+            self.micHoldToken = HUDDockState.shared.beginHoldToTalk()
         }
     }
 
@@ -546,10 +560,14 @@ public final class HUDController {
         micHoldArmTask?.cancel()
         micHoldArmTask = nil
         let wasHold = micHoldActive
+        let token = micHoldToken
         micKeyDownAt = nil
         micHoldActive = false
+        micHoldToken = nil
         if wasHold {
-            HUDDockState.shared.endHoldToTalk()
+            if let token {
+                HUDDockState.shared.endHoldToTalk(token: token)
+            }
         } else {
             Task { @MainActor in await Self.toggleMicWithFlash() }
         }
@@ -560,11 +578,11 @@ public final class HUDController {
     private func resetMicKeyHold() {
         micHoldArmTask?.cancel()
         micHoldArmTask = nil
-        let wasHold = micHoldActive
         micKeyDownAt = nil
         micHoldActive = false
-        if wasHold {
-            HUDDockState.shared.cancelHoldToTalk()
+        if let token = micHoldToken {
+            HUDDockState.shared.cancelHoldToTalk(token: token)
+            micHoldToken = nil
         }
     }
 
