@@ -663,6 +663,8 @@ private struct AgentColARow: View {
 private struct AgentColumnB: View {
     let agent: HudAgent
 
+    @State private var pulse: [Double]? = nil
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 12) {
@@ -691,6 +693,18 @@ private struct AgentColumnB: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task(id: agent.id) {
+            pulse = nil
+            do {
+                let fetched = try await ScoutObservePulseClient().fetchPulse(agentId: agent.id)
+                if let counts = fetched?.counts {
+                    let peak = max(counts.max() ?? 0, 1)
+                    pulse = counts.map { Double($0) / Double(peak) }
+                }
+            } catch {
+                pulse = nil
+            }
+        }
     }
 
     private var header: some View {
@@ -717,15 +731,21 @@ private struct AgentColumnB: View {
                     .foregroundStyle(stateColor(for: agent.state))
                     .fixedSize()
             }
-            // Pulse sparkline echoes the medium-tile signature so col B
-            // carries the agent's identity in the middle pane without
-            // a separate PULSE eyebrow row.
-            HUDPulseSparkline(
-                values: HUDMockPulse.pulse(for: (agent.handle ?? agent.name).lowercased()),
-                color: HUDChrome.agentHue(agent.hue),
-                size: CGSize(width: 72, height: 10)
-            )
-            .padding(.leading, 14)
+            // Pulse sparkline — real per-agent event-density data from
+            // /api/observe/agents. Frame is always reserved (72×10) so
+            // the header doesn't jump when data arrives or is absent.
+            if let pulse {
+                HUDPulseSparkline(
+                    values: pulse,
+                    color: HUDChrome.agentHue(agent.hue),
+                    size: CGSize(width: 72, height: 10)
+                )
+                .padding(.leading, 14)
+            } else {
+                Color.clear
+                    .frame(width: 72, height: 10)
+                    .padding(.leading, 14)
+            }
         }
     }
 
@@ -805,10 +825,8 @@ private struct AgentColumnC: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
 
-            // Engage stack — vertical pile of inert affordances. Lives
-            // pinned to the bottom of the column so the dead-space
-            // below LAST TURN reads as deliberate operator surface,
-            // not blank canvas. Wire-up arrives in iter 9.
+            // Engage stack — live actions pinned to the bottom of the
+            // column so the operator surface sits below LAST TURN.
             engageStack
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -817,11 +835,6 @@ private struct AgentColumnC: View {
                         .fill(HUDChrome.borderSoft)
                         .frame(height: 0.5)
                 }
-
-            bufferStrip
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(HUDChrome.canvasAlt.opacity(0.45))
         }
     }
 
@@ -833,8 +846,6 @@ private struct AgentColumnC: View {
             engageRow(verb: "MESSAGES", hint: "jump to message thread", enabled: true, action: messagesAction)
             engageRow(verb: "TAIL",     hint: "open this agent's tail", enabled: true, action: tailAction)
             engageRow(verb: "OPEN",     hint: "reveal project root",    enabled: agent.projectRoot != nil, action: openAction)
-            engageRow(verb: "SNOOZE",   hint: "park asks for 1h",       enabled: false, action: {})
-            engageRow(verb: "MUTE",     hint: "suppress nudges",        enabled: false, action: {})
         }
     }
 
@@ -880,26 +891,6 @@ private struct AgentColumnC: View {
         openAgentProjectRoot(agent)
     }
 
-    private var bufferStrip: some View {
-        HStack(spacing: 6) {
-            Text("· TURN BUFFER ·")
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text("5/5")
-                .font(HUDType.mono(10))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkMuted)
-            Spacer(minLength: 0)
-            HStack(spacing: 4) {
-                ForEach(0..<5, id: \.self) { i in
-                    Circle()
-                        .fill(i == 4 ? HUDChrome.accent : HUDChrome.border)
-                        .frame(width: 4, height: 4)
-                }
-            }
-        }
-    }
 }
 
 private func openAgentMessages(_ agent: HudAgent) {
