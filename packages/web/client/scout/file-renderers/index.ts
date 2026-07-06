@@ -2,6 +2,7 @@ import { AudioRenderer } from "./AudioRenderer.tsx";
 import { BinaryFallbackRenderer } from "./BinaryFallbackRenderer.tsx";
 import { CodeRenderer } from "./CodeRenderer.tsx";
 import { DirectoryRenderer } from "./DirectoryRenderer.tsx";
+import { HtmlRenderer } from "./HtmlRenderer.tsx";
 import { ImageRenderer } from "./ImageRenderer.tsx";
 import { MarkdownRenderer } from "./MarkdownRenderer.tsx";
 import { VideoRenderer } from "./VideoRenderer.tsx";
@@ -16,6 +17,7 @@ export {
 export const fileRenderers = [
   DirectoryRenderer,
   MarkdownRenderer,
+  HtmlRenderer,
   CodeRenderer,
   ImageRenderer,
   VideoRenderer,

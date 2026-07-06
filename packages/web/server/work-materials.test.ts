@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentObservePayload } from "./core/observe/service.ts";
 import type { WebAgent, WebWorkDetail } from "./db-queries.ts";
@@ -62,6 +62,12 @@ mock.module("./core/observe/service.ts", () => ({
 }));
 
 const { buildWorkMaterialsInventory, readWorkMaterialContent } = await import("./work-materials.ts");
+
+mock.restore();
+
+afterAll(() => {
+  mock.restore();
+});
 
 beforeEach(() => {
   const home = makeTempRoot("openscout-work-materials-home-");
