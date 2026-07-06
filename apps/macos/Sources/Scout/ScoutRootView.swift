@@ -319,6 +319,7 @@ struct ScoutRootView: View {
                 openChannelFromExternalCommand(cId)
             }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: section == .comms)
         }
         .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openChannelNotificationName)) { notification in
             guard let cId = notification.userInfo?["cId"] as? String else { return }
@@ -342,6 +343,7 @@ struct ScoutRootView: View {
             if oldCId != nil {
                 pendingImages = []
             }
+            ScoutAttentionCenter.shared.noteSelection(cId: newCId, isCommsVisible: section == .comms)
         }
         .onChange(of: channelReconciliationKeys) { _, _ in
             reconcilePendingConversations()
@@ -351,6 +353,7 @@ struct ScoutRootView: View {
                 tailSessionEvent = nil
             }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: newSection == .comms)
         }
         .onChange(of: modalPresented) { _, _ in
             syncScopedStoreLifecycles()

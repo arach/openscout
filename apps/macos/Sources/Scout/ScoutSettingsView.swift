@@ -3,6 +3,7 @@ import SwiftUI
 
 private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     case appearance
+    case notifications
     case about
 
     var id: String { rawValue }
@@ -10,6 +11,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .appearance: return "Appearance"
+        case .notifications: return "Notifications"
         case .about: return "About"
         }
     }
@@ -17,6 +19,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .appearance: return "paintpalette"
+        case .notifications: return "bell"
         case .about: return "info.circle"
         }
     }
@@ -24,6 +27,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .appearance: return "Theme, accent, and window material."
+        case .notifications: return "How Scout tells you an agent needs you."
         case .about: return "Local build details."
         }
     }
@@ -32,6 +36,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
 /// Native settings surface for the Scout desktop app.
 struct ScoutSettingsView: View {
     @ObservedObject var appearance: ScoutAppearance
+    @ObservedObject private var attention = ScoutAttentionCenter.shared
     @State private var selectedSection: ScoutSettingsSection = .appearance
     /// Accent currently hovered in the swatch row — previews into the theme
     /// cards when `previewAccentsOnHover` is on. Contained to this panel.
@@ -151,8 +156,61 @@ struct ScoutSettingsView: View {
         switch selectedSection {
         case .appearance:
             appearancePage
+        case .notifications:
+            notificationsPage
         case .about:
             aboutPage
+        }
+    }
+
+    private var notificationsPage: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+            settingsBlock(title: "Attention") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("Scout can nudge you when an agent is waiting on your input.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+
+                    settingRow(title: "Needs you") {
+                        Toggle("Notify when an agent needs you", isOn: $attention.notificationsEnabled)
+                            .toggleStyle(.switch)
+                            .tint(ScoutPalette.accent)
+                            .labelsHidden()
+                    }
+
+                    settingRow(title: "Sound") {
+                        Toggle("Play sound", isOn: $attention.soundEnabled)
+                            .toggleStyle(.switch)
+                            .tint(ScoutPalette.accent)
+                            .labelsHidden()
+                            .disabled(!attention.notificationsEnabled)
+                    }
+
+                    settingRow(title: "Dock icon") {
+                        Toggle("Show count on Dock icon", isOn: $attention.dockBadgeEnabled)
+                            .toggleStyle(.switch)
+                            .tint(ScoutPalette.accent)
+                            .labelsHidden()
+                    }
+
+                    if attention.authorizationDenied {
+                        HStack(spacing: HudSpacing.sm) {
+                            Text("Notifications are turned off in System Settings.")
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.muted)
+                            Button("Open System Settings") {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.link)
+                            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                            .tint(ScoutPalette.accent)
+                        }
+                        .padding(.top, HudSpacing.xs)
+                    }
+                }
+            }
         }
     }
 
