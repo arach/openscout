@@ -69,6 +69,7 @@ import type { BrokerMeshHttpService } from "./broker-mesh-http-service.js";
 import type { BrokerRepoTailService } from "./broker-repo-tail-service.js";
 import type { BrokerWebControlService } from "./broker-web-control-service.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
+import type { DiscoverySnapshot, TailDiscoveryOptions, TailDiscoveryScope } from "./tail/types.js";
 import type {
   MeshCollaborationEventBundle,
   MeshCollaborationRecordBundle,
@@ -120,7 +121,7 @@ export type BrokerHttpRouterDeps = {
   a2aService: BrokerA2AService;
   brokerRepoTailService: BrokerRepoTailService<RuntimeRegistrySnapshot>;
   getHarnessTopologySnapshot: (force: boolean) => unknown | Promise<unknown>;
-  getTailDiscovery: (force?: boolean) => unknown | Promise<unknown>;
+  getTailDiscovery: (options?: boolean | TailDiscoveryOptions) => DiscoverySnapshot | Promise<DiscoverySnapshot>;
   nudgeHarnessTopologyScan: () => unknown | Promise<unknown>;
   deliveryHttpService: BrokerDeliveryHttpService;
   durableActionHttpService: BrokerDurableActionHttpService;
@@ -149,6 +150,63 @@ export type BrokerHttpRouterDeps = {
   acknowledgeDeliveriesForReadCursor: (cursor: ConversationReadCursor) => Promise<unknown>;
   deliveryAcceptanceService: BrokerDeliveryAcceptanceService;
 };
+
+const tailDiscoveryScopes = new Set<TailDiscoveryScope>(["hot", "shallow", "deep"]);
+
+function parseTailDiscoveryScope(value: string | null): TailDiscoveryScope | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  return tailDiscoveryScopes.has(normalized as TailDiscoveryScope)
+    ? (normalized as TailDiscoveryScope)
+    : undefined;
+}
+
+function parseTailDiscoveryLimit(value: string | null): number | undefined {
+  if (!value?.trim()) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 1_000) : undefined;
+}
+
+function tailDiscoveryProcessKey(source: string, cwd: string | null | undefined): string | null {
+  const cleanCwd = cwd?.trim();
+  return cleanCwd ? `${source}\u0000${cleanCwd}` : null;
+}
+
+function trimTailDiscoverySnapshot(
+  snapshot: DiscoverySnapshot,
+  limit: number | undefined,
+): DiscoverySnapshot {
+  if (!limit || limit <= 0) return snapshot;
+  const transcripts = snapshot.transcripts.slice(0, limit);
+  const transcriptProcessKeys = new Set(
+    transcripts
+      .map((transcript) => tailDiscoveryProcessKey(transcript.source, transcript.cwd))
+      .filter((key): key is string => Boolean(key)),
+  );
+  const processIds = new Set<string>();
+  const processes: DiscoverySnapshot["processes"] = [];
+  for (const process of snapshot.processes) {
+    const key = tailDiscoveryProcessKey(process.source, process.cwd);
+    if (!key || !transcriptProcessKeys.has(key)) continue;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+    if (processes.length >= limit) break;
+  }
+  for (const process of snapshot.processes) {
+    if (processes.length >= limit) break;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+  }
+  return {
+    ...snapshot,
+    processes,
+    transcripts,
+  };
+}
 
 export function createBrokerHttpRouter(
   deps: BrokerHttpRouterDeps,
@@ -350,12 +408,24 @@ export function createBrokerHttpRouter(
 
   if (method === "GET" && url.pathname === "/v1/tail/discover") {
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    const scope = parseTailDiscoveryScope(url.searchParams.get("scope"));
+    const limit = parseTailDiscoveryLimit(url.searchParams.get("limit"));
     const start = performance.now();
-    const payload = await getTailDiscovery(force);
+    const discoveryOptions: TailDiscoveryOptions = {
+      force,
+      ...(scope ? { scope } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    };
+    const timingDesc = [scope, limit ? `limit-${limit}` : null].filter(Boolean).join("-");
+    const payload = trimTailDiscoverySnapshot(
+      await getTailDiscovery(discoveryOptions),
+      limit,
+    );
     jsonWithHeaders(response, 200, payload, {
       "Server-Timing": serverTimingHeader([{
         name: force ? "tail-discover-force" : "tail-discover",
         dur: performance.now() - start,
+        ...(timingDesc ? { desc: timingDesc } : {}),
       }]),
     });
     return;

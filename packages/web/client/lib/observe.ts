@@ -10,24 +10,34 @@ const IDLE_POLL_INTERVAL_MS = 60_000;
 export type ObserveCacheEntry = Omit<AgentObservePayload, "agentId">;
 export type ObserveCache = Record<string, ObserveCacheEntry>;
 
-export function useObservePolling(agents: Agent[]): ObserveCache {
+function documentIsHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+export function useObservePolling(agents: Agent[], options?: {
+  activeIntervalMs?: number;
+  idleIntervalMs?: number;
+  pauseWhenHidden?: boolean;
+}): ObserveCache {
   const [cache, setCache] = useState<ObserveCache>({});
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
   const queuedRef = useRef(false);
+  const pauseWhenHidden = options?.pauseWhenHidden ?? false;
   const agentIds = agents
     .map((agent) => agent.id.trim())
     .filter((agentId) => agentId.length > 0)
     .join(",");
   const pollIntervalMs = agents.some((agent) => isAgentBusy(agent.state))
-    ? ACTIVE_POLL_INTERVAL_MS
-    : IDLE_POLL_INTERVAL_MS;
+    ? (options?.activeIntervalMs ?? ACTIVE_POLL_INTERVAL_MS)
+    : (options?.idleIntervalMs ?? IDLE_POLL_INTERVAL_MS);
 
   const fetchAll = useCallback(async () => {
     if (agents.length === 0) {
       setCache({});
       return;
     }
+    if (pauseWhenHidden && documentIsHidden()) return;
     if (inFlightRef.current) {
       queuedRef.current = true;
       return;
@@ -60,7 +70,7 @@ export function useObservePolling(agents: Agent[]): ObserveCache {
         void fetchAll();
       }
     }
-  }, [agentIds, agents]);
+  }, [agentIds, agents, pauseWhenHidden]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -72,11 +82,20 @@ export function useObservePolling(agents: Agent[]): ObserveCache {
     }
     void fetchAll();
     const timer = setInterval(() => void fetchAll(), pollIntervalMs);
+    const handleVisibilityChange = () => {
+      if (!documentIsHidden()) void fetchAll();
+    };
+    if (pauseWhenHidden && typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
     return () => {
       mountedRef.current = false;
       clearInterval(timer);
+      if (pauseWhenHidden && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
-  }, [agents.length, fetchAll, pollIntervalMs]);
+  }, [agents.length, fetchAll, pauseWhenHidden, pollIntervalMs]);
   return cache;
 }
 

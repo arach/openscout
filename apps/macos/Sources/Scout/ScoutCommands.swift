@@ -1,4 +1,5 @@
 import AppKit
+import ScoutHUD
 import SwiftUI
 
 enum ScoutAppCommand: String {
@@ -29,6 +30,13 @@ enum ScoutAppCommand: String {
 
 extension Notification.Name {
     static let scoutAppCommand = Notification.Name("app.openscout.scout.command")
+}
+
+@MainActor
+private func selectHUDTabIfVisible(_ view: HUDView) -> Bool {
+    guard HUDController.shared.isVisible else { return false }
+    HUDState.shared.select(view)
+    return true
 }
 
 struct ScoutCommands: Commands {
@@ -85,16 +93,19 @@ struct ScoutCommands: Commands {
             Divider()
 
             Button("Show All Chats") {
+                guard !selectHUDTabIfVisible(.agents) else { return }
                 ScoutAppCommand.filterAll.post()
             }
             .keyboardShortcut("1", modifiers: .command)
 
             Button("Show Direct Chats") {
+                guard !selectHUDTabIfVisible(.activity) else { return }
                 ScoutAppCommand.filterDirect.post()
             }
             .keyboardShortcut("2", modifiers: .command)
 
             Button("Show Shared Chats") {
+                guard !selectHUDTabIfVisible(.tail) else { return }
                 ScoutAppCommand.filterShared.post()
             }
             .keyboardShortcut("3", modifiers: .command)

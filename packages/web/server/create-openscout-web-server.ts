@@ -91,7 +91,6 @@ import {
   askScoutQuestion,
   loadScoutBrokerContext,
   loadScoutReadCursors,
-  loadScoutRelayConfig,
   markScoutConversationRead,
   openScoutDirectSession,
   resolveScoutBrokerUrl,
@@ -119,6 +118,7 @@ import {
   snapshotRecentEvents,
   type DiscoverySnapshot,
   type DiscoveredTranscript,
+  type TailDiscoveryScope,
   type TailEvent,
 } from "@openscout/runtime/tail";
 import {
@@ -131,18 +131,31 @@ import {
 } from "@openscout/runtime/knowledge";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
-  getRepoDiffSnapshot,
   projectSessionsAttention,
   sessionApprovalAttentionId,
-  type RepoDiffFile,
-  type RepoDiffLayer,
-  type RepoDiffLayerKind,
   type RepoDiffSnapshotOptions,
   type ScoutRepoDiffSnapshot,
   type SessionAttentionItem,
 } from "@openscout/runtime";
+import { buildHarnessResumeCommand, findHarnessEntry, loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
-  emitBroadcast,
+  loadRevealObservePayload,
+  observedRevealPathSet,
+  sessionTouchedResponse,
+} from "./observe-payload.ts";
+import {
+  mountRepoDiffRoutes,
+  type RepoPullRequestLoadOptions,
+  type RepoPullRequestSnapshot,
+} from "./routes/repo-diff.ts";
+import {
+  createScoutbotWebServices,
+  mountScoutbotRoutes,
+  type WebTailRuntime,
+} from "./routes/scoutbot.ts";
+import { mountScoutVoiceRoutes } from "./routes/voice.ts";
+import { stableHash } from "./util/stable-hash.ts";
+import {
   snapshotRecentBroadcasts,
   subscribeBroadcast,
 } from "./core/broadcast/service.ts";
@@ -156,34 +169,8 @@ import {
   loadOpenScoutWebShellState,
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
-import {
-  createScoutbotAssistantService,
-  ScoutbotAssistantError,
-  type ScoutbotCodexAssistantInvoker,
-  type ScoutbotBrief,
-  type ScoutbotBriefCapture,
-  type ScoutbotBriefObservation,
-  type ScoutbotBriefReference,
-} from "./scoutbot-assistant.ts";
-import {
-  deleteBriefing,
-  getBriefing,
-  listBriefings,
-  saveBriefing,
-  type BriefingKind,
-} from "./db/briefings.ts";
-import {
-  createScoutbotReminderStore,
-  ScoutbotReminderError,
-} from "./scoutbot-reminders.ts";
-import {
-  createScoutbotCredentialStore,
-} from "./scoutbot-credentials.ts";
-import {
-  startScoutbotRunner,
-  type ScoutbotRunnerHandle,
-} from "./scoutbot/runner.ts";
-import { SCOUTBOT_AGENT_ID, SCOUTBOT_REASONING_EFFORT } from "./scoutbot/role.ts";
+import type { ScoutbotCodexAssistantInvoker } from "./scoutbot-assistant.ts";
+import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -203,16 +190,6 @@ import {
   captureTmuxPane,
   execSystemFile,
   gitBuildInfoProbe,
-  gitDiffCommandArgs,
-  gitDiffNumstat,
-  gitDiffPatch,
-  gitDiffRaw,
-  gitDiffShortstat,
-  gitLogNameOnly,
-  gitMergeBase,
-  gitRemoteGetUrlOrigin,
-  gitRevParse,
-  gitStatusPorcelain,
   readAllProcessCommandRows,
   readAllProcessRows,
   readProcessCwd as readProcessCwdProbe,
@@ -226,33 +203,6 @@ import {
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
-import {
-  ensureScoutVoiceOrigins,
-  getScoutVoiceHealth,
-  resolveScoutSpeechDefaults,
-  synthesizeScoutSpeech,
-  transcribeScoutVoiceAudio,
-  type ScoutSpeechTimingRequest,
-} from "./scout-voice.ts";
-import {
-  ScoutVoiceSessionError,
-  awaitScoutVoiceHostCommand,
-  cancelScoutVoiceSession,
-  createScoutVoiceSession,
-  formatScoutVoiceSessionSse,
-  getScoutVoiceSettingsSnapshot,
-  isTerminalScoutVoiceSessionEvent,
-  listScoutVoiceSessionHistory,
-  openScoutVoicePrivacySettings,
-  requestScoutVoicePermissions,
-  pushScoutVoiceHostEvent,
-  registerScoutVoiceHost,
-  stopScoutVoiceSession,
-  subscribeScoutVoiceSession,
-  updateScoutVoiceSettings,
-  type ScoutVoiceSessionEventName,
-} from "./scout-voice-session.ts";
-import { engageScoutVoiceDictation } from "./scout-voice-engage.ts";
 import {
   createOpenScoutVantageHandoff,
   type OpenScoutVantageHandoff,
@@ -287,13 +237,18 @@ import {
   saveOpenScoutOnboardingProject,
   skipOpenScoutOnboarding,
 } from "@openscout/runtime/onboarding";
-import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
-import {
-  invokeCodexAppServerLocalAgent,
-  normalizeCodexAppServerLaunchArgs,
-} from "@openscout/agent-sessions/local";
 import { requestHarnessSessionCompaction } from "./session-compaction.ts";
+import {
+  pairingDeepLinks,
+  SCOUT_PAIRING_DEEP_LINK_PATH,
+  SCOUT_PAIRING_DEEP_LINK_SCHEME,
+} from "../shared/pairing-link.js";
+import {
+  resolveOpenScoutWebRoutes,
+  serializeOpenScoutWebBootstrap,
+} from "../shared/runtime-config.js";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -408,24 +363,6 @@ function slugifyTmuxName(value: string): string {
   return slug || "native";
 }
 
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-import { buildHarnessResumeCommand, findHarnessEntry, loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
-import {
-  pairingDeepLinks,
-  SCOUT_PAIRING_DEEP_LINK_PATH,
-  SCOUT_PAIRING_DEEP_LINK_SCHEME,
-} from "../shared/pairing-link.js";
-import {
-  resolveOpenScoutWebRoutes,
-  serializeOpenScoutWebBootstrap,
-} from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
 export type TerminalRunRequest = {
@@ -457,13 +394,6 @@ export type TmuxPanePeekCapture = {
   body: string;
   lineCount?: number;
   truncated?: boolean;
-};
-
-type WebTailRuntime = {
-  getTailDiscovery: typeof getTailDiscovery;
-  refreshTailDiscovery: typeof refreshTailDiscovery;
-  readRecentTranscriptEvents: typeof readRecentTranscriptEvents;
-  snapshotRecentEvents: typeof snapshotRecentEvents;
 };
 
 export type CreateOpenScoutWebServerOptions = {
@@ -524,879 +454,7 @@ function normalizePairingWebPort(value: number | undefined): number | null {
     : null;
 }
 
-const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
-  timeoutMs: 15_000,
-  includeBinaryPatch: false,
-};
 
-const REPO_DIFF_SUMMARY_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
-  ...REPO_DIFF_VIEWER_LIMITS,
-  includeRawPatch: false,
-  includeParsedHunks: false,
-};
-
-const REPO_DIFF_CACHE_MAX_ENTRIES = 64;
-const REPO_DIFF_GIT_MAX_BUFFER = 16 * 1024 * 1024;
-const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
-const REPO_PRS_MAX_PATHS = 16;
-const REPO_PRS_DEFAULT_LIMIT = 12;
-
-type RepoDiffCacheMode = "reload" | "prefer" | "only";
-type RepoDiffTier = "patch" | "summary";
-type RepoDiffCacheEntry = {
-  snapshot: ScoutRepoDiffSnapshot;
-  storedAt: number;
-};
-
-type RepoPullRequestLoadOptions = {
-  paths: string[];
-  limitPerRepo: number;
-};
-
-type GhPullRequest = {
-  number?: number;
-  title?: string;
-  url?: string;
-  state?: string;
-  isDraft?: boolean;
-  headRefName?: string;
-  baseRefName?: string;
-  updatedAt?: string;
-  author?: { login?: string | null } | null;
-};
-
-type RepoPullRequestItem = {
-  id: string;
-  repo: string;
-  path: string;
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  author: string | null;
-  updatedAt: string | null;
-};
-
-type RepoPullRequestSnapshot = {
-  generatedAt: number;
-  source: "gh";
-  paths: string[];
-  pullRequests: RepoPullRequestItem[];
-  warnings: string[];
-};
-
-type RepoDiffScopeMetadata =
-  | {
-      kind: "worktree";
-      label: string;
-      worktreePath: string;
-      filteredPaths: string[];
-    }
-  | {
-      kind: "session";
-      label: string;
-      worktreePath: string;
-      refId: string | null;
-      agentId: string | null;
-      sessionId: string | null;
-      filteredPaths: string[];
-      touchedFiles: number;
-      changedFiles: number;
-      include: "changed" | "all";
-      caveat: "path-filtered-not-hunk-provenance";
-    };
-type ScopedRepoDiffSnapshot = ScoutRepoDiffSnapshot & {
-  scope?: RepoDiffScopeMetadata;
-};
-
-function parseRepoDiffCacheMode(value: string | undefined, force: string | undefined): RepoDiffCacheMode {
-  if (force === "1" || force === "true") return "reload";
-  switch (value) {
-    case "only":
-      return "only";
-    case "prefer":
-      return "prefer";
-    case "reload":
-    case "refresh":
-    case "live":
-      return "reload";
-    default:
-      return "reload";
-  }
-}
-
-function parseRepoDiffTier(value: string | undefined): RepoDiffTier {
-  return value === "summary" ? "summary" : "patch";
-}
-
-function wantsRepoDiffRehydrate(value: string | undefined): boolean {
-  return value === "1" || value === "true";
-}
-
-function repoDiffCacheKey(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  baseRef: string | undefined;
-  compareRef: string | undefined;
-  tier: RepoDiffTier;
-  stateKey: string | undefined;
-  paths?: readonly string[];
-}): string {
-  return [
-    input.worktreePath.trim(),
-    input.layers.join(","),
-    input.baseRef ?? "",
-    input.compareRef ?? "",
-    input.tier,
-    input.stateKey ?? "",
-    ...(input.paths?.length ? [input.paths.join("\n")] : []),
-  ].join("\u0000");
-}
-
-const REPO_DIFF_TRUNK_REFS = [
-  "origin/main",
-  "main",
-  "origin/master",
-  "master",
-  "origin/trunk",
-  "trunk",
-];
-
-async function resolveGitCommitRef(worktreePath: string, ref: string): Promise<string | null> {
-  return await gitRevParse({ repoRoot: worktreePath, kind: "verifyCommit", ref });
-}
-
-async function preferredRepoDiffBaseRef(worktreePath: string): Promise<string | null> {
-  const upstream = await gitRevParse({ repoRoot: worktreePath, kind: "upstreamSymbolicFullName" });
-  for (const candidate of [...REPO_DIFF_TRUNK_REFS, upstream].filter(Boolean) as string[]) {
-    if (candidate === "HEAD") continue;
-    if (await resolveGitCommitRef(worktreePath, candidate)) return candidate;
-  }
-  return null;
-}
-
-async function resolveRepoDiffBranchRefs(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  baseRef?: string;
-  compareRef?: string;
-}): Promise<{ baseRef?: string; compareRef?: string }> {
-  if (!input.layers.includes("branch")) {
-    return { baseRef: input.baseRef, compareRef: input.compareRef };
-  }
-  const compareRef = input.compareRef?.trim() || "HEAD";
-  const compareOid = await resolveGitCommitRef(input.worktreePath, compareRef);
-  if (!compareOid) {
-    return { baseRef: input.baseRef, compareRef: input.compareRef };
-  }
-  const baseCandidate = input.baseRef?.trim() || await preferredRepoDiffBaseRef(input.worktreePath);
-  if (!baseCandidate) {
-    return { compareRef: compareOid };
-  }
-  const baseOid = await resolveGitCommitRef(input.worktreePath, baseCandidate);
-  if (!baseOid) {
-    return { baseRef: baseCandidate, compareRef: compareOid };
-  }
-  const mergeBase = await gitMergeBase({
-    repoRoot: input.worktreePath,
-    baseRef: baseOid,
-    compareRef: compareOid,
-  });
-  return {
-    baseRef: mergeBase ?? baseOid,
-    compareRef: compareOid,
-  };
-}
-
-async function repoDiffStateKey(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  baseRef?: string;
-  compareRef?: string;
-  paths?: readonly string[];
-}): Promise<string> {
-  const parts: string[] = [];
-  if (input.layers.includes("branch")) {
-    parts.push(`branch:${input.baseRef ?? ""}..${input.compareRef ?? ""}`);
-  }
-  if (input.layers.includes("staged")) {
-    const staged = await gitDiffRaw({
-      repoRoot: input.worktreePath,
-      selector: { kind: "staged" },
-      paths: input.paths,
-    });
-    parts.push(`staged:${stableHash(staged ?? "unavailable")}`);
-  }
-  if (input.layers.includes("unstaged")) {
-    const status = await gitStatusPorcelain({
-      repoRoot: input.worktreePath,
-      version: "v2",
-      z: true,
-      paths: input.paths,
-    });
-    const diff = await gitDiffNumstat({
-      repoRoot: input.worktreePath,
-      selector: { kind: "unstaged" },
-      paths: input.paths,
-      z: true,
-    });
-    parts.push(`unstaged:${stableHash(`${status ?? "unavailable"}\0${diff ?? ""}`)}`);
-  }
-  return parts.join("|");
-}
-
-function uniqueNonEmpty(values: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const raw of values) {
-    const value = raw.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
-}
-
-function normalizeRepoDiffPathFilters(worktreePath: string, rawPaths: readonly string[]): string[] {
-  const worktreeRoot = resolve(worktreePath);
-  const paths: string[] = [];
-  for (const rawPath of rawPaths) {
-    const trimmed = rawPath.trim();
-    if (!trimmed) continue;
-    const absolute = isAbsolute(trimmed)
-      ? resolve(trimmed)
-      : resolve(worktreeRoot, trimmed);
-    const relativePath = relative(worktreeRoot, absolute);
-    if (!relativePath || relativePath === "." || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-      continue;
-    }
-    paths.push(relativePath.replace(/\\/g, "/"));
-  }
-  return uniqueNonEmpty(paths);
-}
-
-function repoDiffPathFiltersFromQuery(c: Context, worktreePath: string): string[] {
-  return normalizeRepoDiffPathFilters(worktreePath, [
-    ...(c.req.queries("file") ?? []),
-    ...(c.req.queries("pathspec") ?? []),
-  ]);
-}
-
-function withRepoDiffScope(
-  snapshot: ScoutRepoDiffSnapshot,
-  scope: RepoDiffScopeMetadata,
-): ScopedRepoDiffSnapshot {
-  return { ...snapshot, scope };
-}
-
-function repoDiffLayerLabels(kind: RepoDiffLayerKind): { base: string | null; compare: string | null } {
-  switch (kind) {
-    case "unstaged":
-      return { base: "index", compare: "working tree" };
-    case "staged":
-      return { base: "HEAD", compare: "index" };
-    case "branch":
-      return { base: null, compare: null };
-  }
-}
-
-type RepoDiffGitSelectorResult = {
-  selector: Parameters<typeof gitDiffRaw>[0]["selector"];
-  baseLabel: string | null;
-  compareLabel: string | null;
-  missing?: string;
-};
-
-function repoDiffGitSelector(input: {
-  kind: RepoDiffLayerKind;
-  baseRef?: string;
-  compareRef?: string;
-}): RepoDiffGitSelectorResult {
-  switch (input.kind) {
-    case "unstaged":
-      return { selector: { kind: "unstaged" }, baseLabel: "index", compareLabel: "working tree" };
-    case "staged":
-      return { selector: { kind: "staged" }, baseLabel: "HEAD", compareLabel: "index" };
-    case "branch": {
-      const base = input.baseRef?.trim();
-      if (!base) {
-        return {
-          selector: { kind: "unstaged" },
-          baseLabel: null,
-          compareLabel: input.compareRef ?? null,
-          missing: "Branch layer requires a base ref.",
-        };
-      }
-      const compare = input.compareRef?.trim() || "HEAD";
-      return {
-        selector: { kind: "twoRefs", baseRef: base, compareRef: compare },
-        baseLabel: base,
-        compareLabel: compare,
-      };
-    }
-  }
-}
-
-function repoDiffFileStatus(statusCode: string): RepoDiffFile["status"] {
-  switch (statusCode.charAt(0)) {
-    case "A":
-      return "added";
-    case "M":
-      return "modified";
-    case "D":
-      return "deleted";
-    case "R":
-      return "renamed";
-    case "C":
-      return "copied";
-    case "T":
-      return "typechange";
-    case "U":
-      return "conflict";
-    default:
-      return "unknown";
-  }
-}
-
-type RepoDiffNumstat = {
-  additions: number | null;
-  deletions: number | null;
-  binary: boolean;
-};
-
-function parseRepoDiffNumstatZ(output: string): Map<string, RepoDiffNumstat> {
-  const stats = new Map<string, RepoDiffNumstat>();
-  const tokens = output.split("\0");
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (!token) continue;
-    const parts = token.split("\t");
-    if (parts.length < 3) continue;
-    let path = parts.slice(2).join("\t");
-    if (!path && index + 2 < tokens.length) {
-      // With -z, rename/copy numstat records are: add<TAB>del<TAB><NUL>old<NUL>new<NUL>.
-      index += 2;
-      path = tokens[index] || tokens[index - 1] || "";
-    }
-    if (!path) continue;
-    const binary = parts[0] === "-" || parts[1] === "-";
-    stats.set(path, {
-      additions: binary ? null : Number(parts[0]) || 0,
-      deletions: binary ? null : Number(parts[1]) || 0,
-      binary,
-    });
-  }
-  return stats;
-}
-
-function parseRepoDiffRawZ(output: string, numstat: Map<string, RepoDiffNumstat>): RepoDiffFile[] {
-  const files: RepoDiffFile[] = [];
-  const tokens = output.split("\0");
-  for (let index = 0; index < tokens.length; index += 1) {
-    const meta = tokens[index];
-    if (!meta?.startsWith(":")) continue;
-    const fields = meta.slice(1).split(/\s+/);
-    if (fields.length < 5) continue;
-    const statusCode = fields[4] ?? "";
-    const status = repoDiffFileStatus(statusCode);
-    const twoPathRecord = status === "renamed" || status === "copied";
-    const firstPath = tokens[index + 1] || null;
-    const secondPath = twoPathRecord ? (tokens[index + 2] || null) : null;
-    index += twoPathRecord ? 2 : 1;
-
-    let oldPath = firstPath;
-    let newPath = twoPathRecord ? secondPath : firstPath;
-    if (status === "added") oldPath = null;
-    if (status === "deleted") newPath = null;
-
-    const stat = numstat.get(newPath ?? "") ?? numstat.get(oldPath ?? "");
-    files.push({
-      oldPath,
-      newPath,
-      status,
-      oldOid: fields[2] ?? null,
-      newOid: fields[3] ?? null,
-      oldMode: fields[0] ?? null,
-      newMode: fields[1] ?? null,
-      similarity: twoPathRecord ? Number.parseInt(statusCode.slice(1), 10) || null : null,
-      binary: stat?.binary ?? false,
-      additions: stat?.additions ?? null,
-      deletions: stat?.deletions ?? null,
-      hunks: [],
-      truncated: false,
-    });
-  }
-  return files;
-}
-
-function repoDiffDisplayPath(file: RepoDiffFile): string {
-  return file.newPath ?? file.oldPath ?? "";
-}
-
-async function recentBranchDiffPaths(input: {
-  worktreePath: string;
-  baseRef?: string;
-  compareRef?: string;
-  paths?: readonly string[];
-}): Promise<string[]> {
-  if (!input.baseRef) return [];
-  const output = await gitLogNameOnly({
-    repoRoot: input.worktreePath,
-    baseRef: input.baseRef,
-    compareRef: input.compareRef || "HEAD",
-    paths: input.paths,
-  }, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER });
-  return uniqueNonEmpty((output ?? "").split(/\r?\n/));
-}
-
-function sortRepoDiffFilesRecentFirst(files: RepoDiffFile[], recentPaths: readonly string[]): RepoDiffFile[] {
-  if (recentPaths.length === 0) return files;
-  const rank = new Map(recentPaths.map((path, index) => [path, index]));
-  return files
-    .map((file, index) => ({ file, index }))
-    .sort((left, right) => {
-      const leftRank = rank.get(repoDiffDisplayPath(left.file)) ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = rank.get(repoDiffDisplayPath(right.file)) ?? Number.MAX_SAFE_INTEGER;
-      if (leftRank !== rightRank) return leftRank - rightRank;
-      return left.index - right.index;
-    })
-    .map((entry) => entry.file);
-}
-
-async function buildGitRepoDiffLayer(input: {
-  worktreePath: string;
-  kind: RepoDiffLayerKind;
-  baseRef?: string;
-  compareRef?: string;
-  paths?: readonly string[];
-  tier: RepoDiffTier;
-  diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }>;
-}): Promise<RepoDiffLayer | null> {
-  const resolved = repoDiffGitSelector(input);
-  if (resolved.missing) {
-    input.diagnostics.push({
-      level: "warning",
-      kind: "branch_refs_missing",
-      message: resolved.missing,
-      path: null,
-    });
-    return null;
-  }
-  const diffInput = {
-    repoRoot: input.worktreePath,
-    selector: resolved.selector,
-    paths: input.paths,
-  };
-  const raw = await gitDiffRaw(diffInput, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
-  const numstat = await gitDiffNumstat({ ...diffInput, z: true }, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
-  const shortstat = await gitDiffShortstat(diffInput);
-  let files = parseRepoDiffRawZ(raw, parseRepoDiffNumstatZ(numstat));
-  if (input.kind === "branch") {
-    files = sortRepoDiffFilesRecentFirst(files, await recentBranchDiffPaths(input));
-  }
-
-  const patchArgs = gitDiffCommandArgs({ ...diffInput, output: "patch" });
-  const command = ["git", ...patchArgs];
-  let rawPatch: string | null = null;
-  let rawPatchBytes = 0;
-  let truncated = false;
-
-  if (input.tier === "patch") {
-    const patch = await gitDiffPatch(diffInput, { maxStdoutBytes: REPO_DIFF_GIT_MAX_BUFFER }) ?? "";
-    rawPatchBytes = Buffer.byteLength(patch);
-    const maxPatchBytes = REPO_DIFF_VIEWER_LIMITS.maxPatchBytes ?? 2_000_000;
-    if (rawPatchBytes > maxPatchBytes) {
-      truncated = true;
-      rawPatch = patch.slice(0, maxPatchBytes);
-      input.diagnostics.push({
-        level: "warning",
-        kind: "patch_truncated",
-        message: `Patch text truncated to ${maxPatchBytes} of ${rawPatchBytes} bytes.`,
-        path: null,
-      });
-    } else {
-      rawPatch = patch;
-    }
-  }
-
-  return {
-    kind: input.kind,
-    baseLabel: resolved.baseLabel,
-    compareLabel: resolved.compareLabel,
-    command,
-    patchOid: stableHash(`${command.join("\0")}\0${raw}\0${numstat}\0${shortstat ?? ""}\0${rawPatch ?? ""}`),
-    rawPatch,
-    rawPatchBytes,
-    truncated,
-    files,
-    shortstat,
-  };
-}
-
-async function buildGitRepoDiffSnapshot(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  baseRef?: string;
-  compareRef?: string;
-  tier: RepoDiffTier;
-  paths?: readonly string[];
-}): Promise<ScoutRepoDiffSnapshot> {
-  const diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }> = [];
-  const layers = (await Promise.all(input.layers
-    .map((kind) => buildGitRepoDiffLayer({
-      worktreePath: input.worktreePath,
-      kind,
-      baseRef: input.baseRef,
-      compareRef: input.compareRef,
-      paths: input.paths,
-      tier: input.tier,
-      diagnostics,
-    }))))
-    .filter((layer): layer is RepoDiffLayer => Boolean(layer));
-
-  if (input.tier === "summary" && layers.some((layer) => layer.files.length > 100)) {
-    diagnostics.push({
-      level: "info",
-      kind: "large_diff_strategy",
-      message: "Loaded a recent-first file inventory; select a file to fetch its patch text.",
-      path: null,
-    });
-  }
-
-  const renderKey = stableHash([
-    "git-repo-diff",
-    input.worktreePath,
-    input.tier,
-    input.baseRef ?? "",
-    input.compareRef ?? "",
-    input.paths?.join("\n") ?? "",
-    layers.map((layer) => `${layer.kind}:${layer.patchOid}`).join("|"),
-  ].join("\0"));
-
-  return {
-    schema: "openscout.repo.diff/v1",
-    generatedAt: Date.now(),
-    worktreePath: input.worktreePath,
-    layers,
-    coverage: {
-      requestedLayers: input.layers.length,
-      emittedLayers: layers.length,
-      files: layers.reduce((sum, layer) => sum + layer.files.length, 0),
-      patchBytes: layers.reduce((sum, layer) => sum + layer.rawPatchBytes, 0),
-      truncatedLayers: layers.filter((layer) => layer.truncated).length,
-      scanBudgetReached: false,
-    },
-    diagnostics,
-    scout: { worktreeId: `worktree:${stableHash(input.worktreePath)}`, projectId: null, agents: [], sessions: [], hints: [] },
-    render: {
-      renderKey,
-      cachePolicy: "local-disposable",
-      preferredTheme: "pierre-dark",
-      preferredLayout: "split",
-    },
-  };
-}
-
-function shouldUseGitRepoDiffFallback(input: {
-  tier: RepoDiffTier;
-  paths?: readonly string[];
-}): boolean {
-  return input.tier === "summary" || (input.paths?.length ?? 0) > 0;
-}
-
-function emptyRepoDiffSnapshot(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  scope: RepoDiffScopeMetadata;
-}): ScopedRepoDiffSnapshot {
-  const layers = input.layers.map((kind) => {
-    const labels = repoDiffLayerLabels(kind);
-    return {
-      kind,
-      baseLabel: labels.base,
-      compareLabel: labels.compare,
-      command: ["git", "diff"],
-      patchOid: stableHash(`empty:${input.worktreePath}:${kind}:${input.scope.kind}`),
-      rawPatch: "",
-      rawPatchBytes: 0,
-      truncated: false,
-      files: [],
-      shortstat: null,
-    };
-  });
-  return {
-    schema: "openscout.repo.diff/v1",
-    generatedAt: Date.now(),
-    worktreePath: input.worktreePath,
-    layers,
-    coverage: {
-      requestedLayers: input.layers.length,
-      emittedLayers: layers.length,
-      files: 0,
-      patchBytes: 0,
-      truncatedLayers: 0,
-      scanBudgetReached: false,
-    },
-    diagnostics: [],
-    scout: { worktreeId: null, projectId: null, agents: [], sessions: [], hints: [] },
-    render: {
-      renderKey: stableHash(`empty-render:${input.worktreePath}:${input.layers.join(",")}:${input.scope.kind}`),
-      cachePolicy: "local-disposable",
-      preferredTheme: "pierre-dark",
-      preferredLayout: "split",
-    },
-    scope: input.scope,
-  };
-}
-
-function trimRepoDiffCache(cache: Map<string, RepoDiffCacheEntry>): void {
-  while (cache.size > REPO_DIFF_CACHE_MAX_ENTRIES) {
-    const oldest = cache.keys().next().value;
-    if (!oldest) break;
-    cache.delete(oldest);
-  }
-}
-
-type FleetHomeBrief = {
-  id: string;
-  statement: string;
-  summary: string;
-  observations: FleetHomeBriefObservation[];
-  preparedAt: number;
-  expiresAt: number;
-  ttlMs: number;
-  sourceBriefId: string;
-};
-
-type FleetHomeBriefReference = {
-  id: string;
-  kind: string;
-  label: string;
-  route?: Record<string, unknown>;
-  detail?: string;
-};
-
-type FleetHomeBriefObservation = {
-  id: string;
-  text: string;
-  tone?: string;
-  references: FleetHomeBriefReference[];
-};
-
-const FLEET_HOME_BRIEF_TTL_MS = 30 * 60_000;
-
-function persistBriefing(
-  kind: BriefingKind,
-  brief: ScoutbotBrief,
-  capture: ScoutbotBriefCapture,
-): void {
-  try {
-    const observations = brief.steps.flatMap((step) => step.observations ?? []);
-    saveBriefing({
-      id: brief.id,
-      kind,
-      title: brief.title,
-      summary: brief.summary,
-      recommendation: brief.recommendation || null,
-      preparedAt: brief.preparedAt,
-      ttlMs: brief.ttlMs,
-      brief,
-      observations,
-      snapshot: capture.snapshot,
-      call: capture.call,
-      markdown: brief.markdown ?? null,
-    });
-  } catch (err) {
-    console.warn(
-      "[briefings] auto-save failed:",
-      err instanceof Error ? err.message : err,
-    );
-  }
-}
-
-function buildFleetHomeBrief(brief: ScoutbotBrief): FleetHomeBrief {
-  const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
-  const statement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
-  const observations = buildFleetHomeBriefObservations(statement || brief.summary, fleetStep?.observations ?? []);
-  return {
-    id: `fleet-home:${brief.id}`,
-    statement: statement || brief.summary,
-    summary: brief.summary,
-    observations,
-    preparedAt: brief.preparedAt,
-    expiresAt: brief.expiresAt,
-    ttlMs: brief.ttlMs,
-    sourceBriefId: brief.id,
-  };
-}
-
-function buildFleetHomeBriefObservations(
-  statement: string,
-  modelObservations: ScoutbotBriefObservation[],
-): FleetHomeBriefObservation[] {
-  const modelItems = modelObservations
-    .map((item, index) => ({
-      id: `obs-${index + 1}`,
-      text: item.text.trim(),
-      ...(item.tone ? { tone: item.tone } : {}),
-      references: dedupeFleetBriefReferences(
-        item.references
-          .map(normalizeFleetBriefReference)
-          .filter((ref): ref is FleetHomeBriefReference => ref !== null),
-      ),
-    }))
-    .filter((item) => item.text);
-
-  const baseItems = modelItems.length > 0
-    ? modelItems
-    : splitFleetBriefSentences(statement).map((text, index) => ({
-      id: `obs-${index + 1}`,
-      text,
-      references: [] as FleetHomeBriefReference[],
-    }));
-
-  return baseItems.map((item, index) => ({
-    ...item,
-    id: item.id || `obs-${index + 1}`,
-    references: dedupeFleetBriefReferences([
-      ...item.references,
-      ...inferFleetBriefReferences(item.text),
-    ]).slice(0, 4),
-  }));
-}
-
-function splitFleetBriefSentences(value: string): string[] {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (!compact) return [];
-  const parts = compact.match(/[^.!?]+[.!?]?/g)
-    ?.map((part) => part.trim())
-    .filter(Boolean) ?? [compact];
-  return parts.slice(0, 4).map((part) => /[.!?]$/.test(part) ? part : `${part}.`);
-}
-
-function normalizeFleetBriefReference(ref: ScoutbotBriefReference): FleetHomeBriefReference | null {
-  const label = ref.label.trim();
-  if (!label) return null;
-  const id = `${ref.kind}:${label}:${JSON.stringify(ref.route ?? {})}`;
-  return {
-    id,
-    kind: ref.kind,
-    label,
-    ...(ref.route ? { route: ref.route } : {}),
-    ...(ref.detail ? { detail: ref.detail } : {}),
-  };
-}
-
-function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
-  const refs: FleetHomeBriefReference[] = [];
-  const lower = text.toLowerCase();
-  const agents = queryAgents(200).filter((agent) => !isScoutbotLikeAgentRecord(agent));
-  for (const agent of agents) {
-    const names = [agent.name, agent.handle ? `@${agent.handle}` : "", agent.handle ?? ""]
-      .map((name) => name.trim())
-      .filter(Boolean);
-    if (names.some((name) => lower.includes(name.toLowerCase()))) {
-      refs.push({
-        id: `agent:${agent.id}`,
-        kind: "agent",
-        label: agent.name,
-        route: { view: "agents", agentId: agent.id, tab: "observe" },
-        ...(agent.handle ? { detail: `@${agent.handle}` } : {}),
-      });
-    }
-  }
-
-  const fleet = queryFleet({ limit: 12, activityLimit: 40 });
-  const attentionTerms = /\b(attention|badge|pending|review|reviews|blocked|blocking|stalled|waiting|open work|work items?|next moves?|operator)\b/i;
-  if (attentionTerms.test(text)) {
-    for (const item of fleet.needsAttention.slice(0, 3)) {
-      refs.push({
-        id: `${item.kind}:${item.recordId}`,
-        kind: item.kind === "work_item" ? "work" : "question",
-        label: item.title,
-        route: item.kind === "work_item"
-          ? { view: "work", workId: item.recordId }
-          : item.conversationId
-            ? { view: "conversation", conversationId: item.conversationId }
-            : { view: "activity" },
-        detail: item.agentName ?? item.state,
-      });
-    }
-    for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed" || item.attention !== "silent").slice(0, 2)) {
-      refs.push({
-        id: `ask:${ask.invocationId}`,
-        kind: ask.status === "failed" ? "failure" : "ask",
-        label: ask.agentName ?? ask.task,
-        route: ask.conversationId
-          ? { view: "conversation", conversationId: ask.conversationId }
-          : { view: "agents", agentId: ask.agentId, tab: "observe" },
-        detail: ask.statusLabel,
-      });
-    }
-  }
-
-  const sessionTerms = /\b(session|transcript|assets?|artifact|render|copy|font|files?)\b/i;
-  if (sessionTerms.test(text)) {
-    const sessions = querySessions(80);
-    for (const session of sessions.slice(0, 2)) {
-      const label = session.title || session.agentName || session.id;
-      if (
-        lower.includes(label.toLowerCase())
-        || (session.agentName && lower.includes(session.agentName.toLowerCase()))
-        || (session.preview && hasSharedWord(lower, session.preview.toLowerCase()))
-      ) {
-        refs.push({
-          id: `session:${session.id}`,
-          kind: "session",
-          label,
-          route: { view: "sessions", sessionId: session.id },
-          ...(session.agentName ? { detail: session.agentName } : {}),
-        });
-      }
-    }
-  }
-
-  const conversationTerms = /\b(conversation|thread|message|handoff|approval|approved|ship|shipped|completed)\b/i;
-  if (conversationTerms.test(text)) {
-    for (const activity of queryActivity(80).slice(0, 4)) {
-      const haystack = `${activity.actorName ?? ""} ${activity.agentName ?? ""} ${activity.title ?? ""} ${activity.summary ?? ""}`.toLowerCase();
-      if (!activity.conversationId || !hasSharedWord(lower, haystack)) continue;
-      refs.push({
-        id: `conversation:${activity.conversationId}`,
-        kind: "conversation",
-        label: activity.title ?? activity.actorName ?? "Open thread",
-        route: { view: "conversation", conversationId: activity.conversationId },
-        detail: activity.actorName ?? undefined,
-      });
-      break;
-    }
-  }
-
-  return refs;
-}
-
-function hasSharedWord(left: string, right: string): boolean {
-  const stop = new Set(["the", "and", "for", "with", "that", "this", "from", "into", "work", "item", "items"]);
-  const words = left
-    .split(/[^a-z0-9]+/i)
-    .filter((word) => word.length >= 5 && !stop.has(word));
-  return words.some((word) => right.includes(word));
-}
-
-function dedupeFleetBriefReferences(refs: FleetHomeBriefReference[]): FleetHomeBriefReference[] {
-  const seen = new Set<string>();
-  const result: FleetHomeBriefReference[] = [];
-  for (const ref of refs) {
-    const key = ref.id || `${ref.kind}:${ref.label}:${JSON.stringify(ref.route ?? {})}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(ref);
-  }
-  return result;
-}
 
 export type OpenScoutWebServer = {
   app: Hono;
@@ -1571,6 +629,67 @@ type TailRecentPayload = {
   events: TailEvent[];
 };
 
+const TAIL_DISCOVERY_SCOPES = new Set<TailDiscoveryScope>(["hot", "shallow", "deep"]);
+
+function parseTailDiscoveryScope(value: string | undefined): TailDiscoveryScope | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  return TAIL_DISCOVERY_SCOPES.has(normalized as TailDiscoveryScope)
+    ? (normalized as TailDiscoveryScope)
+    : undefined;
+}
+
+function tailDiscoveryProcessKey(source: string, cwd: string | null | undefined): string | null {
+  const cleanCwd = cwd?.trim();
+  return cleanCwd ? `${source}\u0000${cleanCwd}` : null;
+}
+
+function limitTailDiscoverySnapshot(
+  snapshot: DiscoverySnapshot,
+  limit: number | undefined,
+): DiscoverySnapshot {
+  if (!limit || limit <= 0) return snapshot;
+  const transcripts = snapshot.transcripts.slice(0, limit);
+  const transcriptProcessKeys = new Set(
+    transcripts
+      .map((transcript) => tailDiscoveryProcessKey(transcript.source, transcript.cwd))
+      .filter((key): key is string => Boolean(key)),
+  );
+  const processIds = new Set<string>();
+  const processes: DiscoverySnapshot["processes"] = [];
+  for (const process of snapshot.processes) {
+    const key = tailDiscoveryProcessKey(process.source, process.cwd);
+    if (!key || !transcriptProcessKeys.has(key)) continue;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+    if (processes.length >= limit) break;
+  }
+  for (const process of snapshot.processes) {
+    if (processes.length >= limit) break;
+    const processId = `${process.source}\u0000${process.pid}`;
+    if (processIds.has(processId)) continue;
+    processIds.add(processId);
+    processes.push(process);
+  }
+  return {
+    ...snapshot,
+    processes,
+    transcripts,
+  };
+}
+
+function readTailDiscovery(
+  tailRuntime: WebTailRuntime,
+  options: { force: boolean; scope?: TailDiscoveryScope; limit?: number },
+): Promise<DiscoverySnapshot> {
+  if (!options.scope && options.limit === undefined) {
+    return tailRuntime.getTailDiscovery(options.force);
+  }
+  return tailRuntime.getTailDiscovery(options);
+}
+
 type BrokerJsonCache<T> = {
   data: T | null;
   inFlight: Promise<void> | null;
@@ -1682,7 +801,7 @@ async function serveCachedBrokerJson<T>(
   url: URL,
   label: string,
   fallback: () => T | Promise<T>,
-  options: { forceRefresh?: boolean } = {},
+  options: { forceRefresh?: boolean; transform?: (data: T) => T } = {},
 ): Promise<Response> {
   const start = performance.now();
   if (options.forceRefresh) {
@@ -1694,7 +813,9 @@ async function serveCachedBrokerJson<T>(
     scheduleBrokerJsonRefresh(cache, url, label);
   }
   const state = cachedBrokerJsonState(cache);
-  const data = cache.data ?? await fallback();
+  const data = options.transform
+    ? options.transform(cache.data ?? await fallback())
+    : cache.data ?? await fallback();
   c.header("Cache-Control", "no-store");
   c.header("X-OpenScout-Tail-State", state);
   if (cache.lastError) {
@@ -2696,6 +1817,7 @@ function brokerAgentCardToWebAgent(
     branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
     role: null,
     model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
+    modelProvider: metadataStringValue(endpointMetadata, "provider") ?? metadataStringValue(agentMetadata, "provider"),
     harnessSessionId: resolveHarnessSessionIdForAgent(
       endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
       endpoint?.sessionId ?? null,
@@ -2919,76 +2041,6 @@ async function defaultCaptureTmuxPane(request: TmuxPanePeekRequest): Promise<Tmu
     maxBytes: TMUX_PEEK_MAX_BYTES,
   });
   return body === null ? null : { body };
-}
-
-function parseScoutSpeechTimingRequest(value: unknown): ScoutSpeechTimingRequest | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const record = recordInput(value);
-  if (!record) {
-    return null;
-  }
-  if (record.enabled !== true) {
-    return undefined;
-  }
-  const rawCues = record.cues;
-  if (rawCues !== undefined && !Array.isArray(rawCues)) {
-    return null;
-  }
-  const cues = rawCues?.map((rawCue) => {
-    const cue = recordInput(rawCue);
-    if (!cue) {
-      return null;
-    }
-    const id = optionalString(cue.id)?.trim();
-    if (!id) {
-      return null;
-    }
-    const text = optionalString(cue.text);
-    if (text !== undefined) {
-      return { id, text };
-    }
-    const textStart = optionalFiniteNumber(cue.textStart);
-    const textEnd = optionalFiniteNumber(cue.textEnd);
-    if (textStart === undefined || textEnd === undefined || textEnd < textStart) {
-      return null;
-    }
-    return { id, textStart, textEnd };
-  });
-  if (cues?.some((cue) => cue === null)) {
-    return null;
-  }
-  const modelId = optionalString(record.modelId)?.trim();
-  return {
-    enabled: true,
-    ...(modelId ? { modelId } : {}),
-    ...(typeof record.strict === "boolean" ? { strict: record.strict } : {}),
-    ...(cues ? { cues: cues as NonNullable<ScoutSpeechTimingRequest["cues"]> } : {}),
-  };
-}
-
-function jsonScoutVoiceSessionError(error: unknown): Response {
-  if (error instanceof ScoutVoiceSessionError) {
-    return Response.json({ error: error.message, code: error.code }, { status: error.status });
-  }
-  const message = error instanceof Error ? error.message : "Scout voice session failed";
-  return Response.json({ error: message }, { status: 500 });
-}
-
-function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | "aac" | "opus" | "pcm16" | null | undefined {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return undefined;
-  switch (normalized) {
-    case "mp3":
-    case "wav":
-    case "aac":
-    case "opus":
-    case "pcm16":
-      return normalized;
-    default:
-      return null;
-  }
 }
 
 function inferDirectTargetAgentId(
@@ -3342,101 +2394,6 @@ function resolveObservedPath(
   return resolve(expandHomePath(cwd.trim()), expanded);
 }
 
-async function loadRevealObservePayload(input: {
-  agentId?: string | null;
-  sessionId?: string | null;
-}) {
-  const agentId = input.agentId?.trim() || null;
-  const sessionId = input.sessionId?.trim() || null;
-  if (agentId) {
-    const activePayload = await loadAgentObservePayload(agentId);
-    if (activePayload && (!sessionId || activePayload.sessionId === sessionId)) {
-      return activePayload;
-    }
-  }
-
-  if (sessionId) {
-    const refPayload = await loadSessionRefObservePayload(sessionId);
-    if (refPayload && (!agentId || refPayload.agentId === null || refPayload.agentId === agentId)) {
-      return refPayload;
-    }
-  }
-
-  return null;
-}
-
-function observedRevealPathSet(payload: Awaited<ReturnType<typeof loadRevealObservePayload>>): Set<string> {
-  const allowed = new Set<string>();
-  const session = payload?.data.metadata?.session;
-  const cwd = session?.cwd ?? null;
-  const candidates = [
-    payload?.historyPath,
-    cwd,
-    session?.threadPath,
-    ...(payload?.data.files.map((file) => file.path) ?? []),
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    const resolved = resolveObservedPath(candidate, cwd);
-    const real = resolved ? realpathIfExists(resolved) : null;
-    if (real) {
-      allowed.add(real);
-    }
-  }
-
-  return allowed;
-}
-
-type LoadedObservePayload = NonNullable<Awaited<ReturnType<typeof loadRevealObservePayload>>>;
-
-function observedWorktreePath(payload: LoadedObservePayload): string | null {
-  const sessionCwd = payload.data.metadata?.session?.cwd?.trim();
-  if (sessionCwd) {
-    return resolve(expandHomePath(sessionCwd));
-  }
-  if (payload.agentId) {
-    const agent = queryAgentById(payload.agentId);
-    const agentPath = agent?.cwd?.trim() || agent?.projectRoot?.trim();
-    if (agentPath) {
-      return resolve(expandHomePath(agentPath));
-    }
-  }
-  return null;
-}
-
-function sessionDiffInclude(value: string | undefined): "changed" | "all" {
-  return value === "all" || value === "touched" ? "all" : "changed";
-}
-
-function sessionDiffTouchedPaths(payload: LoadedObservePayload, include: "changed" | "all"): string[] {
-  return payload.data.files
-    .filter((file) => include === "all" || file.state !== "read")
-    .map((file) => file.path);
-}
-
-function sessionTouchedResponse(payload: LoadedObservePayload, refId: string | null) {
-  const worktreePath = observedWorktreePath(payload);
-  const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
-  return {
-    schema: "openscout.session.touched/v1",
-    refId,
-    agentId: payload.agentId,
-    sessionId: payload.sessionId,
-    source: payload.source,
-    fidelity: payload.fidelity,
-    historyPath: payload.historyPath,
-    worktreePath,
-    counts: {
-      files: payload.data.files.length,
-      changedFiles,
-      readFiles: payload.data.files.length - changedFiles,
-    },
-    files: payload.data.files,
-  };
-}
 
 async function defaultRevealLocalPath(targetPath: string): Promise<void> {
   if (!existsSync(targetPath)) {
@@ -3485,13 +2442,6 @@ function compactAttentionSummary(value: string | null | undefined, max = 220): s
   return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
 }
 
-function compactScoutbotText(value: string | null | undefined, max = 280): string | null {
-  const compacted = (value ?? "").replace(/\s+/g, " ").trim();
-  if (!compacted) {
-    return null;
-  }
-  return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
-}
 
 type BrokerDispatchReviewAttempt = ReturnType<typeof queryBrokerDiagnostics>["attempts"][number];
 
@@ -3718,136 +2668,6 @@ async function warmOpenScoutBuildInfo(currentDirectory: string): Promise<OpenSco
   return openScoutBuildInfoFromGit(snapshot.value);
 }
 
-async function repoPullRequestRoot(rawPath: string): Promise<string | null> {
-  const trimmed = rawPath.trim();
-  if (!trimmed) return null;
-  const candidate = resolve(trimmed);
-  try {
-    if (!statSync(candidate).isDirectory()) return null;
-  } catch {
-    return null;
-  }
-  return await gitRevParse({ repoRoot: candidate, kind: "showToplevel" }) ?? candidate;
-}
-
-async function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): Promise<string[]> {
-  const sourcePaths = rawPaths.length > 0 ? rawPaths : [fallbackPath];
-  const seen = new Set<string>();
-  const roots: string[] = [];
-  for (const rawPath of sourcePaths) {
-    const root = await repoPullRequestRoot(rawPath);
-    if (!root) continue;
-    const key = realpathSync(root);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    roots.push(root);
-    if (roots.length >= REPO_PRS_MAX_PATHS) break;
-  }
-  return roots;
-}
-
-function repoNameFromGitRemote(remote: string | null, fallbackPath: string): string {
-  if (remote) {
-    const ssh = /^git@[^:]+:([^/]+\/.+?)(?:\.git)?$/.exec(remote);
-    if (ssh) return ssh[1];
-    try {
-      const url = new URL(remote);
-      const path = url.pathname.replace(/^\/+/, "").replace(/\.git$/, "");
-      if (path.includes("/")) return path;
-    } catch {
-      const local = remote.replace(/\.git$/, "");
-      if (local.includes("/")) return local.split("/").slice(-2).join("/");
-    }
-  }
-  return basename(fallbackPath);
-}
-
-function parseGhPullRequests(stdout: string, repo: string, path: string): RepoPullRequestItem[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const items: RepoPullRequestItem[] = [];
-  for (const raw of parsed as GhPullRequest[]) {
-    if (
-      typeof raw.number !== "number" ||
-      typeof raw.title !== "string" ||
-      typeof raw.url !== "string"
-    ) {
-      continue;
-    }
-    items.push({
-      id: `${repo}#${raw.number}`,
-      repo,
-      path,
-      number: raw.number,
-      title: raw.title,
-      url: raw.url,
-      state: typeof raw.state === "string" ? raw.state : "OPEN",
-      isDraft: Boolean(raw.isDraft),
-      headRefName: typeof raw.headRefName === "string" ? raw.headRefName : "",
-      baseRefName: typeof raw.baseRefName === "string" ? raw.baseRefName : "",
-      author: typeof raw.author?.login === "string" ? raw.author.login : null,
-      updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
-    });
-  }
-  return items;
-}
-
-async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promise<RepoPullRequestSnapshot> {
-  const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
-  const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
-  const results = await Promise.all(paths.map(async (path) => {
-    const remote = await gitRemoteGetUrlOrigin(path);
-    const repo = repoNameFromGitRemote(remote, path);
-    try {
-      const result = await execSystemFile("gh", [
-        "pr",
-        "list",
-        "--state",
-        "open",
-        "--limit",
-        String(limit),
-        "--json",
-        "number,title,url,state,isDraft,headRefName,baseRefName,author,updatedAt",
-      ], {
-        cwd: path,
-        timeoutMs: 2_500,
-        maxStdoutBytes: 512 * 1024,
-        maxStderrBytes: 128 * 1024,
-      });
-      return {
-        pullRequests: parseGhPullRequests(result.stdout, repo, path),
-        warning: null,
-      };
-    } catch {
-      return {
-        pullRequests: [],
-        warning: `${repo}: open PRs unavailable`,
-      };
-    }
-  }));
-
-  const pullRequests = results.flatMap((result) => result.pullRequests);
-  const warnings = results
-    .map((result) => result.warning)
-    .filter((warning): warning is string => Boolean(warning));
-
-  return {
-    generatedAt: Date.now(),
-    source: "gh",
-    paths,
-    pullRequests: pullRequests.sort((left, right) => {
-      const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
-      const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
-      return rightTime - leftTime || left.repo.localeCompare(right.repo) || right.number - left.number;
-    }),
-    warnings,
-  };
-}
 
 function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const normalized = detail.toLowerCase();
@@ -4126,365 +2946,6 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
-async function buildScoutbotAssistantControlState(
-  currentDirectory: string,
-  tailRuntime: WebTailRuntime,
-  route?: unknown,
-) {
-  const omittedActiveAgentId = isScoutbotAssistantRoute(route) ? "scoutbot" : null;
-  const [attention, mesh, tailDiscovery] = await Promise.all([
-    valueOrNull(buildOperatorAttentionState(currentDirectory)),
-    valueOrNull(loadMeshStatus()),
-    valueOrNull(tailRuntime.getTailDiscovery()),
-  ]);
-  const broker = queryBrokerDiagnostics({ limit: 80, windowMs: 6 * 60 * 60_000 });
-  const fleet = queryFleet({ limit: 16, activityLimit: 40 });
-  const transcriptEvents = await valueOrNull(
-    tailRuntime.readRecentTranscriptEvents(50, {
-      ...(tailDiscovery ? { discovery: tailDiscovery } : {}),
-    }),
-  );
-  const agentLogEvents = transcriptEvents && transcriptEvents.length > 0
-    ? transcriptEvents
-    : tailRuntime.snapshotRecentEvents(50).slice().reverse();
-  const agentLogMessages = agentLogEvents
-    .filter((event) => event.kind !== "system")
-    .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
-    .map(compactScoutbotTailEvent);
-  const scoutChatter = queryRecentMessages(50).map(compactScoutbotMessage);
-  const activeRuns = queryRuns({ active: true, limit: 24 })
-    .filter((run) => run.agentId !== omittedActiveAgentId);
-  const activeFlights = queryFlights({ activeOnly: true })
-    .filter((flight) => flight.agentId !== omittedActiveAgentId)
-    .slice(0, 24);
-
-  return {
-    build: loadOpenScoutBuildInfo(currentDirectory),
-    agents: queryAgents(40)
-      .filter((agent) => !isScoutbotLikeAgentRecord(agent))
-      .map((agent) => ({
-        id: agent.id,
-        name: agent.name,
-        handle: agent.handle,
-        state: agent.state,
-        harness: agent.harness,
-        transport: agent.transport,
-        model: agent.model,
-        project: agent.project,
-        branch: agent.branch,
-        cwd: agent.cwd,
-        updatedAt: agent.updatedAt,
-        conversationId: agent.conversationId,
-      })),
-    fleet: {
-      generatedAt: fleet.generatedAt,
-      totals: fleet.totals,
-      activeAsks: fleet.activeAsks.slice(0, 12).map(compactScoutbotFleetAsk),
-      needsAttention: fleet.needsAttention.slice(0, 12).map(compactScoutbotFleetAttention),
-      recentCompleted: fleet.recentCompleted.slice(0, 8).map(compactScoutbotFleetAsk),
-      activity: fleet.activity.slice(0, 12).map(compactScoutbotActivity),
-    },
-    operatorAttention: attention
-      ? {
-          generatedAt: attention.generatedAt,
-          totals: attention.totals,
-          items: attention.items.slice(0, 16),
-        }
-      : null,
-    broker: {
-      generatedAt: broker.generatedAt,
-      windowMs: broker.windowMs,
-      totals: broker.totals,
-      rates: broker.rates,
-      failedQueries: broker.failedQueries.slice(0, 8).map(compactScoutbotRouteAttempt),
-      failedDeliveries: broker.failedDeliveries.slice(0, 8).map(compactScoutbotRouteAttempt),
-      attempts: broker.attempts.slice(0, 12).map(compactScoutbotRouteAttempt),
-      dialogue: broker.dialogue.slice(0, 12).map(compactScoutbotDialogue),
-    },
-    activeWork: queryWorkItems({ activeOnly: true, limit: 20 }).map(compactScoutbotWorkItem),
-    activeRuns,
-    activeFlights,
-    sessions: querySessions(24),
-    recentMessages: scoutChatter.slice(0, 16),
-    recentActivity: queryActivity(16).map(compactScoutbotActivity),
-    briefingEvidence: {
-      agentLogMessages,
-      scoutChatter,
-    },
-    heartrate: queryHeartrate(),
-    mesh: mesh
-      ? {
-          brokerUrl: mesh.brokerUrl,
-          identity: mesh.identity,
-          meshId: mesh.meshId,
-          localNode: mesh.localNode,
-          issueCount: mesh.issues.length,
-          issues: mesh.issues,
-          warnings: mesh.warnings,
-          tailscale: {
-            available: mesh.tailscale.available,
-            running: mesh.tailscale.running,
-            backendState: mesh.tailscale.backendState,
-            onlineCount: mesh.tailscale.onlineCount,
-          },
-        }
-      : null,
-    harnessActivity: tailDiscovery
-      ? {
-          generatedAt: tailDiscovery.generatedAt,
-          totals: tailDiscovery.totals,
-          processes: tailDiscovery.processes.slice(0, 24).map((p) => ({
-            pid: p.pid,
-            source: p.source,
-            harness: p.harness,
-            command: compactScoutbotText(p.command, 140),
-            cwd: p.cwd,
-            etime: p.etime,
-          })),
-          transcripts: tailDiscovery.transcripts.slice(0, 24).map((t) => ({
-            source: t.source,
-            harness: t.harness,
-            sessionId: t.sessionId,
-            project: t.project,
-            cwd: t.cwd,
-            transcriptPath: t.transcriptPath,
-            mtimeMs: t.mtimeMs,
-            size: t.size,
-          })),
-        }
-      : null,
-  };
-}
-
-function isScoutbotAssistantRoute(route: unknown): boolean {
-  return Boolean(
-    route
-    && typeof route === "object"
-    && (route as { surface?: unknown }).surface === "scoutbot",
-  );
-}
-
-function compactScoutbotFleetAsk(ask: ReturnType<typeof queryFleet>["activeAsks"][number]) {
-  return {
-    invocationId: ask.invocationId,
-    flightId: ask.flightId,
-    agentId: ask.agentId,
-    agentName: ask.agentName,
-    conversationId: ask.conversationId,
-    task: compactScoutbotText(ask.task, 260),
-    status: ask.status,
-    statusLabel: ask.statusLabel,
-    attention: ask.attention,
-    summary: compactScoutbotText(ask.summary, 260),
-    startedAt: ask.startedAt,
-    completedAt: ask.completedAt,
-    updatedAt: ask.updatedAt,
-  };
-}
-
-function compactScoutbotFleetAttention(item: ReturnType<typeof queryFleet>["needsAttention"][number]) {
-  return {
-    kind: item.kind,
-    recordId: item.recordId,
-    title: compactScoutbotText(item.title, 180),
-    summary: compactScoutbotText(item.summary, 260),
-    agentId: item.agentId,
-    agentName: item.agentName,
-    conversationId: item.conversationId,
-    state: item.state,
-    acceptanceState: item.acceptanceState,
-    updatedAt: item.updatedAt,
-  };
-}
-
-function compactScoutbotActivity(item: ReturnType<typeof queryActivity>[number]) {
-  return {
-    id: item.id,
-    kind: item.kind,
-    ts: item.ts,
-    actorName: item.actorName,
-    title: compactScoutbotText(item.title, 180),
-    summary: compactScoutbotText(item.summary, 260),
-    conversationId: item.conversationId,
-    workspaceRoot: item.workspaceRoot,
-  };
-}
-
-function compactScoutbotRouteAttempt(attempt: ReturnType<typeof queryBrokerDiagnostics>["attempts"][number]) {
-  return {
-    id: attempt.id,
-    kind: attempt.kind,
-    status: attempt.status,
-    ts: attempt.ts,
-    actorName: attempt.actorName,
-    target: attempt.target,
-    route: attempt.route,
-    detail: compactScoutbotText(attempt.detail, 320),
-    conversationId: attempt.conversationId,
-    messageId: attempt.messageId,
-    deliveryId: attempt.deliveryId,
-    invocationId: attempt.invocationId,
-  };
-}
-
-function compactScoutbotDialogue(item: ReturnType<typeof queryBrokerDiagnostics>["dialogue"][number]) {
-  return {
-    id: item.id,
-    ts: item.ts,
-    actorName: item.actorName,
-    conversationId: item.conversationId,
-    body: compactScoutbotText(item.body, 320),
-    class: item.class,
-  };
-}
-
-function compactScoutbotWorkItem(item: ReturnType<typeof queryWorkItems>[number]) {
-  return {
-    id: item.id,
-    title: compactScoutbotText(item.title, 180),
-    summary: compactScoutbotText(item.summary, 260),
-    ownerId: item.ownerId,
-    ownerName: item.ownerName,
-    nextMoveOwnerId: item.nextMoveOwnerId,
-    nextMoveOwnerName: item.nextMoveOwnerName,
-    conversationId: item.conversationId,
-    state: item.state,
-    acceptanceState: item.acceptanceState,
-    priority: item.priority,
-    currentPhase: item.currentPhase,
-    attention: item.attention,
-    activeChildWorkCount: item.activeChildWorkCount,
-    activeFlightCount: item.activeFlightCount,
-    lastMeaningfulAt: item.lastMeaningfulAt,
-    lastMeaningfulSummary: compactScoutbotText(item.lastMeaningfulSummary, 260),
-  };
-}
-
-function compactScoutbotMessage(message: ReturnType<typeof queryRecentMessages>[number]) {
-  return {
-    id: message.id,
-    conversationId: message.conversationId,
-    actorName: message.actorName,
-    body: compactScoutbotText(message.body, 320),
-    createdAt: message.createdAt,
-    class: message.class,
-  };
-}
-
-function compactScoutbotTailEvent(event: ReturnType<typeof snapshotRecentEvents>[number]) {
-  return {
-    id: event.id,
-    ts: event.ts,
-    source: event.source,
-    sessionId: event.sessionId,
-    project: event.project,
-    cwd: event.cwd,
-    harness: event.harness,
-    kind: event.kind,
-    summary: compactScoutbotText(event.summary, 360),
-  };
-}
-
-async function valueOrNull<T>(value: Promise<T> | T): Promise<T | null> {
-  try {
-    return await value;
-  } catch {
-    return null;
-  }
-}
-
-function isScoutbotLikeAgentRecord(agent: { id: string; name: string; handle: string | null; role: string | null }): boolean {
-  return [agent.id, agent.name, agent.handle ?? "", agent.role ?? ""]
-    .map((value) => value.trim().toLowerCase())
-    .some((value) => value === "scoutbot" || value.startsWith("scoutbot.") || value.includes(".scoutbot."));
-}
-
-function previewSecret(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= 10) {
-    return "configured";
-  }
-  return `${trimmed.slice(0, 5)}...${trimmed.slice(-4)}`;
-}
-
-async function resolveScoutbotCredentialState(
-  scoutbotCredentials: ReturnType<typeof createScoutbotCredentialStore>,
-): Promise<{
-  openai: {
-    configured: boolean;
-    source: "env" | "local-config" | "local-store" | "missing";
-    preview: string | null;
-  };
-}> {
-  const envKey = process.env.OPENAI_API_KEY?.trim() ?? "";
-  const config = await loadScoutRelayConfig().catch(
-    () => ({}) as Awaited<ReturnType<typeof loadScoutRelayConfig>>,
-  );
-  const configKey = typeof config.openaiApiKey === "string" ? config.openaiApiKey.trim() : "";
-  const storeKey = scoutbotCredentials.getOpenAIKey()?.trim() ?? "";
-  const key = envKey || configKey || storeKey;
-  return {
-    openai: {
-      configured: Boolean(key),
-      source: envKey ? "env" : configKey ? "local-config" : storeKey ? "local-store" : "missing",
-      preview: key ? previewSecret(key) : null,
-    },
-  };
-}
-
-function buildScoutbotCodexProcessEnv(currentDirectory: string): NodeJS.ProcessEnv {
-  const cwd = currentDirectory.trim();
-  return {
-    ...process.env,
-    OPENSCOUT_AGENT: "scoutbot-assistant",
-    OPENSCOUT_SETUP_CWD: cwd,
-    OPENSCOUT_MANAGED_AGENT: "1",
-  };
-}
-
-function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCodexAssistantInvoker {
-  return async (input) => {
-    const runtimeName = `scoutbot-assistant-${sanitizeSupportPathSegment(input.sessionId)}`;
-    const result = await invokeCodexAppServerLocalAgent({
-      agentName: "scoutbot-assistant",
-      sessionId: input.sessionId,
-      cwd: currentDirectory,
-      systemPrompt: input.systemPrompt,
-      runtimeDirectory: relayAgentRuntimeDirectory(runtimeName),
-      logsDirectory: relayAgentLogsDirectory(runtimeName),
-      launchArgs: buildScoutbotAssistantCodexLaunchArgs(process.env),
-      processEnv: buildScoutbotCodexProcessEnv(currentDirectory),
-      ...(input.threadId ? { threadId: input.threadId } : {}),
-      prompt: input.prompt,
-      timeoutMs: input.timeoutMs,
-      approvalPolicy: "never",
-      sandbox: "read-only",
-    });
-    return {
-      output: result.output,
-      threadId: result.threadId,
-    };
-  };
-}
-
-function buildScoutbotAssistantCodexLaunchArgs(env: NodeJS.ProcessEnv): string[] {
-  const args: string[] = [];
-  const model = env.OPENSCOUT_SCOUTBOT_CODEX_MODEL?.trim();
-  const reasoningEffort = env.OPENSCOUT_SCOUTBOT_CODEX_REASONING_EFFORT?.trim()
-    || SCOUTBOT_REASONING_EFFORT;
-  if (model) args.push("--model", model);
-  if (reasoningEffort) args.push("--reasoning-effort", reasoningEffort);
-  return normalizeCodexAppServerLaunchArgs(args);
-}
-
-function sanitizeSupportPathSegment(value: string): string {
-  const sanitized = value
-    .trim()
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return sanitized || "default";
-}
 
 function renderScoutLocalPortal(input: {
   requestUrl: string;
@@ -4759,7 +3220,6 @@ export async function createOpenScoutWebServer(
     }
   }, { webPort: options.webPort });
   const routes = resolveOpenScoutWebRoutes(process.env);
-  ensureScoutVoiceOrigins();
   startGlobalHeuristicsWatcher();
   const app = new Hono();
   installHttpsEdgeSecurityHeaders(app, options.publicOrigin);
@@ -4767,8 +3227,6 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
-  const scoutbotReminders = createScoutbotReminderStore();
-  const scoutbotCredentials = createScoutbotCredentialStore();
   const tailRuntime: WebTailRuntime = {
     getTailDiscovery,
     refreshTailDiscovery,
@@ -4776,175 +3234,30 @@ export async function createOpenScoutWebServer(
     snapshotRecentEvents,
     ...options.tailRuntime,
   };
-  const scoutbotAssistant = createScoutbotAssistantService({
+  const scoutbot = await createScoutbotWebServices({
     currentDirectory,
-    loadContext: async (route) => ({
-      ...(await buildScoutbotAssistantControlState(currentDirectory, tailRuntime, route)),
-      reminders: scoutbotReminders.getState(),
-    }),
-    resolveApiKey: async () => {
-      const config = await loadScoutRelayConfig().catch(() => null);
-      return config?.openaiApiKey ?? scoutbotCredentials.getOpenAIKey();
-    },
-    invokeCodex: options.scoutbotAssistant?.invokeCodex
-      ?? createDefaultScoutbotCodexInvoker(currentDirectory),
+    tailRuntime,
+    loadOperatorAttention: buildOperatorAttentionState,
+    loadBuildInfo: loadOpenScoutBuildInfo,
+    invokeCodex: options.scoutbotAssistant?.invokeCodex,
+    scoutbot: options.scoutbot,
   });
-  let scoutbotRunner: ScoutbotRunnerHandle | null = null;
-  if (options.scoutbot?.enabled) {
-    try {
-      scoutbotRunner = await startScoutbotRunner({
-        brokerBaseUrl: options.scoutbot.brokerBaseUrl,
-        currentDirectory,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[scoutbot] runner failed to start: ${message}`);
-    }
-  }
-  let fleetHomeBrief: FleetHomeBrief | null = null;
-  let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
-  const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
-  const repoDiffInFlight = new Map<string, Promise<ScoutRepoDiffSnapshot>>();
-  const tailDiscoveryCache = createBrokerJsonCache<DiscoverySnapshot>();
+  let scoutbotRunner = scoutbot.runner;
+  const tailDiscoveryCaches = new Map<string, BrokerJsonCache<DiscoverySnapshot>>();
   const tailRecentCaches = new Map<string, BrokerJsonCache<TailRecentPayload>>();
-  const runCachedRepoDiff = (
-    key: string,
-    runRepoDiff: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>,
-    snapshotOptions: RepoDiffSnapshotOptions,
-  ): Promise<ScoutRepoDiffSnapshot> => {
-    const active = repoDiffInFlight.get(key);
-    if (active) return active;
-    const request = runRepoDiff(snapshotOptions)
-      .then((snapshot) => {
-        repoDiffCache.delete(key);
-        repoDiffCache.set(key, { snapshot, storedAt: Date.now() });
-        trimRepoDiffCache(repoDiffCache);
-        return snapshot;
-      })
-      .finally(() => {
-        repoDiffInFlight.delete(key);
-      });
-    repoDiffInFlight.set(key, request);
-    return request;
-  };
-  const serveRepoDiffSnapshot = async (
-    c: Context,
-    input: {
-      worktreePath: string;
-      layers: readonly RepoDiffLayerKind[];
-      baseRef?: string;
-      compareRef?: string;
-      tier: RepoDiffTier;
-      cacheMode: RepoDiffCacheMode;
-      rehydrate: boolean;
-      stateKey?: string;
-      paths?: readonly string[];
-      scope?: RepoDiffScopeMetadata;
-    },
-  ) => {
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const cacheKey = repoDiffCacheKey({
-      worktreePath: input.worktreePath,
-      layers: input.layers,
-      baseRef: input.baseRef,
-      compareRef: input.compareRef,
-      tier: input.tier,
-      stateKey: input.stateKey,
-      paths: input.paths,
-    });
-    const snapshotOptions: RepoDiffSnapshotOptions = {
-      worktreePath: input.worktreePath,
-      layers: input.layers.length > 0 ? [...input.layers] : undefined,
-      baseRef: input.baseRef,
-      compareRef: input.compareRef,
-      paths: input.paths && input.paths.length > 0 ? [...input.paths] : undefined,
-      limits: input.tier === "summary" ? REPO_DIFF_SUMMARY_LIMITS : REPO_DIFF_VIEWER_LIMITS,
-    };
-
-    if (!options.repoDiffSnapshot && shouldUseGitRepoDiffFallback(input)) {
-      const snapshot = await buildGitRepoDiffSnapshot({
-        worktreePath: input.worktreePath,
-        layers: input.layers,
-        baseRef: input.baseRef,
-        compareRef: input.compareRef,
-        tier: input.tier,
-        paths: input.paths,
-      });
-      c.header("x-openscout-repo-diff-cache", "git");
-      return c.json(input.scope ? withRepoDiffScope(snapshot, input.scope) : snapshot);
-    }
-
-    if (input.cacheMode !== "reload") {
-      const cached = repoDiffCache.get(cacheKey);
-      if (cached) {
-        c.header("x-openscout-repo-diff-cache", "hit");
-        c.header("x-openscout-repo-diff-cached-at", String(cached.storedAt));
-        if (input.rehydrate) {
-          c.header("x-openscout-repo-diff-rehydrate", "queued");
-          void runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions).catch(() => undefined);
-        }
-        return c.json(input.scope ? withRepoDiffScope(cached.snapshot, input.scope) : cached.snapshot);
-      }
-      if (input.cacheMode === "only") {
-        c.header("x-openscout-repo-diff-cache", "miss");
-        const warming = repoDiffInFlight.has(cacheKey);
-        return c.json({
-          status: warming ? "warming" : "missing",
-          worktreePath: input.worktreePath,
-          tier: input.tier,
-          layers: input.layers,
-          paths: input.paths ?? [],
-        }, warming ? 202 : 404);
-      }
-    }
-
-    try {
-      // A diff is a local read — run the native producer in-process. The broker
-      // (fleet coordination) is intentionally NOT in this path; agent/session
-      // annotations (SCO-065 §15) can enrich later without coupling here.
-      const snapshot = await runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions);
-      c.header("x-openscout-repo-diff-cache", "miss");
-      return c.json(input.scope ? withRepoDiffScope(snapshot, input.scope) : snapshot);
-    } catch (error) {
-      return c.json(
-        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
-        502,
-      );
-    }
-  };
-  const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
-    const now = Date.now();
-    if (!force && fleetHomeBrief && fleetHomeBrief.expiresAt > now) {
-      return fleetHomeBrief;
-    }
-    if (!force && fleetHomeBriefInFlight) {
-      return fleetHomeBriefInFlight;
-    }
-    let captured: ScoutbotBriefCapture | null = null;
-    fleetHomeBriefInFlight = scoutbotAssistant.createBrief({
-      route: { view: "fleet" },
-      ttlMs: FLEET_HOME_BRIEF_TTL_MS,
-      mode: "fleet-home",
-      onCaptured: (c) => { captured = c; },
-    })
-      .then((scoutbotBrief) => {
-        if (captured) persistBriefing("fleet-home", scoutbotBrief, captured);
-        return buildFleetHomeBrief(scoutbotBrief);
-      })
-      .then((brief) => {
-        fleetHomeBrief = brief;
-        return brief;
-      })
-      .finally(() => {
-        fleetHomeBriefInFlight = null;
-      });
-    return fleetHomeBriefInFlight;
-  };
 
   installScoutApiMiddleware(app, "openscout-web api", {
     trustedHosts: options.trustedHosts,
     trustedOrigins: options.trustedOrigins,
   });
+
+  mountRepoDiffRoutes(app, {
+    currentDirectory,
+    repoDiffSnapshot: options.repoDiffSnapshot,
+    repoPullRequests: options.repoPullRequests,
+  });
+
+  mountScoutbotRoutes(app, scoutbot, { currentDirectory });
 
   app.get(routes.bootstrapScriptPath, (c) =>
     new Response(serializeOpenScoutWebBootstrap(process.env), {
@@ -5104,206 +3417,6 @@ export async function createOpenScoutWebServer(
       console.error("[ui/scenes]", message);
       return c.json({ error: message }, 500);
     }
-  });
-  app.get("/api/scoutbot/session", (c) => c.json(scoutbotAssistant.getSessionState()));
-  app.post("/api/scoutbot/session/reset", (c) => c.json(scoutbotAssistant.resetSession()));
-  app.post("/api/scoutbot/session/switch", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { id?: unknown };
-    const id = typeof body.id === "string" ? body.id.trim() : "";
-    if (!id) {
-      return c.json({ error: "id is required" }, 400);
-    }
-    try {
-      return c.json(scoutbotAssistant.switchSession(id));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot switch failed";
-      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 404 | 500);
-    }
-  });
-  app.post("/api/scoutbot/session/archive", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { id?: unknown };
-    const id = typeof body.id === "string" ? body.id.trim() : "";
-    if (!id) {
-      return c.json({ error: "id is required" }, 400);
-    }
-    try {
-      return c.json(scoutbotAssistant.archiveSession(id));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot archive failed";
-      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 404 | 500);
-    }
-  });
-  app.get("/api/scoutbot/reminders", (c) => c.json(scoutbotReminders.getState()));
-  app.post("/api/scoutbot/reminders", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      title?: unknown;
-      body?: unknown;
-      source?: unknown;
-      dueAt?: unknown;
-      delayMs?: unknown;
-      delayMinutes?: unknown;
-      context?: unknown;
-    };
-
-    try {
-      return c.json(scoutbotReminders.create(body));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot reminder failed";
-      const status = error instanceof ScoutbotReminderError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 404 | 500);
-    }
-  });
-  app.post("/api/scoutbot/reminders/:id/dismiss", (c) => {
-    try {
-      return c.json(scoutbotReminders.dismiss(c.req.param("id")));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot reminder failed";
-      const status = error instanceof ScoutbotReminderError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 404 | 500);
-    }
-  });
-  app.get("/api/scoutbot/config", (c) => c.json(scoutbotAssistant.getConfig()));
-  app.post("/api/scoutbot/config", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      model?: string | null;
-      systemPrompt?: string | null;
-    };
-    return c.json({
-      config: scoutbotAssistant.updateConfig({
-        model: body.model,
-        systemPrompt: body.systemPrompt,
-      }),
-    });
-  });
-  app.get("/api/scoutbot/credentials", async (c) => {
-    return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
-  });
-  app.post("/api/scoutbot/credentials/openai", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { apiKey?: unknown };
-    try {
-      if (typeof body.apiKey !== "string") {
-        return c.json({ error: "apiKey is required" }, 400);
-      }
-      scoutbotCredentials.setOpenAIKey(body.apiKey);
-      return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not save OpenAI API key.";
-      return c.json({ error: message }, 400);
-    }
-  });
-  app.delete("/api/scoutbot/credentials/openai", async (c) => {
-    scoutbotCredentials.deleteOpenAIKey();
-    return c.json(await resolveScoutbotCredentialState(scoutbotCredentials));
-  });
-  app.post("/api/scoutbot/chat", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      body?: string;
-      route?: unknown;
-    };
-
-    try {
-      return c.json(await scoutbotAssistant.respond({
-        body: body.body ?? "",
-        route: body.route,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot assistant failed";
-      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
-    }
-  });
-  app.post("/api/scoutbot/actions/ask", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      targetLabel?: string;
-      targetAgentId?: string;
-      body?: string;
-      channel?: string;
-    };
-    const targetLabel = body.targetLabel?.trim() || body.targetAgentId?.trim() || "";
-    const targetAgentId = body.targetAgentId?.trim();
-    const requestBody = body.body?.trim() ?? "";
-    const channel = body.channel?.trim();
-    if (!targetLabel) {
-      return c.json({ error: "targetLabel or targetAgentId is required" }, 400);
-    }
-    if (!requestBody) {
-      return c.json({ error: "body is required" }, 400);
-    }
-
-    const result = await askScoutQuestion({
-      senderId: resolveOperatorName().trim() || "operator",
-      targetLabel,
-      ...(targetAgentId ? { targetAgentId } : {}),
-      body: requestBody,
-      ...(channel ? { channel } : {}),
-      currentDirectory,
-    });
-
-    if (!result.usedBroker) {
-      return c.json({ error: "broker unreachable" }, 502);
-    }
-    if (result.unresolvedTarget) {
-      return c.json(
-        {
-          error: `could not route ask to ${result.unresolvedTarget}`,
-          targetDiagnostic: result.targetDiagnostic ?? null,
-        },
-        409,
-      );
-    }
-
-    return c.json({
-      ok: true,
-      targetLabel,
-      conversationId: result.conversationId ?? null,
-      messageId: result.messageId ?? null,
-      flightId: result.flight?.id ?? null,
-      targetAgentId: result.flight?.targetAgentId ?? null,
-    });
-  });
-  app.post("/api/scoutbot/brief", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      route?: unknown;
-      ttlMs?: number | null;
-    };
-
-    try {
-      let captured: ScoutbotBriefCapture | null = null;
-      const brief = await scoutbotAssistant.createBrief({
-        route: body.route,
-        ttlMs: body.ttlMs,
-        onCaptured: (cap) => { captured = cap; },
-      });
-      if (captured) persistBriefing("tour", brief, captured);
-      emitBroadcast({
-        tier: "info",
-        text: `Brief · ${brief.title}`,
-        ruleId: "scoutbot.brief",
-        key: "scoutbot.brief",
-        agent: "scoutbot",
-      });
-      return c.json(brief);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scoutbot brief failed";
-      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
-    }
-  });
-  app.get("/api/briefings", (c) => {
-    const limitParam = c.req.query("limit");
-    const parsed = limitParam ? Number.parseInt(limitParam, 10) : NaN;
-    const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 100) : 50;
-    return c.json({ briefings: listBriefings({ limit }) });
-  });
-  app.get("/api/briefings/:id", (c) => {
-    const briefing = getBriefing(c.req.param("id"));
-    if (!briefing) return c.json({ error: "not found" }, 404);
-    return c.json(briefing);
-  });
-  app.delete("/api/briefings/:id", (c) => {
-    return c.json({ deleted: deleteBriefing(c.req.param("id")) });
   });
   app.get("/api/file/roots", (c) => {
     const roots = collectTrustedRoots({ currentDirectory });
@@ -6276,16 +4389,6 @@ export async function createOpenScoutWebServer(
   app.get("/api/service-budgets", async (c) => {
     const refresh = c.req.query("refresh");
     return c.json(await loadServiceBudgets(refresh === "1" || refresh === "true"));
-  });
-  app.get("/api/fleet/brief", async (c) => {
-    try {
-      const refresh = c.req.query("refresh");
-      return c.json(await loadFleetHomeBrief(refresh === "1" || refresh === "true"));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Fleet brief failed";
-      const status = error instanceof ScoutbotAssistantError ? error.status : 500;
-      return c.json({ error: message }, status as 400 | 500 | 502 | 503 | 504);
-    }
   });
   app.get("/api/fleet", (c) =>
     c.json(
@@ -7477,314 +5580,7 @@ export async function createOpenScoutWebServer(
     return c.json(result);
   });
 
-  app.get("/api/voice/health", async (c) => {
-    const health = await getScoutVoiceHealth();
-    const quietProbe = c.req.query("quiet") === "1";
-    return c.json(health, health.ok || quietProbe ? 200 : 503);
-  });
-
-  app.get("/api/voice/settings", (c) => {
-    return c.json(getScoutVoiceSettingsSnapshot());
-  });
-
-  app.post("/api/voice/engage", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      surface?: string;
-      requestPermissions?: boolean;
-    };
-    try {
-      return c.json(engageScoutVoiceDictation(body));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.get("/api/voice/history", (c) => {
-    const limit = parseOptionalPositiveInt(c.req.query("limit"), 20) ?? 20;
-    return c.json({ sessions: listScoutVoiceSessionHistory(limit) });
-  });
-
-  app.put("/api/voice/settings", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      preference?: "auto" | "parakeet" | "apple";
-      inputDeviceId?: string | null;
-    };
-    try {
-      return c.json(updateScoutVoiceSettings(body));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/permissions/open", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      kind?: "microphone" | "speechRecognition";
-    };
-    try {
-      return c.json(openScoutVoicePrivacySettings(body.kind ?? "microphone"));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/permissions/request", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      kind?: "microphone" | "speechRecognition";
-    };
-    try {
-      return c.json(requestScoutVoicePermissions(body.kind ?? "microphone"));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/host/register", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      hostId?: string;
-      platform?: string;
-      bundle?: string;
-      settings?: {
-        preference?: "auto" | "parakeet" | "apple";
-        inputDeviceId?: string | null;
-        inputDeviceName?: string | null;
-        modelReady?: boolean;
-        modelInstalled?: boolean;
-        permissions?: Array<{
-          kind?: "microphone" | "speechRecognition";
-          status?: string;
-          granted?: boolean;
-          canRequest?: boolean;
-        }>;
-      };
-      devices?: Array<{ id?: string; name?: string; isDefault?: boolean }>;
-    };
-    try {
-      return c.json(registerScoutVoiceHost({
-        hostId: body.hostId ?? "",
-        platform: body.platform ?? "unknown",
-        bundle: body.bundle,
-        settings: body.settings,
-        devices: (body.devices ?? [])
-          .map((device) => ({
-            id: device.id?.trim() ?? "",
-            name: device.name?.trim() ?? "Microphone",
-            isDefault: Boolean(device.isDefault),
-          }))
-          .filter((device) => device.id.length > 0),
-      }));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.get("/api/voice/host/commands", async (c) => {
-    const hostId = c.req.query("hostId")?.trim();
-    if (!hostId) {
-      return c.json({ error: "hostId is required" }, 400);
-    }
-    const timeoutMs = parseOptionalPositiveInt(c.req.query("timeoutMs"), 25_000) ?? 25_000;
-    try {
-      return c.json(await awaitScoutVoiceHostCommand(hostId, timeoutMs));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/host/events", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      hostId?: string;
-      sessionId?: string;
-      event?: string;
-      data?: Record<string, unknown>;
-    };
-    const hostId = body.hostId?.trim();
-    const sessionId = body.sessionId?.trim();
-    const event = body.event?.trim() as ScoutVoiceSessionEventName | undefined;
-    if (!hostId || !sessionId || !event) {
-      return c.json({ error: "hostId, sessionId, and event are required" }, 400);
-    }
-    try {
-      return c.json(pushScoutVoiceHostEvent({
-        hostId,
-        sessionId,
-        event,
-        data: body.data,
-      }));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/session", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      clientId?: string;
-      surface?: string;
-      language?: string;
-      sessionId?: string;
-    };
-    try {
-      return c.json(createScoutVoiceSession(body));
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.get("/api/voice/session/:sessionId/events", (c) => {
-    const sessionId = c.req.param("sessionId")?.trim();
-    if (!sessionId) {
-      return c.json({ error: "sessionId is required" }, 400);
-    }
-
-    const encoder = new TextEncoder();
-    const signal = c.req.raw.signal;
-
-    try {
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          let closed = false;
-          const safeEnqueue = (chunk: Uint8Array) => {
-            if (closed) return;
-            try {
-              controller.enqueue(chunk);
-            } catch {
-              closed = true;
-            }
-          };
-
-          let heartbeat: ReturnType<typeof setInterval> | null = null;
-          let unsubscribe = () => undefined;
-
-          const close = () => {
-            if (closed) return;
-            closed = true;
-            if (heartbeat) clearInterval(heartbeat);
-            unsubscribe();
-            try {
-              controller.close();
-            } catch {
-              /* already closed */
-            }
-          };
-
-          heartbeat = setInterval(() => {
-            safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
-          }, 15_000);
-
-          unsubscribe = subscribeScoutVoiceSession(sessionId, (event) => {
-            safeEnqueue(encoder.encode(formatScoutVoiceSessionSse(event)));
-            if (isTerminalScoutVoiceSessionEvent(event)) {
-              close();
-            }
-          });
-
-          signal.addEventListener("abort", close, { once: true });
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache, no-transform",
-          connection: "keep-alive",
-          "x-accel-buffering": "no",
-        },
-      });
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/session/:sessionId/stop", (c) => {
-    const sessionId = c.req.param("sessionId")?.trim();
-    if (!sessionId) {
-      return c.json({ error: "sessionId is required" }, 400);
-    }
-    try {
-      stopScoutVoiceSession(sessionId);
-      return c.json({ ok: true, sessionId });
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/session/:sessionId/cancel", (c) => {
-    const sessionId = c.req.param("sessionId")?.trim();
-    if (!sessionId) {
-      return c.json({ error: "sessionId is required" }, 400);
-    }
-    try {
-      cancelScoutVoiceSession(sessionId);
-      return c.json({ ok: true, sessionId });
-    } catch (error) {
-      return jsonScoutVoiceSessionError(error);
-    }
-  });
-
-  app.post("/api/voice/transcribe", async (c) => {
-    const form = await c.req.formData().catch(() => null);
-    const audio = form?.get("audio");
-    if (!(audio instanceof Blob)) {
-      return c.json({ error: "audio file is required" }, 400);
-    }
-    const format = parseScoutVoiceAudioFormat(optionalString(form?.get("format")));
-    if (format === null) {
-      return c.json({ error: "audio format is invalid" }, 400);
-    }
-
-    try {
-      return c.json(await transcribeScoutVoiceAudio({
-        audio,
-        ...(format ? { format } : {}),
-        language: optionalString(form?.get("language")),
-        modelId: optionalString(form?.get("modelId")),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Scout voice transcription failed";
-      return c.json({ error: message }, 503);
-    }
-  });
-
-  app.post("/api/voice/speak", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      text?: string;
-      modelId?: string;
-      voiceId?: string;
-      speed?: number;
-      instructions?: string;
-      originAppId?: string;
-      utteranceId?: string;
-      speechTiming?: unknown;
-    };
-    const text = body.text?.trim();
-    if (!text) {
-      return c.json({ error: "text is required" }, 400);
-    }
-    const speechTiming = parseScoutSpeechTimingRequest(body.speechTiming);
-    if (speechTiming === null) {
-      return c.json({ error: "speechTiming is invalid" }, 400);
-    }
-
-    try {
-      return c.json(await synthesizeScoutSpeech({
-        text,
-        modelId: body.modelId,
-        voiceId: body.voiceId,
-        speed: body.speed,
-        instructions: optionalString(body.instructions),
-        originAppId: optionalString(body.originAppId),
-        utteranceId: optionalString(body.utteranceId),
-        speechTiming,
-        signal: c.req.raw.signal,
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Voice speech failed";
-      return c.json({ error: message }, 503);
-    }
-  });
-
-  app.get("/api/voice/defaults", (c) => {
-    return c.json(resolveScoutSpeechDefaults());
-  });
+  mountScoutVoiceRoutes(app);
 
   // Dev-only: serve generated Scoutbot FX fixtures for /dev/scoutbot-fx lab.
   // Fixtures are produced by packages/web/scripts/generate-scoutbot-fx-fixtures.mjs
@@ -7855,16 +5651,40 @@ export async function createOpenScoutWebServer(
   app.get("/api/tail/discover", async (c) => {
     const url = new URL(scoutBrokerPaths.v1.tailDiscover, resolveScoutBrokerUrl());
     const forceRefresh = c.req.query("force") === "true" || c.req.query("force") === "1";
+    const scope = parseTailDiscoveryScope(c.req.query("scope"));
+    const limitParam = parseOptionalPositiveInt(c.req.query("limit"));
     if (forceRefresh) {
       url.searchParams.set("force", "1");
     }
+    if (scope) {
+      url.searchParams.set("scope", scope);
+    }
+    if (limitParam !== undefined) {
+      url.searchParams.set("limit", String(limitParam));
+    }
+    const cacheKey = `scope=${scope ?? "default"};limit=${limitParam ?? "all"}`;
+    let cache = tailDiscoveryCaches.get(cacheKey);
+    if (!cache) {
+      cache = createBrokerJsonCache<DiscoverySnapshot>();
+      tailDiscoveryCaches.set(cacheKey, cache);
+    }
     return serveCachedBrokerJson(
       c,
-      tailDiscoveryCache,
+      cache,
       url,
       "broker tail discovery",
-      () => tailRuntime.getTailDiscovery(),
-      { forceRefresh },
+      async () => limitTailDiscoverySnapshot(
+        await readTailDiscovery(tailRuntime, {
+          force: forceRefresh,
+          ...(scope ? { scope } : {}),
+          ...(limitParam !== undefined ? { limit: limitParam } : {}),
+        }),
+        limitParam,
+      ),
+      {
+        forceRefresh,
+        transform: (data) => limitTailDiscoverySnapshot(data, limitParam),
+      },
     );
   });
 
@@ -7889,179 +5709,6 @@ export async function createOpenScoutWebServer(
     }
   });
 
-  app.get("/api/repo-prs", async (c) => {
-    const paths = await normalizeRepoPullRequestPaths(c.req.queries("path") ?? [], options.currentDirectory);
-    const limitPerRepo = parseOptionalPositiveInt(c.req.query("limit"), REPO_PRS_DEFAULT_LIMIT)
-      ?? REPO_PRS_DEFAULT_LIMIT;
-    if (paths.length === 0) {
-      return c.json({
-        generatedAt: Date.now(),
-        source: "gh",
-        paths: [],
-        pullRequests: [],
-        warnings: ["No git repositories available for open PR lookup."],
-      } satisfies RepoPullRequestSnapshot);
-    }
-    const loadPullRequests = options.repoPullRequests ?? loadRepoPullRequests;
-    try {
-      return c.json(await loadPullRequests({ paths, limitPerRepo }));
-    } catch (error) {
-      return c.json({
-        generatedAt: Date.now(),
-        source: "gh",
-        paths,
-        pullRequests: [],
-        warnings: [error instanceof Error ? error.message : "open PR lookup failed"],
-      } satisfies RepoPullRequestSnapshot);
-    }
-  });
-
-  app.post("/api/scout-services/restart-link", async (c) => {
-    let target = parseScoutServicesRestartTarget(c.req.query("target"));
-    if (!target) {
-      try {
-        const body = await c.req.json<{ target?: string }>();
-        target = parseScoutServicesRestartTarget(body.target);
-      } catch {
-        // Body is optional; query-string target is enough.
-      }
-    }
-
-    if (!target) {
-      return c.json({ error: "unsupported Scout Services restart target" }, 400);
-    }
-
-    return c.json(createSignedScoutServicesRestartUrl(target));
-  });
-
-  app.get("/api/repo-diff/session", async (c) => {
-    const refId = c.req.query("sessionId")?.trim()
-      || c.req.query("refId")?.trim()
-      || c.req.query("ref")?.trim()
-      || null;
-    const agentId = c.req.query("agentId")?.trim() || null;
-    if (!refId && !agentId) {
-      return c.json({ error: "repo-diff session scope requires sessionId/refId or agentId" }, 400);
-    }
-    const payload = await loadRevealObservePayload({ agentId, sessionId: refId });
-    if (!payload) {
-      return c.json({ error: "observed session not found" }, 404);
-    }
-    const worktreePath = observedWorktreePath(payload);
-    if (!worktreePath) {
-      return c.json({ error: "observed session has no worktree path" }, 422);
-    }
-    const layers = (c.req.queries("layer") ?? []).filter(
-      (value): value is RepoDiffLayerKind =>
-        value === "unstaged" || value === "staged" || value === "branch",
-    );
-    const baseRef = c.req.query("baseRef");
-    const compareRef = c.req.query("compareRef");
-    const tier = parseRepoDiffTier(c.req.query("tier"));
-    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
-    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
-    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
-    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
-    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
-    const include = sessionDiffInclude(c.req.query("include"));
-    const paths = normalizeRepoDiffPathFilters(worktreePath, sessionDiffTouchedPaths(payload, include));
-    const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
-    const scope: RepoDiffScopeMetadata = {
-      kind: "session",
-      label: include === "all" ? "Session-touched diff" : "Session changed-files diff",
-      worktreePath,
-      refId,
-      agentId: payload.agentId,
-      sessionId: payload.sessionId,
-      filteredPaths: paths,
-      touchedFiles: payload.data.files.length,
-      changedFiles,
-      include,
-      caveat: "path-filtered-not-hunk-provenance",
-    };
-    if (paths.length === 0) {
-      c.header("x-openscout-repo-diff-cache", "skip");
-      return c.json(emptyRepoDiffSnapshot({ worktreePath, layers: resolvedLayers, scope }));
-    }
-    const resolvedRefs = await resolveRepoDiffBranchRefs({
-      worktreePath,
-      layers: resolvedLayers,
-      baseRef: trimmedBaseRef,
-      compareRef: trimmedCompareRef,
-    });
-    const stateKey = await repoDiffStateKey({
-      worktreePath,
-      layers: resolvedLayers,
-      baseRef: resolvedRefs.baseRef,
-      compareRef: resolvedRefs.compareRef,
-      paths,
-    });
-    return serveRepoDiffSnapshot(c, {
-      worktreePath,
-      layers: resolvedLayers,
-      baseRef: resolvedRefs.baseRef,
-      compareRef: resolvedRefs.compareRef,
-      tier,
-      cacheMode,
-      rehydrate,
-      stateKey,
-      paths,
-      scope,
-    });
-  });
-
-  app.get("/api/repo-diff/worktree", async (c) => {
-    const path = c.req.query("path");
-    if (!path || !path.trim()) {
-      return c.json({ error: "repo-diff requires a worktree path" }, 400);
-    }
-    const layers = (c.req.queries("layer") ?? []).filter(
-      (value): value is RepoDiffLayerKind =>
-        value === "unstaged" || value === "staged" || value === "branch",
-    );
-    const baseRef = c.req.query("baseRef");
-    const compareRef = c.req.query("compareRef");
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const tier = parseRepoDiffTier(c.req.query("tier"));
-    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
-    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
-    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
-    const trimmedPath = path.trim();
-    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
-    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
-    const paths = repoDiffPathFiltersFromQuery(c, trimmedPath);
-    const scope: RepoDiffScopeMetadata = {
-      kind: "worktree",
-      label: paths.length > 0 ? "Filtered worktree diff" : "Worktree diff",
-      worktreePath: trimmedPath,
-      filteredPaths: paths,
-    };
-    const resolvedRefs = await resolveRepoDiffBranchRefs({
-      worktreePath: trimmedPath,
-      layers: resolvedLayers,
-      baseRef: trimmedBaseRef,
-      compareRef: trimmedCompareRef,
-    });
-    const stateKey = await repoDiffStateKey({
-      worktreePath: trimmedPath,
-      layers: resolvedLayers,
-      baseRef: resolvedRefs.baseRef,
-      compareRef: resolvedRefs.compareRef,
-      paths,
-    });
-    return serveRepoDiffSnapshot(c, {
-      worktreePath: trimmedPath,
-      layers: resolvedLayers,
-      baseRef: resolvedRefs.baseRef,
-      compareRef: resolvedRefs.compareRef,
-      tier,
-      cacheMode,
-      rehydrate,
-      stateKey,
-      paths,
-      scope,
-    });
-  });
 
   app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
@@ -8193,10 +5840,8 @@ export async function createOpenScoutWebServer(
   const stop = async () => {
     lanPairBeacon?.stop();
     pendingPairRequests.dispose();
-    if (!scoutbotRunner) return;
-    const runner = scoutbotRunner;
+    await scoutbot.stopRunner();
     scoutbotRunner = null;
-    await runner.stop();
   };
 
   return { app, warmupCaches, stop };

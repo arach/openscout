@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
 let brokerContextResult: unknown = null;
 
@@ -7,6 +7,12 @@ mock.module("../broker/service.ts", () => ({
 }));
 
 const { getScoutConversations } = await import("./service.ts");
+
+mock.restore();
+
+afterAll(() => {
+  mock.restore();
+});
 
 function baseSnapshot(overrides: Record<string, unknown> = {}) {
   return {

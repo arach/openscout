@@ -3672,8 +3672,9 @@ private struct ScoutSendButton: View {
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .disabled(!isEnabled || isSending)
+        .keyboardShortcut(.return, modifiers: .command)
         .onHover { hovering = $0 }
-        .help(isEnabled && !isSending ? "Send message" : "")
+        .help(isEnabled && !isSending ? "Send message (⌘↵)" : "")
     }
 
     @ViewBuilder

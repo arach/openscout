@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,6 +94,12 @@ mock.module("../../pairing.ts", () => ({
 }));
 
 const { loadAgentObservePayload, loadSessionRefObservePayload } = await import("./service.ts");
+
+mock.restore();
+
+afterAll(() => {
+  mock.restore();
+});
 
 const tempRoots = new Set<string>();
 const originalHome = process.env.HOME;

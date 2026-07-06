@@ -91,15 +91,15 @@ struct ScoutLanesMaterializingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
             HStack(spacing: HudSpacing.sm) {
-                ScoutLanesShimmerBlock(width: 120, height: 18, cornerRadius: HudRadius.tight, phase: 0)
-                ScoutLanesShimmerBlock(width: 72, height: 18, cornerRadius: HudRadius.tight, phase: 0.2)
+                ScoutLanesShimmerBlock(width: 120, height: 18, cornerRadius: HudRadius.tight)
+                ScoutLanesShimmerBlock(width: 72, height: 18, cornerRadius: HudRadius.tight)
             }
             .padding(.horizontal, ScoutLanesMetrics.pageGutter)
             .padding(.top, HudSpacing.md)
 
             HStack(alignment: .top, spacing: HudSpacing.md) {
-                ForEach(0..<3, id: \.self) { index in
-                    laneSkeleton(index: index, width: laneSize.laneWidth)
+                ForEach(0..<3, id: \.self) { _ in
+                    laneSkeleton(width: laneSize.laneWidth)
                 }
             }
             .padding(.horizontal, ScoutLanesMetrics.pageGutter)
@@ -110,15 +110,14 @@ struct ScoutLanesMaterializingView: View {
         .background(ScoutDesign.bg)
     }
 
-    private func laneSkeleton(index: Int, width: CGFloat) -> some View {
+    private func laneSkeleton(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            ScoutLanesShimmerBlock(width: width, height: 92, cornerRadius: HudRadius.card, phase: Double(index) * 0.22)
-            ForEach(0..<4, id: \.self) { row in
+            ScoutLanesShimmerBlock(width: width, height: 92, cornerRadius: HudRadius.card)
+            ForEach(0..<4, id: \.self) { _ in
                 ScoutLanesShimmerBlock(
                     width: width,
                     height: 56,
-                    cornerRadius: HudRadius.standard,
-                    phase: Double(index) * 0.22 + Double(row) * 0.08
+                    cornerRadius: HudRadius.standard
                 )
             }
         }
@@ -130,41 +129,31 @@ private struct ScoutLanesShimmerBlock: View {
     let width: CGFloat
     let height: CGFloat
     let cornerRadius: CGFloat
-    let phase: TimeInterval
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let tick = context.date.timeIntervalSinceReferenceDate + phase
-            let sweep = CGFloat((tick * 0.72).truncatingRemainder(dividingBy: 1.0)) * (width + 80) - 40
-
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(ScoutSurface.control)
-                .frame(width: width, height: height)
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.clear,
-                                    ScoutPalette.accent.opacity(0.10),
-                                    ScoutPalette.accentSoft.opacity(0.34),
-                                    ScoutPalette.accent.opacity(0.10),
-                                    Color.clear,
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(ScoutSurface.control)
+            .frame(width: width, height: height)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                ScoutPalette.accent.opacity(0.06),
+                                ScoutPalette.accentSoft.opacity(0.18),
+                                ScoutPalette.accent.opacity(0.06),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
                         )
-                        .frame(width: min(width * 0.55, 140))
-                        .offset(x: sweep)
-                        .blendMode(.screen)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
-                }
-        }
+                    )
+                    .blendMode(.screen)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            }
         .frame(width: width, height: height)
     }
 }

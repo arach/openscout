@@ -868,6 +868,12 @@ struct ScoutSessionComposer: View {
                 .tint(showDictationPreview ? Color.clear : ScoutPalette.accent)
                 .lineLimit(1...10)
                 .focused($instructionsFocused)
+                .onKeyPress(phases: .down) { press in
+                    guard press.key == .return else { return .ignored }
+                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+                    submit()
+                    return .handled
+                }
                 .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
 
             if showDictationPreview {

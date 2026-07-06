@@ -61,6 +61,8 @@
 
 .s-agent-lanes--embedded .s-agent-lane {
   width: min(var(--lane-width, 512px), calc(100vw - (var(--space-lg) * 2)));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .s-agent-lanes-bar {
@@ -720,6 +722,7 @@
 .s-agent-lane {
   container-type: inline-size;
   container-name: agent-lane;
+  contain: layout paint style;
   flex: none;
   width: var(--lane-width, 512px);
   min-height: 0;
@@ -736,6 +739,13 @@
     border-color 180ms ease,
     box-shadow 180ms ease,
     background 180ms ease;
+}
+
+@supports (content-visibility: auto) {
+  .s-agent-lanes--embedded .s-agent-lane {
+    content-visibility: auto;
+    contain-intrinsic-size: var(--lane-width, 512px) 720px;
+  }
 }
 
 .s-agent-lane:hover {
@@ -792,6 +802,12 @@
 
 .s-agent-lane--new {
   animation: s-agent-lane-enter 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.s-agent-lanes--low-motion .s-agent-lane,
+.s-agent-lanes--low-motion .s-agent-lane--new {
+  transition: none;
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1325,6 +1341,11 @@
   .s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--eye {
     animation: none;
   }
+}
+
+.s-agent-lanes--low-motion .s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--accent,
+.s-agent-lanes--low-motion .s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--eye {
+  animation: none;
 }
 
 .s-agent-lane-preview-file-state {

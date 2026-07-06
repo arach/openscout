@@ -74,9 +74,20 @@ const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
+const EMBEDDED_TAIL_RECENT_LIMIT = 30;
+const EMBEDDED_TAIL_DISCOVERY_LIMIT = 30;
+const EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS = 30_000;
+const EMBEDDED_CLOCK_INTERVAL_MS = 30_000;
+const EMBEDDED_TERMINAL_POLL_INTERVAL_MS = 30_000;
+const EMBEDDED_OBSERVE_ACTIVE_INTERVAL_MS = 30_000;
+const EMBEDDED_OBSERVE_IDLE_INTERVAL_MS = 120_000;
 
 type LaneScrollZone = "pinned-left" | "main" | "pinned-right";
 const LANE_SCROLL_ZONES: LaneScrollZone[] = ["pinned-left", "main", "pinned-right"];
+
+function documentIsHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
 
 function laneScrollStorageKey(profileId: string, zone: LaneScrollZone): string {
   return `${LANE_SCROLL_STORAGE_PREFIX}:${profileId}:${zone}`;
@@ -388,29 +399,37 @@ export function AgentLanesView({
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
     [beginResize, summaryHeight],
   );
-  const tailRecentLimit = agentLaneTailRecentLimit(horizon);
+  const tailRecentLimit = embedded
+    ? Math.min(agentLaneTailRecentLimit(horizon), EMBEDDED_TAIL_RECENT_LIMIT)
+    : agentLaneTailRecentLimit(horizon);
   const traceWindowMs = agentLaneHorizonWindowMs(horizon);
   const { discovery, events: tailEvents } = useTailFeed({
-    // Replay transcript history from disk (like TailView) so the horizon can
-    // reach into the past. Without this the broker returns only its live
-    // in-memory ring buffer, so widening to 4h/24h reveals nothing older than
-    // what's streamed in since the broker started. buildAgentLanes still trims
-    // everything to the selected windowMs.
-    includeTranscriptReplay: true,
-    discoveryIntervalMs: 5_000,
+    // The full Ops route can replay transcripts to satisfy long horizons. The
+    // embedded HUD keeps to the hot/live path so tab activation stays cheap.
+    includeTranscriptReplay: !embedded,
+    hydrateOnDiscovery: !embedded,
+    discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
     recentLimit: tailRecentLimit,
+    discoveryScope: embedded ? "hot" : undefined,
+    discoveryLimit: embedded ? EMBEDDED_TAIL_DISCOVERY_LIMIT : undefined,
+    pauseWhenHidden: true,
   });
   const returnRoute: Route = { view: "ops", mode: "lanes" };
   const horizonLabel = agentLaneHorizonLabel(horizon);
+  const clockIntervalMs = embedded ? EMBEDDED_CLOCK_INTERVAL_MS : 10_000;
+  const terminalPollIntervalMs = embedded ? EMBEDDED_TERMINAL_POLL_INTERVAL_MS : 10_000;
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    const timer = setInterval(() => {
+      if (!documentIsHidden()) setNow(Date.now());
+    }, clockIntervalMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [clockIntervalMs]);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      if (documentIsHidden()) return;
       try {
         const sessions = await fetchTerminalSessions({ includeDiscovered: false });
         if (!cancelled) setTerminalSessions(sessions);
@@ -419,12 +438,21 @@ export function AgentLanesView({
       }
     };
     void load();
-    const timer = setInterval(() => void load(), 10_000);
+    const timer = setInterval(() => void load(), terminalPollIntervalMs);
+    const handleVisibilityChange = () => {
+      if (!documentIsHidden()) void load();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
     return () => {
       cancelled = true;
       clearInterval(timer);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
-  }, []);
+  }, [terminalPollIntervalMs]);
 
   useEffect(() => {
     try {
@@ -441,7 +469,11 @@ export function AgentLanesView({
     () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, horizon)),
     [scoutAgents, now, horizon],
   );
-  const observeCache = useObservePolling(observeAgents);
+  const observeCache = useObservePolling(observeAgents, {
+    activeIntervalMs: embedded ? EMBEDDED_OBSERVE_ACTIVE_INTERVAL_MS : undefined,
+    idleIntervalMs: embedded ? EMBEDDED_OBSERVE_IDLE_INTERVAL_MS : undefined,
+    pauseWhenHidden: true,
+  });
   const tailLoading = discovery === null && tailEvents.length === 0;
 
   useEffect(() => {
@@ -649,7 +681,7 @@ export function AgentLanesView({
 
   return (
     <div
-      className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded" : ""}`}
+      className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded s-agent-lanes--low-motion" : ""}`}
       data-lane-profile={profileId}
       data-lanes-deck-version="1"
     >

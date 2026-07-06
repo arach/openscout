@@ -1,5 +1,11 @@
 import Foundation
 
+public enum ScoutTailDiscoveryScope: String, Sendable {
+    case hot
+    case shallow
+    case deep
+}
+
 public struct ScoutTailClient: Sendable {
     public init() {}
 
@@ -16,10 +22,24 @@ public struct ScoutTailClient: Sendable {
         return try await ScoutHTTP.fetch(ScoutTailRecentPayload.self, from: url)
     }
 
-    public func fetchDiscovery() async throws -> ScoutTailDiscoverySnapshot {
-        try await ScoutHTTP.fetch(
-            ScoutTailDiscoverySnapshot.self,
-            from: ScoutWeb.baseURL().appending(path: "api/tail/discover")
-        )
+    public func fetchDiscovery(
+        force: Bool = false,
+        scope: ScoutTailDiscoveryScope? = nil,
+        limit: Int? = nil
+    ) async throws -> ScoutTailDiscoverySnapshot {
+        var items: [URLQueryItem] = []
+        if force {
+            items.append(URLQueryItem(name: "force", value: "1"))
+        }
+        if let scope {
+            items.append(URLQueryItem(name: "scope", value: scope.rawValue))
+        }
+        if let limit, limit > 0 {
+            items.append(URLQueryItem(name: "limit", value: "\(limit)"))
+        }
+        let url = ScoutWeb.baseURL()
+            .appending(path: "api/tail/discover")
+            .appending(queryItems: items)
+        return try await ScoutHTTP.fetch(ScoutTailDiscoverySnapshot.self, from: url)
     }
 }

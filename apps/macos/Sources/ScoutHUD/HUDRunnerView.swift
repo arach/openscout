@@ -282,6 +282,7 @@ struct HUDRunnerOverlay: View {
             }
             .buttonStyle(HUDRunnerButtonStyle(isAccent: true))
             .disabled(runner.isSubmitting)
+            .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

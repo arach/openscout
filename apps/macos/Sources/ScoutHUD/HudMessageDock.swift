@@ -201,6 +201,12 @@ private struct CompactDock: View {
                         .font(HUDType.mono(10))
                         .foregroundStyle(HUDChrome.ink)
                         .focused($focused)
+                        .onKeyPress(phases: .down) { press in
+                            guard press.key == .return else { return .ignored }
+                            guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+                            onSubmit()
+                            return .handled
+                        }
                         .onSubmit(onSubmit)
                     if showDictationPreview {
                         DictationLivePreview(text: voice.partial)
@@ -280,6 +286,12 @@ private struct MediumLargeDock: View {
                 .font(HUDType.mono(placeholderSize))
                 .foregroundStyle(HUDChrome.ink)
                 .focused($focused)
+                .onKeyPress(phases: .down) { press in
+                    guard press.key == .return else { return .ignored }
+                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+                    onSubmit()
+                    return .handled
+                }
                 .onSubmit(onSubmit)
                 if showDictationPreview {
                     DictationLivePreview(text: voice.partial, fontSize: placeholderSize)

@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -146,8 +146,15 @@ mock.module("./terminal-session-discovery.ts", () => ({
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, windows, attached] = line.includes("|") ? line.split("|") : line.split("\t");
-      return { name, windows: Number.parseInt(windows ?? "1", 10), attached: Number.parseInt(attached ?? "0", 10) };
+      const parts = line.includes("|") ? splitDelimitedLine(line, "|", 5) : splitDelimitedLine(line, "\t", 5);
+      const [name, windows, attached, currentCommand, currentPath] = parts;
+      return {
+        name,
+        windows: Number.parseInt(windows ?? "1", 10),
+        attached: Number.parseInt(attached ?? "0", 10),
+        currentCommand: cleanOptionalString(currentCommand),
+        currentPath: cleanOptionalString(currentPath),
+      };
     }),
   parseZellijSessionList: (output: string) => output
     .replace(/\x1B\[[0-?]*[ -/]*[@-~]/gu, "")
@@ -260,6 +267,12 @@ const { resetScoutVoiceSessionStateForTests } =
   await import("./scout-voice-session.ts");
 const { gitBuildInfoProbe } = await import("@openscout/runtime/system-probes");
 
+mock.restore();
+
+afterAll(() => {
+  mock.restore();
+});
+
 function makeStaticRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "openscout-web-static-"));
   testDirectories.add(root);
@@ -278,6 +291,17 @@ function git(cwd: string, args: string[]): string {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
+}
+
+function cleanOptionalString(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function splitDelimitedLine(line: string, delimiter: "|" | "\t", fieldCount: number): string[] {
+  const parts = line.split(delimiter);
+  if (parts.length <= fieldCount) return parts;
+  return [...parts.slice(0, fieldCount - 1), parts.slice(fieldCount - 1).join(delimiter)];
 }
 
 function makeDiscoverySnapshot(generatedAt: number): DiscoverySnapshot {

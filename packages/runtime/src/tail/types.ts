@@ -9,6 +9,12 @@ export type TailHarness = TailAttribution;
 
 export type TailDiscoveryScope = "hot" | "shallow" | "deep";
 
+export type TailDiscoveryOptions = {
+  force?: boolean;
+  scope?: TailDiscoveryScope;
+  limit?: number;
+};
+
 export type TailEventKind =
   | "user"
   | "assistant"

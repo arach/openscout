@@ -63,6 +63,12 @@
   }
 }
 
+.s-agent-lanes--low-motion .s-lane-card--working .s-lane-card-anchor--av,
+.s-agent-lanes--low-motion .s-lane-card--working .s-lane-card-anchor--av .sprite-cell--eye,
+.s-agent-lanes--low-motion .s-lane-card--working .s-lane-card-anchor--av .sprite-cell--accent {
+  animation: none;
+}
+
 /* ── header — two columns on ONE 4px baseline grid ─────────────────────────
    Base unit = 4px. Every padding/gap/margin is a 4px multiple; each text row
    has an explicit 16px line-height so it occupies a whole 4 units, and the two
@@ -405,6 +411,10 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .s-lane-card--working .s-lane-card-time-dot { animation: none; }
+}
+
+.s-agent-lanes--low-motion .s-lane-card--working .s-lane-card-time-dot {
+  animation: none;
 }
 
 /* ── status box — the current-state "dark screen": a recessed dark panel, clean
