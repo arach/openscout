@@ -106,6 +106,16 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: var(--space-xs);
+}
+
+.kb-help-chord-wrap,
+.kb-help-chord {
+  display: inline-flex;
+  align-items: center;
+}
+
+.kb-help-chord {
   gap: var(--space-2xs);
 }
 

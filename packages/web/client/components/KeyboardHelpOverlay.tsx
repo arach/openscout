@@ -1,103 +1,114 @@
 import { useEffect, useState } from "react";
 import { isEditableTarget, useFocusTrap } from "../lib/keyboard-nav.ts";
+import { NEW_CHAT_SHORTCUT_KEYS } from "../lib/new-chat-shortcut.ts";
 import "./keyboard-help.css";
 
-type Binding = { keys: string[]; label: string };
+type KeyChord = readonly string[];
+type Binding = { chords: readonly KeyChord[]; label: string };
 type Group = { title: string; bindings: Binding[] };
+
+const chord = (...keys: string[]): KeyChord => keys;
 
 const GROUPS: Group[] = [
   {
     title: "App shell",
     bindings: [
-      { keys: ["⌘", "⌥", "N"], label: "New chat" },
-      { keys: ["⌘", "K"], label: "Command palette" },
-      { keys: ["⌘", "["], label: "Toggle left panel" },
-      { keys: ["⌘", "]"], label: "Toggle right panel" },
-      { keys: ["⌘", "⇧", "]"], label: "Toggle inspector overlay" },
-      { keys: ["Ctrl", "`"], label: "Toggle terminal drawer" },
-      { keys: ["⌘", "J"], label: "Toggle assistant drawer" },
+      { chords: [NEW_CHAT_SHORTCUT_KEYS], label: "New chat" },
+      { chords: [chord("⌘", "K")], label: "Command palette" },
+      { chords: [chord("⌘", "[")], label: "Toggle left panel" },
+      { chords: [chord("⌘", "]")], label: "Toggle right panel" },
+      { chords: [chord("⌘", "⇧", "]")], label: "Toggle inspector overlay" },
+      { chords: [chord("Ctrl", "`")], label: "Toggle terminal drawer" },
+      { chords: [chord("⌘", "J")], label: "Toggle assistant drawer" },
+    ],
+  },
+  {
+    title: "Navigation",
+    bindings: [
+      { chords: [chord("g", "h")], label: "Go home" },
+      { chords: [chord("g", "i")], label: "Go to chat inbox" },
     ],
   },
   {
     title: "Global",
     bindings: [
-      { keys: ["?"], label: "Toggle this help" },
-      { keys: ["Esc"], label: "Close dialog / clear search" },
-      { keys: ["Tab", "⇧ Tab"], label: "Move focus" },
-      { keys: ["["], label: "Focus previous pane" },
-      { keys: ["]"], label: "Focus next pane" },
+      { chords: [chord("?")], label: "Toggle this help" },
+      { chords: [chord("Esc")], label: "Close dialog / clear search" },
+      { chords: [chord("Tab"), chord("⇧", "Tab")], label: "Move focus" },
+      { chords: [chord("[")], label: "Focus previous pane" },
+      { chords: [chord("]")], label: "Focus next pane" },
     ],
   },
   {
     title: "Lists",
     bindings: [
-      { keys: ["↓", "j"], label: "Next item" },
-      { keys: ["↑", "k"], label: "Previous item" },
-      { keys: ["g", "Home"], label: "First item" },
-      { keys: ["G", "End"], label: "Last item" },
-      { keys: ["Enter"], label: "Open / activate" },
+      { chords: [chord("↓"), chord("j")], label: "Next item" },
+      { chords: [chord("↑"), chord("k")], label: "Previous item" },
+      { chords: [chord("g"), chord("Home")], label: "First item" },
+      { chords: [chord("G"), chord("End")], label: "Last item" },
+      { chords: [chord("Enter")], label: "Open / activate" },
     ],
   },
   {
     title: "Search",
     bindings: [
-      { keys: ["/"], label: "Focus filter input" },
-      { keys: ["↓"], label: "From filter → first match" },
-      { keys: ["Esc"], label: "Clear filter (while focused)" },
+      { chords: [chord("/")], label: "Focus filter input" },
+      { chords: [chord("↓")], label: "From filter → first match" },
+      { chords: [chord("Esc")], label: "Clear filter (while focused)" },
     ],
   },
   {
     title: "Composers",
     bindings: [
-      { keys: ["Enter", "⇧ Enter"], label: "Insert line break" },
-      { keys: ["⌘ Enter", "Ctrl Enter"], label: "Send message" },
+      { chords: [chord("Enter"), chord("⇧", "Enter")], label: "Insert line break" },
+      { chords: [chord("⌘", "Enter"), chord("Ctrl", "Enter")], label: "Send message" },
     ],
   },
   {
     title: "Capture routing",
     bindings: [
-      { keys: ["Drop"], label: "Drop screenshot/video anywhere" },
-      { keys: ["⌘", "V"], label: "Paste image into route composer" },
-      { keys: ["Existing chat", "New session"], label: "Choose delivery in composer" },
+      { chords: [chord("Drop")], label: "Drop screenshot/video anywhere" },
+      { chords: [chord("⌘", "V")], label: "Paste image into route composer" },
+      { chords: [chord("Existing chat"), chord("New session")], label: "Choose delivery in composer" },
     ],
   },
   {
     title: "Dispatch",
     bindings: [
-      { keys: ["↓", "j"], label: "Next ledger row" },
-      { keys: ["↑", "k"], label: "Previous ledger row" },
-      { keys: ["Enter"], label: "Inspect row / open dialogue thread" },
-      { keys: ["←", "→"], label: "Switch dispatch tabs" },
-      { keys: ["Esc"], label: "Clear inspector selection" },
+      { chords: [chord("↓"), chord("j")], label: "Next ledger row" },
+      { chords: [chord("↑"), chord("k")], label: "Previous ledger row" },
+      { chords: [chord("Enter")], label: "Inspect row / open dialogue thread" },
+      { chords: [chord("←"), chord("→")], label: "Switch dispatch tabs" },
+      { chords: [chord("Esc")], label: "Clear inspector selection" },
     ],
   },
   {
     title: "Agent lanes",
     bindings: [
-      { keys: ["↓", "j"], label: "Next lane" },
-      { keys: ["↑", "k"], label: "Previous lane" },
-      { keys: ["Enter", "i"], label: "Inspect lane" },
-      { keys: ["1", "…", "4"], label: "Switch trace window (5m → 24h)" },
-      { keys: ["o"], label: "Open session (detail sheet)" },
-      { keys: ["t"], label: "Open traces (detail sheet)" },
-      { keys: ["p"], label: "Agent profile (detail sheet)" },
-      { keys: ["Esc"], label: "Close detail sheet" },
+      { chords: [chord("↓"), chord("j")], label: "Next lane" },
+      { chords: [chord("↑"), chord("k")], label: "Previous lane" },
+      { chords: [chord("Enter"), chord("i")], label: "Inspect lane" },
+      { chords: [chord("1", "…", "4")], label: "Switch trace window (5m → 24h)" },
+      { chords: [chord("o")], label: "Open session (detail sheet)" },
+      { chords: [chord("t")], label: "Open traces (detail sheet)" },
+      { chords: [chord("p")], label: "Agent profile (detail sheet)" },
+      { chords: [chord("Esc")], label: "Close detail sheet" },
     ],
   },
   {
     title: "Tail · Atop",
     bindings: [
-      { keys: ["/"], label: "Open filter (Tail)" },
-      { keys: ["G"], label: "Jump to live (Tail)" },
-      { keys: ["j", "k"], label: "Walk rows (Atop)" },
+      { chords: [chord("/")], label: "Open filter (Tail)" },
+      { chords: [chord("G")], label: "Jump to live (Tail)" },
+      { chords: [chord("j"), chord("k")], label: "Walk rows (Atop)" },
     ],
   },
   {
     title: "Session scrubber",
     bindings: [
-      { keys: ["←", "→"], label: "Seek ±1%" },
-      { keys: ["⇧ ←", "⇧ →"], label: "Seek ±5%" },
-      { keys: ["Home", "End"], label: "Jump to start / end" },
+      { chords: [chord("←"), chord("→")], label: "Seek ±1%" },
+      { chords: [chord("⇧", "←"), chord("⇧", "→")], label: "Seek ±5%" },
+      { chords: [chord("Home"), chord("End")], label: "Jump to start / end" },
     ],
   },
 ];
@@ -136,10 +147,14 @@ export function KeyboardHelpOverlay({ open, onClose }: { open: boolean; onClose:
                 {g.bindings.map((b, i) => (
                   <div key={`${g.title}-${i}`} className="kb-help-row">
                     <dt className="kb-help-keys">
-                      {b.keys.map((k, ki) => (
-                        <span key={ki}>
-                          {ki > 0 && <span className="kb-help-or">or</span>}
-                          <kbd className="kb-help-kbd">{k}</kbd>
+                      {b.chords.map((keys, chordIndex) => (
+                        <span key={`${chordIndex}-${keys.join("+")}`} className="kb-help-chord-wrap">
+                          {chordIndex > 0 && <span className="kb-help-or">or</span>}
+                          <span className="kb-help-chord">
+                            {keys.map((key, keyIndex) => (
+                              <kbd key={`${key}-${keyIndex}`} className="kb-help-kbd">{key}</kbd>
+                            ))}
+                          </span>
                         </span>
                       ))}
                     </dt>

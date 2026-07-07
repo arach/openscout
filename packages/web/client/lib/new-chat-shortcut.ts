@@ -1,4 +1,5 @@
 export const NEW_CHAT_SHORTCUT_LABEL = "Cmd+Opt+N";
+export const NEW_CHAT_SHORTCUT_KEYS = ["⌘", "⌥", "N"] as const;
 
 type NewChatShortcutEvent = {
   key: string;
