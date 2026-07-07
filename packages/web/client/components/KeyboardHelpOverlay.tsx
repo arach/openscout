@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { GO_SHORTCUTS } from "../lib/go-shortcuts.ts";
 import { isEditableTarget, useFocusTrap } from "../lib/keyboard-nav.ts";
-import { NEW_CHAT_SHORTCUT_KEYS } from "../lib/new-chat-shortcut.ts";
+import { NEW_CHAT_LEGACY_SHORTCUT_KEYS, NEW_CHAT_SHORTCUT_KEYS } from "../lib/new-chat-shortcut.ts";
 import "./keyboard-help.css";
 
 type KeyChord = readonly string[];
@@ -13,7 +14,7 @@ const GROUPS: Group[] = [
   {
     title: "App shell",
     bindings: [
-      { chords: [NEW_CHAT_SHORTCUT_KEYS], label: "New chat" },
+      { chords: [NEW_CHAT_SHORTCUT_KEYS, NEW_CHAT_LEGACY_SHORTCUT_KEYS], label: "New chat" },
       { chords: [chord("⌘", "K")], label: "Command palette" },
       { chords: [chord("⌘", "[")], label: "Toggle left panel" },
       { chords: [chord("⌘", "]")], label: "Toggle right panel" },
@@ -24,10 +25,10 @@ const GROUPS: Group[] = [
   },
   {
     title: "Navigation",
-    bindings: [
-      { chords: [chord("g", "h")], label: "Go home" },
-      { chords: [chord("g", "i")], label: "Go to chat inbox" },
-    ],
+    bindings: GO_SHORTCUTS.map((shortcut) => ({
+      chords: [chord("g", shortcut.key)],
+      label: shortcut.label,
+    })),
   },
   {
     title: "Global",

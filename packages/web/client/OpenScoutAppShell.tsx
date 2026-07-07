@@ -38,6 +38,7 @@ import {
   isNewChatShortcut,
   NEW_CHAT_SHORTCUT_LABEL,
 } from "./lib/new-chat-shortcut.ts";
+import { goShortcutForKey } from "./lib/go-shortcuts.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -473,14 +474,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       if (goShortcutPendingRef.current) {
         if (e.key === "Escape" || hasModifier || typing) {
           clearGoShortcut();
-        } else if (key === "h" || key === "i") {
-          e.preventDefault();
-          e.stopPropagation();
-          clearGoShortcut();
-          navigate(key === "h" ? { view: "inbox" } : { view: "messages" });
-          return;
         } else {
-          clearGoShortcut();
+          const goShortcut = goShortcutForKey(key);
+          if (goShortcut) {
+            e.preventDefault();
+            e.stopPropagation();
+            clearGoShortcut();
+            navigate(goShortcut.route);
+            return;
+          } else {
+            clearGoShortcut();
+          }
         }
       }
       if (!hasModifier && !e.shiftKey && key === "g" && !typing) {
