@@ -131,7 +131,18 @@ describe("setup inventory", () => {
 
     const installs = await readManagedInstalls();
     const skillInstalls = installs.filter((entry) => entry.name === "scout-skill");
-    expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "grok", "pi"]);
+    expect(skillInstalls.map((entry) => entry.harness).filter(Boolean).sort()).toEqual([
+      "claude",
+      "codex",
+      "grok",
+      "pi",
+    ]);
+    expect(
+      skillInstalls.some((entry) =>
+        entry.metadata?.installTarget === "opencode"
+        || entry.targetPath?.includes("/.config/opencode/skills/scout/")
+      ),
+    ).toBe(true);
     expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
     expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
   });
