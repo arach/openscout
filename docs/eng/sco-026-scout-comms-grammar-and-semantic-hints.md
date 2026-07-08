@@ -100,6 +100,7 @@ Examples:
 
 ```plaintext
 /scout:ask >> hudson Review the parser.
+/scout:ask >> target:mw-talkie Continue the Talkie mission draft.
 /scout:ask >> ref:8kj4pd Continue from that result.
 /scout:send >> channel:ops Status is green.
 ```
@@ -112,6 +113,7 @@ submitting to the broker:
 | --- | --- |
 | `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> target:mw-talkie` | `{ kind: "target_handle", handle: "mw-talkie" }` |
 | `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
 | `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
 | `>> channel:ops` | `{ kind: "channel", channel: "ops" }` |
@@ -121,6 +123,11 @@ Direct agent ids are protocol targets for clients that can submit
 `targetAgentId`. The initial CLI composer integration routes asks by agent label
 or binding ref, and routes send/update messages by agent label, binding ref,
 channel, or broadcast.
+
+`target:<name>` is the canonical human-typed spelling for a saved situated Scout
+target. Agent-authored prompts and compact UI may render the same handle as
+`⌖name`; clients should normalize both to the same target handle before broker
+dispatch.
 
 `@agent` remains a compatibility input form. `>>` is preferred for new
 Scout-aware message boxes because it does not ask the host environment to
@@ -144,7 +151,7 @@ Field meanings:
 
 | Field | Meaning |
 | --- | --- |
-| `⌖` | Scout-mediated contact: broker-owned routing or reply context |
+| `⌖` | Scout-mediated contact; standalone `⌖name` is compact shorthand for human `target:name` |
 | `<source-short>` | Short display form of the requester/source actor |
 | `<operator>` | Intent-family semantic operator |
 | `<intent>` | Human-readable intent label |

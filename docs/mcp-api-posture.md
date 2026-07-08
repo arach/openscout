@@ -35,9 +35,10 @@ guess generic names such as `claude.main`.
 
 MCP receipts should make follow-up cheap: return durable ids such as
 `flightId`, `conversationId`, `messageId`, `workId`, `targetSessionId`/`sessionId`,
-and any short `ref` or broker-suggested friendly worker handle the server can
-provide. Follow-up uses those handles; naming/pinning is an explicit later
-promotion.
+and any short `ref` or broker-suggested situated target handle the server can
+provide. Humans type saved targets as `target:<name>`; agents and compact UI may
+render the same handle as `⌖name`. Follow-up uses those handles; naming/pinning
+is an explicit later promotion.
 
 `messages_reply` is the threaded-message form of `messages_send`. It should
 preserve the ask conversation instead of creating a fresh ask. Quiet or

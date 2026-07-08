@@ -47,6 +47,7 @@ transcripts.
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | project/capability-routed ask | project known, concrete agent/session unknown | `scout ask --project --harness`, `ask({ projectPath, harness })` |
+| situated target follow-up | saved project/profile/harness situation | `scout ask --to target:<name>`, compact `⌖name` in agent/UI text |
 | exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `scout ask --to session:<harness>:<native-id>`, `ask({ targetSessionId })` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
@@ -135,15 +136,18 @@ Examples:
 | Typed | Broker target | Body |
 |---|---|---|
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
+| `/scout:ask >> target:mw-talkie Continue.` | `target: { kind: "target_handle", handle: "mw-talkie" }` | `Continue.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
 | `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
 | `/scout:ask --project ../talkie --harness claude Review.` | `projectPath: "../talkie", harness: "claude"` | `Review.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
-Supported route target forms: agent labels, `agent:<label>`, `ref:<id>`,
-`project:<path>`, `id:<agentId>`, `channel:<name>`, and `broadcast`. `@agent`
-remains compatibility syntax, but new Scout-aware composers should prefer `>>`
-and strip the route operator from payload before calling the broker.
+Supported route target forms: agent labels, `agent:<label>`, `target:<handle>`,
+`ref:<id>`, `project:<path>`, `id:<agentId>`, `channel:<name>`, and
+`broadcast`. `@agent` remains compatibility syntax, but new Scout-aware
+composers should prefer `>>` and strip the route operator from payload before
+calling the broker. Agent-authored prompts and compact UI may render
+`target:<handle>` as `⌖handle`.
 
 CLI composer routing currently uses labels, refs, and project paths for asks;
 `channel:<name>` and `broadcast` are send/update routes. Direct `id:<agentId>`
@@ -193,9 +197,10 @@ Examples:
 Contact line properties:
 
 - generated from records
-- not parser input
+- full contact lines are not parser input
 - not routing authority
 - target omitted when target is ambient
+- standalone `⌖handle` is compact shorthand for human `target:<handle>`
 - ref usually `messageId` suffix, fallback invocation id
 - payload opener form: `⌖ art ≔ ask:8kj4pd › I am writing...`
 - ASCII fallback: `scout art ask:8kj4pd`

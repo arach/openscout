@@ -255,8 +255,17 @@ ask({ projectPath: "../talkie", harness: "claude", body: "Review this." })
 
 Do not guess generic names such as `claude.main` just because you need a Claude
 review. Scout should return durable follow-up handles and, when possible, a
-friendly mnemonic handle for the routed worker. Promote that worker to a named
+situated target handle for the routed worker. Promote that worker to a named
 long-lived sibling only after the route is known good.
+
+A **situated Scout target** is the saved result of that resolution: agent
+profile, project, harness, rules/tool context, and the current continuation
+handle that Scout should use. Humans type it as `target:<name>`. Agent-authored
+prompts and compact UI may render the same handle as `⌖name`. `@missionwriter`
+names a role or definition, `#ops` names a channel, and
+`session:<harness>:<native-id>` names one exact runtime session. A target handle
+can resolve through current broker records to the right ref, session, or
+binding, but it is not itself a raw session id.
 
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
