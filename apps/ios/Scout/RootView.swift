@@ -91,7 +91,7 @@ struct RootView: View {
                                             surface = .agents
                                         }
                                     },
-                                    reloadToken: model.dataReadyToken
+                                    reloadToken: model.fleetDataReadyToken
                                 )
                             case .agents:
                                 AgentsSurface(
@@ -99,8 +99,8 @@ struct RootView: View {
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
                             case .tail:
-                                TailSurface(client: client, reloadToken: model.dataReadyToken)
-                            case .comms:    CommsSurface(client: client, reloadToken: model.dataReadyToken)
+                                TailSurface(model: model, reloadToken: model.fleetDataReadyToken)
+                            case .comms:    CommsSurface(model: model, reloadToken: model.fleetDataReadyToken)
                             case .terminal: TerminalSurface(
                                 client: client,
                                 reloadToken: model.dataReadyToken,
@@ -141,8 +141,8 @@ struct RootView: View {
                         // the bar sits flush in the indicator band, not floating.
                         .offset(y: 14)
                 }
-                .task(id: "\(model.dataReadyToken)|\(surface.rawValue)") {
-                    guard model.dataReadyToken != 0, surface != .home else { return }
+                .task(id: "\(model.fleetDataReadyToken)|\(surface.rawValue)") {
+                    guard model.fleetDataReadyToken != 0, surface != .home else { return }
                     // Keep the status bar's agent / active counts roughly live while
                     // non-Home surfaces are up. Home shares its own successful
                     // agent read, so Root does not duplicate that RPC underneath it.

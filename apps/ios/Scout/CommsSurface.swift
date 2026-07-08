@@ -12,16 +12,35 @@ import ScoutCapabilities
 /// who + age + unread) that pushes into a thread where the operator posts as
 /// themselves. Shares the broker client; reloads when the bridge connects.
 struct CommsSurface: View {
-    let client: any ScoutBrokerClient
+    let model: AppModel
     var reloadToken: Int = 0
 
-    @State private var conversations: [CommsConversation] = []
+    @State private var conversations: [MachineCommsConversation] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var route: CommsConversation?
+    @State private var routeClient: (any ScoutBrokerClient)?
+    @State private var routeRowId: String?
     /// Lowercased display names of agents the broker reports as live — drives the
     /// row's "working" spinner. A real signal, refreshed on every load.
     @State private var liveAgents: Set<String> = []
+
+    private struct MachineCommsConversation: Identifiable {
+        let id: String
+        let machineId: String
+        let machineName: String
+        let client: any ScoutBrokerClient
+        var conversation: CommsConversation
+    }
+
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+    }
 
     var body: some View {
         ScrollView {
@@ -47,25 +66,29 @@ struct CommsSurface: View {
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.lg)
                         .padding(.bottom, HudSpacing.lg)
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, convo in
+                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, row in
                         CommsRow(
-                            conversation: convo,
-                            client: client,
+                            conversation: row.conversation,
+                            client: row.client,
                             showDivider: index < filtered.count - 1,
                             liveAgents: liveAgents
-                        ) { route = convo }
+                        ) {
+                            routeClient = row.client
+                            routeRowId = row.id
+                            route = row.conversation
+                        }
                     }
                 }
             }
         }
         .refreshable { await load() }
-        .task(id: reloadToken) { await load() }
+        .task(id: reloadKey) { await load() }
         .navigationDestination(item: $route) { convo in
             CommsThreadView(
-                client: client,
+                client: routeClient ?? model.client,
                 conversation: convo,
                 onClose: { route = nil },
-                onRead: { await markRead(convo.id) }
+                onRead: { await markRead(rowId: routeRowId, conversationId: convo.id, client: routeClient) }
             )
         }
     }
@@ -74,39 +97,72 @@ struct CommsSurface: View {
     /// is already caught up when the operator pops back, then tell the broker to
     /// advance the operator's read cursor. Best-effort — a failed write just means
     /// the badge returns on the next list pull.
-    private func markRead(_ conversationId: String) async {
-        if let idx = conversations.firstIndex(where: { $0.id == conversationId }),
-           conversations[idx].unreadCount != 0 {
-            conversations[idx].unreadCount = 0
+    private func markRead(rowId: String?, conversationId: String, client: (any ScoutBrokerClient)?) async {
+        if let rowId,
+           let idx = conversations.firstIndex(where: { $0.id == rowId }),
+           conversations[idx].conversation.unreadCount != 0 {
+            conversations[idx].conversation.unreadCount = 0
         }
-        _ = try? await client.markConversationRead(conversationId: conversationId)
+        _ = try? await (client ?? model.client).markConversationRead(conversationId: conversationId)
     }
 
     // MARK: - Filtering
 
-    private var filtered: [CommsConversation] {
+    private var filtered: [MachineCommsConversation] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return conversations }
-        return conversations.filter { c in
-            ([c.title, c.lastMessagePreview, c.lastMessageAuthor].compactMap { $0?.lowercased() }
-                + c.participants.map { $0.lowercased() })
-                .contains { $0.contains(q) }
+        return conversations.filter { row in
+            let c = row.conversation
+            let haystack = [c.title, c.lastMessagePreview, c.lastMessageAuthor].compactMap { $0?.lowercased() }
+                + c.participants.map { $0.lowercased() }
+                + [row.machineName.lowercased()]
+            return haystack.contains { $0.contains(q) }
         }
     }
 
     private func load() async {
         isLoading = true
-        var rows = (try? await client.listConversations(kind: nil, limit: 100)) ?? []
+        let machines = model.agentMachines()
+        var rows: [MachineCommsConversation] = []
+        var liveNames = Set<String>()
+        for machine in machines {
+            guard let client = machine.client else { continue }
+            let machineRows = (try? await client.listConversations(kind: nil, limit: 100)) ?? []
+            rows.append(contentsOf: machineRows.map { conversation in
+                MachineCommsConversation(
+                    id: "\(machine.id)::\(conversation.id)",
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    client: client,
+                    conversation: conversation
+                )
+            })
+            let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
+            liveNames.formUnion(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
+        }
         #if DEBUG
         if rows.isEmpty, ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" {
-            rows = CommsSurface.demoConversations()
+            let demoClient = model.client
+            rows = CommsSurface.demoConversations().map { conversation in
+                MachineCommsConversation(
+                    id: "demo::\(conversation.id)",
+                    machineId: "demo",
+                    machineName: "Demo",
+                    client: demoClient,
+                    conversation: conversation
+                )
+            }
         }
         #endif
-        conversations = rows.sorted { ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast) }
+        conversations = rows.sorted {
+            let lhs = $0.conversation.lastMessageAt ?? .distantPast
+            let rhs = $1.conversation.lastMessageAt ?? .distantPast
+            if lhs != rhs { return lhs > rhs }
+            return $0.machineName.localizedCaseInsensitiveCompare($1.machineName) == .orderedAscending
+        }
         // Live-agent set powers the "working" spinner — match a conversation's
         // counterpart against agents the broker currently reports as live.
-        let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
-        liveAgents = Set(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
+        liveAgents = liveNames
         isLoading = false
     }
 }

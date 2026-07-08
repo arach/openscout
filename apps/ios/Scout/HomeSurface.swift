@@ -31,15 +31,14 @@ struct HomeSurface: View {
     /// result it fetched mid-connect.
     var reloadToken: Int = 0
 
-    private var client: any ScoutBrokerClient { model.client }
-
-    @State private var agents: [AgentSummary] = []
+    @State private var agents: [HomeAgent] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var route: HomeConversationRoute?
+    @State private var routeClient: (any ScoutBrokerClient)?
     @State private var expanded: Set<String> = []
     @State private var expandedActivity: Set<String> = []
-    @State private var activity: [TailEvent] = []
+    @State private var activity: [HomeActivity] = []
     @State private var showAllActivity = false
 
     /// A Hashable navigation target for Home's activity shortcuts. Session
@@ -99,7 +98,7 @@ struct HomeSurface: View {
             switch route {
             case .session(let id, let title):
                 ConversationSurface(
-                    client: client,
+                    client: routeClient ?? model.client,
                     conversationId: id,
                     title: title,
                     onClose: { self.route = nil },
@@ -107,16 +106,16 @@ struct HomeSurface: View {
                 )
             case .comms(let conversation):
                 CommsThreadView(
-                    client: client,
+                    client: routeClient ?? model.client,
                     conversation: conversation,
                     onClose: { self.route = nil },
-                    onRead: { _ = try? await client.markConversationRead(conversationId: conversation.id) }
+                    onRead: { _ = try? await (routeClient ?? model.client).markConversationRead(conversationId: conversation.id) }
                 )
             }
         }
         // Activity's "All" pushes the full live firehose — Home only previews it.
         .navigationDestination(isPresented: $showAllActivity) {
-            TailSurface(client: client, reloadToken: reloadToken)
+            TailSurface(model: model, reloadToken: reloadToken)
         }
     }
 
@@ -221,18 +220,21 @@ struct HomeSurface: View {
         return haystack.compactMap { $0?.lowercased() }.contains { $0.contains(q) }
     }
 
-    private var filteredAgents: [AgentSummary] {
+    private var filteredAgents: [HomeAgent] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return agents }
-        return agents.filter { matches([$0.title, $0.projectName, $0.branch, $0.harness, $0.model, $0.statusLabel], q) }
+        return agents.filter { row in
+            let agent = row.agent
+            return matches([agent.title, agent.projectName, agent.branch, agent.harness, agent.model, agent.statusLabel, row.machineName], q)
+        }
     }
 
     // MARK: - Working now (live agents, newest first)
 
-    private var liveAgents: [AgentSummary] {
+    private var liveAgents: [HomeAgent] {
         filteredAgents
-            .filter { $0.state == .live }
-            .sorted { ($0.lastActiveAt ?? .distantPast) > ($1.lastActiveAt ?? .distantPast) }
+            .filter { $0.agent.state == .live }
+            .sorted { ($0.agent.lastActiveAt ?? .distantPast) > ($1.agent.lastActiveAt ?? .distantPast) }
     }
 
     /// Live agents as a horizontal strip of cards, each with a blinking cursor on
@@ -243,7 +245,7 @@ struct HomeSurface: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: HudSpacing.md) {
                     ForEach(liveAgents) { agent in
-                        WorkingCard(agent: agent, onTap: { tap(agent)?() })
+                        WorkingCard(agent: agent.agent, onTap: { tap(agent)?() })
                     }
                 }
                 .padding(.vertical, 2)
@@ -253,9 +255,9 @@ struct HomeSurface: View {
 
     // MARK: - Projects
 
-    private func projectKey(_ agent: AgentSummary) -> String {
-        if let project = agent.projectName, !project.isEmpty { return project }
-        return agent.title
+    private func projectKey(_ row: HomeAgent) -> String {
+        if let project = row.agent.projectName, !project.isEmpty { return project }
+        return row.agent.title
     }
 
     private var projectGroups: [ProjectGroup] {
@@ -270,12 +272,14 @@ struct HomeSurface: View {
             }
     }
 
-    private func sortAgents(_ list: [AgentSummary]) -> [AgentSummary] {
+    private func sortAgents(_ list: [HomeAgent]) -> [HomeAgent] {
         list.sorted { a, b in
-            if a.state != b.state { return stateRank(a.state) < stateRank(b.state) }
-            let la = a.lastActiveAt ?? .distantPast, lb = b.lastActiveAt ?? .distantPast
+            if a.agent.state != b.agent.state { return stateRank(a.agent.state) < stateRank(b.agent.state) }
+            let la = a.agent.lastActiveAt ?? .distantPast, lb = b.agent.lastActiveAt ?? .distantPast
             if la != lb { return la > lb }
-            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+            let machineCompare = a.machineName.localizedCaseInsensitiveCompare(b.machineName)
+            if machineCompare != .orderedSame { return machineCompare == .orderedAscending }
+            return a.agent.title.localizedCaseInsensitiveCompare(b.agent.title) == .orderedAscending
         }
     }
 
@@ -323,7 +327,7 @@ struct HomeSurface: View {
                                 ForEach(Array(group.agents.enumerated()), id: \.offset) { agentIndex, agent in
                                     rowSeparator(inset: true)
                                     AgentFleetRow(
-                                        agent: agent,
+                                        agent: agent.agent,
                                         projectName: group.name,
                                         leadingLeaf: true,
                                         treeBranch: .init(isLast: agentIndex == group.agents.count - 1),
@@ -382,10 +386,13 @@ struct HomeSurface: View {
     /// `conversationId`, not `sessionId` (a harness label shared across agents).
     /// If no chat exists yet, the row is non-interactive until an explicit
     /// create-chat action returns an opaque chat id.
-    private func tap(_ agent: AgentSummary) -> (() -> Void)? {
-        guard let conversationId = agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+    private func tap(_ row: HomeAgent) -> (() -> Void)? {
+        guard let conversationId = row.agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !conversationId.isEmpty else { return nil }
-        return { route = .session(id: conversationId, title: agent.title) }
+        return {
+            routeClient = row.client
+            route = .session(id: conversationId, title: row.agent.title)
+        }
     }
 
     private func toggle(_ id: String) {
@@ -400,7 +407,7 @@ struct HomeSurface: View {
     private static let activityViewportRows = 8
     private static let activityCollapsedRowHeight: CGFloat = 54
 
-    private var recentActivity: [TailEvent] { Array(activity.prefix(Self.activityPreviewCap)) }
+    private var recentActivity: [HomeActivity] { Array(activity.prefix(Self.activityPreviewCap)) }
 
     private var activityListMaxHeight: CGFloat {
         CGFloat(Self.activityViewportRows) * Self.activityCollapsedRowHeight
@@ -412,13 +419,13 @@ struct HomeSurface: View {
             listCard {
                 ScrollView(.vertical, showsIndicators: recentActivity.count > Self.activityViewportRows) {
                     VStack(spacing: 0) {
-                        ForEach(Array(recentActivity.enumerated()), id: \.element.id) { index, event in
+                        ForEach(Array(recentActivity.enumerated()), id: \.element.id) { index, row in
                             if index > 0 { rowSeparator() }
                             ActivityRow(
-                                event: event,
-                                isExpanded: expandedActivity.contains(event.id),
-                                onToggle: { toggleActivity(event.id) },
-                                onOpen: tapActivity(event)
+                                event: row.event,
+                                isExpanded: expandedActivity.contains(row.id),
+                                onToggle: { toggleActivity(row.id) },
+                                onOpen: tapActivity(row)
                             )
                         }
                     }
@@ -430,9 +437,12 @@ struct HomeSurface: View {
 
     /// Tap an activity row to open the conversation it happened in. Events with
     /// no thread linkage (`conversationId == nil`) stay non-interactive.
-    private func tapActivity(_ event: TailEvent) -> (() -> Void)? {
-        guard let conversationId = event.conversationId, !conversationId.isEmpty else { return nil }
-        return { route = activityRoute(for: event, conversationId: conversationId) }
+    private func tapActivity(_ row: HomeActivity) -> (() -> Void)? {
+        guard let conversationId = row.event.conversationId, !conversationId.isEmpty else { return nil }
+        return {
+            routeClient = row.client
+            route = activityRoute(for: row.event, conversationId: conversationId)
+        }
     }
 
     private func activityRoute(for event: TailEvent, conversationId: String) -> HomeConversationRoute {
@@ -447,7 +457,7 @@ struct HomeSurface: View {
     /// newest-first. Home is an orientation surface, so it reads the broker's
     /// curated message feed and refreshes on appear / pull-to-refresh — it does
     /// NOT fold in the live process firehose (that's the Tail tab's job).
-    private func mergeActivity(_ incoming: [TailEvent]) {
+    private func mergeActivity(_ incoming: [HomeActivity]) {
         guard !incoming.isEmpty else { return }
         var seen = Set(activity.map(\.id))
         var merged = activity
@@ -455,7 +465,7 @@ struct HomeSurface: View {
             merged.append(event)
             seen.insert(event.id)
         }
-        merged.sort { $0.tsMs > $1.tsMs }
+        merged.sort { $0.event.tsMs > $1.event.tsMs }
         if merged.count > 24 { merged.removeLast(merged.count - 24) }
         activity = merged
     }
@@ -471,14 +481,46 @@ struct HomeSurface: View {
         if agents.isEmpty && activity.isEmpty { isLoading = true }
         // Don't clobber what's on screen if a refresh fails — keep the last good
         // fleet rather than dropping to the empty state on a transient error.
-        if let fresh = try? await client.listAgents(query: nil, limit: 20) {
-            agents = fresh
-            model.updateFleetStats(from: fresh)
+        let machines = model.agentMachines()
+        var freshAgents: [HomeAgent] = []
+        var freshActivity: [HomeActivity] = []
+        var sawAgentRead = false
+
+        for machine in machines {
+            guard let client = machine.client else { continue }
+            if let rows = try? await client.listAgents(query: nil, limit: 50) {
+                sawAgentRead = true
+                freshAgents.append(contentsOf: rows.map { agent in
+                    HomeAgent(
+                        id: "\(machine.id)::\(agent.id)",
+                        machineId: machine.id,
+                        machineName: machine.name,
+                        client: client,
+                        agent: agent
+                    )
+                })
+            }
+            if let rows = try? await client.recentActivity(limit: 24) {
+                freshActivity.append(contentsOf: rows.map { event in
+                    HomeActivity(
+                        id: "\(machine.id)::\(event.id)",
+                        machineId: machine.id,
+                        machineName: machine.name,
+                        client: client,
+                        event: event
+                    )
+                })
+            }
+        }
+
+        if sawAgentRead || machines.allSatisfy({ $0.client == nil }) {
+            agents = freshAgents
         }
         // Backfill recent activity — the live tail stream only delivers events
         // that arrive after we subscribe, so without this the section is empty
         // until something new happens.
-        mergeActivity((try? await client.recentActivity(limit: 24)) ?? [])
+        mergeActivity(freshActivity)
+        await model.refreshFleetStats()
         isLoading = false
         #if DEBUG
         if ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" { seedDemoActivity() }
@@ -491,26 +533,57 @@ struct HomeSurface: View {
     /// a real agent running. Gated behind the SCOUT_DEMO env var — never ships.
     private func seedDemoActivity() {
         let now = Date()
+        let demoClient = model.client
         agents.insert(contentsOf: [
-            AgentSummary(id: "demo.1", title: "broker-smith", harness: "claude", projectName: "openscout",
-                         branch: "feat/in-app-session", git: GitState(ahead: 1, behind: 0, dirty: 3),
-                         model: "claude-opus-4-8", statusLabel: "editing HomeSurface.swift",
-                         state: .live, sessionId: "demo.s1", lastActiveAt: now),
-            AgentSummary(id: "demo.2", title: "tail-tuner", harness: "codex", projectName: "hudson",
-                         branch: "feat/tail-tokens", git: GitState(ahead: 2, behind: 0, dirty: 0),
-                         model: "gpt-5.5", statusLabel: "streaming tail tokens",
-                         state: .live, sessionId: "demo.s2", lastActiveAt: now.addingTimeInterval(-95)),
+            HomeAgent(
+                id: "demo::demo.1",
+                machineId: "demo",
+                machineName: "Demo",
+                client: demoClient,
+                agent: AgentSummary(id: "demo.1", title: "broker-smith", harness: "claude", projectName: "openscout",
+                                    branch: "feat/in-app-session", git: GitState(ahead: 1, behind: 0, dirty: 3),
+                                    model: "claude-opus-4-8", statusLabel: "editing HomeSurface.swift",
+                                    state: .live, sessionId: "demo.s1", lastActiveAt: now)
+            ),
+            HomeAgent(
+                id: "demo::demo.2",
+                machineId: "demo",
+                machineName: "Demo",
+                client: demoClient,
+                agent: AgentSummary(id: "demo.2", title: "tail-tuner", harness: "codex", projectName: "hudson",
+                                    branch: "feat/tail-tokens", git: GitState(ahead: 2, behind: 0, dirty: 0),
+                                    model: "gpt-5.5", statusLabel: "streaming tail tokens",
+                                    state: .live, sessionId: "demo.s2", lastActiveAt: now.addingTimeInterval(-95))
+            ),
         ], at: 0)
         func ms(_ offset: TimeInterval) -> Int64 { Int64((now.addingTimeInterval(offset).timeIntervalSince1970) * 1000) }
         activity = [
-            TailEvent(id: "ev1", tsMs: ms(-20), source: "claude", harness: .scoutManaged, kind: .tool, summary: "Ran swift build — 0 errors, 0 warnings"),
-            TailEvent(id: "ev2", tsMs: ms(-95), source: "codex", harness: .hudsonManaged, kind: .assistant, summary: "Wired HudCodeHighlighter into the message renderer"),
-            TailEvent(id: "ev3", tsMs: ms(-300), source: "claude", harness: .scoutManaged, kind: .toolResult, summary: "Edited ConversationSurface.swift (+14 −6)"),
-            TailEvent(id: "ev4", tsMs: ms(-840), source: "codex", harness: .hudsonManaged, kind: .tool, summary: "git commit — projects-first Home + machine rail"),
-            TailEvent(id: "ev5", tsMs: ms(-1500), source: "claude", harness: .unattributed, kind: .user, summary: "ship the v0-2 ttf to hero/output"),
+            HomeActivity(id: "demo::ev1", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev1", tsMs: ms(-20), source: "claude", harness: .scoutManaged, kind: .tool, summary: "Ran swift build — 0 errors, 0 warnings")),
+            HomeActivity(id: "demo::ev2", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev2", tsMs: ms(-95), source: "codex", harness: .hudsonManaged, kind: .assistant, summary: "Wired HudCodeHighlighter into the message renderer")),
+            HomeActivity(id: "demo::ev3", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev3", tsMs: ms(-300), source: "claude", harness: .scoutManaged, kind: .toolResult, summary: "Edited ConversationSurface.swift (+14 −6)")),
+            HomeActivity(id: "demo::ev4", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev4", tsMs: ms(-840), source: "codex", harness: .hudsonManaged, kind: .tool, summary: "git commit — projects-first Home + machine rail")),
+            HomeActivity(id: "demo::ev5", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev5", tsMs: ms(-1500), source: "claude", harness: .unattributed, kind: .user, summary: "ship the v0-2 ttf to hero/output")),
         ]
     }
     #endif
+}
+
+// MARK: - Home row provenance
+
+private struct HomeAgent: Identifiable {
+    let id: String
+    let machineId: String
+    let machineName: String
+    let client: any ScoutBrokerClient
+    let agent: AgentSummary
+}
+
+private struct HomeActivity: Identifiable {
+    let id: String
+    let machineId: String
+    let machineName: String
+    let client: any ScoutBrokerClient
+    let event: TailEvent
 }
 
 // MARK: - ProjectGroup
@@ -518,10 +591,10 @@ struct HomeSurface: View {
 private struct ProjectGroup: Identifiable {
     let id: String
     let name: String
-    let agents: [AgentSummary]
+    let agents: [HomeAgent]
 
-    var liveCount: Int { agents.filter { $0.state == .live }.count }
-    var lastActiveAt: Date? { agents.compactMap(\.lastActiveAt).max() }
+    var liveCount: Int { agents.filter { $0.agent.state == .live }.count }
+    var lastActiveAt: Date? { agents.compactMap { $0.agent.lastActiveAt }.max() }
 }
 
 // MARK: - WorkingCard
@@ -904,7 +977,7 @@ private struct InlineRuntimeToken: View {
 private struct ProjectRow: View {
     let group: ProjectGroup
     let isExpanded: Bool
-    var soloAgent: AgentSummary?
+    var soloAgent: HomeAgent?
     var showsDisclosure: Bool = true
     let onToggle: () -> Void
     @Environment(\.scoutLayout) private var layout
@@ -974,7 +1047,7 @@ private struct ProjectRow: View {
                 .font(HudFont.mono(HudTextSize.xs))
                 .foregroundStyle(ScoutInk.dim)
             if let agent = soloAgent {
-                compressedAgentSegment(agent)
+                compressedAgentSegment(agent.agent)
             } else {
                 countSegment
             }
