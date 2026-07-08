@@ -33,11 +33,12 @@ import {
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
-import { usePaneNav } from "./lib/keyboard-nav.ts";
+import { isEditableTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
   isNewChatShortcut,
   NEW_CHAT_SHORTCUT_LABEL,
 } from "./lib/new-chat-shortcut.ts";
+import { goShortcutForKey } from "./lib/go-shortcuts.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -52,6 +53,7 @@ const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
 // Agent + session detail is a core flow; give it a wider pane when it slides in.
 const AGENTS_RIGHT_PANEL_MIN_WIDTH = 480;
 const CENTER_CONTENT_MIN_WIDTH = 560;
+const GO_SHORTCUT_TIMEOUT_MS = 1500;
 
 interface ScoutNavigationBarProps {
   title: string;
@@ -249,7 +251,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route, agents, openContextCapture, apiConnection } = useScout();
+  const { route, agents, openContextCapture, apiConnection, navigate } = useScout();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -356,6 +358,26 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showFlagPanel, setShowFlagPanel] = useState(false);
   const [openTools, setOpenTools] = useState<Set<string>>(new Set());
+  const goShortcutPendingRef = useRef(false);
+  const goShortcutTimerRef = useRef<number | null>(null);
+
+  const clearGoShortcut = useCallback(() => {
+    goShortcutPendingRef.current = false;
+    if (goShortcutTimerRef.current !== null) {
+      window.clearTimeout(goShortcutTimerRef.current);
+      goShortcutTimerRef.current = null;
+    }
+  }, []);
+
+  const startGoShortcut = useCallback(() => {
+    goShortcutPendingRef.current = true;
+    if (goShortcutTimerRef.current !== null) {
+      window.clearTimeout(goShortcutTimerRef.current);
+    }
+    goShortcutTimerRef.current = window.setTimeout(clearGoShortcut, GO_SHORTCUT_TIMEOUT_MS);
+  }, [clearGoShortcut]);
+
+  useEffect(() => clearGoShortcut, [clearGoShortcut]);
 
   const toggleTool = useCallback((id: string) => {
     setOpenTools((prev) => {
@@ -445,7 +467,30 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (takeoverActive) return;
+      if (takeoverActive || keyboardHelp.open) return;
+      const key = e.key.toLowerCase();
+      const hasModifier = e.metaKey || e.ctrlKey || e.altKey;
+      const typing = isEditableTarget(e.target);
+      if (goShortcutPendingRef.current) {
+        if (e.key === "Escape" || hasModifier || typing) {
+          clearGoShortcut();
+        } else {
+          const goShortcut = goShortcutForKey(key);
+          if (goShortcut) {
+            e.preventDefault();
+            e.stopPropagation();
+            clearGoShortcut();
+            navigate(goShortcut.route);
+            return;
+          } else {
+            clearGoShortcut();
+          }
+        }
+      }
+      if (!hasModifier && !e.shiftKey && key === "g" && !typing) {
+        startGoShortcut();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowCommandPalette(true);
@@ -490,7 +535,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [agents, assistantEnabled, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, takeoverActive]);
+  }, [agents, assistantEnabled, clearGoShortcut, keyboardHelp.open, navigate, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, startGoShortcut, takeoverActive]);
 
   useEffect(() => {
     const handler = () => {
