@@ -130,6 +130,7 @@ export default function RepoWatchContext({
   const [askPending, setAskPending] = useState(false);
   const [askStatus, setAskStatus] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
   const agents = useMemo(() => worktree ? uniqueAgents(worktree) : [], [worktree]);
   const agentTargets = useMemo(() => agents.slice(0, 8), [agents]);
   const activeTargetLabel = useMemo(() => {
@@ -192,6 +193,17 @@ export default function RepoWatchContext({
 
   const wt = worktree;
   const b = wt.branch;
+
+  // ATTACHED SESSIONS can run to hundreds of handles/sessions on a busy repo;
+  // collapse to a handful by default and reveal the rest behind a toggle.
+  const ATTACHED_COLLAPSED = 5;
+  const attachedTotal = agents.length + wt.sessions.length;
+  const attachedCollapsed = !sessionsExpanded && attachedTotal > ATTACHED_COLLAPSED;
+  const shownAgents = attachedCollapsed ? agents.slice(0, ATTACHED_COLLAPSED) : agents;
+  const shownSessions = attachedCollapsed
+    ? wt.sessions.slice(0, Math.max(0, ATTACHED_COLLAPSED - shownAgents.length))
+    : wt.sessions;
+  const attachedHidden = attachedTotal - shownAgents.length - shownSessions.length;
   const tag = stateTag(wt);
 
   // Churn — parsed from real shortstats; branch + staged + unstaged.
@@ -380,24 +392,31 @@ export default function RepoWatchContext({
               {wt.sessions.length > 0 ? ` · ${wt.sessions.length} session${wt.sessions.length === 1 ? "" : "s"}` : ""}
             </span>
           </div>
-          {agents.length > 0 || wt.sessions.length > 0 ? (
+          {attachedTotal > 0 ? (
             <>
-              {agents.map((a) => (
+              {shownAgents.map((a) => (
                 <div className="ctx-agent" key={agentHandle(a)}>
                   <span className={"d " + (agentLive(a) ? "on" : "off")} />
                   <span className="h">{agentHandle(a)}</span>
                   <span className="role">{stateWord(a)}</span>
                 </div>
               ))}
-              {wt.sessions.slice(0, 8).map((session) => (
+              {shownSessions.map((session) => (
                 <div className="ctx-agent" key={session.id}>
                   <span className="d off" />
                   <span className="h">{sessionHandle(session)}</span>
                   <span className="role">SESSION</span>
                 </div>
               ))}
-              {wt.sessions.length > 8 ? (
-                <div className="ctx-none">+{wt.sessions.length - 8} more sessions</div>
+              {attachedTotal > ATTACHED_COLLAPSED ? (
+                <button
+                  type="button"
+                  className="ctx-more"
+                  onClick={() => setSessionsExpanded((v) => !v)}
+                  aria-expanded={!attachedCollapsed}
+                >
+                  {attachedCollapsed ? `+${attachedHidden} more` : "Show less"}
+                </button>
               ) : null}
             </>
           ) : (
