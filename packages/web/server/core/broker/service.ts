@@ -763,7 +763,14 @@ function renderScoutTargetLabel(targetLabel: string): string {
   if (!trimmed) {
     return "";
   }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return `@${trimmed}`;
 }
 
 function renderedScoutAskTarget(target: ScoutRouteTarget): string {
@@ -772,6 +779,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "target_handle":
+      return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
       return target.value?.trim() || `session:${target.sessionId.trim()}`;
     case "binding_ref":
@@ -785,12 +794,34 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
   }
 }
 
+function renderedScoutAskBodyTargetLabel(
+  target: ScoutRouteTarget | undefined,
+  renderedTarget: string,
+): string {
+  if (target?.kind === "project_path") {
+    return "";
+  }
+  if (target?.kind === "target_handle") {
+    return renderedTarget.trim();
+  }
+  return renderScoutTargetLabel(renderedTarget);
+}
+
+function defaultScoutAskExecutionSession(
+  target: ScoutRouteTarget | undefined,
+): "new" | "existing" {
+  return target?.kind === "target_handle" ? "existing" : "new";
+}
+
 function scoutTargetDiagnosticFromDeliveryFailure(
   delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>,
 ): ScoutTargetDiagnostic | undefined {
-  const dispatch: ScoutDispatchRecord = delivery.kind === "question"
+  const dispatch = (delivery.kind === "question"
     ? delivery.question
-    : delivery.rejection;
+    : delivery.rejection) as ScoutDispatchRecord | undefined;
+  if (!dispatch) {
+    return undefined;
+  }
 
   if (dispatch.kind === "ambiguous") {
     return {
@@ -2664,9 +2695,7 @@ export async function askScoutQuestion(input: {
   if (!renderedTarget) {
     return { usedBroker: true, unresolvedTarget: renderedTarget };
   }
-  const normalizedTargetLabel = input.target?.kind === "project_path"
-    ? ""
-    : renderScoutTargetLabel(renderedTarget);
+  const normalizedTargetLabel = renderedScoutAskBodyTargetLabel(input.target, renderedTarget);
   const explicitTargetAgentId = input.targetAgentId?.trim()
     || (input.target ? undefined : broker.snapshot.agents[renderedTarget]?.id);
   if (explicitTargetAgentId) {
@@ -2703,7 +2732,7 @@ export async function askScoutQuestion(input: {
       ...(input.executionReasoningEffort?.trim()
         ? { reasoningEffort: input.executionReasoningEffort.trim() }
         : {}),
-      session: input.executionSession ?? "new",
+      session: input.executionSession ?? defaultScoutAskExecutionSession(input.target),
       ...(input.executionTargetSessionId?.trim()
         ? { targetSessionId: input.executionTargetSessionId.trim() }
         : {}),

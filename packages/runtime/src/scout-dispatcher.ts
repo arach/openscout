@@ -7,6 +7,7 @@ import {
   formatMinimalAgentIdentity,
   OPENSCOUT_COORDINATOR_AGENT_ID,
   parseAgentIdentity,
+  parseScoutComposerRouteTarget,
   SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
@@ -80,6 +81,13 @@ export interface DispatcherHelpers {
   homeEndpointFor: (snapshot: RuntimeSnapshot, agentId: string) => AgentEndpoint | null;
 }
 
+function normalizeTargetHandleInput(handle: string): string {
+  return handle
+    .trim()
+    .replace(/^[@⌖]+/, "")
+    .replace(/^(?:target|target-handle|target_handle):/i, "");
+}
+
 function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined): string | undefined {
   if (!target) {
     return undefined;
@@ -88,6 +96,8 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.agentId
     : target.kind === "agent_label"
     ? target.label
+    : target.kind === "target_handle"
+    ? target.value ?? `target:${normalizeTargetHandleInput(target.handle)}`
     : target.kind === "session_id"
     ? target.sessionId
     : target.kind === "binding_ref"
@@ -371,6 +381,41 @@ function resolveSessionHandleLabel(
   };
 }
 
+function resolveTargetHandle(
+  snapshot: RuntimeSnapshot,
+  handle: string,
+  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution {
+  const trimmed = normalizeTargetHandleInput(handle);
+  const label = `target:${trimmed}`;
+  if (!trimmed) {
+    return { kind: "unparseable", label };
+  }
+
+  const identity = parseAgentIdentity(trimmed.startsWith("@") ? trimmed : `@${trimmed}`);
+  if (!identity) {
+    return { kind: "unparseable", label };
+  }
+
+  const session = resolveSessionHandleLabel(snapshot, identity, options);
+  if (session) {
+    return session;
+  }
+
+  const bareHandle = normalizeAgentSelectorSegment(identity.definitionId);
+  if (bareHandle && !bareHandle.startsWith("project-")) {
+    const prefixed = parseAgentIdentity(`@project-${bareHandle}`);
+    if (prefixed) {
+      const prefixedSession = resolveSessionHandleLabel(snapshot, prefixed, options);
+      if (prefixedSession) {
+        return prefixedSession;
+      }
+    }
+  }
+
+  return { kind: "unknown", label };
+}
+
 export function resolveAgentLabel(
   snapshot: RuntimeSnapshot,
   label: string,
@@ -603,6 +648,20 @@ export function resolveBrokerRouteTarget(
       helpers: options.helpers,
       harness: directSessionHarness,
     });
+  }
+
+  if (routeTarget?.kind === "target_handle") {
+    return resolveTargetHandle(snapshot, routeTarget.handle, {
+      helpers: options.helpers,
+    });
+  }
+  if (!routeTarget && input.targetLabel) {
+    const parsedTargetLabel = parseScoutComposerRouteTarget(input.targetLabel);
+    if (parsedTargetLabel?.kind === "target_handle") {
+      return resolveTargetHandle(snapshot, parsedTargetLabel.handle, {
+        helpers: options.helpers,
+      });
+    }
   }
 
   if (directRouteAgentId) {

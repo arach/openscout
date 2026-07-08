@@ -299,7 +299,7 @@ async function resolveMcpSenderId(
 
 const targetLabelInputSchema = z
   .string()
-  .describe("Scout agent handle to contact when a specific target is known, such as @talkie. For fresh capability work prefer projectPath plus optional harness; do not guess generic handles like claude.main. Treat harness/model/profile as instance constraints, not the base agent identity.")
+  .describe("Scout agent handle to contact when a specific target is known, such as @talkie, or a saved situated target such as target:talkie or ⌖talkie. For fresh capability work prefer projectPath plus optional harness; do not guess generic handles like claude.main. Treat harness/model/profile as instance constraints, not the base agent identity.")
   .optional();
 
 const targetAgentIdInputSchema = z
@@ -3749,13 +3749,13 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask",
       description:
-        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: for fresh capability work pass `projectPath` plus optional `harness` and let Scout choose/create the concrete worker; pass an agent card/label in `to` only when a specific target is known; pass `targetSessionId` to continue one exact existing session. Do not guess generic names like claude.main. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records and returned refs/ids for follow-up. Use discovery tools only when you need broker help rather than agent work.",
+        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: for fresh capability work pass `projectPath` plus optional `harness` and let Scout choose/create the concrete worker; pass an agent card/label in `to` only when a specific target is known; pass `target:<name>` or `⌖name` for a saved situated target; pass `targetSessionId` to continue one exact existing session. Do not guess generic names like claude.main. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records and returned refs/ids for follow-up. Use discovery tools only when you need broker help rather than agent work.",
       inputSchema: z.object({
         to: z
           .string()
           .min(1)
           .optional()
-          .describe("Agent id, label, sibling, specialist, or recent collaborator."),
+          .describe("Agent id, label, sibling, specialist, recent collaborator, target:<name>, or ⌖name."),
         targetSessionId: targetSessionIdInputSchema,
         projectPath: projectPathInputSchema,
         body: z.string().min(1),

@@ -34,6 +34,7 @@ export function renderAskCommandHelp(): string {
     "  one target + no channel            -> DM",
     "  --channel <name>                   -> named group thread",
     "  short @name                        -> agent card; starts fresh harness session",
+    "  --to target:<name> or --to ⌖name    -> saved situated target; continues that worker",
     "  --to session:<id>                  -> continue one exact existing session",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
     "  --project <path> --harness <rt>     -> capability request; broker chooses/creates worker",
@@ -56,6 +57,7 @@ export function renderAskCommandHelp(): string {
     "",
     "Examples:",
     '  scout ask --to hudson "review the parser"',
+    '  scout ask --to target:mw-talkie "continue the editorial pass"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
     '  scout ask --harness codex "review this from a fresh Codex session"',
@@ -127,7 +129,14 @@ function renderScoutAskDeliveryStatus(
 
 function renderScoutTargetLabel(targetLabel: string): string {
   const trimmed = targetLabel.trim();
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return `@${trimmed}`;
 }
 
 function renderScoutUpCommand(projectRoot: string): string {
