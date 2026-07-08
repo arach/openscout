@@ -180,6 +180,15 @@ function main() {
       dryRun: options.dryRun,
       env: buildEnv,
     });
+    // Sign the fresh DMG into apps/macos/appcast.xml. Inert (warn + skip) until
+    // the maintainer replaces the SUPublicEDKey placeholder. Note: this updates
+    // the appcast locally; committing/pushing it is left to the release commit.
+    run("node", [
+      "scripts/update-appcast.mjs",
+      version,
+      `apps/macos/dist/OpenScout-${version}.dmg`,
+      "--skip-if-placeholder",
+    ], { dryRun: options.dryRun });
   }
 
   if (!options.skipUpload) {

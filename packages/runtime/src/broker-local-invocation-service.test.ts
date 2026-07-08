@@ -105,6 +105,21 @@ function testConversation(input: Partial<ConversationDefinition> = {}): Conversa
   };
 }
 
+function testMessage(input: Partial<MessageRecord> = {}): MessageRecord {
+  return {
+    id: "message-1",
+    conversationId: "conversation-1",
+    actorId: "operator",
+    originNodeId: "node-1",
+    class: "agent",
+    body: "hello",
+    visibility: "workspace",
+    policy: "durable",
+    createdAt: 1_000,
+    ...input,
+  };
+}
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((nextResolve) => {
@@ -137,11 +152,13 @@ function createHarness(input: {
   actor?: ActorIdentity;
   agent?: AgentDefinition;
   conversation?: ConversationDefinition;
+  message?: MessageRecord;
   now?: number;
 } = {}) {
   const agents: Record<string, AgentDefinition> = {};
   const actors: Record<string, ActorIdentity> = {};
   const conversations: Record<string, ConversationDefinition> = {};
+  const messages: Record<string, MessageRecord> = {};
   const flights: Record<string, FlightRecord> = {};
   const endpoints: Record<string, AgentEndpoint> = {};
   const persistedFlights: FlightRecord[] = [];
@@ -161,6 +178,9 @@ function createHarness(input: {
   }
   const conversation = input.conversation ?? testConversation();
   conversations[conversation.id] = conversation;
+  if (input.message) {
+    messages[input.message.id] = input.message;
+  }
   if (endpoint) {
     endpoints[endpoint.id] = endpoint;
   }
@@ -171,6 +191,7 @@ function createHarness(input: {
       actor: (actorId) => actors[actorId],
       agent: (agentId) => agents[agentId],
       conversation: (conversationId) => conversations[conversationId],
+      message: (messageId) => messages[messageId],
       flightForInvocation: (invocationId) =>
         Object.values(flights).find((flight) => flight.invocationId === invocationId),
       snapshot: () => ({
@@ -180,7 +201,7 @@ function createHarness(input: {
         endpoints,
         conversations,
         bindings: {},
-        messages: {},
+        messages,
         readCursors: {},
         invocations: {},
         flights,
@@ -446,6 +467,47 @@ describe("BrokerLocalInvocationService", () => {
     expect(harness.persistedFlights[0]?.summary).toBe(
       "alias project-chopin → session-chopin-1 (scope, codex) acknowledged via attach.",
     );
+  });
+
+  test("adds originating message attachments to local invocation context", async () => {
+    let capturedInvocation: InvocationRequest | null = null;
+    const endpoint = testEndpoint({
+      id: "endpoint-tmux",
+      transport: "tmux",
+      harness: "claude",
+    });
+    const harness = createHarness({
+      endpoint,
+      message: testMessage({
+        attachments: [
+          {
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          },
+        ],
+      }),
+      async invokeEndpoint(_endpoint, invocation) {
+        capturedInvocation = invocation;
+        return { output: "" };
+      },
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation({ action: "wake" }));
+
+    expect(capturedInvocation?.context).toEqual({
+      scoutMessageAttachments: [
+        {
+          id: "att-1",
+          mediaType: "image/png",
+          fileName: "screenshot.png",
+          url: "http://127.0.0.1:3200/api/blobs/blob-1",
+        },
+      ],
+    });
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "completed"]);
   });
 
   test("keeps requester wait timeout flights running", async () => {

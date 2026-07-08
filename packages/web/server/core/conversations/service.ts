@@ -63,6 +63,8 @@ export type ScoutConversationSummary = {
   harness: string | null;
   sessionId: string | null;
   currentBranch: string | null;
+  parentConversationId: string | null;
+  anchorMessageId: string | null;
   preview: string | null;
   messageCount: number;
   lastMessageAt: number | null;
@@ -576,6 +578,7 @@ export async function getScoutConversations(
         readAtByConversation.get(conversation.id),
         operatorIds,
       );
+      const isChildConversation = Boolean(conversation.parentConversationId && conversation.messageId);
       const askField = {};
       const participants = buildScopedParticipants(
         snapshot,
@@ -591,7 +594,7 @@ export async function getScoutConversations(
           || metadataBoolean(agent?.metadata, "retiredFromFleet")
           || metadataBoolean(actor?.metadata, "retiredFromFleet")
           || isFailedCardlessLaunchStub(endpoint)
-          || messageCount === 0
+          || (!isChildConversation && messageCount === 0)
         ) {
           return [];
         }
@@ -616,6 +619,8 @@ export async function getScoutConversations(
             ?? metadataString(endpoint?.metadata, "workspaceQualifier")
             ?? metadataString(agent?.metadata, "branch")
             ?? metadataString(agent?.metadata, "workspaceQualifier"),
+          parentConversationId: conversation.parentConversationId ?? null,
+          anchorMessageId: conversation.messageId ?? null,
           preview: latestMessage?.body ?? null,
           messageCount,
           lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
@@ -626,12 +631,12 @@ export async function getScoutConversations(
       }
 
       if (conversation.kind === "channel" || conversation.kind === "group_direct") {
-        const visible = messageCount >= 1 || conversation.participantIds.includes("operator");
+        const visible = isChildConversation || messageCount >= 1 || conversation.participantIds.includes("operator");
         if (!visible) {
           return [];
         }
       } else if (conversation.kind === "thread") {
-        if (messageCount === 0) {
+        if (!isChildConversation && messageCount === 0) {
           return [];
         }
       } else if (conversation.kind === "system") {
@@ -655,6 +660,8 @@ export async function getScoutConversations(
         harness: null,
         sessionId,
         currentBranch: null,
+        parentConversationId: conversation.parentConversationId ?? null,
+        anchorMessageId: conversation.messageId ?? null,
         preview: latestMessage?.body ?? null,
         messageCount,
         lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),

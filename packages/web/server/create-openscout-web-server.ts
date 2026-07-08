@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { performance } from "node:perf_hooks";
+import { createHash } from "node:crypto";
 
 import { Hono, type Context } from "hono";
 import {
@@ -78,6 +79,13 @@ import {
   type WebAgent,
   type WebFlight,
 } from "./db-queries.ts";
+import { queryAgentIdsByEndpointSessionId } from "./db/agents.ts";
+import { queryOperatorAttentionRows } from "./db/fleet.ts";
+import {
+  applyAgentAttention,
+  buildAgentAttentionIndex,
+  type AgentAttentionEntry,
+} from "./core/attention/agent-attention.ts";
 import {
   configuredOperatorActorIds,
 } from "./db/internal/conversation-ids.ts";
@@ -171,7 +179,10 @@ import {
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
 import type { ScoutbotCodexAssistantInvoker } from "./scoutbot-assistant.ts";
-import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
+import {
+  SCOUTBOT_AGENT_ID,
+  SCOUTBOT_DEFAULT_THREAD_ID,
+} from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -1132,6 +1143,15 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+const LEGACY_SCOUTBOT_CONVERSATION_IDS = new Set([
+  "dm.operator.scoutbot",
+  "dm.operator.scoutbot.default",
+]);
+
+function isLegacyScoutbotConversationId(value: string): boolean {
+  return LEGACY_SCOUTBOT_CONVERSATION_IDS.has(value.trim());
+}
+
 function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
@@ -1960,6 +1980,63 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
+const AGENT_ATTENTION_TTL_MS = 2_000;
+let agentAttentionCache: { at: number; index: Map<string, AgentAttentionEntry> } | null = null;
+let agentAttentionInFlight: Promise<Map<string, AgentAttentionEntry>> | null = null;
+
+/**
+ * Needs-attention index for /api/agents, cached briefly and coalesced: the
+ * endpoint is polled every ~2.5s per client and the pairing-snapshot read
+ * opens a bridge socket per call, so concurrent post-TTL polls must share one
+ * rebuild. Failures cache an empty index so a broken source cannot take
+ * /api/agents down with it.
+ */
+function queryAgentAttentionIndex(
+  broker: ScoutBrokerContext | null,
+): Promise<Map<string, AgentAttentionEntry>> {
+  const cached = agentAttentionCache;
+  if (cached && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+    return Promise.resolve(cached.index);
+  }
+  if (agentAttentionInFlight) {
+    return agentAttentionInFlight;
+  }
+  agentAttentionInFlight = buildAgentAttentionIndexSnapshot(broker).finally(() => {
+    agentAttentionInFlight = null;
+  });
+  return agentAttentionInFlight;
+}
+
+async function buildAgentAttentionIndexSnapshot(
+  broker: ScoutBrokerContext | null,
+): Promise<Map<string, AgentAttentionEntry>> {
+  let index = new Map<string, AgentAttentionEntry>();
+  try {
+    const snapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
+    const sessionItems = snapshots.length > 0 ? projectSessionsAttention(snapshots) : [];
+    const agentIdBySessionId = queryAgentIdsByEndpointSessionId();
+    // The broker snapshot is the live authority on which agent currently
+    // holds a session — it overrides any stale endpoint row in the db.
+    for (const agent of Object.values(broker?.snapshot.agents ?? {})) {
+      const sessionId = broker
+        ? activeEndpointForAgent(broker.snapshot, agent.id)?.sessionId?.trim()
+        : null;
+      if (sessionId) {
+        agentIdBySessionId.set(sessionId, agent.id);
+      }
+    }
+    index = buildAgentAttentionIndex({
+      sessionItems,
+      agentIdBySessionId,
+      collaborationRows: queryOperatorAttentionRows(),
+    });
+  } catch {
+    // Attention is a decoration on the agent list, never a reason to 500 it.
+  }
+  agentAttentionCache = { at: Date.now(), index };
+  return index;
+}
+
 async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -1967,22 +2044,24 @@ async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
     .map(withResolvedHarnessSessionIdentity)
     .filter((agent) => !archivedIds.has(agent.id));
   const broker = await loadScoutBrokerContext().catch(() => null);
+  const attention = await queryAgentAttentionIndex(broker);
   if (!broker) {
-    return agents;
+    return applyAgentAttention(agents, attention);
   }
   const existingIds = new Set(agents.map((agent) => agent.id));
   const brokerAgents = brokerCardAgentsForWeb(broker)
     .filter((agent) => !existingIds.has(agent.id) && !archivedIds.has(agent.id))
     .map(withResolvedHarnessSessionIdentity);
-  return [...agents, ...brokerAgents];
+  return applyAgentAttention([...agents, ...brokerAgents], attention);
 }
 
 async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+  const broker = await loadScoutBrokerContext().catch(() => null);
   const agent = queryAgentById(agentId);
   if (agent) {
-    return withResolvedHarnessSessionIdentity(agent);
+    const attention = await queryAgentAttentionIndex(broker);
+    return applyAgentAttention([withResolvedHarnessSessionIdentity(agent)], attention)[0] ?? null;
   }
-  const broker = await loadScoutBrokerContext().catch(() => null);
   if (!broker) {
     return null;
   }
@@ -1990,7 +2069,11 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
     (candidate) => brokerAgentIdentityMatches(candidate, agentId),
   );
   const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
-  return brokerWebAgent ? withResolvedHarnessSessionIdentity(brokerWebAgent) : null;
+  if (!brokerWebAgent) {
+    return null;
+  }
+  const attention = await queryAgentAttentionIndex(broker);
+  return applyAgentAttention([withResolvedHarnessSessionIdentity(brokerWebAgent)], attention)[0] ?? null;
 }
 
 function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
@@ -2226,6 +2309,152 @@ function defaultSendModeForConversationSession(
   return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
     ? "tell"
     : "steer";
+}
+
+function anchoredThreadNaturalKey(parentConversationId: string, anchorMessageId: string): string {
+  return `thread:${encodeURIComponent(parentConversationId)}:${encodeURIComponent(anchorMessageId)}`;
+}
+
+function deterministicThreadConversationId(parentConversationId: string, anchorMessageId: string): string {
+  const digest = createHash("sha256")
+    .update(`${parentConversationId}\u0000${anchorMessageId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `chn-${digest}`;
+}
+
+function conversationDefinitionFromDb(
+  row: NonNullable<ReturnType<typeof queryConversationDefinitionById>>,
+): ConversationDefinition {
+  return {
+    id: row.id,
+    kind: row.kind as ConversationDefinition["kind"],
+    title: row.title,
+    visibility: row.visibility as ConversationDefinition["visibility"],
+    shareMode: row.shareMode as ConversationDefinition["shareMode"],
+    authorityNodeId: row.authorityNodeId,
+    participantIds: [...row.participantIds],
+    ...(row.topic ? { topic: row.topic } : {}),
+    ...(row.parentConversationId ? { parentConversationId: row.parentConversationId } : {}),
+    ...(row.messageId ? { messageId: row.messageId } : {}),
+    ...(row.metadata ? { metadata: row.metadata } : {}),
+  };
+}
+
+function findAnchoredChildConversation(
+  conversations: Record<string, ConversationDefinition>,
+  parentConversationId: string,
+  anchorMessageId: string,
+): ConversationDefinition | null {
+  return Object.values(conversations).find((conversation) =>
+    conversation.parentConversationId === parentConversationId
+    && conversation.messageId === anchorMessageId
+  ) ?? null;
+}
+
+async function anchorConversationToMessage(input: {
+  conversationId: string;
+  parentConversationId: string;
+  anchorMessageId: string;
+}): Promise<ConversationDefinition | null> {
+  const existingRow = queryConversationDefinitionById(input.conversationId);
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const existing = existingRow
+    ? conversationDefinitionFromDb(existingRow)
+    : broker?.snapshot.conversations[input.conversationId] ?? null;
+  if (!existing) return null;
+
+  const anchor = broker?.snapshot.messages[input.anchorMessageId];
+  if (!anchor) {
+    throw new Error(`Message ${input.anchorMessageId} is not available.`);
+  }
+  if (anchor.conversationId !== input.parentConversationId) {
+    throw new Error(
+      `Message ${input.anchorMessageId} is not in conversation ${input.parentConversationId}.`,
+    );
+  }
+
+  const next: ConversationDefinition = {
+    ...existing,
+    parentConversationId: input.parentConversationId,
+    messageId: input.anchorMessageId,
+    metadata: {
+      ...(existing.metadata ?? {}),
+      anchorSource: "scout-web",
+      parentConversationId: input.parentConversationId,
+      anchorMessageId: input.anchorMessageId,
+    },
+  };
+  await upsertScoutConversation(next);
+  return next;
+}
+
+async function createAnchoredThreadConversation(input: {
+  parentConversationId: string;
+  anchorMessageId: string;
+  title?: string | null;
+}): Promise<{ conversation: ConversationDefinition; existed: boolean }> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    throw new Error("broker unreachable");
+  }
+
+  const parentRow = queryConversationDefinitionById(input.parentConversationId);
+  const parent = parentRow
+    ? conversationDefinitionFromDb(parentRow)
+    : broker.snapshot.conversations[input.parentConversationId] ?? null;
+  if (!parent) {
+    throw new Error(`Conversation ${input.parentConversationId} is not available.`);
+  }
+  if (parent.parentConversationId) {
+    throw new Error("Nested threads are not supported.");
+  }
+
+  const anchor = broker.snapshot.messages[input.anchorMessageId];
+  if (!anchor) {
+    throw new Error(`Message ${input.anchorMessageId} is not available.`);
+  }
+  if (anchor.conversationId !== input.parentConversationId) {
+    throw new Error(`Message ${input.anchorMessageId} is not in conversation ${input.parentConversationId}.`);
+  }
+
+  const existing = findAnchoredChildConversation(
+    broker.snapshot.conversations,
+    input.parentConversationId,
+    input.anchorMessageId,
+  );
+  if (existing) {
+    return { conversation: existing, existed: true };
+  }
+
+  const naturalKey = anchoredThreadNaturalKey(input.parentConversationId, input.anchorMessageId);
+  const deterministicId = deterministicThreadConversationId(input.parentConversationId, input.anchorMessageId);
+  const deterministicExisting = broker.snapshot.conversations[deterministicId];
+  if (deterministicExisting) {
+    return { conversation: deterministicExisting, existed: true };
+  }
+
+  const title = input.title?.trim()
+    || `Thread · ${parent.title}`;
+  const conversation: ConversationDefinition = {
+    id: deterministicId,
+    kind: "thread",
+    title,
+    visibility: parent.visibility,
+    shareMode: parent.shareMode,
+    authorityNodeId: parent.authorityNodeId,
+    participantIds: [...parent.participantIds],
+    parentConversationId: input.parentConversationId,
+    messageId: input.anchorMessageId,
+    metadata: {
+      naturalKey,
+      source: "scout-web",
+      parentConversationId: input.parentConversationId,
+      anchorMessageId: input.anchorMessageId,
+    },
+  };
+  await upsertScoutConversation(conversation);
+  return { conversation, existed: false };
 }
 
 function inferChannelName(
@@ -3339,6 +3568,20 @@ export async function createOpenScoutWebServer(
     scoutbot: options.scoutbot,
   });
   let scoutbotRunner = scoutbot.runner;
+  const resolveSessionRequestConversationId = async (conversationId: string): Promise<string | null> => {
+    if (isOpaqueChannelId(conversationId)) return conversationId;
+    if (!isLegacyScoutbotConversationId(conversationId) || !scoutbotRunner) return null;
+    try {
+      const threadList = await scoutbotRunner.getThreads();
+      const thread = threadList.threads.find((candidate) => candidate.threadId === threadList.defaultThreadId)
+        ?? threadList.threads.find((candidate) => candidate.threadId === SCOUTBOT_DEFAULT_THREAD_ID)
+        ?? threadList.threads[0];
+      const canonicalConversationId = thread?.conversationId?.trim();
+      return isOpaqueChannelId(canonicalConversationId) ? canonicalConversationId : null;
+    } catch {
+      return null;
+    }
+  };
   const tailDiscoveryCaches = new Map<string, BrokerJsonCache<DiscoverySnapshot>>();
   const tailRecentCaches = new Map<string, BrokerJsonCache<TailRecentPayload>>();
 
@@ -3816,7 +4059,9 @@ export async function createOpenScoutWebServer(
       flightId?: unknown;
       itemUpdatedAt?: unknown;
     };
-    const recordKind = body.recordKind === "work_item" ? body.recordKind : null;
+    const recordKind = body.recordKind === "work_item" || body.recordKind === "question"
+      ? body.recordKind
+      : null;
     const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
     const flightId = typeof body.flightId === "string" ? body.flightId.trim() : "";
     const itemUpdatedAt = typeof body.itemUpdatedAt === "number" && Number.isFinite(body.itemUpdatedAt)
@@ -4084,6 +4329,15 @@ export async function createOpenScoutWebServer(
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
+    if ((fromMessageId && !fromConversationId) || (fromConversationId && !fromMessageId)) {
+      return c.json(
+        { error: "seed.fromMessageId and seed.fromConversationId must be provided together" },
+        400,
+      );
+    }
+    if (fromConversationId && !isOpaqueChannelId(fromConversationId)) {
+      return c.json({ error: "seed.fromConversationId must be an opaque chat id" }, 400);
+    }
     const seedAttachments = Array.isArray(body.seed?.attachments)
       ? body.seed.attachments
       : undefined;
@@ -4136,6 +4390,26 @@ export async function createOpenScoutWebServer(
       );
     }
 
+    // Session work already launched above. Anchoring is metadata-only and must
+    // never turn a successful launch into a client retry (duplicate sessions).
+    let anchoredConversation: ConversationDefinition | null = null;
+    let anchorError: string | null = null;
+    if (result.conversationId && fromConversationId && fromMessageId) {
+      try {
+        anchoredConversation = await anchorConversationToMessage({
+          conversationId: result.conversationId,
+          parentConversationId: fromConversationId,
+          anchorMessageId: fromMessageId,
+        });
+        if (!anchoredConversation) {
+          anchorError = "could not anchor session conversation";
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        anchorError = `could not anchor session conversation: ${message}`;
+      }
+    }
+
     return c.json({
       ok: true,
       conversationId: result.conversationId ?? null,
@@ -4152,6 +4426,8 @@ export async function createOpenScoutWebServer(
               branchFrom: branchFrom ?? null,
             }
           : null,
+      anchoredConversationId: anchoredConversation?.id ?? null,
+      ...(anchorError ? { anchorError } : {}),
     });
   });
   app.get("/api/observe/agents", async (c) => {
@@ -4765,6 +5041,49 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  app.post("/api/conversations/:id/threads", async (c) => {
+    const parentConversationId = c.req.param("id");
+    if (!isOpaqueChannelId(parentConversationId)) {
+      return c.json({ error: "chatId must be an opaque chat id" }, 400);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      messageId?: unknown;
+      anchorMessageId?: unknown;
+      title?: unknown;
+    };
+    const anchorMessageId =
+      optionalString(body.messageId)?.trim()
+      ?? optionalString(body.anchorMessageId)?.trim();
+    if (!anchorMessageId) {
+      return c.json({ error: "messageId is required" }, 400);
+    }
+
+    try {
+      const result = await createAnchoredThreadConversation({
+        parentConversationId,
+        anchorMessageId,
+        title: optionalString(body.title),
+      });
+      const conversationId = result.conversation.id;
+      return c.json({
+        ok: true,
+        id: conversationId,
+        chatId: conversationId,
+        cId: conversationId,
+        conversationId,
+        parentConversationId,
+        anchorMessageId,
+        existed: result.existed,
+        conversation: result.conversation,
+        session: querySessionById(conversationId),
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const status = /not supported|not in conversation|not available|required/i.test(message) ? 400 : 502;
+      return c.json({ error: message }, status as 400 | 502);
+    }
+  });
+
   app.get("/api/conversations/:id/read-cursors", async (c) => {
     const conversationId = c.req.param("id");
     if (!isOpaqueChannelId(conversationId)) {
@@ -4930,14 +5249,15 @@ export async function createOpenScoutWebServer(
   });
   app.get("/api/session/:id", async (c) => {
     const chatId = c.req.param("id");
-    if (!isOpaqueChannelId(chatId)) {
+    const resolvedChatId = await resolveSessionRequestConversationId(chatId);
+    if (!resolvedChatId) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const session = querySessionById(chatId);
+    const session = querySessionById(resolvedChatId);
     if (session) {
       return c.json(session);
     }
-    const conversation = await getScoutConversationById(chatId);
+    const conversation = await getScoutConversationById(resolvedChatId);
     return conversation ? c.json(conversation) : c.json({ error: "not found" }, 404);
   });
   app.get("/api/mesh", async (c) => {
@@ -5459,7 +5779,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/send", async (c) => {
-    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds } = (await c.req.json()) as {
+    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId } = (await c.req.json()) as {
       body: string;
       chatId?: string;
       cId?: string;
@@ -5469,10 +5789,16 @@ export async function createOpenScoutWebServer(
       intent?: string;
       mode?: string;
       targetParticipantIds?: string[];
+      replyToMessageId?: unknown;
     };
     const messageBody = body?.trim() ?? "";
     if (!messageBody && !attachments?.length) {
       return c.json({ error: "body or attachments are required" }, 400);
+    }
+    const hasReplyToMessageId = replyToMessageId !== undefined && replyToMessageId !== null;
+    const routedReplyToMessageId = hasReplyToMessageId ? optionalString(replyToMessageId)?.trim() : undefined;
+    if (hasReplyToMessageId && !routedReplyToMessageId) {
+      return c.json({ error: "replyToMessageId must be a non-empty string" }, 400);
     }
 
     const routeCId = optionalString(chatId) ?? optionalString(cId) ?? optionalString(conversationId);
@@ -5490,6 +5816,7 @@ export async function createOpenScoutWebServer(
           body: messageBody,
           threadId,
           attachments,
+          replyToMessageId: routedReplyToMessageId,
         });
         if (!result.usedBroker) {
           return c.json({ error: "broker unreachable" }, 502);
@@ -5511,6 +5838,7 @@ export async function createOpenScoutWebServer(
             body: messageBody,
             threadId,
             attachments,
+            replyToMessageId: routedReplyToMessageId,
           });
           if (!result.usedBroker) {
             return c.json({ error: "broker unreachable" }, 502);
@@ -5525,6 +5853,8 @@ export async function createOpenScoutWebServer(
       const result = await sendScoutDirectMessage({
         agentId: directAgentId,
         body: messageBody,
+        attachments,
+        replyToMessageId: routedReplyToMessageId,
         currentDirectory,
         source: "scout-web",
       });
@@ -5550,6 +5880,7 @@ export async function createOpenScoutWebServer(
             senderId,
             body: messageBody,
             attachments,
+            replyToMessageId: routedReplyToMessageId,
             currentDirectory,
             source: "scout-web",
           })
@@ -5558,6 +5889,7 @@ export async function createOpenScoutWebServer(
             senderId,
             body: messageBody,
             attachments,
+            replyToMessageId: routedReplyToMessageId,
             ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
             intent: sendMode === "tell" ? "tell" : "steer",
             currentDirectory,

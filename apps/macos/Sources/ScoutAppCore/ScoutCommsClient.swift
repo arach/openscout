@@ -41,17 +41,22 @@ public struct ScoutCommsClient: Sendable {
         )
     }
 
-    public func send(body: String, cId: String) async throws {
+    public func send(body: String, cId: String, replyToMessageId: String? = nil) async throws {
         let url = ScoutWeb.baseURL().appending(path: "api/send")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        var payload: [String: Any] = [
             "body": body,
             "chatId": cId,
             "cId": cId,
             "conversationId": cId,
-        ])
+        ]
+        if let replyToMessageId = replyToMessageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !replyToMessageId.isEmpty {
+            payload["replyToMessageId"] = replyToMessageId
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         try await ScoutHTTP.send(request)
     }
 

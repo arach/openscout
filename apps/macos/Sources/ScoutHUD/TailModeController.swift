@@ -259,7 +259,7 @@ public final class TailModeController {
         if isVisible {
             hide()
         } else {
-            show(expand: false)
+            show(expand: true)
         }
     }
 

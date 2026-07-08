@@ -414,6 +414,80 @@ function stableHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+
+function isNativeSessionAgent(agent: Agent): boolean {
+  return agent.agentClass === "native-session" || agent.id.startsWith("native:");
+}
+
+function nativeSessionInstructionsPayload(agent: Agent, instructions: string) {
+  const sessionId = agent.harnessSessionId?.trim();
+  if (!sessionId) {
+    throw new Error("This native session has no session id to continue.");
+  }
+  const projectPath = agent.projectRoot?.trim() || agent.cwd?.trim();
+  if (!projectPath) {
+    throw new Error("This native session has no project path to route from.");
+  }
+  const harness = agent.harness?.trim();
+  const model = agent.model?.trim();
+  return {
+    target: {
+      projectPath,
+    },
+    execution: {
+      session: "existing",
+      targetSessionId: sessionId,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
+    },
+    agent: {
+      persistence: "one_time",
+      ...(agent.handle?.trim() ? { handle: agent.handle.trim() } : {}),
+    },
+    seed: {
+      instructions,
+    },
+  };
+}
+
+async function sendToFocusedAgentSession(agent: Agent, body: string, mode: "tell" | "ask"): Promise<void> {
+  if (isNativeSessionAgent(agent)) {
+    await api<unknown>("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify(nativeSessionInstructionsPayload(agent, body)),
+    });
+    return;
+  }
+
+  if (mode === "ask") {
+    await api<unknown>("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        body,
+        targetAgentId: agent.id,
+        targetLabel: agent.name,
+        execution: {
+          ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
+          ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
+          ...(agent.harnessSessionId?.trim()
+            ? { session: "existing", targetSessionId: agent.harnessSessionId.trim() }
+            : {}),
+        },
+      }),
+    });
+    return;
+  }
+
+  const conversationId = await ensureAgentChat(agent);
+  await api<unknown>("/api/send", {
+    method: "POST",
+    body: JSON.stringify({
+      body,
+      chatId: conversationId,
+    }),
+  });
+}
+
 function nativeSessionId(transcript: TailDiscoveredTranscript): string {
   const sessionId = transcript.sessionId?.trim() || "session";
   return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
@@ -890,10 +964,16 @@ export function MissionControlView({
   }, [zoom]);
 
   /* ── Keyboard shortcuts ── */
+  const focusedNativeSession = focusedId
+    ? visibleNativeSessions.find((s) => s.id === focusedId || s.agent.id === focusedId) ?? null
+    : null;
   const focusedAgent = focusedId
     ? (agents.find((a) => a.id === focusedId)
-        ?? visibleNativeSessions.find((s) => s.agent.id === focusedId)?.agent
+        ?? focusedNativeSession?.agent
         ?? null)
+    : null;
+  const focusedObserve = focusedAgent
+    ? (observeCache[focusedAgent.id]?.data ?? focusedNativeSession?.observe ?? null)
     : null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1126,31 +1206,15 @@ export function MissionControlView({
       {focusedAgent && (
         <FocusOverlay
           agent={focusedAgent}
-          observe={observeCache[focusedAgent.id]?.data ?? null}
+          observe={focusedObserve}
           onClose={() => setFocusedId(null)}
-          onSend={async (body, mode) => {
-            if (mode === "ask") {
-              await api<unknown>("/api/ask", {
-                method: "POST",
-                body: JSON.stringify({
-                  body,
-                  targetAgentId: focusedAgent.id,
-                  targetLabel: focusedAgent.name,
-                }),
-              });
-              return;
-            }
-            const conversationId = await ensureAgentChat(focusedAgent);
-            await api<unknown>("/api/send", {
-              method: "POST",
-              body: JSON.stringify({
-                body,
-                chatId: conversationId,
-              }),
-            });
-          }}
+          onSend={(body, mode) => sendToFocusedAgentSession(focusedAgent, body, mode)}
           onOpenConversation={() => {
             setFocusedId(null);
+            if (isNativeSessionAgent(focusedAgent) && focusedAgent.harnessSessionId) {
+              navigate({ view: "sessions", sessionId: focusedAgent.harnessSessionId });
+              return;
+            }
             void ensureAgentChat(focusedAgent)
               .then((conversationId) => {
                 navigate({

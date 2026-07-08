@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -23,6 +24,8 @@ const bundlePath = resolve(distDir, bundleName);
 const binaryDir = resolve(bundlePath, "Contents", "MacOS");
 const binaryPath = resolve(binaryDir, "Scout");
 const resourcesDir = resolve(bundlePath, "Contents", "Resources");
+const frameworksDir = resolve(bundlePath, "Contents", "Frameworks");
+const artifactsDir = resolve(appDir, ".build", "artifacts");
 const infoPlistTemplate = resolve(appDir, "ScoutInfo.plist");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
@@ -121,6 +124,38 @@ function writeIcon(): void {
   });
 }
 
+// The Scout binary links Sparkle as `@rpath/Sparkle.framework/...`, but SPM's
+// XCFramework binary target neither embeds the framework in the product nor adds
+// a reachable rpath — a bare bundle would dyld-crash at launch. Embed the macOS
+// slice into Contents/Frameworks and point an @executable_path rpath at it. hkit
+// will do the equivalent (plus inside-out re-signing) for notarized releases.
+function sparkleFrameworkSource(): string | null {
+  const xcframework = resolve(artifactsDir, "sparkle", "Sparkle", "Sparkle.xcframework");
+  if (!existsSync(xcframework)) return null;
+  const macosSlice = readdirSync(xcframework).find((name) => name.startsWith("macos"));
+  if (!macosSlice) return null;
+  const framework = resolve(xcframework, macosSlice, "Sparkle.framework");
+  return existsSync(framework) ? framework : null;
+}
+
+function embedSparkleFramework(): void {
+  const source = sparkleFrameworkSource();
+  if (!source) {
+    throw new Error(
+      "Sparkle.framework artifact not found under .build/artifacts/sparkle. Resolve the Sparkle SPM dependency first.",
+    );
+  }
+  mkdirSync(frameworksDir, { recursive: true });
+  const dest = join(frameworksDir, "Sparkle.framework");
+  rmSync(dest, { recursive: true, force: true });
+  // ditto preserves the framework's Versions symlinks, resources, and nested
+  // helper bundles (Autoupdate, Updater.app, Installer/Downloader XPC services).
+  execSync(`ditto '${source}' '${dest}'`);
+  execSync(`install_name_tool -add_rpath @executable_path/../Frameworks '${binaryPath}'`, {
+    stdio: "ignore",
+  });
+}
+
 function bundleApp(mode: BuildMode): void {
   const binPath = buildSwift(mode);
   const builtBinary = join(binPath, "Scout");
@@ -148,6 +183,7 @@ function bundleApp(mode: BuildMode): void {
   execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" '${join(bundlePath, "Contents", "Info.plist")}'`);
 
   writeIcon();
+  embedSparkleFramework();
   execSync(`codesign --force --deep --sign - '${bundlePath}'`, { stdio: "inherit" });
   console.log(`Built ${bundlePath} (${modeLabel(mode)})`);
 }

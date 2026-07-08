@@ -16,6 +16,8 @@ import {
 } from "./internal/sql-helpers.ts";
 import type { WebMessage } from "./types/web.ts";
 
+type ThreadSummary = NonNullable<WebMessage["threadSummary"]>;
+
 export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
   if (opts?.conversationId && !isOpaqueChannelId(opts.conversationId)) {
     return [];
@@ -61,7 +63,7 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
     thread_conversation_id: string | null;
   }>;
 
-  return rows.map((r) => {
+  const messages = rows.map((r) => {
     let metadata: Record<string, unknown> | null = null;
     if (r.metadata_json) {
       try { metadata = JSON.parse(r.metadata_json); } catch { metadata = null; }
@@ -78,5 +80,93 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
       replyToMessageId: r.reply_to_message_id,
       threadConversationId: r.thread_conversation_id,
     };
+  });
+  return attachThreadSummaries(messages);
+}
+
+function attachThreadSummaries(messages: WebMessage[]): WebMessage[] {
+  if (messages.length === 0) return messages;
+
+  // Exact (parentConversationId, anchorMessageId) pairs only — avoid the
+  // cross-product of parent IDs × message IDs that can attach the wrong stub.
+  const anchors = Array.from(
+    new Map(
+      messages.map((message) => [
+        `${message.conversationId}\u0000${message.id}`,
+        { parentConversationId: message.conversationId, messageId: message.id },
+      ] as const),
+    ).values(),
+  );
+  if (anchors.length === 0) return messages;
+
+  const pairClause = anchors
+    .map(() => "(c.parent_conversation_id = ? AND c.message_id = ?)")
+    .join(" OR ");
+  const pairParams = anchors.flatMap((anchor) => [
+    anchor.parentConversationId,
+    anchor.messageId,
+  ]);
+  const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
+  const conversationCreatedAtExpression = sqlTimestampMsExpression("c.created_at");
+  const summaryRows = db().prepare(
+    `SELECT
+       c.parent_conversation_id,
+       c.message_id,
+       COUNT(m.id) AS message_count,
+       MAX(COALESCE(${messageCreatedAtExpression}, ${conversationCreatedAtExpression})) AS last_active_at
+     FROM conversations c
+     LEFT JOIN messages m ON m.conversation_id = c.id
+     WHERE ${pairClause}
+     GROUP BY c.parent_conversation_id, c.message_id`,
+  ).all(...pairParams) as Array<{
+    parent_conversation_id: string;
+    message_id: string;
+    message_count: number;
+    last_active_at: number | null;
+  }>;
+
+  if (summaryRows.length === 0) return messages;
+
+  const participantRows = db().prepare(
+    `SELECT DISTINCT
+       c.parent_conversation_id,
+       c.message_id,
+       COALESCE(NULLIF(a.handle, ''), NULLIF(a.display_name, ''), cm.actor_id) AS label
+     FROM conversations c
+     JOIN conversation_members cm ON cm.conversation_id = c.id
+     LEFT JOIN actors a ON a.id = cm.actor_id
+     WHERE ${pairClause}
+     ORDER BY label COLLATE NOCASE ASC`,
+  ).all(...pairParams) as Array<{
+    parent_conversation_id: string;
+    message_id: string;
+    label: string | null;
+  }>;
+
+  const participantsByAnchor = new Map<string, string[]>();
+  for (const row of participantRows) {
+    const label = row.label?.trim();
+    if (!label) continue;
+    const key = `${row.parent_conversation_id}\u0000${row.message_id}`;
+    const current = participantsByAnchor.get(key) ?? [];
+    if (!current.some((value) => value.localeCompare(label, undefined, { sensitivity: "accent" }) === 0)) {
+      current.push(label);
+    }
+    participantsByAnchor.set(key, current);
+  }
+
+  const summaryByAnchor = new Map<string, ThreadSummary>();
+  for (const row of summaryRows) {
+    const key = `${row.parent_conversation_id}\u0000${row.message_id}`;
+    summaryByAnchor.set(key, {
+      count: row.message_count,
+      participants: participantsByAnchor.get(key) ?? [],
+      lastActiveAt: row.last_active_at ?? Date.now(),
+    });
+  }
+
+  return messages.map((message) => {
+    const summary = summaryByAnchor.get(`${message.conversationId}\u0000${message.id}`);
+    return summary ? { ...message, threadSummary: summary } : message;
   });
 }

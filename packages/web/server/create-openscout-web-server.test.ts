@@ -2052,6 +2052,14 @@ describe("createOpenScoutWebServer", () => {
       body: JSON.stringify({
         body: "Status update",
         chatId: "c.agent-1",
+        attachments: [
+          {
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          },
+        ],
       }),
     });
 
@@ -2061,6 +2069,14 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.agent-1",
         senderId: expect.any(String),
         body: "Status update",
+        attachments: [
+          {
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          },
+        ],
         intent: "tell",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -2090,6 +2106,7 @@ describe("createOpenScoutWebServer", () => {
         body: "Use the existing turn context",
         chatId: "c.agent-1",
         intent: "steer",
+        replyToMessageId: "msg-parent",
       }),
     });
 
@@ -2099,6 +2116,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.agent-1",
         senderId: "operator",
         body: "Use the existing turn context",
+        replyToMessageId: "msg-parent",
         intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -2214,6 +2232,75 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("canonicalizes legacy scoutbot default conversation ids on session lookup", async () => {
+    const home = useIsolatedOpenScoutHome();
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/v1/events/stream")) {
+        return new Response(new ReadableStream({
+          start(controller) {
+            const signal = init?.signal;
+            if (signal instanceof AbortSignal) {
+              signal.addEventListener("abort", () => controller.close(), { once: true });
+            }
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      snapshot: {
+        conversations: {
+          "dm.operator.scoutbot.default": {
+            id: "dm.operator.scoutbot.default",
+            kind: "direct",
+            title: "Scout · default",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "scoutbot"],
+            metadata: { scoutbotThreadId: "thr-default" },
+          },
+        },
+        messages: {},
+      },
+    });
+    querySessionByIdImpl = (conversationId) =>
+      conversationId.startsWith("chn-")
+        ? {
+          id: conversationId,
+          kind: "direct",
+          agentId: "scoutbot",
+          participantIds: ["operator", "scoutbot"],
+        }
+        : null;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: home,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      scoutbot: { enabled: true, brokerBaseUrl: "http://broker.test" },
+    });
+    try {
+      const response = await server.app.request(
+        "http://localhost/api/session/dm.operator.scoutbot.default",
+      );
+
+      expect(response.status).toBe(200);
+      const session = await response.json() as { id: string };
+      expect(session.id).not.toBe("dm.operator.scoutbot.default");
+      expect(session.id.startsWith("chn-")).toBe(true);
+    } finally {
+      await server.stop();
+    }
   });
 
   test("promotes direct conversations to group direct when adding a participant", async () => {
@@ -2975,6 +3062,7 @@ describe("createOpenScoutWebServer", () => {
         body: "Transcript note",
         conversationId: "c.ops",
         intent: "comment",
+        replyToMessageId: "msg-parent",
       }),
     });
 
@@ -2984,10 +3072,38 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.ops",
         senderId: "operator",
         body: "Transcript note",
+        replyToMessageId: "msg-parent",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
     ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    expect(sendScoutDirectMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("rejects blank reply targets on existing opaque chats", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Transcript note",
+        conversationId: "c.ops",
+        intent: "comment",
+        replyToMessageId: "   ",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "replyToMessageId must be a non-empty string",
+    });
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
     expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
@@ -3194,6 +3310,286 @@ describe("createOpenScoutWebServer", () => {
       source: "scout-session-initiation",
     });
     expect(askScoutQuestionCalls[0]).not.toHaveProperty("targetLabel");
+  });
+
+  test("anchors session initiation conversations when seeded from a message", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.agent-1") return null;
+      return {
+        id: "c.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        agents: {},
+        actors: {},
+        endpoints: {},
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Parent",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+        },
+        messages: {
+          "msg-anchor": {
+            id: "msg-anchor",
+            conversationId: "c.parent",
+            actorId: "agent-1",
+            body: "Anchor",
+            createdAt: 1_700_000_000_000,
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        seed: {
+          instructions: "Follow this side question.",
+          fromConversationId: "c.parent",
+          fromMessageId: "msg-anchor",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      conversationId: "c.agent-1",
+      anchoredConversationId: "c.agent-1",
+      provenance: {
+        fromConversationId: "c.parent",
+        fromMessageId: "msg-anchor",
+      },
+    });
+    expect(upsertScoutConversationCalls).toEqual([
+      expect.objectContaining({
+        id: "c.agent-1",
+        parentConversationId: "c.parent",
+        messageId: "msg-anchor",
+      }),
+    ]);
+  });
+
+  test("keeps session initiation successful when the source message anchor is missing", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.agent-1") return null;
+      return {
+        id: "c.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        agents: {},
+        actors: {},
+        endpoints: {},
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Parent",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+        },
+        messages: {},
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        seed: {
+          instructions: "Follow this side question.",
+          fromConversationId: "c.parent",
+          fromMessageId: "msg-missing",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      conversationId: "c.agent-1",
+      anchoredConversationId: null,
+      anchorError: "could not anchor session conversation: Message msg-missing is not available.",
+      provenance: {
+        fromConversationId: "c.parent",
+        fromMessageId: "msg-missing",
+      },
+    });
+    expect(upsertScoutConversationCalls).toEqual([]);
+  });
+
+  test("creates anchored child thread conversations for an existing chat", async () => {
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.parent") return null;
+      return {
+        id: "c.parent",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Agent One",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+        },
+        messages: {
+          "msg-anchor": {
+            id: "msg-anchor",
+            conversationId: "c.parent",
+            actorId: "agent-1",
+            body: "Anchor",
+            createdAt: 1_700_000_000_000,
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/conversations/c.parent/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messageId: "msg-anchor" }),
+    });
+
+    expect(response.status).toBe(200);
+    const json = await response.json() as { conversationId: string };
+    expect(json.conversationId.startsWith("chn-")).toBe(true);
+    expect(upsertScoutConversationCalls).toEqual([
+      expect.objectContaining({
+        id: json.conversationId,
+        kind: "thread",
+        parentConversationId: "c.parent",
+        messageId: "msg-anchor",
+        participantIds: ["operator", "agent-1"],
+      }),
+    ]);
+  });
+
+  test("rejects anchored threads when the anchor message is missing", async () => {
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.parent") return null;
+      return {
+        id: "c.parent",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Agent One",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+        },
+        messages: {},
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/conversations/c.parent/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messageId: "msg-missing" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Message msg-missing is not available.",
+    });
+    expect(upsertScoutConversationCalls).toEqual([]);
   });
 
   test("rejects session initiation fork without a source", async () => {

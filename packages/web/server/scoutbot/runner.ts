@@ -38,7 +38,12 @@ import {
 export interface ScoutbotRunnerHandle {
   stop(): Promise<void>;
   getThreads(): Promise<ScoutbotThreadListResponse>;
-  postOperatorMessage(input: { body: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }): Promise<ScoutbotThreadMessageResult>;
+  postOperatorMessage(input: {
+    body: string;
+    threadId?: string | null;
+    attachments?: OutgoingAttachmentInput[];
+    replyToMessageId?: string | null;
+  }): Promise<ScoutbotThreadMessageResult>;
 }
 
 export type ScoutbotThreadMessageResult = {
@@ -156,6 +161,7 @@ export async function startScoutbotRunner(
         body: input.body,
         threadId: input.threadId,
         attachments: input.attachments,
+        replyToMessageId: input.replyToMessageId,
         source: "scout-web",
         log,
         threadMap,
@@ -250,7 +256,12 @@ function inertHandle(): ScoutbotRunnerHandle {
   return {
     async stop() { /* inert */ },
     async getThreads() { throw new Error("scoutbot runner is inert because broker is unreachable"); },
-    async postOperatorMessage(_input?: { body?: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }) {
+    async postOperatorMessage(_input?: {
+      body?: string;
+      threadId?: string | null;
+      attachments?: OutgoingAttachmentInput[];
+      replyToMessageId?: string | null;
+    }) {
       return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
     },
   };

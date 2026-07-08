@@ -788,7 +788,9 @@ function planRouteForRun(run: AgentRun): Route {
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
-  if (item.recordId) return { view: "work", workId: item.recordId };
+  // Only work items live on the work detail page; questions belong to their
+  // conversation (or fall through to the owning agent).
+  if (item.kind === "work_item" && item.recordId) return { view: "work", workId: item.recordId };
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
   if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
   return null;

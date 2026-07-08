@@ -35,6 +35,7 @@ let package = Package(
     dependencies: [
         hudsonDependency,
         .package(path: "../../packages/scout-native-core"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
     ] + (terminalEnabled ? [terminiDependency] : []),
     targets: [
         .executableTarget(
@@ -85,6 +86,7 @@ let package = Package(
                 .product(name: "HudsonObservability", package: "hudson"),
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ] + terminalDependencies,
             path: "Sources/Scout",
             swiftSettings: terminalSwiftSettings

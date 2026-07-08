@@ -1,0 +1,725 @@
+/* Scout — Comms · Threads study. Window styling reads `--s-*` tokens only;
+   the toggle/caption strip outside the window uses `--studio-*`. */
+
+/* ── Treatment toggle (studio chrome, outside the window) ──────────── */
+
+.toggleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.toggle {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  border: 1px solid var(--studio-edge);
+}
+
+.toggleSeg {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--studio-ink-muted);
+  cursor: pointer;
+}
+
+.toggleActive {
+  color: var(--studio-surface, #fff);
+  background: var(--studio-ink);
+}
+
+.caption {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--studio-ink-muted);
+}
+
+.caption em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--studio-ink);
+}
+
+.caption code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--studio-ink);
+}
+
+/* ── Window: list | thread ─────────────────────────────────────────── */
+
+.comms {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: 620px;
+  font-family: var(--s-font-sans);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--s-chrome);
+  border-right: 1px solid var(--s-hairline);
+}
+
+.listHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+}
+
+.listTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.listCount {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 8px;
+}
+
+.group {
+  padding: 8px 16px 4px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--s-dim);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 10px;
+  padding: 9px 16px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
+}
+
+.row.selected {
+  background: var(--s-accent-soft);
+  border-left-color: var(--s-accent);
+}
+
+/* The Current treatment's orphan: a real row today, just disconnected —
+   rendered honestly, only the annotation line marks the problem. */
+.row.orphan .name {
+  color: var(--s-muted);
+}
+
+.orphanNote {
+  margin-top: 3px;
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-warn);
+}
+
+.rowAvatar {
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.channelChip {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-accent);
+  flex-shrink: 0;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread .name {
+  font-weight: 700;
+}
+
+.time {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  flex-shrink: 0;
+}
+
+.preview {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--s-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.unread .preview {
+  color: color-mix(in srgb, var(--s-ink) 80%, transparent);
+}
+
+.cid {
+  margin-top: 3px;
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-dim);
+}
+
+.countBadge {
+  align-self: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+}
+
+.countBadge.countUnread {
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border-color: var(--s-accent);
+}
+
+/* ── Thread pane ───────────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-bg);
+}
+
+.threadHead {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.threadIdent {
+  min-width: 0;
+  flex: 1;
+}
+
+.threadName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.threadSub {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  cursor: pointer;
+}
+
+.primaryBtn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+  cursor: pointer;
+}
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Turns ─────────────────────────────────────────────────────────── */
+
+.turn {
+  position: relative;
+  display: flex;
+  gap: 12px;
+}
+
+.turnCompact {
+  gap: 10px;
+}
+
+.turnMe {
+  flex-shrink: 0;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.turnBody {
+  min-width: 0;
+  flex: 1;
+  max-width: 64ch;
+}
+
+.turnHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.turnAuthor {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.turnCompact .turnAuthor {
+  font-size: 12px;
+}
+
+.turnTime {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.turnText {
+  font-size: 13px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--s-ink) 90%, transparent);
+}
+
+.turnCompact .turnText {
+  font-size: 12.5px;
+}
+
+.turnText p {
+  margin: 0 0 8px;
+}
+
+.turnText p:last-child {
+  margin-bottom: 0;
+}
+
+.turnText ol,
+.turnText ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.turnText li {
+  margin-bottom: 4px;
+}
+
+.turnText code {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+/* Today's correlation rendering — a mono custody caption. Kept faithful so
+   the Current treatment shows the real baseline, not a strawman. */
+.custody {
+  margin-bottom: 4px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+/* Hover action cluster — appears on turn hover, top-right, ghost treatment.
+   The single accent stays reserved; the action inks up on its own hover. */
+.turnActs {
+  position: absolute;
+  top: -6px;
+  right: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.turn:hover .turnActs {
+  opacity: 1;
+}
+
+.turnAct {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  cursor: pointer;
+}
+
+.turnAct:hover {
+  color: var(--s-accent);
+  border-color: color-mix(in srgb, var(--s-accent) 40%, var(--s-hairline-strong));
+}
+
+/* ── Reply-to: the gathered chain ──────────────────────────────────────
+   A flat/square region, so the hairline left rail is legal (left bars are
+   for flat elements; rounded wells signal with borders instead). */
+
+.chain {
+  margin: -8px 0 0 13px;
+  padding: 10px 0 2px 22px;
+  border-left: 1px solid var(--s-hairline-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Sub-thread: stub + rail ───────────────────────────────────────── */
+
+.anchorBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.stub {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0 0 38px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 8px;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.stub:hover {
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
+  border-color: var(--s-hairline);
+}
+
+.stubFaces {
+  display: inline-flex;
+  align-items: center;
+}
+
+.stubFaces > * + * {
+  margin-left: -4px;
+}
+
+.stubMe {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.stubCount {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-accent);
+}
+
+.stubMeta {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.stubDisclose {
+  margin-left: 4px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--s-dim);
+}
+
+.rail {
+  margin: 6px 0 0 13px;
+  padding: 10px 0 0 22px;
+  border-left: 1px solid var(--s-hairline-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.miniComposer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 52ch;
+  padding: 8px 8px 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--s-hairline-strong);
+  background: var(--s-surface);
+}
+
+.miniField {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--s-dim);
+}
+
+.miniSend {
+  padding: 4px 11px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+  cursor: pointer;
+}
+
+/* ── Composer ──────────────────────────────────────────────────────── */
+
+.composer {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.composerBox {
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--s-accent) 32%, var(--s-hairline-strong));
+  background: var(--s-surface);
+  overflow: hidden;
+}
+
+/* Reply target — a flat band inside the well (band, not left bar: the well
+   is rounded, so its active signal stays on the border). */
+.replyChip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--s-hairline);
+  background: color-mix(in srgb, var(--s-accent-soft) 55%, var(--s-surface));
+  color: var(--s-accent);
+}
+
+.replyChipLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.replyChipTarget {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--s-muted);
+}
+
+.replyChipClear {
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--s-dim);
+  cursor: pointer;
+}
+
+.replyChipClear:hover {
+  color: var(--s-ink);
+}
+
+.composerField {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--s-dim);
+}
+
+.composerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--s-hairline);
+  background: var(--s-bg);
+}
+
+.composerHint {
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.composerHint kbd {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 8%, transparent);
+  color: var(--s-muted);
+}
+
+/* ── Data contract strip (studio chrome) ───────────────────────────── */
+
+.contract {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--studio-edge);
+}
+
+.contractHead {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--studio-ink-faint);
+  margin-bottom: 12px;
+}
+
+.contractTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.contractTable th {
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--studio-ink-faint);
+  padding: 0 14px 6px 0;
+  border-bottom: 1px solid var(--studio-edge);
+}
+
+.contractTable td {
+  padding: 8px 14px 8px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--studio-edge);
+  color: var(--studio-ink-muted);
+}
+
+.contractField {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--studio-ink);
+  white-space: nowrap;
+}
+
+.contractType {
+  font-family: ui-monospace, monospace;
+  color: var(--studio-ink-muted);
+  white-space: nowrap;
+}
+
+.contractSource {
+  line-height: 1.5;
+}

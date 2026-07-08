@@ -24,6 +24,8 @@ export type WebAgent = {
   agentClass: string;
   harness: string | null;
   state: string | null;
+  /** The pending question / approval / handoff text when state is needs_attention. */
+  pendingAsk?: string | null;
   projectRoot: string | null;
   cwd: string | null;
   updatedAt: number | null;
@@ -88,6 +90,11 @@ export type WebMessage = {
   metadata: Record<string, unknown> | null;
   replyToMessageId: string | null;
   threadConversationId: string | null;
+  threadSummary?: {
+    count: number;
+    participants: string[];
+    lastActiveAt: number;
+  };
 };
 
 export type WebBrokerRouteAttempt = {
@@ -300,7 +307,7 @@ export type WebFleetAsk = {
 };
 
 export type WebFleetAttentionItem = {
-  kind: "work_item";
+  kind: "work_item" | "question";
   recordId: string;
   title: string;
   summary: string | null;

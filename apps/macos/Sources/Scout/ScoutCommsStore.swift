@@ -14,6 +14,7 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var messages: [ScoutMessage] = []
     @Published private(set) var agents: [ScoutAgent] = []
     @Published private(set) var selectedCId: String?
+    @Published var replyTarget: ScoutMessage?
     @Published var selectedAgentId: String?
     @Published var channelQuery = ""
     @Published var isLoading = false
@@ -101,8 +102,16 @@ final class ScoutCommsStore: ObservableObject {
 
     var visibleChannels: [ScoutChannel] {
         let trimmed = channelQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return channels }
-        return channels.filter { channel in
+        let knownChannelIds = Set(channels.map(\.cId))
+        let topLevelChannels = channels.filter { channel in
+            guard let parentConversationId = channel.parentConversationId?.nilIfEmpty else { return true }
+            // Child conversations stay out of the top-level list while their
+            // parent is present. If the parent was deleted or is otherwise not
+            // in the payload, surface the child rather than orphaning it.
+            return !knownChannelIds.contains(parentConversationId)
+        }
+        guard !trimmed.isEmpty else { return topLevelChannels }
+        return topLevelChannels.filter { channel in
             channel.displayTitle.localizedCaseInsensitiveContains(trimmed)
                 || channel.cId.localizedCaseInsensitiveContains(trimmed)
                 || channel.participantDisplayNames.joined(separator: " ").localizedCaseInsensitiveContains(trimmed)
@@ -186,6 +195,7 @@ final class ScoutCommsStore: ObservableObject {
         guard selectedCId != resolvedCId else { return }
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
+        replyTarget = nil
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
         messages = []
@@ -210,6 +220,7 @@ final class ScoutCommsStore: ObservableObject {
         selectedAgentNameHint = agentName?.nilIfEmpty
         selectedAgentId = agentId?.nilIfEmpty
         if selectedCId != resolvedCId {
+            replyTarget = nil
             selectedCId = resolvedCId
             messages = []
             readCursors = []
@@ -232,6 +243,7 @@ final class ScoutCommsStore: ObservableObject {
             let isNewSelection = selectedCId != cId
             selectedCId = cId
             if isNewSelection {
+                replyTarget = nil
                 readCursors = []
             }
             loadMessages()
@@ -337,6 +349,9 @@ final class ScoutCommsStore: ObservableObject {
                 "cId": selectedCId,
                 "conversationId": selectedCId,
             ]
+            if let replyToMessageId = replyTarget?.id.nilIfEmpty {
+                payload["replyToMessageId"] = replyToMessageId
+            }
             if !attachments.isEmpty {
                 payload["attachments"] = attachments.map(Self.attachmentPayload)
             }
@@ -346,6 +361,7 @@ final class ScoutCommsStore: ObservableObject {
                 throw ScoutCommsError.sendFailed
             }
             setIfChanged(nil, to: \.lastError)
+            replyTarget = nil
             refresh(force: true)
             loadMessages()
         } catch {
@@ -364,6 +380,10 @@ final class ScoutCommsStore: ObservableObject {
         if self[keyPath: keyPath] != value {
             self[keyPath: keyPath] = value
         }
+    }
+
+    func clearReplyTarget() {
+        replyTarget = nil
     }
 
     private var pollIntervalNanoseconds: UInt64 {

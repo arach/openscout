@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
-import { mintChannelId } from "@openscout/protocol";
+import { isOpaqueChannelId, mintChannelId } from "@openscout/protocol";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import type {
@@ -97,8 +97,12 @@ export class ScoutbotThreadMapStore {
     const map = await this.read();
     const existing = map.threads.find((thread) => thread.threadId === map.defaultThreadId);
     if (existing) {
+      const conversationId = isOpaqueChannelId(existing.conversationId)
+        ? existing.conversationId
+        : chooseDefaultConversationId(options.snapshot);
       const next = {
         ...existing,
+        conversationId,
         transportSessionId: options.transportSessionId !== undefined ? normalizeSessionId(options.transportSessionId) : existing.transportSessionId,
         transport: options.transport ?? existing.transport,
       };
@@ -215,7 +219,9 @@ export function defaultScoutbotThreadMapPath(): string {
 
 export function chooseDefaultConversationId(snapshot?: ScoutBrokerSnapshot | null): string {
   const existing = Object.values(snapshot?.conversations ?? {}).find(
-    (conversation) => conversation.metadata?.scoutbotThreadId === SCOUTBOT_DEFAULT_THREAD_ID,
+    (conversation) =>
+      conversation.metadata?.scoutbotThreadId === SCOUTBOT_DEFAULT_THREAD_ID
+      && isOpaqueChannelId(conversation.id),
   );
   return existing?.id ?? mintChannelId(randomUUID);
 }

@@ -88,9 +88,15 @@ struct ScoutSessionComposer: View {
     @FocusState private var agentFieldFocused: Bool
     @ObservedObject private var voice = ScoutVoiceService.shared
     @AppStorage("scout.session.lastProjectPath") private var lastProjectPath = ""
+    @AppStorage("scout.session.lastHarness") private var lastHarness = ""
+    @AppStorage("scout.session.lastModel") private var lastModel = ""
+    @AppStorage("scout.session.lastReasoningEffort") private var lastReasoningEffort = ""
 
     private let agents: [ScoutAgent]
     private let projectOptions: [ScoutSessionProjectOption]
+    private static let lastHarnessKey = "scout.session.lastHarness"
+    private static let lastModelKey = "scout.session.lastModel"
+    private static let lastReasoningEffortKey = "scout.session.lastReasoningEffort"
 
     // Fixed modal geometry — wide enough that Project / Model / Harness sit as three
     // equal chips on one line and the message box reads close to the main composer.
@@ -107,7 +113,7 @@ struct ScoutSessionComposer: View {
         self.onComplete = onComplete
         self.agents = agents
         self.projectOptions = projectOptions
-        _draft = State(initialValue: draft)
+        _draft = State(initialValue: Self.applyLastRuntimeChoices(to: draft))
     }
 
     var body: some View {
@@ -123,6 +129,9 @@ struct ScoutSessionComposer: View {
         .onExitCommand { if !isSubmitting { onClose() } }
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .onAppear { instructionsFocused = true }
+        .onChange(of: draft.harness) { _, _ in persistLastRuntimeChoices() }
+        .onChange(of: draft.model) { _, _ in persistLastRuntimeChoices() }
+        .onChange(of: draft.reasoningEffort) { _, _ in persistLastRuntimeChoices() }
     }
 
     private var isDictating: Bool { voice.state.isCaptureActive }
@@ -206,6 +215,42 @@ struct ScoutSessionComposer: View {
         }
     }
 
+    private static func applyLastRuntimeChoices(to draft: ScoutSessionDraft) -> ScoutSessionDraft {
+        guard draft.mode != .continueContext else { return draft }
+        var copy = draft
+        let defaults = UserDefaults.standard
+        let storedHarness = defaults.string(forKey: lastHarnessKey)?.nilIfEmpty
+        let storedModel = defaults.string(forKey: lastModelKey)?.nilIfEmpty
+        let storedEffort = defaults.string(forKey: lastReasoningEffortKey)?.nilIfEmpty
+        let hadExplicitHarness = copy.harness?.nilIfEmpty != nil
+
+        if copy.harness?.nilIfEmpty == nil, let storedHarness {
+            copy.harness = storedHarness
+        }
+        if copy.model?.nilIfEmpty == nil, let storedModel {
+            if !hadExplicitHarness {
+                copy.model = storedModel
+            } else if let storedHarness, let explicitHarness = copy.harness?.nilIfEmpty,
+                      storedHarness.caseInsensitiveCompare(explicitHarness) == .orderedSame {
+                copy.model = storedModel
+            }
+        }
+        // Default draft effort is "medium". Only restore the last choice when the
+        // caller left that default in place; an explicit non-default effort wins.
+        if copy.reasoningEffort.nilIfEmpty == "medium" || copy.reasoningEffort.nilIfEmpty == nil,
+           let storedEffort {
+            copy.reasoningEffort = storedEffort
+        }
+        return copy
+    }
+
+    private func persistLastRuntimeChoices() {
+        guard draft.mode != .continueContext else { return }
+        lastHarness = draft.harness?.nilIfEmpty ?? ""
+        lastModel = draft.model?.nilIfEmpty ?? ""
+        lastReasoningEffort = draft.reasoningEffort.nilIfEmpty ?? "medium"
+    }
+
     private func toggleDictation() {
         instructionsFocused = true
         Task {
@@ -235,7 +280,9 @@ struct ScoutSessionComposer: View {
         VStack(alignment: .leading, spacing: HudSpacing.xxl) {
             header
             targetSection
-            advancedSection
+            if isProjectTarget {
+                advancedSection
+            }
             messageSection
             if let errorText {
                 Text(errorText)
@@ -497,10 +544,6 @@ struct ScoutSessionComposer: View {
 
             if advancedOpen {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
-                    HStack(spacing: HudSpacing.sm) {
-                        effortChip
-                        Spacer(minLength: 0)
-                    }
                     if isProjectTarget {
                         aliasTextField(
                             key: "@",
@@ -973,6 +1016,7 @@ struct ScoutSessionComposer: View {
             projectChip
             harnessChip
             modelChip
+            effortChip
         }
     }
 
@@ -980,11 +1024,12 @@ struct ScoutSessionComposer: View {
         HStack(spacing: HudSpacing.sm) {
             harnessChip
             modelChip
+            effortChip
         }
     }
 
     private var advancedSummary: String {
-        effortDisplayName(draft.reasoningEffort)
+        draft.agentName.nilIfEmpty.map { "@\($0)" } ?? "optional alias"
     }
 
     private var projectChip: some View {
@@ -1264,6 +1309,7 @@ struct ScoutSessionComposer: View {
         guard !isSubmitting, canSubmit else { return }
         isSubmitting = true
         errorText = nil
+        persistLastRuntimeChoices()
         let submittedDraft = draft
         let spec = submittedDraft.spec()
         if let projectPath = submittedDraft.projectPath.nilIfEmpty {
