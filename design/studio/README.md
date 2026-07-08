@@ -2,16 +2,16 @@
 
 Internal planning + design surface for OpenScout. Sits next to the
 codebase, not in front of the public landing site. A sibling to
-`talkie/design/studio` — same shell, same vocabulary, scout-flavored
+`talkie/design/studio`, with the same shell, same vocabulary, and scout-flavored
 content.
 
 Three buckets:
 
-- **Plans** — markdown plans under `plans/` at the repo root. Frontmatter
+- **Plans**: markdown plans under `plans/` at the repo root. Frontmatter
   drives status pill + sidebar dot. Add a file, refresh, it appears.
-- **Studies** — inline React mockups for openscout UI exploration. Each
+- **Studies**: inline React mockups for openscout UI exploration. Each
   study is a Next route; surfaces ground them (web / iOS / macOS).
-- **Atoms** — live-rendered web primitives. The home for proposed shared
+- **Atoms**: live-rendered web primitives. The home for proposed shared
   components (e.g. `InspectorSection`) before they land in
   `packages/web/client`.
 
@@ -33,7 +33,7 @@ design/studio/
 ├── app/
 │   ├── layout.tsx                    # root shell, reads plans/
 │   ├── globals.css                   # studio prose + chrome tokens
-│   ├── page.tsx                      # landing — plans + studies + atoms
+│   ├── page.tsx                      # landing: plans + studies + atoms
 │   ├── plans/
 │   │   ├── page.tsx                  # plans index
 │   │   └── [slug]/page.tsx           # render a single plan
@@ -70,7 +70,7 @@ design/studio/
    ---
    ```
 
-3. That's it — the sidebar picks it up server-side on next render.
+3. That's it: the sidebar picks it up server-side on next render.
 
 ### A new study
 
@@ -95,5 +95,5 @@ design/studio/
   the codebase, add `source: [path/to/file.tsx]` so the page strip
   shows it. The studio is for picking; the codebase is for shipping.
 - **No public bundle leak.** This is internal. Do not link to it from
-  the public landing — it shares no dependencies with `landing/` on
+  the public landing; it shares no dependencies with `landing/` on
   purpose.
