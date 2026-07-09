@@ -373,7 +373,7 @@ export type FleetAsk = {
 };
 
 export type FleetAttentionItem = {
-  kind: "work_item";
+  kind: "work_item" | "question";
   recordId: string;
   title: string;
   summary: string | null;
@@ -453,7 +453,7 @@ export type OperatorAttentionAction = {
   route?: Route;
   value?: string;
   recordId?: string;
-  recordKind?: "work_item";
+  recordKind?: "work_item" | "question";
   flightId?: string;
 };
 

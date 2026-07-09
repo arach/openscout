@@ -753,7 +753,7 @@ private struct HUDTailEmbedWebView: NSViewRepresentable {
         }
 
         private static func message(for error: Error) -> String {
-            ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app.")
+            ScoutAppError.userFacing(error, connectionMessage: ScoutServicesHelper.servicesOfflineMessage)
         }
     }
 }

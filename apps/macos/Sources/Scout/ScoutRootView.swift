@@ -101,6 +101,99 @@ private struct ScoutDiffSheetRequest {
     }
 }
 
+private struct ScoutMessageRenderBlock: Identifiable {
+    let root: ScoutMessage
+    let replies: [ScoutMessage]
+
+    var id: String { root.id }
+}
+
+private enum ScoutMessageRenderItem: Identifiable {
+    case inline(ScoutMessage)
+    case chain(ScoutMessageRenderBlock)
+
+    var id: String {
+        switch self {
+        case .inline(let message):
+            return "inline:\(message.id)"
+        case .chain(let block):
+            return "chain:\(block.root.id)"
+        }
+    }
+}
+
+private struct ScoutThreadStartResponse: Decodable {
+    let id: String?
+    let conversationId: String?
+    let chatId: String?
+    let cId: String?
+}
+
+private struct ScoutThreadParticipantFaces: View {
+    let names: [String]
+
+    var body: some View {
+        HStack(spacing: -4) {
+            ForEach(displayNames, id: \.self) { name in
+                SpriteAvatarView(name: name, size: 16, tile: true)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                            .stroke(ScoutDesign.bg, lineWidth: HudStrokeWidth.thin)
+                    )
+            }
+        }
+        .frame(minWidth: displayNames.isEmpty ? 0 : CGFloat(12 + displayNames.count * 12), alignment: .leading)
+    }
+
+    private var displayNames: [String] {
+        let cleaned = names
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return Array(cleaned.prefix(3))
+    }
+}
+
+private struct ScoutThreadCompactMessageRow: View {
+    let message: ScoutMessage
+    let baseDirectory: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.md) {
+            SpriteAvatarView(name: message.actorName, size: 22, tile: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(message.isOperator ? ScoutPalette.accent.opacity(0.5) : Color.clear, lineWidth: HudStrokeWidth.thin)
+                )
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                    Text(message.actorName)
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    Text(ScoutRelativeTime.format(message.createdAt))
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+                if message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(message.attachments.isEmpty ? "Empty message" : "\(message.attachments.count) attachment\(message.attachments.count == 1 ? "" : "s")")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                } else {
+                    ScoutMarkdownView(
+                        text: message.body,
+                        baseDirectory: baseDirectory,
+                        inkColor: ScoutPalette.ink,
+                        mutedColor: ScoutPalette.muted,
+                        accentColor: ScoutPalette.accent,
+                        hug: true
+                    )
+                }
+            }
+            .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
@@ -136,6 +229,12 @@ struct ScoutRootView: View {
     @State private var followLatest = true
     /// Pending one-shot jump to the newest message when a conversation opens.
     @State private var pendingInitialJump = true
+    @State private var expandedThreadConversationIds: Set<String> = []
+    @State private var threadMessages: [String: [ScoutMessage]] = [:]
+    @State private var threadDrafts: [String: String] = [:]
+    @State private var loadingThreadConversationIds: Set<String> = []
+    @State private var pendingThreadReloadIds: Set<String> = []
+    @State private var sendingThreadConversationIds: Set<String> = []
 
     private static let messageListBottomAnchor = "scout.messageList.bottom"
     private static let activeTurnAnchor = "scout.messageList.activeTurn"
@@ -319,6 +418,7 @@ struct ScoutRootView: View {
                 openChannelFromExternalCommand(cId)
             }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: section == .comms)
         }
         .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openChannelNotificationName)) { notification in
             guard let cId = notification.userInfo?["cId"] as? String else { return }
@@ -331,17 +431,27 @@ struct ScoutRootView: View {
             repos.stop()
             pairingApprovals.stop()
             cancelPendingFlightMonitors()
+            // No window means no visible conversation — clear the selection so
+            // attention banners for it aren't suppressed as "already on screen".
+            ScoutAttentionCenter.shared.noteSelection(cId: nil, isCommsVisible: false)
         }
         .onChange(of: store.selectedCId) { oldCId, newCId in
             // Preserve the in-progress draft for the chat we're leaving and
             // restore any draft saved for the one we're entering.
             if let oldCId { drafts[oldCId] = draft }
             draft = newCId.flatMap { drafts[$0] } ?? ""
+            expandedThreadConversationIds = []
+            threadMessages = [:]
+            threadDrafts = [:]
+            loadingThreadConversationIds = []
+            pendingThreadReloadIds = []
+            sendingThreadConversationIds = []
             // Keep staged captures when landing on a chat from the quick-capture
             // surface (nil → channel). Clear only when switching chats or leaving.
             if oldCId != nil {
                 pendingImages = []
             }
+            ScoutAttentionCenter.shared.noteSelection(cId: newCId, isCommsVisible: section == .comms)
         }
         .onChange(of: channelReconciliationKeys) { _, _ in
             reconcilePendingConversations()
@@ -351,6 +461,7 @@ struct ScoutRootView: View {
                 tailSessionEvent = nil
             }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: newSection == .comms)
         }
         .onChange(of: modalPresented) { _, _ in
             syncScopedStoreLifecycles()
@@ -893,6 +1004,9 @@ struct ScoutRootView: View {
             sessionId: result.sessionId?.nilIfEmpty,
             flightId: result.flightId?.nilIfEmpty,
             messageId: result.messageId?.nilIfEmpty,
+            agentId: result.agentId?.nilIfEmpty,
+            agentName: pendingConversationAgentName(result: result, draft: submittedDraft),
+            createdAt: Date(),
             title: pendingConversationTitle(for: submittedDraft),
             subtitle: pendingConversationSubtitle(for: submittedDraft),
             draft: submittedDraft,
@@ -943,8 +1057,8 @@ struct ScoutRootView: View {
             store.selectPendingConversation(
                 cId: ref,
                 flightId: pending.flightId?.nilIfEmpty,
-                agentId: pending.draft.agent?.id.nilIfEmpty,
-                agentName: pending.title.nilIfEmpty
+                agentId: pending.agentId?.nilIfEmpty ?? pending.draft.agent?.id.nilIfEmpty,
+                agentName: pending.agentName?.nilIfEmpty ?? pending.title.nilIfEmpty
             )
         }
     }
@@ -987,6 +1101,13 @@ struct ScoutRootView: View {
         }
     }
 
+    private func pendingConversationAgentName(result: ScoutSessionStartResult, draft: ScoutSessionDraft) -> String? {
+        result.handle?.nilIfEmpty
+            ?? draft.displayName.nilIfEmpty
+            ?? draft.agentName.nilIfEmpty
+            ?? draft.agent?.displayName.nilIfEmpty
+    }
+
     private func pendingConversationSubtitle(for draft: ScoutSessionDraft) -> String {
         if draft.mode == .continueContext {
             return "Continuing full context"
@@ -996,6 +1117,8 @@ struct ScoutRootView: View {
         }
         return "Starting..."
     }
+
+    private static let pendingConversationStaleAfter: TimeInterval = 5 * 60
 
     private func startPendingFlightMonitor(for pending: ScoutPendingConversation) {
         pendingFlightTasks[pending.id]?.cancel()
@@ -1026,6 +1149,12 @@ struct ScoutRootView: View {
             pendingFlightTasks[pendingId]?.cancel()
             pendingFlightTasks[pendingId] = nil
             return
+        }
+        if let agentId = status.agentId?.nilIfEmpty {
+            pendingConversations[index].agentId = agentId
+        }
+        if let agentName = status.agentName?.nilIfEmpty {
+            pendingConversations[index].agentName = agentName
         }
         if status.isFailure {
             if status.removePendingRow {
@@ -1091,7 +1220,18 @@ struct ScoutRootView: View {
             return flight
         }
         guard let conversationId = pending.conversationId?.nilIfEmpty else { return nil }
-        return try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending)
+        if let failure = try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending) {
+            return failure
+        }
+        if Date().timeIntervalSince(pending.createdAt) > Self.pendingConversationStaleAfter {
+            return ScoutPendingFlightStatus(
+                id: pending.flightId?.nilIfEmpty ?? pending.messageId?.nilIfEmpty ?? pending.id,
+                state: "failed",
+                summary: "Scout did not receive a broker update for this session. Retry or open the chat list to check whether it landed.",
+                removePendingRow: false
+            )
+        }
+        return nil
     }
 
     private static func fetchPendingAnsweredMessageStatus(
@@ -1259,10 +1399,14 @@ struct ScoutRootView: View {
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
                 hasActivity: store.workingAgentCount > 0,
+                serviceHealth: store.serviceHealth,
+                isStartingBroker: store.isStartingBroker,
                 width: effectiveConversationListWidth(layout: layout),
                 searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() },
                 onRefresh: { store.refresh(force: true) },
+                onStartBroker: { store.startBroker() },
+                onOpenMenuBar: { ScoutServicesHelper.openMenuBarHelper() },
                 onRetryPending: retryPendingConversation,
                 onSelectPending: selectPendingConversation
             ) { channel in
@@ -1565,6 +1709,440 @@ struct ScoutRootView: View {
         return store.agents.first(where: { $0.id == agentId })
     }
 
+    private var messageRenderItems: [ScoutMessageRenderItem] {
+        Self.messageRenderItems(for: store.messages)
+    }
+
+    private var latestMessageIdForFullDisplay: String? {
+        store.messages.last(where: Self.isReplyGatherCandidate)?.id
+    }
+
+    private static func messageRenderItems(for messages: [ScoutMessage]) -> [ScoutMessageRenderItem] {
+        var messagesById: [String: ScoutMessage] = [:]
+        var indexById: [String: Int] = [:]
+        for (index, message) in messages.enumerated() {
+            messagesById[message.id] = message
+            indexById[message.id] = index
+        }
+
+        var gatheredIds = Set<String>()
+        var repliesByRoot: [String: [ScoutMessage]] = [:]
+
+        for message in messages {
+            guard isReplyGatherCandidate(message),
+                  let parentId = message.replyToMessageId?.nilIfEmpty,
+                  let parent = messagesById[parentId],
+                  isReplyGatherCandidate(parent),
+                  let messageIndex = indexById[message.id],
+                  let parentIndex = indexById[parentId] else {
+                continue
+            }
+
+            // Rule A: plain adjacency already reads as a reply. Only pull a
+            // reply into a chain when its parent is elsewhere in the rendered
+            // chronological stream.
+            guard parentIndex != messageIndex - 1 else { continue }
+            guard let rootId = chainRootId(for: message, messagesById: messagesById),
+                  rootId != message.id else {
+                continue
+            }
+
+            gatheredIds.insert(message.id)
+            repliesByRoot[rootId, default: []].append(message)
+        }
+
+        for rootId in repliesByRoot.keys {
+            repliesByRoot[rootId]?.sort {
+                (indexById[$0.id] ?? Int.max) < (indexById[$1.id] ?? Int.max)
+            }
+        }
+
+        return messages.compactMap { message in
+            if gatheredIds.contains(message.id) {
+                return nil
+            }
+            if let replies = repliesByRoot[message.id], !replies.isEmpty {
+                return .chain(ScoutMessageRenderBlock(root: message, replies: replies))
+            }
+            return .inline(message)
+        }
+    }
+
+    private static func chainRootId(
+        for message: ScoutMessage,
+        messagesById: [String: ScoutMessage]
+    ) -> String? {
+        var current = message
+        var visited = Set([message.id])
+
+        while let parentId = current.replyToMessageId?.nilIfEmpty {
+            guard let parent = messagesById[parentId] else {
+                return current.id
+            }
+            guard !visited.contains(parent.id), isReplyGatherCandidate(parent) else {
+                return nil
+            }
+            visited.insert(parent.id)
+            current = parent
+        }
+
+        return current.id
+    }
+
+    private static func isReplyGatherCandidate(_ message: ScoutMessage) -> Bool {
+        let messageClass = message.messageClass.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return messageClass != "status" && messageClass != "system"
+    }
+
+    @ViewBuilder
+    private func messageRow(
+        _ message: ScoutMessage,
+        showCustodyCaption: Bool = true,
+        showThreadAffordances: Bool = true
+    ) -> some View {
+        let allowThreadActions = showThreadAffordances && !isChildConversationId(message.cId)
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            ScoutMessageRow(
+                message: message,
+                agent: agent(for: message),
+                readReceipts: readReceipts(for: message),
+                baseDirectory: fileBaseDirectory(for: message),
+                isLatestMessage: message.id == latestMessageIdForFullDisplay,
+                showCustodyCaption: showCustodyCaption,
+                showThreadActions: allowThreadActions,
+                previewAgent: previewAgent,
+                onReply: {
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        store.replyTarget = message
+                    }
+                    composerFocused = true
+                },
+                onStartThread: {
+                    startThread(from: message)
+                },
+                onNewFromMessage: {
+                    startConversationFromMessage(message, agent: agent(for: message))
+                }
+            )
+            if allowThreadActions,
+               let summary = message.threadSummary,
+               let child = primaryThreadChannel(for: message) {
+                threadStub(message: message, summary: summary, child: child)
+                    .padding(.leading, CGFloat(28) + HudSpacing.xl)
+            }
+        }
+    }
+
+    private func isChildConversationId(_ cId: String) -> Bool {
+        store.channels.first(where: { $0.cId == cId })?.parentConversationId?.nilIfEmpty != nil
+    }
+
+    private func replyChainBlock(_ block: ScoutMessageRenderBlock) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            messageRow(block.root)
+                .id(block.root.id)
+
+            HStack(alignment: .top, spacing: HudSpacing.lg) {
+                Rectangle()
+                    .fill(ScoutDesign.hairlineStrong)
+                    .frame(width: HudStrokeWidth.thin)
+                    .frame(maxHeight: .infinity)
+                    .allowsHitTesting(false)
+
+                VStack(alignment: .leading, spacing: HudSpacing.xl) {
+                    ForEach(block.replies) { reply in
+                        messageRow(reply, showCustodyCaption: false)
+                            .id(reply.id)
+                    }
+                }
+            }
+            .padding(.leading, CGFloat(28) + HudSpacing.xl)
+            .padding(.top, -HudSpacing.sm)
+        }
+    }
+
+    private func threadChannels(for message: ScoutMessage) -> [ScoutChannel] {
+        store.channels
+            .filter { channel in
+                channel.parentConversationId == message.cId
+                    && channel.anchorMessageId == message.id
+            }
+            .sorted {
+                ($0.lastMessageAt ?? 0) > ($1.lastMessageAt ?? 0)
+            }
+    }
+
+    private func primaryThreadChannel(for message: ScoutMessage) -> ScoutChannel? {
+        threadChannels(for: message).first
+    }
+
+    private func threadStub(
+        message: ScoutMessage,
+        summary: ScoutThreadSummary,
+        child: ScoutChannel
+    ) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            Button {
+                toggleThread(child)
+            } label: {
+                HStack(spacing: HudSpacing.sm) {
+                    ScoutThreadParticipantFaces(names: summary.participants)
+                    Text(threadReplyCountLabel(summary.count))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.accent)
+                    Text("· \(threadParticipantsLabel(summary.participants)) · last \(ScoutRelativeTime.format(summary.lastActiveAt))")
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .lineLimit(1)
+                    Text(expandedThreadConversationIds.contains(child.cId) ? "collapse" : "expand")
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .padding(.leading, HudSpacing.xs)
+                }
+                .padding(.vertical, HudSpacing.xs)
+                .padding(.leading, HudSpacing.xs)
+                .padding(.trailing, HudSpacing.md)
+                .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .help("Open thread")
+
+            if expandedThreadConversationIds.contains(child.cId) {
+                threadExpandedRail(child: child)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: expandedThreadConversationIds.contains(child.cId))
+        .onAppear {
+            if expandedThreadConversationIds.contains(child.cId) {
+                loadThreadMessages(child)
+            }
+        }
+    }
+
+    private func threadExpandedRail(child: ScoutChannel) -> some View {
+        HStack(alignment: .top, spacing: HudSpacing.lg) {
+            Rectangle()
+                .fill(ScoutDesign.hairlineStrong)
+                .frame(width: HudStrokeWidth.thin)
+                .frame(maxHeight: .infinity)
+                .allowsHitTesting(false)
+
+            VStack(alignment: .leading, spacing: HudSpacing.md) {
+                if loadingThreadConversationIds.contains(child.cId) && threadMessages[child.cId] == nil {
+                    HStack(spacing: HudSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading thread")
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                    }
+                    .padding(.vertical, HudSpacing.xs)
+                } else {
+                    let messages = threadMessages[child.cId] ?? []
+                    ForEach(messages) { threadMessage in
+                        ScoutThreadCompactMessageRow(
+                            message: threadMessage,
+                            baseDirectory: fileBaseDirectory(for: threadMessage)
+                        )
+                    }
+                    if messages.isEmpty {
+                        Text("No replies yet")
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                            .padding(.vertical, HudSpacing.xs)
+                    }
+                }
+                threadMiniComposer(child: child)
+            }
+        }
+        .padding(.leading, HudSpacing.sm)
+        .padding(.top, HudSpacing.xs)
+    }
+
+    private func threadMiniComposer(child: ScoutChannel) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            TextField("Reply in thread…", text: threadDraftBinding(for: child.cId), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1...3)
+                .onSubmit { sendThreadDraft(child) }
+            Button {
+                sendThreadDraft(child)
+            } label: {
+                Text(sendingThreadConversationIds.contains(child.cId) ? "Sending" : "Send")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.bg)
+                    .padding(.horizontal, HudSpacing.md)
+                    .frame(height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                            .fill(ScoutPalette.accent)
+                    )
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .disabled(!canSendThreadDraft(child.cId))
+            .opacity(canSendThreadDraft(child.cId) ? 1 : 0.5)
+        }
+        .padding(.leading, HudSpacing.md)
+        .padding(.trailing, HudSpacing.sm)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutPalette.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    private func threadDraftBinding(for cId: String) -> Binding<String> {
+        Binding {
+            threadDrafts[cId] ?? ""
+        } set: { next in
+            threadDrafts[cId] = next
+        }
+    }
+
+    private func threadReplyCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 reply" : "\(count) replies"
+    }
+
+    private func threadParticipantsLabel(_ participants: [String]) -> String {
+        let names = participants.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !names.isEmpty else { return "participants" }
+        if names.count <= 2 { return names.joined(separator: ", ") }
+        return "\(names[0]), \(names[1]) +\(names.count - 2)"
+    }
+
+    private func canSendThreadDraft(_ cId: String) -> Bool {
+        !(threadDrafts[cId] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sendingThreadConversationIds.contains(cId)
+    }
+
+    private func toggleThread(_ child: ScoutChannel) {
+        if expandedThreadConversationIds.contains(child.cId) {
+            expandedThreadConversationIds.remove(child.cId)
+            return
+        }
+        expandedThreadConversationIds.insert(child.cId)
+        loadThreadMessages(child)
+    }
+
+    private func loadThreadMessages(_ child: ScoutChannel) {
+        if loadingThreadConversationIds.contains(child.cId) {
+            // Coalesce concurrent reloads (expand + send) into one follow-up fetch.
+            pendingThreadReloadIds.insert(child.cId)
+            return
+        }
+        loadingThreadConversationIds.insert(child.cId)
+        Task {
+            do {
+                let messages = try await ScoutCommsClient().fetchMessages(cId: child.cId, limit: 120)
+                await ScoutCommsClient().advanceReadCursor(
+                    cId: child.cId,
+                    lastReadMessageId: messages.last?.id
+                )
+                await MainActor.run {
+                    threadMessages[child.cId] = messages
+                    loadingThreadConversationIds.remove(child.cId)
+                    if pendingThreadReloadIds.contains(child.cId) {
+                        pendingThreadReloadIds.remove(child.cId)
+                        loadThreadMessages(child)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    loadingThreadConversationIds.remove(child.cId)
+                    if pendingThreadReloadIds.contains(child.cId) {
+                        pendingThreadReloadIds.remove(child.cId)
+                        loadThreadMessages(child)
+                    } else {
+                        setThreadError(error)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sendThreadDraft(_ child: ScoutChannel) {
+        let trimmed = (threadDrafts[child.cId] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !sendingThreadConversationIds.contains(child.cId) else { return }
+        sendingThreadConversationIds.insert(child.cId)
+        Task {
+            do {
+                try await ScoutCommsClient().send(body: trimmed, cId: child.cId)
+                await MainActor.run {
+                    threadDrafts[child.cId] = ""
+                    sendingThreadConversationIds.remove(child.cId)
+                    store.refresh(force: true)
+                    store.loadMessages()
+                    loadThreadMessages(child)
+                }
+            } catch {
+                await MainActor.run {
+                    sendingThreadConversationIds.remove(child.cId)
+                    setThreadError(error)
+                }
+            }
+        }
+    }
+
+    private func startThread(from message: ScoutMessage) {
+        guard store.channels.first(where: { $0.cId == message.cId })?.parentConversationId == nil else { return }
+        if let existing = primaryThreadChannel(for: message) {
+            expandedThreadConversationIds.insert(existing.cId)
+            loadThreadMessages(existing)
+            return
+        }
+
+        Task {
+            do {
+                let url = ScoutWeb.baseURL()
+                    .appending(path: "api/conversations/\(message.cId)/threads")
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "messageId": message.id,
+                ])
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw ScoutCommsError.sendFailed
+                }
+                let started = try JSONDecoder().decode(ScoutThreadStartResponse.self, from: data)
+                let childId = started.conversationId?.nilIfEmpty
+                    ?? started.cId?.nilIfEmpty
+                    ?? started.chatId?.nilIfEmpty
+                    ?? started.id?.nilIfEmpty
+                await MainActor.run {
+                    if let childId {
+                        expandedThreadConversationIds.insert(childId)
+                    }
+                    store.refresh(force: true)
+                    store.loadMessages()
+                }
+            } catch {
+                await MainActor.run {
+                    setThreadError(error)
+                }
+            }
+        }
+    }
+
+    private func setThreadError(_ error: Error) {
+        // Reuse the existing surface error slot. Thread expansion is an inline
+        // affordance; failures should be visible but should not invent a new
+        // alert channel.
+        store.lastError = ScoutAppError.userFacing(
+            error,
+            connectionMessage: "Scout web server isn't running. Start Scout services, then try again."
+        )
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -1577,19 +2155,14 @@ struct ScoutRootView: View {
                         )
                         .frame(maxWidth: .infinity, minHeight: 360)
                     } else {
-                        ForEach(store.messages) { message in
-                            ScoutMessageRow(
-                                message: message,
-                                agent: agent(for: message),
-                                readReceipts: readReceipts(for: message),
-                                baseDirectory: fileBaseDirectory(for: message),
-                                isLatestMessage: message.id == store.messages.last?.id,
-                                previewAgent: previewAgent,
-                                onNewFromMessage: {
-                                    startConversationFromMessage(message, agent: agent(for: message))
-                                }
-                            )
-                                .id(message.id)
+                        ForEach(messageRenderItems) { item in
+                            switch item {
+                            case .inline(let message):
+                                messageRow(message)
+                                    .id(message.id)
+                            case .chain(let block):
+                                replyChainBlock(block)
+                            }
                         }
 
                         // The agent's still-running turn, rendered as a transient
@@ -1781,6 +2354,9 @@ struct ScoutRootView: View {
     // shadow — no left-edge accent rule (banned styleguide treatment).
     private var composerInputWell: some View {
         VStack(spacing: 0) {
+            if let replyTarget = store.replyTarget {
+                composerReplyBand(replyTarget)
+            }
             composerFieldRow
             composerToolbarBar
         }
@@ -1811,6 +2387,63 @@ struct ScoutRootView: View {
         .dropDestination(for: URL.self) { urls, _ in
             stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
         }
+        .animation(.easeOut(duration: 0.14), value: store.replyTarget?.id)
+    }
+
+    private func composerReplyBand(_ target: ScoutMessage) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: "arrowshape.turn.up.left")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ScoutPalette.accent)
+            Text("REPLYING TO")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .foregroundStyle(ScoutPalette.accent)
+            Text(replyTargetSummary(target))
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: HudSpacing.md)
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    store.clearReplyTarget()
+                }
+            } label: {
+                Text("×")
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .help("Clear reply target")
+        }
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ScoutPalette.accentSoft.opacity(0.62))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func replyTargetSummary(_ target: ScoutMessage) -> String {
+        let body = target.body
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview: String
+        if body.isEmpty {
+            preview = target.attachments.isEmpty ? "empty message" : "\(target.attachments.count) attachment\(target.attachments.count == 1 ? "" : "s")"
+        } else if body.count > 60 {
+            preview = "\(body.prefix(60))…"
+        } else {
+            preview = body
+        }
+        return "\(target.actorName) — \(preview)"
     }
 
     // The compose line: the multiline field plus an inline dictation waveform.
@@ -1854,6 +2487,12 @@ struct ScoutRootView: View {
                         return .handled
                     }
                     .onKeyPress(.escape) {
+                        if store.replyTarget != nil {
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                store.clearReplyTarget()
+                            }
+                            return .handled
+                        }
                         if !suggestions.isEmpty {
                             dismissSuggestions()
                             return .handled
@@ -4253,7 +4892,8 @@ private struct ScoutPendingConversationProgressRow: View {
     }
 
     private var actorName: String {
-        pending.draft.displayName.nilIfEmpty
+        pending.agentName?.nilIfEmpty
+            ?? pending.draft.displayName.nilIfEmpty
             ?? pending.draft.agentName.nilIfEmpty
             ?? pending.draft.agent?.displayName
             ?? pending.title
@@ -4438,7 +5078,8 @@ private struct ScoutPendingConversationInspector: View {
     }
 
     private var targetLabel: String? {
-        pending.draft.displayName.nilIfEmpty
+        pending.agentName?.nilIfEmpty
+            ?? pending.draft.displayName.nilIfEmpty
             ?? pending.draft.agentName.nilIfEmpty
             ?? pending.draft.agent?.displayName
     }

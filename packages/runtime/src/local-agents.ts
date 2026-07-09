@@ -13,6 +13,7 @@ import type {
   AgentEndpoint,
   AgentHarness,
   InvocationRequest,
+  MessageAttachment,
   ScoutPermissionProfile,
   ScoutReplyContext,
 } from "@openscout/protocol";
@@ -2846,6 +2847,122 @@ async function sendCodexAppServerAgentForBroker(
   }
 }
 
+export const SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY = "scoutMessageAttachments";
+
+function isMessageAttachmentContextEntry(value: unknown): value is MessageAttachment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const attachment = value as Partial<MessageAttachment>;
+  return typeof attachment.id === "string"
+    && typeof attachment.mediaType === "string"
+    && (
+      typeof attachment.url === "string"
+      || typeof attachment.blobKey === "string"
+    );
+}
+
+function invocationMessageAttachments(invocation: InvocationRequest): MessageAttachment[] {
+  const value = invocation.context?.[SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isMessageAttachmentContextEntry);
+}
+
+function scoutWebOriginForAttachments(env: NodeJS.ProcessEnv = process.env): string | null {
+  const candidates = [
+    env.OPENSCOUT_WEB_PUBLIC_ORIGIN,
+    env.OPENSCOUT_WEB_BUN_URL,
+    env.OPENSCOUT_WEB_VITE_URL,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (!trimmed) continue;
+    try {
+      return new URL(trimmed).origin;
+    } catch {
+      // ignore invalid env values
+    }
+  }
+  return null;
+}
+
+function resolveAttachmentFetchUrl(
+  attachment: MessageAttachment,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const direct = attachment.url?.trim();
+  if (direct) {
+    try {
+      // Absolute http(s) URLs are already fetchable.
+      if (/^https?:\/\//i.test(direct)) {
+        return new URL(direct).toString();
+      }
+      // Only promote known blob paths; other root-relative URLs stay opaque.
+      const origin = scoutWebOriginForAttachments(env);
+      if (origin && direct.startsWith("/api/blobs/")) {
+        return new URL(direct, `${origin}/`).toString();
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const blobKey = attachment.blobKey?.trim();
+  if (!blobKey) {
+    return null;
+  }
+  const origin = scoutWebOriginForAttachments(env);
+  if (!origin) {
+    return null;
+  }
+  return `${origin.replace(/\/$/, "")}/api/blobs/${encodeURIComponent(blobKey)}`;
+}
+
+function buildInvocationAttachmentsPrompt(
+  invocation: InvocationRequest,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const attachments = invocationMessageAttachments(invocation)
+    .map((attachment, index) => {
+      const url = resolveAttachmentFetchUrl(attachment, env);
+      if (!url) return null;
+      const fileName = attachment.fileName?.trim();
+      const label = fileName || attachment.id || `attachment-${index + 1}`;
+      return `- ${label} (${attachment.mediaType}): ${url}`;
+    })
+    .filter((line): line is string => Boolean(line));
+  if (attachments.length === 0) {
+    return undefined;
+  }
+
+  return [
+    "Attachments:",
+    ...attachments,
+    "Fetch/open the attachment URL when you need to inspect the image or file contents.",
+  ].join("\n");
+}
+
+function invocationContextEntries(invocation: InvocationRequest): [string, unknown][] {
+  return Object.entries(invocation.context ?? {})
+    .filter(([key]) => key !== SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY);
+}
+
+function formatInvocationContextValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string[] {
   const replyInstruction = context?.replyPath === "mcp_reply"
     ? [
@@ -2889,10 +3006,11 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
 }
 
 export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
-  const contextLines = Object.entries(invocation.context ?? {})
-    .map(([key, value]) => `- ${key}: ${String(value)}`);
+  const contextLines = invocationContextEntries(invocation)
+    .map(([key, value]) => `- ${key}: ${formatInvocationContextValue(value)}`);
   const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
   const forkContext = buildInvocationForkContextPrompt(invocation);
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
     : invocation.action === "wake"
@@ -2914,6 +3032,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     collaborationContext,
     forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
+    attachmentsContext,
     "Task:",
     invocation.task,
   ]
@@ -2922,11 +3041,12 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
 }
 
 export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest, agentName = invocation.targetAgentId): string {
-  const contextLines = Object.entries(invocation.context ?? {})
-    .map(([key, value]) => `- ${key}: ${String(value)}`);
+  const contextLines = invocationContextEntries(invocation)
+    .map(([key, value]) => `- ${key}: ${formatInvocationContextValue(value)}`);
   const replyContext = buildScoutReplyContext(agentName, invocation);
   const replyContextPrompt = invocation.action === "wake" ? [] : buildScoutReplyContextPrompt(replyContext);
   const forkContext = buildInvocationForkContextPrompt(invocation);
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
 
   return [
     buildInvocationOpener(invocation),
@@ -2939,6 +3059,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
       : "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
     forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
+    attachmentsContext,
     "",
     invocation.task,
   ]
@@ -2948,15 +3069,18 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
 
 export function buildLocalAgentNudge(agentName: string, invocation: InvocationRequest, flightId: string): string {
   const relayCommand = brokerRelayCommand();
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
+  const contextEntries = invocationContextEntries(invocation);
   if (invocation.action === "wake") {
     const parts = [
       `New broker message from ${invocation.requesterId}.`,
       `Message: ${invocation.task}`,
+      attachmentsContext,
       "This is a message/update, not a reply-required ask. Read it and continue your current work; reply only if a human-useful response is needed.",
-    ];
+    ].filter((part): part is string => Boolean(part));
 
-    if (invocation.context && Object.keys(invocation.context).length > 0) {
-      parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+    if (contextEntries.length > 0) {
+      parts.push(`Context: ${JSON.stringify(Object.fromEntries(contextEntries))}`);
     }
 
     parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
@@ -2966,11 +3090,12 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
   const parts = [
     `New broker ask from ${invocation.requesterId}.`,
     `Task: ${invocation.task}`,
+    attachmentsContext,
     "Follow the OpenScout collaboration contract: answer directly if you can, otherwise make the next owner explicit and avoid broad wakeups.",
-  ];
+  ].filter((part): part is string => Boolean(part));
 
-  if (invocation.context && Object.keys(invocation.context).length > 0) {
-    parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+  if (contextEntries.length > 0) {
+    parts.push(`Context: ${JSON.stringify(Object.fromEntries(contextEntries))}`);
   }
   if (invocation.execution?.session === "fork") {
     const source = invocation.execution.forkFromStateId?.trim() || invocation.execution.forkFromSessionId?.trim();

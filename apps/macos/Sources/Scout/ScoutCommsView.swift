@@ -28,7 +28,7 @@ import AppKit
 /// mock (`design/studio/app/studies/scout-shell/page.module.css`): the `.turn`,
 /// `.turnText`, and `.convRow` classes. Studio px map to Hud* tokens where one
 /// exists; the reading measure has no token, so it lives here as a literal.
-private enum ScoutCommsMetrics {
+enum ScoutCommsMetrics {
     /// Constrained reading measure for message bodies. Studio caps prose at
     /// `.turnText { max-width: 64ch }` so a long answer wraps at a comfortable
     /// line length instead of running the full bubble width. 64ch at the ~13pt
@@ -112,6 +112,9 @@ struct ScoutPendingConversation: Identifiable, Equatable {
     let sessionId: String?
     let flightId: String?
     let messageId: String?
+    var agentId: String?
+    var agentName: String?
+    let createdAt: Date
     let title: String
     let subtitle: String
     let draft: ScoutSessionDraft
@@ -376,10 +379,14 @@ struct ScoutConversationListBar: View {
     let selectedCId: String?
     let newChannelIds: Set<String>
     let hasActivity: Bool
+    let serviceHealth: ScoutServiceHealth
+    let isStartingBroker: Bool
     let width: CGFloat
     let searchFocused: FocusState<Bool>.Binding
     let onNewConversation: () -> Void
     let onRefresh: () -> Void
+    let onStartBroker: () -> Void
+    let onOpenMenuBar: () -> Void
     let onRetryPending: (ScoutPendingConversation) -> Void
     let onSelectPending: (ScoutPendingConversation) -> Void
     let select: (ScoutChannel) -> Void
@@ -506,13 +513,20 @@ struct ScoutConversationListBar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if channels.isEmpty && pendingConversations.isEmpty {
-            HudEmptyState(
-                title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No chats" : "No matches",
-                subtitle: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No visible DMs or channels." : "Try another search or filter.",
-                icon: "bubble.left"
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(HudSpacing.xxl)
+            switch serviceHealth {
+            case .brokerDown:
+                brokerOfflineState
+            case .webDown:
+                webOfflineState
+            case .ok:
+                HudEmptyState(
+                    title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No chats" : "No matches",
+                    subtitle: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No visible DMs or channels." : "Try another search or filter.",
+                    icon: "bubble.left"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(HudSpacing.xxl)
+            }
         } else {
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -546,6 +560,52 @@ struct ScoutConversationListBar: View {
             }
             .scrollIndicators(.visible)
         }
+    }
+
+    // The broker is down but the web service is up — the app can honestly
+    // restart it. Show a spinner while the restart is in flight, then let the
+    // re-probe clear this state on its own.
+    private var brokerOfflineState: some View {
+        VStack(spacing: HudSpacing.xl) {
+            HudEmptyState(
+                title: "Broker offline",
+                subtitle: "Scout can't reach the broker, so conversations aren't loading.",
+                icon: "bolt.horizontal.circle"
+            )
+            .frame(maxWidth: 420)
+            if isStartingBroker {
+                HStack(spacing: HudSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting broker…")
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.muted)
+                }
+            } else {
+                HudButton("Start broker", icon: "bolt.fill", style: .secondary, action: onStartBroker)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(HudSpacing.xxl)
+    }
+
+    // The local web service itself isn't answering. The app can't start it —
+    // that's the menu-bar helper's job — so offer Retry plus a pointer to it.
+    private var webOfflineState: some View {
+        VStack(spacing: HudSpacing.xl) {
+            HudEmptyState(
+                title: "Scout services are offline",
+                subtitle: "The local Scout web service isn't responding. Start it from the menu bar, then retry.",
+                icon: "bolt.slash"
+            )
+            .frame(maxWidth: 420)
+            HStack(spacing: HudSpacing.sm) {
+                HudButton("Retry", icon: "arrow.clockwise", style: .secondary, action: onRefresh)
+                HudButton("Open menu bar controls", icon: "menubar.arrow.up.rectangle", style: .secondary, action: onOpenMenuBar)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(HudSpacing.xxl)
     }
 }
 
@@ -733,14 +793,12 @@ struct ScoutPendingConversationRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: HudSpacing.md) {
-            statusGlyph
-                .frame(width: 20, height: 20)
-                .padding(.top, 1)
+        HStack(alignment: .center, spacing: HudSpacing.lg) {
+            avatarTile
 
-            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            VStack(alignment: .leading, spacing: HudSpacing.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-                    Text(pending.title)
+                    Text(rowTitle)
                         .font(HudFont.ui(HudTextSize.base, weight: isSelected ? .semibold : .medium))
                         .foregroundStyle(ScoutPalette.ink)
                         .lineLimit(1)
@@ -753,17 +811,21 @@ struct ScoutPendingConversationRow: View {
                         .lineLimit(1)
                 }
 
-                Text(detailText)
-                    .font(HudFont.ui(HudTextSize.xs))
-                    .foregroundStyle(ScoutPalette.muted)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                    Text(detailText)
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(detailTint)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                HStack(spacing: HudSpacing.sm) {
+                    Spacer(minLength: HudSpacing.sm)
+
                     Text(pendingIdLabel)
-                        .font(HudFont.mono(HudTextSize.micro))
+                        .font(HudFont.mono(9, weight: .semibold))
                         .foregroundStyle(ScoutPalette.dim)
                         .lineLimit(1)
-                    Spacer(minLength: 0)
+                        .fixedSize(horizontal: true, vertical: false)
+
                     if case .failed = pending.state {
                         Button("Retry", action: onRetry)
                             .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
@@ -773,6 +835,7 @@ struct ScoutPendingConversationRow: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.vertical, ScoutCommsMetrics.listRowVerticalPadding)
@@ -795,13 +858,30 @@ struct ScoutPendingConversationRow: View {
     }
 
     @ViewBuilder
+    private var avatarTile: some View {
+        ZStack(alignment: .bottomTrailing) {
+            SpriteAvatarView(name: avatarName, size: 32, tile: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(isSelected ? ScoutPalette.accent : Color.clear, lineWidth: HudStrokeWidth.thin)
+                )
+
+            statusGlyph
+                .frame(width: 14, height: 14)
+                .background(Circle().fill(ScoutDesign.chrome))
+                .offset(x: 3, y: 3)
+        }
+        .frame(width: 32, height: 32)
+    }
+
+    @ViewBuilder
     private var statusGlyph: some View {
         switch pending.state {
         case .starting:
-            ScoutBrailleSpinner(size: 13, tint: ScoutPalette.accent)
+            ScoutBrailleSpinner(size: 10, tint: ScoutPalette.accent)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
                 .foregroundStyle(ScoutPalette.statusError)
         }
     }
@@ -821,10 +901,17 @@ struct ScoutPendingConversationRow: View {
         }
     }
 
+    private var detailTint: Color {
+        switch pending.state {
+        case .starting: return ScoutPalette.muted
+        case .failed: return ScoutPalette.statusError
+        }
+    }
+
     private var detailText: String {
         switch pending.state {
         case .starting:
-            return pending.flightSummary?.nilIfEmpty ?? pending.subtitle
+            return pending.flightSummary?.nilIfEmpty ?? targetContext ?? pending.subtitle
         case .failed(let message):
             return message
         }
@@ -841,6 +928,45 @@ struct ScoutPendingConversationRow: View {
             let rest = state.dropFirst()
             return "\(first)\(rest)"
         }
+    }
+
+    private var rowTitle: String {
+        bestAgentLabel ?? pending.title
+    }
+
+    private var avatarName: String {
+        bestAgentLabel ?? pending.title
+    }
+
+    private var bestAgentLabel: String? {
+        pending.agentName?.nilIfEmpty
+            ?? pending.draft.displayName.nilIfEmpty
+            ?? pending.draft.agentName.nilIfEmpty
+            ?? pending.draft.agent?.displayName.nilIfEmpty
+    }
+
+    private var targetContext: String? {
+        let parts = [
+            projectLabel,
+            executionLabel,
+        ].compactMap { $0?.nilIfEmpty }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
+    private var projectLabel: String? {
+        guard let path = pending.draft.projectPath.nilIfEmpty else { return nil }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return name.nilIfEmpty ?? (path as NSString).lastPathComponent.nilIfEmpty
+    }
+
+    private var executionLabel: String? {
+        let parts = [
+            pending.draft.harness?.nilIfEmpty ?? pending.draft.agent?.harness?.nilIfEmpty,
+            pending.draft.model?.nilIfEmpty ?? pending.draft.agent?.model?.nilIfEmpty,
+        ].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
     }
 
     private var rowBackground: Color {
@@ -1222,7 +1348,11 @@ struct ScoutMessageRow: View {
     /// The latest saved message is always shown in full so the operator can read
     /// a fresh reply without an extra click.
     let isLatestMessage: Bool
+    var showCustodyCaption: Bool = true
+    var showThreadActions: Bool = true
     let previewAgent: (ScoutAgent) -> Void
+    let onReply: () -> Void
+    let onStartThread: () -> Void
     let onNewFromMessage: () -> Void
 
     @State private var isHoveringAgent = false
@@ -1240,7 +1370,7 @@ struct ScoutMessageRow: View {
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
                 }
-                if let custodyLabel {
+                if showCustodyCaption, let custodyLabel {
                     Text(custodyLabel)
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
@@ -1253,6 +1383,18 @@ struct ScoutMessageRow: View {
             // trailing Spacer keeps every turn flush-left instead of stretched.
             .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
             .contextMenu {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+                if showThreadActions {
+                    Button {
+                        onStartThread()
+                    } label: {
+                        Label("Start thread", systemImage: "text.bubble")
+                    }
+                }
                 Button {
                     onNewFromMessage()
                 } label: {

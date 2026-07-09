@@ -91,6 +91,13 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         HUDStateFile.shared.start()
         TailModeStateFile.shared.start()
         registerHUDHotkey()
+        ScoutAttentionCenter.shared.start { [weak self] cId in
+            if let cId = cId?.nilIfEmpty {
+                _ = self?.handleAppCommand(command: "channel", value: cId)
+            } else {
+                _ = self?.handleAppCommand(command: "open", value: nil)
+            }
+        }
         if ScoutLaunchOptions.hudRequested {
             showHUDFromLaunchArguments()
         }

@@ -8,6 +8,7 @@ import SwiftUI
 final class OverlayPanel: NSPanel {
     var activatesOnMouseDown = false
     var onKeyDown: ((NSEvent) -> Void)?
+    var onKeyUp: ((NSEvent) -> Void)?
     var onFlagsChanged: ((NSEvent) -> Void)?
 
     override var canBecomeKey: Bool { true }
@@ -58,6 +59,17 @@ final class OverlayPanel: NSPanel {
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    // Mirror of keyDown for push-to-talk release. Only the mic key (46) is
+    // diverted to onKeyUp, and only when a text field isn't first responder —
+    // everything else keeps default keyUp handling so controls behave.
+    override func keyUp(with event: NSEvent) {
+        if event.keyCode == 46, !firstResponderIsTextEditing, let onKeyUp {
+            onKeyUp(event)
+            return
+        }
+        super.keyUp(with: event)
     }
 
     private var firstResponderIsTextEditing: Bool {
@@ -168,6 +180,7 @@ public enum OverlayPanelShell {
         ]
         var activatesOnMouseDown = false
         var onKeyDown: ((NSEvent) -> Void)? = nil
+        var onKeyUp: ((NSEvent) -> Void)? = nil
         var onFlagsChanged: ((NSEvent) -> Void)? = nil
         var appearance: NSAppearance? = NSAppearance(named: .darkAqua)
         var resizable: Bool = false
@@ -211,6 +224,7 @@ public enum OverlayPanelShell {
         panel.collectionBehavior = config.collectionBehavior
         panel.activatesOnMouseDown = config.activatesOnMouseDown
         panel.onKeyDown = config.onKeyDown
+        panel.onKeyUp = config.onKeyUp
         panel.onFlagsChanged = config.onFlagsChanged
         if let appearance = config.appearance {
             panel.appearance = appearance

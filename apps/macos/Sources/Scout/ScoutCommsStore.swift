@@ -14,6 +14,7 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var messages: [ScoutMessage] = []
     @Published private(set) var agents: [ScoutAgent] = []
     @Published private(set) var selectedCId: String?
+    @Published var replyTarget: ScoutMessage?
     @Published var selectedAgentId: String?
     @Published var channelQuery = ""
     @Published var isLoading = false
@@ -35,6 +36,14 @@ final class ScoutCommsStore: ObservableObject {
     /// cIds that appeared in the latest channels fetch but weren't in the prior
     /// one — drives the list's one-shot "new conversation" reveal.
     @Published private(set) var newChannelIds: Set<String> = []
+    /// Local-service health, classified only from existing fetch outcomes (no
+    /// standalone polling loop). An offline broker returns an empty channel list
+    /// that otherwise masquerades as "No chats"; this lets the view say so
+    /// honestly and offer a real recovery action.
+    @Published private(set) var serviceHealth: ScoutServiceHealth = .ok
+    /// True while a broker (re)start is in flight, so the offline state can show
+    /// a spinner instead of the "Start broker" button.
+    @Published private(set) var isStartingBroker = false
 
     private let decoder = JSONDecoder()
     private var knownChannelIds: Set<String> = []
@@ -54,6 +63,13 @@ final class ScoutCommsStore: ObservableObject {
     private var activeTurnRequestId: UUID?
     private var activeTurnPollTask: Task<Void, Never>?
     private var activeTurnPollCId: String?
+    private var healthProbeTask: Task<Void, Never>?
+    private var brokerActionTask: Task<Void, Never>?
+    /// Latches once an empty channel list has been probed as genuinely-empty
+    /// (broker reachable) so the steady-state poll doesn't re-probe shell-state
+    /// on every heartbeat. A degraded classification leaves it `false` so the
+    /// poll keeps probing and recovery flips health back to `ok`.
+    private var settledEmptyAsHealthy = false
     /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
     /// reactive advance against the steady-state poll re-firing the same POST on
     /// every heartbeat — we only re-mark when the selection or its newest
@@ -86,8 +102,16 @@ final class ScoutCommsStore: ObservableObject {
 
     var visibleChannels: [ScoutChannel] {
         let trimmed = channelQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return channels }
-        return channels.filter { channel in
+        let knownChannelIds = Set(channels.map(\.cId))
+        let topLevelChannels = channels.filter { channel in
+            guard let parentConversationId = channel.parentConversationId?.nilIfEmpty else { return true }
+            // Child conversations stay out of the top-level list while their
+            // parent is present. If the parent was deleted or is otherwise not
+            // in the payload, surface the child rather than orphaning it.
+            return !knownChannelIds.contains(parentConversationId)
+        }
+        guard !trimmed.isEmpty else { return topLevelChannels }
+        return topLevelChannels.filter { channel in
             channel.displayTitle.localizedCaseInsensitiveContains(trimmed)
                 || channel.cId.localizedCaseInsensitiveContains(trimmed)
                 || channel.participantDisplayNames.joined(separator: " ").localizedCaseInsensitiveContains(trimmed)
@@ -131,6 +155,8 @@ final class ScoutCommsStore: ObservableObject {
         readCursorsTask?.cancel()
         activeTurnTask?.cancel()
         activeTurnPollTask?.cancel()
+        healthProbeTask?.cancel()
+        brokerActionTask?.cancel()
         channelsTask = nil
         channelsRequestId = nil
         messagesTask = nil
@@ -142,11 +168,14 @@ final class ScoutCommsStore: ObservableObject {
         activeTurnRequestId = nil
         activeTurnPollTask = nil
         activeTurnPollCId = nil
+        healthProbeTask = nil
+        brokerActionTask = nil
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
         observeRequestId = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
+        setIfChanged(false, to: \.isStartingBroker)
     }
 
     func refresh(force: Bool = false) {
@@ -166,6 +195,7 @@ final class ScoutCommsStore: ObservableObject {
         guard selectedCId != resolvedCId else { return }
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
+        replyTarget = nil
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
         messages = []
@@ -190,6 +220,7 @@ final class ScoutCommsStore: ObservableObject {
         selectedAgentNameHint = agentName?.nilIfEmpty
         selectedAgentId = agentId?.nilIfEmpty
         if selectedCId != resolvedCId {
+            replyTarget = nil
             selectedCId = resolvedCId
             messages = []
             readCursors = []
@@ -212,6 +243,7 @@ final class ScoutCommsStore: ObservableObject {
             let isNewSelection = selectedCId != cId
             selectedCId = cId
             if isNewSelection {
+                replyTarget = nil
                 readCursors = []
             }
             loadMessages()
@@ -317,6 +349,9 @@ final class ScoutCommsStore: ObservableObject {
                 "cId": selectedCId,
                 "conversationId": selectedCId,
             ]
+            if let replyToMessageId = replyTarget?.id.nilIfEmpty {
+                payload["replyToMessageId"] = replyToMessageId
+            }
             if !attachments.isEmpty {
                 payload["attachments"] = attachments.map(Self.attachmentPayload)
             }
@@ -326,6 +361,7 @@ final class ScoutCommsStore: ObservableObject {
                 throw ScoutCommsError.sendFailed
             }
             setIfChanged(nil, to: \.lastError)
+            replyTarget = nil
             refresh(force: true)
             loadMessages()
         } catch {
@@ -344,6 +380,10 @@ final class ScoutCommsStore: ObservableObject {
         if self[keyPath: keyPath] != value {
             self[keyPath: keyPath] = value
         }
+    }
+
+    func clearReplyTarget() {
+        replyTarget = nil
     }
 
     private var pollIntervalNanoseconds: UInt64 {
@@ -425,10 +465,74 @@ final class ScoutCommsStore: ObservableObject {
                 setIfChanged(next.first?.agentId, to: \.selectedAgentId)
             }
             setIfChanged(nil, to: \.lastError)
+            classifyHealth(fromChannels: next)
             loadMessages()
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
+            // A failed channels fetch is the web-service-down path — probe
+            // shell-state once to confirm (and to recover when it comes back).
+            probeServiceHealth()
+        }
+    }
+
+    /// Distinguish a genuinely-empty conversation list from an offline broker
+    /// (both return `[]`). A non-empty list proves the broker is reachable, so
+    /// mark healthy directly. An empty list is ambiguous — probe shell-state
+    /// once to classify, gated by `settledEmptyAsHealthy` so a healthy-but-empty
+    /// list isn't re-probed on every heartbeat while a degraded one keeps
+    /// probing until it recovers.
+    private func classifyHealth(fromChannels channels: [ScoutChannel]) {
+        if !channels.isEmpty {
+            setIfChanged(.ok, to: \.serviceHealth)
+            settledEmptyAsHealthy = false
+            return
+        }
+        if !settledEmptyAsHealthy {
+            probeServiceHealth()
+        }
+    }
+
+    /// One-shot shell-state probe. Reuses the existing fetch outcomes as its
+    /// trigger (no new polling loop) and is guarded so overlapping triggers
+    /// collapse to a single in-flight request.
+    private func probeServiceHealth() {
+        guard healthProbeTask == nil else { return }
+        healthProbeTask = Task { [weak self] in
+            let health = await ScoutShellStateClient().classify()
+            guard let self else { return }
+            self.healthProbeTask = nil
+            guard let health else { return }
+            self.setIfChanged(health, to: \.serviceHealth)
+            self.settledEmptyAsHealthy = (health == .ok)
+        }
+    }
+
+    /// Honestly (re)start the local broker via scoutd, then re-probe health so
+    /// the offline state clears itself when the broker comes back. Only the
+    /// broker-down state offers this — web-down isn't recoverable from the app.
+    func startBroker() {
+        guard !isStartingBroker, brokerActionTask == nil else { return }
+        isStartingBroker = true
+        brokerActionTask = Task { [weak self] in
+            do {
+                _ = try await BrokerService().control(.restart)
+            } catch {
+                if !ScoutAppError.isCancellation(error) {
+                    self?.setIfChanged(Self.userFacingError(error), to: \.lastError)
+                }
+            }
+            let health = await ScoutShellStateClient().classify()
+            guard let self else { return }
+            self.isStartingBroker = false
+            self.brokerActionTask = nil
+            if let health {
+                self.setIfChanged(health, to: \.serviceHealth)
+                self.settledEmptyAsHealthy = (health == .ok)
+            }
+            if self.serviceHealth == .ok {
+                self.refresh(force: true)
+            }
         }
     }
 

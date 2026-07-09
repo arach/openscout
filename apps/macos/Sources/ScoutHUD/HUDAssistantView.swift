@@ -351,16 +351,9 @@ private struct ContextRail: View {
             VStack(alignment: .leading, spacing: 18) {
                 RailSection(label: "QUICK") {
                     RailCmd(cmd: "/help", hint: "all commands")
-                    RailCmd(cmd: "/find", hint: "agent by name or work")
+                    RailCmd(cmd: "/agents", hint: "list known agents")
                     RailCmd(cmd: "/spin", hint: "start a new agent")
                     RailCmd(cmd: "/recent", hint: "last 24h activity")
-                }
-                RailSection(label: "ON YOU") {
-                    RailMention(name: "hudson", detail: "compile error · 7m")
-                }
-                RailSection(label: "RECENT ASKS") {
-                    RailRecent(text: "status pass on hudson", at: "09:14")
-                    RailRecent(text: "open Sources/Mesh/PresenceCache.swift", at: "09:15")
                 }
             }
             .padding(.horizontal, 16)
@@ -416,54 +409,6 @@ private struct RailCmd: View {
         }
         HUDDockState.shared.text = cmd + " "
         HUDDockState.shared.focus()
-    }
-}
-
-private struct RailMention: View {
-    let name: String
-    let detail: String
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: {}) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("@" + name)
-                    .font(HUDType.mono(11, weight: .semibold))
-                    .foregroundStyle(HUDChrome.accent)
-                Text(detail)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(hovered ? HUDChrome.canvasLift.opacity(0.30) : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-}
-
-private struct RailRecent: View {
-    let text: String
-    let at: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(text)
-                .font(HUDType.body(11))
-                .foregroundStyle(HUDChrome.inkMuted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
-            Text(at)
-                .font(HUDType.mono(10))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkFaint)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
     }
 }
 

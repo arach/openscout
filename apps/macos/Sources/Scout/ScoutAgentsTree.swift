@@ -300,6 +300,68 @@ private struct ScoutTreeStateDot: View {
     }
 }
 
+// MARK: - Row chrome
+
+private let agentsTreeSelectionMatchID = "agentsTreeSelection"
+
+/// Padding, selection/hover background, and gestures for one tree row. Hover
+/// is deliberately local `@State` so a mouse enter/exit invalidates only this
+/// row — when it lived on `ScoutAgentsTree`, every transition rebuilt the
+/// whole `ForEach` (twice per row crossing), which is what made the highlight
+/// trail the cursor.
+private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
+    let depth: Int
+    let selected: Bool
+    let selectionNamespace: Namespace.ID
+    let onTap: () -> Void
+    let onDoubleTap: () -> Void
+    private let content: Content
+    private let menu: Menu
+
+    @State private var hovered = false
+
+    init(
+        depth: Int,
+        selected: Bool,
+        selectionNamespace: Namespace.ID,
+        onTap: @escaping () -> Void,
+        onDoubleTap: @escaping () -> Void,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder menu: () -> Menu
+    ) {
+        self.depth = depth
+        self.selected = selected
+        self.selectionNamespace = selectionNamespace
+        self.onTap = onTap
+        self.onDoubleTap = onDoubleTap
+        self.content = content()
+        self.menu = menu()
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) { content }
+            .padding(.vertical, 5)
+            .padding(.trailing, HudSpacing.lg)
+            .padding(.leading, CGFloat(10 + depth * 16))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(alignment: .leading) {
+                if selected {
+                    // Selection is the fill alone — the left-edge accent bar is a
+                    // banned styleguide treatment (see ScoutTailView / composer well).
+                    ScoutPalette.accent.opacity(0.14)
+                        .matchedGeometryEffect(id: agentsTreeSelectionMatchID, in: selectionNamespace)
+                } else if hovered {
+                    ScoutPalette.surface
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+            .onTapGesture(count: 2) { onDoubleTap() }
+            .onTapGesture { onTap() }
+            .contextMenu { menu }
+    }
+}
+
 // MARK: - Tree
 
 struct ScoutAgentsTree: View {
@@ -312,9 +374,34 @@ struct ScoutAgentsTree: View {
     let onObserve: (ScoutAgent) -> Void
     let onOpenDM: (ScoutAgent) -> Void
 
+    // Lookup tables are built once per view value (`groups` is immutable on
+    // it) — as computed properties they re-ran the full flatMap per row per
+    // body evaluation.
+    private let agentsByID: [String: ScoutAgent]
+    private let channelsByCId: [String: ScoutChannel]
+    private let groupsByKey: [String: ScoutAgentsTreeModel.ProjectGroup]
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hoveredID: String?
     @Namespace private var selectionNamespace
+
+    init(
+        model: ScoutAgentsTreeModel,
+        groups: [ScoutAgentsTreeModel.ProjectGroup],
+        onSelect: @escaping () -> Void,
+        onActivate: @escaping () -> Void,
+        onObserve: @escaping (ScoutAgent) -> Void,
+        onOpenDM: @escaping (ScoutAgent) -> Void
+    ) {
+        self.model = model
+        self.groups = groups
+        self.onSelect = onSelect
+        self.onActivate = onActivate
+        self.onObserve = onObserve
+        self.onOpenDM = onOpenDM
+        self.agentsByID = Dictionary(groups.flatMap { $0.agents }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.channelsByCId = Dictionary(groups.flatMap { $0.sessions.values.flatMap { $0 } }.map { ($0.cId, $0) }, uniquingKeysWith: { a, _ in a })
+        self.groupsByKey = Dictionary(groups.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+    }
 
     /// Fast spring so the highlight reads as one quick glide between rows, not a
     /// teleport — short enough to stay "blazing fast" under a held j/k.
@@ -322,21 +409,7 @@ struct ScoutAgentsTree: View {
         reduceMotion ? nil : .spring(response: 0.15, dampingFraction: 0.85)
     }
 
-    private static let selectionMatchID = "agentsTreeSelection"
-
     private var rows: [ScoutAgentsTreeModel.Row] { model.rows(groups) }
-
-    private var agentsByID: [String: ScoutAgent] {
-        Dictionary(groups.flatMap { $0.agents }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    private var channelsByCId: [String: ScoutChannel] {
-        Dictionary(groups.flatMap { $0.sessions.values.flatMap { $0 } }.map { ($0.cId, $0) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    private var groupsByKey: [String: ScoutAgentsTreeModel.ProjectGroup] {
-        Dictionary(groups.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-    }
 
     var body: some View {
         // A plain VStack (the tree is only a few dozen rows) so every row is
@@ -363,31 +436,17 @@ struct ScoutAgentsTree: View {
 
     @ViewBuilder
     private func rowView(_ row: ScoutAgentsTreeModel.Row) -> some View {
-        let selected = row.id == model.selectedID
-        let hovered = row.id == hoveredID
-
-        HStack(spacing: HudSpacing.sm) {
+        ScoutTreeRowChrome(
+            depth: row.depth,
+            selected: row.id == model.selectedID,
+            selectionNamespace: selectionNamespace,
+            onTap: { select(row) },
+            onDoubleTap: { activate(row) }
+        ) {
             content(for: row)
+        } menu: {
+            contextMenu(for: row)
         }
-        .padding(.vertical, 5)
-        .padding(.trailing, HudSpacing.lg)
-        .padding(.leading, CGFloat(10 + row.depth * 16))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .leading) {
-            if selected {
-                // Selection is the fill alone — the left-edge accent bar is a
-                // banned styleguide treatment (see ScoutTailView / composer well).
-                ScoutPalette.accent.opacity(0.14)
-                    .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
-            } else if hovered {
-                ScoutPalette.surface
-            }
-        }
-        .contentShape(Rectangle())
-        .onHover { inside in hoveredID = inside ? row.id : (hoveredID == row.id ? nil : hoveredID) }
-        .onTapGesture(count: 2) { activate(row) }
-        .onTapGesture { select(row) }
-        .contextMenu { contextMenu(for: row) }
     }
 
     @ViewBuilder

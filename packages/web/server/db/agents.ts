@@ -68,6 +68,36 @@ type AgentQueryRow = {
   updated_at: number | null;
 };
 
+/**
+ * Latest endpoint session id → agent id, for joining pairing-session
+ * attention items (which only know their session) to fleet agents.
+ *
+ * Session ids are not unique across agents (a re-registered agent can leave a
+ * stale row claiming the same session), so rows are ordered oldest-first and
+ * the most recently updated endpoint wins the map slot.
+ */
+export function queryAgentIdsByEndpointSessionId(): Map<string, string> {
+  const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
+  const rows = db()
+    .prepare(
+      `SELECT a.id, ep.session_id
+       FROM agents a
+       ${LATEST_AGENT_ENDPOINT_JOIN}
+       WHERE ep.session_id IS NOT NULL
+         AND ${activeAgentMetadataPredicate("a")}
+       ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) ASC`,
+    )
+    .all() as Array<{ id: string; session_id: string }>;
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const sessionId = row.session_id.trim();
+    if (sessionId) {
+      map.set(sessionId, row.id);
+    }
+  }
+  return map;
+}
+
 export function queryAgents(limit = 500): WebAgent[] {
   const flightPhases = queryAgentFlightPhases();
   const actorCreatedAtExpression = sqlTimestampMsExpression("ac.created_at");

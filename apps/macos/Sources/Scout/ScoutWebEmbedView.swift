@@ -98,7 +98,8 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 surface: surface,
                 url: url,
                 reloadToken: reloadToken,
-                loadingLaneSize: loadingLaneSize
+                loadingLaneSize: loadingLaneSize,
+                onReload: { reloadToken = UUID() }
             )
         }
         .background(ScoutDesign.bg)
@@ -125,10 +126,12 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 .font(ScoutTailFont.display(HudTextSize.xl, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
         } secondary: {
-            Text(subtitle ?? "web embed · \(surface.embedPath)")
-                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(ScoutPalette.dim)
-                .lineLimit(1)
+            if let subtitle {
+                Text(subtitle)
+                    .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+            }
         } trailing: {
             HStack(spacing: HudSpacing.sm) {
                 additionalTrailing()
@@ -150,6 +153,7 @@ struct ScoutWebEmbedHost: View {
     let url: URL
     let reloadToken: UUID
     var loadingLaneSize: ScoutAgentLaneSize?
+    var onReload: () -> Void = {}
 
     @State private var phase: ScoutWebEmbedLoadPhase = .loading
 
@@ -169,7 +173,7 @@ struct ScoutWebEmbedHost: View {
                 case .loading:
                     loadingPlaceholder
                 case .failed(let message):
-                    ScoutWebEmbedErrorView(surface: surface, url: url, message: message)
+                    ScoutWebEmbedErrorView(surface: surface, message: message, onReload: onReload)
                 case .ready:
                     EmptyView()
                 }
@@ -196,8 +200,8 @@ struct ScoutWebEmbedHost: View {
 
 private struct ScoutWebEmbedErrorView: View {
     let surface: ScoutEmbedSurfaceId
-    let url: URL
     let message: String
+    var onReload: () -> Void = {}
 
     var body: some View {
         VStack(spacing: HudSpacing.md) {
@@ -212,12 +216,13 @@ private struct ScoutWebEmbedErrorView: View {
                 .foregroundStyle(ScoutPalette.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
-            Text(url.absoluteString)
-                .font(HudFont.mono(HudTextSize.micro))
+            HudButton("Retry", icon: "arrow.clockwise", style: .secondary, action: onReload)
+                .padding(.top, HudSpacing.xs)
+            Text("Start Scout services from the menu bar if this keeps happening.")
+                .font(HudFont.ui(HudTextSize.xs))
                 .foregroundStyle(ScoutPalette.dim)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 420)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
         }
         .padding(HudSpacing.huge)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -300,6 +305,34 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
             }
 
             decisionHandler(.allow)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleNavigationFailure(error)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFail navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleNavigationFailure(error)
+        }
+
+        /// A load that never landed (e.g. the local web service at :43120 is
+        /// down) would otherwise spin forever behind the loading placeholder.
+        /// Surface the existing `.failed` state with humanized copy instead.
+        /// Cancellations (a newer load superseding this one) are not failures.
+        private func handleNavigationFailure(_ error: Error) {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            setPhase(.failed(ScoutAppError.userFacing(
+                error,
+                connectionMessage: ScoutServicesHelper.servicesOfflineMessage
+            )))
         }
 
         private func waitForSurfaceRender(in webView: WKWebView, url: URL, token: UUID) {

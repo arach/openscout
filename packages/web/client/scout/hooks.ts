@@ -358,7 +358,11 @@ export function useScoutTakeover(): TakeoverState | null {
   const needsLocal = !onboarding.hasLocalConfig;
   const needsProject = !onboarding.hasProjectConfig;
   const needsName = !onboarding.hasOperatorName;
-  const active = needsLocal || needsName || needsProject;
+  // Core inputs done but the broker/runtime aren't ready yet: SetupStep is
+  // still owed. The early return above already excludes completed/skipped
+  // onboarding, so this only fires while first-run is genuinely unfinished.
+  const needsSetup = !onboarding.brokerReachable || !onboarding.hasReadyRuntime;
+  const active = needsLocal || needsName || needsProject || needsSetup;
   return {
     active,
     dismissible: true,

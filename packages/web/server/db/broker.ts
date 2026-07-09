@@ -89,6 +89,9 @@ const ROUTED_MESSAGE_BATCH_SIZE = 500;
 const FAILED_DELIVERY_STATUSES = ["failed", "cancelled"] as const;
 
 function metadataTarget(metadata: Record<string, unknown> | null): string | null {
+  if (isScoutbotThreadDispatchMetadata(metadata)) {
+    return "scoutbot";
+  }
   const relayTarget = metadata?.relayTarget;
   if (typeof relayTarget === "string" && relayTarget.trim()) {
     return relayTarget.trim();
@@ -104,6 +107,9 @@ function metadataTarget(metadata: Record<string, unknown> | null): string | null
 }
 
 function metadataRoute(metadata: Record<string, unknown> | null): string | null {
+  if (isScoutbotThreadDispatchMetadata(metadata)) {
+    return "dm";
+  }
   const relayChannel = metadata?.relayChannel;
   return typeof relayChannel === "string" && relayChannel.trim()
     ? relayChannel.trim()
@@ -119,7 +125,14 @@ function isBrokerRoutedMessage(metadata: Record<string, unknown> | null): boolea
   return metadata?.source === "scout-cli"
     || typeof metadata?.relayTarget === "string"
     || Array.isArray(metadata?.relayTargetIds)
-    || typeof metadata?.relayChannel === "string";
+    || typeof metadata?.relayChannel === "string"
+    || isScoutbotThreadDispatchMetadata(metadata);
+}
+
+function isScoutbotThreadDispatchMetadata(metadata: Record<string, unknown> | null): boolean {
+  return metadata?.destinationKind === "scoutbot_thread"
+    && metadata?.source !== "scoutbot"
+    && metadata?.generatedBy !== "scoutbot";
 }
 
 function shortBrokerBody(value: string): string {
@@ -204,6 +217,7 @@ function queryMessageRows(options: {
       OR m.metadata_json LIKE '%relayTarget%'
       OR m.metadata_json LIKE '%relayTargetIds%'
       OR m.metadata_json LIKE '%relayChannel%'
+      OR m.metadata_json LIKE '%scoutbot_thread%'
     )`);
   }
   const cursorFilter = cursorPredicate(options.cursor ?? null, tsExpression, options.sortIdExpression);

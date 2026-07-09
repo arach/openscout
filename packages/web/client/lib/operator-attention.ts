@@ -2,7 +2,7 @@ import { api } from "./api.ts";
 
 export type OperatorAttentionDismissTarget =
   | {
-      recordKind: "work_item";
+      recordKind: "work_item" | "question";
       recordId: string;
       itemUpdatedAt: number;
     }

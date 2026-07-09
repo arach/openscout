@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
+  SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   SUPPORTED_SCOUT_HARNESSES,
   buildAttachedSessionInvocationPrompt,
@@ -545,6 +546,146 @@ describe("local agent prompts", () => {
     expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
     expect(prompt).not.toContain("[ask:flt-1]");
     expect(prompt).not.toContain(`${scoutCli} send --as shaper`);
+  });
+
+  test("nudge and invocation prompts surface originating message attachments", () => {
+    const invocation = {
+      id: "inv-1",
+      requesterId: "hudson",
+      requesterNodeId: "node-1",
+      targetAgentId: "shaper",
+      action: "wake",
+      task: "Can you look at the screenshot?",
+      context: {
+        [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+          {
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          },
+        ],
+      },
+      conversationId: "dm.operator.shaper",
+      messageId: "msg-request-1",
+      ensureAwake: true,
+      stream: false,
+      createdAt: 1,
+    } as const;
+
+    const nudge = buildLocalAgentNudge("shaper", invocation, "flt-1");
+    const directPrompt = buildLocalAgentDirectInvocationPrompt("shaper", invocation);
+
+    for (const prompt of [nudge, directPrompt]) {
+      expect(prompt).toContain("Attachments:");
+      expect(prompt).toContain("- screenshot.png (image/png): http://127.0.0.1:3200/api/blobs/blob-1");
+      expect(prompt).toContain("Fetch/open the attachment URL");
+      expect(prompt).not.toContain(SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY);
+    }
+  });
+
+  test("attachment prompts resolve blobKey via web origin and omit unfetchable locators", () => {
+    const previous = process.env.OPENSCOUT_WEB_BUN_URL;
+    process.env.OPENSCOUT_WEB_BUN_URL = "http://127.0.0.1:43200";
+    try {
+      const withBlobKey = {
+        id: "inv-blob",
+        requesterId: "hudson",
+        requesterNodeId: "node-1",
+        targetAgentId: "shaper",
+        action: "wake" as const,
+        task: "Inspect the image",
+        context: {
+          [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+            {
+              id: "att-blob",
+              mediaType: "image/png",
+              fileName: "shot.png",
+              blobKey: "blob-42",
+            },
+            {
+              id: "att-relative",
+              mediaType: "image/png",
+              fileName: "relative.png",
+              url: "/api/blobs/blob-rel",
+            },
+            {
+              id: "att-other-path",
+              mediaType: "text/plain",
+              fileName: "notes.txt",
+              url: "/api/other/notes.txt",
+            },
+          ],
+        },
+        conversationId: "dm.operator.shaper",
+        messageId: "msg-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      };
+      const prompt = buildLocalAgentDirectInvocationPrompt("shaper", withBlobKey);
+      expect(prompt).toContain("- shot.png (image/png): http://127.0.0.1:43200/api/blobs/blob-42");
+      expect(prompt).toContain("- relative.png (image/png): http://127.0.0.1:43200/api/blobs/blob-rel");
+      expect(prompt).not.toContain("notes.txt");
+      expect(prompt).not.toContain("/api/other/notes.txt");
+      expect(prompt).not.toContain("blob:blob-42");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENSCOUT_WEB_BUN_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_BUN_URL = previous;
+      }
+    }
+
+    const previousMissing = process.env.OPENSCOUT_WEB_BUN_URL;
+    const previousPublic = process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    const previousVite = process.env.OPENSCOUT_WEB_VITE_URL;
+    delete process.env.OPENSCOUT_WEB_BUN_URL;
+    delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    delete process.env.OPENSCOUT_WEB_VITE_URL;
+    try {
+      const blobOnly = {
+        id: "inv-orphan",
+        requesterId: "hudson",
+        requesterNodeId: "node-1",
+        targetAgentId: "shaper",
+        action: "wake" as const,
+        task: "Inspect the image",
+        context: {
+          [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+            {
+              id: "att-orphan",
+              mediaType: "image/png",
+              blobKey: "blob-missing-origin",
+            },
+          ],
+        },
+        conversationId: "dm.operator.shaper",
+        messageId: "msg-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      };
+      const prompt = buildLocalAgentDirectInvocationPrompt("shaper", blobOnly);
+      expect(prompt).not.toContain("Attachments:");
+      expect(prompt).not.toContain("blob:blob-missing-origin");
+    } finally {
+      if (previousMissing === undefined) {
+        delete process.env.OPENSCOUT_WEB_BUN_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_BUN_URL = previousMissing;
+      }
+      if (previousPublic === undefined) {
+        delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+      } else {
+        process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = previousPublic;
+      }
+      if (previousVite === undefined) {
+        delete process.env.OPENSCOUT_WEB_VITE_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_VITE_URL = previousVite;
+      }
+    }
   });
 
   test("direct invocation prompt starts with a compact Scout title and collapses routing context", () => {

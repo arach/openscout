@@ -40,7 +40,16 @@ private func selectHUDTabIfVisible(_ view: HUDView) -> Bool {
 }
 
 struct ScoutCommands: Commands {
+    @ObservedObject private var updater = ScoutUpdater.shared
+
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                updater.checkForUpdates()
+            }
+            .disabled(!updater.canCheckForUpdates)
+        }
+
         CommandGroup(after: .newItem) {
             Button("New Conversation") {
                 ScoutAppCommand.newConversation.post()

@@ -1,8 +1,15 @@
 ---
 name: scout
-description: Use the Scout CLI for agent-to-agent chat via the broker. Trigger this whenever an agent needs to tell, ask, or fan out a message to another agent from the shell, including any `/scout` request with one or more `@agent` mentions.
+description: >
+  Use the Scout CLI (scout send, scout ask, scout who, scout wait, scout whoami)
+  for agent-to-agent coordination via the local broker. Load this skill whenever
+  the user asks to message or ask another agent, hand off work across agents,
+  continue a Scout flight/ref/session, route by project and harness, check who is
+  around, or fan out a Scout request — including `/scout` and `@agent` mentions.
+  Prefer shelling out to `scout` with structured flags over inventing agent names.
 metadata:
   short-description: Use the scout command from the shell
+  compatibility: claude-code,codex,opencode,pi,grok
 ---
 
 # Scout CLI
