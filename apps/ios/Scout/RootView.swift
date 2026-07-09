@@ -84,7 +84,9 @@ struct RootView: View {
                                     onSelectMachine: { machine in
                                         Task { await model.selectMachineFilter(.machine(machine.id)) }
                                     },
-                                    onSelectAll: { model.machineFilter = .all },
+                                    onSelectAll: {
+                                        Task { await model.selectMachineFilter(.all) }
+                                    },
                                     onConversationStatusContext: { sessionStatusContext = $0 },
                                     onSeeAllAgents: {
                                         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {

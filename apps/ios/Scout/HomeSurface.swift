@@ -39,6 +39,8 @@ struct HomeSurface: View {
     @State private var expanded: Set<String> = []
     @State private var expandedActivity: Set<String> = []
     @State private var activity: [HomeActivity] = []
+    @State private var agentsScopeKey: String?
+    @State private var activityScopeKey: String?
     @State private var showAllActivity = false
 
     /// A Hashable navigation target for Home's activity shortcuts. Session
@@ -54,6 +56,19 @@ struct HomeSurface: View {
             case .comms(let conversation): return "comms:\(conversation.id)"
             }
         }
+    }
+
+    private var filterKey: String {
+        switch model.machineFilter {
+        case .all: return "all"
+        case .machine(let id): return id
+        }
+    }
+
+    /// Reload when the bridge becomes ready, any fleet client changes, or Home's
+    /// visible machine scope moves. Other fleet surfaces use the same key shape.
+    private var reloadKey: String {
+        "\(reloadToken).\(model.fleetRevision).\(filterKey)"
     }
 
     var body: some View {
@@ -76,7 +91,7 @@ struct HomeSurface: View {
             .padding(.bottom, layout.surfaceBottomPadding)
         }
         .refreshable { await load() }
-        .task(id: reloadToken) {
+        .task(id: reloadKey) {
             await load()
             // Home is otherwise one-shot: it shows the read it fetched at connect
             // and never updates (no subscription — it's the curated orientation
@@ -404,6 +419,7 @@ struct HomeSurface: View {
     /// Newest-first, bounded and scrollable. Home is a glanceable orientation
     /// surface; the full firehose lives on the Tail tab.
     private static let activityPreviewCap = 12
+    private static let activityRetainedCap = 24
     private static let activityViewportRows = 8
     private static let activityCollapsedRowHeight: CGFloat = 54
 
@@ -453,21 +469,10 @@ struct HomeSurface: View {
         if expandedActivity.contains(id) { expandedActivity.remove(id) } else { expandedActivity.insert(id) }
     }
 
-    /// Merge the curated activity feed into `activity`, deduped by id and
-    /// newest-first. Home is an orientation surface, so it reads the broker's
-    /// curated message feed and refreshes on appear / pull-to-refresh — it does
-    /// NOT fold in the live process firehose (that's the Tail tab's job).
-    private func mergeActivity(_ incoming: [HomeActivity]) {
-        guard !incoming.isEmpty else { return }
-        var seen = Set(activity.map(\.id))
-        var merged = activity
-        for event in incoming where !seen.contains(event.id) {
-            merged.append(event)
-            seen.insert(event.id)
-        }
-        merged.sort { $0.event.tsMs > $1.event.tsMs }
-        if merged.count > 24 { merged.removeLast(merged.count - 24) }
-        activity = merged
+    /// Home reads a scoped broker snapshot on refresh. Keep enough rows for the
+    /// preview viewport, but do not carry rows across machine filters.
+    private func sortedActivity(_ incoming: [HomeActivity]) -> [HomeActivity] {
+        Array(incoming.sorted { $0.event.tsMs > $1.event.tsMs }.prefix(Self.activityRetainedCap))
     }
 
     // MARK: - Load
@@ -481,10 +486,14 @@ struct HomeSurface: View {
         if agents.isEmpty && activity.isEmpty { isLoading = true }
         // Don't clobber what's on screen if a refresh fails — keep the last good
         // fleet rather than dropping to the empty state on a transient error.
+        let loadKey = reloadKey
+        let scopeKey = filterKey
         let machines = model.agentMachines()
+        let noReadableMachines = machines.allSatisfy { $0.client == nil }
         var freshAgents: [HomeAgent] = []
         var freshActivity: [HomeActivity] = []
         var sawAgentRead = false
+        var sawActivityRead = false
 
         for machine in machines {
             guard let client = machine.client else { continue }
@@ -501,6 +510,7 @@ struct HomeSurface: View {
                 })
             }
             if let rows = try? await client.recentActivity(limit: 24) {
+                sawActivityRead = true
                 freshActivity.append(contentsOf: rows.map { event in
                     HomeActivity(
                         id: "\(machine.id)::\(event.id)",
@@ -513,13 +523,22 @@ struct HomeSurface: View {
             }
         }
 
-        if sawAgentRead || machines.allSatisfy({ $0.client == nil }) {
+        guard !Task.isCancelled, loadKey == reloadKey else { return }
+
+        if sawAgentRead {
             agents = freshAgents
+            agentsScopeKey = scopeKey
+        } else if noReadableMachines || agentsScopeKey != scopeKey {
+            agents = []
+            agentsScopeKey = scopeKey
         }
-        // Backfill recent activity — the live tail stream only delivers events
-        // that arrive after we subscribe, so without this the section is empty
-        // until something new happens.
-        mergeActivity(freshActivity)
+        if sawActivityRead {
+            activity = sortedActivity(freshActivity)
+            activityScopeKey = scopeKey
+        } else if noReadableMachines || activityScopeKey != scopeKey {
+            activity = []
+            activityScopeKey = scopeKey
+        }
         await model.refreshFleetStats()
         isLoading = false
         #if DEBUG
