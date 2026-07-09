@@ -11,7 +11,7 @@ import ScoutCapabilities
 /// sense of what's going on". Polling keeps the firehose off the cellular link
 /// except while Tail is the active surface (the task tears down otherwise).
 struct TailSurface: View {
-    let client: any ScoutBrokerClient
+    let model: AppModel
     var reloadToken: Int = 0
 
     private static let maxRows = 200
@@ -20,12 +20,28 @@ struct TailSurface: View {
     /// auto-poll just keeps it loosely current at minimal cellular/battery cost.
     private static let pollIntervalSeconds: Double = 15
 
-    @State private var events: [TailEvent] = []
+    @State private var events: [MachineTailEvent] = []
     /// When the snapshot was last pulled — shown in the header in place of a live
     /// indicator (this surface polls; it isn't a real-time stream).
     @State private var lastUpdated: Date?
     /// Bumped by the header refresh button to force an immediate re-poll.
     @State private var refreshToken = 0
+
+    private struct MachineTailEvent: Identifiable {
+        let id: String
+        let machineId: String
+        let machineName: String
+        let event: TailEvent
+    }
+
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+    }
 
     private static let hmFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -80,28 +96,28 @@ struct TailSurface: View {
                 }
             }
         }
-        .task(id: reloadToken) { await poll() }
+        .task(id: reloadKey) { await poll() }
         .task(id: refreshToken) { if refreshToken != 0 { await fetchOnce() } }
     }
 
-    private func row(_ event: TailEvent) -> some View {
+    private func row(_ row: MachineTailEvent) -> some View {
         // One uniform gap (HudSpacing.sm) between every token — the columns hug
         // their content instead of sitting in over-wide fixed frames, so the gaps
         // are methodical and the glyph reads tight against the path. Only the
         // timestamp keeps a fixed width (it's the constant-width anchor).
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-            Text(timeLabel(event.tsMs))
+            Text(timeLabel(row.event.tsMs))
                 .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutInk.dim)
                 .frame(width: 54, alignment: .leading)
-            handleText(event)
+            handleText(row)
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .fixedSize(horizontal: true, vertical: false)
-            Text(kindGlyph(event.kind))
+            Text(kindGlyph(row.event.kind))
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(kindColor(event.kind))
+                .foregroundStyle(kindColor(row.event.kind))
                 .fixedSize()
-            Text(event.summary)
+            Text(row.event.summary)
                 .font(HudFont.mono(HudTextSize.xs))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(2)
@@ -119,10 +135,12 @@ struct TailSurface: View {
     /// `/project-rooted-path[:fixedlen]:sessionlast4` — e.g. `/openscout:9688`.
     /// The folder path is primary ink so the location reads first; the `:session`
     /// tail is the secondary/muted tone so the id recedes.
-    private func handleText(_ event: TailEvent) -> Text {
+    private func handleText(_ row: MachineTailEvent) -> Text {
+        let event = row.event
         var path = projectRootedPath(cwd: event.cwd, project: event.project)
         if path.count > Self.pathFixedLen { path = String(path.prefix(Self.pathFixedLen)) }
-        let base = Text(path).foregroundStyle(HudPalette.ink)
+        let machine = Text(row.machineName).foregroundStyle(ScoutInk.muted)
+        let base = machine + Text(" ").foregroundStyle(ScoutInk.dim) + Text(path).foregroundStyle(HudPalette.ink)
         let last4 = String((event.conversationId ?? "").suffix(4))
         guard !last4.isEmpty else { return base }
         return base + Text(":\(last4)").foregroundStyle(ScoutInk.muted)
@@ -187,9 +205,26 @@ struct TailSurface: View {
     /// button. Records `lastUpdated` only on success, so a transient failure
     /// leaves the last good data (and its timestamp) on screen.
     private func fetchOnce() async {
-        guard let snapshot = try? await client.recentTail(limit: Self.maxRows),
-              !Task.isCancelled else { return }
-        events = snapshot.sorted { $0.tsMs > $1.tsMs }
+        let machines = model.agentMachines()
+        var snapshot: [MachineTailEvent] = []
+        var sawSuccessfulRead = false
+        for machine in machines {
+            guard let client = machine.client,
+                  let rows = try? await client.recentTail(limit: Self.maxRows),
+                  !Task.isCancelled else { continue }
+            sawSuccessfulRead = true
+            snapshot.append(contentsOf: rows.map { event in
+                MachineTailEvent(
+                    id: "\(machine.id)::\(event.id)",
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    event: event
+                )
+            })
+        }
+        guard !Task.isCancelled else { return }
+        guard sawSuccessfulRead else { return }
+        events = Array(snapshot.sorted { $0.event.tsMs > $1.event.tsMs }.prefix(Self.maxRows))
         lastUpdated = Date()
     }
 }

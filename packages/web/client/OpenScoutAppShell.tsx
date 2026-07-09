@@ -488,6 +488,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         }
       }
       if (!hasModifier && !e.shiftKey && key === "g" && !typing) {
+        e.preventDefault();
+        e.stopPropagation();
         startGoShortcut();
         return;
       }
