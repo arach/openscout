@@ -71,6 +71,7 @@ let package = Package(
         .target(
             name: "ScoutSharedUI",
             dependencies: [
+                .product(name: "HudsonObservability", package: "hudson"),
                 .product(name: "HudsonVoice", package: "hudson"),
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
             ],

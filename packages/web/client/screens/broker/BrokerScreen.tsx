@@ -20,6 +20,7 @@ import {
   clippedText,
 } from "./broker-display.ts";
 import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
+import { brokerDiagnosticsUrl } from "./broker-query.ts";
 import { useBrokerLedgerKeyboard } from "./useBrokerLedgerKeyboard.ts";
 import { defineSurface } from "../../surfaces/types.ts";
 import "../system-surfaces-redesign.css";
@@ -41,9 +42,6 @@ const TAB_HISTORY_KEY: Record<BrokerTab, BrokerHistoryKey> = {
   failed_queries: "failedQueries",
   failed_deliveries: "failedDeliveries",
 };
-
-const BROKER_PAGE_LIMIT = 160;
-const BROKER_WINDOW_MS = 30 * 60_000;
 
 function shortId(value: string | null): string {
   if (!value) return "none";
@@ -111,16 +109,6 @@ function RouteGlyph({ route }: { route: string | null }) {
       {route ?? "none"}
     </span>
   );
-}
-
-function brokerDiagnosticsUrl(cursor?: string | null): string {
-  const params = new URLSearchParams({
-    limit: String(BROKER_PAGE_LIMIT),
-    windowMs: String(BROKER_WINDOW_MS),
-    scopeRowsToWindow: "1",
-  });
-  if (cursor) params.set("cursor", cursor);
-  return `/api/broker?${params.toString()}`;
 }
 
 function mergeBrokerPage(
@@ -389,7 +377,7 @@ export function BrokerScreen({
           {!loading && !broker && !error && (
             <EmptyState
               title="No dispatch data"
-              body="No dispatch records are available yet."
+              body="No dispatch rows are available yet."
             />
           )}
 
@@ -449,8 +437,8 @@ function BrokerAttemptList({
   if (attempts.length === 0) {
     return (
       <EmptyState
-        title="No records"
-        body="No dispatch records are available in broker history."
+        title="No dispatch rows"
+        body="No dispatch rows are available yet."
       />
     );
   }

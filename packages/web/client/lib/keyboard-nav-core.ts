@@ -1,9 +1,29 @@
+const EDITABLE_TARGET_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  "[contenteditable='']",
+  "[contenteditable='true']",
+  "[contenteditable='plaintext-only']",
+  "[role='combobox']",
+  "[role='searchbox']",
+  "[role='spinbutton']",
+  "[role='textbox']",
+].join(",");
+
 export function isEditableTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return el instanceof HTMLInputElement
-    || el instanceof HTMLTextAreaElement
-    || el instanceof HTMLSelectElement
-    || (el?.isContentEditable ?? false);
+  const el = target as {
+    closest?: (selector: string) => unknown;
+    isContentEditable?: boolean;
+    parentElement?: { closest?: (selector: string) => unknown } | null;
+    tagName?: string;
+  } | null;
+  if (!el) return false;
+  const tagName = typeof el.tagName === "string" ? el.tagName.toLowerCase() : "";
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") return true;
+  if (el.isContentEditable === true) return true;
+  if (typeof el.closest === "function" && el.closest(EDITABLE_TARGET_SELECTOR)) return true;
+  return typeof el.parentElement?.closest === "function" && Boolean(el.parentElement.closest(EDITABLE_TARGET_SELECTOR));
 }
 
 /** Skip global/list shortcuts while typing or a modal owns focus. */

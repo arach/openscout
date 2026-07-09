@@ -3,6 +3,7 @@ import HudsonObservability
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
+import ScoutSharedUI
 import SwiftUI
 
 struct MainView: View {
@@ -92,14 +93,14 @@ struct MainView: View {
         .animation(.easeInOut(duration: 0.18), value: controller.pendingPairingRequests.count)
         .preferredColorScheme(.dark)
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing, fraction: 0.92) {
-            HudLoggerPanel(title: "Activity Log") {
+            ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
             }
         }
-        .onChange(of: controller.lastError) { _, value in
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        .onChange(of: controller.lastError ?? "") { _, value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            HudLogStore.shared.record(trimmed, level: .error, category: "menu-status")
+            HudLogger(category: "menu-status").error(trimmed)
         }
     }
 
@@ -208,7 +209,7 @@ struct MainView: View {
             Button {
                 showingActivityLog = true
             } label: {
-                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
+                ScoutLogStatusItem(store: activityLog, label: "Logs", showCounts: true)
             }
             .buttonStyle(.plain)
             .help("Open activity log")

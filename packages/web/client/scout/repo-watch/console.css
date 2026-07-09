@@ -1351,6 +1351,25 @@
   font-size: 11px;
   color: var(--muted);
 }
+/* expand/collapse toggle for the attached-sessions list */
+.ctx-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 2px;
+  padding: 4px 0;
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.ctx-more:hover {
+  color: var(--ink-1);
+}
 
 /* actions row */
 .ctx-actions {

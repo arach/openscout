@@ -72,13 +72,13 @@ public final class ConnectionLog {
         level: ConnectionLogLevel = .info,
         route: TransportKind? = nil
     ) {
-        store.record(
-            message,
+        store.append(HudLogEntry(
             level: level.hudLevel,
-            category: "connection",
             subsystem: "dev.scout.ios",
+            category: "connection",
+            message: message,
             metadata: level.hudMetadata(event: event, route: route)
-        )
+        ))
         syncEntries(from: store.entries)
     }
 

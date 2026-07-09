@@ -8,17 +8,35 @@ import ScoutCapabilities
 /// this surface is open, then renders it as a searchable log instead of a raw
 /// terminal firehose.
 struct TailSurface: View {
-    let client: any ScoutBrokerClient
+    let model: AppModel
     var reloadToken: Int = 0
 
     private static let maxRows = 200
     private static let pollIntervalSeconds: Double = 15
 
-    @State private var events: [TailEvent] = []
+    @State private var events: [MachineTailEvent] = []
     @State private var expanded: Set<String> = []
     @State private var searchText = ""
+    /// When the snapshot was last pulled — shown in the header in place of a live
+    /// indicator (this surface polls; it isn't a real-time stream).
     @State private var lastUpdated: Date?
     @State private var refreshToken = 0
+
+    private struct MachineTailEvent: Identifiable {
+        let id: String
+        let machineId: String
+        let machineName: String
+        let event: TailEvent
+    }
+
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+    }
 
     private static let hmFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -31,13 +49,13 @@ struct TailSurface: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private var filteredEvents: [TailEvent] {
+    private var filteredEvents: [MachineTailEvent] {
         let tokens = normalizedQuery
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
         guard !tokens.isEmpty else { return events }
-        return events.filter { event in
-            let haystack = searchableText(for: event)
+        return events.filter { row in
+            let haystack = searchableText(for: row)
             return tokens.allSatisfy { haystack.contains($0) }
         }
     }
@@ -60,7 +78,7 @@ struct TailSurface: View {
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: reloadToken) { await poll() }
+        .task(id: reloadKey) { await poll() }
         .task(id: refreshToken) { if refreshToken != 0 { await fetchOnce() } }
     }
 
@@ -118,12 +136,13 @@ struct TailSurface: View {
             listCard {
                 ScrollView(.vertical, showsIndicators: filteredEvents.count > 14) {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredEvents.enumerated()), id: \.element.id) { index, event in
+                        ForEach(Array(filteredEvents.enumerated()), id: \.element.id) { index, row in
                             if index > 0 { rowSeparator() }
                             TailLogRow(
-                                event: event,
-                                isExpanded: expanded.contains(event.id),
-                                onToggle: { toggle(event.id) }
+                                event: row.event,
+                                machineName: row.machineName,
+                                isExpanded: expanded.contains(row.id),
+                                onToggle: { toggle(row.id) }
                             )
                         }
                     }
@@ -153,8 +172,11 @@ struct TailSurface: View {
         }
     }
 
-    private func searchableText(for event: TailEvent) -> String {
-        [
+    private func searchableText(for row: MachineTailEvent) -> String {
+        let event = row.event
+        return [
+            row.machineName,
+            row.machineId,
             event.summary,
             event.source,
             tailKindLabel(event.kind),
@@ -178,15 +200,33 @@ struct TailSurface: View {
     }
 
     private func fetchOnce() async {
-        guard let snapshot = try? await client.recentTail(limit: Self.maxRows),
-              !Task.isCancelled else { return }
-        events = snapshot.sorted { $0.tsMs > $1.tsMs }
+        let machines = model.agentMachines()
+        var snapshot: [MachineTailEvent] = []
+        var sawSuccessfulRead = false
+        for machine in machines {
+            guard let client = machine.client,
+                  let rows = try? await client.recentTail(limit: Self.maxRows),
+                  !Task.isCancelled else { continue }
+            sawSuccessfulRead = true
+            snapshot.append(contentsOf: rows.map { event in
+                MachineTailEvent(
+                    id: "\(machine.id)::\(event.id)",
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    event: event
+                )
+            })
+        }
+        guard !Task.isCancelled else { return }
+        guard sawSuccessfulRead else { return }
+        events = Array(snapshot.sorted { $0.event.tsMs > $1.event.tsMs }.prefix(Self.maxRows))
         lastUpdated = Date()
     }
 }
 
 private struct TailLogRow: View {
     let event: TailEvent
+    let machineName: String
     let isExpanded: Bool
     let onToggle: () -> Void
 
@@ -247,7 +287,7 @@ private struct TailLogRow: View {
     }
 
     private var metaLine: String {
-        var parts = [event.source, tailKindLabel(event.kind)]
+        var parts = [machineName, event.source, tailKindLabel(event.kind)]
         if let project = event.project, !project.isEmpty {
             parts.append(project)
         }

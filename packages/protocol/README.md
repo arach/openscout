@@ -10,38 +10,55 @@ Scout is aware of adjacent standards such as A2A, but this package is not trying
 
 ## Quickstart
 
-`@openscout/protocol` is pure, dependency-free TypeScript: typed records, discriminated-union control events, and hand-written validators for the OpenScout control plane. There is no runtime and no side effects — import the contract and the helpers you need.
+`@openscout/protocol` is pure, dependency-free TypeScript: typed records, discriminated-union control events, and hand-written validators for the OpenScout control plane. Use it at the boundary where user intent becomes broker-owned state.
 
 ```ts
 import {
   parseScoutComposerRoute,
-  normalizeControlEvent,
-  OPENSCOUT_CONTROL_EVENT_VERSION,
   validateCollaborationRecord,
+  type CollaborationUpsertCommand,
+  type QuestionRecord,
 } from "@openscout/protocol";
 
-// Parse Scout's `>>` routing operator out of composer input.
-const { route, body } = parseScoutComposerRoute(">> hudson Review the parser.");
-route?.target; // { kind: "agent_label", label: "hudson", … }
-body;          // "Review the parser."
+const parsed = parseScoutComposerRoute(">> hudson Can you review the parser?");
+if (!parsed.route) {
+  const reason = parsed.diagnostics[0]?.message ?? "missing Scout route";
+  throw new Error(reason);
+}
 
-// Stamp the current envelope version onto a control event before persisting it.
-const event = normalizeControlEvent(rawEvent);
-event.v; // === OPENSCOUT_CONTROL_EVENT_VERSION
+const now = Date.now();
+const question: QuestionRecord = {
+  id: crypto.randomUUID(),
+  kind: "question",
+  state: "open",
+  acceptanceState: "none",
+  title: parsed.body,
+  createdById: "person:arach",
+  ownerId: parsed.route.target.value,
+  nextMoveOwnerId: parsed.route.target.value,
+  createdAt: now,
+  updatedAt: now,
+  metadata: {
+    route: parsed.route.target,
+    source: "composer",
+  },
+};
 
-// Validate a record — validators return a list of problems; empty means valid.
-const problems = validateCollaborationRecord(record);
+const problems = validateCollaborationRecord(question);
 if (problems.length > 0) throw new Error(problems.join("; "));
+
+const command: CollaborationUpsertCommand = {
+  kind: "collaboration.upsert",
+  record: question,
+};
 ```
 
-> `@openscout/protocol` currently ships inside the OpenScout monorepo. The package is built for standalone publication — MIT-licensed, typed `dist` output, `publint`/`attw` clean — and is headed for npm; until it lands there, consume it from the workspace.
-
-## What Makes This A Good Local Communication Protocol
+## Protocol Properties
 
 The target is a protocol that is:
 
 - explicit: conversation, work, delivery, and external bindings are separate records
-- durable: the broker is the only writer and local state is stored canonically
+- durable: clients and adapters submit commands to the broker instead of writing coordination records directly
 - addressable: actors, conversations, messages, invocations, flights, and deliveries all have stable IDs
 - replayable: read models can be rebuilt from durable records and events
 - observable: status, ownership, outputs, and failures are inspectable
@@ -66,48 +83,37 @@ The protocol keeps a small set of nouns and gives each one a single job:
 
 For discovery, Scout also uses a `ScoutAgentCard`: a local discovery and routing card that overlaps intentionally with A2A-style discovery fields such as provider, skills, supported interfaces, and security hints without claiming to be the A2A wire-level `AgentCard`.
 
-## Emerging Collaboration Model
+## Collaboration Model
 
-The protocol package now also exports a collaboration vocabulary for the next layer above
-messages and invocations. This is the first thin slice toward explicit human-agent and
-agent-agent workflow tracking. It is intentionally small.
+Use collaboration records when an ask or task needs durable ownership, state, or
+handoff. Keep ordinary discussion in `message` records. Use `invocation` and
+`flight` for execution requests and their runtime lifecycle. Use collaboration
+records for questions and work items that need to be tracked across surfaces.
 
-The current canonical collaboration kinds are:
+The canonical collaboration kinds are:
 
-- `question`: a lightweight information-seeking interaction with states such as `open`,
-  `answered`, `closed`, and `declined`
-- `work_item`: a durable execution object with states such as `open`, `working`,
-  `waiting`, `review`, `done`, and `cancelled`
+- `question`: a specific ask that can be `open`, `answered`, `closed`, or
+  `declined`
+- `work_item`: durable execution with an owner, next move, progress, and states
+  such as `open`, `working`, `waiting`, `review`, `done`, and `cancelled`
 
 These are peers, not points on one severity ladder:
 
 - a question can resolve directly
 - a question can attach to a work item
 - a question can spawn a work item
-- a work item can accumulate progress, waiting conditions, and review state without
-  pretending it started as a question
+- a work item can accumulate progress, waiting conditions, and review state
 
 Acceptance is modeled separately from workflow state so that a reply and satisfaction do
 not collapse into one transition. A work item can be done without peer acceptance, and a
 question can be answered without being closed yet.
 
-These collaboration shapes are backed by the runtime: the broker persists collaboration
+These collaboration shapes are backed by the runtime. The broker persists collaboration
 records and events to its local store (`collaboration.upsert` and
 `collaboration.event.append` commands, `collaboration_records` and `collaboration_events`
 tables) and emits `collaboration.upserted` / `collaboration.event.appended` control events.
-The surface layer — UI and higher-level tooling on top of these records — is still being
-built out. See [docs/agents-and-collaboration.md](../../docs/agents-and-collaboration.md)
-for the full collaboration model.
-
-## Local Commands
-
-From the repo root:
-
-```bash
-npm --prefix packages/protocol run build
-npm --prefix packages/protocol run check
-npm --prefix packages/protocol run test
-```
+See [docs/agents-and-collaboration.md](../../docs/agents-and-collaboration.md) for the
+full collaboration model.
 
 ## Identity Model
 
@@ -143,20 +149,8 @@ into structured `ScoutRouteTarget` metadata before submitting to the broker.
 3. A flight is the tracked lifecycle of that work.
 4. Delivery is planned explicitly per target and transport.
 5. Bindings map external channels into the same internal model.
-6. Voice is metadata and transport, not the canonical message body.
-7. The broker is the only canonical writer.
-8. Scout owns coordination records; external harness transcripts remain observed source material.
-
-## Bootstrap And Startup
-
-The intended machine lifecycle is:
-
-1. `scout setup` creates machine-local settings, a relay agent registry, and repo-local `.openscout/project.json` when needed.
-2. The runtime installs a launch agent under `~/Library/LaunchAgents/` for the broker.
-3. `launchd` keeps the broker process alive and restarts it if it exits.
-4. Workspace discovery scans configured roots and repo-local manifests to map projects to agent identities.
-5. Agents register endpoints that describe their harness, transport, session, cwd, and project root.
-6. Surfaces such as the desktop shell, CLI, and relay compatibility layer talk to the broker instead of writing shared files directly.
+6. Clients and adapters submit commands to the broker instead of writing Scout-owned coordination records directly.
+7. Harnesses own their primary transcripts and logs; Scout links to and observes them without importing them as canonical messages.
 
 ## Conversation, Work, And Delivery
 
@@ -255,7 +249,7 @@ These are first-party Scout facts: records created by Scout surfaces, agent tool
 
 External harness transcripts are different. Claude Code JSONL, Codex session JSONL, and future harness logs are source material owned by their harnesses. Scout can observe them through adapters and tail views, but the protocol should not treat every external transcript turn as a Scout `message` or require bulk transcript replication into the control-plane database.
 
-## Why Work Does Not Get Lost
+## Durability
 
 The protocol is designed so that the system does not depend on terminal scrollback to remember what happened.
 
@@ -280,31 +274,27 @@ OpenScout should not fork its protocol per harness.
 
 This keeps the protocol stable even when the execution layer changes.
 
-## Modalities
+## Transport And Media
 
-The protocol supports multiple modalities, but text remains canonical.
+The protocol is text-first and transport-agnostic. Commands, subscriptions,
+bridge delivery, and media references travel through transport records or
+metadata; raw media does not belong in the canonical conversation log.
 
 - HTTP: commands, admin, webhook intake
 - WebSocket: subscriptions, streaming flight updates, typing/presence
 - local socket: trusted local clients such as the native app and CLI
 - bridges: Telegram, Discord, telecom adapters
-- voice: transcripts, playback directives, media references
+- media attachments: transcripts, playback directives, and file references
 
-Raw media does not belong in the primary message log. The protocol stores transcript, speech, and attachment metadata while media transport stays on a dedicated transport.
+Transport-specific behavior belongs at adapters and runtime surfaces. The
+protocol keeps the durable record shape stable.
 
-## What The Protocol Is Not
+## Package Commands
 
-OpenScout is intentionally not trying to be:
+From the repo root:
 
-- a hosted chat service
-- a workflow engine with mandatory plan bureaucracy
-- a harness-specific control plane
-- a replacement for Telegram, Discord, or tmux
-
-It is the durable local substrate that makes agent communication legible, inspectable, and recoverable.
-
-## Migration Direction
-
-The control protocol replaces Relay as the core architecture.
-
-Any remaining Relay-specific tools should be treated as surfaces or compatibility utilities, not as canonical storage or runtime paths.
+```bash
+npm --prefix packages/protocol run build
+npm --prefix packages/protocol run check
+npm --prefix packages/protocol run test
+```

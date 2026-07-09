@@ -178,7 +178,7 @@ export function brokerAttemptContextJson(attempt: BrokerRouteAttempt): Record<st
     copiedAt: new Date().toISOString(),
     dedupeFingerprint: brokerAttemptDedupeFingerprint(attempt),
     rootCauseFingerprint: brokerAttemptRootCauseFingerprint(attempt),
-    sourceEndpoint: "/api/broker?limit=160&windowMs=1800000&scopeRowsToWindow=1",
+    sourceEndpoint: "/api/broker?limit=160",
     reviewEndpoint: "/api/broker/dispatch-review",
     attempt,
   };

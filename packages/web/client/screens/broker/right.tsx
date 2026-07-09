@@ -4,6 +4,8 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { BrokerAttemptInspector } from "./BrokerScreen.tsx";
+import { brokerAttemptIsFailure } from "./broker-display.ts";
+import { brokerDiagnosticsUrl } from "./broker-query.ts";
 import type { BrokerDiagnostics, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 
 function brokerContextPercent(value: number): string {
@@ -50,6 +52,26 @@ function brokerContextCounts(rows: BrokerRouteAttempt[]): Array<{ label: string;
     .slice(0, 5);
 }
 
+function brokerContextKindCounts(rows: BrokerRouteAttempt[]): {
+  sent: number;
+  query: number;
+  delivery: number;
+  failures: number;
+} {
+  const counts = { sent: 0, query: 0, delivery: 0, failures: 0 };
+  for (const row of rows) {
+    if (row.kind === "success") {
+      counts.sent += 1;
+    } else if (row.kind === "failed_query") {
+      counts.query += 1;
+    } else if (row.kind === "failed_delivery" || row.kind === "delivery_attempt") {
+      counts.delivery += 1;
+    }
+    if (brokerAttemptIsFailure(row)) counts.failures += 1;
+  }
+  return counts;
+}
+
 function BrokerContextPanel() {
   const { inspectBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
@@ -57,7 +79,7 @@ function BrokerContextPanel() {
 
   const load = useCallback(async () => {
     try {
-      const next = await api<BrokerDiagnostics>("/api/broker?limit=160");
+      const next = await api<BrokerDiagnostics>(brokerDiagnosticsUrl());
       setBroker(next);
       setError(null);
     } catch (loadError) {
@@ -100,8 +122,12 @@ function BrokerContextPanel() {
   );
   const routeMix = useMemo(
     () => broker
-      ? brokerContextCounts([...broker.attempts, ...broker.failedQueries, ...broker.failedDeliveries])
+      ? brokerContextCounts(broker.attempts)
       : [],
+    [broker],
+  );
+  const rowCounts = useMemo(
+    () => broker ? brokerContextKindCounts(broker.attempts) : null,
     [broker],
   );
 
@@ -131,22 +157,23 @@ function BrokerContextPanel() {
     );
   }
 
-  const failedDeliveries = broker.totals.failedDeliveries + broker.totals.failedDeliveryAttempts;
-  const routeTotal = broker.totals.successfulDispatches + broker.totals.failedQueries + failedDeliveries;
+  const routeTotal = broker.attempts.length;
+  const routeTotalSuffix = broker.ledger.hasMore.attempts ? "+" : "";
+  const failureRate = routeTotal > 0 && rowCounts ? rowCounts.failures / routeTotal : 0;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
       <BrokerContextSummaryCard
         title="Dispatch context"
-        status={`${routeTotal} routes in window`}
+        status={`${routeTotal}${routeTotalSuffix} latest route${routeTotal === 1 ? "" : "s"}`}
       >
         <div className="mt-2 grid grid-cols-3 gap-1">
-          <BrokerMiniStat label="Sent" value={`${broker.totals.successfulDispatches}`} />
-          <BrokerMiniStat label="Query" value={`${broker.totals.failedQueries}`} />
-          <BrokerMiniStat label="Delivery" value={`${failedDeliveries}`} />
+          <BrokerMiniStat label="Sent" value={`${rowCounts?.sent ?? 0}`} />
+          <BrokerMiniStat label="Query" value={`${rowCounts?.query ?? 0}`} />
+          <BrokerMiniStat label="Delivery" value={`${rowCounts?.delivery ?? 0}`} />
         </div>
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-          <span>{brokerContextPercent(broker.rates.failureRate)} failed</span>
+          <span>{brokerContextPercent(failureRate)} failed</span>
           <span>{timeAgo(broker.generatedAt)}</span>
         </div>
       </BrokerContextSummaryCard>

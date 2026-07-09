@@ -605,12 +605,7 @@ private struct ConnectionLogViewer: View {
     }
 
     private var logBody: some View {
-        HudLoggerView(
-            store: .shared,
-            title: "Connection",
-            showHeader: true,
-            emptySubtitle: "Route attempts and pairing events will appear here."
-        )
+        ConnectionLogList(entries: model.connectionLog.entries)
     }
 }
 

@@ -398,7 +398,7 @@ struct ScoutRootView: View {
         .hudsonSidebarMotionMode(.smoothFade)
         .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
-            HudLoggerPanel(title: "Activity Log") {
+            ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
             }
         }
@@ -3736,7 +3736,7 @@ struct ScoutRootView: View {
             Button {
                 showingActivityLog = true
             } label: {
-                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
+                ScoutLogStatusItem(store: activityLog, label: "Logs", showCounts: true)
             }
             .buttonStyle(.plain)
             .help("Open activity log")
@@ -3760,10 +3760,10 @@ struct ScoutRootView: View {
     }
 
     private var statusBarToneColor: Color {
-        if statusPreviewMessage != nil || activityLog.summary.tone == .error {
+        if statusPreviewMessage != nil || activityLog.entries.contains(where: { $0.level == .error || $0.level == .fault }) {
             return ScoutPalette.statusError
         }
-        if activityLog.summary.tone == .warning {
+        if activityLog.entries.contains(where: { $0.level == .warning }) {
             return ScoutPalette.statusWarn
         }
         return ScoutPalette.statusOk
