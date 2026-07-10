@@ -2352,6 +2352,20 @@ function findAnchoredChildConversation(
   ) ?? null;
 }
 
+function requireAnchorMessageInConversation(
+  broker: ScoutBrokerContext,
+  parentConversationId: string,
+  anchorMessageId: string,
+): void {
+  const anchor = broker.snapshot.messages[anchorMessageId];
+  if (!anchor) {
+    throw new Error(`Message ${anchorMessageId} is not available.`);
+  }
+  if (anchor.conversationId !== parentConversationId) {
+    throw new Error(`Message ${anchorMessageId} is not in conversation ${parentConversationId}.`);
+  }
+}
+
 async function anchorConversationToMessage(input: {
   conversationId: string;
   parentConversationId: string;
@@ -2363,16 +2377,10 @@ async function anchorConversationToMessage(input: {
     ? conversationDefinitionFromDb(existingRow)
     : broker?.snapshot.conversations[input.conversationId] ?? null;
   if (!existing) return null;
-
-  const anchor = broker?.snapshot.messages[input.anchorMessageId];
-  if (!anchor) {
-    throw new Error(`Message ${input.anchorMessageId} is not available.`);
+  if (!broker) {
+    throw new Error("broker unreachable");
   }
-  if (anchor.conversationId !== input.parentConversationId) {
-    throw new Error(
-      `Message ${input.anchorMessageId} is not in conversation ${input.parentConversationId}.`,
-    );
-  }
+  requireAnchorMessageInConversation(broker, input.parentConversationId, input.anchorMessageId);
 
   const next: ConversationDefinition = {
     ...existing,
@@ -2409,14 +2417,7 @@ async function createAnchoredThreadConversation(input: {
   if (parent.parentConversationId) {
     throw new Error("Nested threads are not supported.");
   }
-
-  const anchor = broker.snapshot.messages[input.anchorMessageId];
-  if (!anchor) {
-    throw new Error(`Message ${input.anchorMessageId} is not available.`);
-  }
-  if (anchor.conversationId !== input.parentConversationId) {
-    throw new Error(`Message ${input.anchorMessageId} is not in conversation ${input.parentConversationId}.`);
-  }
+  requireAnchorMessageInConversation(broker, input.parentConversationId, input.anchorMessageId);
 
   const existing = findAnchoredChildConversation(
     broker.snapshot.conversations,
@@ -4273,9 +4274,17 @@ export async function createOpenScoutWebServer(
     // Execution preferences fall back to the resolved agent so "same agent"
     // keeps its harness/model.
     const session = normalizeExecutionSession(body.execution?.session);
-    const harness =
-      coerceAgentHarness(body.execution?.harness) ??
-      coerceAgentHarness(agent?.harness);
+    const requestedHarness = coerceAgentHarness(body.execution?.harness);
+    const agentHarness = coerceAgentHarness(agent?.harness);
+    const harness = requestedHarness ?? agentHarness;
+    const routeTargetAgentId = targetAgentId
+      && (
+        !projectPath
+        || !requestedHarness
+        || (agentHarness ? requestedHarness === agentHarness : false)
+      )
+      ? targetAgentId
+      : undefined;
     const model =
       optionalString(body.execution?.model)?.trim() ||
       agent?.model?.trim() ||
@@ -4309,8 +4318,8 @@ export async function createOpenScoutWebServer(
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
     let agentHandle =
       optionalString(body.agent?.handle)?.trim()
-      || (targetAgentId ? agent?.name?.trim() : undefined);
-    if (!targetAgentId && !agentHandle) {
+      || (routeTargetAgentId ? agent?.name?.trim() : undefined);
+    if (!routeTargetAgentId && !agentHandle) {
       const broker = await loadScoutBrokerContext().catch(() => null);
       const occupied = broker
         ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
@@ -4348,9 +4357,9 @@ export async function createOpenScoutWebServer(
       ...(projectPath
         ? {
             target: { kind: "project_path", projectPath },
-            ...(targetAgentId ? { targetAgentId } : {}),
+            ...(routeTargetAgentId ? { targetAgentId: routeTargetAgentId } : {}),
           }
-        : { targetLabel: targetAgentId!, targetAgentId: targetAgentId! }),
+        : { targetLabel: routeTargetAgentId!, targetAgentId: routeTargetAgentId! }),
       body: instructions && instructions.length > 0 ? instructions : "New session started.",
       ...(harness ? { executionHarness: harness } : {}),
       ...(model ? { executionModel: model } : {}),
@@ -4374,7 +4383,8 @@ export async function createOpenScoutWebServer(
     if (result.unresolvedTarget) {
       console.warn("[openscout-web] api.sessions.unresolved", JSON.stringify({
         target: result.unresolvedTarget,
-        targetAgentId: targetAgentId ?? null,
+        targetAgentId: routeTargetAgentId ?? null,
+        requestedAgentId: targetAgentId ?? null,
         projectPath: projectPath ?? null,
         harness: harness ?? null,
         model: model ?? null,
@@ -4415,7 +4425,7 @@ export async function createOpenScoutWebServer(
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
-      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? targetAgentId ?? null,
+      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? routeTargetAgentId ?? targetAgentId ?? null,
       sessionId: result.targetSessionId ?? null,
       handle: agentHandle ?? null,
       provenance:

@@ -3312,6 +3312,52 @@ describe("createOpenScoutWebServer", () => {
     expect(askScoutQuestionCalls[0]).not.toHaveProperty("targetLabel");
   });
 
+  test("routes cross-harness session initiation as a project handoff instead of the existing agent", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        definitionId: "agent-1",
+        name: "Hudson",
+        projectRoot: "/tmp/openscout",
+        cwd: "/tmp/openscout",
+        harness: "claude",
+        model: "sonnet-test",
+      },
+    ];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/fallback",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { agentId: "agent-1", projectPath: "/tmp/openscout" },
+        execution: { session: "new", harness: "codex", model: "gpt-test" },
+        seed: { instructions: "Please take this from Codex." },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(askScoutQuestionCalls).toHaveLength(1);
+    expect(askScoutQuestionCalls[0]).toMatchObject({
+      senderId: "operator",
+      target: { kind: "project_path", projectPath: "/tmp/openscout" },
+      body: "Please take this from Codex.",
+      executionHarness: "codex",
+      executionModel: "gpt-test",
+      currentDirectory: "/tmp/openscout",
+      source: "scout-session-initiation",
+    });
+    expect(askScoutQuestionCalls[0]).not.toHaveProperty("targetAgentId");
+    expect(askScoutQuestionCalls[0]).not.toHaveProperty("targetLabel");
+    expect(askScoutQuestionCalls[0]).toHaveProperty("projectAgent");
+    expect((askScoutQuestionCalls[0].projectAgent as Record<string, unknown>).handle).not.toBe("Hudson");
+  });
+
   test("anchors session initiation conversations when seeded from a message", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "operator";
     queryConversationDefinitionByIdImpl = (conversationId) => {
@@ -3469,6 +3515,95 @@ describe("createOpenScoutWebServer", () => {
     expect(upsertScoutConversationCalls).toEqual([]);
   });
 
+  test("keeps session initiation successful without anchoring when the source message is in another chat", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.agent-1") return null;
+      return {
+        id: "c.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        agents: {},
+        actors: {},
+        endpoints: {},
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Parent",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+          "c.other": {
+            id: "c.other",
+            kind: "direct",
+            title: "Other",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-2"],
+          },
+        },
+        messages: {
+          "msg-anchor": {
+            id: "msg-anchor",
+            conversationId: "c.other",
+            actorId: "agent-2",
+            body: "Wrong chat",
+            createdAt: 1_700_000_000_000,
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        seed: {
+          instructions: "Follow this side question.",
+          fromConversationId: "c.parent",
+          fromMessageId: "msg-anchor",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      conversationId: "c.agent-1",
+      anchoredConversationId: null,
+      anchorError: "could not anchor session conversation: Message msg-anchor is not in conversation c.parent.",
+      provenance: {
+        fromConversationId: "c.parent",
+        fromMessageId: "msg-anchor",
+      },
+    });
+    expect(upsertScoutConversationCalls).toEqual([]);
+  });
+
   test("creates anchored child thread conversations for an existing chat", async () => {
     queryConversationDefinitionByIdImpl = (conversationId) => {
       if (conversationId !== "c.parent") return null;
@@ -3588,6 +3723,77 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: "Message msg-missing is not available.",
+    });
+    expect(upsertScoutConversationCalls).toEqual([]);
+  });
+
+  test("rejects anchored threads when the anchor message is in another chat", async () => {
+    queryConversationDefinitionByIdImpl = (conversationId) => {
+      if (conversationId !== "c.parent") return null;
+      return {
+        id: "c.parent",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        topic: null,
+        parentConversationId: null,
+        messageId: null,
+        metadata: { naturalKey: "direct:agent-1,operator" },
+        participantIds: ["operator", "agent-1"],
+      };
+    };
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        conversations: {
+          "c.parent": {
+            id: "c.parent",
+            kind: "direct",
+            title: "Agent One",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1"],
+          },
+          "c.other": {
+            id: "c.other",
+            kind: "direct",
+            title: "Other",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-2"],
+          },
+        },
+        messages: {
+          "msg-anchor": {
+            id: "msg-anchor",
+            conversationId: "c.other",
+            actorId: "agent-2",
+            body: "Wrong chat",
+            createdAt: 1_700_000_000_000,
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/conversations/c.parent/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messageId: "msg-anchor" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Message msg-anchor is not in conversation c.parent.",
     });
     expect(upsertScoutConversationCalls).toEqual([]);
   });

@@ -71,16 +71,17 @@ function uniqueCandidates(candidates: CandidateInput[]): CandidateInput[] {
 }
 
 function codexAppBundleCandidates(env: Record<string, string | undefined>): CandidateInput[] {
-  const candidates: CandidateInput[] = [
+  const appNames = ["Codex.app", "ChatGPT.app"];
+  const candidates = appNames.flatMap((appName): CandidateInput[] => [
     {
-      path: "/Applications/Codex.app/Contents/Resources/codex",
+      path: join("/Applications", appName, "Contents", "Resources", "codex"),
       source: "codex_app_bundle",
     },
     {
-      path: join(env.HOME ?? "", "Applications", "Codex.app", "Contents", "Resources", "codex"),
+      path: join(env.HOME ?? "", "Applications", appName, "Contents", "Resources", "codex"),
       source: "codex_app_bundle",
     },
-  ];
+  ]);
   return candidates.filter((candidate) => candidate.path.trim().length > 0);
 }
 
