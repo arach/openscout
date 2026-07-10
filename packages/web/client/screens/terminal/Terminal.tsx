@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
@@ -123,6 +124,8 @@ type TerminalHomeListItem = ReturnType<typeof terminalListItems>[number];
 type TerminalInventoryRow =
   | { id: string; kind: "session"; item: TerminalHomeListItem; matchingAgent: Agent | null; updatedAt: number }
   | { id: string; kind: "agent"; agent: Agent; updatedAt: number };
+
+const TERMINAL_ATTACH_DRAG_TYPE = "application/x-openscout-terminal-target";
 
 function useTerminalSessionsTarget(
   terminalSessionId: string | undefined,
@@ -962,6 +965,22 @@ function registeredTargetFromListItem(
   return { session: item.session, surface: item.surface };
 }
 
+function registeredTerminalDragId(target: RegisteredTerminalTarget): string {
+  return registeredTerminalTileId(target);
+}
+
+function hasRegisteredTerminalDrag(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types).includes(TERMINAL_ATTACH_DRAG_TYPE);
+}
+
+function readRegisteredTerminalDrag(dataTransfer: DataTransfer | null): string | null {
+  if (!dataTransfer) return null;
+  return dataTransfer.getData(TERMINAL_ATTACH_DRAG_TYPE)
+    || dataTransfer.getData("text/plain")
+    || null;
+}
+
 function freshTerminalRouteForTile(tile: FreshTerminalTileModel): TerminalRoute {
   return {
     view: "terminal",
@@ -999,6 +1018,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
   const [tiles, setTiles] = useState<TerminalWorkspaceTileModel[]>([]);
   const [workspaceReload, setWorkspaceReload] = useState(0);
+  const [dropTargetActive, setDropTargetActive] = useState(false);
 
   const loadSessions = useCallback((options: { silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -1043,6 +1063,13 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     () => liveTerminalItems,
     [liveTerminalItems],
   );
+  const tiledRegisteredIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const tile of tiles) {
+      if (tile.kind === "registered") ids.add(tile.id);
+    }
+    return ids;
+  }, [tiles]);
   const terminalAgents = useMemo(() => sortTerminalAgents(agents), [agents]);
   const inventoryRows = useMemo(
     () => buildTerminalInventoryRows(liveTerminalItems, terminalAgents),
@@ -1087,6 +1114,54 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       return [...current, { id, kind: "registered", target }];
     });
   }, []);
+
+  const attachableTargetsById = useMemo(() => {
+    const targets = new Map<string, RegisteredTerminalTarget>();
+    for (const item of attachableItems) {
+      const target = registeredTargetFromListItem(item);
+      targets.set(registeredTerminalDragId(target), target);
+    }
+    return targets;
+  }, [attachableItems]);
+
+  const attachRegisteredTargetById = useCallback((targetId: string | null) => {
+    if (!targetId) return false;
+    const target = attachableTargetsById.get(targetId);
+    if (!target) return false;
+    attachRegisteredTarget(target);
+    return true;
+  }, [attachRegisteredTarget, attachableTargetsById]);
+
+  const handleAttachDragStart = useCallback((
+    event: ReactDragEvent<HTMLElement>,
+    target: RegisteredTerminalTarget,
+  ) => {
+    const id = registeredTerminalDragId(target);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(TERMINAL_ATTACH_DRAG_TYPE, id);
+    event.dataTransfer.setData("text/plain", id);
+  }, []);
+
+  const handleAttachDragOver = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (!hasRegisteredTerminalDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropTargetActive(true);
+  }, []);
+
+  const handleAttachDragLeave = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) return;
+    setDropTargetActive(false);
+  }, []);
+
+  const handleAttachDrop = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (!hasRegisteredTerminalDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    const targetId = readRegisteredTerminalDrag(event.dataTransfer);
+    attachRegisteredTargetById(targetId);
+    setDropTargetActive(false);
+  }, [attachRegisteredTargetById]);
 
   const attachLiveTerminals = useCallback(() => {
     const targets = attachableItems.map(registeredTargetFromListItem);
@@ -1189,8 +1264,22 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           </div>
         )}
 
+        <TerminalAttachGrid
+          items={attachableItems}
+          tiledRegisteredIds={tiledRegisteredIds}
+          loadState={state.state}
+          onAttach={attachRegisteredTarget}
+          onDragStart={handleAttachDragStart}
+        />
+
         {tiles.length === 0 ? (
-          <div className="s-term-workspace-empty">
+          <div
+            className={`s-term-workspace-empty${dropTargetActive ? " s-term-workspace-empty--drop" : ""}`}
+            onDragEnter={handleAttachDragOver}
+            onDragOver={handleAttachDragOver}
+            onDragLeave={handleAttachDragLeave}
+            onDrop={handleAttachDrop}
+          >
             <Grid2X2 size={22} strokeWidth={1.55} />
             <strong>No terminal tiles</strong>
             <div className="s-term-workspace-empty-actions">
@@ -1214,7 +1303,14 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             </div>
           </div>
         ) : (
-          <div className="s-term-workspace-grid" aria-label="Terminal tiles">
+          <div
+            className={`s-term-workspace-grid${dropTargetActive ? " s-term-workspace-grid--drop" : ""}`}
+            aria-label="Terminal tiles"
+            onDragEnter={handleAttachDragOver}
+            onDragOver={handleAttachDragOver}
+            onDragLeave={handleAttachDragLeave}
+            onDrop={handleAttachDrop}
+          >
             {tiles.map((tile) => (
               <TerminalWorkspaceTile
                 key={`${tile.id}:${workspaceReload}`}
@@ -1270,6 +1366,114 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function TerminalAttachGrid({
+  items,
+  tiledRegisteredIds,
+  loadState,
+  onAttach,
+  onDragStart,
+}: {
+  items: TerminalHomeListItem[];
+  tiledRegisteredIds: Set<string>;
+  loadState: TerminalSessionsState["state"];
+  onAttach: (target: RegisteredTerminalTarget) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>, target: RegisteredTerminalTarget) => void;
+}) {
+  if (items.length === 0 && loadState !== "loading") {
+    return null;
+  }
+
+  return (
+    <section className="s-term-attach" aria-labelledby="terminal-attach-grid">
+      <div className="s-term-home-section-head">
+        <h2 id="terminal-attach-grid">Attachable sessions</h2>
+        <span>{loadState === "loading" ? "syncing" : `${items.length}`}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="s-term-attach-empty">Syncing terminals</div>
+      ) : (
+        <div className="s-term-attach-grid">
+          {items.map((item) => {
+            const target = registeredTargetFromListItem(item);
+            const dragId = registeredTerminalDragId(target);
+            const alreadyTiled = tiledRegisteredIds.has(dragId);
+            return (
+              <TerminalAttachCard
+                key={item.id}
+                item={item}
+                target={target}
+                alreadyTiled={alreadyTiled}
+                onAttach={onAttach}
+                onDragStart={onDragStart}
+              />
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TerminalAttachCard({
+  item,
+  target,
+  alreadyTiled,
+  onAttach,
+  onDragStart,
+}: {
+  item: TerminalHomeListItem;
+  target: RegisteredTerminalTarget;
+  alreadyTiled: boolean;
+  onAttach: (target: RegisteredTerminalTarget) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>, target: RegisteredTerminalTarget) => void;
+}) {
+  const handleAttach = useCallback(() => {
+    if (!alreadyTiled) onAttach(target);
+  }, [alreadyTiled, onAttach, target]);
+  const detail = [
+    item.session.harness,
+    item.project,
+    item.cwdLabel,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <article
+      className={`s-term-attach-card${alreadyTiled ? " s-term-attach-card--active" : ""}`}
+      draggable={!alreadyTiled}
+      tabIndex={0}
+      onDoubleClick={handleAttach}
+      onDragStart={(event) => onDragStart(event, target)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") handleAttach();
+      }}
+      title={item.surface.sessionName}
+      aria-label={`${item.title} terminal`}
+    >
+      <span className="s-term-attach-card-icon" aria-hidden>
+        <TerminalIcon size={15} strokeWidth={1.8} />
+      </span>
+      <span className="s-term-attach-card-copy">
+        <span className="s-term-attach-card-title">{item.title}</span>
+        <span className="s-term-attach-card-detail">{detail || item.surface.sessionName}</span>
+      </span>
+      <span className="s-term-attach-card-badges">
+        <span>{item.surface.backend}</span>
+        <span>{alreadyTiled ? "tiled" : item.condition}</span>
+      </span>
+      <button
+        type="button"
+        className="s-term-icon-button"
+        onClick={handleAttach}
+        disabled={alreadyTiled}
+        title={alreadyTiled ? "Terminal is already tiled" : "Add terminal tile"}
+        aria-label={alreadyTiled ? "Terminal is already tiled" : "Add terminal tile"}
+      >
+        <Plus size={14} strokeWidth={1.9} />
+      </button>
+    </article>
   );
 }
 
@@ -1783,7 +1987,7 @@ function terminalItemRunningDetail(item: TerminalHomeListItem, matchingAgent: Ag
 }
 
 function maxTimestamp(...values: Array<number | null | undefined>): number {
-  return values.reduce((current, value) => {
+  return values.reduce<number>((current, value) => {
     return typeof value === "number" && Number.isFinite(value) && value > current ? value : current;
   }, 0);
 }
