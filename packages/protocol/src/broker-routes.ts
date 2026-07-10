@@ -26,6 +26,8 @@ export const scoutBrokerPaths = {
     activity: "/v1/activity",
     collaborationRecords: "/v1/collaboration/records",
     collaborationEvents: "/v1/collaboration/events",
+    contextBlocks: "/v1/context/blocks",
+    contextPacks: "/v1/context/packs",
     pairingAttach: "/v1/pairing/attach",
     pairingDetach: "/v1/pairing/detach",
     localSessionsAttach: "/v1/local-sessions/attach",

@@ -6,6 +6,7 @@ import type {
   AgentEndpoint,
   CollaborationRecord,
   ControlCommand,
+  ContextBlock,
   ConversationReadCursor,
   DeliveryIntent,
   DurableAction,
@@ -564,6 +565,27 @@ export function createBrokerHttpRouter(
     json(response, 200, await brokerService.readCollaborationEvents?.({
       limit: parseLimit(url),
       recordId: url.searchParams.get("recordId") ?? undefined,
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/context/blocks") {
+    json(response, 200, await brokerService.readContextBlocks?.({
+      limit: parseLimit(url),
+      kind: (url.searchParams.get("kind") ?? undefined) as ContextBlock["kind"] | undefined,
+      memoryKind: (url.searchParams.get("memoryKind") ?? undefined) as ContextBlock["memoryKind"],
+      state: (url.searchParams.get("state") ?? undefined) as ContextBlock["state"] | undefined,
+      scopeKind: (url.searchParams.get("scopeKind") ?? undefined) as ContextBlock["scope"]["kind"] | undefined,
+      scopeId: url.searchParams.get("scopeId") ?? undefined,
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/context/packs") {
+    json(response, 200, await brokerService.readContextPacks?.({
+      limit: parseLimit(url),
+      harness: url.searchParams.get("harness") ?? undefined,
+      projectPath: url.searchParams.get("projectPath") ?? undefined,
     }));
     return;
   }

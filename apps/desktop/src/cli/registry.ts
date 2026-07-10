@@ -19,6 +19,8 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "inbox", summary: "Read recent direct or addressed messages for this identity" },
   { name: "send", summary: "Tell one target or post to an explicit channel" },
   { name: "session", summary: "Actions on a harness session" },
+  { name: "memory", summary: "Review and maintain constructive memory" },
+  { name: "context", summary: "Preview or hand off bounded context packs" },
   { name: "statusline", summary: "Capture harness statusline metadata" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Hand work to one agent and wait for acknowledgement" },

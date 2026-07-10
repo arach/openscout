@@ -9,6 +9,8 @@ import type {
   CollaborationEvent,
   CollaborationRecord,
   ControlCommand,
+  ContextBlock,
+  ContextPack,
   ConversationBinding,
   ConversationDefinition,
   InvocationRequest,
@@ -141,6 +143,21 @@ export type ScoutBrokerCollaborationEventQuery = {
   limit?: number;
 };
 
+export type ScoutBrokerContextBlockQuery = {
+  kind?: ContextBlock["kind"];
+  memoryKind?: ContextBlock["memoryKind"];
+  state?: ContextBlock["state"];
+  scopeKind?: ContextBlock["scope"]["kind"];
+  scopeId?: string;
+  limit?: number;
+};
+
+export type ScoutBrokerContextPackQuery = {
+  harness?: string;
+  projectPath?: string;
+  limit?: number;
+};
+
 export type ScoutBrokerThreadEventQuery = {
   conversationId: string;
   afterSeq?: number;
@@ -191,6 +208,12 @@ export type ActiveScoutBrokerService = {
   readCollaborationEvents?: (
     query: ScoutBrokerCollaborationEventQuery,
   ) => Promise<unknown>;
+  readContextBlocks?: (
+    query: ScoutBrokerContextBlockQuery,
+  ) => Promise<ContextBlock[]>;
+  readContextPacks?: (
+    query: ScoutBrokerContextPackQuery,
+  ) => Promise<ContextPack[]>;
   readThreadEvents?: (
     query: ScoutBrokerThreadEventQuery,
   ) => Promise<ThreadEventEnvelope[]>;
@@ -718,6 +741,31 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
     }) as T);
   }
 
+  if (url.pathname === "/v1/context/blocks") {
+    if (!service.readContextBlocks) {
+      return unhandled();
+    }
+    return handled(await service.readContextBlocks({
+      kind: trimOrUndefined(url.searchParams.get("kind")) as ContextBlock["kind"] | undefined,
+      memoryKind: trimOrUndefined(url.searchParams.get("memoryKind")) as ContextBlock["memoryKind"],
+      state: trimOrUndefined(url.searchParams.get("state")) as ContextBlock["state"] | undefined,
+      scopeKind: trimOrUndefined(url.searchParams.get("scopeKind")) as ContextBlock["scope"]["kind"] | undefined,
+      scopeId: trimOrUndefined(url.searchParams.get("scopeId")),
+      limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/context/packs") {
+    if (!service.readContextPacks) {
+      return unhandled();
+    }
+    return handled(await service.readContextPacks({
+      harness: trimOrUndefined(url.searchParams.get("harness")),
+      projectPath: trimOrUndefined(url.searchParams.get("projectPath")),
+      limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
   const threadEventsMatch = url.pathname.match(
     /^\/v1\/conversations\/([^/]+)\/thread-events$/,
   );
@@ -814,6 +862,20 @@ export async function maybePostJsonToActiveScoutBrokerService<T>(
     return handled(await service.executeCommand({
       kind: "collaboration.event.append",
       event: body as CollaborationEvent,
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/context/blocks") {
+    return handled(await service.executeCommand({
+      kind: "context.block.upsert",
+      block: body as ContextBlock,
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/context/packs") {
+    return handled(await service.executeCommand({
+      kind: "context.pack.record",
+      pack: body as ContextPack,
     }) as T);
   }
 

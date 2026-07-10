@@ -30,6 +30,8 @@ import {
   type CollaborationProgress,
   type CollaborationPriority,
   type CollaborationRecord,
+  type ContextBlock,
+  type ContextPack,
   type CollaborationWaitingOn,
   type MessageAttachment,
   type MessageRecord,
@@ -571,6 +573,42 @@ export function resolveScoutBrokerUrl(): string {
   const explicit = process.env.OPENSCOUT_BROKER_URL?.trim();
   if (explicit) return explicit;
   return resolveScoutBrokerControlUrl();
+}
+
+export async function listScoutContextBlocks(
+  query: {
+    kind?: ContextBlock["kind"];
+    memoryKind?: ContextBlock["memoryKind"];
+    state?: ContextBlock["state"];
+    scopeKind?: ContextBlock["scope"]["kind"];
+    scopeId?: string;
+    limit?: number;
+  } = {},
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ContextBlock[]> {
+  const search = new URLSearchParams();
+  if (query.kind) search.set("kind", query.kind);
+  if (query.memoryKind) search.set("memoryKind", query.memoryKind);
+  if (query.state) search.set("state", query.state);
+  if (query.scopeKind) search.set("scopeKind", query.scopeKind);
+  if (query.scopeId) search.set("scopeId", query.scopeId);
+  if (query.limit) search.set("limit", String(query.limit));
+  const suffix = search.size > 0 ? `?${search.toString()}` : "";
+  return brokerReadJson<ContextBlock[]>(baseUrl, `${scoutBrokerPaths.v1.contextBlocks}${suffix}`);
+}
+
+export async function upsertScoutContextBlock(
+  block: ContextBlock,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<{ ok: true; contextBlockId: string }> {
+  return brokerPostJson(baseUrl, scoutBrokerPaths.v1.contextBlocks, block);
+}
+
+export async function recordScoutContextPack(
+  pack: ContextPack,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<{ ok: true; contextPackId: string }> {
+  return brokerPostJson(baseUrl, scoutBrokerPaths.v1.contextPacks, pack);
 }
 
 export function parseScoutHarness(
@@ -3712,7 +3750,8 @@ export async function askScoutAgentById(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
-  executionSession?: "new" | "existing" | "any";
+  executionSession?: "new" | "existing" | "fork" | "any";
+  forkFromStateId?: string;
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
@@ -3734,6 +3773,7 @@ export async function askScoutAgentById(input: {
     createdAtMs: input.createdAtMs,
     executionHarness: input.executionHarness,
     executionSession: input.executionSession,
+    forkFromStateId: input.forkFromStateId,
     workspace: input.workspace,
     senderContext: input.senderContext,
     labels: input.labels,
@@ -3847,7 +3887,8 @@ export async function deliverScoutAsk(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
-  executionSession?: "new" | "existing" | "any";
+  executionSession?: "new" | "existing" | "fork" | "any";
+  forkFromStateId?: string;
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
@@ -3892,6 +3933,7 @@ export async function deliverScoutAsk(input: {
     labels,
   });
   const replyToSessionId = input.replyToSessionId?.trim();
+  const forkFromStateId = input.forkFromStateId?.trim();
   const deliveryMetadata =
     targetSessionId || replyToSessionId
       ? {
@@ -3925,6 +3967,16 @@ export async function deliverScoutAsk(input: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       ...(targetSessionId ? { targetSessionId } : {}),
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
+      ...(forkFromStateId
+        ? {
+            forkFromStateId,
+            lineage: {
+              forkSourceKind: "scout_state_snapshot" as const,
+              forkSourceId: forkFromStateId,
+              forkedAt: createdAtMs,
+            },
+          }
+        : {}),
     },
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,

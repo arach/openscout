@@ -112,6 +112,12 @@ Session invariants:
 Read [`runtime-sessions.md`](./runtime-sessions.md) before changing harness
 startup, wake, card, or endpoint behavior.
 
+For constructive handoff across sessions or harnesses, read
+[`context-and-memory.md`](./context-and-memory.md). Integrations should expose
+their source material as observed session state, preserve source references,
+and accept bounded context packs. They should not implement portability by
+copying provider turns into Scout messages.
+
 ### 4. Message Path
 
 Use the message path for communication:

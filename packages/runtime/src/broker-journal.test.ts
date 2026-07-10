@@ -6,6 +6,8 @@ import { join } from "node:path";
 import type {
   ActorIdentity,
   AgentDefinition,
+  ContextBlock,
+  ContextPack,
   DurableAction,
   FlightRecord,
   InvocationRequest,
@@ -115,6 +117,53 @@ function sampleDurableAction(input: Partial<DurableAction> = {}): DurableAction 
   };
 }
 
+function sampleContextBlock(input: Partial<ContextBlock> = {}): ContextBlock {
+  return {
+    schemaVersion: "openscout.context-block.v1",
+    id: "ctx-1",
+    kind: "memory",
+    memoryKind: "decision",
+    title: "Use broker-owned context",
+    body: "Persist constructive memory in the broker journal.",
+    scope: { kind: "workspace", id: "/work/project" },
+    projectionMode: "inline",
+    mutability: "broker_writable",
+    state: "active",
+    createdById: "operator",
+    sourceRefs: [{ kind: "operator", ref: "operator:decision" }],
+    version: 1,
+    contentHash: "context-hash",
+    createdAt: 100,
+    updatedAt: 100,
+    ...input,
+  };
+}
+
+function sampleContextPack(input: Partial<ContextPack> = {}): ContextPack {
+  return {
+    schemaVersion: "openscout.context-pack.v1",
+    id: "pack-1",
+    title: "Dispatch context",
+    purpose: "Continue implementation",
+    target: { projectPath: "/work/project", harness: "codex", sessionPolicy: "fork" },
+    sections: [{
+      id: "task-frame",
+      kind: "task_frame",
+      title: "Task",
+      body: "Continue implementation",
+      estimatedTokens: 4,
+    }],
+    contextBlockIds: ["ctx-1"],
+    sourceRefs: [{ kind: "context_block", ref: "ctx-1" }],
+    budget: { maxTokens: 100, estimatedTokens: 4, truncated: false },
+    limitations: [],
+    contentHash: "pack-hash",
+    createdById: "operator",
+    createdAt: 110,
+    ...input,
+  };
+}
+
 describe("FileBackedBrokerJournal", () => {
   test("skips redundant entity upserts on append", async () => {
     const { journal, journalPath } = createJournal();
@@ -190,6 +239,41 @@ describe("FileBackedBrokerJournal", () => {
     expect(snapshot.flights["flt-1"]).toEqual(expect.objectContaining({
       invocationId: "inv-1",
     }));
+  });
+
+  test("replays and filters constructive context without adding messages", async () => {
+    const { journal, journalPath } = createJournal();
+    const superseded = sampleContextBlock({
+      state: "superseded",
+      version: 1,
+      updatedAt: 100,
+    });
+    const active = sampleContextBlock({
+      state: "active",
+      version: 2,
+      updatedAt: 120,
+      supersedesId: "ctx-old",
+    });
+
+    writeFileSync(
+      journalPath,
+      [
+        JSON.stringify({ kind: "context.block.record", block: superseded }),
+        JSON.stringify({ kind: "context.block.record", block: active }),
+        JSON.stringify({ kind: "context.pack.record", pack: sampleContextPack() }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    await journal.load();
+
+    expect(journal.listContextBlocks({
+      state: "active",
+      scopeKind: "workspace",
+      scopeId: "/work/project",
+    })).toEqual([active]);
+    expect(journal.listContextPacks({ harness: "codex" })).toHaveLength(1);
+    expect(Object.keys(journal.snapshot().messages)).toHaveLength(0);
   });
 
   test("looks up durable actions by idempotency key after replay", async () => {

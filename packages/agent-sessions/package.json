@@ -141,6 +141,9 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "@openscout/protocol": "workspace:*"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",

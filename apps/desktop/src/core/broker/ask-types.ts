@@ -1,7 +1,7 @@
 import type { AgentHarness } from "@openscout/protocol";
 
 export type ScoutAskWorkspace = "same" | "new_worktree";
-export type ScoutAskSession = "reuse" | "new";
+export type ScoutAskSession = "reuse" | "new" | "fork";
 
 export type ScoutAskSenderContext = {
   agentId?: string;
@@ -17,6 +17,7 @@ type ScoutAskCommandBase = {
   harness?: AgentHarness;
   workspace?: ScoutAskWorkspace;
   session?: ScoutAskSession;
+  forkFromStateId?: string;
   senderContext?: ScoutAskSenderContext;
   workItem?: {
     title: string;

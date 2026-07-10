@@ -37,6 +37,22 @@ export type {
   HistorySessionSnapshotResult,
   SupportedHistoryAdapterType,
 } from "./history.js";
+export {
+  assembleContextPack,
+  contextContentHash,
+  createSessionEvidence,
+  distillMemoryCandidates,
+  estimateContextTokens,
+  materializeMemoryCandidate,
+  renderContextPackPrompt,
+} from "./context.js";
+export type {
+  AssembleContextPackInput,
+  CreateSessionEvidenceInput,
+  DistillMemoryOptions,
+  MaterializeMemoryCandidateInput,
+  SessionEvidence,
+} from "./context.js";
 export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code/index.js";
 export {
   readClaudeCodeBudgetObservations,

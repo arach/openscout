@@ -5,6 +5,7 @@ import type { InvocationRequest } from "./invocations.js";
 import type { NodeDefinition } from "./mesh.js";
 import type { MessageRecord } from "./messages.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
+import type { ContextBlock, ContextPack } from "./context.js";
 
 export interface SubscriptionRequest {
   actorId: ScoutId;
@@ -77,6 +78,16 @@ export interface CollaborationEventAppendCommand {
   event: CollaborationEvent;
 }
 
+export interface ContextBlockUpsertCommand {
+  kind: "context.block.upsert";
+  block: ContextBlock;
+}
+
+export interface ContextPackRecordCommand {
+  kind: "context.pack.record";
+  pack: ContextPack;
+}
+
 export type ControlCommand =
   | NodeUpsertCommand
   | ActorUpsertCommand
@@ -86,6 +97,8 @@ export type ControlCommand =
   | BindingUpsertCommand
   | CollaborationUpsertCommand
   | CollaborationEventAppendCommand
+  | ContextBlockUpsertCommand
+  | ContextPackRecordCommand
   | PostMessageCommand
   | InvokeAgentCommand
   | EnsureAwakeCommand

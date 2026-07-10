@@ -7,6 +7,8 @@ import type {
   CollaborationEvent,
   CollaborationRecord,
   ControlCommand,
+  ContextBlock,
+  ContextPack,
   ConversationBinding,
   ConversationDefinition,
   FlightRecord,
@@ -179,6 +181,34 @@ export async function handleBrokerHttpEntityWriteRoute(
       const result = await brokerService.executeCommand({
         kind: "collaboration.event.append",
         event,
+      });
+      json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return true;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/context/blocks") {
+    try {
+      const block = await readRequestBody<ContextBlock>(request);
+      const result = await brokerService.executeCommand({
+        kind: "context.block.upsert",
+        block,
+      });
+      json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return true;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/context/packs") {
+    try {
+      const pack = await readRequestBody<ContextPack>(request);
+      const result = await brokerService.executeCommand({
+        kind: "context.pack.record",
+        pack,
       });
       json(response, 200, result);
     } catch (error) {

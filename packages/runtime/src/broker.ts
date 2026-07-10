@@ -301,6 +301,11 @@ export class InMemoryControlRuntime implements ControlRuntime {
       case "collaboration.event.append":
         await this.appendCollaborationEvent(command.event);
         return;
+      case "context.block.upsert":
+      case "context.pack.record":
+        // The durable broker service owns constructive context records.
+        // This in-memory transport has no journal-backed context read model.
+        return;
       case "conversation.post":
         await this.postMessage(command.message);
         return;

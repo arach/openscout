@@ -1236,7 +1236,16 @@ describe("scoutAskHandler", () => {
     type CapturedDelivery = {
       target?: { kind?: string; projectPath?: string };
       targetLabel?: string;
-      execution?: { harness?: string; session?: string };
+      execution?: {
+        harness?: string;
+        session?: string;
+        forkFromStateId?: string;
+        lineage?: {
+          forkSourceKind?: string;
+          forkSourceId?: string;
+          forkedAt?: number;
+        };
+      };
       projectAgent?: { persistence?: string };
     };
     const captured = {
@@ -1347,6 +1356,30 @@ describe("scoutAskHandler", () => {
       session: "new",
     });
     expect(explicitProjectDelivery?.projectAgent).toEqual({
+      persistence: "one_time",
+    });
+
+    captured.delivery = null;
+    await scoutAskHandler({
+      senderId: "operator",
+      projectPath: projectRoot,
+      body: "Continue from this bounded context pack.",
+      session: "fork",
+      forkFromStateId: "ctxpack.123",
+      currentDirectory: "/tmp",
+    });
+
+    const forkDelivery = captured.delivery as CapturedDelivery | null;
+    expect(forkDelivery?.execution).toEqual({
+      session: "fork",
+      forkFromStateId: "ctxpack.123",
+      lineage: {
+        forkSourceKind: "scout_state_snapshot",
+        forkSourceId: "ctxpack.123",
+        forkedAt: expect.any(Number),
+      },
+    });
+    expect(forkDelivery?.projectAgent).toEqual({
       persistence: "one_time",
     });
   }, 15000);

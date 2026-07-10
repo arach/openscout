@@ -4,6 +4,8 @@ import {
   type AgentEndpoint,
   type CollaborationEvent,
   type CollaborationRecord,
+  type ContextBlock,
+  type ContextPack,
   type ControlCommand,
   type ConversationBinding,
   type ConversationDefinition,
@@ -51,6 +53,16 @@ export type BrokerCommandServiceDeps = {
     event: CollaborationEvent,
     options?: { enqueueProjection?: boolean },
   ) => Promise<BrokerJournalEntry[]>;
+  recordContextBlock: (
+    block: ContextBlock,
+    options?: { enqueueProjection?: boolean },
+  ) => Promise<BrokerJournalEntry[]>;
+  contextBlock: (blockId: string) => ContextBlock | null;
+  recordContextPack: (
+    pack: ContextPack,
+    options?: { enqueueProjection?: boolean },
+  ) => Promise<BrokerJournalEntry[]>;
+  contextPack: (packId: string) => ContextPack | null;
   recordMessage: (
     message: MessageRecord,
     options?: { enqueueProjection?: boolean },
@@ -91,6 +103,49 @@ export class BrokerCommandService {
         return await this.executeCollaborationUpsert(command.record);
       case "collaboration.event.append":
         return await this.executeCollaborationEventAppend(command.event);
+      case "context.block.upsert": {
+        const current = this.deps.contextBlock(command.block.id);
+        if (current) {
+          if (JSON.stringify(current) === JSON.stringify(command.block)) {
+            return { ok: true, contextBlockId: command.block.id };
+          }
+          if (current.mutability !== "broker_writable") {
+            throw new Error(
+              `context block ${command.block.id} is ${current.mutability} and cannot be updated in place`,
+            );
+          }
+          if (command.block.version !== current.version + 1) {
+            throw new Error(
+              `context block ${command.block.id} update must advance version ${current.version} to ${current.version + 1}`,
+            );
+          }
+          if (command.block.createdAt !== current.createdAt) {
+            throw new Error(`context block ${command.block.id} update cannot change createdAt`);
+          }
+          if (command.block.updatedAt < current.updatedAt) {
+            throw new Error(`context block ${command.block.id} update cannot move updatedAt backwards`);
+          }
+        }
+        const entries = await this.deps.recordContextBlock(command.block, {
+          enqueueProjection: false,
+        });
+        await this.deps.applyProjectedEntries(entries);
+        return { ok: true, contextBlockId: command.block.id };
+      }
+      case "context.pack.record": {
+        const current = this.deps.contextPack(command.pack.id);
+        if (current) {
+          if (current.contentHash === command.pack.contentHash) {
+            return { ok: true, contextPackId: command.pack.id };
+          }
+          throw new Error(`context pack ${command.pack.id} is immutable`);
+        }
+        const entries = await this.deps.recordContextPack(command.pack, {
+          enqueueProjection: false,
+        });
+        await this.deps.applyProjectedEntries(entries);
+        return { ok: true, contextPackId: command.pack.id };
+      }
       case "conversation.post":
         return await this.executeConversationPost(command.message);
       case "agent.invoke":

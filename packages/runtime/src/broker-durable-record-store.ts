@@ -1,11 +1,15 @@
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
+  assertValidContextBlock,
+  assertValidContextPack,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
   type CollaborationEvent,
   type CollaborationRecord,
+  type ContextBlock,
+  type ContextPack,
   type ConversationBinding,
   type ConversationDefinition,
   type DeliveryIntent,
@@ -241,6 +245,34 @@ export class BrokerDurableRecordStore {
         async () => {
           await this.options.runtime.appendCollaborationEvent(event);
         },
+        options,
+      );
+    });
+  };
+
+  readonly recordContextBlock = async (
+    block: ContextBlock,
+    options: DurableCommitOptions = {},
+  ): Promise<BrokerJournalEntry[]> => {
+    assertValidContextBlock(block);
+    return this.options.durableStore.runWrite(async () => {
+      return this.options.durableStore.commitEntries(
+        { kind: "context.block.record", block },
+        async () => {},
+        options,
+      );
+    });
+  };
+
+  readonly recordContextPack = async (
+    pack: ContextPack,
+    options: DurableCommitOptions = {},
+  ): Promise<BrokerJournalEntry[]> => {
+    assertValidContextPack(pack);
+    return this.options.durableStore.runWrite(async () => {
+      return this.options.durableStore.commitEntries(
+        { kind: "context.pack.record", pack },
+        async () => {},
         options,
       );
     });

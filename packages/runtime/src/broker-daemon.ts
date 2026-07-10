@@ -323,6 +323,8 @@ const upsertConversationDurably = durableRecords.upsertConversation;
 const upsertBindingDurably = durableRecords.upsertBinding;
 const recordCollaborationDurably = durableRecords.recordCollaboration;
 const appendCollaborationEventDurably = durableRecords.appendCollaborationEvent;
+const recordContextBlockDurably = durableRecords.recordContextBlock;
+const recordContextPackDurably = durableRecords.recordContextPack;
 const recordMessageDurably = durableRecords.recordMessage;
 const recordInvocationDurably = durableRecords.recordInvocation;
 const recordInvocationDispatchJobDurably = durableRecords.recordInvocationDispatchJob;
@@ -1158,6 +1160,10 @@ const commandService = new BrokerCommandService({
   upsertBinding: upsertBindingDurably,
   recordCollaboration: recordCollaborationDurably,
   appendCollaborationEvent: appendCollaborationEventDurably,
+  recordContextBlock: recordContextBlockDurably,
+  contextBlock: (blockId) => journal.getContextBlock(blockId),
+  recordContextPack: recordContextPackDurably,
+  contextPack: (packId) => journal.getContextPack(packId),
   recordMessage: recordMessageDurably,
   applyProjectedEntries,
   reconcileStaleLocalDeliveries,

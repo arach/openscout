@@ -174,9 +174,9 @@ function buildScoutAskReceipt(input: {
 
 function executionSessionForAsk(
   session: ScoutAskCommand["session"],
-): "new" | "existing" | "any" | undefined {
-  if (session === "new") {
-    return "new";
+): "new" | "existing" | "fork" | "any" | undefined {
+  if (session === "new" || session === "fork") {
+    return session;
   }
   return undefined;
 }
@@ -277,7 +277,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
   const projectAgent =
     targetProjectPath
     && !requestedTo
-    && (inferredProjectPath || command.session === "new")
+    && (inferredProjectPath || command.session === "new" || command.session === "fork")
       ? { persistence: "one_time" as const }
       : undefined;
   if (requestedTo && commandProjectPath) {
@@ -336,6 +336,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     shouldSpeak: command.shouldSpeak,
     executionHarness: command.harness,
     executionSession: executionSessionForAsk(command.session),
+    forkFromStateId: command.forkFromStateId,
     workspace: command.workspace,
     senderContext,
     projectAgent,

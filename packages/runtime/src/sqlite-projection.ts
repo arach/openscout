@@ -229,6 +229,12 @@ function applyJournalEntryToStore(
       return store.recordCollaborationRecord(entry.record);
     case "collaboration.event.record":
       return store.recordCollaborationEvent(entry.event);
+    case "context.block.record":
+      store.recordContextBlock(entry.block);
+      return [];
+    case "context.pack.record":
+      store.recordContextPack(entry.pack);
+      return [];
     case "deliveries.record":
       store.recordDeliveries(entry.deliveries);
       return [];

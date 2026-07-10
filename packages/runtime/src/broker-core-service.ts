@@ -8,6 +8,8 @@ import type {
   AgentDefinition,
   CollaborationRecord,
   ControlCommand,
+  ContextBlock,
+  ContextPack,
   DeliveryAttempt,
   DeliveryIntent,
   FlightRecord,
@@ -37,6 +39,8 @@ import type {
   ScoutBrokerChildServiceSnapshots,
   ScoutBrokerCollaborationEventQuery,
   ScoutBrokerCollaborationRecordQuery,
+  ScoutBrokerContextBlockQuery,
+  ScoutBrokerContextPackQuery,
   ScoutBrokerAgentFeedQuery,
   ScoutBrokerMessageQuery,
 } from "./broker-api.js";
@@ -72,6 +76,8 @@ type BrokerCoreJournal = {
     limit?: number;
     recordId?: string;
   }) => unknown;
+  listContextBlocks: (options?: ScoutBrokerContextBlockQuery) => ContextBlock[];
+  listContextPacks: (options?: ScoutBrokerContextPackQuery) => ContextPack[];
   listDeliveries: (options?: {
     transport?: DeliveryIntent["transport"];
     status?: DeliveryIntent["status"];
@@ -170,6 +176,26 @@ function listBrokerCollaborationEvents(
   return journal.listCollaborationEvents({
     limit: normalizeLimit(input.limit),
     recordId: input.recordId,
+  });
+}
+
+function listBrokerContextBlocks(
+  journal: BrokerCoreJournal,
+  input: ScoutBrokerContextBlockQuery,
+): ContextBlock[] {
+  return journal.listContextBlocks({
+    ...input,
+    limit: normalizeLimit(input.limit),
+  });
+}
+
+function listBrokerContextPacks(
+  journal: BrokerCoreJournal,
+  input: ScoutBrokerContextPackQuery,
+): ContextPack[] {
+  return journal.listContextPacks({
+    ...input,
+    limit: normalizeLimit(input.limit),
   });
 }
 
@@ -856,6 +882,10 @@ export function createBrokerCoreService(
       listBrokerCollaborationRecords(deps.journal, query),
     readCollaborationEvents: async (query) =>
       listBrokerCollaborationEvents(deps.journal, query),
+    readContextBlocks: async (query) =>
+      listBrokerContextBlocks(deps.journal, query),
+    readContextPacks: async (query) =>
+      listBrokerContextPacks(deps.journal, query),
     readAgentBrokerFeed: async (query) =>
       await readAgentBrokerFeed(deps, query),
     readInvocationLifecycle: async (query) =>

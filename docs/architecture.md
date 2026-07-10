@@ -169,7 +169,7 @@ Every surface reads these snapshots first, using stale-while-revalidate where ap
 
 Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or another harness.
 
-Scout's coordination vocabulary is small. A **conversation** groups related turns; a **message** is a durable "say this" record; an **invocation** is a request for work; a **flight** is the lifecycle record attached to an invocation; a **delivery** is one routed attempt to reach a target; a **binding** maps a project path and branch to an addressable target; a **question** asks for an answer; and a **work item** owns a durable piece of execution. [`concepts.md`](./concepts.md) defines each precisely and maps them onto external protocols. This section is about who owns them.
+Scout's coordination vocabulary is small. A **conversation** groups related turns; a **message** is a durable "say this" record; an **invocation** is a request for work; a **flight** is the lifecycle record attached to an invocation; a **delivery** is one routed attempt to reach a target; a **binding** maps a project path and branch to an addressable target; a **question** asks for an answer; and a **work item** owns a durable piece of execution. Constructive **memory** is durable reviewed context, while a **context pack** is the bounded task-specific transport assembled from it. [`concepts.md`](./concepts.md) defines the coordination nouns; [`context-and-memory.md`](./context-and-memory.md) defines the memory, evidence, and handoff boundary. This section is about who owns them.
 
 ### What Scout Owns
 
@@ -179,6 +179,7 @@ Scout owns first-party control-plane records:
 - conversations, messages, forwards, and replies created through Scout
 - invocations, flights, deliveries, delivery attempts, and dispatch records
 - collaboration records such as questions and work items when created through Scout
+- constructive context blocks and bounded context packs recorded through the broker
 - local read models and activity projections derived from those first-party records
 
 These records are broker-owned facts. They can be persisted, replayed, projected into SQLite, forwarded across mesh peers, and shown consistently across CLI, desktop, mobile, and agent tools.
@@ -207,7 +208,7 @@ The intentional split is:
 - tail adapters read external harness transcripts from their original files
 - tail views keep bounded live/backlog buffers rather than becoming durable transcript replicas
 
-If a surface needs raw harness detail, it should prefer the original harness material through an adapter, cursor, or link. If a workflow needs durable coordination, it should create a Scout-owned message, invocation, flight, delivery, or work item.
+If a surface needs raw harness detail, it should prefer the original harness material through an adapter, cursor, or link. If a workflow needs durable coordination, it should create a Scout-owned message, invocation, flight, delivery, or work item. If observed source material contains a durable decision, constraint, or open loop, it should produce a provenance-linked proposed memory for review; the raw turns still remain external.
 
 ### Design Rules
 
@@ -217,6 +218,7 @@ If a surface needs raw harness detail, it should prefer the original harness mat
 4. Do use lightweight metadata, cursors, summaries, and links when external source material needs to appear in Scout surfaces.
 5. Do not let adapters mutate harness-owned ecosystems such as Claude Code's `.claude` state.
 6. Do keep the boundary visible in docs and APIs: `message` means a Scout conversation record, while `TailEvent` means an observed harness event.
+7. Do use context packs, not transcript imports, to seed a new or synthesized-fork execution session.
 
 This is an intentional product and architecture boundary, not an implementation shortcut. Better indexing and replay tools should still preserve the distinction between owned coordination state and observed harness source material.
 

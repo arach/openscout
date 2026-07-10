@@ -7,6 +7,8 @@ import type {
   AgentEndpoint,
   CollaborationEvent,
   CollaborationRecord,
+  ContextBlock,
+  ContextPack,
   ConversationBinding,
   ConversationDefinition,
   ConversationReadCursor,
@@ -45,6 +47,8 @@ export type BrokerJournalEntry =
   | { kind: "flight.record"; flight: FlightRecord }
   | { kind: "collaboration.record"; record: CollaborationRecord }
   | { kind: "collaboration.event.record"; event: CollaborationEvent }
+  | { kind: "context.block.record"; block: ContextBlock }
+  | { kind: "context.pack.record"; pack: ContextPack }
   | { kind: "deliveries.record"; deliveries: DeliveryIntent[] }
   | { kind: "delivery.attempt.record"; attempt: DeliveryAttempt }
   | { kind: "durable.action.record"; action: DurableAction }
@@ -65,6 +69,8 @@ export type BrokerJournalEntry =
 type JournalSnapshotState = {
   snapshot: RuntimeRegistrySnapshot;
   collaborationEvents: CollaborationEvent[];
+  contextBlocks: Map<string, ContextBlock>;
+  contextPacks: Map<string, ContextPack>;
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
   durableActions: Map<string, DurableAction>;
@@ -193,6 +199,8 @@ export class FileBackedBrokerJournal {
   private readonly state: JournalSnapshotState = {
     snapshot: createRuntimeRegistrySnapshot(),
     collaborationEvents: [],
+    contextBlocks: new Map<string, ContextBlock>(),
+    contextPacks: new Map<string, ContextPack>(),
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
     durableActions: new Map<string, DurableAction>(),
@@ -305,6 +313,49 @@ export class FileBackedBrokerJournal {
       .filter((event) => !options.recordId || event.recordId === options.recordId)
       .sort((left, right) => right.at - left.at)
       .slice(0, limit);
+  }
+
+  listContextBlocks(options: {
+    limit?: number;
+    kind?: ContextBlock["kind"];
+    memoryKind?: ContextBlock["memoryKind"];
+    state?: ContextBlock["state"];
+    scopeKind?: ContextBlock["scope"]["kind"];
+    scopeId?: string;
+  } = {}): ContextBlock[] {
+    const limit = options.limit ?? 200;
+    return [...this.state.contextBlocks.values()]
+      .filter((block) => !options.kind || block.kind === options.kind)
+      .filter((block) => !options.memoryKind || block.memoryKind === options.memoryKind)
+      .filter((block) => !options.state || block.state === options.state)
+      .filter((block) => !options.scopeKind || block.scope.kind === options.scopeKind)
+      .filter((block) => {
+        if (!options.scopeId) return true;
+        return block.scope.kind !== "global" && block.scope.id === options.scopeId;
+      })
+      .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
+      .slice(0, limit);
+  }
+
+  getContextBlock(blockId: string): ContextBlock | null {
+    return this.state.contextBlocks.get(blockId) ?? null;
+  }
+
+  listContextPacks(options: {
+    limit?: number;
+    harness?: string;
+    projectPath?: string;
+  } = {}): ContextPack[] {
+    const limit = options.limit ?? 200;
+    return [...this.state.contextPacks.values()]
+      .filter((pack) => !options.harness || pack.target.harness === options.harness)
+      .filter((pack) => !options.projectPath || pack.target.projectPath === options.projectPath)
+      .sort((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id))
+      .slice(0, limit);
+  }
+
+  getContextPack(packId: string): ContextPack | null {
+    return this.state.contextPacks.get(packId) ?? null;
   }
 
   listDeliveries(options: {
@@ -513,6 +564,12 @@ export class FileBackedBrokerJournal {
         return;
       case "collaboration.event.record":
         this.state.collaborationEvents.push(entry.event);
+        return;
+      case "context.block.record":
+        this.state.contextBlocks.set(entry.block.id, entry.block);
+        return;
+      case "context.pack.record":
+        this.state.contextPacks.set(entry.pack.id, entry.pack);
         return;
       case "deliveries.record":
         for (const delivery of entry.deliveries) {

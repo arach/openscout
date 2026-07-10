@@ -13,6 +13,8 @@ import type {
   BudgetUsageRecord,
   CollaborationEvent,
   CollaborationRecord,
+  ContextBlock,
+  ContextPack,
   CollaborationRelation,
   CollaborationPriority,
   CollaborationWaitingOn,
@@ -2631,6 +2633,104 @@ export class SQLiteControlPlaneStore {
       },
     });
     return this.recordThreadCollaborationEventAppend(event);
+  }
+
+  recordContextBlock(block: ContextBlock): void {
+    this.db.query(
+      `INSERT INTO context_blocks (
+        id, kind, memory_kind, state, scope_kind, scope_id, title, body, summary,
+        projection_mode, mutability, created_by_id, owner_id, source_refs_json,
+        confidence, token_budget, freshness_json, version, supersedes_id,
+        content_hash, metadata_json, created_at, updated_at
+      ) VALUES (
+        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+        ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        memory_kind = excluded.memory_kind,
+        state = excluded.state,
+        scope_kind = excluded.scope_kind,
+        scope_id = excluded.scope_id,
+        title = excluded.title,
+        body = excluded.body,
+        summary = excluded.summary,
+        projection_mode = excluded.projection_mode,
+        mutability = excluded.mutability,
+        created_by_id = excluded.created_by_id,
+        owner_id = excluded.owner_id,
+        source_refs_json = excluded.source_refs_json,
+        confidence = excluded.confidence,
+        token_budget = excluded.token_budget,
+        freshness_json = excluded.freshness_json,
+        version = excluded.version,
+        supersedes_id = excluded.supersedes_id,
+        content_hash = excluded.content_hash,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at`,
+    ).run(
+      block.id,
+      block.kind,
+      block.memoryKind ?? null,
+      block.state,
+      block.scope.kind,
+      block.scope.kind === "global" ? null : block.scope.id,
+      block.title,
+      block.body,
+      block.summary ?? null,
+      block.projectionMode,
+      block.mutability,
+      block.createdById,
+      block.ownerId ?? null,
+      stringify(block.sourceRefs),
+      block.confidence ?? null,
+      block.tokenBudget ?? null,
+      stringify(block.freshness),
+      block.version,
+      block.supersedesId ?? null,
+      block.contentHash,
+      stringify(block.metadata),
+      block.createdAt,
+      block.updatedAt,
+    );
+  }
+
+  recordContextPack(pack: ContextPack): void {
+    this.db.query(
+      `INSERT INTO context_packs (
+        id, title, purpose, target_json, sections_json, context_block_ids_json,
+        source_refs_json, budget_json, limitations_json, content_hash,
+        created_by_id, metadata_json, created_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        purpose = excluded.purpose,
+        target_json = excluded.target_json,
+        sections_json = excluded.sections_json,
+        context_block_ids_json = excluded.context_block_ids_json,
+        source_refs_json = excluded.source_refs_json,
+        budget_json = excluded.budget_json,
+        limitations_json = excluded.limitations_json,
+        content_hash = excluded.content_hash,
+        created_by_id = excluded.created_by_id,
+        metadata_json = excluded.metadata_json,
+        created_at = excluded.created_at`,
+    ).run(
+      pack.id,
+      pack.title,
+      pack.purpose,
+      JSON.stringify(pack.target),
+      JSON.stringify(pack.sections),
+      JSON.stringify(pack.contextBlockIds),
+      JSON.stringify(pack.sourceRefs),
+      JSON.stringify(pack.budget),
+      JSON.stringify(pack.limitations),
+      pack.contentHash,
+      pack.createdById,
+      stringify(pack.metadata),
+      pack.createdAt,
+    );
   }
 
   listActivityItems(options: {

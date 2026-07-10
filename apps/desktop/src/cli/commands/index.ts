@@ -9,6 +9,7 @@ export type ScoutCommandName =
   | "card"
   | "channel"
   | "config"
+  | "context"
   | "diff"
   | "down"
   | "doctor"
@@ -22,6 +23,7 @@ export type ScoutCommandName =
   | "latest"
   | "mcp"
   | "menu"
+  | "memory"
   | "mesh"
   | "pair"
   | "ps"
@@ -56,6 +58,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./channel.ts")).runChannelCommand;
     case "config":
       return (await import("./config.ts")).runConfigCommand;
+    case "context":
+      return (await import("./context.ts")).runContextCommand;
     case "diff":
       return (await import("./diff.ts")).runDiffCommand;
     case "down":
@@ -82,6 +86,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./mcp.ts")).runMcpCommand;
     case "menu":
       return (await import("./menu.ts")).runMenuCommand;
+    case "memory":
+      return (await import("./memory.ts")).runMemoryCommand;
     case "mesh":
       return (await import("./mesh.ts")).runMeshCommand;
     case "pair":

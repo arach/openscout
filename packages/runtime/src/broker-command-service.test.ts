@@ -4,6 +4,8 @@ import {
   type ActorIdentity,
   type CollaborationEvent,
   type CollaborationRecord,
+  type ContextBlock,
+  type ContextPack,
   type DeliveryIntent,
   type InvocationRequest,
   type MessageRecord,
@@ -98,6 +100,51 @@ function invocation(input: Partial<InvocationRequest> = {}): InvocationRequest {
   };
 }
 
+function contextBlock(): ContextBlock {
+  return {
+    schemaVersion: "openscout.context-block.v1",
+    id: "memory-1",
+    kind: "memory",
+    memoryKind: "decision",
+    title: "Keep provenance",
+    body: "Keep observed session material as cited evidence.",
+    scope: { kind: "workspace", id: "/repo" },
+    projectionMode: "inline",
+    mutability: "broker_writable",
+    state: "active",
+    createdById: "operator",
+    sourceRefs: [{ kind: "operator", ref: "operator:decision" }],
+    version: 1,
+    contentHash: "memory-hash",
+    createdAt: 100,
+    updatedAt: 100,
+  };
+}
+
+function contextPack(): ContextPack {
+  return {
+    schemaVersion: "openscout.context-pack.v1",
+    id: "pack-1",
+    title: "Continue work",
+    purpose: "Continue work",
+    target: { projectPath: "/repo", sessionPolicy: "fork" },
+    sections: [{
+      id: "task",
+      kind: "task_frame",
+      title: "Task",
+      body: "Continue work",
+      estimatedTokens: 3,
+    }],
+    contextBlockIds: ["memory-1"],
+    sourceRefs: [{ kind: "context_block", ref: "memory-1" }],
+    budget: { maxTokens: 100, estimatedTokens: 3, truncated: false },
+    limitations: [],
+    contentHash: "pack-hash",
+    createdById: "operator",
+    createdAt: 110,
+  };
+}
+
 function createHarness(input: {
   authorityConversationIds?: Set<string>;
   collaborationRecords?: Record<string, CollaborationRecord>;
@@ -117,6 +164,8 @@ function createHarness(input: {
     message: MessageRecord;
     options?: { enqueueProjection?: boolean };
   }> = [];
+  const recordedContextBlocks: ContextBlock[] = [];
+  const recordedContextPacks: ContextPack[] = [];
   const appliedEntries: BrokerJournalEntry[][] = [];
   const peerMessageForwards: Array<{ message: MessageRecord; deliveries: DeliveryIntent[] }> = [];
   const acceptedInvocations: Array<{ invocation: InvocationRequest; options: { includeOk: true; logAccepted: true } }> = [];
@@ -173,6 +222,16 @@ function createHarness(input: {
       appendedEvents.push({ event, options });
       return [{ kind: "collaboration.event.record", event }];
     },
+    async recordContextBlock(block) {
+      recordedContextBlocks.push(block);
+      return [{ kind: "context.block.record", block }];
+    },
+    contextBlock: (blockId) => recordedContextBlocks.find((block) => block.id === blockId) ?? null,
+    async recordContextPack(pack) {
+      recordedContextPacks.push(pack);
+      return [{ kind: "context.pack.record", pack }];
+    },
+    contextPack: (packId) => recordedContextPacks.find((pack) => pack.id === packId) ?? null,
     async recordMessage(nextMessage, options) {
       recordedMessages.push({ message: nextMessage, options });
       return {
@@ -205,6 +264,8 @@ function createHarness(input: {
     peerMessageForwards,
     reconcileCount: () => reconcileCount,
     recordedCollaborations,
+    recordedContextBlocks,
+    recordedContextPacks,
     recordedMessages,
     runtimeCommands,
     service,
@@ -223,6 +284,56 @@ describe("BrokerCommandService", () => {
     })).resolves.toEqual({ ok: true });
 
     expect(harness.upsertedActors).toEqual([nextActor]);
+  });
+
+  test("records constructive context through the durable projection path", async () => {
+    const harness = createHarness();
+    const block = contextBlock();
+    const pack = contextPack();
+
+    await expect(harness.service.execute({
+      kind: "context.block.upsert",
+      block,
+    })).resolves.toEqual({ ok: true, contextBlockId: block.id });
+    await expect(harness.service.execute({
+      kind: "context.pack.record",
+      pack,
+    })).resolves.toEqual({ ok: true, contextPackId: pack.id });
+
+    expect(harness.recordedContextBlocks).toEqual([block]);
+    expect(harness.recordedContextPacks).toEqual([pack]);
+    expect(harness.appliedEntries.map((entries) => entries[0]?.kind)).toEqual([
+      "context.block.record",
+      "context.pack.record",
+    ]);
+  });
+
+  test("enforces monotonic memory updates and immutable context packs", async () => {
+    const harness = createHarness();
+    const block = contextBlock();
+    const pack = contextPack();
+
+    await harness.service.execute({ kind: "context.block.upsert", block });
+    await harness.service.execute({ kind: "context.pack.record", pack });
+    await harness.service.execute({ kind: "context.block.upsert", block });
+    await harness.service.execute({ kind: "context.pack.record", pack });
+    expect(harness.recordedContextBlocks).toHaveLength(1);
+    expect(harness.recordedContextPacks).toHaveLength(1);
+
+    await expect(harness.service.execute({
+      kind: "context.block.upsert",
+      block: { ...block, state: "archived" },
+    })).rejects.toThrow("must advance version 1 to 2");
+
+    await expect(harness.service.execute({
+      kind: "context.block.upsert",
+      block: { ...block, state: "archived", version: 2, updatedAt: 120 },
+    })).resolves.toEqual({ ok: true, contextBlockId: block.id });
+
+    await expect(harness.service.execute({
+      kind: "context.pack.record",
+      pack: { ...pack, contentHash: "different" },
+    })).rejects.toThrow("is immutable");
   });
 
   test("records local collaboration records and forwards unscoped records to peers", async () => {
