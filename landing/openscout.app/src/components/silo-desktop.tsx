@@ -11,10 +11,12 @@ type Win = {
   line: string;
 };
 
+// Lines stay short enough that the cascade occludes between words — a
+// clipped identifier reads as a rendering bug in stills, not as clutter.
 const WINDOWS: Win[] = [
-  { app: "Codex", ctx: "ui", line: "$ bun run build · 4.2s" },
-  { app: "Cursor", ctx: "routes/agents.ts", line: "✎ addressablePeer(id) {" },
-  { app: "pi", ctx: "repl", line: "› drafting migration plan" },
+  { app: "Codex", ctx: "ui", line: "$ bun run build" },
+  { app: "Cursor", ctx: "agents.ts", line: "✎ unsaved changes" },
+  { app: "pi", ctx: "repl", line: "› drafting plan" },
   { app: "OpenCode", ctx: "fix-tests", line: "● 3 files changed" },
 ];
 
@@ -40,7 +42,7 @@ export function SiloDesktop() {
     <div className="silo-desktop">
       <div className="silo-desktop__bar">
         <span className="silo-desktop__bar-app">Desktop</span>
-        <span className="silo-desktop__bar-meta">{WINDOWS.length} tools open · ⌘-tab</span>
+        <span className="silo-desktop__bar-meta">⌘-tab</span>
       </div>
       <div className="silo-desktop__stage">
         {WINDOWS.map((w, i) => {
@@ -70,6 +72,15 @@ export function SiloDesktop() {
             </div>
           );
         })}
+      </div>
+      {/* Caption strip mirrors the mesh figure's anatomy (chrome / stage /
+          caption) so the two plates read as siblings; the meta line is the
+          honest mirror of "scout + 5 peers · 2 mesh links". */}
+      <div className="silo-desktop__caption">
+        <span className="silo-desktop__caption-num">Silos</span>
+        <span className="silo-desktop__caption-meta">
+          {WINDOWS.length} tools · 0 shared links
+        </span>
       </div>
     </div>
   );
