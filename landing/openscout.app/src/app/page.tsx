@@ -367,32 +367,28 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       chrome: "scout · iphone",
     },
     {
-      // Legible band of the menu-bar HUD roster, cropped from
-      // /mac/hud-agents-roster.png — the full-window app shot returns when a
-      // clean retake exists (docs/design/landing-refinement.md §1).
-      src: "/mac/hud-roster-band.png",
-      alt: "Scout macOS menu-bar HUD — the agents roster with presence and current work for every agent.",
+      src: "/mac/native-repos-diff.png",
+      alt: "Scout native Mac app showing the Repos surface with live worktrees, agent activity, changed files, and a split diff.",
       eyebrow: "Mac",
       title: "Native app",
       description:
-        "The native menu-bar cockpit — one keystroke opens the roster: every agent, where it runs, and what it's working on right now.",
-      width: 538,
-      height: 312,
-      imageClassName: "aspect-[538/312] w-full",
-      chrome: "scout · hud",
+        "The native Mac app brings repos, worktrees, agents, changed files, and review context into one Scout window.",
+      width: 1917,
+      height: 1528,
+      imageClassName: "aspect-[538/312] w-full object-cover object-top",
+      chrome: "scout · repos",
     },
     {
-      // Greeting band cropped from /relay/home-command-center.png.
-      src: "/relay/home-briefing-band.png",
-      alt: "Scout web fleet briefing — greeting with working and needs-you counts beside the fleet heart-rate.",
+      src: "/relay/ops-lanes-chrome.png",
+      alt: "Scout web Ops lanes in Chrome showing live agent lanes, trace cards, and coordination context.",
       eyebrow: "Web",
-      title: "Fleet briefing",
+      title: "Ops lanes",
       description:
-        "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
-      width: 960,
-      height: 314,
-      imageClassName: "aspect-[960/314] w-full",
-      chrome: "relay · /home",
+        "Watch live agent lanes, trace cards, and coordination context from the local web dashboard.",
+      width: 2864,
+      height: 1410,
+      imageClassName: "aspect-[960/314] w-full object-cover object-top",
+      chrome: "relay · /ops/lanes",
     },
     {
       src: "/relay/agents-overview.png",
@@ -450,23 +446,28 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
     },
     {
-      src: "/mac/hud-agents-roster.png",
-      alt: "Scout macOS menu-bar HUD — agents roster listing reachable peers with presence, host runtime, and current work.",
+      src: "/mac/native-repos-diff.png",
+      alt: "Scout native Mac app showing the Repos surface with live worktrees, agent activity, changed files, and a split diff.",
       eyebrow: "Mac",
-      title: "Menu-bar HUD",
+      title: "Native app",
       description:
-        "The native menu-bar cockpit. Slots for agents, activity, tail, sessions, and assistant; the roster lists every reachable peer with presence, host runtime, and current work.",
-      width: 606,
-      height: 566,
+        "Repos, worktrees, changed files, split diffs, and live agent context project from the same broker state as the web dashboard.",
+      width: 1917,
+      height: 1528,
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
+      chrome: "scout · repos",
     },
     {
-      src: "/relay/home-command-center.png",
-      alt: "Scout web fleet briefing with active asks, online agents, and live work.",
+      src: "/relay/ops-lanes-chrome.png",
+      alt: "Scout web Ops lanes in Chrome showing live agent lanes, trace cards, and coordination context.",
       eyebrow: "Web",
-      title: "Fleet briefing",
+      title: "Ops lanes",
       description:
-        "A top-level developer read across asks, work in flight, fleet activity, and online agent presence.",
+        "A lane-oriented operator view for live traces, agent progress, recent turns, and the coordination panel beside active work.",
+      width: 2864,
+      height: 1410,
+      imageClassName: "aspect-[2864/1410] w-full object-cover object-top",
+      chrome: "relay · /ops/lanes",
     },
     {
       src: "/relay/agents-overview.png",
@@ -1001,7 +1002,7 @@ export default function Home() {
                 <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
                   {surfaceGallery
                     .filter((s) =>
-                      ["Mobile", "Native app", "Fleet briefing"].includes(s.title),
+                      ["Mobile", "Native app", "Ops lanes"].includes(s.title),
                     )
                     .map((shot, i) => {
                       const isPhone = shot.eyebrow === "iPhone";
