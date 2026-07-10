@@ -79,14 +79,13 @@ struct ScoutSessionComposer: View {
     @State private var isSubmitting = false
     @State private var errorText: String?
     @State private var openDropdown: String?
-    @State private var advancedOpen = false
     @State private var agentQuery: String = ""
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
     @State private var messageBoxHovering = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
-    @ObservedObject private var voice = ScoutVoiceService.shared
+    @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @AppStorage("scout.session.lastProjectPath") private var lastProjectPath = ""
     @AppStorage("scout.session.lastHarness") private var lastHarness = ""
     @AppStorage("scout.session.lastModel") private var lastModel = ""
@@ -118,8 +117,11 @@ struct ScoutSessionComposer: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.42)
+            Rectangle()
+                .fill(.thinMaterial)
+                .overlay(Color.black.opacity(0.36))
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { if !isSubmitting { onClose() } }
 
             card
@@ -135,6 +137,11 @@ struct ScoutSessionComposer: View {
     }
 
     private var isDictating: Bool { voice.state.isCaptureActive }
+
+    private var voiceUnavailableReason: String? {
+        if case .unavailable(let reason) = voice.state { return reason }
+        return nil
+    }
 
     private var isProjectTarget: Bool {
         if case .project = draft.target { return true }
@@ -272,7 +279,7 @@ struct ScoutSessionComposer: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft.instructions = ScoutDictationBuffer.appending(trimmed, to: draft.instructions)
-        ScoutVoiceService.shared.consumeFinalText()
+        ScoutRemoteVoiceService.shared.consumeFinalText()
         instructionsFocused = true
     }
 
@@ -281,9 +288,14 @@ struct ScoutSessionComposer: View {
             header
             targetSection
             if isProjectTarget {
-                advancedSection
+                optionalAliasField
             }
             messageSection
+            if let reason = voiceUnavailableReason {
+                ScoutVoiceIssueRow(message: reason) {
+                    Task { await voice.openMicrophoneSettings() }
+                }
+            }
             if let errorText {
                 Text(errorText)
                     .font(HudFont.mono(HudTextSize.xxs))
@@ -491,7 +503,7 @@ struct ScoutSessionComposer: View {
                 ? "Continue \(agent.displayName) with full context"
                 : "New chat with \(agent.displayName)"
         case .project:
-            return "Choose project, setup, and first message"
+            return "Choose project and first message"
         }
     }
 
@@ -509,53 +521,14 @@ struct ScoutSessionComposer: View {
         }
     }
 
-    private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            Button {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    advancedOpen.toggle()
-                }
-            } label: {
-                HStack(spacing: HudSpacing.sm) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.accent)
-                        .frame(width: 18)
-                    Text("Advanced")
-                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.ink)
-                    Spacer(minLength: HudSpacing.sm)
-                    Text(advancedSummary)
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(HudFont.ui(HudTextSize.micro, weight: .bold))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .rotationEffect(.degrees(advancedOpen ? 180 : 0))
-                }
-                .padding(.horizontal, HudSpacing.md)
-                .frame(height: 34)
-                .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-                .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
-                .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-
-            if advancedOpen {
-                VStack(alignment: .leading, spacing: HudSpacing.md) {
-                    if isProjectTarget {
-                        aliasTextField(
-                            key: "@",
-                            placeholder: "Alias",
-                            text: $draft.agentName,
-                            mono: true
-                        )
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+    private var optionalAliasField: some View {
+        aliasTextField(
+            key: "@",
+            placeholder: "Optional alias",
+            text: $draft.agentName,
+            mono: true
+        )
+        .help("Optional agent alias")
     }
 
     private func aliasTextField(key: String, placeholder: String, text: Binding<String>, mono: Bool = false) -> some View {
@@ -566,7 +539,7 @@ struct ScoutSessionComposer: View {
                 .textCase(.uppercase)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(mono ? HudFont.mono(HudTextSize.sm, weight: .semibold) : HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .font(mono ? HudFont.mono(HudTextSize.xs, weight: .medium) : HudFont.ui(HudTextSize.sm, weight: .medium))
                 .foregroundStyle(ScoutPalette.ink)
                 .tint(ScoutPalette.accent)
                 .lineLimit(1)
@@ -936,10 +909,10 @@ struct ScoutSessionComposer: View {
         HStack(spacing: HudSpacing.sm) {
             Button { if !isSubmitting { onClose() } } label: {
                 Text("Cancel")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                     .foregroundStyle(ScoutPalette.muted)
                     .padding(.horizontal, HudSpacing.sm)
-                    .padding(.vertical, HudSpacing.xs)
+                    .frame(height: 30)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain).scoutPointerCursor()
@@ -949,11 +922,21 @@ struct ScoutSessionComposer: View {
             Spacer(minLength: HudSpacing.sm)
 
             Text("⌘↵")
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundColor(ScoutPalette.dim)
+                .font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                .foregroundColor(ScoutPalette.muted)
                 .lineLimit(1)
+                .frame(height: 30)
+                .padding(.horizontal, HudSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .fill(ScoutSurface.inset)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                )
 
-            ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
+            ScoutMicButton(box: 30, glyph: 15, action: toggleDictation)
 
             messageSendButton
         }
@@ -991,11 +974,11 @@ struct ScoutSessionComposer: View {
                     ScoutBrailleSpinner(size: 12, tint: ScoutPalette.accent)
                 } else {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: HudTextSize.sm, weight: .bold))
+                        .font(.system(size: HudTextSize.md, weight: .bold))
                         .foregroundStyle(ready ? ScoutDesign.bg : ScoutPalette.dim)
                 }
             }
-            .frame(width: 26, height: 26)
+            .frame(width: 30, height: 30)
             .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -1026,10 +1009,6 @@ struct ScoutSessionComposer: View {
             modelChip
             effortChip
         }
-    }
-
-    private var advancedSummary: String {
-        draft.agentName.nilIfEmpty.map { "@\($0)" } ?? "optional alias"
     }
 
     private var projectChip: some View {

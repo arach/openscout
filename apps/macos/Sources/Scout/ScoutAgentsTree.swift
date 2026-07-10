@@ -1,6 +1,11 @@
 import HudsonUI
 import SwiftUI
 
+enum ScoutAgentsTreeSort {
+    case alpha
+    case recent
+}
+
 /// The Agents view as the fleet's real hierarchy — **project → agent →
 /// session** — replacing the flat card grid. Keyboard-first (the window-level
 /// chords in `ScoutRootView` drive it: `j/k` move, `h/l` fold, `g/⇧G` edges,
@@ -22,6 +27,7 @@ final class ScoutAgentsTreeModel: ObservableObject {
     @Published var expandedAgents: Set<String> = []
 
     @Published private(set) var selectedID: String?
+    @Published private(set) var selectedProjectKey: String?
     @Published private(set) var selectedAgentID: String?
     @Published private(set) var selectedSessionCId: String?
 
@@ -128,16 +134,53 @@ final class ScoutAgentsTreeModel: ObservableObject {
     }
 
     /// Flatten the groups into the visible-row list keyboard nav walks.
-    func rows(_ groups: [ProjectGroup]) -> [Row] {
+    func rows(_ groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) -> [Row] {
         var out: [Row] = []
         for group in groups {
-            out.append(Row(kind: .project(group.key), depth: 0))
-            if collapsedProjects.contains(group.key) { continue }
-            for agent in group.agents {
-                out.append(Row(kind: .agent(agent.id), depth: 1))
+            if showProjects {
+                out.append(Row(kind: .project(group.key), depth: 0))
+                if collapsedProjects.contains(group.key) { continue }
+
+                var children: [(row: Row, recency: TimeInterval, rank: Int, label: String)] = []
+                for agent in group.agents {
+                    children.append((
+                        row: Row(kind: .agent(agent.id), depth: 1),
+                        recency: agent.updatedAt ?? 0,
+                        rank: 0,
+                        label: agent.displayName
+                    ))
+                }
+                for (agentID, channels) in group.sessions {
+                    for channel in channels {
+                        children.append((
+                            row: Row(kind: .session(agent: agentID, cId: channel.cId), depth: 1),
+                            recency: channel.lastMessageAt ?? 0,
+                            rank: 1,
+                            label: channel.rowTitle
+                        ))
+                    }
+                }
+                out.append(contentsOf: children.sorted {
+                        if sort == .recent, $0.recency != $1.recency { return $0.recency > $1.recency }
+                        if $0.rank != $1.rank { return $0.rank < $1.rank }
+                        let labelOrder = $0.label.localizedCaseInsensitiveCompare($1.label)
+                        return labelOrder == .orderedAscending
+                    }
+                    .map { $0.row }
+                )
+                continue
+            }
+            let agents = group.agents.sorted {
+                if sort == .recent, ($0.updatedAt ?? 0) != ($1.updatedAt ?? 0) {
+                    return ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0)
+                }
+                return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+            for agent in agents {
+                out.append(Row(kind: .agent(agent.id), depth: 0))
                 if expandedAgents.contains(agent.id) {
                     for session in group.sessions[agent.id] ?? [] {
-                        out.append(Row(kind: .session(agent: agent.id, cId: session.cId), depth: 2))
+                        out.append(Row(kind: .session(agent: agent.id, cId: session.cId), depth: 1))
                     }
                 }
             }
@@ -152,42 +195,46 @@ final class ScoutAgentsTreeModel: ObservableObject {
         selectedSessionCId = row.sessionCId
         if let agentID = row.agentID {
             selectedAgentID = agentID
+            selectedProjectKey = groups.first { $0.agents.contains { $0.id == agentID } }?.key
         } else if let projectKey = row.projectKey {
-            // Focusing a project header previews its lead agent in the inspector.
-            selectedAgentID = groups.first { $0.key == projectKey }?.agents.first?.id
+            selectedProjectKey = projectKey
+            selectedAgentID = nil
+        } else {
+            selectedProjectKey = nil
+            selectedAgentID = nil
         }
     }
 
-    func move(_ delta: Int, groups: [ProjectGroup]) {
-        let rows = rows(groups)
+    func move(_ delta: Int, groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
+        let rows = rows(groups, showProjects: showProjects, sort: sort)
         guard !rows.isEmpty else { return }
         let current = rows.firstIndex { $0.id == selectedID } ?? 0
         let next = min(max(current + delta, 0), rows.count - 1)
         selectRow(rows[next], groups: groups)
     }
 
-    func moveToEdge(last: Bool, groups: [ProjectGroup]) {
-        let rows = rows(groups)
+    func moveToEdge(last: Bool, groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
+        let rows = rows(groups, showProjects: showProjects, sort: sort)
         guard let target = last ? rows.last : rows.first else { return }
         selectRow(target, groups: groups)
     }
 
-    func expandOrDescend(groups: [ProjectGroup]) {
-        let rows = rows(groups)
+    func expandOrDescend(groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
+        let rows = rows(groups, showProjects: showProjects, sort: sort)
         guard let row = rows.first(where: { $0.id == selectedID }) ?? rows.first else { return }
         switch row.kind {
         case .project(let key):
-            if collapsedProjects.contains(key) { collapsedProjects.remove(key) } else { move(1, groups: groups) }
+            if collapsedProjects.contains(key) { collapsedProjects.remove(key) } else { move(1, groups: groups, showProjects: showProjects, sort: sort) }
         case .agent(let id):
-            let hasSessions = groups.contains { !($0.sessions[id]?.isEmpty ?? true) }
-            if hasSessions, !expandedAgents.contains(id) { expandedAgents.insert(id) } else { move(1, groups: groups) }
+            let hasSessions = !showProjects && groups.contains { !($0.sessions[id]?.isEmpty ?? true) }
+            if hasSessions, !expandedAgents.contains(id) { expandedAgents.insert(id) } else { move(1, groups: groups, showProjects: showProjects, sort: sort) }
         case .session:
-            move(1, groups: groups)
+            move(1, groups: groups, showProjects: showProjects, sort: sort)
         }
     }
 
-    func collapseOrParent(groups: [ProjectGroup]) {
-        let rows = rows(groups)
+    func collapseOrParent(groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
+        let rows = rows(groups, showProjects: showProjects, sort: sort)
         guard let row = rows.first(where: { $0.id == selectedID }) ?? rows.first else { return }
         switch row.kind {
         case .project(let key):
@@ -195,12 +242,19 @@ final class ScoutAgentsTreeModel: ObservableObject {
         case .agent(let id):
             if expandedAgents.contains(id) {
                 expandedAgents.remove(id)
-            } else if let group = groups.first(where: { $0.agents.contains { $0.id == id } }),
+            } else if showProjects,
+                      let group = groups.first(where: { $0.agents.contains { $0.id == id } }),
                       let parent = rows.first(where: { $0.id == "p:\(group.key)" }) {
                 selectRow(parent, groups: groups)
             }
         case .session(let agentID, _):
-            if let parent = rows.first(where: { $0.id == "a:\(agentID)" }) { selectRow(parent, groups: groups) }
+            if showProjects,
+               let group = groups.first(where: { $0.agents.contains { $0.id == agentID } }),
+               let parent = rows.first(where: { $0.id == "p:\(group.key)" }) {
+                selectRow(parent, groups: groups)
+            } else if let parent = rows.first(where: { $0.id == "a:\(agentID)" }) {
+                selectRow(parent, groups: groups)
+            }
         }
     }
 
@@ -226,27 +280,28 @@ final class ScoutAgentsTreeModel: ObservableObject {
     /// External selection (e.g. from Comms) — move the cursor onto that agent,
     /// expanding its project. No-op while already on that agent so a selected
     /// session row keeps its highlight.
-    func syncToAgent(_ agentID: String?, groups: [ProjectGroup]) {
+    func syncToAgent(_ agentID: String?, groups: [ProjectGroup], showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
         guard let agentID, selectedAgentID != agentID else { return }
         if let group = groups.first(where: { $0.agents.contains { $0.id == agentID } }) {
             collapsedProjects.remove(group.key)
+            selectedProjectKey = group.key
         }
-        if let row = rows(groups).first(where: { $0.id == "a:\(agentID)" }) { selectRow(row, groups: groups) }
+        if let row = rows(groups, showProjects: showProjects, sort: sort).first(where: { $0.id == "a:\(agentID)" }) { selectRow(row, groups: groups) }
     }
 
     /// Seed a selection when there isn't a valid one yet.
-    func ensureSelection(groups: [ProjectGroup], fallbackAgentID: String?) {
-        if let selectedID, rows(groups).contains(where: { $0.id == selectedID }) { return }
+    func ensureSelection(groups: [ProjectGroup], fallbackAgentID: String?, showProjects: Bool = true, sort: ScoutAgentsTreeSort = .alpha) {
+        if let selectedID, rows(groups, showProjects: showProjects, sort: sort).contains(where: { $0.id == selectedID }) { return }
         if let agentID = fallbackAgentID {
             if let group = groups.first(where: { $0.agents.contains { $0.id == agentID } }) {
                 collapsedProjects.remove(group.key)
             }
-            if let row = rows(groups).first(where: { $0.id == "a:\(agentID)" }) {
+            if let row = rows(groups, showProjects: showProjects, sort: sort).first(where: { $0.id == "a:\(agentID)" }) {
                 selectRow(row, groups: groups)
                 return
             }
         }
-        if let first = rows(groups).first { selectRow(first, groups: groups) }
+        if let first = rows(groups, showProjects: showProjects, sort: sort).first { selectRow(first, groups: groups) }
     }
 }
 
@@ -304,6 +359,12 @@ private struct ScoutTreeStateDot: View {
 
 private let agentsTreeSelectionMatchID = "agentsTreeSelection"
 
+private func agentsTreeHomeTilde(_ path: String) -> String {
+    let home = NSHomeDirectory()
+    guard !home.isEmpty, path.hasPrefix(home) else { return path }
+    return "~" + path.dropFirst(home.count)
+}
+
 /// Padding, selection/hover background, and gestures for one tree row. Hover
 /// is deliberately local `@State` so a mouse enter/exit invalidates only this
 /// row — when it lived on `ScoutAgentsTree`, every transition rebuilt the
@@ -311,6 +372,7 @@ private let agentsTreeSelectionMatchID = "agentsTreeSelection"
 /// trail the cursor.
 private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
     let depth: Int
+    let project: Bool
     let selected: Bool
     let selectionNamespace: Namespace.ID
     let onTap: () -> Void
@@ -322,6 +384,7 @@ private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
 
     init(
         depth: Int,
+        project: Bool,
         selected: Bool,
         selectionNamespace: Namespace.ID,
         onTap: @escaping () -> Void,
@@ -330,6 +393,7 @@ private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
         @ViewBuilder menu: () -> Menu
     ) {
         self.depth = depth
+        self.project = project
         self.selected = selected
         self.selectionNamespace = selectionNamespace
         self.onTap = onTap
@@ -342,7 +406,7 @@ private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
         HStack(spacing: HudSpacing.sm) { content }
             .padding(.vertical, 5)
             .padding(.trailing, HudSpacing.lg)
-            .padding(.leading, CGFloat(10 + depth * 16))
+            .padding(.leading, CGFloat(10 + depth * 8))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(alignment: .leading) {
                 if selected {
@@ -350,6 +414,8 @@ private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
                     // banned styleguide treatment (see ScoutTailView / composer well).
                     ScoutPalette.accent.opacity(0.14)
                         .matchedGeometryEffect(id: agentsTreeSelectionMatchID, in: selectionNamespace)
+                } else if project {
+                    ScoutSurface.inset.opacity(0.76)
                 } else if hovered {
                     ScoutPalette.surface
                 }
@@ -367,6 +433,8 @@ private struct ScoutTreeRowChrome<Content: View, Menu: View>: View {
 struct ScoutAgentsTree: View {
     @ObservedObject var model: ScoutAgentsTreeModel
     let groups: [ScoutAgentsTreeModel.ProjectGroup]
+    let showProjects: Bool
+    let sort: ScoutAgentsTreeSort
     /// Push the model's current selection into the store (inspector follows).
     let onSelect: () -> Void
     /// Open the selected row (agent DM / session conversation).
@@ -387,6 +455,8 @@ struct ScoutAgentsTree: View {
     init(
         model: ScoutAgentsTreeModel,
         groups: [ScoutAgentsTreeModel.ProjectGroup],
+        showProjects: Bool = true,
+        sort: ScoutAgentsTreeSort = .alpha,
         onSelect: @escaping () -> Void,
         onActivate: @escaping () -> Void,
         onObserve: @escaping (ScoutAgent) -> Void,
@@ -394,6 +464,8 @@ struct ScoutAgentsTree: View {
     ) {
         self.model = model
         self.groups = groups
+        self.showProjects = showProjects
+        self.sort = sort
         self.onSelect = onSelect
         self.onActivate = onActivate
         self.onObserve = onObserve
@@ -409,7 +481,7 @@ struct ScoutAgentsTree: View {
         reduceMotion ? nil : .spring(response: 0.15, dampingFraction: 0.85)
     }
 
-    private var rows: [ScoutAgentsTreeModel.Row] { model.rows(groups) }
+    private var rows: [ScoutAgentsTreeModel.Row] { model.rows(groups, showProjects: showProjects, sort: sort) }
 
     var body: some View {
         // A plain VStack (the tree is only a few dozen rows) so every row is
@@ -438,6 +510,10 @@ struct ScoutAgentsTree: View {
     private func rowView(_ row: ScoutAgentsTreeModel.Row) -> some View {
         ScoutTreeRowChrome(
             depth: row.depth,
+            project: {
+                if case .project = row.kind { return true }
+                return false
+            }(),
             selected: row.id == model.selectedID,
             selectionNamespace: selectionNamespace,
             onTap: { select(row) },
@@ -466,18 +542,25 @@ struct ScoutAgentsTree: View {
     @ViewBuilder
     private func projectRow(_ group: ScoutAgentsTreeModel.ProjectGroup?) -> some View {
         if let group {
+            let sessionCount = group.sessions.values.reduce(0) { $0 + $1.count }
             chevron(for: .init(kind: .project(group.key), depth: 0))
-            Text(group.label)
-                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
-                .foregroundStyle(ScoutPalette.ink)
-                .lineLimit(1)
-            Text(group.path)
+            HStack(spacing: HudSpacing.xxs) {
+                Text("/")
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                Text(group.label)
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+            }
+            Text(agentsTreeHomeTilde(group.path))
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(group.path)
             Spacer(minLength: HudSpacing.sm)
-            Text("\(group.agents.count) agent\(group.agents.count == 1 ? "" : "s")")
+            Text("\(group.agents.count) agent\(group.agents.count == 1 ? "" : "s") · \(sessionCount) chat\(sessionCount == 1 ? "" : "s")")
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
                 .lineLimit(1)
@@ -494,7 +577,7 @@ struct ScoutAgentsTree: View {
     @ViewBuilder
     private func agentRow(_ row: ScoutAgentsTreeModel.Row, agent: ScoutAgent?) -> some View {
         if let agent {
-            let hasSessions = groupsByKey.values.contains { !($0.sessions[agent.id]?.isEmpty ?? true) }
+            let hasSessions = !showProjects && groupsByKey.values.contains { !($0.sessions[agent.id]?.isEmpty ?? true) }
             if hasSessions {
                 chevron(for: row)
             } else {
@@ -531,7 +614,11 @@ struct ScoutAgentsTree: View {
     private func sessionRow(_ channel: ScoutChannel?) -> some View {
         if let channel {
             Color.clear.frame(width: 12, height: 12)
-            Circle().fill(ScoutPalette.dim).frame(width: 4, height: 4)
+            Color.clear.frame(width: 7, height: 7)
+            Image(systemName: "bubble.left")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(ScoutPalette.dim)
+                .frame(width: 18, height: 18)
             Text(channel.rowTitle)
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.muted)

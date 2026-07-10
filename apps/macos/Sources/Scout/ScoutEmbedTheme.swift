@@ -49,19 +49,27 @@ enum ScoutEmbedTheme {
             ?? NSAppearance(named: .aqua)
         var vars: [String: String] = [:]
         let resolve = {
+            // Resolve the preset's raw colors, NOT `ScoutPalette.bg/surface`:
+            // those multiply in the window-opacity setting, and the embed can't
+            // reproduce native translucency — WKWebView composites the alpha
+            // against an undefined (near-black) backdrop, so an 84%-alpha paper
+            // background renders as a flat mud gray. Opaque values keep the
+            // embed deterministic; translucency stays a native-only effect.
+            let colors = ScoutThemePreset.current.colors
+                .applying(palette: ScoutAccentPalette.current)
             vars = [
-                "--hud-bg": hex(ScoutPalette.bg),
-                "--hud-surface": hex(ScoutPalette.surface),
-                "--hud-ink": hex(ScoutPalette.ink),
-                "--hud-muted": hex(ScoutPalette.muted),
-                "--hud-dim": hex(ScoutPalette.dim),
-                "--hud-border": hex(ScoutPalette.border),
-                "--hud-accent": hex(ScoutPalette.accent),
-                "--hud-accent-soft": hex(ScoutPalette.accentSoft),
-                "--hud-status-ok": hex(ScoutPalette.statusOk),
-                "--hud-status-warn": hex(ScoutPalette.statusWarn),
-                "--hud-status-error": hex(ScoutPalette.statusError),
-                "--info": hex(ScoutPalette.statusInfo),
+                "--hud-bg": hex(colors.bg),
+                "--hud-surface": hex(colors.surface),
+                "--hud-ink": hex(colors.ink),
+                "--hud-muted": hex(colors.muted),
+                "--hud-dim": hex(colors.dim),
+                "--hud-border": hex(colors.border),
+                "--hud-accent": hex(colors.accent),
+                "--hud-accent-soft": hex(colors.accentSoft),
+                "--hud-status-ok": hex(colors.statusOk),
+                "--hud-status-warn": hex(colors.statusWarn),
+                "--hud-status-error": hex(colors.statusError),
+                "--info": hex(colors.statusInfo),
             ]
         }
         if let appearance {
