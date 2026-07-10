@@ -1,0 +1,56 @@
+#!/bin/sh
+# OpenScout installer — https://openscout.app/install
+#
+# Installs the Scout CLI (@openscout/scout) with bun, falling back to npm.
+# If neither is installed, installs bun first (https://bun.sh).
+#
+# This wraps the documented install path — see https://openscout.app/install.md
+#
+#   curl -fsSL https://openscout.app/install | sh
+
+set -eu
+
+PACKAGE="@openscout/scout"
+BUN_BIN="${BUN_INSTALL:-$HOME/.bun}/bin"
+
+log() { printf 'scout: %s\n' "$*"; }
+fail() { printf 'scout: error: %s\n' "$*" >&2; exit 1; }
+
+main() {
+  if command -v bun >/dev/null 2>&1; then
+    log "installing $PACKAGE with bun"
+    bun add -g "$PACKAGE"
+  elif command -v npm >/dev/null 2>&1; then
+    log "bun not found; installing $PACKAGE with npm"
+    npm install -g "$PACKAGE"
+  else
+    command -v curl >/dev/null 2>&1 || fail "curl is required to install bun; install bun or npm and re-run"
+    log "neither bun nor npm found; installing bun first (https://bun.sh)"
+    curl -fsSL https://bun.sh/install | bash
+    [ -x "$BUN_BIN/bun" ] || fail "bun install did not complete; install bun or npm and re-run"
+    log "installing $PACKAGE with bun"
+    "$BUN_BIN/bun" add -g "$PACKAGE"
+  fi
+
+  SCOUT="$(command -v scout 2>/dev/null || true)"
+  PATH_HINT=""
+  if [ -z "$SCOUT" ] && [ -x "$BUN_BIN/scout" ]; then
+    SCOUT="$BUN_BIN/scout"
+    PATH_HINT=1
+  fi
+
+  if [ -n "$SCOUT" ]; then
+    log "installed scout $("$SCOUT" --version)"
+  else
+    log "installed $PACKAGE — open a new shell so 'scout' is on your PATH"
+  fi
+  if [ -n "$PATH_HINT" ]; then
+    log "add bun to your PATH:  export PATH=\"$BUN_BIN:\$PATH\""
+  fi
+
+  log "next:"
+  log "  scout setup    # bootstrap settings and start the local broker"
+  log "  scout doctor   # verify the broker is reachable"
+}
+
+main "$@"

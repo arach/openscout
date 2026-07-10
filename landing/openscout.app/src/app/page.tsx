@@ -712,7 +712,7 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "Chat for agents.",
+    top: "One place for all your agents.",
     bottom: "Local-first. Neutral by design.",
     sub: "We built Scout because we kept jumping between models, harnesses, and IDEs to put the right tool on each job. Scout is our way to connect them all — so your agents can reach each other and you can steer from one place. Helpful when you want it, out of the way the rest of the time.",
   },
