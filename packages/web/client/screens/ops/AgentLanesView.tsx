@@ -74,8 +74,7 @@ const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
-const EMBEDDED_TAIL_RECENT_LIMIT = 30;
-const EMBEDDED_TAIL_DISCOVERY_LIMIT = 30;
+const EMBEDDED_TAIL_DISCOVERY_LIMIT = 96;
 const EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS = 30_000;
 const EMBEDDED_CLOCK_INTERVAL_MS = 30_000;
 const EMBEDDED_TERMINAL_POLL_INTERVAL_MS = 30_000;
@@ -274,7 +273,11 @@ function AgentLanesEmptyState({
   const secondary = showAutoLanes
     ? "Tail is connected; new turns and tool output will slide in here."
     : "Pinned lanes stay visible even when the active window is quiet.";
-  const nextHorizon: AgentLaneHorizonKey = horizon === "5m" ? "30m" : "24h";
+  const nextHorizon: AgentLaneHorizonKey | null = horizon === "5m"
+    ? "30m"
+    : horizon === "24h"
+      ? null
+      : "24h";
 
   return (
     <div className="s-agent-lanes-empty" role="status" aria-live="polite">
@@ -291,9 +294,11 @@ function AgentLanesEmptyState({
           <p className="s-agent-lanes-empty-secondary">{secondary}</p>
         </div>
         <div className="s-agent-lanes-empty-actions">
-          <button type="button" onClick={() => onHorizonChange(nextHorizon)}>
-            Widen to {agentLaneHorizonLabel(nextHorizon)}
-          </button>
+          {nextHorizon ? (
+            <button type="button" onClick={() => onHorizonChange(nextHorizon)}>
+              Widen to {agentLaneHorizonLabel(nextHorizon)}
+            </button>
+          ) : null}
           <button type="button" onClick={onAddAttentionLane}>
             Needs attention
           </button>
@@ -487,15 +492,11 @@ export function AgentLanesView({
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
     [beginResize, summaryHeight],
   );
-  const tailRecentLimit = embedded
-    ? Math.min(agentLaneTailRecentLimit(horizon), EMBEDDED_TAIL_RECENT_LIMIT)
-    : agentLaneTailRecentLimit(horizon);
+  const tailRecentLimit = agentLaneTailRecentLimit(horizon);
   const traceWindowMs = agentLaneHorizonWindowMs(horizon);
   const { discovery, events: tailEvents } = useTailFeed({
-    // The full Ops route can replay transcripts to satisfy long horizons. The
-    // embedded HUD keeps to the hot/live path so tab activation stays cheap.
-    includeTranscriptReplay: !embedded,
-    hydrateOnDiscovery: !embedded,
+    includeTranscriptReplay: true,
+    hydrateOnDiscovery: true,
     discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
     recentLimit: tailRecentLimit,
     discoveryScope: embedded ? "hot" : undefined,

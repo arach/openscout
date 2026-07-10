@@ -59,6 +59,17 @@
   padding: var(--space-md) var(--space-lg) var(--space-lg);
 }
 
+.s-agent-lanes--embedded .s-observe--lane .s-observe-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.s-agent-lanes--embedded .s-observe--lane .s-observe-stream {
+  flex: none;
+  margin-top: auto;
+}
+
 .s-agent-lanes--embedded .s-agent-lane {
   width: min(var(--lane-width, 512px), calc(100vw - (var(--space-lg) * 2)));
   backdrop-filter: none;
