@@ -38,7 +38,7 @@ private struct ScoutAppIconMark: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: HudStrokeWidth.thin)
+                .stroke(ScoutPalette.accent.opacity(0.38), lineWidth: HudStrokeWidth.thin)
         )
         .accessibilityLabel("Scout")
     }
@@ -50,7 +50,7 @@ private struct ScoutAppIconLineMark: View {
             let minSide = min(canvasSize.width, canvasSize.height)
             let lineWidth = max(1.15, minSide * 0.055)
             let lineStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .square, lineJoin: .miter)
-            let lineColor = Color.white.opacity(0.94)
+            let lineColor = ScoutPalette.accent
 
             func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
                 CGPoint(x: canvasSize.width * x, y: canvasSize.height * y)
