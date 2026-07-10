@@ -74,8 +74,7 @@ const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
-const EMBEDDED_TAIL_RECENT_LIMIT = 30;
-const EMBEDDED_TAIL_DISCOVERY_LIMIT = 30;
+const EMBEDDED_TAIL_DISCOVERY_LIMIT = 96;
 const EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS = 30_000;
 const EMBEDDED_CLOCK_INTERVAL_MS = 30_000;
 const EMBEDDED_TERMINAL_POLL_INTERVAL_MS = 30_000;
@@ -215,6 +214,100 @@ function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
       <span className="s-agent-lanes-issues-message">{issue.message}</span>
       {detail ? <span className="s-agent-lanes-issues-detail">{detail}</span> : null}
     </li>
+  );
+}
+
+function AgentLanesLoadingState({ horizonLabel }: { horizonLabel: string }) {
+  return (
+    <div className="s-agent-lanes-loading" role="status" aria-live="polite" aria-busy="true">
+      <div className="s-agent-lanes-loading-head">
+        <span className="s-agent-lanes-loading-kicker">Materializing lanes</span>
+        <span className="s-agent-lanes-loading-meta">trace {horizonLabel}</span>
+      </div>
+      <div className="s-agent-lanes-loading-grid" aria-hidden="true">
+        {Array.from({ length: 3 }, (_, index) => (
+          <div className="s-agent-lanes-loading-lane" key={index}>
+            <div className="s-agent-lanes-loading-card">
+              <span className="s-agent-lanes-loading-avatar" />
+              <span className="s-agent-lanes-loading-line s-agent-lanes-loading-line--name" />
+              <span className="s-agent-lanes-loading-line s-agent-lanes-loading-line--meta" />
+            </div>
+            <span className="s-agent-lanes-loading-rule" />
+            <span className="s-agent-lanes-loading-event" />
+            <span className="s-agent-lanes-loading-event s-agent-lanes-loading-event--short" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentLanesEmptyState({
+  activeFilterLabel,
+  horizon,
+  horizonLabel,
+  showAutoLanes,
+  onHorizonChange,
+  onAddAttentionLane,
+  onAddCodexLane,
+}: {
+  activeFilterLabel: string;
+  horizon: AgentLaneHorizonKey;
+  horizonLabel: string;
+  showAutoLanes: boolean;
+  onHorizonChange: (horizon: AgentLaneHorizonKey) => void;
+  onAddAttentionLane: () => void;
+  onAddCodexLane: () => void;
+}) {
+  const filtered = Boolean(activeFilterLabel);
+  const title = filtered
+    ? "No matching lanes"
+    : showAutoLanes
+      ? "Quiet window"
+      : "No pinned lanes";
+  const detail = filtered
+    ? `${activeFilterLabel} has no activity in the last ${horizonLabel}.`
+    : showAutoLanes
+      ? `No live agent work in the last ${horizonLabel}.`
+      : "The deck is waiting for pinned lanes.";
+  const secondary = showAutoLanes
+    ? "Tail is connected; new turns and tool output will slide in here."
+    : "Pinned lanes stay visible even when the active window is quiet.";
+  const nextHorizon: AgentLaneHorizonKey | null = horizon === "5m"
+    ? "30m"
+    : horizon === "24h"
+      ? null
+      : "24h";
+
+  return (
+    <div className="s-agent-lanes-empty" role="status" aria-live="polite">
+      <div className="s-agent-lanes-empty-card">
+        <div className="s-agent-lanes-empty-rail" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="s-agent-lanes-empty-copy">
+          <span className="s-agent-lanes-empty-kicker">Fleet idle</span>
+          <h2>{title}</h2>
+          <p>{detail}</p>
+          <p className="s-agent-lanes-empty-secondary">{secondary}</p>
+        </div>
+        <div className="s-agent-lanes-empty-actions">
+          {nextHorizon ? (
+            <button type="button" onClick={() => onHorizonChange(nextHorizon)}>
+              Widen to {agentLaneHorizonLabel(nextHorizon)}
+            </button>
+          ) : null}
+          <button type="button" onClick={onAddAttentionLane}>
+            Needs attention
+          </button>
+          <button type="button" onClick={onAddCodexLane}>
+            Codex sessions
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -399,18 +492,13 @@ export function AgentLanesView({
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
     [beginResize, summaryHeight],
   );
-  const tailRecentLimit = embedded
-    ? Math.min(agentLaneTailRecentLimit(horizon), EMBEDDED_TAIL_RECENT_LIMIT)
-    : agentLaneTailRecentLimit(horizon);
+  const tailRecentLimit = agentLaneTailRecentLimit(horizon);
   const traceWindowMs = agentLaneHorizonWindowMs(horizon);
   const { discovery, events: tailEvents } = useTailFeed({
-    // The full Ops route can replay transcripts to satisfy long horizons. The
-    // embedded HUD keeps to the hot/live path so tab activation stays cheap.
-    includeTranscriptReplay: !embedded,
-    hydrateOnDiscovery: !embedded,
+    includeTranscriptReplay: true,
+    hydrateOnDiscovery: true,
     discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
     recentLimit: tailRecentLimit,
-    discoveryScope: embedded ? "hot" : undefined,
     discoveryLimit: embedded ? EMBEDDED_TAIL_DISCOVERY_LIMIT : undefined,
     pauseWhenHidden: true,
   });
@@ -809,15 +897,19 @@ export function AgentLanesView({
         </div>
       ) : null}
       {visibleColumns.length === 0 ? (
-        <div className="s-agent-lanes-empty">
-          {tailLoading
-            ? "Loading tail stream…"
-            : activeFilterLabel
-              ? `No lanes match ${activeFilterLabel} in the last ${horizonLabel}.`
-              : deck.showAutoLanes
-                ? `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`
-                : "No pinned lanes yet. Use + Lane or pin a session from its lane header."}
-        </div>
+        tailLoading ? (
+          <AgentLanesLoadingState horizonLabel={horizonLabel} />
+        ) : (
+          <AgentLanesEmptyState
+            activeFilterLabel={activeFilterLabel}
+            horizon={horizon}
+            horizonLabel={horizonLabel}
+            showAutoLanes={deck.showAutoLanes}
+            onHorizonChange={setHorizon}
+            onAddAttentionLane={addAttentionLane}
+            onAddCodexLane={() => addHarnessLane("codex", "Codex sessions")}
+          />
+        )
       ) : (
         <div className="s-agent-lanes-body">
           {layout.pinnedLeft.length > 0 ? (

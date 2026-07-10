@@ -388,26 +388,35 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
       <div className="scout-console__stage">
         <aside className="scout-console__rail" aria-label="Online peers">
           <div className="scout-console__rail-h">peers</div>
-          {peers.map(({ node, agents }) => (
-            <div key={node} className="scout-console__rail-group">
-              <div className="scout-console__rail-node">
-                <span className="scout-console__rail-node-glyph" aria-hidden>▢</span>
-                {node}
-              </div>
-              {agents.map((a) => (
-                <div key={a.id} className="scout-console__rail-peer">
-                  <span className="scout-console__rail-dot scout-console__rail-dot--on" aria-hidden />
-                  <span className="scout-console__rail-name">@{a.definitionId}</span>
-                  {a.workspace !== "main" && (
-                    <span className="scout-console__rail-tag">{a.workspace}</span>
-                  )}
-                  {a.workspace === "main" && a.harness !== "claude" && (
-                    <span className="scout-console__rail-tag">{a.harness}</span>
-                  )}
+          {peers.map(({ node, agents }) => {
+            // Same definition on two harnesses (@arc on claude + codex) must
+            // read as addressing, not duplicate rows — chip both sides.
+            const dupDefs = new Set(
+              agents
+                .filter((a) => agents.some((b) => b.id !== a.id && b.definitionId === a.definitionId))
+                .map((a) => a.definitionId),
+            );
+            return (
+              <div key={node} className="scout-console__rail-group">
+                <div className="scout-console__rail-node">
+                  <span className="scout-console__rail-node-glyph" aria-hidden>▢</span>
+                  {node}
                 </div>
-              ))}
-            </div>
-          ))}
+                {agents.map((a) => (
+                  <div key={a.id} className="scout-console__rail-peer">
+                    <span className="scout-console__rail-dot scout-console__rail-dot--on" aria-hidden />
+                    <span className="scout-console__rail-name">@{a.definitionId}</span>
+                    {a.workspace !== "main" && (
+                      <span className="scout-console__rail-tag">{a.workspace}</span>
+                    )}
+                    {a.workspace === "main" && (a.harness !== "claude" || dupDefs.has(a.definitionId)) && (
+                      <span className="scout-console__rail-tag">{a.harness}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
           {offline.length > 0 && (
             <div className="scout-console__rail-group">
               <div className="scout-console__rail-node scout-console__rail-node--off">offline</div>

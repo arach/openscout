@@ -152,6 +152,12 @@ describe("broker http helpers", () => {
     ])).toBe('tail-live;dur=12.3, broker-fetch;dur=0.0;desc="tail proxy"');
   });
 
+  test("replaces oversized Server-Timing headers with a small marker", () => {
+    expect(serverTimingHeader([
+      { name: "tail-live", dur: 1, desc: "x".repeat(3000) },
+    ])).toBe('server-timing-truncated;desc="oversize"');
+  });
+
   test("maps thread-watch protocol errors and query parameters", () => {
     const response = new FakeResponse();
     threadWatchError(response as never, new ThreadWatchProtocolError(403, {

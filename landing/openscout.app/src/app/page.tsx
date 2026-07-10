@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
+import { LogoMark } from "@/components/logo-mark";
 import { ScoutConsole } from "@/components/scout-console";
 import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiloDesktop } from "@/components/silo-desktop";
@@ -72,7 +73,7 @@ type IntegrationCard = {
 };
 
 const navLinks = [
-  { label: "How it works", href: "#mesh" },
+  { label: "Why Scout", href: "#mesh" },
   { label: "Features", href: "#capabilities" },
   { label: "Apps", href: "#surfaces" },
   { label: "Integrations", href: "#integrations" },
@@ -83,33 +84,39 @@ const navLinks = [
 const macosDownloadUrl = "https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg";
 
 
-// How-it-works — a before → after, two stacked rows (text beside illustration).
-// "Without Scout" names the sprawl of tools; "With Scout" is the one common
-// layer, and the capability records live underneath it.
+// Why Scout — an editorial head row, then two matched plates (problem →
+// solution) over a shared hairline, with the capability records pulled out
+// into their own band underneath. The panels stay symmetric: label, title,
+// one short body, figure. The records are the #capabilities anchor.
 type HiwCapability = { label: string; text: string };
 
 const howItWorksContent: {
   eyebrow: string;
+  title: string;
+  lead: string;
   before: { label: string; title: string; body: string };
-  after: { label: string; title: string; body: string; capabilities: HiwCapability[] };
+  after: { label: string; title: string; body: string };
+  capabilities: HiwCapability[];
 } = {
-  eyebrow: "How it works",
+  eyebrow: "Why Scout",
+  title: "One common layer for your agents.",
+  lead: "Stop juggling agents across windows. One broker sits underneath them all, and the work it carries becomes records you can read back.",
   before: {
     label: "Without Scout",
     title: "Every agent in its own tool.",
-    body: "A tmux pane here, an IDE there, a different harness for the next one — each agent boxed into its own window. You carry context between them by hand, and finished work disappears into scrollback.",
+    body: "A tmux pane here, an IDE there, a different harness for the next one. Context moves by hand, and finished work disappears into scrollback.",
   },
   after: {
     label: "With Scout",
-    title: "One common layer for your agents.",
-    body: "Scout sits underneath them all, so any agent can reach any other, hand work off, and you steer from one place — and the work it routes becomes records you can read back.",
-    capabilities: [
-      { label: "Flights", text: "Delegation with receipts — who was asked, what ran, how it landed." },
-      { label: "Mesh", text: "Trusted machines reach each other, so agents hand off work." },
-      { label: "Protocol", text: "Speaks ACP — open and model-neutral, no lock-in." },
-      { label: "Bridges", text: "Telegram, voice, and webhooks plug in as transports." },
-    ],
+    title: "Reach, hand off, steer.",
+    body: "Any agent can reach any other, hand work off, and you steer from one place — every step kept as a durable record.",
   },
+  capabilities: [
+    { label: "Flights", text: "Delegation with receipts — who was asked, what ran, how it landed." },
+    { label: "Mesh", text: "Trusted machines reach each other so agents can hand off work." },
+    { label: "Protocol", text: "Speaks ACP — open protocol, no lock-in." },
+    { label: "Bridges", text: "Telegram, voice, and webhooks plug in as transports." },
+  ],
 };
 
 const technicalMeshPrinciples: IconCard[] = [
@@ -302,7 +309,7 @@ const faqEntries: FaqEntry[] = [
   {
     question: "What is the maturity and license story?",
     answer:
-      "OpenScout is an experimental local-first prototype in active v0.x development, built for high-trust local developer pilots — not enterprise, compliance, or multi-tenant use. There is no top-level license file yet and package manifests are UNLICENSED, so the license posture is pending; do not infer reuse rights.",
+      "OpenScout is experimental v0.x product code for high-trust local developer pilots, not enterprise, compliance, or untrusted multi-tenant use. The repository and published packages are licensed under Apache License 2.0; see LICENSE and NOTICE.",
   },
   {
     question: "What do I install first?",
@@ -360,24 +367,31 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       chrome: "scout · iphone",
     },
     {
-      src: "/mac/app-native.png",
-      alt: "Scout native macOS app — the agent roster with a live inspector showing runtime, capabilities, branch, and model.",
+      // Legible band of the menu-bar HUD roster, cropped from
+      // /mac/hud-agents-roster.png — the full-window app shot returns when a
+      // clean retake exists (docs/design/landing-refinement.md §1).
+      src: "/mac/hud-roster-band.png",
+      alt: "Scout macOS menu-bar HUD — the agents roster with presence and current work for every agent.",
       eyebrow: "Mac",
       title: "Native app",
       description:
-        "The full native macOS app — the agent roster with a live inspector for runtime, workspace, branch, and model, plus one-key actions to message or steer. The whole control plane on your desktop.",
-      width: 1332,
-      height: 947,
-      imageClassName: "aspect-[1332/947] w-full object-cover object-top",
-      chrome: "scout · agents",
+        "The native menu-bar cockpit — one keystroke opens the roster: every agent, where it runs, and what it's working on right now.",
+      width: 538,
+      height: 312,
+      imageClassName: "aspect-[538/312] w-full",
+      chrome: "scout · hud",
     },
     {
-      src: "/relay/home-command-center.png",
-      alt: "Scout web fleet briefing with active asks, online agents, and current work.",
+      // Greeting band cropped from /relay/home-command-center.png.
+      src: "/relay/home-briefing-band.png",
+      alt: "Scout web fleet briefing — greeting with working and needs-you counts beside the fleet heart-rate.",
       eyebrow: "Web",
       title: "Fleet briefing",
       description:
         "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
+      width: 960,
+      height: 314,
+      imageClassName: "aspect-[960/314] w-full",
       chrome: "relay · /home",
     },
     {
@@ -609,16 +623,13 @@ function InstallCommand({ command }: { command: string }) {
 
 function MacDownloadButton({ onClick }: { onClick?: () => void }) {
   return (
-    <a href={macosDownloadUrl} onClick={onClick} className="mac-download">
+    <a href={macosDownloadUrl} onClick={onClick} className="mac-download" draggable={false}>
       <span className="mac-download__glyph" aria-hidden>
-        <svg viewBox="0 0 384 512" role="img" aria-hidden="true">
+        <svg viewBox="0 0 384 512" fill="currentColor">
           <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
         </svg>
       </span>
-      <span className="mac-download__text">
-        <span className="mac-download__label">Download for macOS</span>
-        <span className="mac-download__meta">Universal · Apple silicon &amp; Intel</span>
-      </span>
+      <span className="mac-download__label">Download for macOS</span>
     </a>
   );
 }
@@ -652,22 +663,7 @@ function GithubStars() {
   );
 }
 
-function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
-  const pixelSize = size === "md" ? 32 : 26;
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center"
-      style={{ width: pixelSize, height: pixelSize }}
-      aria-hidden
-    >
-      <img
-        src="/openscout-icon.png"
-        alt=""
-        className="h-full w-full rounded-[6px] bg-black ring-1 ring-[var(--site-border-strong)]"
-      />
-    </span>
-  );
-}
+
 
 type Viewer = "human" | "agent";
 
@@ -788,8 +784,7 @@ export default function Home() {
                 onClick={onNavigationClick(link.label, link.href, "header_nav")}
                 className="operator-link"
               >
-                <span className="operator-link__sigil">:</span>
-                {link.label.toLowerCase().replace(/\s+/g, "-")}
+                {link.label}
               </a>
             ))}
           </nav>
@@ -807,21 +802,21 @@ export default function Home() {
               )}
               className="operator-link hidden sm:inline-flex"
             >
-              <span className="operator-link__sigil">:</span>github
+              GitHub
             </a>
             <Link
               href="/docs"
               onClick={onCtaClick("Read the docs", "/docs", "header_nav", "docs")}
               className="operator-link"
             >
-              <span className="operator-link__sigil">:</span>docs
+              Docs
             </Link>
             <Link
               href="/blog"
               onClick={onCtaClick("Read the blog", "/blog", "header_nav", "blog")}
               className="operator-link"
             >
-              <span className="operator-link__sigil">:</span>blog
+              Blog
             </Link>
           </div>
         </div>
@@ -915,57 +910,67 @@ export default function Home() {
               />
             </section>
 
-            {/* ── How it works — before → after, two stacked rows ── */}
+            {/* ── Why Scout — head row, problem → solution plates, capability band ── */}
             <section id="mesh" className="section-band">
               <div className="mx-auto max-w-7xl px-6">
-                <div className="reveal section-eyebrow how-it-works__eyebrow">
-                  {howItWorksContent.eyebrow}
+                {/* Editorial head — statement title left, thesis lead seated on
+                    its baseline to the right. */}
+                <header className="reveal hiw-head">
+                  <div className="hiw-head__main">
+                    <div className="section-eyebrow">{howItWorksContent.eyebrow}</div>
+                    <h2 className="hiw-head__title">{howItWorksContent.title}</h2>
+                  </div>
+                  <p className="hiw-head__lead">{howItWorksContent.lead}</p>
+                </header>
+
+                <div className="reveal hiw-contrast">
+                  {/* The hinge — one quiet directional mark on the center rule. */}
+                  <span className="hiw-contrast__hinge" aria-hidden>
+                    →
+                  </span>
+
+                  {/* Without — problem, muted */}
+                  <article className="hiw-panel hiw-panel--before">
+                    <div className="hiw-panel__label">{howItWorksContent.before.label}</div>
+                    <h3 className="hiw-panel__title">{howItWorksContent.before.title}</h3>
+                    <p className="hiw-panel__body">{howItWorksContent.before.body}</p>
+                    <div className="hiw-panel__stage">
+                      <SiloDesktop />
+                    </div>
+                  </article>
+
+                  {/* With — solution, primary */}
+                  <article className="hiw-panel hiw-panel--after">
+                    <div className="hiw-panel__label">{howItWorksContent.after.label}</div>
+                    <h3 className="hiw-panel__title">{howItWorksContent.after.title}</h3>
+                    <p className="hiw-panel__body">{howItWorksContent.after.body}</p>
+                    <div className="hiw-panel__stage">
+                      <MeshFigureSvg />
+                    </div>
+                  </article>
                 </div>
 
-                {/* With Scout — lead with the positioning; the records live here */}
-                <div id="capabilities" className="reveal hiw-row hiw-row--after">
-                  <div className="hiw-row__text">
-                    <div className="how-it-works__panel-label">
-                      {howItWorksContent.after.label}
-                    </div>
-                    <h2 className="hiw-row__title">{howItWorksContent.after.title}</h2>
-                    <p className="hiw-row__body">{howItWorksContent.after.body}</p>
-                    <ul className="hiw-caps">
-                      {howItWorksContent.after.capabilities.map((cap) => (
-                        <li key={cap.label} className="hiw-caps__item">
-                          <span className="hiw-caps__label">{cap.label}</span>
-                          <span className="hiw-caps__text">{cap.text}</span>
-                        </li>
-                      ))}
-                    </ul>
+                {/* What the layer gives you — the records, as their own band. */}
+                <div id="capabilities" className="reveal hiw-caps">
+                  <div className="hiw-caps__head">
+                    <span className="hiw-caps__eyebrow">Capabilities</span>
                     <Link
                       href="/docs"
                       onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
-                      className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                      className="hiw-caps__link"
                     >
-                      <span className="text-[var(--site-muted)]">→</span>
+                      <span aria-hidden>→</span>
                       <span>browse the docs</span>
                     </Link>
                   </div>
-                  <div className="hiw-row__stage">
-                    <MeshFigureSvg />
-                  </div>
-                </div>
-
-                {/* Without Scout — the world it replaces, shown after as contrast */}
-                <div className="reveal hiw-row hiw-row--before">
-                  <div className="hiw-row__text">
-                    <div className="how-it-works__panel-label">
-                      {howItWorksContent.before.label}
-                    </div>
-                    <h3 className="hiw-row__title hiw-row__title--before">
-                      {howItWorksContent.before.title}
-                    </h3>
-                    <p className="hiw-row__body">{howItWorksContent.before.body}</p>
-                  </div>
-                  <div className="hiw-row__stage">
-                    <SiloDesktop />
-                  </div>
+                  <ul className="hiw-caps__grid">
+                    {howItWorksContent.capabilities.map((cap) => (
+                      <li key={cap.label} className="hiw-cap">
+                        <span className="hiw-cap__label">{cap.label}</span>
+                        <span className="hiw-cap__text">{cap.text}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </section>

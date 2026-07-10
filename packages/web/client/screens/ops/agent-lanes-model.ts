@@ -821,7 +821,7 @@ export function observeDataFromTail(
 
   const placeholderEvents: ObserveEvent[] = observeEvents.length > 0
     ? observeEvents
-    : (Date.now() - transcript.mtimeMs <= NATIVE_DISCOVERED_FRESH_MS
+      : (now - transcript.mtimeMs <= (options?.windowMs ?? NATIVE_DISCOVERED_FRESH_MS)
         ? [{
             id: `${nativeSessionId(transcript)}:discovered`,
             t: 0,
@@ -1448,6 +1448,16 @@ function terminalSessionSubstantiveLastActiveAt(
   return latest;
 }
 
+function transcriptActiveAt(
+  transcript: TailDiscoveredTranscript,
+  eventsBySession: Map<string, TailEvent[]>,
+): number {
+  return Math.max(
+    transcript.mtimeMs || 0,
+    sessionSubstantiveLastActiveAt(transcript.sessionId, eventsBySession, transcript),
+  );
+}
+
 function scoutAgentForTerminalSession(
   session: TerminalSessionRecord,
   scoutBySession: Map<string, Agent>,
@@ -1888,15 +1898,16 @@ export function buildAgentLanes(input: {
   for (const transcript of transcripts) {
     const sessionId = transcript.sessionId?.trim();
     const events = tailEventsForTranscript(transcript, eventsBySession);
-    const lastActiveAt = sessionSubstantiveLastActiveAt(sessionId, eventsBySession, transcript);
+    const lastActiveAt = transcriptActiveAt(transcript, eventsBySession);
     const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
-    if (!current || !hasNativeLaneWorkingSignal(events, now, windowMs)) {
+    if (!current) {
       continue;
     }
 
     const scoutAgent = scoutAgentForTranscript(transcript, scoutBySession);
     if (scoutAgent) representedBoundAgentIds.add(scoutAgent.id);
     const observe = observeDataFromTail(transcript, events, current, { now, windowMs });
+    const hasLoadedTailEvents = events.length > 0;
     const facts = buildLaneFacts(transcript, events, scoutAgent ?? nativeSessionAgent(transcript, lastActiveAt, current), processes, observe);
     const sessionSubstantiveAt = lastActiveAt;
     const lane: AgentLane = scoutAgent
@@ -1921,7 +1932,7 @@ export function buildAgentLanes(input: {
     if (workingOnly && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
       continue;
     }
-    if (!hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
+    if (hasLoadedTailEvents && !hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
       continue;
     }
     for (const ref of tailSessionRefsForTranscript(transcript)) {

@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Terminal,
 } from "lucide-react";
-import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import { absoluteSiteUrl, githubRepoUrl } from "@/lib/site-links";
 import manifest from "../../../../public/.well-known/scout.json";
 
@@ -52,28 +52,6 @@ const transportLabels: Record<string, string> = {
   mesh_http: "Mesh HTTP",
   mcp: "MCP",
 };
-
-function ScoutMark() {
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
-      style={{ width: 26, height: 26 }}
-      aria-hidden
-    >
-      <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
-        <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
-        <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
-        <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
-        <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
-        <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
-        <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
-        <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
-        <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
-        <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
-      </svg>
-    </span>
-  );
-}
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
@@ -123,25 +101,7 @@ export default function ScoutManifestPage() {
 
   return (
     <div className="min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
-      <header className="operator-console">
-        <div className="operator-row mx-auto flex max-w-6xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <ScoutMark />
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-              Scout
-            </span>
-          </Link>
-          <nav className="flex items-center gap-5">
-            <Link href="/docs" className="operator-link hidden sm:inline-flex">
-              <span className="operator-link__sigil">:</span>docs
-            </Link>
-            <span className="operator-link text-[var(--site-ink)]">
-              <span className="operator-link__sigil">:</span>manifest
-            </span>
-            <SiteThemeToggle />
-          </nav>
-        </div>
-      </header>
+      <SiteHeader active="manifest" />
 
       <main className="mx-auto max-w-6xl px-6 pb-24">
         <section className="grid gap-10 border-b border-[var(--site-border-soft)] py-14 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end">

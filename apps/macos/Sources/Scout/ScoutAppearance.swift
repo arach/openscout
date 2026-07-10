@@ -45,6 +45,12 @@ final class ScoutAppearance: ObservableObject {
         willSet { defaults.set(newValue.rawValue, forKey: ScoutAccentPalette.defaultsKey) }
     }
 
+    /// Quiet = accent-soft washes on stateful fills (default); Vivid = the
+    /// classic solid-accent fills for your turns, scopes, and charts.
+    @Published var accentVolume: ScoutAccentVolume {
+        willSet { defaults.set(newValue.rawValue, forKey: ScoutAccentVolume.defaultsKey) }
+    }
+
     /// 1.0 = fully opaque; lower lets the desktop show through the window.
     @Published var windowOpacity: Double {
         didSet { defaults.set(windowOpacity, forKey: Keys.opacity) }
@@ -80,6 +86,7 @@ final class ScoutAppearance: ObservableObject {
         } else {
             accentPalette = ScoutAccentPalette(rawValue: storedAccent ?? "") ?? .blue
         }
+        accentVolume = ScoutAccentVolume(rawValue: defaults.string(forKey: ScoutAccentVolume.defaultsKey) ?? "") ?? .quiet
         let stored = defaults.object(forKey: Keys.opacity) as? Double
         windowOpacity = stored.map { min(max($0, Self.minOpacity), Self.maxOpacity) } ?? Self.maxOpacity
         previewAccentsOnHover = defaults.object(forKey: Keys.previewAccentsOnHover) as? Bool ?? true

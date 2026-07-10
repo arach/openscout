@@ -19,6 +19,8 @@ const isProductionBuild = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
   ...(isProductionBuild ? { output: "export" as const } : {}),
+  // keep the dev-tools badge out of headless screenshot loops (OG cards)
+  devIndicators: false,
   env: {
     SCOUT_VERSION: cliPkg.version,
   },

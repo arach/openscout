@@ -14,6 +14,9 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var messages: [ScoutMessage] = []
     @Published private(set) var agents: [ScoutAgent] = []
     @Published private(set) var selectedCId: String?
+    /// True from selecting a conversation until its transcript fetch settles.
+    /// The steady-state poll never sets it, so it only gates the first paint.
+    @Published private(set) var isLoadingMessages = false
     @Published var replyTarget: ScoutMessage?
     @Published var selectedAgentId: String?
     @Published var channelQuery = ""
@@ -51,6 +54,13 @@ final class ScoutCommsStore: ObservableObject {
     private var channelsTask: Task<Void, Never>?
     private var channelsRequestId: UUID?
     private var messagesTask: Task<Void, Never>?
+    // Last-known transcript per conversation, so switching threads paints the
+    // cached turns instantly while the fetch refreshes them — no zero-state
+    // flash between threads. Bounded (insertion order) so a long session
+    // doesn't hoard every conversation ever opened.
+    private var messageCache: [String: [ScoutMessage]] = [:]
+    private var messageCacheOrder: [String] = []
+    private let messageCacheLimit = 24
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
     private var observeRequestId: UUID?
@@ -198,7 +208,10 @@ final class ScoutCommsStore: ObservableObject {
         replyTarget = nil
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
-        messages = []
+        // Paint the last-known transcript immediately (empty only on a cold
+        // first visit); the fetch below refreshes it in place.
+        messages = messageCache[resolvedCId] ?? []
+        isLoadingMessages = true
         readCursors = []
         // Drop the prior conversation's in-flight row immediately so it can't
         // flash on the new thread; the fire-now fetch repopulates if this one
@@ -222,7 +235,8 @@ final class ScoutCommsStore: ObservableObject {
         if selectedCId != resolvedCId {
             replyTarget = nil
             selectedCId = resolvedCId
-            messages = []
+            messages = messageCache[resolvedCId] ?? []
+            isLoadingMessages = true
             readCursors = []
             activeTurn = nil
             stopActiveTurnPolling()
@@ -245,6 +259,11 @@ final class ScoutCommsStore: ObservableObject {
             if isNewSelection {
                 replyTarget = nil
                 readCursors = []
+                // Swap to the new thread's cached transcript right away —
+                // leaving the prior thread's rows up would flash the wrong
+                // conversation under the new header.
+                messages = messageCache[cId] ?? []
+                isLoadingMessages = true
             }
             loadMessages()
             loadReadCursors(cId: cId)
@@ -566,8 +585,12 @@ final class ScoutCommsStore: ObservableObject {
         defer { messagesTask = nil }
         do {
             let next = try await ScoutCommsClient().fetchMessages(cId: cId, limit: 260)
+            // Cache before the selection guard — the fetch is fresh even if the
+            // user has already moved on, and it makes their way back instant.
+            cacheMessages(next, for: cId)
             guard selectedCId == cId else { return }
             setIfChanged(next, to: \.messages)
+            setIfChanged(false, to: \.isLoadingMessages)
             setIfChanged(nil, to: \.lastError)
             // Having the conversation's messages on screen reads it. Advance to
             // the exact latest message id; the dedup key keeps the steady-state
@@ -580,8 +603,22 @@ final class ScoutCommsStore: ObservableObject {
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
+            setIfChanged(false, to: \.isLoadingMessages)
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
+    }
+
+    /// Insert-or-refresh the per-conversation transcript cache, evicting the
+    /// oldest-inserted entry past the cap.
+    private func cacheMessages(_ next: [ScoutMessage], for cId: String) {
+        if messageCache[cId] == nil {
+            messageCacheOrder.append(cId)
+            if messageCacheOrder.count > messageCacheLimit {
+                let evicted = messageCacheOrder.removeFirst()
+                messageCache[evicted] = nil
+            }
+        }
+        messageCache[cId] = next
     }
 
     private func fetchReadCursors(cId: String) async {

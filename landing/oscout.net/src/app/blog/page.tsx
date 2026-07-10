@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import { formatBlogDate, getAllBlogPosts } from "@/lib/blog";
 import { absoluteSiteUrl } from "@/lib/site-links";
 
@@ -24,41 +24,7 @@ export default function BlogIndex() {
 
   return (
     <div className="site-blog min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
-      <header className="operator-console">
-        <div className="operator-row mx-auto flex max-w-4xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span
-              className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
-              style={{ width: 26, height: 26 }}
-              aria-hidden
-            >
-              <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
-                <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
-                <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
-                <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
-                <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
-              </svg>
-            </span>
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-              Scout
-            </span>
-          </Link>
-          <nav className="flex items-center gap-5">
-            <Link href="/docs" className="operator-link hidden sm:inline-flex">
-              <span className="operator-link__sigil">:</span>docs
-            </Link>
-            <span className="operator-link text-[var(--site-ink)]">
-              <span className="operator-link__sigil">:</span>blog
-            </span>
-            <SiteThemeToggle />
-          </nav>
-        </div>
-      </header>
+      <SiteHeader active="blog" />
 
       <main className="mx-auto max-w-4xl px-6">
         <div className="border-b border-[var(--site-border-soft)] pb-10 pt-16">

@@ -358,7 +358,7 @@ describe("isAgentLaneWorking", () => {
     expect(isAgentLaneWorking(staleLane, NOW, agentLaneHorizonWindowMs("30m"))).toBe(false);
   });
 
-  test("excludes transcript mtime-only lanes without substantive tail events", () => {
+  test("includes transcript mtime-only lanes inside the selected horizon", () => {
     const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "codex",
@@ -375,7 +375,9 @@ describe("isAgentLaneWorking", () => {
       horizon: "5m",
     });
 
-    expect(lanes).toHaveLength(0);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.agent.harnessSessionId).toBe("019edd5a-ad7c-7563-8b28-a9d34699a369");
+    expect(lanes[0]?.observe?.events[0]?.text).toBe("Native codex transcript discovered.");
   });
 
   test("includes native codex lanes with recent substantive tail events", () => {

@@ -380,16 +380,6 @@ html[data-site-theme="dark"] .dot-grid {
   text-decoration-color: currentColor;
 }
 
-.operator-link:hover .operator-link__sigil {
-  color: var(--site-accent);
-}
-
-.operator-link__sigil {
-  color: var(--site-muted-soft);
-  margin-right: 1px;
-  transition: color 0.15s ease;
-}
-
 /* ── status footer (Cursor-style IDE status bar) ── */
 
 .status-bar {
@@ -1326,92 +1316,9 @@ html[data-site-theme="dark"] .surface-phone__device {
   height: 18px;
 }
 
-/* Mesh diagram seated under the section lead in "How it works". */
-.how-it-works__figure {
-  margin-top: 1.75rem;
-}
-
 /* Live traffic on the mesh diagram — the one rationed red, in motion. */
 .mesh-figure__packet {
   fill: var(--site-accent);
-}
-
-/* How it works — before → after: frantic silo switching resolves into the
-   calm mesh. Two matched plates with a transition arrow between them. */
-.how-it-works__contrast {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: start;
-  gap: 2.25rem;
-  margin-top: 2.5rem;
-}
-
-.how-it-works__panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-
-.how-it-works__panel-label {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--site-muted);
-}
-
-.how-it-works__panel--after .how-it-works__panel-label {
-  color: var(--site-accent);
-}
-
-.how-it-works__panel-title {
-  font-family: var(--font-spectral), ui-serif, Georgia, serif;
-  font-size: 1.05rem;
-  font-weight: 500;
-  color: var(--site-ink);
-  margin-top: -0.15rem;
-}
-
-.how-it-works__rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.how-it-works__row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--site-copy);
-}
-
-.how-it-works__row-dot {
-  flex: 0 0 auto;
-  width: 4px;
-  height: 4px;
-  margin-top: 0.45em;
-  border-radius: 999px;
-  background: var(--site-border-strong);
-}
-
-.how-it-works__panel--after .how-it-works__row-dot {
-  background: var(--site-accent);
-}
-
-.how-it-works__panel-stage {
-  margin-top: 0.5rem;
-}
-
-@media (max-width: 768px) {
-  .how-it-works__contrast {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
-  }
 }
 
 /* The loop — a deadpan numbered headline for the Records section. */
@@ -1450,99 +1357,301 @@ html[data-site-theme="dark"] .surface-phone__device {
   color: var(--site-muted);
 }
 
-/* How it works — before → after as two stacked rows, text beside illustration. */
-.how-it-works__eyebrow {
-  display: block;
-  margin-bottom: 2.5rem;
-}
+/* ── Why Scout ──────────────────────────────────────────────
+   Three stacked moves, each anchored on a full-width hairline:
+     1. head      — statement title left, thesis lead seated at its baseline
+     2. contrast  — two matched plates (problem muted → solution primary)
+                    split by a center rule wearing one → hinge
+     3. caps band — the capability records as a four-column spec row
+   Density stays symmetric: each plate is label / title / one body / figure,
+   so neither column strands whitespace.                                   */
 
-.hiw-row {
+.hiw-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 3rem;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
+  gap: 1.5rem 4rem;
+  align-items: end;
+  margin-bottom: 2.75rem;
 }
 
-.hiw-row + .hiw-row {
-  margin-top: 4rem;
-}
-
-.hiw-row__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  max-width: 30rem;
-}
-
-.hiw-row__title {
+.hiw-head__title {
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
-  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  font-size: clamp(1.75rem, 3.2vw, 2.5rem);
   font-weight: 500;
-  line-height: 1.12;
+  line-height: 1.08;
   letter-spacing: -0.02em;
   color: var(--site-ink);
+  margin-top: 0.5rem;
+  max-width: 17ch;
+  text-wrap: balance;
 }
 
-/* The "before" is the contrast, not the headline — smaller and muted so the
-   eye lands on the With Scout positioning above it, not on the problem. */
-.hiw-row__title--before {
-  font-size: clamp(1.2rem, 1.7vw, 1.45rem);
+/* The lead answers the title from the right column, set in the site's mono
+   lead voice; slight bottom pad seats it near the title's baseline. */
+.hiw-head__lead {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 13.5px;
+  line-height: 1.75;
   color: var(--site-copy);
+  max-width: 44ch;
+  padding-bottom: 0.3rem;
 }
 
-.hiw-row--after .how-it-works__panel-label {
+.hiw-contrast {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  border-top: 1px solid var(--site-border);
+}
+
+/* One directional mark where the problem resolves into the solution. Sits on
+   the center rule at figure height. Background matches this band's paper
+   (#mesh is an even section-band) so the chip reads as interrupting the rule. */
+.hiw-contrast__hinge {
+  position: absolute;
+  top: 64%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  background: var(--site-page-bg);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--site-muted);
+}
+
+.hiw-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 2rem 2.75rem 2.5rem 0;
+  min-width: 0;
+}
+
+.hiw-panel--after {
+  padding: 2rem 0 2.5rem 2.75rem;
+  border-left: 1px solid var(--site-border);
+}
+
+.hiw-panel__label {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.hiw-panel--after .hiw-panel__label {
   color: var(--site-accent);
 }
 
-.hiw-row__body {
-  font-size: 14px;
-  line-height: 1.6;
+.hiw-panel__title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: clamp(1.2rem, 1.8vw, 1.45rem);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--site-ink);
+  margin: 0.55rem 0 0;
+}
+
+/* The problem side recedes a register so the solution carries the section. */
+.hiw-panel--before .hiw-panel__title {
   color: var(--site-copy);
 }
 
+.hiw-panel__body {
+  margin: 0.6rem 0 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--site-copy);
+  max-width: 44ch;
+}
+
+.hiw-panel--before .hiw-panel__body {
+  color: var(--site-muted);
+}
+
+/* Figures bottom-anchor so their baselines share the band's lower edge; the
+   two figures track the same aspect, so their tops align as well. */
+.hiw-panel__stage {
+  margin-top: auto;
+  padding-top: 1.75rem;
+}
+
+.hiw-panel__stage > * {
+  width: 100%;
+}
+
+/* Capability records — their own band on the section's second hairline,
+   reusing the block-row idiom (shared rule + short ink tick). */
 .hiw-caps {
-  list-style: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  margin-top: 0;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--site-border);
+  position: relative;
+  scroll-margin-top: 5.5rem;
 }
 
-.hiw-caps__item {
-  display: flex;
-  gap: 0.7rem;
-  font-size: 12.5px;
-  line-height: 1.5;
+.hiw-caps::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--site-ink);
+  opacity: 0.7;
 }
 
-.hiw-caps__label {
-  flex: 0 0 auto;
-  width: 4.25rem;
-  padding-top: 0.1rem;
+.hiw-caps__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.hiw-caps__eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.hiw-caps__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--site-copy);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.hiw-caps__link:hover {
+  color: var(--site-ink);
+}
+
+.hiw-caps__link > span:first-child {
+  color: var(--site-muted);
+}
+
+.hiw-caps__grid {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.75rem;
+}
+
+/* Each record is a small stack; hairlines between columns keep the row
+   reading as one composed sheet rather than four floating cards. */
+.hiw-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hiw-cap + .hiw-cap {
+  border-left: 1px solid var(--site-border-soft);
+  padding-left: 1.75rem;
+  margin-left: -1.75rem;
+}
+
+.hiw-cap__label {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--site-ink);
 }
 
-.hiw-caps__text {
+.hiw-cap__text {
+  font-size: 12.5px;
+  line-height: 1.55;
   color: var(--site-copy);
 }
 
-@media (max-width: 860px) {
-  .hiw-row {
+@media (max-width: 1024px) {
+  .hiw-caps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 2rem;
+  }
+
+  .hiw-cap + .hiw-cap {
+    border-left: 0;
+    padding-left: 0;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .hiw-head {
     grid-template-columns: 1fr;
-    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: 2.25rem;
+  }
+
+  .hiw-head__lead {
+    margin-top: 0.85rem;
+    padding-bottom: 0;
+  }
+
+  .hiw-contrast {
+    grid-template-columns: 1fr;
+  }
+
+  .hiw-contrast__hinge {
+    display: none;
+  }
+
+  .hiw-panel {
+    padding: 1.5rem 0 1.75rem;
+  }
+
+  .hiw-panel--after {
+    padding: 1.5rem 0 1.75rem;
+    border-left: 0;
+    border-top: 1px solid var(--site-border);
+  }
+
+  .hiw-panel__stage {
+    padding-top: 1.25rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .hiw-caps__grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .hiw-cap {
+    padding: 0.85rem 0;
+  }
+
+  .hiw-cap + .hiw-cap {
+    border-top: 1px solid var(--site-border-soft);
   }
 }
 
 /* Without Scout — a cluttered desktop of tool windows; focus jumps between
-   them, only one ever in front. */
+   them, only one ever in front. Shares the mesh figure's plate anatomy
+   (chrome / stage / caption) and radius so the two figures read as one
+   system. */
 .silo-desktop {
   border: 1px solid var(--site-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--site-panel);
   overflow: hidden;
 }
@@ -1551,9 +1660,9 @@ html[data-site-theme="dark"] .surface-phone__device {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 26px;
+  height: 31px;
   padding: 0 0.75rem;
-  border-bottom: 1px solid var(--site-border-soft);
+  border-bottom: 1px dashed var(--site-border-soft);
   background: var(--site-panel-rail);
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 10px;
@@ -1566,9 +1675,47 @@ html[data-site-theme="dark"] .surface-phone__device {
   color: var(--site-copy);
 }
 
+/* Aspect tracks the mesh figure's drawing zone so the two plates keep equal
+   height while the columns breathe. No min-height here — with aspect-ratio it
+   would transfer into a min-width and blow the column open on phones; narrow
+   screens get a fixed height instead so the window cascade stays inside. */
 .silo-desktop__stage {
   position: relative;
-  height: 204px;
+  aspect-ratio: 8 / 3;
+}
+
+@media (max-width: 560px) {
+  .silo-desktop__stage {
+    aspect-ratio: auto;
+    height: 188px;
+  }
+}
+
+.silo-desktop__caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.6rem 0.875rem 0.7rem;
+  border-top: 1px dashed var(--site-border-soft);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+}
+
+/* Same metrics as the mesh caption, but no accent — red belongs to the
+   solution side only. */
+.silo-desktop__caption-num {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--site-copy);
+  font-weight: 600;
+}
+
+.silo-desktop__caption-meta {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--site-muted);
 }
 
 .silo-win {
@@ -1763,59 +1910,65 @@ html[data-site-theme="dark"] .surface-phone__device {
   }
 }
 
-/* macOS download — a quiet, solid ink button with the Apple glyph. */
+/* macOS download — solid ink sibling of .hero-install.
+   Same box metrics (padding, edge) so the two hero CTAs share height;
+   filled instead of outline so CLI stays primary and the app is one click. */
 .mac-download {
   display: inline-flex;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 0.95rem;
-  border-radius: 9px;
+  gap: 0;
+  padding: 0.6rem 0.95rem 0.6rem 0.8rem;
+  border: 1px solid var(--site-ink);
   background: var(--site-ink);
   color: var(--site-ink-contrast);
   text-decoration: none;
-  transition: background 0.15s ease;
+  white-space: nowrap;
+  user-select: none;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
 .mac-download:hover {
   background: var(--site-ink-hover);
+  border-color: var(--site-ink-hover);
+}
+
+.mac-download:active {
+  background: color-mix(in srgb, var(--site-ink-hover) 88%, var(--site-ink-contrast));
+}
+
+.mac-download:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
 }
 
 .mac-download__glyph {
   display: inline-flex;
-  width: 15px;
-  height: 15px;
-  margin-bottom: 2px;
+  flex-shrink: 0;
+  align-items: center;
+  /* no explicit width — border-box would swallow the padding and crush the mark */
+  margin-right: 0.65rem;
+  padding-right: 0.65rem;
+  border-right: 1px solid color-mix(in srgb, var(--site-ink-contrast) 22%, transparent);
+  /* Apple mark sits slightly high in its viewBox */
+  transform: translateY(-0.5px);
 }
 
 .mac-download__glyph svg {
-  width: 100%;
-  height: 100%;
-  fill: currentColor;
-}
-
-.mac-download__text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
+  display: block;
+  width: 12px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .mac-download__label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.01em;
-}
-
-.mac-download__meta {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--site-ink-contrast);
-  opacity: 0.6;
+  line-height: 1.2;
 }
 
 .hero-download {
-  margin-top: 1rem;
+  margin-top: 0.55rem;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -2718,6 +2871,108 @@ html[data-site-theme="dark"] .site-docs {
   --site-copy: #e3ddcc;
   --site-muted: #b8b09a;
   --site-muted-soft: #c6bfac;
+}
+
+/* ── Docs index — catalog + machine-readable strip ── */
+.docs-index-discovery__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--site-border-soft);
+}
+
+.docs-index-discovery__link {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 9.5rem) minmax(0, 1fr);
+  gap: 0.75rem 1.25rem;
+  align-items: baseline;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--site-border-soft);
+  text-decoration: none;
+  transition: background-color 0.18s ease;
+}
+
+.docs-index-discovery__link:hover {
+  background: color-mix(in srgb, var(--site-ink) 3.5%, transparent);
+}
+
+.docs-index-discovery__label {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--site-ink);
+  transition: color 0.18s ease;
+}
+
+.docs-index-discovery__link:hover .docs-index-discovery__label {
+  color: var(--site-accent);
+}
+
+.docs-index-discovery__body {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--site-copy);
+}
+
+.docs-index-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2.75rem;
+}
+
+.docs-index-grid {
+  display: grid;
+  gap: 0 2.5rem;
+  grid-template-columns: 1fr;
+}
+
+.docs-index-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 1.15rem 0;
+  border-top: 1px solid var(--site-border-soft);
+  text-decoration: none;
+  transition: background-color 0.18s ease;
+}
+
+.docs-index-entry:hover {
+  background: color-mix(in srgb, var(--site-ink) 2.5%, transparent);
+}
+
+/* First row of each column: keep the section eyebrow as the separator */
+.docs-index-grid > .docs-index-entry:first-child {
+  border-top-color: var(--site-border);
+}
+
+@media (min-width: 640px) {
+  .docs-index-discovery__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2rem;
+  }
+
+  .docs-index-discovery__link {
+    grid-template-columns: minmax(6.5rem, 8.5rem) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .docs-index-discovery__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .docs-index-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Two-column flow: first item in each column gets a stronger top rule */
+  .docs-index-grid > .docs-index-entry:nth-child(-n + 2) {
+    border-top-color: var(--site-border);
+  }
 }
 
 html[data-site-theme="dark"] .docs-markdown :is(p, li) {

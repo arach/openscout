@@ -260,6 +260,26 @@ struct ScoutSettingsView: View {
                         }
                     }
                     .frame(height: 28)
+
+                    // How loudly the accent is spent on stateful fills. Quiet
+                    // keeps your turns and charts on a wash; Vivid fills them.
+                    HStack(spacing: HudSpacing.xl) {
+                        Picker("Accent volume", selection: $appearance.accentVolume) {
+                            ForEach(ScoutAccentVolume.allCases) { volume in
+                                Text(volume.label).tag(volume)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .tint(ScoutPalette.accent)
+                        .labelsHidden()
+                        .frame(width: 160)
+
+                        Text(appearance.accentVolume == .quiet
+                            ? "Your turns and charts sit on a soft wash."
+                            : "Your turns and charts take the full accent.")
+                            .font(HudFont.ui(HudTextSize.xs))
+                            .foregroundStyle(ScoutPalette.dim)
+                    }
                 }
             }
 

@@ -33,7 +33,7 @@ struct ScoutDropdownTrigger: View {
         Button(action: onTap) {
             HStack(spacing: HudSpacing.sm) {
                 Text(key)
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .foregroundStyle(ScoutPalette.dim)
                     .textCase(.uppercase)
                 Spacer(minLength: HudSpacing.sm)
@@ -41,7 +41,7 @@ struct ScoutDropdownTrigger: View {
                     Circle().fill(valueDot).frame(width: 6, height: 6)
                 }
                 Text(value)
-                    .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -102,7 +102,7 @@ struct ScoutDropdownSectionLabel: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
             .foregroundStyle(ScoutPalette.dim)
             .textCase(.uppercase)
             .padding(.horizontal, HudSpacing.sm)
@@ -137,7 +137,7 @@ struct ScoutDropdownRow: View {
                     Circle().fill(dot).frame(width: 7, height: 7)
                 }
                 Text(label)
-                    .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                 if let detail {

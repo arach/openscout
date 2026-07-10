@@ -447,6 +447,12 @@
 .s-lane-card--working .s-lane-card-summary {
   border-color: color-mix(in srgb, var(--green) 11%, color-mix(in srgb, var(--ink) 10%, transparent));
 }
+/* Light mode: "30% toward black" lands on a muddy mid-gray slab, and the ink
+   text inside barely clears it. The light translation of a recessed console
+   readout is a paper well — clearly below the card face, text stays ink. */
+[data-scout-theme-mode="light"] .s-lane-card-summary {
+  --lane-screen: color-mix(in srgb, var(--ink) 5%, var(--bg));
+}
 .s-lane-card-current {
   display: flex;
   gap: 8px;

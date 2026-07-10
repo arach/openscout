@@ -186,16 +186,22 @@ enum ScoutThemePreset: String, CaseIterable, Identifiable {
     private var lightColors: ScoutThemeColors {
         switch self {
         case .scout:
+            // "Paper" is warm: grays lean R>G>B (like the web light vars and
+            // the landing's paper/ink system) instead of the old blue-gray,
+            // so light mode reads as paper rather than office-cool. Surface
+            // stays pure white — cards keep a crisp cool-white pop against
+            // the warm canvas. Luminance matches the old values, only the
+            // temperature moved. Mist stays the cool option.
             return ScoutThemeColors(
-                bg: scoutRGB(0.980, 0.980, 0.984),
-                chrome: scoutRGB(0.945, 0.949, 0.957),
+                bg: scoutRGB(0.982, 0.980, 0.972),
+                chrome: scoutRGB(0.949, 0.945, 0.934),
                 surface: .white,
-                ink: scoutRGB(0.078, 0.086, 0.106),
-                muted: scoutRGB(0.357, 0.376, 0.420),
-                dim: scoutRGB(0.482, 0.502, 0.541),
-                border: scoutRGB(0.867, 0.878, 0.898),
-                hairline: scoutRGB(0.902, 0.910, 0.925),
-                hairlineStrong: scoutRGB(0.788, 0.804, 0.831),
+                ink: scoutRGB(0.096, 0.090, 0.078),
+                muted: scoutRGB(0.390, 0.378, 0.356),
+                dim: scoutRGB(0.512, 0.500, 0.474),
+                border: scoutRGB(0.886, 0.876, 0.854),
+                hairline: scoutRGB(0.918, 0.910, 0.890),
+                hairlineStrong: scoutRGB(0.816, 0.802, 0.774),
                 accent: scoutRGB(0.286, 0.329, 0.769),
                 accentSoft: scoutRGB(0.910, 0.920, 0.980),
                 statusOk: scoutRGB(0.184, 0.490, 0.333),
@@ -381,6 +387,29 @@ enum ScoutThemePreset: String, CaseIterable, Identifiable {
                 statusInfo: scoutRGB(0.333, 0.522, 0.902)
             )
         }
+    }
+}
+
+/// How loudly the accent is spent on stateful fills — your turns in a thread,
+/// the active scope segment, the activity chart. Quiet (default) keeps them on
+/// an accent-soft wash with standard ink prose; Vivid restores the classic
+/// solid-accent fills. Attention marks and primary actions stay accent in both.
+enum ScoutAccentVolume: String, CaseIterable, Identifiable {
+    case quiet, vivid
+
+    static let defaultsKey = "scout.appearance.accentVolume"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .quiet: return "Quiet"
+        case .vivid: return "Vivid"
+        }
+    }
+
+    static var current: ScoutAccentVolume {
+        ScoutAccentVolume(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .quiet
     }
 }
 

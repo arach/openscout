@@ -316,7 +316,7 @@ private struct ScoutTurnActivityTimeline: View {
                 HStack(alignment: .top, spacing: HudSpacing.sm) {
                     Image(systemName: icon(for: item.kind))
                         .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.accent.opacity(0.82))
+                        .foregroundStyle(ScoutPalette.muted)
                         .frame(width: 12, height: 14)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: HudSpacing.xs) {
@@ -735,12 +735,13 @@ struct ScoutListNewButton: View {
 
 /// Labeled scope segments — a full-width row above search. The icon-only
 /// version forced a tooltip to learn each scope; the label names it outright.
-/// The active scope reads from the accent fill.
+/// The active scope reads from a neutral selected wash — the accent is not
+/// spent on scope state.
 struct ScoutConversationFilterControl: View {
     @Binding var selection: ScoutChannelFilter
 
     /// A compact icon-only segmented toggle: one hairline-thin track, the active
-    /// segment a solid accent block with a bg-color glyph (tray / person / #).
+    /// segment a quiet selected wash with an ink glyph (tray / person / #).
     /// Hugs its content so it can ride beside the search field on a single row;
     /// labels move into hover tooltips. Height matches the search field so the
     /// two read as one toolbar.
@@ -752,17 +753,18 @@ struct ScoutConversationFilterControl: View {
         HStack(spacing: HudSpacing.xxs) {
             ForEach(ScoutChannelFilter.allCases) { option in
                 let isActive = selection == option
+                let vivid = ScoutAccentVolume.current == .vivid
                 Button {
                     selection = option
                 } label: {
                     Image(systemName: option.icon)
                         .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                        .foregroundStyle(isActive ? ScoutPalette.bg : ScoutPalette.muted)
+                        .foregroundStyle(isActive ? (vivid ? ScoutPalette.bg : ScoutPalette.ink) : ScoutPalette.muted)
                         .frame(width: segmentWidth)
                         .frame(maxHeight: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
-                                .fill(isActive ? ScoutPalette.accent : Color.clear)
+                                .fill(isActive ? (vivid ? ScoutPalette.accent : ScoutSurface.selected(ScoutPalette.accent)) : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
@@ -1447,11 +1449,21 @@ struct ScoutMessageRow: View {
                         .clipped()
                         .overlay(alignment: .bottom) {
                             if !expanded {
-                                LinearGradient(
-                                    colors: [bubbleFill.opacity(0), bubbleFill],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
+                                // Canvas underlay + fill on top: the fill alone can be a
+                                // translucent wash (operator turns), which wouldn't occlude
+                                // the clipped text — the bg layer keeps the fade opaque.
+                                ZStack {
+                                    LinearGradient(
+                                        colors: [ScoutPalette.bg.opacity(0), ScoutPalette.bg],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    LinearGradient(
+                                        colors: [bubbleFill.opacity(0), bubbleFill],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                }
                                 .frame(height: 44)
                                 .allowsHitTesting(false)
                             }
@@ -1463,7 +1475,7 @@ struct ScoutMessageRow: View {
                 } label: {
                     Text(expanded ? "Show less" : "Show more")
                         .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.accent)
+                        .foregroundStyle(ScoutPalette.muted)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).scoutPointerCursor()
@@ -1490,8 +1502,8 @@ struct ScoutMessageRow: View {
         }
     }
 
-    /// The themed markdown for this turn — light prose on the operator's accent
-    /// fill, standard ink on an incoming surface bubble.
+    /// The themed markdown for this turn — standard ink in both registers; the
+    /// wash and edge carry "yours", not the prose color.
     private var markdown: some View {
         ScoutMarkdownView(
             text: message.body,
@@ -1512,14 +1524,20 @@ struct ScoutMessageRow: View {
     }
 
     private var isMine: Bool { message.isOperator }
-    private var bubbleFill: Color { isMine ? ScoutPalette.accent : ScoutPalette.surface }
-    private var bubbleInk: Color { isMine ? Color.white : ScoutPalette.ink }
-    private var bubbleMuted: Color { isMine ? Color.white.opacity(0.82) : ScoutPalette.muted }
-    private var bubbleAccent: Color { isMine ? Color.white : ScoutPalette.accent }
+    private var vivid: Bool { ScoutAccentVolume.current == .vivid }
+    private var bubbleFill: Color {
+        guard isMine else { return ScoutPalette.surface }
+        return vivid ? ScoutPalette.accent : ScoutPalette.accentSoft
+    }
+    private var bubbleInk: Color { isMine && vivid ? Color.white : ScoutPalette.ink }
+    private var bubbleMuted: Color { isMine && vivid ? Color.white.opacity(0.82) : ScoutPalette.muted }
+    private var bubbleAccent: Color { isMine && vivid ? Color.white : ScoutPalette.accent }
 
     /// Differential elevation: an incoming turn FLOATS (surface fill · hairline ·
-    /// soft drop shadow); the operator's own turn is FLAT and anchored (accent
-    /// fill, no shadow). That contrast — not a tint — is what marks "yours".
+    /// soft drop shadow); the operator's own turn is FLAT and anchored. At the
+    /// default Quiet accent volume that's an accent-soft wash with a faint
+    /// accent edge — a long brief must not flood the pane; the wash + avatar
+    /// ring whisper "yours". Vivid restores the classic solid accent fill.
     @ViewBuilder
     private func bubble<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content()
@@ -1531,7 +1549,12 @@ struct ScoutMessageRow: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ScoutCommsMetrics.bubbleRadius, style: .continuous)
-                    .stroke(isMine ? Color.clear : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                    .stroke(
+                        isMine
+                            ? (vivid ? Color.clear : ScoutPalette.accent.opacity(0.28))
+                            : ScoutDesign.hairline,
+                        lineWidth: HudStrokeWidth.thin
+                    )
             )
             .shadow(
                 color: isMine ? Color.clear : ScoutSurface.shadow(0.16),

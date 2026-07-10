@@ -1,3 +1,26 @@
+/* Hairline strength is theme-dependent: ink at 5–7% reads fine on a dark
+   ground but disappears on paper. Dark keeps the original mixes; light leans
+   on the theme's real border color (native presets pass a designed --hud-border)
+   so table hierarchy survives light mode. Both attributes live on the
+   ScoutProvider wrapper. */
+[data-scout-theme-mode] {
+  --sys-hairline: color-mix(in srgb, var(--ink) 7%, transparent);
+  --sys-hairline-soft: color-mix(in srgb, var(--ink) 5%, transparent);
+  --sys-head-tint: color-mix(in srgb, var(--ink) 3%, transparent);
+  --sys-well: color-mix(in srgb, var(--bg) 84%, transparent);
+  --sys-row-hover: color-mix(in srgb, var(--accent) 5%, transparent);
+  --sys-row-selected: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+[data-scout-theme-mode="light"] {
+  --sys-hairline: var(--border);
+  --sys-hairline-soft: color-mix(in srgb, var(--border) 62%, transparent);
+  --sys-head-tint: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  --sys-well: color-mix(in srgb, var(--ink) 4%, transparent);
+  --sys-row-hover: color-mix(in srgb, var(--accent) 7%, transparent);
+  --sys-row-selected: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .sys-surface-page {
   display: flex;
   flex-direction: column;
@@ -64,7 +87,7 @@
 }
 
 .sys-panel {
-  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid var(--sys-hairline);
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   box-shadow: none;
@@ -104,7 +127,7 @@
   flex-direction: column;
   gap: var(--space-2xs);
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid var(--sys-hairline-soft);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   padding: var(--space-lg) var(--space-xl);
@@ -233,7 +256,7 @@
   display: flex;
   gap: var(--space-xs);
   flex-wrap: wrap;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-bottom: 1px solid var(--sys-hairline);
 }
 
 .sys-tab {
@@ -279,7 +302,7 @@
   justify-content: space-between;
   gap: var(--space-lg);
   min-height: 38px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-bottom: 1px solid var(--sys-hairline);
 }
 
 .sys-ledger-toolbar .sys-tab-row {
@@ -312,12 +335,16 @@
   padding: var(--space-lg) 0 var(--space-sm);
 }
 
+/* The ledger sits on a surface plate rather than bleeding into the page
+   background — without it the table reads as rows floating in an unbounded
+   field, which is what made light mode feel like one flat gray expanse. */
 .sys-broker-table {
   --sys-broker-ledger-grid: 54px 44px minmax(240px, 2.1fr) minmax(80px, 0.65fr) minmax(150px, 1.05fr) 34px minmax(78px, 0.4fr);
 
   overflow-x: auto;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid var(--sys-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
 .sys-broker-table-head,
@@ -333,8 +360,9 @@
 
 .sys-broker-table-head {
   padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
-  color: var(--dim);
+  border-bottom: 1px solid var(--sys-hairline);
+  background: var(--sys-head-tint);
+  color: var(--muted);
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: var(--tracking-lg);
@@ -361,7 +389,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2xl);
   padding: var(--space-xl) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  border-bottom: 1px solid var(--sys-hairline-soft);
   cursor: pointer;
   outline: none;
 }
@@ -384,19 +412,23 @@
   min-width: 820px;
   row-gap: 0;
   padding: var(--space-sm) var(--space-md);
-  border-bottom-color: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-bottom-color: var(--sys-hairline-soft);
   border-left: 2px solid transparent;
+}
+
+.sys-broker-table-body .sys-broker-row--ledger:last-child {
+  border-bottom-color: transparent;
 }
 
 .sys-broker-row--ledger:hover,
 .sys-broker-row--ledger:focus-visible {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--sys-row-hover);
   border-bottom-color: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .sys-broker-row--ledger.sys-broker-row-selected {
   border-left-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  background: var(--sys-row-selected);
 }
 
 .sys-broker-cell {
@@ -526,14 +558,14 @@
 }
 
 .sys-broker-status--error {
-  color: var(--danger);
+  color: var(--red);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
 
 .sys-broker-error-detail {
   margin: 0;
-  color: color-mix(in srgb, var(--danger) 78%, var(--muted));
+  color: color-mix(in srgb, var(--red) 78%, var(--muted));
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: var(--leading-snug);
@@ -645,13 +677,13 @@
   gap: var(--space-2xs);
   margin-top: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  border-left: 3px solid var(--danger);
+  border-left: 3px solid var(--red);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 .sys-broker-inspector-error-label {
-  color: var(--danger);
+  color: var(--red);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: 0.04em;
@@ -684,15 +716,15 @@
 }
 
 .sys-broker-review-status--sent {
-  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
-  color: color-mix(in srgb, var(--success) 78%, var(--ink));
-  background: color-mix(in srgb, var(--success) 9%, transparent);
+  border-color: color-mix(in srgb, var(--green) 36%, var(--border));
+  color: color-mix(in srgb, var(--green) 78%, var(--ink));
+  background: color-mix(in srgb, var(--green) 9%, transparent);
 }
 
 .sys-broker-review-status--failed {
-  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
-  color: color-mix(in srgb, var(--danger) 78%, var(--ink));
-  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border-color: color-mix(in srgb, var(--red) 36%, var(--border));
+  color: color-mix(in srgb, var(--red) 78%, var(--ink));
+  background: color-mix(in srgb, var(--red) 9%, transparent);
 }
 
 .sys-broker-metadata {
@@ -710,7 +742,7 @@
 }
 
 .sys-broker-metadata-copy {
-  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid var(--sys-hairline);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
 }
 
@@ -777,7 +809,7 @@
   align-items: start;
   padding: var(--space-xs) var(--space-sm);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  background: var(--sys-well);
 }
 
 .sys-broker-metadata-key {
@@ -808,8 +840,8 @@
   max-height: 360px;
   overflow: auto;
   border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  border: 1px solid var(--sys-hairline);
+  background: var(--sys-well);
   color: var(--ink);
   padding: var(--space-lg);
   font-family: var(--font-mono);
@@ -875,7 +907,7 @@
   min-width: 0;
   border-radius: var(--radius-lg);
   border: none;
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  background: var(--sys-well);
   padding: var(--space-md) var(--space-lg);
 }
 
