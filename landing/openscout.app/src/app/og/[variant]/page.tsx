@@ -29,8 +29,8 @@ const VARIANTS = {
     foot: "openscout.app/docs",
   },
   privacy: {
-    headline: "Local-first, by default.",
-    sub: "Your code, prompts, and history stay on your machine.",
+    headline: "Local-first control plane.",
+    sub: "Broker state stays on your machine. Model traffic follows your chosen harness.",
     foot: "openscout.app/privacy",
   },
   inventory: {
