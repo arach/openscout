@@ -11,8 +11,7 @@ transports. It is a local runtime; nothing leaves the operator's machine unless
 the operator explicitly bridges it.
 
 Current maturity: high-trust local developer pilots. Not enterprise-ready or
-compliance-ready. Do not assume an open-source reuse license from this file;
-the repo/package license posture is still being made explicit.
+compliance-ready. Licensed under the Apache License 2.0; see the repository LICENSE file.
 
 ## Install
 
@@ -60,4 +59,4 @@ are instance constraints layered on only when needed.
 
 ## License
 
-Not finalized in this repo. Check the repository/package metadata before assuming reuse rights.
+Apache License 2.0. See the repository [`LICENSE`](https://github.com/arach/openscout/blob/main/LICENSE) and `NOTICE` files.

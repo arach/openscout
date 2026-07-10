@@ -17,6 +17,15 @@ Use this published CLI path when you are evaluating Scout as a local pilot or
 installing it onto a developer machine. Contributors working from the repository
 should use the repo-local install path in the GitHub README.
 
+One-liner (installs the CLI with bun, falling back to npm, and prints the next
+steps):
+
+```sh
+curl -fsSL https://openscout.app/install | sh
+```
+
+Or the same path by hand:
+
 ```sh
 bun add -g @openscout/scout
 scout setup
