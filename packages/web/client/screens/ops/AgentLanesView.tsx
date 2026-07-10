@@ -499,7 +499,6 @@ export function AgentLanesView({
     hydrateOnDiscovery: true,
     discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
     recentLimit: tailRecentLimit,
-    discoveryScope: embedded ? "hot" : undefined,
     discoveryLimit: embedded ? EMBEDDED_TAIL_DISCOVERY_LIMIT : undefined,
     pauseWhenHidden: true,
   });

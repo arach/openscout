@@ -604,6 +604,9 @@ type ServerTimingMetric = {
   desc?: string;
 };
 
+const MAX_SERVER_TIMING_HEADER_LENGTH = 2048;
+const TRUNCATED_SERVER_TIMING_HEADER = 'server-timing-truncated;desc="oversize"';
+
 function serverTimingToken(value: string): string {
   return value.trim().replace(/[^A-Za-z0-9!#$%&'*+.^_`|~-]+/g, "-") || "metric";
 }
@@ -628,12 +631,22 @@ function formatServerTiming(metrics: ServerTimingMetric[]): string {
     .join(", ");
 }
 
+function boundedServerTimingHeader(value: string): string {
+  const trimmed = value.replace(/[\r\n]+/g, " ").trim();
+  return trimmed.length <= MAX_SERVER_TIMING_HEADER_LENGTH
+    ? trimmed
+    : TRUNCATED_SERVER_TIMING_HEADER;
+}
+
 function appendServerTimingHeader(
   upstream: string | null,
   metrics: ServerTimingMetric[],
 ): string {
   const local = formatServerTiming(metrics);
-  return [upstream?.trim() || null, local || null].filter(Boolean).join(", ");
+  return boundedServerTimingHeader([
+    upstream ? boundedServerTimingHeader(upstream) : null,
+    local || null,
+  ].filter(Boolean).join(", "));
 }
 
 type TailRecentPayload = {

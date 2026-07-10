@@ -958,6 +958,40 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("caps oversized upstream Server-Timing before serving cached tail data", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        generatedAt: 1,
+        limit: 10,
+        cursor: null,
+        events: [],
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "server-timing": `tail-live;desc="${"x".repeat(3000)}"`,
+        },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const first = await server.app.request("http://localhost/api/tail/recent?limit=10");
+    expect(first.status).toBe(200);
+    await flushPromises();
+
+    const second = await server.app.request("http://localhost/api/tail/recent?limit=10");
+
+    expect(second.status).toBe(200);
+    const timing = second.headers.get("server-timing") ?? "";
+    expect(timing.length).toBeLessThan(512);
+    expect(timing).toContain('server-timing-truncated;desc="oversize"');
+  });
+
   test("forces tail discovery refresh before serving cached broker data", async () => {
     const fetchUrls: string[] = [];
     let brokerGeneratedAt = 0;
