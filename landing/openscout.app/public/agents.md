@@ -92,4 +92,4 @@ Plural alias: [/.well-known/agents.md](/.well-known/agents.md). Local CLI: `scou
 
 ## License
 
-Not finalized in this repo. Check the repository/package metadata before assuming reuse rights.
+Apache License 2.0. See the repository [`LICENSE`](https://github.com/arach/openscout/blob/main/LICENSE) and `NOTICE` files.

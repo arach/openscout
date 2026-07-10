@@ -2,7 +2,7 @@
   "name": "@openscout/agent-sessions",
   "version": "0.2.73",
   "description": "Browser-safe session boundary for OpenScout agent sessions",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "author": "Arach Tchoupani",
   "homepage": "https://github.com/arach/openscout/tree/main/packages/agent-sessions#readme",

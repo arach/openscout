@@ -183,7 +183,7 @@ export default function DocsIndex() {
                 <b>v{SCOUT_VERSION}</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
-              <span className="status-bar__cell hidden md:inline-flex">license pending</span>
+              <span className="status-bar__cell hidden md:inline-flex">apache-2.0</span>
             </span>
             <span className="status-bar__zone status-bar__zone--right">
               <Link href="/" className="status-bar__link">

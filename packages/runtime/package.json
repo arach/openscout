@@ -289,7 +289,7 @@
     "drizzle-kit": "0.31.10",
     "typescript": "^5"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Arach Tchoupani",
   "homepage": "https://github.com/arach/openscout/tree/main/packages/runtime#readme",
   "repository": {

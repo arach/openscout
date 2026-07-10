@@ -1252,7 +1252,7 @@ export default function Home() {
                   <b>v{SCOUT_VERSION}</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
-                  license pending
+                  apache-2.0
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
                   local

@@ -188,3 +188,7 @@ registry entries.
 - [`docs/architecture.md`](./docs/architecture.md#agent-identity-and-addressing) for address grammar and name resolution
 - [`docs/agent-integration-contract.md`](./docs/agent-integration-contract.md) for the minimum contract expected from agents and adapters
 - [`docs/concepts.md`](./docs/concepts.md) for the definitive Scout vocabulary and A2A alignment
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
