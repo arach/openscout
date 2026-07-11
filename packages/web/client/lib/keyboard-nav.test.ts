@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isEditableTarget, nextListIndex } from "./keyboard-nav-core.ts";
+import {
+  isEditableTarget,
+  isTerminalInputTarget,
+  nextListIndex,
+} from "./keyboard-nav-core.ts";
 
 describe("keyboard list index", () => {
   test("starts at the first item when moving down from an unset cursor", () => {
@@ -38,5 +42,25 @@ describe("editable shortcut targets", () => {
       isContentEditable: false,
       tagName: "BUTTON",
     } as unknown as EventTarget)).toBe(false);
+  });
+});
+
+describe("terminal shortcut targets", () => {
+  test("treats xterm descendants as exclusive keyboard owners", () => {
+    expect(isTerminalInputTarget({
+      closest: (selector: string) => selector.includes(".xterm") ? {} : null,
+    } as unknown as EventTarget)).toBe(true);
+  });
+
+  test("supports explicitly marked terminal input surfaces", () => {
+    expect(isTerminalInputTarget({
+      parentElement: {
+        closest: (selector: string) => selector.includes("data-scout-terminal-input") ? {} : null,
+      },
+    } as unknown as EventTarget)).toBe(true);
+  });
+
+  test("ignores ordinary app-shell targets", () => {
+    expect(isTerminalInputTarget({ closest: () => null } as unknown as EventTarget)).toBe(false);
   });
 });

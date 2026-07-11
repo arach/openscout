@@ -33,7 +33,7 @@ import {
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
-import { isEditableTarget, usePaneNav } from "./lib/keyboard-nav.ts";
+import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
   isNewChatShortcut,
   NEW_CHAT_SHORTCUT_LABEL,
@@ -467,6 +467,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isTerminalInputTarget(e.target)) return;
       if (takeoverActive || keyboardHelp.open) return;
       const key = e.key.toLowerCase();
       const hasModifier = e.metaKey || e.ctrlKey || e.altKey;

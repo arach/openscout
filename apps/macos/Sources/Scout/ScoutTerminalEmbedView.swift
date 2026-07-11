@@ -17,33 +17,59 @@ private enum ScoutTerminalMetrics {
 }
 
 private enum ScoutTerminalDragPayload {
-    static let acceptedTypes: [UTType] = [.plainText]
-
-    static func itemProvider(id: String) -> NSItemProvider {
-        NSItemProvider(object: id as NSString)
+    enum Payload {
+        case attachTarget(String)
     }
 
-    static func loadIDs(
+    private static let attachType = UTType(exportedAs: "app.openscout.terminal-attach-target")
+
+    static let attachTypes: [UTType] = [attachType, .plainText]
+    private static let attachPrefix = "scout-terminal-target:"
+
+    static func itemProvider(_ payload: Payload) -> NSItemProvider {
+        let value: String
+        let type: UTType
+        switch payload {
+        case .attachTarget(let id):
+            value = attachPrefix + id
+            type = attachType
+        }
+        return NSItemProvider(item: value as NSString, typeIdentifier: type.identifier)
+    }
+
+    static func load(
         from providers: [NSItemProvider],
-        onID: @escaping @MainActor @Sendable (String) -> Void
+        acceptedTypes: [UTType],
+        onPayload: @escaping @MainActor @Sendable (Payload) -> Void
     ) -> Bool {
-        let typeIdentifier = UTType.plainText.identifier
-        let candidates = providers.filter { $0.hasItemConformingToTypeIdentifier(typeIdentifier) }
+        let candidates = providers.compactMap { provider -> (NSItemProvider, String)? in
+            guard let type = acceptedTypes.first(where: {
+                provider.hasItemConformingToTypeIdentifier($0.identifier)
+            }) else { return nil }
+            return (provider, type.identifier)
+        }
         guard !candidates.isEmpty else { return false }
 
-        for provider in candidates {
+        for (provider, typeIdentifier) in candidates {
             provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
-                guard let id = string(from: item)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !id.isEmpty else {
+                guard let value = string(from: item)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      let payload = decode(value) else {
                     return
                 }
                 Task { @MainActor in
-                    onID(id)
+                    onPayload(payload)
                 }
             }
         }
 
         return true
+    }
+
+    private static func decode(_ value: String) -> Payload? {
+        if value.hasPrefix(attachPrefix) {
+            return .attachTarget(String(value.dropFirst(attachPrefix.count)))
+        }
+        return value.isEmpty ? nil : .attachTarget(value)
     }
 
     private static func string(from item: NSSecureCoding?) -> String? {
@@ -57,6 +83,34 @@ private enum ScoutTerminalDragPayload {
             return String(data: data, encoding: .utf8)
         }
         return nil
+    }
+}
+
+private enum ScoutTerminalTileDropEdge: Equatable {
+    case before
+    case after
+}
+
+private enum ScoutTerminalTileDropAxis: Equatable {
+    case horizontal
+    case vertical
+}
+
+private struct ScoutTerminalTileDropTarget: Equatable {
+    let id: String
+    let edge: ScoutTerminalTileDropEdge
+    let axis: ScoutTerminalTileDropAxis
+}
+
+private enum ScoutTerminalCoordinateSpace {
+    static let nativeGrid = "scout-native-terminal-grid"
+}
+
+private struct ScoutTerminalTileFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
@@ -84,6 +138,11 @@ private enum ScoutTerminalRenderer: String, CaseIterable, Hashable {
         case .xterm: return "globe"
         }
     }
+}
+
+private struct ScoutTerminalWebCommand: Equatable {
+    let id = UUID()
+    let line: String
 }
 
 /// Terminal surface for the native Scout app.
@@ -129,6 +188,10 @@ private struct ScoutNativeTerminalContent: View {
     @StateObject private var model = ScoutNativeTerminalGridModel()
     @AppStorage("scout.terminals.native.showHeaders") private var showHeaders = true
     @State private var dropTargeted = false
+    @State private var draggedTileID: String?
+    @State private var tileDropTarget: ScoutTerminalTileDropTarget?
+    @State private var tileDragLocation: CGPoint?
+    @State private var tileFrames: [String: CGRect] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -217,7 +280,7 @@ private struct ScoutNativeTerminalContent: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                     .onDrop(
-                        of: ScoutTerminalDragPayload.acceptedTypes,
+                        of: ScoutTerminalDragPayload.attachTypes,
                         isTargeted: $dropTargeted,
                         perform: attachDraggedTargets
                     )
@@ -261,6 +324,7 @@ private struct ScoutNativeTerminalContent: View {
             let rows = max(1, (count + columns - 1) / columns)
             let availableHeight = max(260, geo.size.height - gap * 2 - CGFloat(rows - 1) * gap)
             let tileHeight = max(showHeaders ? 260 : 220, availableHeight / CGFloat(rows))
+            let dropAxis: ScoutTerminalTileDropAxis = columns > 1 ? .horizontal : .vertical
             let gridItems = Array(
                 repeating: GridItem(.flexible(minimum: ScoutTerminalMetrics.tileMinWidth), spacing: gap),
                 count: columns
@@ -273,16 +337,34 @@ private struct ScoutNativeTerminalContent: View {
                             ScoutNativeTerminalTileView(
                                 tile: tile,
                                 showHeader: showHeaders,
+                                retargetTargets: model.retargetableTargets(for: tile),
+                                dropTarget: tileDropTarget?.id == tile.id ? tileDropTarget : nil,
+                                onDragChanged: { updateTileDrag(id: tile.id, location: $0, axis: dropAxis) },
+                                onDragEnded: { finishTileDrag(id: tile.id, location: $0, axis: dropAxis) },
+                                onRetarget: { model.retarget(tile, to: $0) },
+                                onRefreshTargets: { Task { await model.reload() } },
                                 onRestart: { model.restart(tile) },
                                 onClose: { model.close(tile) }
                             )
                             .frame(height: tileHeight)
+                            .background {
+                                GeometryReader { tileGeometry in
+                                    Color.clear.preference(
+                                        key: ScoutTerminalTileFramePreferenceKey.self,
+                                        value: [
+                                            tile.id: tileGeometry.frame(
+                                                in: .named(ScoutTerminalCoordinateSpace.nativeGrid)
+                                            )
+                                        ]
+                                    )
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, ScoutTerminalMetrics.pageGutter)
                     .padding(.top, gap)
                     .onDrop(
-                        of: ScoutTerminalDragPayload.acceptedTypes,
+                        of: ScoutTerminalDragPayload.attachTypes,
                         isTargeted: $dropTargeted,
                         perform: attachDraggedTargets
                     )
@@ -303,6 +385,34 @@ private struct ScoutNativeTerminalContent: View {
                 .padding(.bottom, gap)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .coordinateSpace(name: ScoutTerminalCoordinateSpace.nativeGrid)
+            .onPreferenceChange(ScoutTerminalTileFramePreferenceKey.self) { tileFrames = $0 }
+            .overlay {
+                GeometryReader { overlayGeometry in
+                    if let draggedTileID,
+                       let tileDragLocation,
+                       let tile = model.tiles.first(where: { $0.id == draggedTileID }) {
+                        ScoutNativeTerminalDragPreview(tile: tile)
+                            .position(
+                                x: min(
+                                    max(
+                                        tileDragLocation.x + ScoutNativeTerminalDragPreview.cursorOffset.x,
+                                        ScoutNativeTerminalDragPreview.size.width / 2
+                                    ),
+                                    overlayGeometry.size.width - ScoutNativeTerminalDragPreview.size.width / 2
+                                ),
+                                y: min(
+                                    max(
+                                        tileDragLocation.y + ScoutNativeTerminalDragPreview.cursorOffset.y,
+                                        ScoutNativeTerminalDragPreview.size.height / 2
+                                    ),
+                                    overlayGeometry.size.height - ScoutNativeTerminalDragPreview.size.height / 2
+                                )
+                            )
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
         }
     }
 
@@ -346,12 +456,58 @@ private struct ScoutNativeTerminalContent: View {
         return min(count, min(3, possible))
     }
 
+    private func updateTileDrag(
+        id: String,
+        location: CGPoint,
+        axis: ScoutTerminalTileDropAxis
+    ) {
+        draggedTileID = id
+        tileDragLocation = location
+        tileDropTarget = tileDropTarget(for: id, location: location, axis: axis)
+    }
+
+    private func finishTileDrag(
+        id: String,
+        location: CGPoint,
+        axis: ScoutTerminalTileDropAxis
+    ) {
+        if let target = tileDropTarget(for: id, location: location, axis: axis) {
+            model.moveTile(id: id, relativeTo: target.id, edge: target.edge)
+        }
+        draggedTileID = nil
+        tileDragLocation = nil
+        tileDropTarget = nil
+    }
+
+    private func tileDropTarget(
+        for sourceID: String,
+        location: CGPoint,
+        axis: ScoutTerminalTileDropAxis
+    ) -> ScoutTerminalTileDropTarget? {
+        guard let destination = model.tiles.first(where: { tile in
+            tile.id != sourceID && tileFrames[tile.id]?.contains(location) == true
+        }), let frame = tileFrames[destination.id] else {
+            return nil
+        }
+
+        let edge: ScoutTerminalTileDropEdge
+        switch axis {
+        case .horizontal:
+            edge = location.x < frame.midX ? .before : .after
+        case .vertical:
+            edge = location.y < frame.midY ? .before : .after
+        }
+        return ScoutTerminalTileDropTarget(id: destination.id, edge: edge, axis: axis)
+    }
+
     private func attachDraggedTargets(_ providers: [NSItemProvider]) -> Bool {
-        ScoutTerminalDragPayload.loadIDs(from: providers) { id in
-            Task { @MainActor in
-                if model.attachTarget(id: id) {
-                    dropTargeted = false
-                }
+        ScoutTerminalDragPayload.load(
+            from: providers,
+            acceptedTypes: ScoutTerminalDragPayload.attachTypes
+        ) { payload in
+            guard case .attachTarget(let id) = payload else { return }
+            if model.attachTarget(id: id) {
+                dropTargeted = false
             }
         }
     }
@@ -370,8 +526,13 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
     @Published private(set) var isAddingShell = false
 
     var attachableTargets: [ScoutNativeTerminalTarget] {
-        let tiledIDs = Set(tiles.map(\.id))
+        let tiledIDs = Set(tiles.map(\.target.id))
         return attachTargets.filter { !tiledIDs.contains($0.id) }
+    }
+
+    func retargetableTargets(for tile: ScoutNativeTerminalTile) -> [ScoutNativeTerminalTarget] {
+        let occupiedIDs = Set(tiles.lazy.filter { $0.id != tile.id }.map(\.target.id))
+        return attachTargets.filter { !occupiedIDs.contains($0.id) }
     }
 
     func loadIfNeeded() async {
@@ -434,11 +595,33 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
     }
 
     func attach(_ target: ScoutNativeTerminalTarget) {
-        if let current = tiles.first(where: { $0.id == target.id }) {
+        if let current = tiles.first(where: { $0.target.id == target.id }) {
             current.update(target)
             return
         }
         tiles.append(ScoutNativeTerminalTile(target: target))
+    }
+
+    func retarget(_ tile: ScoutNativeTerminalTile, to target: ScoutNativeTerminalTarget) {
+        guard !tiles.contains(where: { $0.id != tile.id && $0.target.id == target.id }) else { return }
+        tile.retarget(target)
+        objectWillChange.send()
+    }
+
+    func moveTile(
+        id: String,
+        relativeTo destinationID: String,
+        edge: ScoutTerminalTileDropEdge
+    ) {
+        guard id != destinationID,
+              let sourceIndex = tiles.firstIndex(where: { $0.id == id }),
+              tiles.contains(where: { $0.id == destinationID })
+        else { return }
+
+        let tile = tiles.remove(at: sourceIndex)
+        guard let destinationIndex = tiles.firstIndex(where: { $0.id == destinationID }) else { return }
+        let insertionIndex = edge == .after ? destinationIndex + 1 : destinationIndex
+        tiles.insert(tile, at: min(insertionIndex, tiles.count))
     }
 
     fileprivate func restart(_ tile: ScoutNativeTerminalTile) {
@@ -464,7 +647,7 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
         var next: [ScoutNativeTerminalTile] = []
 
         for tile in tiles {
-            if let target = targetsByID[tile.id] {
+            if let target = targetsByID[tile.target.id] {
                 tile.update(target)
                 next.append(tile)
             } else if tile.target.isRegistryBacked {
@@ -483,7 +666,7 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
 @MainActor
 private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @unchecked Sendable {
     let id: String
-    let workspace: TerminiLocalPTYWorkspace
+    @Published private(set) var workspace: TerminiLocalPTYWorkspace
 
     @Published private(set) var target: ScoutNativeTerminalTarget
     @Published private(set) var statusMessage: String = "Ready"
@@ -493,7 +676,7 @@ private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @un
     private var statusTask: Task<Void, Never>?
 
     init(target: ScoutNativeTerminalTarget) {
-        self.id = target.id
+        self.id = "native-tile-\(UUID().uuidString)"
         self.target = target
         self.workspace = TerminiLocalPTYWorkspace(processSpec: target.processSpec)
         self.statusMessage = workspace.statusMessage
@@ -508,6 +691,19 @@ private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @un
         if !hasStarted {
             workspace.processSpec = next.processSpec ?? workspace.processSpec
         }
+    }
+
+    func retarget(_ next: ScoutNativeTerminalTarget) {
+        statusTask?.cancel()
+        statusTask = nil
+        workspace.stop()
+
+        target = next
+        workspace = TerminiLocalPTYWorkspace(processSpec: next.processSpec)
+        statusMessage = workspace.statusMessage
+        isRunning = false
+        hasStarted = false
+        startIfNeeded()
     }
 
     func startIfNeeded() {
@@ -557,6 +753,12 @@ private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @un
 private struct ScoutNativeTerminalTileView: View {
     @ObservedObject var tile: ScoutNativeTerminalTile
     let showHeader: Bool
+    let retargetTargets: [ScoutNativeTerminalTarget]
+    let dropTarget: ScoutTerminalTileDropTarget?
+    let onDragChanged: (CGPoint) -> Void
+    let onDragEnded: (CGPoint) -> Void
+    let onRetarget: (ScoutNativeTerminalTarget) -> Void
+    let onRefreshTargets: () -> Void
     let onRestart: () -> Void
     let onClose: () -> Void
 
@@ -587,11 +789,19 @@ private struct ScoutNativeTerminalTileView: View {
                 cornerRadius: showHeader ? HudRadius.card : 0,
                 style: .continuous
             )
-            .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            .stroke(
+                dropTarget == nil ? ScoutDesign.hairlineStrong : ScoutPalette.accent.opacity(0.5),
+                lineWidth: dropTarget == nil ? HudStrokeWidth.thin : HudStrokeWidth.standard
+            )
         )
+        .overlay {
+            dropIndicator
+        }
         .overlay(alignment: .topTrailing) {
             if !showHeader && isHovering {
                 HStack(spacing: 2) {
+                    dragHandle
+                    retargetMenu
                     ScoutTerminalIconButton(systemName: "arrow.clockwise", help: "Restart terminal", action: onRestart)
                     ScoutTerminalIconButton(systemName: "xmark", help: "Close terminal", action: onClose)
                 }
@@ -616,6 +826,8 @@ private struct ScoutNativeTerminalTileView: View {
 
     private var titleBar: some View {
         HStack(spacing: HudSpacing.md) {
+            dragHandle
+
             HudStatusDot(
                 color: tile.isRunning ? ScoutPalette.statusOk : ScoutPalette.statusWarn,
                 size: 6,
@@ -639,6 +851,7 @@ private struct ScoutNativeTerminalTileView: View {
             ScoutTerminalBackendBadge("native")
             ScoutTerminalBackendBadge(tile.target.backendLabel)
 
+            retargetMenu
             ScoutTerminalIconButton(systemName: "arrow.clockwise", help: "Restart terminal", action: onRestart)
             ScoutTerminalIconButton(systemName: "xmark", help: "Close terminal", action: onClose)
         }
@@ -651,10 +864,150 @@ private struct ScoutNativeTerminalTileView: View {
                 .frame(height: HudStrokeWidth.thin)
         }
         .help(tile.target.subtitle)
+        .contentShape(Rectangle())
+        .gesture(tileDragGesture, including: .gesture)
+    }
+
+    @ViewBuilder
+    private var dragHandle: some View {
+        if showHeader {
+            dragHandleLabel
+        } else {
+            dragHandleLabel
+                .gesture(tileDragGesture)
+        }
+    }
+
+    private var dragHandleLabel: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+            .foregroundStyle(ScoutPalette.dim)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+            .help("Drag to move tile")
+            .accessibilityLabel("Move terminal tile")
+    }
+
+    private var tileDragGesture: some Gesture {
+        DragGesture(
+            minimumDistance: 4,
+            coordinateSpace: .named(ScoutTerminalCoordinateSpace.nativeGrid)
+        )
+        .onChanged { onDragChanged($0.location) }
+        .onEnded { onDragEnded($0.location) }
+    }
+
+    @ViewBuilder
+    private var dropIndicator: some View {
+        if let dropTarget {
+            GeometryReader { geometry in
+                switch dropTarget.axis {
+                case .horizontal:
+                    Rectangle()
+                        .fill(ScoutPalette.accent)
+                        .frame(width: 4, height: max(0, geometry.size.height - 16))
+                        .position(
+                            x: dropTarget.edge == .before ? 3 : geometry.size.width - 3,
+                            y: geometry.size.height / 2
+                        )
+                case .vertical:
+                    Rectangle()
+                        .fill(ScoutPalette.accent)
+                        .frame(width: max(0, geometry.size.width - 16), height: 4)
+                        .position(
+                            x: geometry.size.width / 2,
+                            y: dropTarget.edge == .before ? 3 : geometry.size.height - 3
+                        )
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var retargetMenu: some View {
+        Menu {
+            Button("Refresh sessions", action: onRefreshTargets)
+            Divider()
+            ForEach(["tmux", "zellij"], id: \.self) { backend in
+                let targets = retargetTargets.filter { $0.backendLabel == backend }
+                if !targets.isEmpty {
+                    Menu(backend) {
+                        ForEach(targets) { target in
+                            Button {
+                                onRetarget(target)
+                            } label: {
+                                Label(
+                                    target.title,
+                                    systemImage: target.id == tile.target.id ? "checkmark" : "arrow.right"
+                                )
+                            }
+                            .disabled(target.id == tile.target.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                .foregroundStyle(ScoutPalette.muted)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Change attached session")
+        .accessibilityLabel("Change attached session")
     }
 
     private var terminalBackground: Color {
         colorScheme == .dark ? Color.black.opacity(0.24) : ScoutSurface.inset
+    }
+}
+
+private struct ScoutNativeTerminalDragPreview: View {
+    static let size = CGSize(width: 220, height: 112)
+    static let cursorOffset = CGPoint(x: 92, y: 42)
+
+    @ObservedObject var tile: ScoutNativeTerminalTile
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: HudSpacing.sm) {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(ScoutPalette.dim)
+                HudStatusDot(
+                    color: tile.isRunning ? ScoutPalette.statusOk : ScoutPalette.statusWarn,
+                    size: 6,
+                    pulses: false
+                )
+                Text(tile.target.title)
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                Spacer(minLength: HudSpacing.xs)
+                ScoutTerminalBackendBadge(tile.target.backendLabel)
+            }
+            .frame(height: 34)
+            .padding(.horizontal, HudSpacing.md)
+            .background(ScoutSurface.control)
+
+            Rectangle()
+                .fill(colorScheme == .dark ? Color.black.opacity(0.82) : ScoutSurface.inset)
+                .overlay(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(ScoutPalette.accent.opacity(0.22))
+                        .frame(width: 118, height: 3)
+                        .padding(HudSpacing.lg)
+                }
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(ScoutPalette.accent.opacity(0.58), lineWidth: HudStrokeWidth.standard)
+        )
+        .opacity(0.92)
     }
 }
 
@@ -785,7 +1138,7 @@ private struct ScoutNativeAttachTargetCard: View {
         .onTapGesture(count: 2, perform: onAttach)
         .onHover { hovering = $0 }
         .onDrag {
-            ScoutTerminalDragPayload.itemProvider(id: target.id)
+            ScoutTerminalDragPayload.itemProvider(.attachTarget(target.id))
         }
         .help(target.subtitle)
     }
@@ -799,9 +1152,9 @@ private struct ScoutTerminalBackendBadge: View {
     }
 
     var body: some View {
-        Text(label.uppercased())
-            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-            .tracking(0.6)
+        Text(label.lowercased())
+            .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+            .tracking(0.1)
             .foregroundStyle(ScoutPalette.dim)
             .padding(.horizontal, HudSpacing.sm)
             .frame(height: 20)
@@ -1004,7 +1357,7 @@ private struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
         session: ScoutTerminalSessionRecord,
         surface: ScoutTerminalSurfaceRecord
     ) -> String {
-        let backend = surface.backend.uppercased()
+        let backend = surface.backend.lowercased()
         let harness = session.harness.trimmingCharacters(in: .whitespacesAndNewlines)
         if harness.isEmpty || harness.caseInsensitiveCompare(surface.backend) == .orderedSame {
             return "\(backend) \(surface.sessionName)"
@@ -1121,7 +1474,7 @@ private struct ScoutTerminalTabbedWebContent: View {
         }
         .background(ScoutDesign.bg)
         .task {
-            await model.loadAttachTargets()
+            await model.loadTerminalContext()
         }
     }
 
@@ -1183,7 +1536,7 @@ private struct ScoutTerminalTabbedWebContent: View {
                 newTabMenu
             }
             .onDrop(
-                of: ScoutTerminalDragPayload.acceptedTypes,
+                of: ScoutTerminalDragPayload.attachTypes,
                 isTargeted: $dropTargeted,
                 perform: attachDraggedTargets
             )
@@ -1218,6 +1571,8 @@ private struct ScoutTerminalTabbedWebContent: View {
                                 isSelected: model.selectedTabID == tab.id,
                                 showHeader: showTileHeaders,
                                 onSelect: { model.select(tab) },
+                                projectDestinations: model.projectDestinations,
+                                onSendLine: { model.sendLine($0, to: tab) },
                                 onReload: { model.reload(tab) },
                                 onClose: { model.close(tab) },
                                 onOpen: { ScoutWeb.open(path: tab.routePath) }
@@ -1228,7 +1583,7 @@ private struct ScoutTerminalTabbedWebContent: View {
                     .padding(.horizontal, ScoutTerminalMetrics.pageGutter)
                     .padding(.top, gap)
                     .onDrop(
-                        of: ScoutTerminalDragPayload.acceptedTypes,
+                        of: ScoutTerminalDragPayload.attachTypes,
                         isTargeted: $dropTargeted,
                         perform: attachDraggedTargets
                     )
@@ -1258,6 +1613,8 @@ private struct ScoutTerminalTabbedWebContent: View {
         let isSelected: Bool
         let showHeader: Bool
         let onSelect: () -> Void
+        let projectDestinations: [ScoutTerminalProjectDestination]
+        let onSendLine: (String) -> Void
         let onReload: () -> Void
         let onClose: () -> Void
         let onOpen: () -> Void
@@ -1274,6 +1631,8 @@ private struct ScoutTerminalTabbedWebContent: View {
                     cacheBuster: reloadToken.uuidString
                 ),
                 onSelect: onSelect,
+                projectDestinations: projectDestinations,
+                onSendLine: onSendLine,
                 onReload: onReload,
                 onClose: onClose,
                 onOpen: onOpen
@@ -1415,12 +1774,14 @@ private struct ScoutTerminalTabbedWebContent: View {
     }
 
     private func attachDraggedTargets(_ providers: [NSItemProvider]) -> Bool {
-        ScoutTerminalDragPayload.loadIDs(from: providers) { id in
-            Task { @MainActor in
-                if model.attachTarget(id: id) {
-                    dropTargeted = false
-                    showAttachPicker = false
-                }
+        ScoutTerminalDragPayload.load(
+            from: providers,
+            acceptedTypes: ScoutTerminalDragPayload.attachTypes
+        ) { payload in
+            guard case .attachTarget(let id) = payload else { return }
+            if model.attachTarget(id: id) {
+                dropTargeted = false
+                showAttachPicker = false
             }
         }
     }
@@ -1488,6 +1849,8 @@ private struct ScoutTerminalWebTileView: View {
     let showHeader: Bool
     let url: URL
     let onSelect: () -> Void
+    let projectDestinations: [ScoutTerminalProjectDestination]
+    let onSendLine: (String) -> Void
     let onReload: () -> Void
     let onClose: () -> Void
     let onOpen: () -> Void
@@ -1500,7 +1863,12 @@ private struct ScoutTerminalWebTileView: View {
             if showHeader {
                 titleBar
             }
-            ScoutTerminalEmbedHost(url: url, reloadToken: tab.reloadToken, onRetry: onReload)
+            ScoutTerminalEmbedHost(
+                url: url,
+                reloadToken: tab.reloadToken,
+                command: tab.command,
+                onRetry: onReload
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1573,6 +1941,10 @@ private struct ScoutTerminalWebTileView: View {
 
             Spacer(minLength: HudSpacing.sm)
 
+            if tab.acceptsProjectDestinations, !projectDestinations.isEmpty {
+                projectDestinationMenu
+            }
+
             ScoutTerminalBackendBadge("xterm")
             ScoutTerminalBackendBadge(tab.badge)
 
@@ -1592,6 +1964,41 @@ private struct ScoutTerminalWebTileView: View {
         }
     }
 
+    private var projectDestinationMenu: some View {
+        Menu {
+            ForEach(projectDestinations) { destination in
+                Button {
+                    onSendLine(destination.cdCommand)
+                } label: {
+                    Text("\(destination.title) — \(ScoutNativeTerminalTarget.shortPath(destination.root))")
+                }
+            }
+        } label: {
+            HStack(spacing: HudSpacing.xxs) {
+                Image(systemName: "folder")
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                Text("cd")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+            }
+            .foregroundStyle(ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(ScoutSurface.inset)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+        .help("Change this shell to a known project directory")
+    }
+
     private var tileBackground: Color {
         colorScheme == .dark ? Color.black.opacity(0.24) : ScoutSurface.inset
     }
@@ -1605,9 +2012,9 @@ private struct ScoutTerminalMenuLabel: View {
         HStack(spacing: HudSpacing.xs) {
             Image(systemName: icon)
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-            Text(title.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .tracking(0.45)
+            Text(title)
+                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .tracking(0.1)
         }
         .foregroundStyle(ScoutPalette.muted)
         .padding(.horizontal, HudSpacing.md)
@@ -1630,7 +2037,38 @@ private struct ScoutTerminalWebTab: Identifiable, Equatable {
     var badge: String
     var icon: String
     var routePath: String
+    var acceptsProjectDestinations: Bool
     var reloadToken = UUID()
+    var command: ScoutTerminalWebCommand?
+}
+
+private struct ScoutTerminalProjectDestination: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let root: String
+
+    var cdCommand: String {
+        if root.hasPrefix("~/") {
+            let remainder = String(root.dropFirst(2)).replacingOccurrences(of: "'", with: "'\\''")
+            return "cd -- ~/'\(remainder)'"
+        }
+        return "cd -- '\(root.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+}
+
+private struct ScoutTerminalProjectSnapshot: Decodable {
+    struct Context: Decodable {
+        let currentDirectory: String
+    }
+
+    struct Project: Decodable {
+        let id: String
+        let title: String
+        let root: String
+    }
+
+    let context: Context
+    let projects: [Project]
 }
 
 private struct ScoutTerminalWebAttachTarget: Identifiable, Hashable {
@@ -1717,7 +2155,7 @@ private struct ScoutTerminalWebAttachTargetCard: View {
         .onTapGesture(count: 2, perform: onAttach)
         .onHover { hovering = $0 }
         .onDrag {
-            ScoutTerminalDragPayload.itemProvider(id: target.id)
+            ScoutTerminalDragPayload.itemProvider(.attachTarget(target.id))
         }
         .help(target.subtitle)
     }
@@ -1728,6 +2166,7 @@ private final class ScoutTerminalWebTabsModel: ObservableObject {
     @Published private(set) var tabs: [ScoutTerminalWebTab] = []
     @Published var selectedTabID: String?
     @Published private(set) var attachTargets: [ScoutTerminalWebAttachTarget] = []
+    @Published private(set) var projectDestinations: [ScoutTerminalProjectDestination] = []
     @Published private(set) var isLoadingTargets = false
     @Published private(set) var errorMessage: String?
 
@@ -1753,7 +2192,8 @@ private final class ScoutTerminalWebTabsModel: ObservableObject {
             subtitle: sessionName ?? "fresh PTY session",
             badge: backendLabel,
             icon: backend == "zellij" ? "rectangle.3.group" : backend == "tmux" ? "rectangle.split.2x1" : "terminal",
-            routePath: route
+            routePath: route,
+            acceptsProjectDestinations: agent == "shell"
         ))
     }
 
@@ -1764,7 +2204,8 @@ private final class ScoutTerminalWebTabsModel: ObservableObject {
             subtitle: target.subtitle,
             badge: "attach",
             icon: "link",
-            routePath: target.routePath
+            routePath: target.routePath,
+            acceptsProjectDestinations: false
         ))
     }
 
@@ -1794,6 +2235,18 @@ private final class ScoutTerminalWebTabsModel: ObservableObject {
         }
     }
 
+    func sendLine(_ line: String, to tab: ScoutTerminalWebTab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        tabs[index].command = ScoutTerminalWebCommand(line: line)
+        selectedTabID = tab.id
+    }
+
+    func loadTerminalContext() async {
+        async let targets: Void = loadAttachTargets()
+        async let projects: Void = loadProjectDestinations()
+        _ = await (targets, projects)
+    }
+
     func loadAttachTargets() async {
         isLoadingTargets = true
         defer { isLoadingTargets = false }
@@ -1818,6 +2271,42 @@ private final class ScoutTerminalWebTabsModel: ObservableObject {
                 error,
                 connectionMessage: "Could not reach Scout terminal sessions."
             )
+        }
+    }
+
+    private func loadProjectDestinations() async {
+        do {
+            let url = ScoutWeb.url(path: "/api/agent-config/snapshot")
+                ?? ScoutWeb.baseURL().appending(path: "api/agent-config/snapshot")
+            let snapshot = try await ScoutHTTP.fetch(ScoutTerminalProjectSnapshot.self, from: url)
+            let currentDirectory = snapshot.context.currentDirectory
+            let currentProject = snapshot.projects
+                .filter { project in
+                    currentDirectory == project.root || currentDirectory.hasPrefix(project.root + "/")
+                }
+                .max { $0.root.count < $1.root.count }
+            var ordered = snapshot.projects
+            if let currentProject,
+               let index = ordered.firstIndex(where: { $0.id == currentProject.id }) {
+                ordered.insert(ordered.remove(at: index), at: 0)
+            }
+            var seenRoots = Set<String>()
+            projectDestinations = ordered.compactMap { project in
+                let root = project.root.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !root.isEmpty,
+                      !root.contains("\n"),
+                      !root.contains("\r"),
+                      seenRoots.insert(root).inserted else {
+                    return nil
+                }
+                return ScoutTerminalProjectDestination(
+                    id: project.id,
+                    title: project.title,
+                    root: root
+                )
+            }
+        } catch {
+            projectDestinations = []
         }
     }
 
@@ -1881,9 +2370,9 @@ private struct ScoutTerminalRendererToggle: View {
             HStack(spacing: HudSpacing.xxs) {
                 Image(systemName: option.icon)
                     .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
-                Text(option.title.uppercased())
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                    .tracking(0.4)
+                Text(option.title)
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.1)
                     .lineLimit(1)
             }
             .foregroundStyle(isSelected ? ScoutPalette.bg : ScoutPalette.muted)
@@ -1936,6 +2425,7 @@ private enum ScoutTerminalEmbedLoadPhase: Equatable {
 private struct ScoutTerminalEmbedHost: View {
     let url: URL
     let reloadToken: UUID
+    var command: ScoutTerminalWebCommand? = nil
     let onRetry: () -> Void
 
     @State private var phase: ScoutTerminalEmbedLoadPhase = .loading
@@ -1947,7 +2437,12 @@ private struct ScoutTerminalEmbedHost: View {
 
     var body: some View {
         ZStack {
-            ScoutTerminalEmbedWebView(url: url, reloadToken: reloadToken, phase: $phase)
+            ScoutTerminalEmbedWebView(
+                url: url,
+                reloadToken: reloadToken,
+                command: command,
+                phase: $phase
+            )
                 .opacity(isReady ? 1 : 0.001)
                 .allowsHitTesting(isReady)
 
@@ -2000,6 +2495,7 @@ private struct ScoutTerminalEmbedHost: View {
 private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
     let url: URL
     let reloadToken: UUID
+    let command: ScoutTerminalWebCommand?
     @Binding var phase: ScoutTerminalEmbedLoadPhase
 
     func makeCoordinator() -> Coordinator {
@@ -2022,8 +2518,15 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.currentURL != url
-            || context.coordinator.reloadToken != reloadToken else { return }
+        if let command, context.coordinator.lastCommandID != command.id {
+            context.coordinator.pendingCommand = command
+        }
+        let needsLoad = context.coordinator.currentURL != url
+            || context.coordinator.reloadToken != reloadToken
+        guard needsLoad else {
+            context.coordinator.dispatchPendingCommand(in: webView)
+            return
+        }
         context.coordinator.currentURL = url
         context.coordinator.reloadToken = reloadToken
         context.coordinator.readyURL = nil
@@ -2039,6 +2542,8 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
         @Binding var phase: ScoutTerminalEmbedLoadPhase
         var currentURL: URL?
         var reloadToken: UUID?
+        var lastCommandID: UUID?
+        var pendingCommand: ScoutTerminalWebCommand?
 
         private let minimumLoaderDwell: TimeInterval = 0.32
         private let maximumRenderWait: TimeInterval = 5.0
@@ -2083,7 +2588,7 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
                     let hasText = payload?["hasText"] as? Bool ?? false
                     let canReveal = rendered && hasText && elapsed >= self.minimumLoaderDwell
                     if canReveal || elapsed >= self.maximumRenderWait {
-                        self.markReady(url)
+                        self.markReady(url, in: webView)
                         return
                     }
 
@@ -2094,10 +2599,28 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
             }
         }
 
-        private func markReady(_ url: URL) {
+        private func markReady(_ url: URL, in webView: WKWebView) {
             guard readyURL != url else { return }
             readyURL = url
             setPhase(.ready)
+            dispatchPendingCommand(in: webView)
+        }
+
+        func dispatchPendingCommand(in webView: WKWebView) {
+            guard readyURL == currentURL,
+                  let command = pendingCommand,
+                  lastCommandID != command.id,
+                  let data = try? JSONSerialization.data(
+                    withJSONObject: command.line,
+                    options: [.fragmentsAllowed]
+                  ),
+                  let lineLiteral = String(data: data, encoding: .utf8) else {
+                return
+            }
+            pendingCommand = nil
+            lastCommandID = command.id
+            let script = "window.dispatchEvent(new CustomEvent('scout:terminal-send-line',{detail:{line:\(lineLiteral)}}))"
+            webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -2123,6 +2646,7 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
 private struct ScoutTerminalEmbedWebView: View {
     let url: URL
     let reloadToken: UUID
+    let command: ScoutTerminalWebCommand?
     @Binding var phase: ScoutTerminalEmbedLoadPhase
 
     var body: some View {
@@ -2173,9 +2697,9 @@ private struct ScoutTerminalHeaderButton: View {
             HStack(spacing: HudSpacing.xs) {
                 Image(systemName: icon)
                     .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                Text(title.uppercased())
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                    .tracking(0.45)
+                Text(title)
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.1)
                     .lineLimit(1)
             }
             .foregroundStyle(active ? ScoutPalette.ink : (hovering ? ScoutPalette.ink : ScoutPalette.muted))

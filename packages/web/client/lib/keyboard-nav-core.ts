@@ -11,6 +11,12 @@ const EDITABLE_TARGET_SELECTOR = [
   "[role='textbox']",
 ].join(",");
 
+const TERMINAL_INPUT_SELECTOR = [
+  ".xterm",
+  ".xterm-helper-textarea",
+  "[data-scout-terminal-input='true']",
+].join(",");
+
 export function isEditableTarget(target: EventTarget | null): boolean {
   const el = target as {
     closest?: (selector: string) => unknown;
@@ -24,6 +30,18 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (el.isContentEditable === true) return true;
   if (typeof el.closest === "function" && el.closest(EDITABLE_TARGET_SELECTOR)) return true;
   return typeof el.parentElement?.closest === "function" && Boolean(el.parentElement.closest(EDITABLE_TARGET_SELECTOR));
+}
+
+/** A focused terminal owns every key combination, including app shortcuts. */
+export function isTerminalInputTarget(target: EventTarget | null): boolean {
+  const el = target as {
+    closest?: (selector: string) => unknown;
+    parentElement?: { closest?: (selector: string) => unknown } | null;
+  } | null;
+  if (!el) return false;
+  if (typeof el.closest === "function" && el.closest(TERMINAL_INPUT_SELECTOR)) return true;
+  return typeof el.parentElement?.closest === "function"
+    && Boolean(el.parentElement.closest(TERMINAL_INPUT_SELECTOR));
 }
 
 /** Skip global/list shortcuts while typing or a modal owns focus. */
