@@ -614,6 +614,11 @@ struct ScoutRootView: View {
     }
 
     private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+        // The terminal owns its complete keyboard stream. In particular, do
+        // not turn its bare h/j/k/l/g input into Scout navigation commands.
+        guard !ScoutKeyboardInputContext.isTerminalInput(for: event) else {
+            return false
+        }
         if event.keyCode == 53, HUDController.shared.handleHostKeyDown(event) {
             return true
         }

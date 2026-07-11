@@ -1,8 +1,11 @@
 import "./terminal-screen.css";
 
 import {
+  ArrowLeftRight,
+  ChevronDown,
   ExternalLink,
   Eye,
+  GripVertical,
   Grid2X2,
   LogIn,
   MoreHorizontal,
@@ -61,13 +64,28 @@ import {
 } from "../../lib/terminal-sessions.ts";
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import {
+  moveTerminalWorkspaceItem,
+  resolveTerminalProjectDestinations,
+  terminalProjectCdCommand,
+  terminalWorkspaceDropPlacement,
+  type TerminalProjectDestination,
+  type TerminalTileDropEdge,
+} from "../../lib/terminal-workspace.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../../lib/vantage.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { TmuxPeekPanel } from "../../scout/inspector/TmuxPeek.tsx";
 import type { MenuItem } from "../../components/ContextMenu.tsx";
-import type { Agent, Route, SessionCatalogWithResume, TerminalSurfaceDescriptor } from "../../lib/types.ts";
+import type {
+  Agent,
+  AgentConfigurationProject,
+  AgentConfigurationState,
+  Route,
+  SessionCatalogWithResume,
+  TerminalSurfaceDescriptor,
+} from "../../lib/types.ts";
 import type { useScout as UseScout } from "../../scout/Provider.tsx";
 
 export type TerminalNavigate = ReturnType<typeof UseScout>["navigate"];
@@ -126,6 +144,42 @@ type TerminalInventoryRow =
   | { id: string; kind: "agent"; agent: Agent; updatedAt: number };
 
 const TERMINAL_ATTACH_DRAG_TYPE = "application/x-openscout-terminal-target";
+const TERMINAL_TILE_DRAG_TYPE = "application/x-openscout-terminal-tile";
+
+function useTerminalProjectDestinations(agents: Agent[]): TerminalProjectDestination[] {
+  const [configuredProjects, setConfiguredProjects] = useState<AgentConfigurationProject[]>([]);
+  const [currentDirectory, setCurrentDirectory] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<AgentConfigurationState>("/api/agent-config/snapshot")
+      .then((snapshot) => {
+        if (!cancelled) {
+          setConfiguredProjects(snapshot.projects);
+          setCurrentDirectory(snapshot.context.currentDirectory);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return useMemo(
+    () => resolveTerminalProjectDestinations(configuredProjects, [
+      ...(currentDirectory ? [{
+        id: "scout-current-directory",
+        name: "Current project",
+        project: null,
+        projectRoot: currentDirectory,
+        cwd: currentDirectory,
+        updatedAt: Number.MAX_SAFE_INTEGER,
+      }] : []),
+      ...agents,
+    ]),
+    [agents, configuredProjects, currentDirectory],
+  );
+}
 
 function useTerminalSessionsTarget(
   terminalSessionId: string | undefined,
@@ -698,6 +752,7 @@ function TerminalRelayCanvas({
   registeredTarget,
   embedded = false,
   tileActions,
+  tileDrag,
 }: {
   agentId?: string;
   agent: Agent | null;
@@ -706,6 +761,11 @@ function TerminalRelayCanvas({
   registeredTarget?: RegisteredTerminalTarget;
   embedded?: boolean;
   tileActions?: ReactNode;
+  tileDrag?: {
+    id: string;
+    onStart: (event: ReactDragEvent<HTMLElement>, tileId: string) => void;
+    onEnd: () => void;
+  };
 }) {
   const showContextMenu = useContextMenu();
   const session = useTerminalRelaySession({
@@ -719,7 +779,12 @@ function TerminalRelayCanvas({
 
   return (
     <div className={`s-term${embedded ? " s-term--embedded" : ""}`}>
-      <div className="s-term-bar s-term-bar--takeover">
+      <div
+        className={`s-term-bar s-term-bar--takeover${tileDrag ? " s-term-bar--draggable" : ""}`}
+        draggable={Boolean(tileDrag)}
+        onDragStart={tileDrag ? (event) => tileDrag.onStart(event, tileDrag.id) : undefined}
+        onDragEnd={tileDrag?.onEnd}
+      >
         <div className="s-term-bar-left">
           {!embedded && (
             <BackToPicker
@@ -955,8 +1020,16 @@ function createFreshTerminalTile(
   };
 }
 
-function registeredTerminalTileId(target: RegisteredTerminalTarget): string {
+function registeredTerminalTargetId(target: RegisteredTerminalTarget): string {
   return `registered:${target.session.id}:${surfaceKey(target.surface)}`;
+}
+
+function createRegisteredTerminalTile(target: RegisteredTerminalTarget): RegisteredTerminalTileModel {
+  return {
+    id: createTerminalTileId("registered"),
+    kind: "registered",
+    target,
+  };
 }
 
 function registeredTargetFromListItem(
@@ -966,7 +1039,7 @@ function registeredTargetFromListItem(
 }
 
 function registeredTerminalDragId(target: RegisteredTerminalTarget): string {
-  return registeredTerminalTileId(target);
+  return registeredTerminalTargetId(target);
 }
 
 function hasRegisteredTerminalDrag(dataTransfer: DataTransfer | null): boolean {
@@ -979,6 +1052,54 @@ function readRegisteredTerminalDrag(dataTransfer: DataTransfer | null): string |
   return dataTransfer.getData(TERMINAL_ATTACH_DRAG_TYPE)
     || dataTransfer.getData("text/plain")
     || null;
+}
+
+function hasTerminalTileDrag(dataTransfer: DataTransfer | null): boolean {
+  if (!dataTransfer) return false;
+  return Array.from(dataTransfer.types).includes(TERMINAL_TILE_DRAG_TYPE);
+}
+
+function readTerminalTileDrag(dataTransfer: DataTransfer | null): string | null {
+  return dataTransfer?.getData(TERMINAL_TILE_DRAG_TYPE) || null;
+}
+
+function setTerminalTileDragPreview(dataTransfer: DataTransfer, tile: HTMLElement): void {
+  const preview = document.createElement("div");
+  preview.className = "s-term-tile-drag-preview";
+  preview.setAttribute("aria-hidden", "true");
+
+  const header = document.createElement("div");
+  header.className = "s-term-tile-drag-preview-head";
+
+  const title = document.createElement("span");
+  title.textContent = tile.getAttribute("aria-label") || "Terminal";
+  header.append(title);
+
+  const backend = document.createElement("span");
+  backend.textContent = tile.querySelector<HTMLElement>(".s-term-label")?.textContent || "PTY";
+  header.append(backend);
+
+  const body = document.createElement("div");
+  body.className = "s-term-tile-drag-preview-body";
+  for (const width of [42, 68, 54]) {
+    const line = document.createElement("i");
+    line.style.width = `${width}%`;
+    body.append(line);
+  }
+
+  preview.append(header, body);
+  document.body.append(preview);
+  dataTransfer.setDragImage(preview, 24, 18);
+  requestAnimationFrame(() => preview.remove());
+}
+
+function terminalWorkspaceGridColumnCount(slot: HTMLElement): number {
+  const grid = slot.parentElement;
+  if (!grid) return 1;
+  return getComputedStyle(grid).gridTemplateColumns
+    .split(/\s+/)
+    .filter((column) => column && column !== "none")
+    .length || 1;
 }
 
 function freshTerminalRouteForTile(tile: FreshTerminalTileModel): TerminalRoute {
@@ -1014,11 +1135,20 @@ function openTerminalRouteExternally(route: TerminalRoute, navigate: TerminalNav
 
 function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const { agents } = useScout();
+  const projectDestinations = useTerminalProjectDestinations(agents);
   const showContextMenu = useContextMenu();
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
   const [tiles, setTiles] = useState<TerminalWorkspaceTileModel[]>([]);
   const [workspaceReload, setWorkspaceReload] = useState(0);
   const [dropTargetActive, setDropTargetActive] = useState(false);
+  const [showAttachPanel, setShowAttachPanel] = useState(false);
+  const [showInventory, setShowInventory] = useState(false);
+  const [draggedTileId, setDraggedTileId] = useState<string | null>(null);
+  const [tileDropTarget, setTileDropTarget] = useState<{
+    id: string;
+    edge: TerminalTileDropEdge;
+    axis: "horizontal" | "vertical";
+  } | null>(null);
 
   const loadSessions = useCallback((options: { silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -1066,7 +1196,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const tiledRegisteredIds = useMemo(() => {
     const ids = new Set<string>();
     for (const tile of tiles) {
-      if (tile.kind === "registered") ids.add(tile.id);
+      if (tile.kind === "registered") ids.add(registeredTerminalTargetId(tile.target));
     }
     return ids;
   }, [tiles]);
@@ -1108,10 +1238,12 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   }, []);
 
   const attachRegisteredTarget = useCallback((target: RegisteredTerminalTarget) => {
-    const id = registeredTerminalTileId(target);
+    const targetId = registeredTerminalTargetId(target);
     setTiles((current) => {
-      if (current.some((tile) => tile.id === id)) return current;
-      return [...current, { id, kind: "registered", target }];
+      if (current.some((tile) => tile.kind === "registered" && registeredTerminalTargetId(tile.target) === targetId)) {
+        return current;
+      }
+      return [...current, createRegisteredTerminalTile(target)];
     });
   }, []);
 
@@ -1168,12 +1300,14 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     if (targets.length === 0) return;
     setTiles((current) => {
       const next = [...current];
-      const seen = new Set(current.map((tile) => tile.id));
+      const seen = new Set(
+        current.flatMap((tile) => tile.kind === "registered" ? [registeredTerminalTargetId(tile.target)] : []),
+      );
       for (const target of targets) {
-        const id = registeredTerminalTileId(target);
-        if (seen.has(id)) continue;
-        seen.add(id);
-        next.push({ id, kind: "registered", target });
+        const targetId = registeredTerminalTargetId(target);
+        if (seen.has(targetId)) continue;
+        seen.add(targetId);
+        next.push(createRegisteredTerminalTile(target));
       }
       return next;
     });
@@ -1183,10 +1317,112 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     setTiles((current) => current.filter((tile) => tile.id !== tileId));
   }, []);
 
+  const retargetTile = useCallback((tileId: string, target: RegisteredTerminalTarget) => {
+    const targetId = registeredTerminalTargetId(target);
+    setTiles((current) => {
+      if (current.some((tile) => (
+        tile.id !== tileId
+        && tile.kind === "registered"
+        && registeredTerminalTargetId(tile.target) === targetId
+      ))) {
+        return current;
+      }
+      return current.map((tile) => tile.id === tileId
+        ? { id: tile.id, kind: "registered", target }
+        : tile);
+    });
+  }, []);
+
+  const handleTileDragStart = useCallback((event: ReactDragEvent<HTMLElement>, tileId: string) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(TERMINAL_TILE_DRAG_TYPE, tileId);
+    const tile = event.currentTarget.closest<HTMLElement>(".s-term-workspace-tile");
+    if (tile) {
+      setTerminalTileDragPreview(event.dataTransfer, tile);
+    }
+    setDraggedTileId(tileId);
+  }, []);
+
+  const handleTileDragEnd = useCallback(() => {
+    setDraggedTileId(null);
+    setTileDropTarget(null);
+  }, []);
+
+  const handleTileDragOver = useCallback((event: ReactDragEvent<HTMLElement>, destinationId: string) => {
+    if (!hasTerminalTileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const placement = terminalWorkspaceDropPlacement(
+      { x: event.clientX, y: event.clientY },
+      rect,
+      terminalWorkspaceGridColumnCount(event.currentTarget),
+    );
+    setTileDropTarget({ id: destinationId, ...placement });
+  }, []);
+
+  const handleTileDrop = useCallback((event: ReactDragEvent<HTMLElement>, destinationId: string) => {
+    if (!hasTerminalTileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceId = readTerminalTileDrag(event.dataTransfer);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const { edge } = terminalWorkspaceDropPlacement(
+      { x: event.clientX, y: event.clientY },
+      rect,
+      terminalWorkspaceGridColumnCount(event.currentTarget),
+    );
+    if (sourceId) {
+      setTiles((current) => moveTerminalWorkspaceItem(current, sourceId, destinationId, edge));
+    }
+    setDraggedTileId(null);
+    setTileDropTarget(null);
+  }, []);
+
   const reloadWorkspace = useCallback(() => {
     loadSessions();
     setWorkspaceReload((current) => current + 1);
   }, [loadSessions]);
+
+  const showTileRetargetMenu = useCallback((
+    event: ReactMouseEvent<HTMLButtonElement>,
+    tile: TerminalWorkspaceTileModel,
+  ) => {
+    const occupiedTargetIds = new Set(
+      tiles.flatMap((candidate) => (
+        candidate.id !== tile.id && candidate.kind === "registered"
+          ? [registeredTerminalTargetId(candidate.target)]
+          : []
+      )),
+    );
+    const currentTargetId = tile.kind === "registered"
+      ? registeredTerminalTargetId(tile.target)
+      : null;
+    const targets = attachableItems
+      .map((item) => ({ item, target: registeredTargetFromListItem(item) }))
+      .filter(({ target }) => {
+        const id = registeredTerminalTargetId(target);
+        return id !== currentTargetId && !occupiedTargetIds.has(id);
+      });
+
+    const items: MenuItem[] = [];
+    for (const backend of ["tmux", "zellij"]) {
+      const group = targets.filter(({ target }) => target.surface.backend === backend);
+      if (group.length === 0) continue;
+      if (items.length > 0) items.push({ kind: "separator" });
+      for (const { item, target } of group) {
+        items.push({
+          kind: "action",
+          label: `${backend.toUpperCase()} · ${item.title}`,
+          onSelect: () => retargetTile(tile.id, target),
+        });
+      }
+    }
+    if (items.length > 0) items.push({ kind: "separator" });
+    items.push({ kind: "action", label: "Refresh sessions", onSelect: () => loadSessions() });
+    showContextMenu(event, items);
+  }, [attachableItems, loadSessions, retargetTile, showContextMenu, tiles]);
 
   return (
     <div className="s-term s-term--workspace">
@@ -1229,13 +1465,14 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             </button>
             <button
               type="button"
-              className="s-term-workspace-action"
-              onClick={attachLiveTerminals}
+              className={`s-term-workspace-action${showAttachPanel ? " s-term-workspace-action--active" : ""}`}
+              onClick={() => setShowAttachPanel((current) => !current)}
               disabled={attachableItems.length === 0}
-              title="Attach live registered terminals"
+              title="Choose a registered terminal to attach"
             >
               <LogIn size={14} strokeWidth={1.8} />
               <span>Attach</span>
+              <ChevronDown size={12} strokeWidth={1.8} />
             </button>
             <button
               type="button"
@@ -1264,13 +1501,23 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           </div>
         )}
 
-        <TerminalAttachGrid
-          items={attachableItems}
-          tiledRegisteredIds={tiledRegisteredIds}
-          loadState={state.state}
-          onAttach={attachRegisteredTarget}
-          onDragStart={handleAttachDragStart}
-        />
+        {showAttachPanel && (
+          <TerminalAttachGrid
+            items={attachableItems}
+            tiledRegisteredIds={tiledRegisteredIds}
+            loadState={state.state}
+            onAttach={(target) => {
+              attachRegisteredTarget(target);
+              setShowAttachPanel(false);
+            }}
+            onAttachAll={() => {
+              attachLiveTerminals();
+              setShowAttachPanel(false);
+            }}
+            onClose={() => setShowAttachPanel(false)}
+            onDragStart={handleAttachDragStart}
+          />
+        )}
 
         {tiles.length === 0 ? (
           <div
@@ -1311,58 +1558,87 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             onDragLeave={handleAttachDragLeave}
             onDrop={handleAttachDrop}
           >
-            {tiles.map((tile) => (
-              <TerminalWorkspaceTile
-                key={`${tile.id}:${workspaceReload}`}
-                tile={tile}
-                navigate={navigate}
-                onClose={closeTile}
-              />
-            ))}
+            {tiles.map((tile) => {
+              const drop = tileDropTarget?.id === tile.id ? tileDropTarget : null;
+              return (
+                <div
+                  key={`${tile.id}:${workspaceReload}`}
+                  className={[
+                    "s-term-workspace-tile-slot",
+                    draggedTileId === tile.id ? "s-term-workspace-tile-slot--dragging" : "",
+                    drop ? `s-term-workspace-tile-slot--drop-${drop.edge}-${drop.axis}` : "",
+                  ].filter(Boolean).join(" ")}
+                  onDragOver={(event) => handleTileDragOver(event, tile.id)}
+                  onDrop={(event) => handleTileDrop(event, tile.id)}
+                >
+                  <TerminalWorkspaceTile
+                    tile={tile}
+                    navigate={navigate}
+                    projectDestinations={projectDestinations}
+                    onClose={closeTile}
+                    onDragStart={handleTileDragStart}
+                    onDragEnd={handleTileDragEnd}
+                    onRetarget={showTileRetargetMenu}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
         <div className="s-term-workspace-dock">
-          <section className="s-term-home-section" aria-labelledby="terminal-workspace-inventory">
-            <div className="s-term-home-section-head">
-              <h2 id="terminal-workspace-inventory">Terminals</h2>
-              <span>{state.state === "loading" ? "syncing" : `${inventoryRows.length}`}</span>
-            </div>
-            <div className="s-term-data-table s-term-data-table--inventory" role="table">
-              <div className="s-term-data-header" role="row">
-                <span role="columnheader">Terminal</span>
-                <span role="columnheader">Agent</span>
-                <span role="columnheader">Project</span>
-                <span role="columnheader">Context</span>
-                <span role="columnheader">Running</span>
-                <span role="columnheader">Updated</span>
-                <span role="columnheader">Actions</span>
+          <button
+            type="button"
+            className="s-term-workspace-inventory-toggle"
+            aria-expanded={showInventory}
+            onClick={() => setShowInventory((current) => !current)}
+          >
+            <span>Terminal inventory</span>
+            <span>{state.state === "loading" ? "syncing" : inventoryRows.length}</span>
+            <ChevronDown size={13} strokeWidth={1.8} />
+          </button>
+          {showInventory && (
+            <section className="s-term-home-section" aria-labelledby="terminal-workspace-inventory">
+              <div className="s-term-home-section-head">
+                <h2 id="terminal-workspace-inventory">Terminals</h2>
+                <span>{state.state === "loading" ? "syncing" : `${inventoryRows.length}`}</span>
               </div>
-              {inventoryRows.length === 0 && state.state !== "loading" ? (
-                <div className="s-term-home-empty">No registered terminals</div>
-              ) : (
-                inventoryRows.map((row) =>
-                  row.kind === "session" ? (
-                    <TerminalHomeSessionRow
-                      key={row.id}
-                      item={row.item}
-                      matchingAgent={row.matchingAgent}
-                      navigate={navigate}
-                      showContextMenu={showContextMenu}
-                      onAttach={attachRegisteredTarget}
-                    />
-                  ) : (
-                    <TerminalHomeAgentRow
-                      key={row.id}
-                      agent={row.agent}
-                      navigate={navigate}
-                      showContextMenu={showContextMenu}
-                    />
+              <div className="s-term-data-table s-term-data-table--inventory" role="table">
+                <div className="s-term-data-header" role="row">
+                  <span role="columnheader">Terminal</span>
+                  <span role="columnheader">Agent</span>
+                  <span role="columnheader">Project</span>
+                  <span role="columnheader">Context</span>
+                  <span role="columnheader">Running</span>
+                  <span role="columnheader">Updated</span>
+                  <span role="columnheader">Actions</span>
+                </div>
+                {inventoryRows.length === 0 && state.state !== "loading" ? (
+                  <div className="s-term-home-empty">No registered terminals</div>
+                ) : (
+                  inventoryRows.map((row) =>
+                    row.kind === "session" ? (
+                      <TerminalHomeSessionRow
+                        key={row.id}
+                        item={row.item}
+                        matchingAgent={row.matchingAgent}
+                        navigate={navigate}
+                        showContextMenu={showContextMenu}
+                        onAttach={attachRegisteredTarget}
+                      />
+                    ) : (
+                      <TerminalHomeAgentRow
+                        key={row.id}
+                        agent={row.agent}
+                        navigate={navigate}
+                        showContextMenu={showContextMenu}
+                      />
+                    )
                   )
-                )
-              )}
-            </div>
-          </section>
+                )}
+              </div>
+            </section>
+          )}
         </div>
       </div>
     </div>
@@ -1374,12 +1650,16 @@ function TerminalAttachGrid({
   tiledRegisteredIds,
   loadState,
   onAttach,
+  onAttachAll,
+  onClose,
   onDragStart,
 }: {
   items: TerminalHomeListItem[];
   tiledRegisteredIds: Set<string>;
   loadState: TerminalSessionsState["state"];
   onAttach: (target: RegisteredTerminalTarget) => void;
+  onAttachAll: () => void;
+  onClose: () => void;
   onDragStart: (event: ReactDragEvent<HTMLElement>, target: RegisteredTerminalTarget) => void;
 }) {
   if (items.length === 0 && loadState !== "loading") {
@@ -1390,7 +1670,15 @@ function TerminalAttachGrid({
     <section className="s-term-attach" aria-labelledby="terminal-attach-grid">
       <div className="s-term-home-section-head">
         <h2 id="terminal-attach-grid">Attachable sessions</h2>
-        <span>{loadState === "loading" ? "syncing" : `${items.length}`}</span>
+        <div className="s-term-attach-actions">
+          <span>{loadState === "loading" ? "syncing" : `${items.length}`}</span>
+          <button type="button" className="s-term-attach-all" onClick={onAttachAll} disabled={items.length === 0}>
+            Attach all
+          </button>
+          <button type="button" className="s-term-icon-button" onClick={onClose} title="Close attach picker" aria-label="Close attach picker">
+            <X size={13} strokeWidth={1.9} />
+          </button>
+        </div>
       </div>
       {items.length === 0 ? (
         <div className="s-term-attach-empty">Syncing terminals</div>
@@ -1480,11 +1768,19 @@ function TerminalAttachCard({
 function TerminalWorkspaceTile({
   tile,
   navigate,
+  projectDestinations,
   onClose,
+  onDragStart,
+  onDragEnd,
+  onRetarget,
 }: {
   tile: TerminalWorkspaceTileModel;
   navigate: TerminalNavigate;
+  projectDestinations: TerminalProjectDestination[];
   onClose: (tileId: string) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>, tileId: string) => void;
+  onDragEnd: () => void;
+  onRetarget: (event: ReactMouseEvent<HTMLButtonElement>, tile: TerminalWorkspaceTileModel) => void;
 }) {
   if (tile.kind === "registered") {
     return (
@@ -1492,6 +1788,9 @@ function TerminalWorkspaceTile({
         tile={tile}
         navigate={navigate}
         onClose={onClose}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onRetarget={onRetarget}
       />
     );
   }
@@ -1499,7 +1798,11 @@ function TerminalWorkspaceTile({
     <FreshTerminalWorkspaceTile
       tile={tile}
       navigate={navigate}
+      projectDestinations={projectDestinations}
       onClose={onClose}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onRetarget={onRetarget}
     />
   );
 }
@@ -1507,11 +1810,19 @@ function TerminalWorkspaceTile({
 function FreshTerminalWorkspaceTile({
   tile,
   navigate,
+  projectDestinations,
   onClose,
+  onDragStart,
+  onDragEnd,
+  onRetarget,
 }: {
   tile: FreshTerminalTileModel;
   navigate: TerminalNavigate;
+  projectDestinations: TerminalProjectDestination[];
   onClose: (tileId: string) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>, tileId: string) => void;
+  onDragEnd: () => void;
+  onRetarget: (event: ReactMouseEvent<HTMLButtonElement>, tile: TerminalWorkspaceTileModel) => void;
 }) {
   const terminalBodyRef = useRef<HTMLDivElement>(null);
   const relayUrl = resolveScoutTerminalRelayUrl();
@@ -1548,21 +1859,63 @@ function FreshTerminalWorkspaceTile({
     openTerminalRouteExternally(route, navigate);
   }, [navigate, route]);
 
+  const focusTerminal = useCallback(() => {
+    terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
+    terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+  }, []);
+
+  const openProject = useCallback((destination: TerminalProjectDestination) => {
+    relay.sendLine(terminalProjectCdCommand(destination.path));
+    window.requestAnimationFrame(focusTerminal);
+  }, [focusTerminal, relay]);
+
   return (
     <section className="s-term-workspace-tile" aria-label={label.title}>
       <div className="s-term s-term--embedded">
-        <div className="s-term-bar s-term-bar--fresh">
+        <div
+          className="s-term-bar s-term-bar--fresh s-term-bar--draggable"
+          draggable
+          onDragStart={(event) => onDragStart(event, tile.id)}
+          onDragEnd={onDragEnd}
+        >
           <div className="s-term-bar-left">
+            <span
+              className="s-term-tile-drag-handle"
+              title="Drag the title bar to move tile"
+              aria-hidden="true"
+            >
+              <GripVertical size={14} strokeWidth={1.8} />
+            </span>
             <span className="s-term-workspace-tile-mark">
               <TerminalIcon size={14} strokeWidth={1.8} />
             </span>
             <span className="s-term-workspace-tile-name">{label.title}</span>
           </div>
           <div className="s-term-bar-meta">
-            <span className="s-term-label">{tile.backend}</span>
-            <span className="s-term-session">{label.detail}</span>
+            {tile.agent === "shell" && projectDestinations.length > 0 ? (
+              <FreshTerminalProjectHints
+                destinations={projectDestinations}
+                disabled={relay.status !== "connected"}
+                compact
+                onSelect={openProject}
+              />
+            ) : (
+              <>
+                <span className="s-term-label">{tile.backend}</span>
+                <span className="s-term-session">{label.detail}</span>
+              </>
+            )}
           </div>
           <div className="s-term-bar-actions">
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={(event) => onRetarget(event, tile)}
+              title="Change attached session"
+              aria-label="Change attached session"
+            >
+              <ArrowLeftRight size={14} strokeWidth={1.8} />
+            </button>
             <button
               type="button"
               className="s-term-icon-button"
@@ -1596,8 +1949,7 @@ function FreshTerminalWorkspaceTile({
           ref={terminalBodyRef}
           className="s-term-body"
           onMouseDown={() => {
-            terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
-            terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+            focusTerminal();
           }}
         >
           <TerminalRelay
@@ -1623,10 +1975,16 @@ function RegisteredTerminalWorkspaceTile({
   tile,
   navigate,
   onClose,
+  onDragStart,
+  onDragEnd,
+  onRetarget,
 }: {
   tile: RegisteredTerminalTileModel;
   navigate: TerminalNavigate;
   onClose: (tileId: string) => void;
+  onDragStart: (event: ReactDragEvent<HTMLElement>, tileId: string) => void;
+  onDragEnd: () => void;
+  onRetarget: (event: ReactMouseEvent<HTMLButtonElement>, tile: TerminalWorkspaceTileModel) => void;
 }) {
   const openStandalone = useCallback(() => {
     openTerminalRouteExternally(registeredTerminalRouteForTarget(tile.target), navigate);
@@ -1635,13 +1993,31 @@ function RegisteredTerminalWorkspaceTile({
   return (
     <section className="s-term-workspace-tile" aria-label={tile.target.surface.sessionName}>
       <TerminalRelayCanvas
+        key={registeredTerminalTargetId(tile.target)}
         agent={null}
         mode="takeover"
         navigate={navigate}
         registeredTarget={tile.target}
         embedded
+        tileDrag={{ id: tile.id, onStart: onDragStart, onEnd: onDragEnd }}
         tileActions={(
           <>
+            <span
+              className="s-term-tile-drag-handle"
+              title="Drag the title bar to move tile"
+              aria-hidden="true"
+            >
+              <GripVertical size={14} strokeWidth={1.8} />
+            </span>
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={(event) => onRetarget(event, tile)}
+              title="Change attached session"
+              aria-label="Change attached session"
+            >
+              <ArrowLeftRight size={14} strokeWidth={1.8} />
+            </button>
             <button
               type="button"
               className="s-term-icon-button"
@@ -2057,6 +2433,8 @@ function NewTerminalSession({
   route: TerminalRoute;
   navigate: TerminalNavigate;
 }) {
+  const { agents } = useScout();
+  const projectDestinations = useTerminalProjectDestinations(agents);
   const terminalBodyRef = useRef<HTMLDivElement>(null);
   const backend = route.terminalBackend ?? "pty";
   const agent = route.terminalAgent ?? "shell";
@@ -2091,6 +2469,27 @@ function NewTerminalSession({
     relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);
   }, [relay.resize]);
 
+  const focusTerminal = useCallback(() => {
+    terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
+    terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+  }, []);
+
+  const openProject = useCallback((destination: TerminalProjectDestination) => {
+    relay.sendLine(terminalProjectCdCommand(destination.path));
+    window.requestAnimationFrame(focusTerminal);
+  }, [focusTerminal, relay]);
+
+  useEffect(() => {
+    const sendLineFromNative = (event: Event) => {
+      const line = (event as CustomEvent<{ line?: unknown }>).detail?.line;
+      if (typeof line !== "string" || !line) return;
+      relay.sendLine(line);
+      window.requestAnimationFrame(focusTerminal);
+    };
+    window.addEventListener("scout:terminal-send-line", sendLineFromNative);
+    return () => window.removeEventListener("scout:terminal-send-line", sendLineFromNative);
+  }, [focusTerminal, relay]);
+
   return (
     <div className="s-term">
       <div className="s-term-bar">
@@ -2103,6 +2502,13 @@ function NewTerminalSession({
         <span className="s-term-label">{label.title}</span>
         <div className="s-term-status">{label.detail}</div>
         <div className="s-term-actions">
+          {agent === "shell" && (
+            <FreshTerminalProjectHints
+              destinations={projectDestinations}
+              disabled={relay.status !== "connected"}
+              onSelect={openProject}
+            />
+          )}
           <button
             type="button"
             className="s-term-icon-button"
@@ -2118,8 +2524,7 @@ function NewTerminalSession({
         ref={terminalBodyRef}
         className="s-term-body"
         onMouseDown={() => {
-          terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
-          terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+          focusTerminal();
         }}
       >
         <TerminalRelay
@@ -2136,6 +2541,68 @@ function NewTerminalSession({
           ]}
         />
       </div>
+    </div>
+  );
+}
+
+function FreshTerminalProjectHints({
+  destinations,
+  disabled,
+  compact = false,
+  onSelect,
+}: {
+  destinations: TerminalProjectDestination[];
+  disabled: boolean;
+  compact?: boolean;
+  onSelect: (destination: TerminalProjectDestination) => void;
+}) {
+  const showContextMenu = useContextMenu();
+  const [used, setUsed] = useState(false);
+  if (used || destinations.length === 0) return null;
+
+  const visibleCount = compact ? 1 : 3;
+  const visible = destinations.slice(0, visibleCount);
+  const overflow = destinations.slice(visibleCount);
+  const choose = (destination: TerminalProjectDestination) => {
+    onSelect(destination);
+    setUsed(true);
+  };
+
+  return (
+    <div className={`s-term-project-hints${compact ? " s-term-project-hints--compact" : ""}`} aria-label="Project destinations">
+      <span className="s-term-project-hints-label" aria-hidden>cd</span>
+      {visible.map((destination) => (
+        <button
+          key={destination.id}
+          type="button"
+          className="s-term-project-hint"
+          disabled={disabled}
+          draggable={false}
+          title={`cd ${destination.path}`}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => choose(destination)}
+        >
+          {destination.label}
+        </button>
+      ))}
+      {overflow.length > 0 && (
+        <button
+          type="button"
+          className="s-term-project-hint s-term-project-hint--more"
+          disabled={disabled}
+          draggable={false}
+          title="More project destinations"
+          aria-label={`${overflow.length} more project destinations`}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => showContextMenu(event, overflow.map((destination) => ({
+            kind: "action",
+            label: `${destination.label} · ${compactTerminalPath(destination.path)}`,
+            onSelect: () => choose(destination),
+          })))}
+        >
+          +{overflow.length}
+        </button>
+      )}
     </div>
   );
 }

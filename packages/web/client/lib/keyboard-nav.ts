@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from "react";
 export {
   isEditableTarget,
   isModalShortcutContext,
+  isTerminalInputTarget,
   nextListIndex,
 } from "./keyboard-nav-core.ts";
 

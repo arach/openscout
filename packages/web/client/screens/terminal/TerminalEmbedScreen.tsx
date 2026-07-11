@@ -37,6 +37,12 @@ function embedHrefForTerminalRoute(route: TerminalRoute): string {
 
 export function TerminalEmbedScreen() {
   const [route, setRoute] = useState<TerminalRoute>(() => terminalRouteFromEmbedLocation());
+  const isTerminalSurface = Boolean(
+    route.terminalBackend
+    || route.agentId
+    || route.terminalSessionId
+    || route.terminalSurfaceKey,
+  );
 
   useEffect(() => {
     const onPopState = () => setRoute(terminalRouteFromEmbedLocation());
@@ -59,7 +65,7 @@ export function TerminalEmbedScreen() {
 
   return (
     <TerminalEmbedScoutProvider route={route} navigate={navigate}>
-      <div className="s-terminal-embed">
+      <div className={`s-terminal-embed${isTerminalSurface ? " s-terminal-embed--surface" : ""}`}>
         <TerminalContent route={route} navigate={navigate} />
       </div>
     </TerminalEmbedScoutProvider>
