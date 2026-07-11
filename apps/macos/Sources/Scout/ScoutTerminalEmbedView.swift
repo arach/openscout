@@ -114,7 +114,7 @@ private struct ScoutTerminalTileFramePreferenceKey: PreferenceKey {
     }
 }
 
-private enum ScoutTerminalRenderer: String, CaseIterable, Hashable {
+enum ScoutTerminalRenderer: String, CaseIterable, Hashable {
     case native
     case xterm
 
@@ -140,6 +140,36 @@ private enum ScoutTerminalRenderer: String, CaseIterable, Hashable {
     }
 }
 
+enum ScoutTerminalSettings {
+    static let rendererKey = "scout.terminals.renderer"
+    static let fontFamilyKey = "scout.terminals.fontFamily"
+    static let fontSizeKey = "scout.terminals.fontSize"
+    static let showNativeHeadersKey = "scout.terminals.native.showHeaders"
+
+    static let defaultFontSize = 13.0
+
+    private static let preferredFontFamilies = [
+        "JetBrainsMono Nerd Font",
+        "JetBrainsMonoNL Nerd Font",
+        "MesloLGS Nerd Font Mono",
+        "Hack Nerd Font Mono",
+        "CaskaydiaCove Nerd Font Mono",
+        "FiraCode Nerd Font Mono",
+        "SF Mono",
+        "Menlo",
+        "Monaco",
+    ]
+
+    static var availableFontFamilies: [String] {
+        let installed = Set(NSFontManager.shared.availableFontFamilies)
+        return preferredFontFamilies.filter(installed.contains)
+    }
+
+    static var defaultFontFamily: String {
+        availableFontFamilies.first ?? "SF Mono"
+    }
+}
+
 private struct ScoutTerminalWebCommand: Equatable {
     let id = UUID()
     let line: String
@@ -152,7 +182,7 @@ private struct ScoutTerminalWebCommand: Equatable {
 /// relay controls that have not moved to a native surface yet.
 struct ScoutTerminalContent: View {
     #if HUDSON_TERMINAL
-    @AppStorage("scout.terminals.renderer") private var rendererRaw = ScoutTerminalRenderer.xterm.rawValue
+    @AppStorage(ScoutTerminalSettings.rendererKey) private var rendererRaw = ScoutTerminalRenderer.xterm.rawValue
 
     private var renderer: ScoutTerminalRenderer {
         ScoutTerminalRenderer(rawValue: rendererRaw) ?? .xterm
@@ -186,7 +216,7 @@ struct ScoutTerminalContent: View {
 private struct ScoutNativeTerminalContent: View {
     @Binding var renderer: ScoutTerminalRenderer
     @StateObject private var model = ScoutNativeTerminalGridModel()
-    @AppStorage("scout.terminals.native.showHeaders") private var showHeaders = true
+    @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showHeaders = true
     @State private var dropTargeted = false
     @State private var draggedTileID: String?
     @State private var tileDropTarget: ScoutTerminalTileDropTarget?
@@ -763,6 +793,8 @@ private struct ScoutNativeTerminalTileView: View {
     let onClose: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
+    @AppStorage(ScoutTerminalSettings.fontSizeKey) private var fontSize = ScoutTerminalSettings.defaultFontSize
     @State private var isHovering = false
 
     var body: some View {
@@ -773,7 +805,7 @@ private struct ScoutNativeTerminalTileView: View {
             HudTerminalSurface(
                 controller: tile.workspace.controller,
                 showsSystemKeyboard: true,
-                appearance: HudTerminalAppearance(fontSize: 12),
+                appearance: HudTerminalAppearance(fontSize: fontSize, fontFamily: fontFamily),
                 onTap: tile.focus
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1414,10 +1446,17 @@ private struct ScoutTerminalSingleWebContent: View {
     var renderer: Binding<ScoutTerminalRenderer>? = nil
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
+    @AppStorage(ScoutTerminalSettings.fontSizeKey) private var fontSize = ScoutTerminalSettings.defaultFontSize
     @State private var reloadToken = UUID()
 
     private var url: URL {
-        scoutTerminalEmbedURL(colorScheme: colorScheme, cacheBuster: reloadToken.uuidString)
+        scoutTerminalEmbedURL(
+            colorScheme: colorScheme,
+            cacheBuster: reloadToken.uuidString,
+            fontFamily: fontFamily,
+            fontSize: fontSize
+        )
     }
 
     var body: some View {
@@ -1463,6 +1502,8 @@ private struct ScoutTerminalTabbedWebContent: View {
     @Binding var renderer: ScoutTerminalRenderer
     @StateObject private var model = ScoutTerminalWebTabsModel()
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
+    @AppStorage(ScoutTerminalSettings.fontSizeKey) private var fontSize = ScoutTerminalSettings.defaultFontSize
     @State private var dropTargeted = false
     @State private var showAttachPicker = false
     private let showTileHeaders = true
@@ -1567,6 +1608,8 @@ private struct ScoutTerminalTabbedWebContent: View {
                             ScoutTerminalStableTile(
                                 tab: tab,
                                 colorScheme: colorScheme,
+                                fontFamily: fontFamily,
+                                fontSize: fontSize,
                                 reloadToken: tab.reloadToken,
                                 isSelected: model.selectedTabID == tab.id,
                                 showHeader: showTileHeaders,
@@ -1609,6 +1652,8 @@ private struct ScoutTerminalTabbedWebContent: View {
     private struct ScoutTerminalStableTile: View {
         let tab: ScoutTerminalWebTab
         let colorScheme: ColorScheme
+        let fontFamily: String
+        let fontSize: Double
         let reloadToken: UUID
         let isSelected: Bool
         let showHeader: Bool
@@ -1628,7 +1673,9 @@ private struct ScoutTerminalTabbedWebContent: View {
                 url: scoutTerminalEmbedURL(
                     colorScheme: colorScheme,
                     routePath: tab.routePath,
-                    cacheBuster: reloadToken.uuidString
+                    cacheBuster: reloadToken.uuidString,
+                    fontFamily: fontFamily,
+                    fontSize: fontSize
                 ),
                 onSelect: onSelect,
                 projectDestinations: projectDestinations,
@@ -2394,7 +2441,9 @@ private struct ScoutTerminalRendererToggle: View {
 func scoutTerminalEmbedURL(
     colorScheme: ColorScheme,
     routePath: String = "/terminal",
-    cacheBuster: String? = nil
+    cacheBuster: String? = nil,
+    fontFamily: String = ScoutTerminalSettings.defaultFontFamily,
+    fontSize: Double = ScoutTerminalSettings.defaultFontSize
 ) -> URL {
     let base = ScoutWeb.url(path: "/embed/terminal")
         ?? ScoutWeb.baseURL().appending(path: "embed/terminal")
@@ -2403,9 +2452,11 @@ func scoutTerminalEmbedURL(
     }
 
     var items = components.queryItems ?? []
-    items.removeAll { ["route", "profile", "_cb"].contains($0.name) }
+    items.removeAll { ["route", "profile", "terminalFontFamily", "terminalFontSize", "_cb"].contains($0.name) }
     items.append(URLQueryItem(name: "route", value: routePath))
     items.append(URLQueryItem(name: "profile", value: "macos.terminal"))
+    items.append(URLQueryItem(name: "terminalFontFamily", value: fontFamily))
+    items.append(URLQueryItem(name: "terminalFontSize", value: String(format: "%.1f", fontSize)))
     for item in ScoutEmbedTheme.queryItems(for: colorScheme) where !items.contains(where: { $0.name == item.name }) {
         items.append(item)
     }

@@ -3,6 +3,7 @@ import SwiftUI
 
 private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     case appearance
+    case terminal
     case notifications
     case about
 
@@ -11,6 +12,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .appearance: return "Appearance"
+        case .terminal: return "Terminal"
         case .notifications: return "Notifications"
         case .about: return "About"
         }
@@ -19,6 +21,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .appearance: return "paintpalette"
+        case .terminal: return "terminal"
         case .notifications: return "bell"
         case .about: return "info.circle"
         }
@@ -27,6 +30,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .appearance: return "Theme, accent, and window material."
+        case .terminal: return "Renderer, font, and terminal presentation."
         case .notifications: return "How Scout tells you an agent needs you."
         case .about: return "Local build details."
         }
@@ -37,6 +41,10 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
 struct ScoutSettingsView: View {
     @ObservedObject var appearance: ScoutAppearance
     @ObservedObject private var attention = ScoutAttentionCenter.shared
+    @AppStorage(ScoutTerminalSettings.rendererKey) private var terminalRenderer = ScoutTerminalRenderer.xterm.rawValue
+    @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var terminalFontFamily = ScoutTerminalSettings.defaultFontFamily
+    @AppStorage(ScoutTerminalSettings.fontSizeKey) private var terminalFontSize = ScoutTerminalSettings.defaultFontSize
+    @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showNativeTerminalHeaders = true
     @State private var selectedSection: ScoutSettingsSection = .appearance
     /// Accent currently hovered in the swatch row — previews into the theme
     /// cards when `previewAccentsOnHover` is on. Contained to this panel.
@@ -156,11 +164,88 @@ struct ScoutSettingsView: View {
         switch selectedSection {
         case .appearance:
             appearancePage
+        case .terminal:
+            terminalPage
         case .notifications:
             notificationsPage
         case .about:
             aboutPage
         }
+    }
+
+    private var terminalPage: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+            settingsBlock(title: "Renderer") {
+                settingRow(title: "Default") {
+                    Picker("Terminal renderer", selection: $terminalRenderer) {
+                        ForEach(ScoutTerminalRenderer.allCases, id: \.rawValue) { renderer in
+                            Text(renderer.title).tag(renderer.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .tint(ScoutPalette.accent)
+                    .labelsHidden()
+                    .frame(width: 300)
+                }
+            }
+
+            settingsBlock(title: "Typography") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("The same font is used by native terminals and Xterm. Nerd Fonts include Powerline and prompt glyphs.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+
+                    settingRow(title: "Font") {
+                        Picker("Terminal font", selection: $terminalFontFamily) {
+                            ForEach(terminalFontChoices, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 300)
+                    }
+
+                    settingRow(title: "Size") {
+                        HStack(spacing: HudSpacing.xl) {
+                            Slider(value: $terminalFontSize, in: 9...24, step: 1)
+                                .tint(ScoutPalette.accent)
+                                .frame(width: 300)
+                            Text("\(Int(terminalFontSize.rounded())) pt")
+                                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                                .foregroundStyle(ScoutPalette.muted)
+                                .monospacedDigit()
+                                .frame(width: 42, alignment: .trailing)
+                        }
+                    }
+
+                    settingRow(title: "Preview") {
+                        Text("  ~/dev/openscout    git:main  ")
+                            .font(.custom(terminalFontFamily, size: terminalFontSize))
+                            .foregroundStyle(ScoutPalette.ink)
+                            .padding(.horizontal, HudSpacing.md)
+                            .frame(height: 36)
+                            .background(
+                                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                                    .fill(ScoutDesign.surface)
+                            )
+                    }
+                }
+            }
+
+            settingsBlock(title: "Tiles") {
+                settingRow(title: "Native headers") {
+                    Toggle("Show native terminal tile headers", isOn: $showNativeTerminalHeaders)
+                        .toggleStyle(.switch)
+                        .tint(ScoutPalette.accent)
+                        .labelsHidden()
+                }
+            }
+        }
+    }
+
+    private var terminalFontChoices: [String] {
+        let choices = ScoutTerminalSettings.availableFontFamilies
+        return choices.contains(terminalFontFamily) ? choices : [terminalFontFamily] + choices
     }
 
     private var notificationsPage: some View {
