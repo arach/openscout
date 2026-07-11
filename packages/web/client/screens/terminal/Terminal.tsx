@@ -18,6 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import {
+  type ComponentProps,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
@@ -145,6 +146,29 @@ type TerminalInventoryRow =
 
 const TERMINAL_ATTACH_DRAG_TYPE = "application/x-openscout-terminal-target";
 const TERMINAL_TILE_DRAG_TYPE = "application/x-openscout-terminal-tile";
+const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrainsMono Nerd Font', 'JetBrainsMonoNL Nerd Font', 'MesloLGS Nerd Font Mono', 'Hack Nerd Font Mono', 'JetBrains Mono', monospace";
+
+function terminalTypography(): { fontFamily: string; fontSize: number } {
+  if (typeof window === "undefined") {
+    return { fontFamily: DEFAULT_TERMINAL_FONT_FAMILY, fontSize: 13 };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const configuredFamily = params.get("terminalFontFamily")?.trim();
+  const configuredSize = Number(params.get("terminalFontSize"));
+  return {
+    fontFamily: configuredFamily
+      ? `'${configuredFamily.replaceAll("'", "\\'")}', ${DEFAULT_TERMINAL_FONT_FAMILY}`
+      : DEFAULT_TERMINAL_FONT_FAMILY,
+    fontSize: Number.isFinite(configuredSize) && configuredSize >= 9 && configuredSize <= 32
+      ? configuredSize
+      : 13,
+  };
+}
+
+function ScoutTerminalRelay(props: ComponentProps<typeof TerminalRelay>) {
+  const typography = terminalTypography();
+  return <TerminalRelay {...props} fontFamily={typography.fontFamily} fontSize={typography.fontSize} />;
+}
 
 function useTerminalProjectDestinations(agents: Agent[]): TerminalProjectDestination[] {
   const [configuredProjects, setConfiguredProjects] = useState<AgentConfigurationProject[]>([]);
@@ -921,9 +945,8 @@ function TerminalRelayCanvas({
         className="s-term-body"
         onContextMenuCapture={session.handleTerminalContextMenu}
       >
-        <TerminalRelay
+        <ScoutTerminalRelay
           relay={session.terminalRelay}
-          fontSize={13}
           readOnly={session.readOnly}
           quiet
           configItems={[
@@ -1952,9 +1975,8 @@ function FreshTerminalWorkspaceTile({
             focusTerminal();
           }}
         >
-          <TerminalRelay
+          <ScoutTerminalRelay
             relay={relay}
-            fontSize={13}
             quiet
             configItems={[
               { label: "backend", value: tile.backend },
@@ -2527,9 +2549,8 @@ function NewTerminalSession({
           focusTerminal();
         }}
       >
-        <TerminalRelay
+        <ScoutTerminalRelay
           relay={relay}
-          fontSize={13}
           quiet
           configItems={[
             { label: "backend", value: backend },
