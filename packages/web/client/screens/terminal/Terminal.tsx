@@ -9,6 +9,7 @@ import {
   Grid2X2,
   LogIn,
   MoreHorizontal,
+  Pencil,
   Plus,
   Power,
   RefreshCw,
@@ -66,12 +67,20 @@ import {
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import {
+  addTerminalWorkspace,
+  closeTerminalWorkspace,
+  createTerminalWorkspaceDeck,
   moveTerminalWorkspaceItem,
+  normalizeTerminalWorkspaceDeck,
+  renameTerminalWorkspace,
   resolveTerminalProjectDestinations,
+  selectTerminalWorkspace,
   terminalProjectCdCommand,
   terminalWorkspaceDropPlacement,
+  updateActiveTerminalWorkspaceTiles,
   type TerminalProjectDestination,
   type TerminalTileDropEdge,
+  type TerminalWorkspaceDeck,
 } from "../../lib/terminal-workspace.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../../lib/vantage.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
@@ -1156,12 +1165,128 @@ function openTerminalRouteExternally(route: TerminalRoute, navigate: TerminalNav
   window.open(absoluteRouteUrl(route), "_blank", "noopener,noreferrer");
 }
 
+const TERMINAL_WORKSPACE_STORAGE_KEY = "openscout.terminal.workspaces.v1";
+
+function isTerminalWorkspaceTile(value: unknown): value is TerminalWorkspaceTileModel {
+  if (!value || typeof value !== "object") return false;
+  const tile = value as Partial<TerminalWorkspaceTileModel>;
+  if (typeof tile.id !== "string" || !tile.id) return false;
+  if (tile.kind === "fresh") {
+    return (tile.backend === "pty" || tile.backend === "tmux" || tile.backend === "zellij")
+      && (tile.agent === "shell" || tile.agent === "claude" || tile.agent === "pi");
+  }
+  if (tile.kind !== "registered" || !tile.target || typeof tile.target !== "object") return false;
+  const target = tile.target as Partial<RegisteredTerminalTarget>;
+  return Boolean(
+    target.session
+    && typeof target.session === "object"
+    && typeof target.session.id === "string"
+    && target.surface
+    && typeof target.surface === "object"
+    && (target.surface.backend === "tmux" || target.surface.backend === "zellij")
+    && typeof target.surface.sessionName === "string",
+  );
+}
+
+function readTerminalWorkspaceDeck(): TerminalWorkspaceDeck<TerminalWorkspaceTileModel> {
+  if (typeof window === "undefined") return createTerminalWorkspaceDeck();
+  try {
+    const raw = window.localStorage.getItem(TERMINAL_WORKSPACE_STORAGE_KEY);
+    return normalizeTerminalWorkspaceDeck(raw ? JSON.parse(raw) : null, isTerminalWorkspaceTile);
+  } catch {
+    return createTerminalWorkspaceDeck();
+  }
+}
+
+function useTerminalWorkspaceDeck() {
+  const [deck, setDeck] = useState<TerminalWorkspaceDeck<TerminalWorkspaceTileModel>>(
+    readTerminalWorkspaceDeck,
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TERMINAL_WORKSPACE_STORAGE_KEY, JSON.stringify(deck));
+    } catch {
+      // Persistence is best-effort in locked-down browser contexts.
+    }
+  }, [deck]);
+
+  const activeWorkspace = deck.workspaces.find((workspace) => workspace.id === deck.activeWorkspaceId)
+    ?? deck.workspaces[0]!;
+  const setTiles = useCallback((
+    update: TerminalWorkspaceTileModel[] | ((tiles: TerminalWorkspaceTileModel[]) => TerminalWorkspaceTileModel[]),
+  ) => {
+    setDeck((current) => updateActiveTerminalWorkspaceTiles(current, update));
+  }, []);
+
+  return { deck, setDeck, activeWorkspace, tiles: activeWorkspace.tiles, setTiles };
+}
+
+function TerminalWorkspaceStrip({
+  deck,
+  onSelect,
+  onAdd,
+  onRename,
+  onClose,
+}: {
+  deck: TerminalWorkspaceDeck<TerminalWorkspaceTileModel>;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+  onRename: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="s-term-workspace-strip">
+      <span className="s-term-workspace-strip-label">Workspaces</span>
+      <div className="s-term-workspace-tabs" role="tablist" aria-label="Terminal workspaces">
+        {deck.workspaces.map((workspace) => {
+          const active = workspace.id === deck.activeWorkspaceId;
+          return (
+            <button
+              key={workspace.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`s-term-workspace-tab${active ? " s-term-workspace-tab--active" : ""}`}
+              onClick={() => onSelect(workspace.id)}
+              onDoubleClick={active ? onRename : undefined}
+              title={active ? `Rename ${workspace.name} with a double-click` : `Switch to ${workspace.name}`}
+            >
+              <span>{workspace.name}</span>
+              <span className="s-term-workspace-tab-count">{workspace.tiles.length}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="s-term-workspace-strip-actions">
+        <button type="button" className="s-term-icon-button" onClick={onRename} title="Rename workspace" aria-label="Rename workspace">
+          <Pencil size={12} strokeWidth={1.8} />
+        </button>
+        <button type="button" className="s-term-icon-button" onClick={onAdd} title="New workspace" aria-label="New workspace">
+          <Plus size={13} strokeWidth={1.9} />
+        </button>
+        <button
+          type="button"
+          className="s-term-icon-button"
+          onClick={onClose}
+          disabled={deck.workspaces.length <= 1}
+          title="Close workspace"
+          aria-label="Close workspace"
+        >
+          <X size={13} strokeWidth={1.8} />
+        </button>
+      </div>
+      <span className="s-term-workspace-strip-note">saved in this browser</span>
+    </div>
+  );
+}
+
 function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const { agents } = useScout();
   const projectDestinations = useTerminalProjectDestinations(agents);
   const showContextMenu = useContextMenu();
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
-  const [tiles, setTiles] = useState<TerminalWorkspaceTileModel[]>([]);
+  const { deck, setDeck, activeWorkspace, tiles, setTiles } = useTerminalWorkspaceDeck();
   const [workspaceReload, setWorkspaceReload] = useState(0);
   const [dropTargetActive, setDropTargetActive] = useState(false);
   const [showAttachPanel, setShowAttachPanel] = useState(false);
@@ -1254,7 +1379,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       });
       return changed ? next : current;
     });
-  }, [state.sessions]);
+  }, [activeWorkspace.id, setTiles, state.sessions]);
 
   const addFreshTile = useCallback((backend: TerminalBackend, agent: TerminalAgentKind = "shell") => {
     setTiles((current) => [...current, createFreshTerminalTile(backend, agent)]);
@@ -1447,6 +1572,18 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     showContextMenu(event, items);
   }, [attachableItems, loadSessions, retargetTile, showContextMenu, tiles]);
 
+  const addWorkspace = useCallback(() => {
+    setDeck((current) => addTerminalWorkspace(current, createTerminalTileId("workspace")));
+  }, [setDeck]);
+
+  const renameWorkspace = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const name = window.prompt("Workspace name", activeWorkspace.name);
+    if (name !== null) {
+      setDeck((current) => renameTerminalWorkspace(current, current.activeWorkspaceId, name));
+    }
+  }, [activeWorkspace.name, setDeck]);
+
   return (
     <div className="s-term s-term--workspace">
       <div className="s-term-workspace">
@@ -1456,7 +1593,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
               <Grid2X2 size={18} strokeWidth={1.7} />
               <span>Terminals</span>
             </span>
-            <h1>Terminal Workspace</h1>
+            <h1>{activeWorkspace.name} workspace</h1>
           </div>
           <div className="s-term-workspace-actions" aria-label="Terminal workspace actions">
             <button
@@ -1509,6 +1646,14 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             </button>
           </div>
         </header>
+
+        <TerminalWorkspaceStrip
+          deck={deck}
+          onSelect={(id) => setDeck((current) => selectTerminalWorkspace(current, id))}
+          onAdd={addWorkspace}
+          onRename={renameWorkspace}
+          onClose={() => setDeck((current) => closeTerminalWorkspace(current, current.activeWorkspaceId))}
+        />
 
         <div className="s-term-home-stats" aria-label="Terminal inventory">
           <Stat label="Tiles" value={tiles.length} />

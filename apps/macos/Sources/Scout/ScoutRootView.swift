@@ -203,6 +203,11 @@ struct ScoutRootView: View {
     @StateObject private var feeds = ScoutFeeds()
     private var tail: ScoutTailStore { feeds.tail }
     @StateObject private var repos = ScoutRepoStore()
+    #if HUDSON_TERMINAL
+    /// Terminal layouts live at window scope so section changes do not tear down
+    /// their native PTYs or forget the xterm routes that make up each workspace.
+    @StateObject private var terminalWorkspaces = ScoutTerminalWorkspaceStore()
+    #endif
     /// Incoming LAN pairing requests awaiting approval on this Mac.
     @StateObject private var pairingApprovals = ScoutPairingApprovalStore()
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
@@ -1469,7 +1474,11 @@ struct ScoutRootView: View {
     }
 
     private var terminalContent: some View {
+        #if HUDSON_TERMINAL
+        ScoutTerminalContent(workspaceStore: terminalWorkspaces)
+        #else
         ScoutTerminalContent()
+        #endif
     }
 
     private func commsContent(layout: ScoutShellLayout) -> some View {

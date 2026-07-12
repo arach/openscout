@@ -1,12 +1,56 @@
 import { describe, expect, test } from "bun:test";
 import {
+  addTerminalWorkspace,
+  closeTerminalWorkspace,
+  createTerminalWorkspaceDeck,
   moveTerminalWorkspaceItem,
+  normalizeTerminalWorkspaceDeck,
+  renameTerminalWorkspace,
   resolveTerminalProjectDestinations,
+  selectTerminalWorkspace,
   terminalProjectCdCommand,
   terminalWorkspaceDropPlacement,
+  updateActiveTerminalWorkspaceTiles,
 } from "./terminal-workspace.ts";
 
 const items = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+
+describe("terminal workspace decks", () => {
+  test("creates, selects, renames, and closes named workspaces", () => {
+    let deck = createTerminalWorkspaceDeck<{ id: string }>();
+    deck = updateActiveTerminalWorkspaceTiles(deck, [{ id: "main-tile" }]);
+    deck = addTerminalWorkspace(deck, "second");
+    expect(deck.activeWorkspaceId).toBe("second");
+    expect(deck.workspaces.map((workspace) => workspace.name)).toEqual(["Main", "Workspace 2"]);
+
+    deck = renameTerminalWorkspace(deck, "second", "Infra");
+    deck = updateActiveTerminalWorkspaceTiles(deck, [{ id: "infra-tile" }]);
+    deck = selectTerminalWorkspace(deck, "main");
+    expect(deck.workspaces.find((workspace) => workspace.id === "main")?.tiles).toEqual([{ id: "main-tile" }]);
+
+    deck = closeTerminalWorkspace(deck, "main");
+    expect(deck.activeWorkspaceId).toBe("second");
+    expect(deck.workspaces).toEqual([{ id: "second", name: "Infra", tiles: [{ id: "infra-tile" }] }]);
+  });
+
+  test("normalizes persisted state and removes malformed tiles", () => {
+    expect(normalizeTerminalWorkspaceDeck({
+      version: 99,
+      activeWorkspaceId: "missing",
+      workspaces: [
+        { id: "main", name: " Main ", tiles: [{ id: "ok" }, { nope: true }] },
+        { id: "main", name: "Duplicate", tiles: [] },
+        { id: "", name: "Missing id", tiles: [] },
+      ],
+    }, (value): value is { id: string } => (
+      Boolean(value) && typeof value === "object" && typeof (value as { id?: unknown }).id === "string"
+    ))).toEqual({
+      version: 1,
+      activeWorkspaceId: "main",
+      workspaces: [{ id: "main", name: "Main", tiles: [{ id: "ok" }] }],
+    });
+  });
+});
 
 describe("moveTerminalWorkspaceItem", () => {
   test("moves a tile before an earlier tile", () => {

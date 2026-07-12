@@ -86,7 +86,7 @@ private enum ScoutTerminalDragPayload {
     }
 }
 
-private enum ScoutTerminalTileDropEdge: Equatable {
+enum ScoutTerminalTileDropEdge: Equatable {
     case before
     case after
 }
@@ -170,10 +170,174 @@ enum ScoutTerminalSettings {
     }
 }
 
-private struct ScoutTerminalWebCommand: Equatable {
+struct ScoutTerminalWebCommand: Equatable {
     let id = UUID()
     let line: String
 }
+
+#if HUDSON_TERMINAL
+@MainActor
+struct ScoutTerminalWorkspace: Identifiable {
+    let id: String
+    var name: String
+    let nativeModel: ScoutNativeTerminalGridModel
+    let webModel: ScoutTerminalWebTabsModel
+
+    init(id: String = UUID().uuidString, name: String) {
+        self.id = id
+        self.name = name
+        nativeModel = ScoutNativeTerminalGridModel()
+        webModel = ScoutTerminalWebTabsModel()
+    }
+}
+
+@MainActor
+final class ScoutTerminalWorkspaceStore: ObservableObject {
+    @Published private(set) var workspaces: [ScoutTerminalWorkspace]
+    @Published private(set) var selectedWorkspaceID: String
+
+    init() {
+        let main = ScoutTerminalWorkspace(id: "main", name: "Main")
+        workspaces = [main]
+        selectedWorkspaceID = main.id
+    }
+
+    var selectedWorkspace: ScoutTerminalWorkspace {
+        workspaces.first(where: { $0.id == selectedWorkspaceID }) ?? workspaces[0]
+    }
+
+    func select(_ id: String) {
+        guard workspaces.contains(where: { $0.id == id }) else { return }
+        selectedWorkspaceID = id
+    }
+
+    func addWorkspace() {
+        let usedNames = Set(workspaces.map(\.name))
+        var index = workspaces.count + 1
+        while usedNames.contains("Workspace \(index)") {
+            index += 1
+        }
+        let workspace = ScoutTerminalWorkspace(name: "Workspace \(index)")
+        workspaces.append(workspace)
+        selectedWorkspaceID = workspace.id
+    }
+
+    func renameSelected(_ name: String) {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty,
+              let index = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID })
+        else { return }
+        workspaces[index].name = cleaned
+    }
+
+    func closeSelected() {
+        guard workspaces.count > 1,
+              let index = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID })
+        else { return }
+        let workspace = workspaces.remove(at: index)
+        workspace.nativeModel.stopAll()
+        selectedWorkspaceID = workspaces[min(index, workspaces.count - 1)].id
+    }
+}
+
+private struct ScoutTerminalWorkspaceBar: View {
+    @ObservedObject var store: ScoutTerminalWorkspaceStore
+    let tileCount: Int
+    let persistenceNote: String
+
+    @State private var renameDraft = ""
+    @State private var isRenamePresented = false
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text("WORKSPACES")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(ScoutPalette.dim)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: HudSpacing.xxs) {
+                    ForEach(store.workspaces) { workspace in
+                        workspaceButton(workspace)
+                    }
+                }
+            }
+
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(width: HudStrokeWidth.thin, height: 20)
+
+            ScoutTerminalIconButton(systemName: "pencil", help: "Rename workspace") {
+                renameDraft = store.selectedWorkspace.name
+                isRenamePresented = true
+            }
+            ScoutTerminalIconButton(systemName: "plus", help: "New workspace") {
+                store.addWorkspace()
+            }
+            ScoutTerminalIconButton(
+                systemName: "xmark",
+                help: "Close workspace",
+                disabled: store.workspaces.count <= 1
+            ) {
+                store.closeSelected()
+            }
+
+            Spacer(minLength: HudSpacing.md)
+
+            Text("\(tileCount) TILE\(tileCount == 1 ? "" : "S") · \(persistenceNote.uppercased())")
+                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .tracking(0.55)
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, ScoutTerminalMetrics.pageGutter)
+        .frame(height: 38)
+        .background(ScoutSurface.inset.opacity(0.55))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .alert("Rename workspace", isPresented: $isRenamePresented) {
+            TextField("Workspace name", text: $renameDraft)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                store.renameSelected(renameDraft)
+            }
+            .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Use a short name that describes this terminal layout.")
+        }
+    }
+
+    private func workspaceButton(_ workspace: ScoutTerminalWorkspace) -> some View {
+        let selected = workspace.id == store.selectedWorkspaceID
+        return Button {
+            store.select(workspace.id)
+        } label: {
+            Text(workspace.name)
+                .font(HudFont.mono(HudTextSize.xs, weight: selected ? .semibold : .medium))
+                .foregroundStyle(selected ? ScoutPalette.ink : ScoutPalette.muted)
+                .padding(.horizontal, HudSpacing.md)
+                .frame(height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .fill(selected ? ScoutSurface.selected(ScoutPalette.accent) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .stroke(
+                            selected ? ScoutPalette.accent.opacity(0.32) : Color.clear,
+                            lineWidth: HudStrokeWidth.thin
+                        )
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(selected ? "Current terminal workspace" : "Switch to \(workspace.name)")
+    }
+}
+#endif
 
 /// Terminal surface for the native Scout app.
 ///
@@ -182,6 +346,7 @@ private struct ScoutTerminalWebCommand: Equatable {
 /// relay controls that have not moved to a native surface yet.
 struct ScoutTerminalContent: View {
     #if HUDSON_TERMINAL
+    @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
     @AppStorage(ScoutTerminalSettings.rendererKey) private var rendererRaw = ScoutTerminalRenderer.xterm.rawValue
 
     private var renderer: ScoutTerminalRenderer {
@@ -202,9 +367,17 @@ struct ScoutTerminalContent: View {
         #if HUDSON_TERMINAL
         switch renderer {
         case .native:
-            ScoutNativeTerminalContent(renderer: rendererBinding)
+            ScoutNativeTerminalContent(
+                renderer: rendererBinding,
+                workspaceStore: workspaceStore,
+                model: workspaceStore.selectedWorkspace.nativeModel
+            )
         case .xterm:
-            ScoutTerminalWebContent(renderer: rendererBinding)
+            ScoutTerminalWebContent(
+                renderer: rendererBinding,
+                workspaceStore: workspaceStore,
+                model: workspaceStore.selectedWorkspace.webModel
+            )
         }
         #else
         ScoutTerminalWebContent()
@@ -215,7 +388,8 @@ struct ScoutTerminalContent: View {
 #if HUDSON_TERMINAL
 private struct ScoutNativeTerminalContent: View {
     @Binding var renderer: ScoutTerminalRenderer
-    @StateObject private var model = ScoutNativeTerminalGridModel()
+    @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
+    @ObservedObject var model: ScoutNativeTerminalGridModel
     @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showHeaders = true
     @State private var dropTargeted = false
     @State private var draggedTileID: String?
@@ -226,16 +400,16 @@ private struct ScoutNativeTerminalContent: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            ScoutTerminalWorkspaceBar(
+                store: workspaceStore,
+                tileCount: model.tiles.count,
+                persistenceNote: "kept while Scout runs"
+            )
             terminalBody
         }
         .background(ScoutDesign.bg)
         .task {
             await model.loadIfNeeded()
-        }
-        .onChange(of: renderer) { _, next in
-            if next != .native {
-                model.stopAll()
-            }
         }
     }
 
@@ -579,7 +753,7 @@ private struct ScoutNativeTerminalContent: View {
 }
 
 @MainActor
-private final class ScoutNativeTerminalGridModel: ObservableObject {
+final class ScoutNativeTerminalGridModel: ObservableObject {
     @Published private(set) var tiles: [ScoutNativeTerminalTile] = []
     @Published private(set) var attachTargets: [ScoutNativeTerminalTarget] = []
     @Published private(set) var isLoading = false
@@ -730,7 +904,7 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
 }
 
 @MainActor
-private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @unchecked Sendable {
+final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @unchecked Sendable {
     let id: String
     @Published private(set) var workspace: TerminiLocalPTYWorkspace
 
@@ -1369,6 +1543,7 @@ private struct ScoutTerminalBackendBadge: View {
 private struct ScoutTerminalIconButton: View {
     let systemName: String
     let help: String
+    var disabled = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -1386,8 +1561,10 @@ private struct ScoutTerminalIconButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.38 : 1)
         .scoutPointerCursor()
-        .onHover { hovering = $0 }
+        .onHover { hovering = disabled ? false : $0 }
         .help(help)
         .accessibilityLabel(help)
     }
@@ -1440,7 +1617,7 @@ private struct ScoutHerdrSessionRecord: Decodable, Sendable {
     }
 }
 
-private struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
+struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
     var id: String
     var title: String
     var subtitle: String
@@ -1450,7 +1627,7 @@ private struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
     var workingDirectoryPath: String
     var isRegistryBacked: Bool
 
-    init(session: ScoutTerminalSessionRecord, surface: ScoutTerminalSurfaceRecord) {
+    fileprivate init(session: ScoutTerminalSessionRecord, surface: ScoutTerminalSurfaceRecord) {
         id = "\(session.id)::\(surface.backend)::\(surface.sessionName)"
         title = Self.title(session: session, surface: surface)
         commandLabel = Self.commandLabel(surface.attachCommand)
@@ -1682,11 +1859,19 @@ private struct ScoutNativeTerminalTarget: Identifiable, Hashable, Sendable {
 
 private struct ScoutTerminalWebContent: View {
     var renderer: Binding<ScoutTerminalRenderer>? = nil
+    #if HUDSON_TERMINAL
+    @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
+    @ObservedObject var model: ScoutTerminalWebTabsModel
+    #endif
 
     var body: some View {
         #if HUDSON_TERMINAL
         if let renderer {
-            ScoutTerminalTabbedWebContent(renderer: renderer)
+            ScoutTerminalTabbedWebContent(
+                renderer: renderer,
+                workspaceStore: workspaceStore,
+                model: model
+            )
         } else {
             ScoutTerminalSingleWebContent()
         }
@@ -1754,7 +1939,8 @@ private struct ScoutTerminalSingleWebContent: View {
 #if HUDSON_TERMINAL
 private struct ScoutTerminalTabbedWebContent: View {
     @Binding var renderer: ScoutTerminalRenderer
-    @StateObject private var model = ScoutTerminalWebTabsModel()
+    @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
+    @ObservedObject var model: ScoutTerminalWebTabsModel
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
     @AppStorage(ScoutTerminalSettings.fontSizeKey) private var fontSize = ScoutTerminalSettings.defaultFontSize
@@ -1765,6 +1951,11 @@ private struct ScoutTerminalTabbedWebContent: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            ScoutTerminalWorkspaceBar(
+                store: workspaceStore,
+                tileCount: model.tabs.count,
+                persistenceNote: "kept while Scout runs"
+            )
             terminalBody
         }
         .background(ScoutDesign.bg)
@@ -2331,7 +2522,7 @@ private struct ScoutTerminalMenuLabel: View {
     }
 }
 
-private struct ScoutTerminalWebTab: Identifiable, Equatable {
+struct ScoutTerminalWebTab: Identifiable, Equatable {
     let id: String
     var title: String
     var subtitle: String
@@ -2343,7 +2534,7 @@ private struct ScoutTerminalWebTab: Identifiable, Equatable {
     var command: ScoutTerminalWebCommand?
 }
 
-private struct ScoutTerminalProjectDestination: Identifiable, Hashable {
+struct ScoutTerminalProjectDestination: Identifiable, Hashable {
     let id: String
     let title: String
     let root: String
@@ -2372,13 +2563,13 @@ private struct ScoutTerminalProjectSnapshot: Decodable {
     let projects: [Project]
 }
 
-private struct ScoutTerminalWebAttachTarget: Identifiable, Hashable {
+struct ScoutTerminalWebAttachTarget: Identifiable, Hashable {
     var id: String
     var title: String
     var subtitle: String
     var routePath: String
 
-    init(session: ScoutTerminalSessionRecord, surface: ScoutTerminalSurfaceRecord) {
+    fileprivate init(session: ScoutTerminalSessionRecord, surface: ScoutTerminalSurfaceRecord) {
         let key = "\(surface.backend):\(surface.sessionName)"
         id = "\(session.id)::\(key)"
         title = [
@@ -2463,7 +2654,7 @@ private struct ScoutTerminalWebAttachTargetCard: View {
 }
 
 @MainActor
-private final class ScoutTerminalWebTabsModel: ObservableObject {
+final class ScoutTerminalWebTabsModel: ObservableObject {
     @Published private(set) var tabs: [ScoutTerminalWebTab] = []
     @Published var selectedTabID: String?
     @Published private(set) var attachTargets: [ScoutTerminalWebAttachTarget] = []
