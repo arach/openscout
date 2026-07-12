@@ -1,4 +1,4 @@
-import { Bot, Check, Copy, ExternalLink, Hash, Megaphone, MessageCircle } from "lucide-react";
+import { Bot, Check, Copy, ExternalLink, Hash, Megaphone, MessageCircle, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
@@ -624,6 +624,14 @@ export function BrokerAttemptInspector({
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   }, [contextText]);
 
+  const askScout = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("scout:scoutbot-compose", {
+      detail: {
+        body: `Look into this failed dispatch — what went wrong and how do I fix it?\n\n${contextText}`,
+      },
+    }));
+  }, [contextText]);
+
   const invokeCodex = useCallback(async () => {
     setReviewStatus("running");
     setReviewMessage(null);
@@ -658,6 +666,15 @@ export function BrokerAttemptInspector({
         <div className="sys-inline-actions">
           {isFailure && (
             <>
+              <button
+                type="button"
+                className="s-btn s-btn-sm s-btn-primary"
+                onClick={askScout}
+                title="Send this failed dispatch to Scout in the chat below"
+              >
+                <Sparkles size={12} aria-hidden="true" />
+                Ask Scout
+              </button>
               <button
                 type="button"
                 className="s-btn s-btn-sm"

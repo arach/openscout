@@ -139,6 +139,7 @@ export function ScoutbotPanel({
   const [voiceDefaults, setVoiceDefaults] = useState<ScoutbotVoiceDefaults | null>(null);
   const [reminderState, setReminderState] = useState<ScoutbotReminderState | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
+  const [composeFocusNonce, setComposeFocusNonce] = useState(0);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const clientRef = useRef(getSharedScoutVoiceClient());
@@ -1025,6 +1026,22 @@ export function ScoutbotPanel({
   }, [askScoutbot, setCollapsed]);
 
   useEffect(() => {
+    const composeHandler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      const body = detail && typeof detail === "object" && "body" in detail
+        ? (detail as { body?: unknown }).body
+        : null;
+      if (typeof body === "string" && body.trim()) {
+        setCollapsed(false);
+        setDraft(body);
+        setComposeFocusNonce((nonce) => nonce + 1);
+      }
+    };
+    window.addEventListener("scout:scoutbot-compose", composeHandler);
+    return () => window.removeEventListener("scout:scoutbot-compose", composeHandler);
+  }, [setCollapsed]);
+
+  useEffect(() => {
     const briefHandler = () => {
       setCollapsed(false);
       if (!briefing && !sending) {
@@ -1383,6 +1400,7 @@ export function ScoutbotPanel({
           }}
           prominent={isEmptyChat}
           autoFocus={forceExpanded}
+          focusSignal={composeFocusNonce}
         />
 
         {error && (
