@@ -74,9 +74,9 @@ export function SiteHeader({
           .filter(Boolean)
           .join(" ")}
       >
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href="/" className="site-wordmark flex items-center">
           <LogoMark />
-          <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
+          <span className="site-wordmark__text font-[family-name:var(--font-spectral)]">
             Scout
           </span>
         </Link>
