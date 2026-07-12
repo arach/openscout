@@ -599,6 +599,40 @@
   height: 26px;
 }
 
+.s-term-workspace-context {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xl);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.s-term-workspace-context-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-mono);
+}
+
+.s-term-workspace-context-copy strong {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-term-workspace-context-copy span {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+}
+
 .s-term-workspace-actions,
 .s-term-workspace-empty-actions {
   display: flex;
@@ -1527,6 +1561,11 @@
 
   .s-term-workspace-actions {
     justify-content: flex-start;
+  }
+
+  .s-term-workspace-context {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .s-term-workspace-strip-note {

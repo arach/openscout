@@ -30,7 +30,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .appearance: return "Theme, accent, and window material."
-        case .terminal: return "Renderer, font, and terminal presentation."
+        case .terminal: return "Workspace view, font, and shell presentation."
         case .notifications: return "How Scout tells you an agent needs you."
         case .about: return "Local build details."
         }
@@ -175,9 +175,9 @@ struct ScoutSettingsView: View {
 
     private var terminalPage: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
-            settingsBlock(title: "Renderer") {
-                settingRow(title: "Default") {
-                    Picker("Terminal renderer", selection: $terminalRenderer) {
+            settingsBlock(title: "Workspace canvas") {
+                settingRow(title: "Show first") {
+                    Picker("Visible shell renderer", selection: $terminalRenderer) {
                         ForEach(ScoutTerminalRenderer.allCases, id: \.rawValue) { renderer in
                             Text(renderer.title).tag(renderer.rawValue)
                         }

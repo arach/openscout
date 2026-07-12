@@ -177,17 +177,26 @@ struct ScoutTerminalWebCommand: Equatable {
 
 #if HUDSON_TERMINAL
 @MainActor
+final class ScoutTerminalWorkspaceShells {
+    let native: ScoutNativeTerminalGridModel
+    let web: ScoutTerminalWebTabsModel
+
+    init() {
+        native = ScoutNativeTerminalGridModel()
+        web = ScoutTerminalWebTabsModel()
+    }
+}
+
+@MainActor
 struct ScoutTerminalWorkspace: Identifiable {
     let id: String
     var name: String
-    let nativeModel: ScoutNativeTerminalGridModel
-    let webModel: ScoutTerminalWebTabsModel
+    let shells: ScoutTerminalWorkspaceShells
 
     init(id: String = UUID().uuidString, name: String) {
         self.id = id
         self.name = name
-        nativeModel = ScoutNativeTerminalGridModel()
-        webModel = ScoutTerminalWebTabsModel()
+        shells = ScoutTerminalWorkspaceShells()
     }
 }
 
@@ -235,7 +244,7 @@ final class ScoutTerminalWorkspaceStore: ObservableObject {
               let index = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID })
         else { return }
         let workspace = workspaces.remove(at: index)
-        workspace.nativeModel.stopAll()
+        workspace.shells.native.stopAll()
         selectedWorkspaceID = workspaces[min(index, workspaces.count - 1)].id
     }
 }
@@ -365,20 +374,12 @@ struct ScoutTerminalContent: View {
     @ViewBuilder
     var body: some View {
         #if HUDSON_TERMINAL
-        switch renderer {
-        case .native:
-            ScoutNativeTerminalContent(
-                renderer: rendererBinding,
-                workspaceStore: workspaceStore,
-                model: workspaceStore.selectedWorkspace.nativeModel
-            )
-        case .xterm:
-            ScoutTerminalWebContent(
-                renderer: rendererBinding,
-                workspaceStore: workspaceStore,
-                model: workspaceStore.selectedWorkspace.webModel
-            )
-        }
+        ScoutTerminalActiveWorkspaceContent(
+            renderer: rendererBinding,
+            workspaceStore: workspaceStore,
+            nativeModel: workspaceStore.selectedWorkspace.shells.native,
+            webModel: workspaceStore.selectedWorkspace.shells.web
+        )
         #else
         ScoutTerminalWebContent()
         #endif
@@ -386,10 +387,232 @@ struct ScoutTerminalContent: View {
 }
 
 #if HUDSON_TERMINAL
+private struct ScoutTerminalActiveWorkspaceContent: View {
+    @Binding var renderer: ScoutTerminalRenderer
+    @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
+    @ObservedObject var nativeModel: ScoutNativeTerminalGridModel
+    @ObservedObject var webModel: ScoutTerminalWebTabsModel
+    @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showNativeHeaders = true
+
+    private var shellCount: Int {
+        nativeModel.tiles.count + webModel.tabs.count
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            globalHeader
+            ScoutTerminalWorkspaceBar(
+                store: workspaceStore,
+                tileCount: shellCount,
+                persistenceNote: "kept while Scout runs"
+            )
+            workspaceToolbar
+            Group {
+                switch renderer {
+                case .native:
+                    ScoutNativeTerminalContent(
+                        renderer: $renderer,
+                        workspaceStore: workspaceStore,
+                        model: nativeModel,
+                        showsChrome: false
+                    )
+                case .xterm:
+                    ScoutTerminalWebContent(
+                        renderer: $renderer,
+                        workspaceStore: workspaceStore,
+                        model: webModel,
+                        showsChrome: false
+                    )
+                }
+            }
+        }
+        .background(ScoutDesign.bg)
+        .task(id: workspaceStore.selectedWorkspaceID) {
+            async let native: Void = nativeModel.loadIfNeeded()
+            async let web: Void = webModel.loadTerminalContext()
+            _ = await (native, web)
+        }
+    }
+
+    private var globalHeader: some View {
+        ScoutColumnHeader(horizontalPadding: ScoutTerminalMetrics.pageGutter) {
+            Text("Terminals")
+                .font(ScoutTailFont.display(HudTextSize.xl, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+        } secondary: {
+            Text("\(workspaceStore.workspaces.count) workspace\(workspaceStore.workspaces.count == 1 ? "" : "s") · \(shellCount) shell\(shellCount == 1 ? "" : "s") in current workspace")
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+        } trailing: {
+            ScoutTerminalHeaderButton(title: "Open web", icon: "safari") {
+                ScoutWeb.open(path: "/terminal")
+            }
+        }
+    }
+
+    private var workspaceToolbar: some View {
+        HStack(spacing: HudSpacing.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(workspaceStore.selectedWorkspace.name)
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                Text("\(nativeModel.tiles.count) native · \(webModel.tabs.count) web")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .foregroundStyle(ScoutPalette.dim)
+            }
+
+            Spacer(minLength: HudSpacing.lg)
+
+            newShellMenu
+            attachMenu
+            ScoutTerminalHeaderButton(
+                title: nativeModel.isLoading || webModel.isLoadingTargets ? "Syncing" : "Refresh",
+                icon: "arrow.clockwise",
+                disabled: nativeModel.isLoading || webModel.isLoadingTargets
+            ) {
+                Task {
+                    async let native: Void = nativeModel.reload()
+                    async let web: Void = webModel.loadTerminalContext()
+                    _ = await (native, web)
+                }
+            }
+            Menu {
+                Button(showNativeHeaders ? "Use compact native tiles" : "Show native tile headers") {
+                    showNativeHeaders.toggle()
+                }
+                Button("Reload web tiles") {
+                    webModel.reloadAll()
+                }
+                .disabled(webModel.tabs.isEmpty)
+            } label: {
+                ScoutTerminalMenuLabel(title: "More", icon: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: true, vertical: false)
+
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(width: HudStrokeWidth.thin, height: 20)
+
+            Text("SHOW")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .tracking(0.65)
+                .foregroundStyle(ScoutPalette.dim)
+            ScoutTerminalRendererToggle(selection: $renderer)
+        }
+        .padding(.horizontal, ScoutTerminalMetrics.pageGutter)
+        .frame(minHeight: 48)
+        .background(ScoutDesign.chrome.opacity(0.72))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(height: HudStrokeWidth.thin)
+        }
+    }
+
+    private var newShellMenu: some View {
+        Menu {
+            Menu("Native renderer") {
+                nativeShellButton(title: "Shell", mode: "shell", command: nil, icon: "terminal")
+                nativeShellButton(title: "tmux", mode: "tmux", command: "tmux", icon: "rectangle.split.2x1")
+                nativeShellButton(title: "zellij", mode: "zellij", command: "zellij", icon: "rectangle.3.group")
+                nativeShellButton(title: "herdr", mode: "herdr", command: "herdr", icon: "square.grid.2x2")
+            }
+            Menu("Web renderer") {
+                webShellButton(title: "Shell", backend: "pty", agent: "shell", icon: "terminal")
+                webShellButton(title: "tmux", backend: "tmux", agent: "shell", icon: "rectangle.split.2x1")
+                webShellButton(title: "zellij", backend: "zellij", agent: "shell", icon: "rectangle.3.group")
+                Divider()
+                webShellButton(title: "Claude", backend: "pty", agent: "claude", icon: "sparkles")
+            }
+            if !ScoutNativeTerminalTarget.commandAvailable("herdr") {
+                Divider()
+                Button("Install herdr…") {
+                    if let url = URL(string: "https://herdr.dev/docs/install/") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        } label: {
+            ScoutTerminalMenuLabel(title: "New shell", icon: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(nativeModel.isAddingShell)
+        .help("Create a shell in this workspace and choose its renderer")
+    }
+
+    private func nativeShellButton(
+        title: String,
+        mode: String,
+        command: String?,
+        icon: String
+    ) -> some View {
+        let available = command.map(ScoutNativeTerminalTarget.commandAvailable) ?? true
+        return Button {
+            renderer = .native
+            nativeModel.addLocalShell(mode: mode)
+        } label: {
+            Label(available ? title : "\(title) — not installed", systemImage: icon)
+        }
+        .disabled(!available)
+    }
+
+    private func webShellButton(
+        title: String,
+        backend: String,
+        agent: String,
+        icon: String
+    ) -> some View {
+        Button {
+            renderer = .xterm
+            webModel.addTerminalTab(backend: backend, agent: agent)
+        } label: {
+            Label(title, systemImage: icon)
+        }
+    }
+
+    private var attachMenu: some View {
+        Menu {
+            if nativeModel.attachableTargets.isEmpty && webModel.attachableTargets.isEmpty {
+                Text("No attachable sessions")
+            }
+            if !nativeModel.attachableTargets.isEmpty {
+                Menu("Native renderer") {
+                    ForEach(nativeModel.attachableTargets) { target in
+                        Button(target.title) {
+                            renderer = .native
+                            nativeModel.attach(target)
+                        }
+                    }
+                }
+            }
+            if !webModel.attachableTargets.isEmpty {
+                Menu("Web renderer") {
+                    ForEach(webModel.attachableTargets) { target in
+                        Button(target.title) {
+                            renderer = .xterm
+                            webModel.attach(target)
+                        }
+                    }
+                }
+            }
+        } label: {
+            ScoutTerminalMenuLabel(title: "Attach", icon: "link")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(nativeModel.attachableTargets.isEmpty && webModel.attachableTargets.isEmpty)
+        .help("Attach a live session to this workspace")
+    }
+}
+
 private struct ScoutNativeTerminalContent: View {
     @Binding var renderer: ScoutTerminalRenderer
     @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
     @ObservedObject var model: ScoutNativeTerminalGridModel
+    var showsChrome = true
     @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showHeaders = true
     @State private var dropTargeted = false
     @State private var draggedTileID: String?
@@ -399,12 +622,14 @@ private struct ScoutNativeTerminalContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            ScoutTerminalWorkspaceBar(
-                store: workspaceStore,
-                tileCount: model.tiles.count,
-                persistenceNote: "kept while Scout runs"
-            )
+            if showsChrome {
+                header
+                ScoutTerminalWorkspaceBar(
+                    store: workspaceStore,
+                    tileCount: model.tiles.count,
+                    persistenceNote: "kept while Scout runs"
+                )
+            }
             terminalBody
         }
         .background(ScoutDesign.bg)
@@ -1863,6 +2088,7 @@ private struct ScoutTerminalWebContent: View {
     @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
     @ObservedObject var model: ScoutTerminalWebTabsModel
     #endif
+    var showsChrome = true
 
     var body: some View {
         #if HUDSON_TERMINAL
@@ -1870,7 +2096,8 @@ private struct ScoutTerminalWebContent: View {
             ScoutTerminalTabbedWebContent(
                 renderer: renderer,
                 workspaceStore: workspaceStore,
-                model: model
+                model: model,
+                showsChrome: showsChrome
             )
         } else {
             ScoutTerminalSingleWebContent()
@@ -1941,6 +2168,7 @@ private struct ScoutTerminalTabbedWebContent: View {
     @Binding var renderer: ScoutTerminalRenderer
     @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
     @ObservedObject var model: ScoutTerminalWebTabsModel
+    var showsChrome = true
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
     @AppStorage(ScoutTerminalSettings.fontSizeKey) private var fontSize = ScoutTerminalSettings.defaultFontSize
@@ -1950,12 +2178,14 @@ private struct ScoutTerminalTabbedWebContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            ScoutTerminalWorkspaceBar(
-                store: workspaceStore,
-                tileCount: model.tabs.count,
-                persistenceNote: "kept while Scout runs"
-            )
+            if showsChrome {
+                header
+                ScoutTerminalWorkspaceBar(
+                    store: workspaceStore,
+                    tileCount: model.tabs.count,
+                    persistenceNote: "kept while Scout runs"
+                )
+            }
             terminalBody
         }
         .background(ScoutDesign.bg)
@@ -2851,7 +3081,7 @@ private struct ScoutTerminalRendererToggle: View {
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                 .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
         )
-        .help("Switch terminal renderer")
+        .help("Filter workspace shells by renderer")
     }
 
     private func rendererSegment(_ option: ScoutTerminalRenderer) -> some View {
@@ -2879,7 +3109,7 @@ private struct ScoutTerminalRendererToggle: View {
         .buttonStyle(.plain)
         .scoutPointerCursor()
         .help(option.detail)
-        .accessibilityLabel(option.detail)
+        .accessibilityLabel("Show \(option.title) shells")
     }
 }
 

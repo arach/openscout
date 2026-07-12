@@ -1593,7 +1593,22 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
               <Grid2X2 size={18} strokeWidth={1.7} />
               <span>Terminals</span>
             </span>
-            <h1>{activeWorkspace.name} workspace</h1>
+            <h1>Terminal workspaces</h1>
+          </div>
+        </header>
+
+        <TerminalWorkspaceStrip
+          deck={deck}
+          onSelect={(id) => setDeck((current) => selectTerminalWorkspace(current, id))}
+          onAdd={addWorkspace}
+          onRename={renameWorkspace}
+          onClose={() => setDeck((current) => closeTerminalWorkspace(current, current.activeWorkspaceId))}
+        />
+
+        <section className="s-term-workspace-context" aria-label={`${activeWorkspace.name} workspace controls`}>
+          <div className="s-term-workspace-context-copy">
+            <strong>{activeWorkspace.name}</strong>
+            <span>{tiles.length} shell{tiles.length === 1 ? "" : "s"} · web renderer</span>
           </div>
           <div className="s-term-workspace-actions" aria-label="Terminal workspace actions">
             <button
@@ -1645,15 +1660,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
               <RefreshCw size={14} strokeWidth={1.8} />
             </button>
           </div>
-        </header>
-
-        <TerminalWorkspaceStrip
-          deck={deck}
-          onSelect={(id) => setDeck((current) => selectTerminalWorkspace(current, id))}
-          onAdd={addWorkspace}
-          onRename={renameWorkspace}
-          onClose={() => setDeck((current) => closeTerminalWorkspace(current, current.activeWorkspaceId))}
-        />
+        </section>
 
         <div className="s-term-home-stats" aria-label="Terminal inventory">
           <Stat label="Tiles" value={tiles.length} />
