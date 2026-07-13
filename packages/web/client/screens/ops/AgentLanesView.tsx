@@ -700,6 +700,8 @@ export function AgentLanesView({
   // lanes and stable ordering already applied) — so the lanes-mode left rail can
   // mirror the strip 1:1 instead of re-deriving a roster that drifts from it.
   useEffect(() => {
+    // In floor mode the floor publishes its own rich ledger — stay out of the way.
+    if (floorMode) return;
     const entries: LaneRosterEntry[] = visibleColumns.map((column) => {
       const { lane } = column;
       return {
@@ -712,7 +714,7 @@ export function AgentLanesView({
       };
     });
     publishLaneRoster(entries);
-  }, [visibleColumns]);
+  }, [visibleColumns, floorMode]);
 
   // Clear on unmount so a stale roster doesn't linger for a rail that outlives
   // the deck (or a next mount before the first publish).
@@ -968,7 +970,7 @@ export function AgentLanesView({
           />
         )
       ) : floorMode ? (
-        <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} />
+        <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} railLedger />
       ) : (
         <div className="s-agent-lanes-body">
           {layout.pinnedLeft.length > 0 ? (

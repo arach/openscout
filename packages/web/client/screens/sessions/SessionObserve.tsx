@@ -2085,7 +2085,8 @@ function Scrubber({
               key={e.id}
               className="s-observe-track-tick"
               style={{
-                left: `${(e.t / duration) * 100}%`,
+                // Single-event sessions have duration 0 — park ticks at 0%.
+                left: `${duration > 0 ? (e.t / duration) * 100 : 0}%`,
                 top: h === 6 ? -2 : -1,
                 height: h,
                 background: KIND_COLOR[e.kind] ?? "var(--dim)",
@@ -2095,11 +2096,11 @@ function Scrubber({
         })}
         <div
           className="s-observe-track-played"
-          style={{ width: `${(cursor / duration) * 100}%` }}
+          style={{ width: `${duration > 0 ? (cursor / duration) * 100 : 0}%` }}
         />
         <span
           className="s-observe-track-cursor"
-          style={{ left: `${(cursor / duration) * 100}%` }}
+          style={{ left: `${duration > 0 ? (cursor / duration) * 100 : 0}%` }}
         />
       </div>
     </div>

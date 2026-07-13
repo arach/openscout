@@ -348,14 +348,13 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  transition: opacity 0.32s ease, transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: opacity 0.18s ease;
 }
 
-/* Focus the lane you're reading (hover its strip, flag, or ledger row) —
-   the others drop toward the plane and dim. */
+/* Focus the lane you're reading (hover/pin its strip, flag, or ledger row) —
+   the others soften but stay legible; no geometry changes. */
 .agent-floor__lane.is-dim {
-  opacity: 0.35;
-  transform: scaleZ(0.18);
+  opacity: 0.55;
 }
 
 .agent-floor__lane:focus-visible {
@@ -660,6 +659,27 @@
   font-family: var(--floor-mono);
   font-size: 9px;
   color: color-mix(in oklab, var(--floor-muted) 78%, transparent);
+}
+
+.agent-floor__card.is-pinned {
+  border-color: var(--floor-accent-line);
+}
+
+.agent-floor__card-hint {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--floor-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  color: color-mix(in oklab, var(--floor-muted) 70%, transparent);
+  white-space: nowrap;
+}
+
+/* Rich ledger rows rendered inside the app's left rail. */
+.agent-floor__ledger-row.is-rail {
+  /* The rail panel supplies its own gutters; keep rows compact within it. */
+  padding: 8px 10px;
+  border-radius: 7px;
 }
 
 /* ── Identity card ── */

@@ -1,9 +1,10 @@
 import "./agent-floor.css";
 
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { agentSpriteProps, SpriteAvatar } from "../../components/SpriteAvatar.tsx";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { laneSnippetText, observeEventWallMs } from "../../lib/lane-observe.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { ObserveEvent } from "../../lib/types.ts";
@@ -12,6 +13,12 @@ import {
   lanePrimaryLabel,
   type AgentLane,
 } from "./agent-lanes-model.ts";
+import {
+  publishLaneFocusId,
+  publishLaneRoster,
+  setFloorLedgerHandlers,
+  type LaneRosterEntry,
+} from "./lane-roster-store.ts";
 
 /**
  * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
@@ -22,12 +29,15 @@ import {
  *
  * Identity reads in three layers (the "ledger × unroll" treatment): a compact
  * FLAG is always in-scene above each pad; hovering a flag, its lane, or its
- * LEDGER row unrolls the full nameplate (identity + recent-events readout)
- * while the other lanes flatten; hovering a tower projects that slot's
- * window readout. The ledger panel on the left stays the stable index as the
- * fleet grows past what the plane can hold. Clicking a lane or row opens the
- * host surface's trace detail. Which side history accumulates on is a
- * persisted preference (the legend control flips it).
+ * ledger row unrolls the full nameplate (identity + recent-events readout)
+ * while the other lanes soften; CLICKING pins the unroll (a longer readout
+ * that stays put — click again for the full timeline, Esc releases). Hovering
+ * a tower projects that slot's window readout.
+ *
+ * The ledger lives in one of two places: embedded beside the plane (default,
+ * used by the scope surface), or published into the host app's left rail via
+ * lane-roster-store when `railLedger` is set (the ops surface) — rows and
+ * lanes stay hover-linked through the store in that mode.
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -42,7 +52,8 @@ const MINTED_SLOTS = 6;
 const TOTAL_SLOTS = MINTED_SLOTS + 1;
 const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
-const READOUT_EVENTS = 4;
+const READOUT_EVENTS = 7;
+const HOVER_READOUT_EVENTS = 4;
 const STRIP_BLOCKS = 10;
 
 const LANE_PITCH = 132;
@@ -209,6 +220,43 @@ const READOUT_GLYPH: Record<FloorBlockKind, string> = {
   msg: "◆",
 };
 
+function restingLabelFor(series: FloorLaneSeries): string {
+  // Registry state may claim "working" while nothing observable has landed —
+  // say "quiet", not "idle", but never claim live work we can't show.
+  return /^(working|active|running|in_turn|in_flight)/i.test(series.lane.agent.state ?? "")
+    ? "quiet"
+    : "idle";
+}
+
+function actionFieldsFor(series: FloorLaneSeries, now: number): {
+  glyph: string;
+  label: string;
+  meta: string;
+} {
+  const lastAgo = series.lastAt ? timeAgo(series.lastAt, now) : null;
+  return series.live
+    ? { glyph: "▸", label: series.lastLabel ?? "working", meta: lastAgo ?? "now" }
+    : { glyph: "⏸", label: restingLabelFor(series), meta: lastAgo ? `· ${lastAgo}` : "" };
+}
+
+function LaneActionLine({ series, now }: { series: FloorLaneSeries; now: number }) {
+  const fields = actionFieldsFor(series, now);
+  return series.live ? (
+    <>
+      <span className="agent-floor__card-run">{fields.glyph}</span>
+      <span className="agent-floor__card-tool">{fields.label}</span>
+      <span className="agent-floor__card-ago">{fields.meta}</span>
+    </>
+  ) : (
+    <>
+      <span className="agent-floor__card-pause">{fields.glyph}</span>
+      <span className="agent-floor__card-idle">
+        {fields.label}{fields.meta ? ` ${fields.meta}` : ""}
+      </span>
+    </>
+  );
+}
+
 function IsoBlock({ kind, z, size = STACK_SIZE, faceH = BLOCK_H, pad, live }: {
   kind: FloorBlockKind | "head" | "pad";
   z: number;
@@ -285,36 +333,7 @@ function SlotPeek({ slot, slotIndex, periodStart }: {
   );
 }
 
-function LaneActionLine({ series, restingLabel, lastAgo }: {
-  series: FloorLaneSeries;
-  restingLabel: string;
-  lastAgo: string | null;
-}) {
-  return series.live ? (
-    <>
-      <span className="agent-floor__card-run">▸</span>
-      <span className="agent-floor__card-tool">{series.lastLabel ?? "working"}</span>
-      <span className="agent-floor__card-ago">{lastAgo ?? "now"}</span>
-    </>
-  ) : (
-    <>
-      <span className="agent-floor__card-pause">⏸</span>
-      <span className="agent-floor__card-idle">
-        {restingLabel}{lastAgo ? ` · ${lastAgo}` : ""}
-      </span>
-    </>
-  );
-}
-
-function restingLabelFor(series: FloorLaneSeries): string {
-  // Registry state may claim "working" while nothing observable has landed —
-  // say "quiet", not "idle", but never claim live work we can't show.
-  return /^(working|active|running|in_turn|in_flight)/i.test(series.lane.agent.state ?? "")
-    ? "quiet"
-    : "idle";
-}
-
-function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused, dimmed, peekSlot, onFocus, onPeek, onOpen }: {
+function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused, pinned, dimmed, peekSlot, onFocus, onPeek, onSelect }: {
   series: FloorLaneSeries;
   index: number;
   planeW: number;
@@ -323,18 +342,17 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
   periodStart: number;
   now: number;
   focused: boolean;
+  pinned: boolean;
   dimmed: boolean;
   peekSlot: number | null;
   onFocus: (laneId: string | null) => void;
   onPeek: (laneId: string, slotIndex: number | null) => void;
-  onOpen: (lane: AgentLane) => void;
+  onSelect: (lane: AgentLane) => void;
 }) {
   const { lane, live, slots } = series;
   const agent = lane.agent;
   const name = lanePrimaryLabel(agent, lane.source);
   const sprite = agentSpriteProps(agent);
-  const lastAgo = series.lastAt ? timeAgo(series.lastAt, now) : null;
-  const restingLabel = restingLabelFor(series);
 
   const padX = flip
     ? (FRONT_APRON - PAD_SIZE) / 2
@@ -349,19 +367,20 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
   };
   const flagZ = PAD_H + FLAG_LIFT + (index % 2) * 14;
   const nameplateZ = PAD_H + (live ? STACK_STEP : 0) + NAMEPLATE_LIFT;
+  const readout = series.readout.slice(0, pinned ? READOUT_EVENTS : HOVER_READOUT_EVENTS);
 
   return (
     <button
       type="button"
       className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}${focused ? " is-focus" : ""}${dimmed ? " is-dim" : ""}`}
       style={{ left: 0, top: index * LANE_PITCH, width: planeW, height: LANE_PITCH }}
-      onClick={() => onOpen(lane)}
+      onClick={() => onSelect(lane)}
       onMouseEnter={() => onFocus(lane.id)}
       onMouseLeave={() => {
         onFocus(null);
         onPeek(lane.id, null);
       }}
-      aria-label={`${name} — open timeline`}
+      aria-label={pinned ? `${name} — open timeline` : `${name} — pin details`}
     >
       <span className="agent-floor__lane-strip" aria-hidden="true" />
 
@@ -416,7 +435,7 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
             "--z": `${nameplateZ}px`,
           } as CSSProperties}
         >
-          <span className="agent-floor__card">
+          <span className={`agent-floor__card${pinned ? " is-pinned" : ""}`}>
             <span className="agent-floor__card-row">
               <SpriteAvatar name={agent.name} size={24} tile hue={sprite.hue} tone={sprite.tone} />
               <span className="agent-floor__card-name">{name}</span>
@@ -424,9 +443,9 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
               <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
             </span>
             <span className="agent-floor__card-counts">{countsLabel(series.counts)}</span>
-            {series.readout.length > 0 ? (
+            {readout.length > 0 ? (
               <span className="agent-floor__card-readout">
-                {series.readout.map((entry, entryIndex) => (
+                {readout.map((entry, entryIndex) => (
                   <span key={entryIndex} className={`agent-floor__readout-row is-${entry.kind}`}>
                     <span className="agent-floor__readout-glyph">{READOUT_GLYPH[entry.kind]}</span>
                     <span className="agent-floor__readout-label">{entry.label}</span>
@@ -438,9 +457,12 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
               </span>
             ) : (
               <span className="agent-floor__card-last">
-                <LaneActionLine series={series} restingLabel={restingLabel} lastAgo={lastAgo} />
+                <LaneActionLine series={series} now={now} />
               </span>
             )}
+            <span className="agent-floor__card-hint">
+              {pinned ? "click again for the timeline · esc releases" : "click to pin"}
+            </span>
           </span>
         </span>
       ) : (
@@ -463,13 +485,16 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
   );
 }
 
-export function AgentFloorView({ lanes, now, onOpenTrace }: {
+export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: {
   lanes: AgentLane[];
   now: number;
   onOpenTrace: (lane: AgentLane) => void;
+  /** Publish the ledger into the host's left rail instead of embedding it. */
+  railLedger?: boolean;
 }) {
   const [orientation, setOrientation] = useState<FloorOrientation>(readStoredOrientation);
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [peek, setPeek] = useState<{ laneId: string; slot: number } | null>(null);
   const flip = orientation === "past-right";
   const flipOrientation = useCallback(() => {
@@ -490,6 +515,19 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   const handlePeek = useCallback((laneId: string, slot: number | null) => {
     setPeek(slot === null ? null : { laneId, slot });
   }, []);
+  const selectLane = useCallback((lane: AgentLane) => {
+    if (pinnedId === lane.id) onOpenTrace(lane);
+    else setPinnedId(lane.id);
+  }, [pinnedId, onOpenTrace]);
+
+  useEffect(() => {
+    if (pinnedId === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPinnedId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinnedId]);
 
   // Slots anchor to wall-clock five-minute periods: minted towers hold still;
   // everything shifts one slot only when a new period mints.
@@ -514,6 +552,59 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   // Ledger lists most-recent first — the floor's shown lanes are reversed.
   const ledger = useMemo(() => [...series].reverse().concat(hidden), [series, hidden]);
   const liveCount = ledger.filter((entry) => entry.live).length;
+  const effectiveFocus = focusLaneId ?? pinnedId;
+
+  // A pinned lane can age out of the roster — release the pin with it.
+  useEffect(() => {
+    if (pinnedId !== null && !ledger.some((entry) => entry.lane.id === pinnedId)) {
+      setPinnedId(null);
+    }
+  }, [ledger, pinnedId]);
+
+  // Rail mode: the host's left rail is the ledger. Publish rich rows, register
+  // the hover/select handlers rail rows call, and mirror the focused lane.
+  useEffect(() => {
+    if (!railLedger) return;
+    const entries: LaneRosterEntry[] = ledger.map((entry) => {
+      const fields = actionFieldsFor(entry, now);
+      return {
+        id: entry.lane.id,
+        label: lanePrimaryLabel(entry.lane.agent, entry.lane.source),
+        statusLabel: entry.lane.agent.harness?.trim() || "lane",
+        tone: normalizeAgentState(entry.lane.agent.state, entry.lane.agent),
+        updatedAt: entry.lane.lastActiveAt > 0 ? entry.lane.lastActiveAt : undefined,
+        floor: {
+          live: entry.live,
+          harness: entry.lane.agent.harness,
+          actionGlyph: fields.glyph,
+          actionLabel: fields.label,
+          actionMeta: fields.meta,
+          strip: entry.strip,
+          countsLabel: countsLabel(entry.counts),
+        },
+      };
+    });
+    publishLaneRoster(entries);
+  }, [railLedger, ledger, now]);
+
+  useEffect(() => {
+    if (!railLedger) return;
+    setFloorLedgerHandlers({
+      onHover: handleFocus,
+      onSelect: (laneId) => {
+        const entry = ledger.find((candidate) => candidate.lane.id === laneId);
+        if (entry) selectLane(entry.lane);
+      },
+    });
+    return () => setFloorLedgerHandlers(null);
+  }, [railLedger, ledger, handleFocus, selectLane]);
+
+  useEffect(() => {
+    if (!railLedger) return;
+    publishLaneFocusId(effectiveFocus);
+    return () => publishLaneFocusId(null);
+  }, [railLedger, effectiveFocus]);
+
   const seamX = (slotIndex: number) => (flip
     ? FRONT_APRON + slotIndex * BUCKET_DEPTH
     : planeW - FRONT_APRON - slotIndex * BUCKET_DEPTH);
@@ -522,59 +613,56 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   return (
     <div className="agent-floor" data-live-count={liveCount} data-floor-orient={orientation}>
       <div className="agent-floor__body">
-        <aside className="agent-floor__ledger" aria-label="Fleet ledger">
-          <header className="agent-floor__ledger-head">
-            <span className="agent-floor__ledger-title">fleet</span>
-            <span className="agent-floor__ledger-meta">
-              {ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live
-            </span>
-            <span className="agent-floor__ledger-trace">trace 30m</span>
-          </header>
-          <div className="agent-floor__ledger-rows">
-            {ledger.map((entry) => {
-              const agent = entry.lane.agent;
-              const sprite = agentSpriteProps(agent);
-              const lastAgo = entry.lastAt ? timeAgo(entry.lastAt, now) : null;
-              return (
-                <button
-                  key={entry.lane.id}
-                  type="button"
-                  className={`agent-floor__ledger-row${focusLaneId === entry.lane.id ? " is-focus" : ""}`}
-                  onClick={() => onOpenTrace(entry.lane)}
-                  onMouseEnter={() => handleFocus(entry.lane.id)}
-                  onMouseLeave={() => handleFocus(null)}
-                >
-                  <span className="agent-floor__ledger-id">
-                    <SpriteAvatar name={agent.name} size={18} tile hue={sprite.hue} tone={sprite.tone} />
-                    <span className="agent-floor__ledger-name">
-                      {lanePrimaryLabel(agent, entry.lane.source)}
+        {railLedger ? null : (
+          <aside className="agent-floor__ledger" aria-label="Fleet ledger">
+            <header className="agent-floor__ledger-head">
+              <span className="agent-floor__ledger-title">fleet</span>
+              <span className="agent-floor__ledger-meta">
+                {ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live
+              </span>
+              <span className="agent-floor__ledger-trace">trace 30m</span>
+            </header>
+            <div className="agent-floor__ledger-rows">
+              {ledger.map((entry) => {
+                const agent = entry.lane.agent;
+                const sprite = agentSpriteProps(agent);
+                return (
+                  <button
+                    key={entry.lane.id}
+                    type="button"
+                    className={`agent-floor__ledger-row${effectiveFocus === entry.lane.id ? " is-focus" : ""}`}
+                    onClick={() => selectLane(entry.lane)}
+                    onMouseEnter={() => handleFocus(entry.lane.id)}
+                    onMouseLeave={() => handleFocus(null)}
+                  >
+                    <span className="agent-floor__ledger-id">
+                      <SpriteAvatar name={agent.name} size={18} tile hue={sprite.hue} tone={sprite.tone} />
+                      <span className="agent-floor__ledger-name">
+                        {lanePrimaryLabel(agent, entry.lane.source)}
+                      </span>
+                      <HarnessMark harness={agent.harness} size={11} className="agent-floor__card-mark" />
+                      <span className={`agent-floor__card-dot${entry.live ? " is-live" : ""}`} />
                     </span>
-                    <HarnessMark harness={agent.harness} size={11} className="agent-floor__card-mark" />
-                    <span className={`agent-floor__card-dot${entry.live ? " is-live" : ""}`} />
-                  </span>
-                  <span className="agent-floor__ledger-action">
-                    <LaneActionLine
-                      series={entry}
-                      restingLabel={restingLabelFor(entry)}
-                      lastAgo={lastAgo}
-                    />
-                  </span>
-                  <span className="agent-floor__ledger-tally">
-                    <span className="agent-floor__ledger-strip">
-                      {entry.strip.map((kind, blockIndex) => (
-                        <span key={blockIndex} className={`agent-floor__ledger-cell is-${kind}`} />
-                      ))}
+                    <span className="agent-floor__ledger-action">
+                      <LaneActionLine series={entry} now={now} />
                     </span>
-                    <span className="agent-floor__ledger-counts">{countsLabel(entry.counts)}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <footer className="agent-floor__ledger-foot">
-            rows and flags are linked — hover either to unroll
-          </footer>
-        </aside>
+                    <span className="agent-floor__ledger-tally">
+                      <span className="agent-floor__ledger-strip">
+                        {entry.strip.map((kind, blockIndex) => (
+                          <span key={blockIndex} className={`agent-floor__ledger-cell is-${kind}`} />
+                        ))}
+                      </span>
+                      <span className="agent-floor__ledger-counts">{countsLabel(entry.counts)}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <footer className="agent-floor__ledger-foot">
+              rows and flags are linked — hover to unroll, click to pin
+            </footer>
+          </aside>
+        )}
 
         <div className="agent-floor__viewport">
           <div className="agent-floor__stage">
@@ -616,7 +704,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
               <div
                 className="agent-floor__lanes"
                 style={{ left: 0, top: lanesStartY }}
-                data-focus={focusLaneId !== null || undefined}
+                data-focus={effectiveFocus !== null || undefined}
               >
                 {series.map((entry, index) => (
                   <FloorLaneStrip
@@ -627,12 +715,13 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
                     flip={flip}
                     periodStart={periodStart}
                     now={now}
-                    focused={focusLaneId === entry.lane.id}
-                    dimmed={focusLaneId !== null && focusLaneId !== entry.lane.id}
+                    focused={effectiveFocus === entry.lane.id}
+                    pinned={pinnedId === entry.lane.id}
+                    dimmed={effectiveFocus !== null && effectiveFocus !== entry.lane.id}
                     peekSlot={peek?.laneId === entry.lane.id ? peek.slot : null}
                     onFocus={handleFocus}
                     onPeek={handlePeek}
-                    onOpen={onOpenTrace}
+                    onSelect={selectLane}
                   />
                 ))}
               </div>
@@ -675,7 +764,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           past {flip ? "→" : "←"}
         </button>
         <span className="agent-floor__legend-note">
-          Towers mint every 5 min · hover a flag or row to unroll · hover a tower for its window · click for the timeline
+          Towers mint every 5 min · hover to unroll, click to pin · click a pinned lane for its timeline
         </span>
       </footer>
     </div>

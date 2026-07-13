@@ -25,10 +25,39 @@ export type LaneRosterEntry = {
   agentId?: string;
   /** Last substantive activity (lane.lastActiveAt) for the row's time meta. */
   updatedAt?: number;
+  /** Rich floor-ledger projection — present when the floor layout publishes. */
+  floor?: LaneRosterFloorEntry;
+};
+
+/** The floor's per-lane ledger row: action line + activity strip + counts. */
+export type LaneRosterFloorEntry = {
+  live: boolean;
+  harness: string | null;
+  actionGlyph: string;
+  actionLabel: string;
+  actionMeta: string;
+  strip: Array<"tool" | "edit" | "msg">;
+  countsLabel: string;
 };
 
 let roster: LaneRosterEntry[] | null = null;
 const listeners = new Set<() => void>();
+
+function floorEntriesEqual(
+  a: LaneRosterFloorEntry | undefined,
+  b: LaneRosterFloorEntry | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.live === b.live
+    && a.harness === b.harness
+    && a.actionGlyph === b.actionGlyph
+    && a.actionLabel === b.actionLabel
+    && a.actionMeta === b.actionMeta
+    && a.countsLabel === b.countsLabel
+    && a.strip.length === b.strip.length
+    && a.strip.every((kind, index) => kind === b.strip[index]);
+}
 
 function entriesEqual(a: LaneRosterEntry, b: LaneRosterEntry): boolean {
   return a.id === b.id
@@ -36,7 +65,8 @@ function entriesEqual(a: LaneRosterEntry, b: LaneRosterEntry): boolean {
     && a.statusLabel === b.statusLabel
     && a.tone === b.tone
     && a.agentId === b.agentId
-    && a.updatedAt === b.updatedAt;
+    && a.updatedAt === b.updatedAt
+    && floorEntriesEqual(a.floor, b.floor);
 }
 
 function rostersEqual(a: LaneRosterEntry[] | null, b: LaneRosterEntry[] | null): boolean {
@@ -75,4 +105,49 @@ export function getLaneRosterSnapshot(): LaneRosterEntry[] | null {
  */
 export function useLaneRoster(): LaneRosterEntry[] | null {
   return useSyncExternalStore(subscribeLaneRoster, getLaneRosterSnapshot, getLaneRosterSnapshot);
+}
+
+/* ── Floor ↔ rail linkage ──────────────────────────────────────────────────
+ * The floor is the source of truth for which lane is emphasized (hover or
+ * pin); it publishes the focused lane id so rail rows can highlight, and
+ * registers handlers the rail calls on row hover/select. Handlers are read at
+ * event time, so mount order between rail and floor doesn't matter. */
+
+let focusedLaneId: string | null = null;
+const focusListeners = new Set<() => void>();
+
+export function publishLaneFocusId(next: string | null): void {
+  if (focusedLaneId === next) return;
+  focusedLaneId = next;
+  for (const listener of focusListeners) listener();
+}
+
+function subscribeLaneFocusId(listener: () => void): () => void {
+  focusListeners.add(listener);
+  return () => {
+    focusListeners.delete(listener);
+  };
+}
+
+function getLaneFocusIdSnapshot(): string | null {
+  return focusedLaneId;
+}
+
+export function useLaneFocusId(): string | null {
+  return useSyncExternalStore(subscribeLaneFocusId, getLaneFocusIdSnapshot, getLaneFocusIdSnapshot);
+}
+
+export type FloorLedgerHandlers = {
+  onHover: (laneId: string | null) => void;
+  onSelect: (laneId: string) => void;
+};
+
+let floorLedgerHandlers: FloorLedgerHandlers | null = null;
+
+export function setFloorLedgerHandlers(next: FloorLedgerHandlers | null): void {
+  floorLedgerHandlers = next;
+}
+
+export function getFloorLedgerHandlers(): FloorLedgerHandlers | null {
+  return floorLedgerHandlers;
 }
