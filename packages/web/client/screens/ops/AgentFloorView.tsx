@@ -1,4 +1,4 @@
-import "./scope-floor.css";
+import "./agent-floor.css";
 
 import { useMemo, type CSSProperties } from "react";
 
@@ -11,14 +11,21 @@ import {
   isAgentLaneLive,
   lanePrimaryLabel,
   type AgentLane,
-} from "../../screens/ops/agent-lanes-model.ts";
+} from "./agent-lanes-model.ts";
 
 /**
- * ScopeFloorView — the "floor" lane layout. An isometric plane with three
- * recency bands (front = live/now, mid = 5–30 min, back = 30 min–4 h). Each
- * lane is a tower of stacked blocks, one per recent trace event, so tower
- * height reads as "how much work happened in the last 30 minutes". Live lanes
- * carry a glowing head block; clicking a tower opens the shared trace sheet.
+ * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
+ * isometric plane with three recency bands (front = live/now, mid = 5–30 min,
+ * back = 30 min–4 h). Each lane is a tower of stacked blocks, one per recent
+ * trace event, so tower height reads as "how much work happened in the last
+ * 30 minutes". Live lanes carry a glowing head block; clicking a tower opens
+ * the host surface's trace detail.
+ *
+ * Theming: the component paints entirely from `--floor-*` inputs, which
+ * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
+ * `--green`) in agent-floor.css — so it follows light/dark automatically.
+ * A host surface with its own palette (e.g. the Scope instrument) reskins it
+ * by overriding those inputs, not by touching the component.
  */
 
 /** Blocks always read the last 30 minutes, independent of the lane horizon. */
@@ -111,13 +118,13 @@ function TowerBlock({ kind, z, live }: {
 }) {
   return (
     <span
-      className={`scope-floor__block is-${kind}${live ? " is-live" : ""}`}
+      className={`agent-floor__block is-${kind}${live ? " is-live" : ""}`}
       style={{ "--z": `${z}px` } as CSSProperties}
       aria-hidden="true"
     >
-      <span className="scope-floor__face is-left" />
-      <span className="scope-floor__face is-right" />
-      <span className="scope-floor__face is-top" />
+      <span className="agent-floor__face is-left" />
+      <span className="agent-floor__face is-right" />
+      <span className="agent-floor__face is-top" />
     </span>
   );
 }
@@ -139,44 +146,44 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
   return (
     <button
       type="button"
-      className={`scope-floor__tower${live ? " is-live" : ""}`}
+      className={`agent-floor__tower${live ? " is-live" : ""}`}
       style={{ left: x, top: y }}
       onClick={() => onOpen(lane)}
       aria-label={`${name} — open timeline`}
     >
-      <span className="scope-floor__ground" aria-hidden="true" />
-      <span className="scope-floor__face scope-floor__plinth-left" aria-hidden="true" />
-      <span className="scope-floor__face scope-floor__plinth-right" aria-hidden="true" />
-      <span className="scope-floor__face scope-floor__plinth-top" aria-hidden="true" />
-      <span className="scope-floor__stack" aria-hidden="true">
+      <span className="agent-floor__ground" aria-hidden="true" />
+      <span className="agent-floor__face agent-floor__plinth-left" aria-hidden="true" />
+      <span className="agent-floor__face agent-floor__plinth-right" aria-hidden="true" />
+      <span className="agent-floor__face agent-floor__plinth-top" aria-hidden="true" />
+      <span className="agent-floor__stack" aria-hidden="true">
         {blocks.map((kind, index) => (
           <TowerBlock key={index} kind={kind} z={index * BLOCK_STEP} />
         ))}
         {live ? <TowerBlock kind="head" z={blocks.length * BLOCK_STEP} live /> : null}
       </span>
       <span
-        className="scope-floor__bb scope-floor__card-anchor"
+        className="agent-floor__bb agent-floor__card-anchor"
         style={{ "--z": `${cardZ}px` } as CSSProperties}
       >
-        <span className="scope-floor__card">
-          <span className="scope-floor__card-row">
+        <span className="agent-floor__card">
+          <span className="agent-floor__card-row">
             <SpriteAvatar name={agent.name} size={24} tile hue={sprite.hue} tone={sprite.tone} />
-            <span className="scope-floor__card-name">{name}</span>
-            <HarnessMark harness={agent.harness} size={12} className="scope-floor__card-mark" />
-            <span className={`scope-floor__card-dot${live ? " is-live" : ""}`} />
+            <span className="agent-floor__card-name">{name}</span>
+            <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
+            <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
           </span>
-          <span className="scope-floor__card-counts">{countsLabel(tower.counts)}</span>
-          <span className="scope-floor__card-last">
+          <span className="agent-floor__card-counts">{countsLabel(tower.counts)}</span>
+          <span className="agent-floor__card-last">
             {live ? (
               <>
-                <span className="scope-floor__card-run">▸</span>
-                <span className="scope-floor__card-tool">{tower.lastLabel ?? "working"}</span>
-                <span className="scope-floor__card-ago">{lastAgo ?? "now"}</span>
+                <span className="agent-floor__card-run">▸</span>
+                <span className="agent-floor__card-tool">{tower.lastLabel ?? "working"}</span>
+                <span className="agent-floor__card-ago">{lastAgo ?? "now"}</span>
               </>
             ) : (
               <>
-                <span className="scope-floor__card-pause">⏸</span>
-                <span className="scope-floor__card-idle">
+                <span className="agent-floor__card-pause">⏸</span>
+                <span className="agent-floor__card-idle">
                   idle{lastAgo ? ` · ${lastAgo}` : ""}
                 </span>
               </>
@@ -190,7 +197,7 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
 
 const BAND_RANGE_LABEL = ["", "5 – 30 min", "30 min – 4 h"] as const;
 
-export function ScopeFloorView({ lanes, now, onOpenTrace }: {
+export function AgentFloorView({ lanes, now, onOpenTrace }: {
   lanes: AgentLane[];
   now: number;
   onOpenTrace: (lane: AgentLane) => void;
@@ -225,11 +232,11 @@ export function ScopeFloorView({ lanes, now, onOpenTrace }: {
   const liveCount = bands[0].filter((tower) => tower.live).length;
 
   return (
-    <div className="scope-floor" data-live-count={liveCount}>
-      <div className="scope-floor__viewport">
-        <div className="scope-floor__stage">
+    <div className="agent-floor" data-live-count={liveCount}>
+      <div className="agent-floor__viewport">
+        <div className="agent-floor__stage">
           <div
-            className="scope-floor__field"
+            className="agent-floor__field"
             style={{
               width: plane,
               height: plane,
@@ -237,34 +244,34 @@ export function ScopeFloorView({ lanes, now, onOpenTrace }: {
               top: -plane / 2,
             }}
           >
-            <div className="scope-floor__plane" />
-            <div className="scope-floor__seam is-front" style={{ top: bandDepth * 2 }} />
-            <div className="scope-floor__seam is-back" style={{ top: bandDepth }} />
+            <div className="agent-floor__plane" />
+            <div className="agent-floor__seam is-front" style={{ top: bandDepth * 2 }} />
+            <div className="agent-floor__seam is-back" style={{ top: bandDepth }} />
 
             <div
-              className="scope-floor__bb scope-floor__band-label is-now"
+              className="agent-floor__bb agent-floor__band-label is-now"
               style={{ left: 0.13 * plane, top: plane - 40 }}
             >
-              <span className="scope-floor__band-pulse" />
+              <span className="agent-floor__band-pulse" />
               <span>now — live</span>
             </div>
             <div
-              className="scope-floor__bb scope-floor__band-label"
+              className="agent-floor__bb agent-floor__band-label"
               style={{ left: 0.94 * plane, top: 0.61 * plane }}
             >
               {BAND_RANGE_LABEL[1]}
             </div>
             {bands[2].length === 0 ? (
               <div
-                className="scope-floor__bb scope-floor__band-empty"
+                className="agent-floor__bb agent-floor__band-empty"
                 style={{ left: 0.52 * plane, top: 0.15 * plane }}
               >
-                <span className="scope-floor__band-range">{BAND_RANGE_LABEL[2]}</span>
+                <span className="agent-floor__band-range">{BAND_RANGE_LABEL[2]}</span>
                 {" · nothing this old"}
               </div>
             ) : (
               <div
-                className="scope-floor__bb scope-floor__band-label"
+                className="agent-floor__bb agent-floor__band-label"
                 style={{ left: 0.13 * plane, top: 0.28 * plane }}
               >
                 {BAND_RANGE_LABEL[2]}
@@ -289,7 +296,7 @@ export function ScopeFloorView({ lanes, now, onOpenTrace }: {
               count > 0 ? (
                 <div
                   key={bandIndex}
-                  className="scope-floor__bb scope-floor__band-empty"
+                  className="agent-floor__bb agent-floor__band-empty"
                   style={{
                     left: 0.85 * plane,
                     top: (2 - bandIndex) * bandDepth + bandDepth / 2,
@@ -302,20 +309,20 @@ export function ScopeFloorView({ lanes, now, onOpenTrace }: {
         </div>
       </div>
 
-      <footer className="scope-floor__legend">
-        <span className="scope-floor__legend-item">
-          <span className="scope-floor__legend-swatch is-tool" />tool call
+      <footer className="agent-floor__legend">
+        <span className="agent-floor__legend-item">
+          <span className="agent-floor__legend-swatch is-tool" />tool call
         </span>
-        <span className="scope-floor__legend-item">
-          <span className="scope-floor__legend-swatch is-edit" />file edit
+        <span className="agent-floor__legend-item">
+          <span className="agent-floor__legend-swatch is-edit" />file edit
         </span>
-        <span className="scope-floor__legend-item">
-          <span className="scope-floor__legend-swatch is-msg" />message
+        <span className="agent-floor__legend-item">
+          <span className="agent-floor__legend-swatch is-msg" />message
         </span>
-        <span className="scope-floor__legend-item">
-          <span className="scope-floor__legend-pulse" />live — top block glows
+        <span className="agent-floor__legend-item">
+          <span className="agent-floor__legend-pulse" />live — top block glows
         </span>
-        <span className="scope-floor__legend-note">
+        <span className="agent-floor__legend-note">
           Tower height = last 30 min of work · agents drift back a band as they go quiet · click a tower for the timeline
         </span>
       </footer>

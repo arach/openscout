@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState, type CSSProperties } from "reac
 
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
 import { useScopePresentationAttrs } from "../hooks.ts";
-import { ScopeFloorView } from "./ScopeFloorView.tsx";
+import { AgentFloorView } from "../../screens/ops/AgentFloorView.tsx";
 import { ScopeLaneColumn } from "./ScopeLaneColumn.tsx";
 import { ScopeLaneSpace } from "./ScopeLaneSpace.tsx";
 import { ScopeLanesBar } from "./ScopeLanesBar.tsx";
@@ -141,7 +141,7 @@ export function ScopeLanesView({
       {(floorEnabled ? lanes.length : flatColumns.length) === 0 ? (
         <div className="scope-lanes__empty">{emptyMessage}</div>
       ) : floorEnabled ? (
-        <ScopeFloorView lanes={lanes} now={now} onOpenTrace={openTraceSheet} />
+        <AgentFloorView lanes={lanes} now={now} onOpenTrace={openTraceSheet} />
       ) : (
         <div className="scope-lanes__canvas" role="listbox" aria-label="Session lanes">
           <div

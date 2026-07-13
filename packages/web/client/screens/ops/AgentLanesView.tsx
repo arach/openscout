@@ -22,6 +22,7 @@ import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import { type AgentLaneSize, readAgentLaneSize } from "./agent-lane-size.ts";
+import { AgentFloorView } from "./AgentFloorView.tsx";
 import { AgentLaneChrome } from "./AgentLaneChrome.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
@@ -71,6 +72,14 @@ import { isLaneSyntheticAgent } from "./agent-lane-navigation.ts";
 import { publishLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts";
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
+const LANE_LAYOUT_STORAGE_KEY = "openscout:agent-lanes-layout";
+
+type AgentLanesLayoutMode = "lanes" | "floor";
+
+const LANE_LAYOUT_OPTIONS: Array<{ key: AgentLanesLayoutMode; label: string }> = [
+  { key: "lanes", label: "lanes" },
+  { key: "floor", label: "floor" },
+];
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
@@ -120,6 +129,16 @@ function readStoredHorizon(): AgentLaneHorizonKey {
     // ignore storage failures
   }
   return DEFAULT_AGENT_LANE_HORIZON;
+}
+
+function readStoredLaneLayout(): AgentLanesLayoutMode {
+  try {
+    const stored = sessionStorage.getItem(LANE_LAYOUT_STORAGE_KEY);
+    if (stored === "lanes" || stored === "floor") return stored;
+  } catch {
+    // ignore storage failures
+  }
+  return "lanes";
 }
 
 function readStoredLegacyTechnicalRollup(): boolean | null {
@@ -485,6 +504,11 @@ export function AgentLanesView({
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
+  const [laneLayout, setLaneLayout] = useState<AgentLanesLayoutMode>(readStoredLaneLayout);
+  const floorMode = !embedded && laneLayout === "floor";
+  // The floor's recency bands span up to 4h; admission follows the bands while
+  // the user's stored horizon choice stays untouched for the lanes layout.
+  const effectiveHorizon: AgentLaneHorizonKey = floorMode ? "4h" : horizon;
   const [summaryHeight, setSummaryHeight] = useState<number | null>(readStoredLaneSummaryHeight);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
   const { beginResize, resetSummaryHeight, resizing: summaryResizing } = useLaneSummaryResize(setSummaryHeight);
@@ -492,8 +516,8 @@ export function AgentLanesView({
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
     [beginResize, summaryHeight],
   );
-  const tailRecentLimit = agentLaneTailRecentLimit(horizon);
-  const traceWindowMs = agentLaneHorizonWindowMs(horizon);
+  const tailRecentLimit = agentLaneTailRecentLimit(effectiveHorizon);
+  const traceWindowMs = agentLaneHorizonWindowMs(effectiveHorizon);
   const { discovery, events: tailEvents } = useTailFeed({
     includeTranscriptReplay: true,
     hydrateOnDiscovery: true,
@@ -503,7 +527,7 @@ export function AgentLanesView({
     pauseWhenHidden: true,
   });
   const returnRoute: Route = { view: "ops", mode: "lanes" };
-  const horizonLabel = agentLaneHorizonLabel(horizon);
+  const horizonLabel = agentLaneHorizonLabel(effectiveHorizon);
   const clockIntervalMs = embedded ? EMBEDDED_CLOCK_INTERVAL_MS : 10_000;
   const terminalPollIntervalMs = embedded ? EMBEDDED_TERMINAL_POLL_INTERVAL_MS : 10_000;
 
@@ -550,12 +574,20 @@ export function AgentLanesView({
     }
   }, [horizon]);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LANE_LAYOUT_STORAGE_KEY, laneLayout);
+    } catch {
+      // ignore storage failures
+    }
+  }, [laneLayout]);
+
   const laneOrderRef = useRef(createStableLaneOrder());
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
   const [inspectedLaneId, setInspectedLaneId] = useState<string | null>(null);
   const observeAgents = useMemo(
-    () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, horizon)),
-    [scoutAgents, now, horizon],
+    () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, effectiveHorizon)),
+    [scoutAgents, now, effectiveHorizon],
   );
   const observeCache = useObservePolling(observeAgents, {
     activeIntervalMs: embedded ? EMBEDDED_OBSERVE_ACTIVE_INTERVAL_MS : undefined,
@@ -580,7 +612,7 @@ export function AgentLanesView({
       observeCache,
       now,
       workingOnly: true,
-      horizon,
+      horizon: effectiveHorizon,
     });
     const result = sortLanesWithStableOrder(built.lanes, laneOrderRef.current);
     const rosterIssues = [
@@ -592,7 +624,7 @@ export function AgentLanesView({
       issues: rosterIssues,
       freshLaneIds: result.newLaneIds,
     };
-  }, [discovery, tailEvents, scoutAgents, terminalSessions, observeCache, now, horizon]);
+  }, [discovery, tailEvents, scoutAgents, terminalSessions, observeCache, now, effectiveHorizon]);
 
   useEffect(() => {
     if (issues.length === 0) return;
@@ -692,6 +724,10 @@ export function AgentLanesView({
   const openTraceSheet = useCallback((lane: AgentLane, event: ObserveEvent) => {
     setTraceSheetTarget({ lane, event });
   }, []);
+  const openFloorTrace = useCallback((lane: AgentLane) => {
+    const event = lane.observe?.events.at(-1);
+    if (event) setTraceSheetTarget({ lane, event });
+  }, []);
   const { getLaneFocusProps } = useAgentLanesKeyboard({
     lanes: visibleColumns.map((column) => column.lane),
     inspectedLaneId,
@@ -777,11 +813,15 @@ export function AgentLanesView({
         <div className="s-agent-lanes-bar-leading">
           <div className="s-agent-lanes-title">Agent Lanes</div>
           <div className="s-agent-lanes-meta" aria-label="Lane deck status">
-            <span className="s-agent-lanes-meta-stat">{visibleColumns.length} live</span>
-            {pinnedCount > 0 ? (
+            <span className="s-agent-lanes-meta-stat">
+              {floorMode ? filteredLanes.length : visibleColumns.length} live
+            </span>
+            {!floorMode && pinnedCount > 0 ? (
               <span className="s-agent-lanes-meta-stat">{pinnedCount} pinned</span>
             ) : null}
-            <span className="s-agent-lanes-meta-stat">trace {horizonLabel}</span>
+            <span className="s-agent-lanes-meta-stat">
+              {floorMode ? "bands 5m · 30m · 4h" : `trace ${horizonLabel}`}
+            </span>
             {activeFilterLabel ? (
               <span className="s-agent-lanes-meta-filter">{activeFilterLabel}</span>
             ) : null}
@@ -791,7 +831,22 @@ export function AgentLanesView({
           </div>
         </div>
         <div className="s-agent-lanes-bar-controls">
-          <div className="s-agent-lanes-deck-menu" ref={deckMenuRef}>
+          {!embedded ? (
+            <div className="s-agent-lanes-layouts" role="group" aria-label="Lane layout">
+              {LANE_LAYOUT_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`s-agent-lanes-horizon${laneLayout === option.key ? " s-agent-lanes-horizon--on" : ""}`}
+                  aria-pressed={laneLayout === option.key}
+                  onClick={() => setLaneLayout(option.key)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="s-agent-lanes-deck-menu" ref={deckMenuRef} hidden={floorMode}>
             <button
               type="button"
               className="s-agent-lanes-deck-btn"
@@ -865,20 +920,22 @@ export function AgentLanesView({
               </div>
             ) : null}
           </div>
-          <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
-            {AGENT_LANE_HORIZON_OPTIONS.map((option, index) => (
-              <button
-                key={option.key}
-                type="button"
-                className={`s-agent-lanes-horizon${horizon === option.key ? " s-agent-lanes-horizon--on" : ""}`}
-                aria-pressed={horizon === option.key}
-                title={`${option.label} window (${index + 1})`}
-                onClick={() => setHorizon(option.key)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {!floorMode ? (
+            <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
+              {AGENT_LANE_HORIZON_OPTIONS.map((option, index) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`s-agent-lanes-horizon${horizon === option.key ? " s-agent-lanes-horizon--on" : ""}`}
+                  aria-pressed={horizon === option.key}
+                  title={`${option.label} window (${index + 1})`}
+                  onClick={() => setHorizon(option.key)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       {issues.length > 0 ? (
@@ -896,7 +953,7 @@ export function AgentLanesView({
           </ul>
         </div>
       ) : null}
-      {visibleColumns.length === 0 ? (
+      {(floorMode ? filteredLanes.length : visibleColumns.length) === 0 ? (
         tailLoading ? (
           <AgentLanesLoadingState horizonLabel={horizonLabel} />
         ) : (
@@ -910,6 +967,8 @@ export function AgentLanesView({
             onAddCodexLane={() => addHarnessLane("codex", "Codex sessions")}
           />
         )
+      ) : floorMode ? (
+        <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} />
       ) : (
         <div className="s-agent-lanes-body">
           {layout.pinnedLeft.length > 0 ? (
