@@ -348,13 +348,15 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  transition: opacity 0.18s ease;
 }
 
 /* Focus the lane you're reading (hover/pin its strip, flag, or ledger row) —
-   the others soften but stay legible; no geometry changes. */
-.agent-floor__lane.is-dim {
-  opacity: 0.55;
+   soften only leaf paint. Opacity/filter on this 3D ancestor would collapse
+   its preserve-3d descendants into a single composited plane. */
+.agent-floor__lane.is-dim .agent-floor__face,
+.agent-floor__lane.is-dim .agent-floor__ground,
+.agent-floor__lane.is-dim .agent-floor__flag {
+  opacity: 0.8;
 }
 
 .agent-floor__lane:focus-visible {
@@ -378,6 +380,20 @@
 .agent-floor__lane:hover .agent-floor__lane-strip,
 .agent-floor__lane:focus-visible .agent-floor__lane-strip {
   background: color-mix(in oklab, var(--floor-ink) 5%, transparent);
+}
+
+.agent-floor__lane.is-pinned .agent-floor__lane-strip {
+  background: color-mix(in oklab, var(--floor-accent) 7%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--floor-accent-line),
+    inset 0 -1px 0 var(--floor-accent-line);
+}
+
+.agent-floor__lane.is-pinned .agent-floor__slab .is-top,
+.agent-floor__lane.is-pinned .agent-floor__block.is-head .is-top {
+  box-shadow:
+    inset 0 0 0 1px var(--floor-accent-line-2),
+    0 0 18px var(--floor-accent-soft);
 }
 
 .agent-floor__stack {
@@ -617,49 +633,9 @@
 
 .agent-floor__flag.is-pinned {
   border-color: var(--floor-accent-line-2);
-}
-
-.agent-floor__readout-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  padding: 1.5px 0;
-}
-
-.agent-floor__readout-glyph {
-  flex: none;
-  width: 10px;
-  text-align: center;
-  font-size: 10px;
-  color: var(--floor-muted);
-}
-
-.agent-floor__readout-row.is-edit .agent-floor__readout-glyph {
-  color: var(--floor-accent);
-}
-
-.agent-floor__readout-row.is-msg .agent-floor__readout-glyph {
-  color: var(--floor-ok);
-  font-size: 8px;
-}
-
-.agent-floor__readout-label {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--floor-mono);
-  font-size: 10px;
-  color: color-mix(in oklab, var(--floor-ink) 80%, var(--floor-muted));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.agent-floor__readout-ago {
-  flex: none;
-  font-family: var(--floor-mono);
-  font-size: 9px;
-  color: color-mix(in oklab, var(--floor-muted) 78%, transparent);
+  box-shadow:
+    0 12px 26px -14px var(--floor-shadow-strong),
+    0 0 0 1px var(--floor-accent-soft);
 }
 
 /* Compact ledger rows rendered inside the app's left rail — one line each;
@@ -680,10 +656,16 @@
 /* ── Dock — the reading surface below the plane ── */
 
 .agent-floor__dock {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 22px;
-  min-height: 66px;
+  gap: 18px;
+  box-sizing: border-box;
+  block-size: 96px;
+  min-block-size: 96px;
+  max-block-size: 96px;
+  flex: 0 0 96px;
+  overflow: hidden;
   padding: 10px 16px;
   border-top: 1px solid var(--floor-line-soft);
   background: color-mix(in oklab, var(--floor-ink) 2%, transparent);
@@ -702,9 +684,7 @@
 }
 
 .agent-floor__dock-fleet {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
+  display: flex;
   white-space: nowrap;
 }
 
@@ -714,13 +694,7 @@
   font-size: 11px;
 }
 
-.agent-floor__dock-totals {
-  white-space: nowrap;
-  color: color-mix(in oklab, var(--floor-muted) 85%, transparent);
-}
-
 .agent-floor__dock-hint {
-  margin-left: auto;
   font-family: var(--floor-mono);
   font-size: 9px;
   letter-spacing: 0.05em;
@@ -733,8 +707,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: none;
-  min-width: 190px;
+  min-width: 0;
 }
 
 .agent-floor__dock-id-copy {
@@ -754,6 +727,21 @@
   white-space: nowrap;
 }
 
+.agent-floor__dock-lock {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid var(--floor-accent-line);
+  border-radius: 4px;
+  font-family: var(--floor-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--floor-accent) 74%, var(--floor-ink));
+  background: var(--floor-accent-soft);
+}
+
 .agent-floor__dock-action {
   display: flex;
   align-items: center;
@@ -761,60 +749,71 @@
   min-width: 0;
 }
 
-.agent-floor__dock-facts {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: none;
-  max-width: 230px;
-  min-width: 150px;
-}
-
-.agent-floor__dock-fact {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+.agent-floor__dock-insights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-self: stretch;
   min-width: 0;
+  border-inline: 1px solid var(--floor-line-soft);
 }
 
-.agent-floor__dock-fact-key {
-  flex: none;
-  width: 42px;
+.agent-floor__dock-insight {
+  display: grid;
+  grid-template-rows: auto auto auto 3px;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px 12px;
+  border-left: 1px solid var(--floor-line-soft);
+}
+
+.agent-floor__dock-insight:first-child {
+  border-left: 0;
+}
+
+.agent-floor__dock-insight-label {
   font-family: var(--floor-mono);
   font-size: 8.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: color-mix(in oklab, var(--floor-muted) 70%, transparent);
-}
-
-.agent-floor__dock-fact-value {
-  font-family: var(--floor-mono);
-  font-size: 10px;
-  color: color-mix(in oklab, var(--floor-ink) 78%, var(--floor-muted));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.agent-floor__dock-readout {
-  flex: 1;
-  display: flex;
-  gap: 18px;
-  min-width: 0;
-}
-
-.agent-floor__dock-readout-col {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.agent-floor__dock-empty {
+.agent-floor__dock-insight-value {
   font-family: var(--floor-mono);
-  font-size: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: color-mix(in oklab, var(--floor-ink) 88%, var(--floor-muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__dock-insight-detail {
+  font-family: var(--floor-mono);
+  font-size: 9px;
   color: var(--floor-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__dock-mix {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-top: 1px;
+  border-radius: 999px;
+  opacity: 0.75;
+  background: linear-gradient(
+    90deg,
+    var(--floor-line-2) 0 var(--mix-tool),
+    var(--floor-accent-line-2) var(--mix-tool) var(--mix-edit),
+    var(--floor-ok-line) var(--mix-edit) 100%
+  );
 }
 
 /* ── Shared identity fragments (flag, ledger rows, dock) ── */

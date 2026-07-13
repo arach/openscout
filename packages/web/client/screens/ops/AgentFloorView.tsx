@@ -29,8 +29,8 @@ import {
  *
  * Reading model: compact FLAGS stay in-scene; the DOCK below the plane is the
  * reading surface — at rest it carries the fleet summary, and the focused
- * lane's full details (identity, facts, counts, recent events) while you
- * hover. CLICKING pins the dock to that lane (click again for the full
+ * lane's glanceable signals (momentum, cadence, signature, activity mix)
+ * while you hover. CLICKING pins the dock to that lane (click again for the full
  * timeline, Esc releases). Hovering a tower projects that slot's window
  * readout in-scene. Lane order matches the ledger top-to-bottom: the most
  * recent agent is the topmost lane on the plane and the top row of the list.
@@ -53,7 +53,6 @@ const MINTED_SLOTS = 6;
 const TOTAL_SLOTS = MINTED_SLOTS + 1;
 const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
-const READOUT_EVENTS = 6;
 const STRIP_BLOCKS = 10;
 
 const LANE_PITCH = 132;
@@ -94,11 +93,6 @@ function fmtSlotClock(ts: number): string {
   });
 }
 
-function pathLeaf(value: string | null | undefined): string | null {
-  const leaf = value?.trim().replace(/\/+$/u, "").split("/").filter(Boolean).pop();
-  return leaf || null;
-}
-
 type FloorBlockKind = "tool" | "edit" | "msg";
 
 type FloorSlot = {
@@ -109,20 +103,12 @@ type FloorSlot = {
   total: number;
 };
 
-type FloorReadoutEntry = {
-  kind: FloorBlockKind;
-  label: string;
-  at: number | null;
-};
-
 type FloorLaneSeries = {
   lane: AgentLane;
   live: boolean;
   /** Index 0 = the live slot, 1..MINTED_SLOTS = minted five-minute slots. */
   slots: FloorSlot[];
   counts: Record<FloorBlockKind, number>;
-  /** Newest-first recent events for the dock readout. */
-  readout: FloorReadoutEntry[];
   /** Chronological last blocks for the ledger mini strip. */
   strip: FloorBlockKind[];
   lastLabel: string | null;
@@ -201,7 +187,6 @@ function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
       total: slot.total,
     })),
     counts,
-    readout: timeline.slice(-READOUT_EVENTS).reverse(),
     strip: timeline.slice(-STRIP_BLOCKS).map((entry) => entry.kind),
     lastLabel: last?.label ?? null,
     lastAt: last?.at ?? (lane.lastActiveAt || null),
@@ -218,18 +203,77 @@ function countsLabel(counts: Record<FloorBlockKind, number>): string {
   ].join(" · ");
 }
 
-const READOUT_GLYPH: Record<FloorBlockKind, string> = {
-  tool: "·",
-  edit: "✎",
-  msg: "◆",
-};
-
 function restingLabelFor(series: FloorLaneSeries): string {
   // Registry state may claim "working" while nothing observable has landed —
   // say "quiet", not "idle", but never claim live work we can't show.
   return /^(working|active|running|in_turn|in_flight)/i.test(series.lane.agent.state ?? "")
     ? "quiet"
     : "idle";
+}
+
+function classifiedCount(counts: Record<FloorBlockKind, number>): number {
+  return counts.tool + counts.edit + counts.msg;
+}
+
+function activityMixLabel(counts: Record<FloorBlockKind, number>): string {
+  const total = classifiedCount(counts);
+  if (total === 0) return "quiet";
+  const ranked = ([
+    ["tool-led", counts.tool],
+    ["edit-heavy", counts.edit],
+    ["conversation-led", counts.msg],
+  ] as const).sort((left, right) => right[1] - left[1]);
+  return ranked[0][1] === ranked[1][1] ? "balanced" : ranked[0][0];
+}
+
+function dominantTool(series: FloorLaneSeries): { value: string; detail: string } {
+  const totals = new Map<string, number>();
+  for (const slot of series.slots) {
+    for (const [tool, count] of slot.tools) {
+      totals.set(tool, (totals.get(tool) ?? 0) + count);
+    }
+  }
+  const [top] = [...totals.entries()].sort((left, right) => right[1] - left[1]);
+  return top
+    ? { value: top[0], detail: `${top[1]} call${top[1] === 1 ? "" : "s"} · 30m` }
+    : { value: "no tool pattern", detail: "messages and edits only" };
+}
+
+function momentumSignal(series: FloorLaneSeries): { value: string; detail: string } {
+  const current = series.slots[0]?.total ?? 0;
+  const prior = series.slots[1]?.total ?? 0;
+  if (current === 0 && prior === 0) return { value: "quiet", detail: "no work in the last 10m" };
+  if (current === 0) return { value: "paused", detail: `${prior} in the prior 5m` };
+  if (prior === 0) return { value: "new burst", detail: `${current} in the current 5m` };
+  if (current >= prior + 3) return { value: "building", detail: `${current} now · ${prior} prior` };
+  if (prior >= current + 3) return { value: "easing", detail: `${current} now · ${prior} prior` };
+  return { value: "steady", detail: `${current} now · ${prior} prior` };
+}
+
+function DockInsight({ label, value, detail, mix }: {
+  label: string;
+  value: string;
+  detail: string;
+  mix?: Record<FloorBlockKind, number>;
+}) {
+  const total = mix ? Math.max(1, classifiedCount(mix)) : 1;
+  return (
+    <span className="agent-floor__dock-insight">
+      <span className="agent-floor__dock-insight-label">{label}</span>
+      <span className="agent-floor__dock-insight-value">{value}</span>
+      <span className="agent-floor__dock-insight-detail">{detail}</span>
+      {mix ? (
+        <span
+          className="agent-floor__dock-mix"
+          style={{
+            "--mix-tool": `${(mix.tool / total) * 100}%`,
+            "--mix-edit": `${((mix.tool + mix.edit) / total) * 100}%`,
+          } as CSSProperties}
+          aria-hidden="true"
+        />
+      ) : null}
+    </span>
+  );
 }
 
 function actionFieldsFor(series: FloorLaneSeries, now: number): {
@@ -374,7 +418,7 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
   return (
     <button
       type="button"
-      className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}${focused ? " is-focus" : ""}${dimmed ? " is-dim" : ""}`}
+      className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}${focused ? " is-focus" : ""}${pinned ? " is-pinned" : ""}${dimmed ? " is-dim" : ""}`}
       style={{ left: 0, top: index * LANE_PITCH, width: planeW, height: LANE_PITCH }}
       onClick={() => onSelect(lane)}
       onMouseEnter={() => onFocus(lane.id)}
@@ -446,8 +490,8 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
   );
 }
 
-/** The reading surface below the plane: fleet summary at rest, the focused
- *  lane's full details while hovering or pinned. */
+/** Fixed-height reading surface: fleet summary at rest, then synthesized lane
+ *  signals while hovering or pinned. Raw events stay in the timeline. */
 function FloorDock({ focus, pinned, ledger, liveCount, now }: {
   focus: FloorLaneSeries | null;
   pinned: boolean;
@@ -465,28 +509,53 @@ function FloorDock({ focus, pinned, ledger, liveCount, now }: {
       },
       { tool: 0, edit: 0, msg: 0 },
     );
+    const activeLanes = ledger.filter((entry) => classifiedCount(entry.counts) > 0).length;
+    const hottest = [...ledger].sort(
+      (left, right) => classifiedCount(right.counts) - classifiedCount(left.counts),
+    )[0] ?? null;
+    const hottestCount = hottest ? classifiedCount(hottest.counts) : 0;
+
     return (
       <div className="agent-floor__dock is-resting">
-        <span className="agent-floor__dock-fleet">
-          <span className="agent-floor__dock-title">fleet</span>
-          {ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live
+        <span className="agent-floor__dock-id agent-floor__dock-fleet">
+          <span className="agent-floor__dock-id-copy">
+            <span className="agent-floor__dock-title">fleet at a glance</span>
+            <span>{ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live</span>
+          </span>
         </span>
-        <span className="agent-floor__dock-totals">{countsLabel(totals)} · last 30m</span>
-        <span className="agent-floor__dock-hint">hover a lane for details · click to pin</span>
+        <span className="agent-floor__dock-insights">
+          <DockInsight
+            label="coverage"
+            value={`${activeLanes}/${ledger.length} lanes`}
+            detail="showed work · 30m"
+          />
+          <DockInsight
+            label="hottest lane"
+            value={hottest ? lanePrimaryLabel(hottest.lane.agent, hottest.lane.source) : "none yet"}
+            detail={hottest ? `${hottestCount} classified events` : "waiting for activity"}
+          />
+          <DockInsight
+            label="throughput"
+            value={`${classifiedCount(totals)} events`}
+            detail="classified · 30m"
+          />
+          <DockInsight
+            label="activity mix"
+            value={activityMixLabel(totals)}
+            detail={countsLabel(totals)}
+            mix={totals}
+          />
+        </span>
+        <span className="agent-floor__dock-hint">hover a lane for signals · click to pin</span>
       </div>
     );
   }
 
   const agent = focus.lane.agent;
   const sprite = agentSpriteProps(agent);
-  const facts = focus.lane.facts;
-  const factItems = [
-    facts?.model ? { key: "model", value: facts.model } : null,
-    facts?.branch ? { key: "branch", value: facts.branch } : null,
-    pathLeaf(facts?.cwd) ? { key: "cwd", value: pathLeaf(facts?.cwd) ?? "" } : null,
-  ].filter((item): item is { key: string; value: string } => item !== null);
-  const readoutLeft = focus.readout.slice(0, Math.ceil(focus.readout.length / 2));
-  const readoutRight = focus.readout.slice(Math.ceil(focus.readout.length / 2));
+  const momentum = momentumSignal(focus);
+  const toolSignature = dominantTool(focus);
+  const activeWindows = focus.slots.filter((slot) => slot.total > 0).length;
 
   return (
     <div className={`agent-floor__dock${pinned ? " is-pinned" : ""}`}>
@@ -497,6 +566,7 @@ function FloorDock({ focus, pinned, ledger, liveCount, now }: {
             {lanePrimaryLabel(agent, focus.lane.source)}
             <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
             <span className={`agent-floor__card-dot${focus.live ? " is-live" : ""}`} />
+            {pinned ? <span className="agent-floor__dock-lock">locked</span> : null}
           </span>
           <span className="agent-floor__dock-action">
             <LaneActionLine series={focus} now={now} />
@@ -504,36 +574,20 @@ function FloorDock({ focus, pinned, ledger, liveCount, now }: {
         </span>
       </span>
 
-      <span className="agent-floor__dock-facts">
-        {factItems.map((item) => (
-          <span key={item.key} className="agent-floor__dock-fact">
-            <span className="agent-floor__dock-fact-key">{item.key}</span>
-            <span className="agent-floor__dock-fact-value">{item.value}</span>
-          </span>
-        ))}
-        <span className="agent-floor__dock-fact">
-          <span className="agent-floor__dock-fact-key">30m</span>
-          <span className="agent-floor__dock-fact-value">{countsLabel(focus.counts)}</span>
-        </span>
-      </span>
-
-      <span className="agent-floor__dock-readout">
-        {[readoutLeft, readoutRight].map((column, columnIndex) => (
-          <span key={columnIndex} className="agent-floor__dock-readout-col">
-            {column.map((entry, entryIndex) => (
-              <span key={entryIndex} className={`agent-floor__readout-row is-${entry.kind}`}>
-                <span className="agent-floor__readout-glyph">{READOUT_GLYPH[entry.kind]}</span>
-                <span className="agent-floor__readout-label">{entry.label}</span>
-                <span className="agent-floor__readout-ago">
-                  {entry.at ? timeAgo(entry.at, now) : "now"}
-                </span>
-              </span>
-            ))}
-          </span>
-        ))}
-        {focus.readout.length === 0 ? (
-          <span className="agent-floor__dock-empty">no classified work in the last 30m</span>
-        ) : null}
+      <span className="agent-floor__dock-insights">
+        <DockInsight label="momentum" value={momentum.value} detail={momentum.detail} />
+        <DockInsight
+          label="cadence"
+          value={`${activeWindows}/${focus.slots.length} windows`}
+          detail="active five-minute bands"
+        />
+        <DockInsight label="signature" value={toolSignature.value} detail={toolSignature.detail} />
+        <DockInsight
+          label="activity mix"
+          value={activityMixLabel(focus.counts)}
+          detail={countsLabel(focus.counts)}
+          mix={focus.counts}
+        />
       </span>
 
       <span className="agent-floor__dock-hint">
@@ -775,7 +829,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
                     now={now}
                     focused={effectiveFocus === entry.lane.id}
                     pinned={pinnedId === entry.lane.id}
-                    dimmed={effectiveFocus !== null && effectiveFocus !== entry.lane.id}
+                    dimmed={pinnedId === null && focusLaneId !== null && focusLaneId !== entry.lane.id}
                     peekSlot={peek?.laneId === entry.lane.id ? peek.slot : null}
                     onFocus={handleFocus}
                     onPeek={handlePeek}
