@@ -18,6 +18,7 @@ import {
   loadScoutMessages,
   openScoutPeerSession,
   readScoutBrokerHealth,
+  readScoutBrokerTailRecent,
   resolveScoutBrokerUrl,
   sendScoutConversationSteer,
   sendScoutConversationMessage,
@@ -171,6 +172,24 @@ describe("readScoutBrokerHealth", () => {
     expect(health.services?.web?.pid).toBe(4321);
     expect(health.services?.localEdge?.managedBy).toBe("base");
     expect(health.counts?.collaborationRecords).toBe(7);
+  });
+});
+
+describe("readScoutBrokerTailRecent", () => {
+  test("requests transcript backfill for a cold tail snapshot", async () => {
+    useIsolatedOpenScoutHome();
+    let requestedUrl: URL | null = null;
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      requestedUrl = new URL(request.url);
+      return jsonResponse({ events: [] });
+    }) as typeof fetch;
+
+    await readScoutBrokerTailRecent(50);
+
+    expect(requestedUrl?.pathname).toBe("/v1/tail/recent");
+    expect(requestedUrl?.searchParams.get("limit")).toBe("50");
+    expect(requestedUrl?.searchParams.get("transcripts")).toBe("1");
   });
 });
 

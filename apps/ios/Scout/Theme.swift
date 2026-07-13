@@ -221,3 +221,127 @@ private struct ScoutCardDepth: ViewModifier {
             .shadow(color: Color.black.opacity(0.33), radius: 9, y: 3)
     }
 }
+
+// MARK: - Signal frame
+
+/// A restrained instrument-panel treatment for structural surfaces. The cut
+/// corners and registration ticks add a little Mission Control precision while
+/// the existing tone tokens keep it recognizably Scout. This is framing only:
+/// callers must supply real content and may tint the marks from real state.
+extension View {
+    func signalPanel(accent: Color? = nil, cut: CGFloat = 6) -> some View {
+        modifier(SignalPanelDepth(accent: accent, cut: cut))
+    }
+}
+
+struct SignalPanelShape: InsettableShape {
+    var cut: CGFloat = 6
+    var insetAmount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        let c = min(cut, min(r.width, r.height) / 3)
+        var path = Path()
+        path.move(to: CGPoint(x: r.minX + c, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.minY + c))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - c))
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + c, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX, y: r.maxY - c))
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + c))
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> SignalPanelShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
+private struct SignalPanelDepth: ViewModifier {
+    let accent: Color?
+    let cut: CGFloat
+    @AppStorage(ScoutTone.storageKey) private var toneRaw = ScoutTone.default.rawValue
+
+    func body(content: Content) -> some View {
+        let t = ScoutTone.resolve(toneRaw).tokens
+        let shape = SignalPanelShape(cut: cut)
+        let markTint = accent ?? t.cardEdgeTop
+        return content
+            .background(
+                shape.fill(
+                    LinearGradient(
+                        colors: [t.cardTop, t.cardBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            )
+            .overlay(
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [t.cardEdgeTop, t.cardEdgeBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1
+                )
+            )
+            .overlay {
+                SignalRegistrationMarks(tint: markTint)
+            }
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.30), radius: 8, y: 3)
+    }
+}
+
+private struct SignalRegistrationMarks: View {
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            SignalCornerMark(corner: .topLeading).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .topTrailing).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .bottomLeading).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .bottomTrailing).stroke(tint, lineWidth: 1)
+        }
+        .opacity(0.72)
+        .allowsHitTesting(false)
+    }
+}
+
+private enum SignalCorner {
+    case topLeading, topTrailing, bottomLeading, bottomTrailing
+}
+
+private struct SignalCornerMark: Shape {
+    let corner: SignalCorner
+
+    func path(in rect: CGRect) -> Path {
+        let inset: CGFloat = 4
+        let length: CGFloat = 9
+        var path = Path()
+        switch corner {
+        case .topLeading:
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset + length))
+            path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.minX + inset + length, y: rect.minY + inset))
+        case .topTrailing:
+            path.move(to: CGPoint(x: rect.maxX - inset - length, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset + length))
+        case .bottomLeading:
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset - length))
+            path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.minX + inset + length, y: rect.maxY - inset))
+        case .bottomTrailing:
+            path.move(to: CGPoint(x: rect.maxX - inset - length, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset - length))
+        }
+        return path
+    }
+}

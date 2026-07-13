@@ -919,7 +919,10 @@ interface ScoutBrokerTailRecentPayload {
  * `/v1/tail/recent` endpoint fresh on every call (re-resolving the broker URL),
  * so it has no long-lived connection that can go stale across a broker restart —
  * the resilient counterpart to the singleton tail-fanout used for desktop push.
- * Returns the compact events (no `raw`), newest-last as the broker orders them.
+ * `transcripts=1` is essential here: the broker's live buffer can be empty on a
+ * cold watcher, while the transcript backfill gives mobile the same initial
+ * `tail -n` window users expect before new events begin flowing. Returns the
+ * compact events (no `raw`), newest-last as the broker orders them.
  */
 export async function readScoutBrokerTailRecent(
   limit = 50,
@@ -929,7 +932,7 @@ export async function readScoutBrokerTailRecent(
   try {
     const payload = await brokerReadJson<ScoutBrokerTailRecentPayload>(
       baseUrl,
-      `/v1/tail/recent?limit=${safeLimit}`,
+      `/v1/tail/recent?limit=${safeLimit}&transcripts=1`,
     );
     return (payload.events ?? []).map((event) => ({
       id: event.id,
