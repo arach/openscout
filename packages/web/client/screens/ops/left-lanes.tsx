@@ -4,7 +4,6 @@ import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
 import { SpriteAvatar } from "../../components/SpriteAvatar.tsx";
-import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { focusDeckLane } from "./lane-focus.ts";
 import { buildFallbackLaneRoster } from "./lane-roster-fallback.ts";
 import {
@@ -62,29 +61,14 @@ export function OpsLanesLeft() {
               onPointerLeave={() => getFloorLedgerHandlers()?.onHover(null)}
             >
               <span className="agent-floor__ledger-id">
-                <SpriteAvatar name={entry.label} size={18} tile />
+                <SpriteAvatar name={entry.label} size={16} tile />
                 <span className="agent-floor__ledger-name">{entry.label}</span>
-                <HarnessMark harness={entry.floor.harness} size={11} className="agent-floor__card-mark" />
                 <span className={`agent-floor__card-dot${entry.floor.live ? " is-live" : ""}`} />
               </span>
-              <span className="agent-floor__ledger-action">
-                <span className={entry.floor.live ? "agent-floor__card-run" : "agent-floor__card-pause"}>
-                  {entry.floor.actionGlyph}
-                </span>
-                <span className={entry.floor.live ? "agent-floor__card-tool" : "agent-floor__card-idle"}>
-                  {entry.floor.actionLabel}{!entry.floor.live && entry.floor.actionMeta ? ` ${entry.floor.actionMeta}` : ""}
-                </span>
-                {entry.floor.live ? (
-                  <span className="agent-floor__card-ago">{entry.floor.actionMeta}</span>
-                ) : null}
-              </span>
-              <span className="agent-floor__ledger-tally">
-                <span className="agent-floor__ledger-strip">
-                  {entry.floor.strip.map((kind, blockIndex) => (
-                    <span key={blockIndex} className={`agent-floor__ledger-cell is-${kind}`} />
-                  ))}
-                </span>
-                <span className="agent-floor__ledger-counts">{entry.floor.countsLabel}</span>
+              <span className="agent-floor__ledger-strip">
+                {entry.floor.strip.slice(-6).map((kind, blockIndex) => (
+                  <span key={blockIndex} className={`agent-floor__ledger-cell is-${kind}`} />
+                ))}
               </span>
             </button>
           ) : (

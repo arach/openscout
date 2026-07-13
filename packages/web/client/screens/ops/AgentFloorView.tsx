@@ -27,17 +27,18 @@ import {
  * slots: the leading slot is live; behind it, slots are MINTED — once their
  * five minutes pass they sit still until the next mint boundary.
  *
- * Identity reads in three layers (the "ledger × unroll" treatment): a compact
- * FLAG is always in-scene above each pad; hovering a flag, its lane, or its
- * ledger row unrolls the full nameplate (identity + recent-events readout)
- * while the other lanes soften; CLICKING pins the unroll (a longer readout
- * that stays put — click again for the full timeline, Esc releases). Hovering
- * a tower projects that slot's window readout.
+ * Reading model: compact FLAGS stay in-scene; the DOCK below the plane is the
+ * reading surface — at rest it carries the fleet summary, and the focused
+ * lane's full details (identity, facts, counts, recent events) while you
+ * hover. CLICKING pins the dock to that lane (click again for the full
+ * timeline, Esc releases). Hovering a tower projects that slot's window
+ * readout in-scene. Lane order matches the ledger top-to-bottom: the most
+ * recent agent is the topmost lane on the plane and the top row of the list.
  *
  * The ledger lives in one of two places: embedded beside the plane (default,
  * used by the scope surface), or published into the host app's left rail via
- * lane-roster-store when `railLedger` is set (the ops surface) — rows and
- * lanes stay hover-linked through the store in that mode.
+ * lane-roster-store when `railLedger` is set (the ops surface) — rows render
+ * compact there and stay hover-linked through the store.
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -52,8 +53,7 @@ const MINTED_SLOTS = 6;
 const TOTAL_SLOTS = MINTED_SLOTS + 1;
 const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
-const READOUT_EVENTS = 7;
-const HOVER_READOUT_EVENTS = 4;
+const READOUT_EVENTS = 6;
 const STRIP_BLOCKS = 10;
 
 const LANE_PITCH = 132;
@@ -70,7 +70,6 @@ const BACK_MARGIN = 48;
 const EDGE_MARGIN = 24;
 const MIN_PLANE_D = 480;
 const FLAG_LIFT = 38;
-const NAMEPLATE_LIFT = 92;
 
 /** Which plane edge history drifts toward ("now" sits on the other side). */
 type FloorOrientation = "past-left" | "past-right";
@@ -95,6 +94,11 @@ function fmtSlotClock(ts: number): string {
   });
 }
 
+function pathLeaf(value: string | null | undefined): string | null {
+  const leaf = value?.trim().replace(/\/+$/u, "").split("/").filter(Boolean).pop();
+  return leaf || null;
+}
+
 type FloorBlockKind = "tool" | "edit" | "msg";
 
 type FloorSlot = {
@@ -117,7 +121,7 @@ type FloorLaneSeries = {
   /** Index 0 = the live slot, 1..MINTED_SLOTS = minted five-minute slots. */
   slots: FloorSlot[];
   counts: Record<FloorBlockKind, number>;
-  /** Newest-first recent events for the unrolled nameplate. */
+  /** Newest-first recent events for the dock readout. */
   readout: FloorReadoutEntry[];
   /** Chronological last blocks for the ledger mini strip. */
   strip: FloorBlockKind[];
@@ -174,7 +178,7 @@ function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
     timeline.push({
       kind,
       label: kind === "msg"
-        ? laneSnippetText(event.text, 34, 1)
+        ? laneSnippetText(event.text, 44, 1)
         : event.text.trim() || toolName || "tool",
       at,
     });
@@ -366,8 +370,6 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
       : planeW - FRONT_APRON - (slotIndex + 1) * BUCKET_DEPTH + inset;
   };
   const flagZ = PAD_H + FLAG_LIFT + (index % 2) * 14;
-  const nameplateZ = PAD_H + (live ? STACK_STEP : 0) + NAMEPLATE_LIFT;
-  const readout = series.readout.slice(0, pinned ? READOUT_EVENTS : HOVER_READOUT_EVENTS);
 
   return (
     <button
@@ -426,62 +428,118 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
         {live ? <IsoBlock kind="head" z={PAD_H + 2} size={STACK_SIZE} faceH={BLOCK_H} live /> : null}
       </span>
 
-      {focused ? (
-        <span
-          className="agent-floor__bb agent-floor__card-anchor"
-          style={{
-            left: padX + PAD_SIZE / 2,
-            top: padY + PAD_SIZE / 2,
-            "--z": `${nameplateZ}px`,
-          } as CSSProperties}
-        >
-          <span className={`agent-floor__card${pinned ? " is-pinned" : ""}`}>
-            <span className="agent-floor__card-row">
-              <SpriteAvatar name={agent.name} size={24} tile hue={sprite.hue} tone={sprite.tone} />
-              <span className="agent-floor__card-name">{name}</span>
-              <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
-              <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
-            </span>
-            <span className="agent-floor__card-counts">{countsLabel(series.counts)}</span>
-            {readout.length > 0 ? (
-              <span className="agent-floor__card-readout">
-                {readout.map((entry, entryIndex) => (
-                  <span key={entryIndex} className={`agent-floor__readout-row is-${entry.kind}`}>
-                    <span className="agent-floor__readout-glyph">{READOUT_GLYPH[entry.kind]}</span>
-                    <span className="agent-floor__readout-label">{entry.label}</span>
-                    <span className="agent-floor__readout-ago">
-                      {entry.at ? timeAgo(entry.at, now) : "now"}
-                    </span>
-                  </span>
-                ))}
-              </span>
-            ) : (
-              <span className="agent-floor__card-last">
-                <LaneActionLine series={series} now={now} />
-              </span>
-            )}
-            <span className="agent-floor__card-hint">
-              {pinned ? "click again for the timeline · esc releases" : "click to pin"}
-            </span>
-          </span>
+      <span
+        className="agent-floor__bb agent-floor__flag-anchor"
+        style={{
+          left: padX + PAD_SIZE / 2,
+          top: padY + PAD_SIZE / 2,
+          "--z": `${flagZ}px`,
+        } as CSSProperties}
+      >
+        <span className={`agent-floor__flag${focused ? " is-focus" : ""}${pinned ? " is-pinned" : ""}`}>
+          <SpriteAvatar name={agent.name} size={14} tile hue={sprite.hue} tone={sprite.tone} />
+          <span className="agent-floor__flag-name">{name}</span>
+          <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
         </span>
-      ) : (
-        <span
-          className="agent-floor__bb agent-floor__flag-anchor"
-          style={{
-            left: padX + PAD_SIZE / 2,
-            top: padY + PAD_SIZE / 2,
-            "--z": `${flagZ}px`,
-          } as CSSProperties}
-        >
-          <span className="agent-floor__flag">
-            <SpriteAvatar name={agent.name} size={14} tile hue={sprite.hue} tone={sprite.tone} />
-            <span className="agent-floor__flag-name">{name}</span>
-            <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
-          </span>
-        </span>
-      )}
+      </span>
     </button>
+  );
+}
+
+/** The reading surface below the plane: fleet summary at rest, the focused
+ *  lane's full details while hovering or pinned. */
+function FloorDock({ focus, pinned, ledger, liveCount, now }: {
+  focus: FloorLaneSeries | null;
+  pinned: boolean;
+  ledger: FloorLaneSeries[];
+  liveCount: number;
+  now: number;
+}) {
+  if (!focus) {
+    const totals = ledger.reduce(
+      (acc, entry) => {
+        acc.tool += entry.counts.tool;
+        acc.edit += entry.counts.edit;
+        acc.msg += entry.counts.msg;
+        return acc;
+      },
+      { tool: 0, edit: 0, msg: 0 },
+    );
+    return (
+      <div className="agent-floor__dock is-resting">
+        <span className="agent-floor__dock-fleet">
+          <span className="agent-floor__dock-title">fleet</span>
+          {ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live
+        </span>
+        <span className="agent-floor__dock-totals">{countsLabel(totals)} · last 30m</span>
+        <span className="agent-floor__dock-hint">hover a lane for details · click to pin</span>
+      </div>
+    );
+  }
+
+  const agent = focus.lane.agent;
+  const sprite = agentSpriteProps(agent);
+  const facts = focus.lane.facts;
+  const factItems = [
+    facts?.model ? { key: "model", value: facts.model } : null,
+    facts?.branch ? { key: "branch", value: facts.branch } : null,
+    pathLeaf(facts?.cwd) ? { key: "cwd", value: pathLeaf(facts?.cwd) ?? "" } : null,
+  ].filter((item): item is { key: string; value: string } => item !== null);
+  const readoutLeft = focus.readout.slice(0, Math.ceil(focus.readout.length / 2));
+  const readoutRight = focus.readout.slice(Math.ceil(focus.readout.length / 2));
+
+  return (
+    <div className={`agent-floor__dock${pinned ? " is-pinned" : ""}`}>
+      <span className="agent-floor__dock-id">
+        <SpriteAvatar name={agent.name} size={30} tile hue={sprite.hue} tone={sprite.tone} />
+        <span className="agent-floor__dock-id-copy">
+          <span className="agent-floor__dock-name">
+            {lanePrimaryLabel(agent, focus.lane.source)}
+            <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
+            <span className={`agent-floor__card-dot${focus.live ? " is-live" : ""}`} />
+          </span>
+          <span className="agent-floor__dock-action">
+            <LaneActionLine series={focus} now={now} />
+          </span>
+        </span>
+      </span>
+
+      <span className="agent-floor__dock-facts">
+        {factItems.map((item) => (
+          <span key={item.key} className="agent-floor__dock-fact">
+            <span className="agent-floor__dock-fact-key">{item.key}</span>
+            <span className="agent-floor__dock-fact-value">{item.value}</span>
+          </span>
+        ))}
+        <span className="agent-floor__dock-fact">
+          <span className="agent-floor__dock-fact-key">30m</span>
+          <span className="agent-floor__dock-fact-value">{countsLabel(focus.counts)}</span>
+        </span>
+      </span>
+
+      <span className="agent-floor__dock-readout">
+        {[readoutLeft, readoutRight].map((column, columnIndex) => (
+          <span key={columnIndex} className="agent-floor__dock-readout-col">
+            {column.map((entry, entryIndex) => (
+              <span key={entryIndex} className={`agent-floor__readout-row is-${entry.kind}`}>
+                <span className="agent-floor__readout-glyph">{READOUT_GLYPH[entry.kind]}</span>
+                <span className="agent-floor__readout-label">{entry.label}</span>
+                <span className="agent-floor__readout-ago">
+                  {entry.at ? timeAgo(entry.at, now) : "now"}
+                </span>
+              </span>
+            ))}
+          </span>
+        ))}
+        {focus.readout.length === 0 ? (
+          <span className="agent-floor__dock-empty">no classified work in the last 30m</span>
+        ) : null}
+      </span>
+
+      <span className="agent-floor__dock-hint">
+        {pinned ? "click again for the timeline · esc releases" : "click to pin"}
+      </span>
+    </div>
   );
 }
 
@@ -536,8 +594,9 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   const { series, hidden, planeW, planeD, lanesStartY } = useMemo(() => {
     const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
     const built = sorted.map((lane) => buildFloorLane(lane, periodStart));
-    // Most recent lane renders nearest the viewer (largest isometric Y).
-    const shown = built.slice(0, MAX_FLOOR_LANES).reverse();
+    // Lane order mirrors the ledger: most recent is the TOP lane on the plane
+    // and the top row of the list, descending together.
+    const shown = built.slice(0, MAX_FLOOR_LANES);
     const stripsH = shown.length * LANE_PITCH;
     const depth = Math.max(MIN_PLANE_D, stripsH + EDGE_MARGIN * 2);
     return {
@@ -549,10 +608,12 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
     };
   }, [lanes, periodStart]);
 
-  // Ledger lists most-recent first — the floor's shown lanes are reversed.
-  const ledger = useMemo(() => [...series].reverse().concat(hidden), [series, hidden]);
+  const ledger = useMemo(() => series.concat(hidden), [series, hidden]);
   const liveCount = ledger.filter((entry) => entry.live).length;
   const effectiveFocus = focusLaneId ?? pinnedId;
+  const focusSeries = effectiveFocus === null
+    ? null
+    : ledger.find((entry) => entry.lane.id === effectiveFocus) ?? null;
 
   // A pinned lane can age out of the roster — release the pin with it.
   useEffect(() => {
@@ -561,8 +622,8 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
     }
   }, [ledger, pinnedId]);
 
-  // Rail mode: the host's left rail is the ledger. Publish rich rows, register
-  // the hover/select handlers rail rows call, and mirror the focused lane.
+  // Rail mode: the host's left rail is the ledger. Publish compact rows,
+  // register the hover/select handlers rail rows call, and mirror the focus.
   useEffect(() => {
     if (!railLedger) return;
     const entries: LaneRosterEntry[] = ledger.map((entry) => {
@@ -642,9 +703,6 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
                       </span>
                       <HarnessMark harness={agent.harness} size={11} className="agent-floor__card-mark" />
                       <span className={`agent-floor__card-dot${entry.live ? " is-live" : ""}`} />
-                    </span>
-                    <span className="agent-floor__ledger-action">
-                      <LaneActionLine series={entry} now={now} />
                     </span>
                     <span className="agent-floor__ledger-tally">
                       <span className="agent-floor__ledger-strip">
@@ -742,6 +800,14 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
         </div>
       </div>
 
+      <FloorDock
+        focus={focusSeries}
+        pinned={pinnedId !== null && effectiveFocus === pinnedId}
+        ledger={ledger}
+        liveCount={liveCount}
+        now={now}
+      />
+
       <footer className="agent-floor__legend">
         <span className="agent-floor__legend-item">
           <span className="agent-floor__legend-swatch is-tool" />tool call
@@ -764,7 +830,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
           past {flip ? "→" : "←"}
         </button>
         <span className="agent-floor__legend-note">
-          Towers mint every 5 min · hover to unroll, click to pin · click a pinned lane for its timeline
+          Towers mint every 5 min · details land in the dock · click to pin, click again for the timeline
         </span>
       </footer>
     </div>
