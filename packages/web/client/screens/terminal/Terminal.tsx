@@ -1353,11 +1353,6 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     () => buildTerminalInventoryRows(liveTerminalItems, terminalAgents),
     [liveTerminalItems, terminalAgents],
   );
-  const boundAgentCount = useMemo(
-    () => terminalAgents.filter((agent) => resolveAgentTerminalSurface(agent)).length,
-    [terminalAgents],
-  );
-  const liveTerminalCount = liveTerminalItems.length;
   const sessionError = state.state === "failed" ? state.error : null;
 
   useEffect(() => {
@@ -1662,104 +1657,99 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           </div>
         </section>
 
-        <div className="s-term-home-stats" aria-label="Terminal inventory">
-          <Stat label="Tiles" value={tiles.length} />
-          <Stat label="Live" value={liveTerminalCount} />
-          <Stat label="Registered" value={terminalItems.length} />
-          <Stat label="Bound" value={boundAgentCount} />
-        </div>
-
-        {sessionError && (
-          <div className="s-term-home-error">
-            <span>Terminal registry unavailable</span>
-            <code>{sessionError}</code>
-          </div>
-        )}
-
-        {showAttachPanel && (
-          <TerminalAttachGrid
-            items={attachableItems}
-            tiledRegisteredIds={tiledRegisteredIds}
-            loadState={state.state}
-            onAttach={(target) => {
-              attachRegisteredTarget(target);
-              setShowAttachPanel(false);
-            }}
-            onAttachAll={() => {
-              attachLiveTerminals();
-              setShowAttachPanel(false);
-            }}
-            onClose={() => setShowAttachPanel(false)}
-            onDragStart={handleAttachDragStart}
-          />
-        )}
-
-        {tiles.length === 0 ? (
-          <div
-            className={`s-term-workspace-empty${dropTargetActive ? " s-term-workspace-empty--drop" : ""}`}
-            onDragEnter={handleAttachDragOver}
-            onDragOver={handleAttachDragOver}
-            onDragLeave={handleAttachDragLeave}
-            onDrop={handleAttachDrop}
-          >
-            <Grid2X2 size={22} strokeWidth={1.55} />
-            <strong>No terminal tiles</strong>
-            <div className="s-term-workspace-empty-actions">
-              <button
-                type="button"
-                className="s-term-workspace-action s-term-workspace-action--primary"
-                onClick={() => addFreshTile("pty")}
-              >
-                <Plus size={14} strokeWidth={1.9} />
-                <span>Shell</span>
-              </button>
-              <button
-                type="button"
-                className="s-term-workspace-action"
-                onClick={attachLiveTerminals}
-                disabled={attachableItems.length === 0}
-              >
-                <LogIn size={14} strokeWidth={1.8} />
-                <span>Attach</span>
-              </button>
+        <div className="s-term-workspace-stage">
+          {sessionError && (
+            <div className="s-term-home-error">
+              <span>Terminal registry unavailable</span>
+              <code>{sessionError}</code>
             </div>
-          </div>
-        ) : (
-          <div
-            className={`s-term-workspace-grid${dropTargetActive ? " s-term-workspace-grid--drop" : ""}`}
-            aria-label="Terminal tiles"
-            onDragEnter={handleAttachDragOver}
-            onDragOver={handleAttachDragOver}
-            onDragLeave={handleAttachDragLeave}
-            onDrop={handleAttachDrop}
-          >
-            {tiles.map((tile) => {
-              const drop = tileDropTarget?.id === tile.id ? tileDropTarget : null;
-              return (
-                <div
-                  key={`${tile.id}:${workspaceReload}`}
-                  className={[
-                    "s-term-workspace-tile-slot",
-                    draggedTileId === tile.id ? "s-term-workspace-tile-slot--dragging" : "",
-                    drop ? `s-term-workspace-tile-slot--drop-${drop.edge}-${drop.axis}` : "",
-                  ].filter(Boolean).join(" ")}
-                  onDragOver={(event) => handleTileDragOver(event, tile.id)}
-                  onDrop={(event) => handleTileDrop(event, tile.id)}
+          )}
+
+          {showAttachPanel && (
+            <TerminalAttachGrid
+              items={attachableItems}
+              tiledRegisteredIds={tiledRegisteredIds}
+              loadState={state.state}
+              onAttach={(target) => {
+                attachRegisteredTarget(target);
+                setShowAttachPanel(false);
+              }}
+              onAttachAll={() => {
+                attachLiveTerminals();
+                setShowAttachPanel(false);
+              }}
+              onClose={() => setShowAttachPanel(false)}
+              onDragStart={handleAttachDragStart}
+            />
+          )}
+
+          {tiles.length === 0 ? (
+            <div
+              className={`s-term-workspace-empty${dropTargetActive ? " s-term-workspace-empty--drop" : ""}`}
+              onDragEnter={handleAttachDragOver}
+              onDragOver={handleAttachDragOver}
+              onDragLeave={handleAttachDragLeave}
+              onDrop={handleAttachDrop}
+            >
+              <Grid2X2 size={22} strokeWidth={1.55} />
+              <strong>No terminal tiles</strong>
+              <div className="s-term-workspace-empty-actions">
+                <button
+                  type="button"
+                  className="s-term-workspace-action s-term-workspace-action--primary"
+                  onClick={() => addFreshTile("pty")}
                 >
-                  <TerminalWorkspaceTile
-                    tile={tile}
-                    navigate={navigate}
-                    projectDestinations={projectDestinations}
-                    onClose={closeTile}
-                    onDragStart={handleTileDragStart}
-                    onDragEnd={handleTileDragEnd}
-                    onRetarget={showTileRetargetMenu}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
+                  <Plus size={14} strokeWidth={1.9} />
+                  <span>Shell</span>
+                </button>
+                <button
+                  type="button"
+                  className="s-term-workspace-action"
+                  onClick={attachLiveTerminals}
+                  disabled={attachableItems.length === 0}
+                >
+                  <LogIn size={14} strokeWidth={1.8} />
+                  <span>Attach</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`s-term-workspace-grid${dropTargetActive ? " s-term-workspace-grid--drop" : ""}`}
+              aria-label="Terminal tiles"
+              onDragEnter={handleAttachDragOver}
+              onDragOver={handleAttachDragOver}
+              onDragLeave={handleAttachDragLeave}
+              onDrop={handleAttachDrop}
+            >
+              {tiles.map((tile) => {
+                const drop = tileDropTarget?.id === tile.id ? tileDropTarget : null;
+                return (
+                  <div
+                    key={`${tile.id}:${workspaceReload}`}
+                    className={[
+                      "s-term-workspace-tile-slot",
+                      draggedTileId === tile.id ? "s-term-workspace-tile-slot--dragging" : "",
+                      drop ? `s-term-workspace-tile-slot--drop-${drop.edge}-${drop.axis}` : "",
+                    ].filter(Boolean).join(" ")}
+                    onDragOver={(event) => handleTileDragOver(event, tile.id)}
+                    onDrop={(event) => handleTileDrop(event, tile.id)}
+                  >
+                    <TerminalWorkspaceTile
+                      tile={tile}
+                      navigate={navigate}
+                      projectDestinations={projectDestinations}
+                      onClose={closeTile}
+                      onDragStart={handleTileDragStart}
+                      onDragEnd={handleTileDragEnd}
+                      onRetarget={showTileRetargetMenu}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div className="s-term-workspace-dock">
           <button
@@ -2437,15 +2427,6 @@ function TerminalHomeAgentRow({
           <MoreHorizontal size={14} strokeWidth={1.8} />
         </button>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="s-term-home-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
