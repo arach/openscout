@@ -55,7 +55,7 @@ export function ConversationComposer({
   onInterrupt: () => void;
 }) {
   const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
-  const showVoiceStatus = voiceStatus && voiceStatus.state !== "idle" && voiceStatus.message;
+  const showVoiceStatus = voiceStatus?.message;
 
   return (
     <form
@@ -288,10 +288,12 @@ export function ConversationComposer({
           <div
             className={[
               "s-thread-compose-voice-status",
-              voiceStatus.state === "recording" ? "s-thread-compose-voice-status--recording" : "",
-              voiceStatus.state === "processing" ? "s-thread-compose-voice-status--processing" : "",
+              voiceStatus.tone === "recording" ? "s-thread-compose-voice-status--recording" : "",
+              voiceStatus.tone === "processing" ? "s-thread-compose-voice-status--processing" : "",
+              voiceStatus.tone === "error" ? "s-thread-compose-voice-status--error" : "",
             ].filter(Boolean).join(" ")}
-            aria-live="polite"
+            role={voiceStatus.tone === "error" ? "alert" : "status"}
+            aria-live={voiceStatus.tone === "error" ? "assertive" : "polite"}
           >
             {voiceStatus.message}
           </div>

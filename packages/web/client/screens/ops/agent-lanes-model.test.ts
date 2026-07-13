@@ -1457,6 +1457,44 @@ describe("buildAgentLanes roster", () => {
     expect(lanes).toHaveLength(0);
   });
 
+  test("admits Scoutbot from broker-native activity without a provider transcript", () => {
+    const agent = stubAgent("Scout");
+    agent.id = "scoutbot";
+    agent.definitionId = "scoutbot";
+    agent.handle = "scoutbot";
+    agent.agentClass = "operator";
+    agent.role = "operator-assistant";
+    agent.harness = "codex";
+    agent.transport = "codex_app_server";
+    agent.state = "available";
+    agent.harnessSessionId = null;
+    agent.brokerActivity = [{
+      id: "msg-scoutbot",
+      kind: "message",
+      at: NOW - 12_000,
+      state: null,
+      summary: "I dispatched the review to Hudson.",
+      conversationId: "dm.operator.scoutbot",
+    }];
+
+    const { lanes, issues } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.agent.id).toBe("scoutbot");
+    expect(lanes[0]?.observe?.metadata?.session?.source).toBe("broker-native");
+    expect(lanes[0]?.observe?.events[0]).toMatchObject({
+      kind: "message",
+      text: "I dispatched the review to Hudson.",
+    });
+    expect(issues.some((issue) => issue.kind === "harness_session_unbound")).toBe(false);
+  });
+
   test("admits recent pi rpc codex sessions before transcript activity arrives", () => {
     const agent = stubAgent("lattices");
     agent.harness = "codex";

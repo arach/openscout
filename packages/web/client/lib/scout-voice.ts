@@ -253,9 +253,9 @@ async function engageScoutVoiceDictationFallback(
   const inputDevice = resolveScoutVoiceInputDevice(settings, devices);
 
   if (options.requestPermissions) {
-    if (mic && !mic.granted && mic.canRequest) {
+    if (mic && !mic.granted && mic.status !== "restricted") {
       await requestScoutVoicePermissions("microphone").catch(() => undefined);
-    } else if ((mic?.granted ?? false) && speech && !speech.granted && speech.canRequest) {
+    } else if ((mic?.granted ?? false) && speech && !speech.granted && speech.status !== "restricted") {
       await requestScoutVoicePermissions("speechRecognition").catch(() => undefined);
     }
   }
@@ -350,8 +350,8 @@ function scoutVoiceMicrophoneIssue(
   return {
     code: "microphone_denied",
     title: "Microphone blocked",
-    message: "Microphone access is off for Scout Menu.",
-    hint: "Open Privacy & Security → Microphone to change it.",
+    message: "Scout Menu cannot record because microphone access is off.",
+    hint: "Scout is opening macOS Microphone settings and will detect the change automatically.",
     action: "open_microphone_settings",
   };
 }
@@ -373,7 +373,7 @@ function scoutVoiceSpeechIssue(
     code: "speech_denied",
     title: "Speech recognition blocked",
     message: "Speech recognition is off for Scout Menu.",
-    hint: "Open Privacy & Security → Speech Recognition to change it.",
+    hint: "Choose Retry access to reopen macOS Speech Recognition settings.",
     action: "open_speech_settings",
   };
 }
@@ -381,7 +381,7 @@ function scoutVoiceSpeechIssue(
 function friendlySessionError(message: string, code: string | null): string {
   switch (code) {
     case "microphone_permission":
-      return "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it.";
+      return "Microphone access is off for Scout Menu. Tap the mic to retry; Scout will open macOS Microphone settings.";
     case "empty_transcript":
       return "No speech was detected. Check your microphone input in Settings → Voice.";
     default:

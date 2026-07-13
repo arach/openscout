@@ -32,6 +32,7 @@ export type LanePopGroup = { rows: LanePopRow[]; more: number };
 
 export type AgentLaneCardModel = {
   name: string;
+  authority: { label: string; title: string } | null;
   harness: string | null;
   model: string | null;
   effort: string | null;
@@ -439,6 +440,11 @@ export function AgentLaneCard({
         <div className="s-lane-card-ident">
           <span className="s-lane-card-fieldc s-lane-card-fieldc--trail s-lane-card-namebox">
             <span className="s-lane-card-name s-lane-card-sel">{name}</span>
+            {model.authority && (
+              <span className="s-lane-card-authority" title={model.authority.title}>
+                {model.authority.label}
+              </span>
+            )}
             <CopyDot value={name} label="agent name" side="trail" />
           </span>
           {cwd && (

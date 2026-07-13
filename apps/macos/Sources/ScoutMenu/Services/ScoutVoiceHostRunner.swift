@@ -25,6 +25,9 @@ final class ScoutVoiceHostRunner {
     private var sessionStartedAt: Date?
     private var deliveredFinalForSession: String?
     private var processingDeadlineTask: Task<Void, Never>?
+    private var finalizationGraceTask: Task<Void, Never>?
+    private var permissionRecoveryTask: Task<Void, Never>?
+    private var lastPostedState: String?
 
     private init() {}
 
@@ -42,10 +45,15 @@ final class ScoutVoiceHostRunner {
         warmupTask = nil
         processingDeadlineTask?.cancel()
         processingDeadlineTask = nil
+        finalizationGraceTask?.cancel()
+        finalizationGraceTask = nil
+        permissionRecoveryTask?.cancel()
+        permissionRecoveryTask = nil
         sessionCancellables.removeAll()
         activeSessionId = nil
         sessionStartedAt = nil
         deliveredFinalForSession = nil
+        lastPostedState = nil
     }
 
     private func runLoop() async {
@@ -128,14 +136,41 @@ final class ScoutVoiceHostRunner {
     }
 
     private func requestPrivacyAccess(_ command: HostCommand) async {
-        switch command.permissionKind ?? "microphone" {
+        let kind = command.permissionKind ?? "microphone"
+        let wasDenied: Bool
+        let granted: Bool
+        switch kind {
         case "speechRecognition":
-            _ = await ScoutVoicePermissions.ensureSpeechRecognitionAccess()
+            wasDenied = ScoutVoicePermissions.speechRecognitionStatus().status == "denied"
+            granted = await ScoutVoicePermissions.recoverSpeechRecognitionAccess()
         default:
-            _ = await ScoutVoicePermissions.ensureMicrophoneAccess()
+            wasDenied = ScoutVoicePermissions.microphoneStatus().status == "denied"
+            granted = await ScoutVoicePermissions.recoverMicrophoneAccess()
+        }
+        if wasDenied && !granted {
+            watchForPermissionRecovery(kind: kind)
         }
         await voice.probe()
         try? await registerHost()
+    }
+
+    private func watchForPermissionRecovery(kind: String) {
+        permissionRecoveryTask?.cancel()
+        permissionRecoveryTask = Task { [weak self] in
+            for _ in 0..<120 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let granted = kind == "speechRecognition"
+                    ? ScoutVoicePermissions.speechRecognitionStatus().granted
+                    : ScoutVoicePermissions.microphoneStatus().granted
+                guard granted else { continue }
+                await self.voice.probe()
+                try? await self.registerHost()
+                self.permissionRecoveryTask = nil
+                return
+            }
+            self?.permissionRecoveryTask = nil
+        }
     }
 
     private func openPrivacySettings(_ command: HostCommand) async {
@@ -171,8 +206,9 @@ final class ScoutVoiceHostRunner {
         activeSessionId = sessionId
         sessionStartedAt = Date()
         deliveredFinalForSession = nil
+        lastPostedState = nil
 
-        await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "starting"])
+        await postStateIfChanged(sessionId: sessionId, state: "starting")
 
         if case .unavailable = voice.state {
             await voice.probe()
@@ -211,12 +247,11 @@ final class ScoutVoiceHostRunner {
         }
         bindSessionObservers(sessionId: sessionId)
         voice.start(inputDeviceId: command.inputDeviceId)
-        await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "recording"])
     }
 
     private func stopSession(_ sessionId: String) async {
         guard activeSessionId == sessionId else { return }
-        await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "processing"])
+        await postStateIfChanged(sessionId: sessionId, state: "processing")
         armProcessingDeadline(sessionId: sessionId)
         voice.stop()
     }
@@ -273,21 +308,27 @@ final class ScoutVoiceHostRunner {
         switch state {
         case .idle:
             if activeSessionId == sessionId, deliveredFinalForSession != sessionId {
-                let durationMs = Int((sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0) * 1000)
-                await deliverFinal(sessionId: sessionId, text: "", durationMs: durationMs)
+                armFinalizationGrace(sessionId: sessionId)
             } else if deliveredFinalForSession == sessionId {
                 clearSession(sessionId)
             }
         case .unavailable(let reason):
-            await postEvent(sessionId: sessionId, event: "session.error", data: ["message": reason])
+            let code = ScoutVoicePermissions.microphoneStatus().granted
+                ? "capture_unavailable"
+                : "microphone_permission"
+            await postEvent(
+                sessionId: sessionId,
+                event: "session.error",
+                data: ["message": reason, "code": code]
+            )
             clearSession(sessionId)
         case .processing:
-            await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "processing"])
+            await postStateIfChanged(sessionId: sessionId, state: "processing")
             armProcessingDeadline(sessionId: sessionId)
         case .recording:
-            await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "recording"])
+            await postStateIfChanged(sessionId: sessionId, state: "recording")
         case .starting:
-            await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "starting"])
+            await postStateIfChanged(sessionId: sessionId, state: "starting")
         case .probing:
             break
         }
@@ -299,6 +340,8 @@ final class ScoutVoiceHostRunner {
         deliveredFinalForSession = sessionId
         processingDeadlineTask?.cancel()
         processingDeadlineTask = nil
+        finalizationGraceTask?.cancel()
+        finalizationGraceTask = nil
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -337,14 +380,42 @@ final class ScoutVoiceHostRunner {
         }
     }
 
+    /// HudDictation publishes `.idle` immediately before its final-text callback.
+    /// Give that callback one run-loop turn instead of racing it with an empty
+    /// transcript. The final-text observer normally wins and cancels this task.
+    private func armFinalizationGrace(sessionId: String) {
+        finalizationGraceTask?.cancel()
+        finalizationGraceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            guard self.activeSessionId == sessionId, self.deliveredFinalForSession != sessionId else { return }
+            let durationMs = Int((self.sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0) * 1000)
+            await self.deliverFinal(
+                sessionId: sessionId,
+                text: self.voice.lastFinalText,
+                durationMs: durationMs
+            )
+        }
+    }
+
+    private func postStateIfChanged(sessionId: String, state: String) async {
+        guard activeSessionId == sessionId else { return }
+        guard lastPostedState != state else { return }
+        lastPostedState = state
+        await postEvent(sessionId: sessionId, event: "session.state", data: ["state": state])
+    }
+
     private func clearSession(_ sessionId: String) {
         guard activeSessionId == sessionId else { return }
         processingDeadlineTask?.cancel()
         processingDeadlineTask = nil
+        finalizationGraceTask?.cancel()
+        finalizationGraceTask = nil
         sessionCancellables.removeAll()
         activeSessionId = nil
         sessionStartedAt = nil
         deliveredFinalForSession = nil
+        lastPostedState = nil
     }
 
     private func postEvent(sessionId: String, event: String, data: [String: Any]) async {

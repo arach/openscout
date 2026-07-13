@@ -41,6 +41,32 @@ export type Agent = {
   providerUrl?: string | null;
   protocol?: string | null;
   skills?: string[];
+  brokerActivity?: AgentBrokerActivity[];
+  authorityProfile?: AgentAuthorityProfile | null;
+  runtimePolicy?: AgentRuntimePolicy | null;
+};
+
+export type AgentBrokerActivity = {
+  id: string;
+  kind: "message" | "invocation" | "flight";
+  at: number;
+  state: string | null;
+  summary: string;
+  conversationId: string | null;
+};
+
+export type AgentAuthorityProfile = {
+  roleId: string;
+  readTools: string[];
+  writeTools: string[];
+  shell: boolean;
+  codebaseWrites: boolean;
+};
+
+export type AgentRuntimePolicy = {
+  approvalPolicy: string | null;
+  sandbox: string | null;
+  shellTool: boolean | null;
 };
 
 export type TerminalSurfaceDescriptor = {

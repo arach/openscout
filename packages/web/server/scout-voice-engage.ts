@@ -70,11 +70,12 @@ export function engageScoutVoiceDictation(input: ScoutVoiceEngageInput = {}): Sc
   }
 
   if (input.requestPermissions) {
-    // Mic engage may surface macOS' first-run permission prompt, but terminal
-    // states are never repaired by opening System Settings automatically.
-    if (mic && !mic.granted && mic.canRequest) {
+    // This is an explicit user gesture. Scout Menu presents the first-run
+    // consent sheet or, after a denial, opens the app-specific privacy pane
+    // and watches for the permission to change.
+    if (mic && !mic.granted && mic.status !== "restricted") {
       requestScoutVoicePermissions("microphone");
-    } else if ((mic?.granted ?? false) && speech && !speech.granted && speech.canRequest) {
+    } else if ((mic?.granted ?? false) && speech && !speech.granted && speech.status !== "restricted") {
       requestScoutVoicePermissions("speechRecognition");
     }
   }
@@ -168,8 +169,8 @@ function microphoneIssue(permission: ScoutVoicePermissionStatus | null): ScoutVo
     return {
       code: "microphone_denied",
       title: "Microphone blocked",
-      message: "Microphone access is off for Scout Menu.",
-      hint: "Open Privacy & Security → Microphone to change it.",
+      message: "Scout Menu cannot record because microphone access is off.",
+      hint: "Scout is opening macOS Microphone settings and will detect the change automatically.",
       action: "open_microphone_settings",
     };
   }
@@ -197,7 +198,7 @@ function speechRecognitionIssue(permission: ScoutVoicePermissionStatus | null): 
     code: "speech_denied",
     title: "Speech recognition blocked",
     message: "Speech recognition is off for Scout Menu.",
-    hint: "Open Privacy & Security → Speech Recognition to change it.",
+    hint: "Choose Retry access to reopen macOS Speech Recognition settings.",
     action: "open_speech_settings",
   };
 }

@@ -113,7 +113,11 @@ import {
   upsertScoutFlight,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
-import { getScoutConversationById, getScoutConversations } from "./core/conversations/service.ts";
+import {
+  getScoutConversationById,
+  getScoutConversationMessages,
+  getScoutConversations,
+} from "./core/conversations/service.ts";
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
@@ -1878,6 +1882,87 @@ function brokerAgentSkillNames(
   ));
 }
 
+function brokerAgentAuthorityProfile(
+  metadata: Record<string, unknown> | null,
+): WebAgent["authorityProfile"] {
+  const roleConfig = metadataRecordValue(metadata, "roleConfig");
+  const grants = metadataRecordValue(roleConfig, "grants");
+  const roleId = metadataStringValue(roleConfig, "roleId");
+  if (!roleId || !grants) return null;
+  return {
+    roleId,
+    readTools: metadataStringArrayValue(grants, "read"),
+    writeTools: metadataStringArrayValue(grants, "write"),
+    shell: grants.shell === true,
+    codebaseWrites: grants.codebaseWrites === true,
+  };
+}
+
+function brokerAgentRuntimePolicy(
+  endpointMetadata: Record<string, unknown>,
+): WebAgent["runtimePolicy"] {
+  const approvalPolicy = metadataStringValue(endpointMetadata, "approvalPolicy");
+  const sandbox = metadataStringValue(endpointMetadata, "sandbox");
+  const shellTool = typeof endpointMetadata.shellTool === "boolean"
+    ? endpointMetadata.shellTool
+    : null;
+  return approvalPolicy || sandbox || shellTool !== null
+    ? { approvalPolicy, sandbox, shellTool }
+    : null;
+}
+
+function brokerAgentActivity(
+  broker: ScoutBrokerContext,
+  agentId: string,
+): NonNullable<WebAgent["brokerActivity"]> {
+  const activity: NonNullable<WebAgent["brokerActivity"]> = [];
+  for (const message of Object.values(broker.snapshot.messages ?? {})) {
+    if (message.actorId !== agentId) continue;
+    const at = epochMs(message.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: message.id,
+      kind: "message",
+      at,
+      state: null,
+      summary: message.body.trim() || "Message sent",
+      conversationId: message.conversationId ?? null,
+    });
+  }
+  for (const invocation of Object.values(broker.snapshot.invocations ?? {})) {
+    if (invocation.targetAgentId !== agentId) continue;
+    const at = epochMs(invocation.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: invocation.id,
+      kind: "invocation",
+      at,
+      state: null,
+      summary: invocation.task?.trim() || invocation.action || "Invocation received",
+      conversationId: invocation.conversationId ?? null,
+    });
+  }
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    if (flight.targetAgentId !== agentId) continue;
+    const invocation = broker.snapshot.invocations?.[flight.invocationId];
+    const at = epochMs(flight.completedAt)
+      ?? epochMs(flight.startedAt)
+      ?? epochMs(invocation?.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: flight.id,
+      kind: "flight",
+      at,
+      state: flight.state,
+      summary: flight.summary?.trim() || invocation?.task?.trim() || `Flight ${flight.state}`,
+      conversationId: invocation?.conversationId ?? null,
+    });
+  }
+  return activity
+    .sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+    .slice(-80);
+}
+
 function brokerDirectConversationIdForAgent(
   broker: ScoutBrokerContext,
   agentId: string,
@@ -1918,10 +2003,15 @@ function brokerAgentCardToWebAgent(
     projectRoot,
   );
   const owner = brokerActorDisplay(broker, agent.ownerId);
+  const brokerActivity = brokerAgentActivity(broker, agent.id);
   const createdAt = metadataTimestampMs(agentMetadata?.createdAt)
     ?? metadataTimestampMs(agentMetadata?.registeredAt)
     ?? null;
-  const updatedAt = latestBrokerAgentTimestamp(agent, endpoint) ?? createdAt;
+  const updatedAt = Math.max(
+    latestBrokerAgentTimestamp(agent, endpoint) ?? 0,
+    brokerActivity.at(-1)?.at ?? 0,
+    createdAt ?? 0,
+  ) || null;
 
   return {
     id: agent.id,
@@ -1944,7 +2034,7 @@ function brokerAgentCardToWebAgent(
     capabilities: brokerAgentCapabilitiesForWeb(agent, agentMetadata),
     project: metadataStringValue(agentMetadata, "project") ?? projectNameFromRoot(projectRoot),
     branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
-    role: null,
+    role: metadataStringValue(agentMetadata, "role"),
     model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
     modelProvider: metadataStringValue(endpointMetadata, "provider") ?? metadataStringValue(agentMetadata, "provider"),
     harnessSessionId: resolveHarnessSessionIdForAgent(
@@ -1980,6 +2070,9 @@ function brokerAgentCardToWebAgent(
     providerUrl: provider.url,
     protocol,
     skills,
+    brokerActivity,
+    authorityProfile: brokerAgentAuthorityProfile(agentMetadata),
+    runtimePolicy: brokerAgentRuntimePolicy(endpointMetadata),
   };
 }
 
@@ -2061,11 +2154,36 @@ async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
   if (!broker) {
     return applyAgentAttention(agents, attention);
   }
-  const existingIds = new Set(agents.map((agent) => agent.id));
   const brokerAgents = brokerCardAgentsForWeb(broker)
-    .filter((agent) => !existingIds.has(agent.id) && !archivedIds.has(agent.id))
+    .filter((agent) => !archivedIds.has(agent.id))
     .map(withResolvedHarnessSessionIdentity);
-  return applyAgentAttention([...agents, ...brokerAgents], attention);
+  const brokerById = new Map(brokerAgents.map((agent) => [agent.id, agent]));
+  const canonicalScoutbot = brokerById.get("scoutbot");
+  const mergedAgents = agents
+    .filter((agent) => !(
+      canonicalScoutbot
+      && agent.id !== canonicalScoutbot.id
+      && agent.definitionId === canonicalScoutbot.definitionId
+    ))
+    .map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
+  const existingIds = new Set(mergedAgents.map((agent) => agent.id));
+  return applyAgentAttention([
+    ...mergedAgents,
+    ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
+  ], attention);
+}
+
+function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefined): WebAgent {
+  if (!broker) return local;
+  return {
+    ...broker,
+    ...local,
+    updatedAt: Math.max(local.updatedAt ?? 0, broker.updatedAt ?? 0) || null,
+    role: local.role ?? broker.role,
+    brokerActivity: broker.brokerActivity,
+    authorityProfile: broker.authorityProfile,
+    runtimePolicy: broker.runtimePolicy,
+  };
 }
 
 async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
@@ -2073,7 +2191,13 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   const agent = queryAgentById(agentId);
   if (agent) {
     const attention = await queryAgentAttentionIndex(broker);
-    return applyAgentAttention([withResolvedHarnessSessionIdentity(agent)], attention)[0] ?? null;
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker) : [];
+    const canonical = agent.definitionId === "scoutbot"
+      ? brokerAgents.find((candidate) => candidate.id === "scoutbot")
+      : brokerAgents.find((candidate) => candidate.id === agent.id);
+    return applyAgentAttention([
+      mergeBrokerAgentProjection(withResolvedHarnessSessionIdentity(agent), canonical),
+    ], attention)[0] ?? null;
   }
   if (!broker) {
     return null;
@@ -4776,7 +4900,7 @@ export async function createOpenScoutWebServer(
       }),
     ),
   );
-  app.get("/api/messages", (c) => {
+  app.get("/api/messages", async (c) => {
     const cId = c.req.query("chatId")
       || c.req.query("cId")
       || c.req.query("conversationId")
@@ -4784,8 +4908,12 @@ export async function createOpenScoutWebServer(
     if (cId && !isOpaqueChannelId(cId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const messages = queryRecentMessages(
-      parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80;
+    const brokerMessages = cId
+      ? await getScoutConversationMessages(cId, limit)
+      : null;
+    const messages = brokerMessages ?? queryRecentMessages(
+      limit,
       { conversationId: cId },
     );
     return c.json(messages.map((message) => ({
