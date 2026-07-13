@@ -84,7 +84,10 @@ function buildTower(lane: AgentLane, now: number): FloorTower {
   const last = recent.at(-1);
   return {
     lane,
-    live: isAgentLaneLive(lane.observe),
+    // "Session ready" placeholder observes report as live without any real
+    // work — require at least one classifiable event so dormant-but-registered
+    // agents don't glow in the now band.
+    live: isAgentLaneLive(lane.observe) && recent.length > 0,
     blocks: recent.slice(-MAX_TOWER_BLOCKS).map((entry) => entry.kind),
     counts,
     lastLabel: last?.label ?? null,
@@ -142,6 +145,11 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
   const stackCount = blocks.length + (live ? 1 : 0);
   const cardZ = STACK_BASE_Z + stackCount * BLOCK_STEP + CARD_LIFT;
   const lastAgo = tower.lastAt ? timeAgo(tower.lastAt) : null;
+  // Registry state may claim "working" while nothing observable has landed —
+  // say "quiet", not "idle", but never claim live work we can't show.
+  const restingLabel = /^(working|active|running|in_turn|in_flight)/i.test(agent.state ?? "")
+    ? "quiet"
+    : "idle";
 
   return (
     <button
@@ -184,7 +192,7 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
               <>
                 <span className="agent-floor__card-pause">⏸</span>
                 <span className="agent-floor__card-idle">
-                  idle{lastAgo ? ` · ${lastAgo}` : ""}
+                  {restingLabel}{lastAgo ? ` · ${lastAgo}` : ""}
                 </span>
               </>
             )}
@@ -302,7 +310,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
                     top: (2 - bandIndex) * bandDepth + bandDepth / 2,
                   }}
                 >
-                  +{count} earlier
+                  +{count} {bandIndex === 0 ? "more" : "earlier"}
                 </div>
               ) : null)}
           </div>
