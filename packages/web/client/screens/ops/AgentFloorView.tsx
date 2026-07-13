@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { agentSpriteProps, SpriteAvatar } from "../../components/SpriteAvatar.tsx";
-import { observeEventWallMs } from "../../lib/lane-observe.ts";
+import { laneSnippetText, observeEventWallMs } from "../../lib/lane-observe.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { ObserveEvent } from "../../lib/types.ts";
 import {
@@ -17,14 +17,17 @@ import {
  * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
  * isometric plane where each agent keeps a LANE strip stacked along the
  * isometric Y and the other axis is TIME, anchored to wall-clock five-minute
- * slots: the leading slot is live and grows as events land; behind it, slots
- * are MINTED — once their five minutes pass they sit still (the whole strip
- * shifts one slot only at each mint boundary). Each minted tower stands on a
- * slab whose side carries the tool/edit/message mix; hovering a tower
- * projects a readable summary of that slot, and hovering a lane flattens the
- * lanes around it until you're done reading. Clicking a lane opens the host
- * surface's trace detail. Which side history accumulates on is a persisted
- * preference (the legend control flips it).
+ * slots: the leading slot is live; behind it, slots are MINTED — once their
+ * five minutes pass they sit still until the next mint boundary.
+ *
+ * Identity reads in three layers (the "ledger × unroll" treatment): a compact
+ * FLAG is always in-scene above each pad; hovering a flag, its lane, or its
+ * LEDGER row unrolls the full nameplate (identity + recent-events readout)
+ * while the other lanes flatten; hovering a tower projects that slot's
+ * window readout. The ledger panel on the left stays the stable index as the
+ * fleet grows past what the plane can hold. Clicking a lane or row opens the
+ * host surface's trace detail. Which side history accumulates on is a
+ * persisted preference (the legend control flips it).
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -39,6 +42,8 @@ const MINTED_SLOTS = 6;
 const TOTAL_SLOTS = MINTED_SLOTS + 1;
 const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
+const READOUT_EVENTS = 4;
+const STRIP_BLOCKS = 10;
 
 const LANE_PITCH = 132;
 const STACK_SIZE = 56;
@@ -53,8 +58,8 @@ const FRONT_APRON = 150;
 const BACK_MARGIN = 48;
 const EDGE_MARGIN = 24;
 const MIN_PLANE_D = 480;
-const CARD_LIFT = 84;
-const CARD_STAGGER = 42;
+const FLAG_LIFT = 38;
+const NAMEPLATE_LIFT = 92;
 
 /** Which plane edge history drifts toward ("now" sits on the other side). */
 type FloorOrientation = "past-left" | "past-right";
@@ -89,12 +94,22 @@ type FloorSlot = {
   total: number;
 };
 
+type FloorReadoutEntry = {
+  kind: FloorBlockKind;
+  label: string;
+  at: number | null;
+};
+
 type FloorLaneSeries = {
   lane: AgentLane;
   live: boolean;
   /** Index 0 = the live slot, 1..MINTED_SLOTS = minted five-minute slots. */
   slots: FloorSlot[];
   counts: Record<FloorBlockKind, number>;
+  /** Newest-first recent events for the unrolled nameplate. */
+  readout: FloorReadoutEntry[];
+  /** Chronological last blocks for the ledger mini strip. */
+  strip: FloorBlockKind[];
   lastLabel: string | null;
   lastAt: number | null;
 };
@@ -124,6 +139,7 @@ function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
     tools: new Map(),
     total: 0,
   }));
+  const timeline: Array<{ kind: FloorBlockKind; label: string; at: number | null }> = [];
   let classified = 0;
   let last: { at: number | null; label: string } | null = null;
 
@@ -144,6 +160,13 @@ function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
     classified += 1;
     const toolName = kind === "msg" ? null : event.tool?.trim() || "tool";
     if (toolName) slot.tools.set(toolName, (slot.tools.get(toolName) ?? 0) + 1);
+    timeline.push({
+      kind,
+      label: kind === "msg"
+        ? laneSnippetText(event.text, 34, 1)
+        : event.text.trim() || toolName || "tool",
+      at,
+    });
     last = {
       at,
       label: kind === "msg" ? "message" : event.tool?.trim() || "tool",
@@ -163,6 +186,8 @@ function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
       total: slot.total,
     })),
     counts,
+    readout: timeline.slice(-READOUT_EVENTS).reverse(),
+    strip: timeline.slice(-STRIP_BLOCKS).map((entry) => entry.kind),
     lastLabel: last?.label ?? null,
     lastAt: last?.at ?? (lane.lastActiveAt || null),
   };
@@ -177,6 +202,12 @@ function countsLabel(counts: Record<FloorBlockKind, number>): string {
     part(counts.msg, "msg", "msgs"),
   ].join(" · ");
 }
+
+const READOUT_GLYPH: Record<FloorBlockKind, string> = {
+  tool: "·",
+  edit: "✎",
+  msg: "◆",
+};
 
 function IsoBlock({ kind, z, size = STACK_SIZE, faceH = BLOCK_H, pad, live }: {
   kind: FloorBlockKind | "head" | "pad";
@@ -254,14 +285,47 @@ function SlotPeek({ slot, slotIndex, periodStart }: {
   );
 }
 
-function FloorLaneStrip({ series, index, planeW, flip, periodStart, peekSlot, onPeek, onOpen }: {
+function LaneActionLine({ series, restingLabel, lastAgo }: {
+  series: FloorLaneSeries;
+  restingLabel: string;
+  lastAgo: string | null;
+}) {
+  return series.live ? (
+    <>
+      <span className="agent-floor__card-run">▸</span>
+      <span className="agent-floor__card-tool">{series.lastLabel ?? "working"}</span>
+      <span className="agent-floor__card-ago">{lastAgo ?? "now"}</span>
+    </>
+  ) : (
+    <>
+      <span className="agent-floor__card-pause">⏸</span>
+      <span className="agent-floor__card-idle">
+        {restingLabel}{lastAgo ? ` · ${lastAgo}` : ""}
+      </span>
+    </>
+  );
+}
+
+function restingLabelFor(series: FloorLaneSeries): string {
+  // Registry state may claim "working" while nothing observable has landed —
+  // say "quiet", not "idle", but never claim live work we can't show.
+  return /^(working|active|running|in_turn|in_flight)/i.test(series.lane.agent.state ?? "")
+    ? "quiet"
+    : "idle";
+}
+
+function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused, dimmed, peekSlot, onFocus, onPeek, onOpen }: {
   series: FloorLaneSeries;
   index: number;
   planeW: number;
   /** true = past accumulates to the RIGHT (pads on the left edge). */
   flip: boolean;
   periodStart: number;
+  now: number;
+  focused: boolean;
+  dimmed: boolean;
   peekSlot: number | null;
+  onFocus: (laneId: string | null) => void;
   onPeek: (laneId: string, slotIndex: number | null) => void;
   onOpen: (lane: AgentLane) => void;
 }) {
@@ -269,46 +333,47 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, peekSlot, on
   const agent = lane.agent;
   const name = lanePrimaryLabel(agent, lane.source);
   const sprite = agentSpriteProps(agent);
-  const lastAgo = series.lastAt ? timeAgo(series.lastAt) : null;
-  // Registry state may claim "working" while nothing observable has landed —
-  // say "quiet", not "idle", but never claim live work we can't show.
-  const restingLabel = /^(working|active|running|in_turn|in_flight)/i.test(agent.state ?? "")
-    ? "quiet"
-    : "idle";
+  const lastAgo = series.lastAt ? timeAgo(series.lastAt, now) : null;
+  const restingLabel = restingLabelFor(series);
 
   const padX = flip
     ? (FRONT_APRON - PAD_SIZE) / 2
     : planeW - FRONT_APRON + (FRONT_APRON - PAD_SIZE) / 2;
   const padY = (LANE_PITCH - PAD_SIZE) / 2;
-  const stackY = (LANE_PITCH - STACK_SIZE) / 2;
-  const slotX = (slotIndex: number, width: number) => {
-    const inset = (BUCKET_DEPTH - width) / 2;
+  const stackY = (LANE_PITCH - SLAB_SIZE) / 2;
+  const slotX = (slotIndex: number) => {
+    const inset = (BUCKET_DEPTH - SLAB_SIZE) / 2;
     return flip
       ? FRONT_APRON + slotIndex * BUCKET_DEPTH + inset
       : planeW - FRONT_APRON - (slotIndex + 1) * BUCKET_DEPTH + inset;
   };
-  const cardZ = PAD_H + 4 + (live ? STACK_STEP : 0) + CARD_LIFT + (index % 3) * CARD_STAGGER;
+  const flagZ = PAD_H + FLAG_LIFT + (index % 2) * 14;
+  const nameplateZ = PAD_H + (live ? STACK_STEP : 0) + NAMEPLATE_LIFT;
 
   return (
     <button
       type="button"
-      className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}`}
+      className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}${focused ? " is-focus" : ""}${dimmed ? " is-dim" : ""}`}
       style={{ left: 0, top: index * LANE_PITCH, width: planeW, height: LANE_PITCH }}
       onClick={() => onOpen(lane)}
-      onMouseLeave={() => onPeek(lane.id, null)}
+      onMouseEnter={() => onFocus(lane.id)}
+      onMouseLeave={() => {
+        onFocus(null);
+        onPeek(lane.id, null);
+      }}
       aria-label={`${name} — open timeline`}
     >
       <span className="agent-floor__lane-strip" aria-hidden="true" />
 
       {slots.map((slot, slotIndex) => {
         if (slot.total === 0) return null;
-        const peeking = peekSlot === slotIndex;
+        const peeking = focused && peekSlot === slotIndex;
         const stackTopZ = SLAB_H + 2 + slot.blocks.length * STACK_STEP;
         return (
           <span
             key={slotIndex}
             className={`agent-floor__stack${slotIndex === 0 ? " is-now" : " is-minted"}${peeking ? " is-peeking" : ""}`}
-            style={{ left: slotX(slotIndex, SLAB_SIZE), top: stackY - (SLAB_SIZE - STACK_SIZE) / 2 }}
+            style={{ left: slotX(slotIndex), top: stackY }}
             onMouseEnter={() => onPeek(lane.id, slotIndex)}
           >
             <SlotSlab slot={slot} />
@@ -342,40 +407,58 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, peekSlot, on
         {live ? <IsoBlock kind="head" z={PAD_H + 2} size={STACK_SIZE} faceH={BLOCK_H} live /> : null}
       </span>
 
-      <span
-        className="agent-floor__bb agent-floor__card-anchor"
-        style={{
-          left: padX + PAD_SIZE / 2,
-          top: padY + PAD_SIZE / 2,
-          "--z": `${cardZ}px`,
-        } as CSSProperties}
-      >
-        <span className="agent-floor__card">
-          <span className="agent-floor__card-row">
-            <SpriteAvatar name={agent.name} size={24} tile hue={sprite.hue} tone={sprite.tone} />
-            <span className="agent-floor__card-name">{name}</span>
-            <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
-            <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
-          </span>
-          <span className="agent-floor__card-counts">{countsLabel(series.counts)}</span>
-          <span className="agent-floor__card-last">
-            {live ? (
-              <>
-                <span className="agent-floor__card-run">▸</span>
-                <span className="agent-floor__card-tool">{series.lastLabel ?? "working"}</span>
-                <span className="agent-floor__card-ago">{lastAgo ?? "now"}</span>
-              </>
+      {focused ? (
+        <span
+          className="agent-floor__bb agent-floor__card-anchor"
+          style={{
+            left: padX + PAD_SIZE / 2,
+            top: padY + PAD_SIZE / 2,
+            "--z": `${nameplateZ}px`,
+          } as CSSProperties}
+        >
+          <span className="agent-floor__card">
+            <span className="agent-floor__card-row">
+              <SpriteAvatar name={agent.name} size={24} tile hue={sprite.hue} tone={sprite.tone} />
+              <span className="agent-floor__card-name">{name}</span>
+              <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
+              <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
+            </span>
+            <span className="agent-floor__card-counts">{countsLabel(series.counts)}</span>
+            {series.readout.length > 0 ? (
+              <span className="agent-floor__card-readout">
+                {series.readout.map((entry, entryIndex) => (
+                  <span key={entryIndex} className={`agent-floor__readout-row is-${entry.kind}`}>
+                    <span className="agent-floor__readout-glyph">{READOUT_GLYPH[entry.kind]}</span>
+                    <span className="agent-floor__readout-label">{entry.label}</span>
+                    <span className="agent-floor__readout-ago">
+                      {entry.at ? timeAgo(entry.at, now) : "now"}
+                    </span>
+                  </span>
+                ))}
+              </span>
             ) : (
-              <>
-                <span className="agent-floor__card-pause">⏸</span>
-                <span className="agent-floor__card-idle">
-                  {restingLabel}{lastAgo ? ` · ${lastAgo}` : ""}
-                </span>
-              </>
+              <span className="agent-floor__card-last">
+                <LaneActionLine series={series} restingLabel={restingLabel} lastAgo={lastAgo} />
+              </span>
             )}
           </span>
         </span>
-      </span>
+      ) : (
+        <span
+          className="agent-floor__bb agent-floor__flag-anchor"
+          style={{
+            left: padX + PAD_SIZE / 2,
+            top: padY + PAD_SIZE / 2,
+            "--z": `${flagZ}px`,
+          } as CSSProperties}
+        >
+          <span className="agent-floor__flag">
+            <SpriteAvatar name={agent.name} size={14} tile hue={sprite.hue} tone={sprite.tone} />
+            <span className="agent-floor__flag-name">{name}</span>
+            <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
+          </span>
+        </span>
+      )}
     </button>
   );
 }
@@ -386,6 +469,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   onOpenTrace: (lane: AgentLane) => void;
 }) {
   const [orientation, setOrientation] = useState<FloorOrientation>(readStoredOrientation);
+  const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
   const [peek, setPeek] = useState<{ laneId: string; slot: number } | null>(null);
   const flip = orientation === "past-right";
   const flipOrientation = useCallback(() => {
@@ -399,6 +483,10 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
       return next;
     });
   }, []);
+  const handleFocus = useCallback((laneId: string | null) => {
+    setFocusLaneId(laneId);
+    if (laneId === null) setPeek(null);
+  }, []);
   const handlePeek = useCallback((laneId: string, slot: number | null) => {
     setPeek(slot === null ? null : { laneId, slot });
   }, []);
@@ -407,23 +495,25 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   // everything shifts one slot only when a new period mints.
   const periodStart = Math.floor(now / BUCKET_MS) * BUCKET_MS;
 
-  const { series, overflow, planeW, planeD, lanesStartY } = useMemo(() => {
+  const { series, hidden, planeW, planeD, lanesStartY } = useMemo(() => {
     const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+    const built = sorted.map((lane) => buildFloorLane(lane, periodStart));
     // Most recent lane renders nearest the viewer (largest isometric Y).
-    const shown = sorted.slice(0, MAX_FLOOR_LANES).reverse()
-      .map((lane) => buildFloorLane(lane, periodStart));
+    const shown = built.slice(0, MAX_FLOOR_LANES).reverse();
     const stripsH = shown.length * LANE_PITCH;
     const depth = Math.max(MIN_PLANE_D, stripsH + EDGE_MARGIN * 2);
     return {
       series: shown,
-      overflow: Math.max(0, lanes.length - shown.length),
+      hidden: built.slice(MAX_FLOOR_LANES),
       planeW: BACK_MARGIN + TOTAL_SLOTS * BUCKET_DEPTH + FRONT_APRON,
       planeD: depth,
       lanesStartY: (depth - stripsH) / 2,
     };
   }, [lanes, periodStart]);
 
-  const liveCount = series.filter((entry) => entry.live).length;
+  // Ledger lists most-recent first — the floor's shown lanes are reversed.
+  const ledger = useMemo(() => [...series].reverse().concat(hidden), [series, hidden]);
+  const liveCount = ledger.filter((entry) => entry.live).length;
   const seamX = (slotIndex: number) => (flip
     ? FRONT_APRON + slotIndex * BUCKET_DEPTH
     : planeW - FRONT_APRON - slotIndex * BUCKET_DEPTH);
@@ -431,70 +521,134 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
 
   return (
     <div className="agent-floor" data-live-count={liveCount} data-floor-orient={orientation}>
-      <div className="agent-floor__viewport">
-        <div className="agent-floor__stage">
-          <div
-            className="agent-floor__field"
-            style={{
-              width: planeW,
-              height: planeD,
-              left: -planeW / 2,
-              top: -planeD / 2,
-            }}
-          >
-            <div className="agent-floor__plane" />
-
-            {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
-              <div
-                key={slotIndex}
-                className={`agent-floor__seam${slotIndex === 0 ? " is-front" : ""}`}
-                style={{ left: seamX(slotIndex) }}
-              />
-            ))}
-            {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
-              <div
-                key={slotIndex}
-                className={`agent-floor__bb agent-floor__tick${slotIndex === 0 ? " is-now" : ""}`}
-                style={{ left: seamX(slotIndex), top: ticksY }}
-              >
-                {slotIndex === 0 ? (
-                  <>
-                    <span className="agent-floor__tick-pulse" />
-                    <span>now</span>
-                  </>
-                ) : (
-                  fmtSlotClock(periodStart - (slotIndex - 1) * BUCKET_MS)
-                )}
-              </div>
-            ))}
-
-            <div className="agent-floor__lanes" style={{ left: 0, top: lanesStartY }}>
-              {series.map((entry, index) => (
-                <FloorLaneStrip
+      <div className="agent-floor__body">
+        <aside className="agent-floor__ledger" aria-label="Fleet ledger">
+          <header className="agent-floor__ledger-head">
+            <span className="agent-floor__ledger-title">fleet</span>
+            <span className="agent-floor__ledger-meta">
+              {ledger.length} lane{ledger.length === 1 ? "" : "s"} · {liveCount} live
+            </span>
+            <span className="agent-floor__ledger-trace">trace 30m</span>
+          </header>
+          <div className="agent-floor__ledger-rows">
+            {ledger.map((entry) => {
+              const agent = entry.lane.agent;
+              const sprite = agentSpriteProps(agent);
+              const lastAgo = entry.lastAt ? timeAgo(entry.lastAt, now) : null;
+              return (
+                <button
                   key={entry.lane.id}
-                  series={entry}
-                  index={index}
-                  planeW={planeW}
-                  flip={flip}
-                  periodStart={periodStart}
-                  peekSlot={peek?.laneId === entry.lane.id ? peek.slot : null}
-                  onPeek={handlePeek}
-                  onOpen={onOpenTrace}
+                  type="button"
+                  className={`agent-floor__ledger-row${focusLaneId === entry.lane.id ? " is-focus" : ""}`}
+                  onClick={() => onOpenTrace(entry.lane)}
+                  onMouseEnter={() => handleFocus(entry.lane.id)}
+                  onMouseLeave={() => handleFocus(null)}
+                >
+                  <span className="agent-floor__ledger-id">
+                    <SpriteAvatar name={agent.name} size={18} tile hue={sprite.hue} tone={sprite.tone} />
+                    <span className="agent-floor__ledger-name">
+                      {lanePrimaryLabel(agent, entry.lane.source)}
+                    </span>
+                    <HarnessMark harness={agent.harness} size={11} className="agent-floor__card-mark" />
+                    <span className={`agent-floor__card-dot${entry.live ? " is-live" : ""}`} />
+                  </span>
+                  <span className="agent-floor__ledger-action">
+                    <LaneActionLine
+                      series={entry}
+                      restingLabel={restingLabelFor(entry)}
+                      lastAgo={lastAgo}
+                    />
+                  </span>
+                  <span className="agent-floor__ledger-tally">
+                    <span className="agent-floor__ledger-strip">
+                      {entry.strip.map((kind, blockIndex) => (
+                        <span key={blockIndex} className={`agent-floor__ledger-cell is-${kind}`} />
+                      ))}
+                    </span>
+                    <span className="agent-floor__ledger-counts">{countsLabel(entry.counts)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <footer className="agent-floor__ledger-foot">
+            rows and flags are linked — hover either to unroll
+          </footer>
+        </aside>
+
+        <div className="agent-floor__viewport">
+          <div className="agent-floor__stage">
+            <div
+              className="agent-floor__field"
+              style={{
+                width: planeW,
+                height: planeD,
+                left: -planeW / 2,
+                top: -planeD / 2,
+              }}
+            >
+              <div className="agent-floor__plane" />
+
+              {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
+                <div
+                  key={slotIndex}
+                  className={`agent-floor__seam${slotIndex === 0 ? " is-front" : ""}`}
+                  style={{ left: seamX(slotIndex) }}
                 />
               ))}
-            </div>
+              {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
+                <div
+                  key={slotIndex}
+                  className={`agent-floor__bb agent-floor__tick${slotIndex === 0 ? " is-now" : ""}`}
+                  style={{ left: seamX(slotIndex), top: ticksY }}
+                >
+                  {slotIndex === 0 ? (
+                    <>
+                      <span className="agent-floor__tick-pulse" />
+                      <span>now</span>
+                    </>
+                  ) : (
+                    fmtSlotClock(periodStart - (slotIndex - 1) * BUCKET_MS)
+                  )}
+                </div>
+              ))}
 
-            {overflow > 0 ? (
               <div
-                className="agent-floor__bb agent-floor__chip"
-                style={{
-                  left: flip ? FRONT_APRON / 2 : planeW - FRONT_APRON / 2,
-                  top: ticksY + 30,
-                }}
+                className="agent-floor__lanes"
+                style={{ left: 0, top: lanesStartY }}
+                data-focus={focusLaneId !== null || undefined}
               >
-                +{overflow} more agent{overflow === 1 ? "" : "s"}
+                {series.map((entry, index) => (
+                  <FloorLaneStrip
+                    key={entry.lane.id}
+                    series={entry}
+                    index={index}
+                    planeW={planeW}
+                    flip={flip}
+                    periodStart={periodStart}
+                    now={now}
+                    focused={focusLaneId === entry.lane.id}
+                    dimmed={focusLaneId !== null && focusLaneId !== entry.lane.id}
+                    peekSlot={peek?.laneId === entry.lane.id ? peek.slot : null}
+                    onFocus={handleFocus}
+                    onPeek={handlePeek}
+                    onOpen={onOpenTrace}
+                  />
+                ))}
               </div>
-            ) : null}
+
+              {hidden.length > 0 ? (
+                <div
+                  className="agent-floor__bb agent-floor__chip"
+                  style={{
+                    left: flip ? FRONT_APRON / 2 : planeW - FRONT_APRON / 2,
+                    top: ticksY + 30,
+                  }}
+                >
+                  +{hidden.length} more in the ledger
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -521,7 +675,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           past {flip ? "→" : "←"}
         </button>
         <span className="agent-floor__legend-note">
-          Towers mint every 5 min and hold still · the leading slot is live · hover a tower for its summary · click a lane for the timeline
+          Towers mint every 5 min · hover a flag or row to unroll · hover a tower for its window · click for the timeline
         </span>
       </footer>
     </div>

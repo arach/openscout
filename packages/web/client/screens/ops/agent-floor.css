@@ -52,6 +52,158 @@
   --floor-shadow-strong: rgba(0, 0, 0, 0.62);
 }
 
+.agent-floor__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Ledger — the stable index beside the plane ── */
+
+.agent-floor__ledger {
+  display: flex;
+  flex-direction: column;
+  width: 252px;
+  flex: none;
+  min-height: 0;
+  border-right: 1px solid var(--floor-line-soft);
+  background: color-mix(in oklab, var(--floor-ink) 2%, transparent);
+}
+
+.agent-floor__ledger-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--floor-line-soft);
+  font-family: var(--floor-mono);
+  font-size: 10.5px;
+}
+
+.agent-floor__ledger-title {
+  font-weight: 700;
+  color: var(--floor-ink);
+}
+
+.agent-floor__ledger-meta {
+  color: var(--floor-muted);
+}
+
+.agent-floor__ledger-trace {
+  margin-left: auto;
+  color: color-mix(in oklab, var(--floor-muted) 72%, transparent);
+}
+
+.agent-floor__ledger-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.agent-floor__ledger-rows::-webkit-scrollbar {
+  width: 6px;
+}
+
+.agent-floor__ledger-rows::-webkit-scrollbar-thumb {
+  background: var(--floor-line-2);
+  border-radius: 4px;
+}
+
+.agent-floor__ledger-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  background: none;
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: background 0.14s ease;
+}
+
+.agent-floor__ledger-row:hover,
+.agent-floor__ledger-row.is-focus {
+  background: color-mix(in oklab, var(--floor-ink) 5%, transparent);
+}
+
+.agent-floor__ledger-id {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agent-floor__ledger-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--floor-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__ledger-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 25px;
+  min-width: 0;
+}
+
+.agent-floor__ledger-tally {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 25px;
+  min-width: 0;
+}
+
+.agent-floor__ledger-strip {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+}
+
+.agent-floor__ledger-cell {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--floor-face-3);
+  box-shadow: inset 0 0 0 1px var(--floor-line-2);
+}
+
+.agent-floor__ledger-cell.is-edit {
+  background: color-mix(in oklab, var(--floor-accent) 16%, var(--floor-face-3));
+  box-shadow: inset 0 0 0 1px var(--floor-accent-line);
+}
+
+.agent-floor__ledger-cell.is-msg {
+  box-shadow: inset 0 0 0 1px var(--floor-ok-line);
+}
+
+.agent-floor__ledger-counts {
+  font-family: var(--floor-mono);
+  font-size: 9.5px;
+  color: var(--floor-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__ledger-foot {
+  padding: 9px 14px;
+  border-top: 1px solid var(--floor-line-soft);
+  font-family: var(--floor-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--floor-muted) 75%, transparent);
+}
+
 .agent-floor__viewport {
   position: relative;
   flex: 1 1 auto;
@@ -199,12 +351,11 @@
   transition: opacity 0.32s ease, transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-/* Focus the lane you're reading — the others drop toward the plane and dim. */
-@media (hover: hover) {
-  .agent-floor__lanes:has(.agent-floor__lane:hover) .agent-floor__lane:not(:hover) {
-    opacity: 0.35;
-    transform: scaleZ(0.18);
-  }
+/* Focus the lane you're reading (hover its strip, flag, or ledger row) —
+   the others drop toward the plane and dim. */
+.agent-floor__lane.is-dim {
+  opacity: 0.35;
+  transform: scaleZ(0.18);
 }
 
 .agent-floor__lane:focus-visible {
@@ -428,10 +579,93 @@
   background: linear-gradient(135deg, var(--floor-face-3), var(--floor-face-1));
 }
 
+/* ── Identity: flag (always) → unrolled nameplate (on focus) ── */
+
+.agent-floor__flag-anchor {
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+}
+
+.agent-floor__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  background: linear-gradient(180deg, var(--floor-face-2), var(--floor-face-1));
+  border: 1px solid var(--floor-line-2);
+  border-radius: 8px;
+  box-shadow: 0 12px 26px -14px var(--floor-shadow-strong);
+}
+
+.agent-floor__flag-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--floor-ink);
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__flag .agent-floor__card-dot {
+  margin-left: 2px;
+}
+
+.agent-floor__card-readout {
+  display: block;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--floor-line-soft);
+}
+
+.agent-floor__readout-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 1.5px 0;
+}
+
+.agent-floor__readout-glyph {
+  flex: none;
+  width: 10px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--floor-muted);
+}
+
+.agent-floor__readout-row.is-edit .agent-floor__readout-glyph {
+  color: var(--floor-accent);
+}
+
+.agent-floor__readout-row.is-msg .agent-floor__readout-glyph {
+  color: var(--floor-ok);
+  font-size: 8px;
+}
+
+.agent-floor__readout-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--floor-mono);
+  font-size: 10px;
+  color: color-mix(in oklab, var(--floor-ink) 80%, var(--floor-muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__readout-ago {
+  flex: none;
+  font-family: var(--floor-mono);
+  font-size: 9px;
+  color: color-mix(in oklab, var(--floor-muted) 78%, transparent);
+}
+
 /* ── Identity card ── */
 
 .agent-floor__card-anchor {
-  /* left/top set inline at the lane's pad center */
+  pointer-events: none;
 }
 
 .agent-floor__card {
