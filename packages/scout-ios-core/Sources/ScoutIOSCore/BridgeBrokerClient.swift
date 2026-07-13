@@ -17,7 +17,7 @@
 import Foundation
 import ScoutCapabilities
 
-public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProviding, @unchecked Sendable {
+public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProviding, TerminalStatusProviding, @unchecked Sendable {
 
     private let connection: BridgeConnection
 
@@ -46,13 +46,19 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         self.connection = connection
     }
 
+    @MainActor
     public convenience init(
         connectionLog: ConnectionLogHandle,
         userDefaults: UserDefaults = .standard,
         preferredPublicKeyHex: String? = nil
     ) {
         let target = preferredPublicKeyHex.map { BridgeConnectionTarget(publicKeyHex: $0) }
-        self.init(connection: BridgeConnection(target: target, connectionLog: connectionLog, userDefaults: userDefaults))
+        self.init(connection: BridgeConnection(
+            target: target,
+            connectionLog: connectionLog,
+            requestLog: BrokerRequestLogHandle(.shared),
+            userDefaults: userDefaults
+        ))
     }
 
     /// Select the legacy single-link active bridge. This is UI preference only;
@@ -362,6 +368,23 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         )
     }
 
+    public func terminalHostStatus() async throws -> TerminalHostStatus {
+        let wire: MobileTerminalStatusResult = try await connection.rpc(
+            "mobile/terminal/status", params: nil
+        )
+        return TerminalHostStatus(
+            shellExecutable: wire.shellExecutable,
+            wrapperKind: wire.wrapperKind,
+            wrapperInstalled: wire.wrapperInstalled,
+            sessionName: wire.sessionName,
+            sessionExists: wire.sessionExists,
+            attachedClients: wire.attachedClients,
+            paneColumns: wire.paneColumns,
+            paneRows: wire.paneRows,
+            paneCommand: wire.paneCommand
+        )
+    }
+
     public func mobileMeshStatus() async throws -> MobileMeshStatusResponse {
         try await connection.rpc("mobile/mesh/status", params: nil)
     }
@@ -492,6 +515,18 @@ struct MobileTerminalProvisionResult: Codable, Sendable {
     let port: Int
     let username: String
     let hostKeyFingerprint: String?
+}
+
+struct MobileTerminalStatusResult: Codable, Sendable {
+    let shellExecutable: String
+    let wrapperKind: String
+    let wrapperInstalled: Bool
+    let sessionName: String
+    let sessionExists: Bool
+    let attachedClients: Int
+    let paneColumns: Int?
+    let paneRows: Int?
+    let paneCommand: String?
 }
 
 public struct MobileMeshStatusResponse: Codable, Sendable {

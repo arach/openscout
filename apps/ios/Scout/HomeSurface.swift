@@ -275,10 +275,33 @@ struct HomeSurface: View {
         return row.agent.title
     }
 
+    /// Agent `lastActiveAt` is the last broker message authored by that agent,
+    /// which can lag far behind current tool/system activity. Tail is the fresh
+    /// operational source, so fold its real project timestamps into Home's
+    /// project recency without changing which projects/agents Home lists.
+    private var projectActivityDates: [String: Date] {
+        var dates: [String: Date] = [:]
+        for row in activity {
+            guard let project = row.event.project?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !project.isEmpty,
+                  let date = ScoutTimestamp.date(fromEpoch: TimeInterval(row.event.tsMs)) else { continue }
+            let key = project.lowercased()
+            if date > (dates[key] ?? .distantPast) { dates[key] = date }
+        }
+        return dates
+    }
+
     private var projectGroups: [ProjectGroup] {
         let grouped = Dictionary(grouping: filteredAgents, by: projectKey)
         return grouped
-            .map { ProjectGroup(id: $0.key, name: $0.key, agents: sortAgents($0.value)) }
+            .map {
+                ProjectGroup(
+                    id: $0.key,
+                    name: $0.key,
+                    agents: sortAgents($0.value),
+                    activityLastActiveAt: projectActivityDates[$0.key.lowercased()]
+                )
+            }
             .sorted { a, b in
                 if a.liveCount != b.liveCount { return a.liveCount > b.liveCount }
                 let la = a.lastActiveAt ?? .distantPast, lb = b.lastActiveAt ?? .distantPast
@@ -320,7 +343,7 @@ struct HomeSurface: View {
     private var projectsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
             fleetHeader(title: "Projects", accent: false, onAll: onSeeAllAgents)
-            listCard {
+            listCard(accent: projectGroups.contains(where: { $0.liveCount > 0 }) ? HudPalette.accent : nil) {
                 ScrollView(.vertical, showsIndicators: projectGroups.count > Self.projectViewportRows) {
                     VStack(spacing: 0) {
                         ForEach(Array(projectGroups.enumerated()), id: \.element.id) { index, group in
@@ -362,32 +385,34 @@ struct HomeSurface: View {
     // MARK: - Shared chrome
 
     private func fleetHeader(title: String, detail: String? = nil, accent: Bool, onAll: (() -> Void)? = nil) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
-            if accent {
-                HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
-            }
-            HudSectionLabel(detail.map { "\(title) · \($0)" } ?? title)
-            Spacer(minLength: 0)
-            if let onAll {
-                // The "see everything" affordance is a compact trailing action,
-                // not a row of its own — Projects → Agents tab, Activity → tail.
-                // It IS a HudSectionLabel, so it matches "PROJECTS"/"ACTIVITY"
-                // exactly in size + caps; only the accent tint marks it tappable
-                // (no arrow — the color carries the "goes somewhere" signal).
-                Button(action: onAll) {
-                    HudSectionLabel("All", tint: HudPalette.accent)
-                        .contentShape(Rectangle())
+        VStack(spacing: HudSpacing.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
+                if accent {
+                    HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("See all \(title.lowercased())")
+                HudSectionLabel(detail.map { "\(title) · \($0)" } ?? title)
+                Spacer(minLength: 0)
+                if let onAll {
+                    // The "see everything" affordance is a compact trailing action,
+                    // not a row of its own — Projects → Agents tab, Activity → tail.
+                    Button(action: onAll) {
+                        HudSectionLabel("All", tint: HudPalette.accent)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("See all \(title.lowercased())")
+                }
             }
+            Rectangle()
+                .fill(accent ? HudPalette.accent.opacity(0.42) : HudHairline.subtle)
+                .frame(height: 1)
         }
     }
 
     @ViewBuilder
-    private func listCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    private func listCard<Content: View>(accent: Color? = nil, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) { content() }
-            .scoutCard()
+            .signalPanel(accent: accent)
     }
 
     private func rowSeparator(inset: Bool = false) -> some View {
@@ -509,7 +534,10 @@ struct HomeSurface: View {
                     )
                 })
             }
-            if let rows = try? await client.recentActivity(limit: 24) {
+            // Latest Activity must agree with Tail. The previous curated Home
+            // feed can be empty/stale while `mobile/tail` is current, which made
+            // a live system look 23 hours old on Home.
+            if let rows = try? await client.recentTail(limit: 48) {
                 sawActivityRead = true
                 freshActivity.append(contentsOf: rows.map { event in
                     HomeActivity(
@@ -541,50 +569,7 @@ struct HomeSurface: View {
         }
         await model.refreshFleetStats()
         isLoading = false
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" { seedDemoActivity() }
-        #endif
     }
-
-    #if DEBUG
-    /// Debug-only: inject a couple of live agents + recent activity so the
-    /// "Currently working" and "Activity" sections can be seen and tuned without
-    /// a real agent running. Gated behind the SCOUT_DEMO env var — never ships.
-    private func seedDemoActivity() {
-        let now = Date()
-        let demoClient = model.client
-        agents.insert(contentsOf: [
-            HomeAgent(
-                id: "demo::demo.1",
-                machineId: "demo",
-                machineName: "Demo",
-                client: demoClient,
-                agent: AgentSummary(id: "demo.1", title: "broker-smith", harness: "claude", projectName: "openscout",
-                                    branch: "feat/in-app-session", git: GitState(ahead: 1, behind: 0, dirty: 3),
-                                    model: "claude-opus-4-8", statusLabel: "editing HomeSurface.swift",
-                                    state: .live, sessionId: "demo.s1", lastActiveAt: now)
-            ),
-            HomeAgent(
-                id: "demo::demo.2",
-                machineId: "demo",
-                machineName: "Demo",
-                client: demoClient,
-                agent: AgentSummary(id: "demo.2", title: "tail-tuner", harness: "codex", projectName: "hudson",
-                                    branch: "feat/tail-tokens", git: GitState(ahead: 2, behind: 0, dirty: 0),
-                                    model: "gpt-5.5", statusLabel: "streaming tail tokens",
-                                    state: .live, sessionId: "demo.s2", lastActiveAt: now.addingTimeInterval(-95))
-            ),
-        ], at: 0)
-        func ms(_ offset: TimeInterval) -> Int64 { Int64((now.addingTimeInterval(offset).timeIntervalSince1970) * 1000) }
-        activity = [
-            HomeActivity(id: "demo::ev1", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev1", tsMs: ms(-20), source: "claude", harness: .scoutManaged, kind: .tool, summary: "Ran swift build — 0 errors, 0 warnings")),
-            HomeActivity(id: "demo::ev2", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev2", tsMs: ms(-95), source: "codex", harness: .hudsonManaged, kind: .assistant, summary: "Wired HudCodeHighlighter into the message renderer")),
-            HomeActivity(id: "demo::ev3", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev3", tsMs: ms(-300), source: "claude", harness: .scoutManaged, kind: .toolResult, summary: "Edited ConversationSurface.swift (+14 −6)")),
-            HomeActivity(id: "demo::ev4", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev4", tsMs: ms(-840), source: "codex", harness: .hudsonManaged, kind: .tool, summary: "git commit — projects-first Home + machine rail")),
-            HomeActivity(id: "demo::ev5", machineId: "demo", machineName: "Demo", client: demoClient, event: TailEvent(id: "ev5", tsMs: ms(-1500), source: "claude", harness: .unattributed, kind: .user, summary: "ship the v0-2 ttf to hero/output")),
-        ]
-    }
-    #endif
 }
 
 // MARK: - Home row provenance
@@ -611,9 +596,12 @@ private struct ProjectGroup: Identifiable {
     let id: String
     let name: String
     let agents: [HomeAgent]
+    let activityLastActiveAt: Date?
 
     var liveCount: Int { agents.filter { $0.agent.state == .live }.count }
-    var lastActiveAt: Date? { agents.compactMap { $0.agent.lastActiveAt }.max() }
+    var lastActiveAt: Date? {
+        (agents.compactMap { $0.agent.lastActiveAt } + [activityLastActiveAt].compactMap { $0 }).max()
+    }
 }
 
 // MARK: - WorkingCard
@@ -652,20 +640,9 @@ private struct WorkingCard: View {
             }
             .frame(width: 188, alignment: .leading)
             .padding(HudSpacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .fill(ScoutSurface.inset)
-                    // A soft accent glow so the live card reads as lit.
-                    .shadow(color: HudPalette.accent.opacity(0.16), radius: 10)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.standard)
-            )
-            // Cockpit corner framing on the top edge.
-            .overlay(alignment: .topLeading) { CornerMark(corner: .topLeading).padding(7) }
-            .overlay(alignment: .topTrailing) { CornerMark(corner: .topTrailing).padding(7) }
-            .contentShape(RoundedRectangle(cornerRadius: HudRadius.card))
+            .signalPanel(accent: HudPalette.accent, cut: 7)
+            .shadow(color: HudPalette.accent.opacity(0.14), radius: 10)
+            .contentShape(SignalPanelShape(cut: 7))
         }
         .buttonStyle(.plain)
     }
@@ -682,22 +659,6 @@ private struct WorkingCard: View {
         if let git = agent.git, git.dirty > 0 { parts.append("+\(git.dirty)") }
         if let branch = agent.branch { parts.append("\u{2387} \(branch)") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-}
-
-/// A small accent L-bracket for cockpit-style corner framing on a card. The two
-/// strokes anchor to the given corner so they meet cleanly at the edge.
-private struct CornerMark: View {
-    let corner: Alignment
-    var body: some View {
-        let len: CGFloat = 9
-        let weight: CGFloat = 1.5
-        ZStack(alignment: corner) {
-            Rectangle().fill(HudPalette.accent).frame(width: len, height: weight)
-            Rectangle().fill(HudPalette.accent).frame(width: weight, height: len)
-        }
-        .frame(width: len, height: len, alignment: corner)
-        .opacity(0.55)
     }
 }
 
@@ -1035,6 +996,15 @@ private struct ProjectRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .leading) {
+            if group.liveCount > 0 {
+                Rectangle()
+                    .fill(HudPalette.accent)
+                    .frame(width: 2)
+                    .padding(.vertical, HudSpacing.sm)
+                    .shadow(color: HudPalette.accent.opacity(0.38), radius: 4)
+            }
+        }
     }
 
     private var projectName: some View {

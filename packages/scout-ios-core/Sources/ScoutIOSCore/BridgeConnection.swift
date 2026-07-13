@@ -342,6 +342,7 @@ public final class BridgeConnection: @unchecked Sendable {
     // MARK: Dependencies
 
     private let connectionLogHandle: ConnectionLogHandle
+    private let requestLogHandle: BrokerRequestLogHandle?
     private let userDefaults: UserDefaults
     private let urlSession: URLSession
     private let target: BridgeConnectionTarget?
@@ -441,11 +442,13 @@ public final class BridgeConnection: @unchecked Sendable {
     public init(
         target: BridgeConnectionTarget? = nil,
         connectionLog: ConnectionLogHandle,
+        requestLog: BrokerRequestLogHandle? = nil,
         userDefaults: UserDefaults = .standard,
         urlSession: URLSession? = nil
     ) {
         self.target = target
         self.connectionLogHandle = connectionLog
+        self.requestLogHandle = requestLog
         self.userDefaults = userDefaults
         if let urlSession {
             self.urlSession = urlSession
@@ -1378,11 +1381,53 @@ public final class BridgeConnection: @unchecked Sendable {
 
     /// Send a tRPC request by donor method name and decode the unwrapped result.
     public func rpc<Res: Decodable>(_ method: String, params: (any Encodable & Sendable)?) async throws -> Res {
-        let data = try await sendRPC(method: method, params: params)
+        let startedAt = Date()
+        let knownRoute = trpcRouteMap[method]
+        // Only fixed operations from the route map may enter diagnostics. A
+        // future dynamic caller cannot accidentally smuggle payload text into
+        // the metadata-only log through the `method` argument.
+        let loggedOperation = knownRoute == nil ? "unknown" : method
+        let kind = knownRoute?.method.rawValue ?? "rpc"
+        let route = currentRoute
+        let data: Data
         do {
-            return try JSONDecoder().decode(Res.self, from: data)
+            data = try await sendRPC(method: method, params: params)
         } catch {
-            throw BridgeConnectionError.decodingFailed("Expected \(Res.self): \(error.localizedDescription)")
+            await requestLogHandle?.record(
+                startedAt: startedAt,
+                completedAt: Date(),
+                operation: loggedOperation,
+                kind: kind,
+                outcome: .failure,
+                route: route,
+                failureCategory: brokerRequestFailureCategory(error)
+            )
+            throw error
+        }
+
+        do {
+            let result = try JSONDecoder().decode(Res.self, from: data)
+            await requestLogHandle?.record(
+                startedAt: startedAt,
+                completedAt: Date(),
+                operation: loggedOperation,
+                kind: kind,
+                outcome: .success,
+                route: route
+            )
+            return result
+        } catch {
+            let decodingError = BridgeConnectionError.decodingFailed("Expected \(Res.self): \(error.localizedDescription)")
+            await requestLogHandle?.record(
+                startedAt: startedAt,
+                completedAt: Date(),
+                operation: loggedOperation,
+                kind: kind,
+                outcome: .failure,
+                route: route,
+                failureCategory: brokerRequestFailureCategory(decodingError)
+            )
+            throw decodingError
         }
     }
 

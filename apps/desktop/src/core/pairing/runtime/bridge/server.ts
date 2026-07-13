@@ -41,7 +41,10 @@ import {
   sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
-import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
+import {
+  provisionMobileTerminalAccess,
+  readMobileTerminalStatus,
+} from "./mobile-terminal-provision.ts";
 import {
   pairingFileServerOrigin,
   storePairingAttachmentBlob,
@@ -838,6 +841,19 @@ async function handleRPCInner(
           id: req.id,
           result: await provisionMobileTerminalAccess(p.sshPublicKey, rpcContext.deviceId),
         };
+      }
+
+      case "mobile/terminal/status": {
+        if (!rpcContext.secureTransport || !rpcContext.trustedPeer || !rpcContext.deviceId) {
+          return {
+            id: req.id,
+            error: {
+              code: -32001,
+              message: "Terminal status requires a trusted paired device over the encrypted bridge.",
+            },
+          };
+        }
+        return { id: req.id, result: await readMobileTerminalStatus() };
       }
 
       // -- Session History Discovery ------------------------------------------

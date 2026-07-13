@@ -292,6 +292,7 @@ export function ChatInput({
   onMicClick,
   prominent = false,
   autoFocus,
+  focusSignal,
 }: {
   agents: Agent[];
   draft: string;
@@ -305,10 +306,10 @@ export function ChatInput({
   onMicClick: () => void;
   prominent?: boolean;
   autoFocus?: boolean;
+  focusSignal?: number;
 }) {
   const textareaRef = useRef<AgentMentionTextareaHandle>(null);
-  useEffect(() => {
-    if (!autoFocus) return;
+  const focusTextarea = useCallback(() => {
     const handle = textareaRef.current;
     if (!handle) return;
     if (handle.textarea) {
@@ -316,7 +317,15 @@ export function ChatInput({
     } else {
       handle.focus();
     }
-  }, [autoFocus]);
+  }, []);
+  useEffect(() => {
+    if (!autoFocus) return;
+    focusTextarea();
+  }, [autoFocus, focusTextarea]);
+  useEffect(() => {
+    if (!focusSignal) return;
+    focusTextarea();
+  }, [focusSignal, focusTextarea]);
 
   let micTitle = "Start talking";
   if (voiceUnavailable) micTitle = "Set up Scout voice";
@@ -331,33 +340,12 @@ export function ChatInput({
   ].join(" ");
   return (
     <form
-      className="grid grid-cols-[auto_1fr_auto] gap-2"
+      className="flex flex-col gap-1.5"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
       }}
     >
-      <button
-        type="button"
-        title={micTitle}
-        aria-label={micTitle}
-        onClick={onMicClick}
-        disabled={sending || voiceBusy}
-        className={`flex items-center justify-center self-stretch rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-          recording
-            ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-            : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-        } ${showVoiceLabel ? "min-w-[7.5rem] gap-1.5 px-2.5 font-mono text-[10px] uppercase tracking-[0.12em]" : "w-9"}`}
-      >
-        {voiceBusy ? (
-          <Loader2 size={13} className="animate-spin" />
-        ) : recording ? (
-          <Square size={12} className="fill-current" />
-        ) : (
-          <Mic size={13} />
-        )}
-        {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
-      </button>
       <AgentMentionTextarea
         ref={textareaRef}
         agents={agents}
@@ -373,15 +361,38 @@ export function ChatInput({
         className="min-w-0"
         textareaClassName={textareaClassName}
       />
-      <button
-        type="submit"
-        title="Send"
-        aria-label="Send"
-        disabled={!draft.trim() || sending}
-        className="flex w-9 items-center justify-center self-stretch rounded bg-lime-300/90 px-0 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {sending ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
-      </button>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          title={micTitle}
+          aria-label={micTitle}
+          onClick={onMicClick}
+          disabled={sending || voiceBusy}
+          className={`flex h-8 items-center justify-center rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            recording
+              ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
+              : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+          } ${showVoiceLabel ? "gap-1.5 px-3 font-mono text-[10px] uppercase tracking-[0.12em]" : "w-9"}`}
+        >
+          {voiceBusy ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : recording ? (
+            <Square size={12} className="fill-current" />
+          ) : (
+            <Mic size={13} />
+          )}
+          {showVoiceLabel && <span className="truncate">{voiceLabel}</span>}
+        </button>
+        <button
+          type="submit"
+          title="Send"
+          aria-label="Send"
+          disabled={!draft.trim() || sending}
+          className="flex h-8 w-9 items-center justify-center rounded bg-lime-300/90 text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {sending ? <Loader2 size={13} className="animate-spin" /> : <SendHorizontal size={13} />}
+        </button>
+      </div>
     </form>
   );
 }

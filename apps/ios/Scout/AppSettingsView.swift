@@ -13,19 +13,47 @@ import UIKit
 /// APPEARANCE / ADVANCED). Connection actions are live; other values
 /// are scaffolded. Presented as a full page (fullScreenCover), so it carries
 /// its own close via `onClose`.
+enum AppSettingsContext: String, Equatable {
+    case home = "HOME"
+    case agents = "AGENTS"
+    case tail = "TAIL"
+    case comms = "COMMS"
+    case terminal = "TERMINAL"
+    case new = "NEW"
+
+    var tabID: String { rawValue }
+}
+
 struct AppSettingsView: View {
     @Bindable var model: AppModel
+    let context: AppSettingsContext
+    @Bindable var terminalDiagnostics: TerminalDiagnosticsModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var tab = "CONNECTION"
+    @State private var tab: String
     @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
     @State private var approvalsAlert = true
     @State private var renamingMachine: AppModel.PairedMachine?
     @State private var renameText = ""
     @State private var copiedLogs = false
     @State private var showingLogViewer = false
+    @State private var showingRequestLogViewer = false
+    @State private var copiedTerminalDiagnostics = false
 
-    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED"]
+    private var tabIDs: [String] {
+        [context.tabID, "CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED"]
+    }
+
+    init(
+        model: AppModel,
+        context: AppSettingsContext,
+        terminalDiagnostics: TerminalDiagnosticsModel
+    ) {
+        self.model = model
+        self.context = context
+        self.terminalDiagnostics = terminalDiagnostics
+        _tab = State(initialValue: context.tabID)
+    }
 
     var body: some View {
         HudInspectorSettings(
@@ -36,6 +64,7 @@ struct AppSettingsView: View {
             onClose: { dismiss() }
         ) { tabID in
             switch tabID {
+            case context.tabID: contextPanel
             case "CONNECTION": connectionPanel
             case "ROUTES":     routesPanel
             case "IDENTITY":   identityPanel
@@ -51,8 +80,24 @@ struct AppSettingsView: View {
                 await model.refreshTailnetPairTargets()
             }
         }
+        .task(id: context) {
+            guard context == .terminal else { return }
+            terminalDiagnostics.surfaceState = .settings
+            while !Task.isCancelled {
+                await terminalDiagnostics.refreshHostStatus(using: model.client)
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        .onDisappear {
+            if context == .terminal {
+                terminalDiagnostics.surfaceState = .visible
+            }
+        }
         .sheet(isPresented: $showingLogViewer) {
             ConnectionLogViewer(model: model, copiedLogs: $copiedLogs)
+        }
+        .sheet(isPresented: $showingRequestLogViewer) {
+            BrokerRequestLogViewer(log: BrokerRequestLog.shared)
         }
         .alert(
             "Rename Mac",
@@ -118,6 +163,283 @@ struct AppSettingsView: View {
             }
             connectionLogSection
         }
+    }
+
+    @ViewBuilder
+    private var contextPanel: some View {
+        switch context {
+        case .terminal:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    terminalTroubleshootingPanel
+                }
+            }
+        case .tail:
+            surfaceContextPanel(
+                title: "Tail",
+                rows: [
+                    ("Source", "Recent activity", "all reachable Macs"),
+                    ("Window", "50 events", "historical snapshot + live updates"),
+                    ("Refresh", "5 seconds", "poll interval"),
+                    ("Follow", "Automatic", "detach when you scroll away")
+                ]
+            )
+        case .home:
+            surfaceContextPanel(
+                title: "Home",
+                rows: [
+                    ("Source", "Fleet snapshot", "projects, agents, and recent activity"),
+                    ("Connection", statusShort, routeLabel)
+                ]
+            )
+        case .agents:
+            surfaceContextPanel(
+                title: "Agents",
+                rows: [
+                    ("Source", "Fleet agents", "reachable Macs"),
+                    ("Connection", statusShort, routeLabel)
+                ]
+            )
+        case .comms:
+            surfaceContextPanel(
+                title: "Comms",
+                rows: [
+                    ("Source", "Broker messages", "current fleet route"),
+                    ("Connection", statusShort, routeLabel)
+                ]
+            )
+        case .new:
+            surfaceContextPanel(
+                title: "New",
+                rows: [
+                    ("Target", "Focused Mac", "new session routing"),
+                    ("Connection", statusShort, routeLabel)
+                ]
+            )
+        }
+    }
+
+    private func surfaceContextPanel(
+        title: String,
+        rows: [(label: String, value: String, hint: String)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection(title) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HudInspectorFieldRow(row.label, value: row.value, hint: row.hint)
+                }
+            }
+            HudInspectorSection("About") {
+                HudInspectorFieldRow(
+                    "Context",
+                    value: "Active surface",
+                    hint: "shared app settings remain available in the rail"
+                )
+            }
+        }
+    }
+
+    private var terminalTroubleshootingPanel: some View {
+        Group {
+            HudInspectorSection("Connection") {
+                HudInspectorFieldRow("Bridge", value: statusShort, hint: routeLabel)
+                HudInspectorFieldRow(
+                    "Provisioning",
+                    value: terminalDiagnostics.provisioningState.rawValue,
+                    hint: terminalDiagnostics.provisioningDetail ?? "device SSH key"
+                )
+                HudInspectorFieldRow(
+                    "SSH",
+                    value: terminalDiagnostics.sshState.rawValue,
+                    hint: compactTerminalHint(terminalDiagnostics.sshDetail) ?? "PTY transport"
+                )
+                HudInspectorFieldRow(
+                    "Endpoint",
+                    value: terminalDiagnostics.endpoint ?? "—",
+                    hint: terminalDiagnostics.routeHost ?? "not resolved"
+                )
+                HudInspectorFieldRow(
+                    "Host key",
+                    value: terminalDiagnostics.hostKeyPinned ? "Pinned" : "Missing",
+                    hint: "ed25519 fingerprint"
+                )
+            }
+
+            HudInspectorSection("Shell") {
+                HudInspectorFieldRow(
+                    "Shell",
+                    value: terminalDiagnostics.hostStatus?.shellExecutable ?? "/bin/zsh",
+                    hint: "login shell"
+                )
+                HudInspectorFieldRow(
+                    "Wrapper",
+                    value: terminalWrapperValue,
+                    hint: terminalWrapperHint
+                )
+                HudInspectorFieldRow(
+                    "Session",
+                    value: terminalDiagnostics.hostStatus?.sessionName ?? "scout",
+                    hint: terminalWrapperSessionHint
+                )
+                HudInspectorFieldRow(
+                    "Pane",
+                    value: terminalHostPaneValue,
+                    hint: terminalDiagnostics.hostStatus?.paneCommand ?? "current command unavailable"
+                )
+                if let error = terminalDiagnostics.hostStatusError {
+                    HudInspectorFieldRow("Host probe", value: "Failed", hint: compactTerminalHint(error) ?? error)
+                }
+            }
+
+            HudInspectorSection("Renderer") {
+                HudInspectorFieldRow(
+                    "Surface",
+                    value: terminalDiagnostics.surfaceState.rawValue,
+                    hint: terminalRendererHint
+                )
+                HudInspectorFieldRow("PTY grid", value: terminalPTYGrid, hint: terminalCellSize)
+                HudInspectorFieldRow(
+                    "Parsed text",
+                    value: terminalRendererTextValue,
+                    hint: terminalRendererTextHint
+                )
+                HudInspectorFieldRow(
+                    "Input",
+                    value: terminalDiagnostics.keyboardHeight > 0 ? "Hosted" : "Not mounted",
+                    hint: terminalKeyboardHint
+                )
+                VStack(alignment: .leading, spacing: 3) {
+                    if terminalDiagnostics.rendererDiagnostics.isEmpty {
+                        Text("Renderer diagnostics have not reported yet.")
+                            .foregroundStyle(ScoutInk.dim)
+                    } else {
+                        ForEach(Array(terminalDiagnostics.rendererDiagnostics.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .foregroundStyle(ScoutInk.muted)
+                        }
+                    }
+                }
+                .font(HudFont.mono(HudTextSize.micro))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(HudSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .fill(Color.black.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .strokeBorder(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                )
+                #if canImport(UIKit)
+                HudInspectorActionRow(
+                    "Copy terminal diagnostics",
+                    value: copiedTerminalDiagnostics ? "Copied" : "Copy",
+                    tone: .accent
+                ) {
+                    UIPasteboard.general.string = terminalDiagnosticText
+                    copiedTerminalDiagnostics = true
+                }
+                #endif
+            }
+
+            HudInspectorActionRow("Refresh terminal status", value: "Run", tone: .accent) {
+                Task { await terminalDiagnostics.refreshHostStatus(using: model.client) }
+            }
+        }
+    }
+
+    private var terminalWrapperValue: String {
+        guard let status = terminalDiagnostics.hostStatus else {
+            return terminalDiagnostics.hostStatusError == nil ? "Checking…" : "Unavailable"
+        }
+        guard status.wrapperInstalled else { return "Missing" }
+        return status.sessionExists ? "Ready" : "No session"
+    }
+
+    private var terminalWrapperHint: String {
+        guard let status = terminalDiagnostics.hostStatus else { return "tmux status probe" }
+        return status.wrapperInstalled ? status.wrapperKind : "tmux is not available in the login PATH"
+    }
+
+    private var terminalWrapperSessionHint: String {
+        guard let status = terminalDiagnostics.hostStatus else { return "persistent wrapper" }
+        guard status.sessionExists else { return "session does not exist" }
+        return "\(status.attachedClients) attached client\(status.attachedClients == 1 ? "" : "s")"
+    }
+
+    private var terminalHostPaneValue: String {
+        guard let status = terminalDiagnostics.hostStatus,
+              let columns = status.paneColumns,
+              let rows = status.paneRows else { return "—" }
+        return "\(columns)×\(rows)"
+    }
+
+    private var terminalPTYGrid: String {
+        guard let columns = terminalDiagnostics.ptyColumns,
+              let rows = terminalDiagnostics.ptyRows else { return "—" }
+        return "\(columns)×\(rows)"
+    }
+
+    private var terminalCellSize: String {
+        guard let width = terminalDiagnostics.cellWidthPixels,
+              let height = terminalDiagnostics.cellHeightPixels else { return "renderer has not sized the PTY" }
+        return "cell \(width)×\(height) px"
+    }
+
+    private var terminalRendererHint: String {
+        terminalDiagnostics.rendererDiagnostics.isEmpty ? "Ghostty has not reported geometry" : "Ghostty geometry available below"
+    }
+
+    private var terminalRendererTextValue: String {
+        let count = terminalDiagnostics.rendererVisibleText.count
+        return count == 0 ? "Empty" : "\(count) chars"
+    }
+
+    private var terminalRendererTextHint: String {
+        let lines = terminalDiagnostics.rendererVisibleText
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let first = lines.first(where: { !$0.isEmpty }) else {
+            return "no visible cells parsed"
+        }
+        return String(first.prefix(100))
+    }
+
+    private var terminalKeyboardHint: String {
+        guard terminalDiagnostics.keyboardHeight > 0 else { return "system keyboard is disabled" }
+        return "custom keyboard · \(Int(terminalDiagnostics.keyboardHeight.rounded())) pt"
+    }
+
+    private func compactTerminalHint(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let compact = value.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !compact.isEmpty else { return nil }
+        return String(compact.prefix(140))
+    }
+
+    private var terminalDiagnosticText: String {
+        let host = terminalDiagnostics.hostStatus
+        var lines = [
+            "Scout Terminal diagnostics",
+            "bridge: \(statusShort) via \(routeLabel)",
+            "surface: \(terminalDiagnostics.surfaceState.rawValue)",
+            "provisioning: \(terminalDiagnostics.provisioningState.rawValue)",
+            "ssh: \(terminalDiagnostics.sshState.rawValue)",
+            "endpoint: \(terminalDiagnostics.endpoint ?? "—")",
+            "host key: \(terminalDiagnostics.hostKeyPinned ? "pinned" : "missing")",
+            "pty grid: \(terminalPTYGrid)",
+            "parsed viewport: \(terminalRendererTextValue) \(terminalRendererTextHint)",
+            "keyboard: \(terminalKeyboardHint)",
+            "shell: \(host?.shellExecutable ?? "—")",
+            "wrapper: \(host?.wrapperKind ?? "—") installed=\(host?.wrapperInstalled == true)",
+            "wrapper session: \(host?.sessionName ?? "—") exists=\(host?.sessionExists == true) clients=\(host?.attachedClients ?? 0)",
+            "wrapper pane: \(terminalHostPaneValue) command=\(host?.paneCommand ?? "—")",
+        ]
+        lines.append(contentsOf: terminalDiagnostics.rendererDiagnostics)
+        if let error = terminalDiagnostics.hostStatusError { lines.append("host probe error: \(error)") }
+        return lines.joined(separator: "\n")
     }
 
     /// Trailing value for a paired-Mac row — kept to a short token (route label /
@@ -234,6 +556,19 @@ struct AppSettingsView: View {
 
     private var advancedPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HudInspectorSection("Broker requests") {
+                HudInspectorFieldRow(
+                    "Recent requests",
+                    value: latestRequestMetric,
+                    hint: "\(BrokerRequestLog.shared.entries.count) metadata-only entries"
+                )
+                HudInspectorActionRow("View request log", value: "Open", tone: .accent) {
+                    showingRequestLogViewer = true
+                }
+                HudInspectorActionRow("Clear request log", value: "Clear", tone: .warn) {
+                    BrokerRequestLog.shared.clear()
+                }
+            }
             HudInspectorSection("Diagnostics") {
                 HudInspectorFieldRow("Connection log", value: latestLogMetric, hint: "\(model.connectionLog.entries.count) entries")
                 HudInspectorActionRow("View connection log", value: "Open", tone: .accent) {
@@ -426,6 +761,11 @@ struct AppSettingsView: View {
         return entry.event.label
     }
 
+    private var latestRequestMetric: String {
+        guard let entry = BrokerRequestLog.shared.entries.last else { return "—" }
+        return entry.outcome == .success ? "OK" : "Failed"
+    }
+
     private func logEntryTitle(_ entry: ConnectionLogEntry) -> String {
         "\(routeToken(entry.route)) \(entry.event.label)"
     }
@@ -556,6 +896,129 @@ struct AppSettingsView: View {
             return model.hasTrustedBridge ? "no saved Tailnet relay" : "pair a Mac first"
         }
         return model.tailnetPairDiscoveryHosts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Broker request log viewer
+
+private struct BrokerRequestLogViewer: View {
+    @Bindable var log: BrokerRequestLog
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                header
+                Divider()
+                    .overlay(HudHairline.subtle)
+                requestList
+            }
+            .background(HudPalette.bg)
+            .navigationTitle("Broker requests")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(HudPalette.accent)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear") { log.clear() }
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(HudPalette.statusWarn)
+                        .disabled(log.entries.isEmpty)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+            HStack(spacing: HudSpacing.md) {
+                Text("\(log.entries.count) recent")
+                    .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                Spacer()
+                Text("MAX 200")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(ScoutInk.dim)
+            }
+            Text("Operation metadata only — inputs and responses are never recorded.")
+                .font(HudFont.ui(HudTextSize.xs, weight: .light))
+                .foregroundStyle(ScoutInk.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.vertical, HudSpacing.md)
+    }
+
+    @ViewBuilder
+    private var requestList: some View {
+        if log.entries.isEmpty {
+            ContentUnavailableView(
+                "No broker requests yet",
+                systemImage: "arrow.left.arrow.right",
+                description: Text("Requests appear here as you use Scout.")
+            )
+            .foregroundStyle(ScoutInk.muted)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(log.entries.reversed()) { entry in
+                        requestRow(entry)
+                    }
+                }
+                .padding(.horizontal, HudSpacing.lg)
+            }
+        }
+    }
+
+    private func requestRow(_ entry: BrokerRequestLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                Text(requestTime(entry))
+                    .foregroundStyle(ScoutInk.dim)
+                Text(entry.operation)
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: HudSpacing.sm)
+                Text(entry.outcome == .success ? "OK" : "FAIL")
+                    .foregroundStyle(entry.outcome == .success ? HudPalette.accent : HudPalette.statusError)
+            }
+            .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+
+            HStack(spacing: HudSpacing.sm) {
+                Text(entry.kind.uppercased())
+                if let route = entry.route, !route.label.isEmpty {
+                    Text("· \(route.label)")
+                }
+                Text("· \(durationLabel(entry.durationMilliseconds))")
+                if let failure = entry.failureCategory {
+                    Text("· \(failure)")
+                        .foregroundStyle(HudPalette.statusWarn)
+                }
+            }
+            .font(HudFont.mono(HudTextSize.micro))
+            .foregroundStyle(ScoutInk.muted)
+        }
+        .padding(.vertical, HudSpacing.md)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HudHairline.subtle)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func requestTime(_ entry: BrokerRequestLogEntry) -> String {
+        entry.completedAt.formatted(.dateTime.hour().minute().second())
+    }
+
+    private func durationLabel(_ milliseconds: Int) -> String {
+        if milliseconds < 1_000 { return "\(milliseconds) ms" }
+        return String(format: "%.1f s", Double(milliseconds) / 1_000)
     }
 }
 

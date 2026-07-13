@@ -123,7 +123,7 @@ jobs:
             "apps/cloud/package.json",
             "apps/desktop/package.json",
             "apps/mesh-front-door/package.json",
-            "landing/package.json",
+            "landing/oscout.net/package.json",
             "packages/agent-sessions/package.json",
             "packages/cli/package.json",
             "packages/protocol/package.json",

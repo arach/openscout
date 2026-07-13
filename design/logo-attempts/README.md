@@ -18,6 +18,7 @@ the route intersection.
 - `focused-04-dotted-cube-lockup.svg` - cube mark with dotted outer planes and a clean inner echo.
 - `focused-04-dotted-cube-mark.svg` - matching dark app/avatar pass.
 - `focused-04-dotted-cube-preview.svg` - preview of the dotted cube pass.
+- `focused-05-living-cube.html` - interactive SVG motion study for a stateful inner dot matrix.
 
 ## Concept
 
@@ -33,3 +34,7 @@ cube echo inside, closer to the "local room / contained broker" reference.
 
 `focused-04` keeps the same cube geometry but adds SVG dot-pattern planes, closer
 to the latest dotted cube reference.
+
+`focused-05` keeps the cube geometry fixed and makes only the inner dot matrix
+stateful. It includes idle, working, attention, and done behaviors, a six-frame
+working sequence, scale checks, and reduced-motion behavior.

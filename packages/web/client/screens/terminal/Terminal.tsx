@@ -1164,11 +1164,6 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     [terminalItems],
   );
   const terminalAgents = useMemo(() => sortTerminalAgents(agents), [agents]);
-  const boundAgentCount = useMemo(
-    () => terminalAgents.filter((agent) => resolveAgentTerminalSurface(agent)).length,
-    [terminalAgents],
-  );
-  const liveTerminalCount = liveTerminalItems.length;
   const sessionError = state.state === "failed" ? state.error : null;
   const activeWorkspace = workspaceDefinitions.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
 
@@ -1663,13 +1658,6 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             </button>
           </div>
         </header>
-
-        <div className="s-term-home-stats" aria-label="Terminal inventory">
-          <Stat label="Tiles" value={tiles.length} />
-          <Stat label="Live" value={liveTerminalCount} />
-          <Stat label="Registered" value={terminalItems.length} />
-          <Stat label="Bound" value={boundAgentCount} />
-        </div>
 
         {sessionError && (
           <div className="s-term-home-error">
@@ -2502,15 +2490,6 @@ function TerminalHomeAgentRow({
           <MoreHorizontal size={14} strokeWidth={1.8} />
         </button>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="s-term-home-stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }

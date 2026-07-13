@@ -6,6 +6,7 @@ import type { ScopeLaneLayoutMode } from "./useScopeLaneLayout.ts";
 const LAYOUT_OPTIONS: Array<{ key: ScopeLaneLayoutMode; label: string }> = [
   { key: "swim", label: "swim" },
   { key: "grid", label: "grid" },
+  { key: "floor", label: "floor" },
 ];
 
 export function ScopeLanesBar({
@@ -27,11 +28,15 @@ export function ScopeLanesBar({
   onLayoutChange: (layout: ScopeLaneLayoutMode) => void;
   onLaneWidthChange: (width: AgentLaneWidthTier) => void;
 }) {
+  const floorMode = layoutMode === "floor";
+
   return (
     <header className="scope-lanes-bar">
       <div className="scope-lanes-bar__summary">
         <span className="scope-lanes-bar__count">{liveCount} lane{liveCount === 1 ? "" : "s"}</span>
-        <span className="scope-lanes-bar__window">window {horizonLabel}</span>
+        <span className="scope-lanes-bar__window">
+          {floorMode ? "past 30m · lanes 4h" : `window ${horizonLabel}`}
+        </span>
       </div>
       <div className="scope-lanes-bar__controls">
         <div className="scope-lanes-bar__layouts" role="group" aria-label="Lane layout">
@@ -47,26 +52,30 @@ export function ScopeLanesBar({
             </button>
           ))}
         </div>
-        <ScopeLaneWidthControls
-          value={laneWidth}
-          defaultValue={laneWidth}
-          onChange={onLaneWidthChange}
-          label="Default column width"
-          variant={layoutMode === "grid" ? "grid" : "tier"}
-        />
-        <div className="scope-lanes-bar__horizons" role="group" aria-label="Activity window">
-          {AGENT_LANE_HORIZON_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`scope-lanes-bar__horizon${horizon === option.key ? " is-on" : ""}`}
-              aria-pressed={horizon === option.key}
-              onClick={() => onHorizonChange(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {floorMode ? null : (
+          <>
+            <ScopeLaneWidthControls
+              value={laneWidth}
+              defaultValue={laneWidth}
+              onChange={onLaneWidthChange}
+              label="Default column width"
+              variant={layoutMode === "grid" ? "grid" : "tier"}
+            />
+            <div className="scope-lanes-bar__horizons" role="group" aria-label="Activity window">
+              {AGENT_LANE_HORIZON_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`scope-lanes-bar__horizon${horizon === option.key ? " is-on" : ""}`}
+                  aria-pressed={horizon === option.key}
+                  onClick={() => onHorizonChange(option.key)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </header>
   );

@@ -2,22 +2,23 @@
 
 import { useEffect, useState } from "react";
 
-// The "Without Scout" picture: a cluttered desktop of separate tool windows —
-// a terminal, an IDE, a harness CLI — cascaded and overlapping. Focus jumps
+// The "Without Scout" picture: a cluttered desktop of separate agent tools —
+// TUIs and IDE-like windows — cascaded and overlapping. Focus jumps
 // between them on its own; only one is ever in front. That's the juggling.
 type Win = {
   app: string;
   ctx: string;
-  line: string;
+  kind: "tui" | "ide";
+  title: string;
 };
 
 // Lines stay short enough that the cascade occludes between words — a
 // clipped identifier reads as a rendering bug in stills, not as clutter.
 const WINDOWS: Win[] = [
-  { app: "Codex", ctx: "ui", line: "$ bun run build" },
-  { app: "Cursor", ctx: "agents.ts", line: "✎ unsaved changes" },
-  { app: "pi", ctx: "repl", line: "› drafting plan" },
-  { app: "OpenCode", ctx: "fix-tests", line: "● 3 files changed" },
+  { app: "Codex", ctx: "TUI", kind: "tui", title: "plan · tests · edit" },
+  { app: "Cursor", ctx: "IDE", kind: "ide", title: "agent pane · diff open" },
+  { app: "pi", ctx: "TUI", kind: "tui", title: "reasoning · pending ask" },
+  { app: "OpenCode", ctx: "IDE", kind: "ide", title: "worktree · diagnostics" },
 ];
 
 export function SiloDesktop() {
@@ -66,8 +67,40 @@ export function SiloDesktop() {
                 <span className="silo-win__app">{w.app}</span>
                 <span className="silo-win__ctx">{w.ctx}</span>
               </div>
-              <div className="silo-win__body">
-                <div className="silo-win__line">{w.line}</div>
+              <div className={`silo-win__body silo-win__body--${w.kind}`}>
+                {w.kind === "ide" ? (
+                  <>
+                    <div className="silo-win__ide-rail" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                    <div className="silo-win__ide-main">
+                      <div className="silo-win__ide-tabs" aria-hidden>
+                        <span />
+                        <span />
+                      </div>
+                      <div className="silo-win__ide-editor" aria-hidden>
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="silo-win__tui-head" aria-hidden>
+                      <span />
+                      <span />
+                    </div>
+                    <div className="silo-win__tui-rows" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  </>
+                )}
+                <div className="silo-win__title">{w.title}</div>
               </div>
             </div>
           );

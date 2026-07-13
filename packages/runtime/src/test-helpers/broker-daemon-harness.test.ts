@@ -111,6 +111,7 @@ export function createBrokerDaemonTestHarness() {
         OPENSCOUT_BROKER_PORT: String(port),
         OPENSCOUT_BROKER_URL: baseUrl,
         OPENSCOUT_BROKER_SOCKET_PATH: join(controlHome, "broker.sock"),
+        OPENSCOUT_PROBES_SOCKET: join(controlHome, "missing-probes.sock"),
         OPENSCOUT_NODE_ID: derivedNodeId,
         OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
         OPENSCOUT_RELAY_HUB: join(controlHome, "relay"),

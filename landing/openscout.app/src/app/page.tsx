@@ -769,10 +769,10 @@ export default function Home() {
           <Link
             href="/"
             onClick={onNavigationClick("Scout", "/", "header_logo")}
-            className="flex items-center gap-2.5"
+            className="site-wordmark flex items-center"
           >
             <LogoMark />
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
+            <span className="site-wordmark__text font-[family-name:var(--font-spectral)]">
               Scout
             </span>
           </Link>

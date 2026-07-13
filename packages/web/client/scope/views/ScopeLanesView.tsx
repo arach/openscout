@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState, type CSSProperties } from "reac
 
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
 import { useScopePresentationAttrs } from "../hooks.ts";
+import { AgentFloorView } from "../../screens/ops/AgentFloorView.tsx";
 import { ScopeLaneColumn } from "./ScopeLaneColumn.tsx";
 import { ScopeLaneSpace } from "./ScopeLaneSpace.tsx";
 import { ScopeLanesBar } from "./ScopeLanesBar.tsx";
@@ -32,12 +33,15 @@ export function ScopeLanesView({
   agents: Agent[];
 }) {
   const scopeAttrs = useScopePresentationAttrs();
+  const { layoutMode, setLayoutMode } = useScopeLaneLayout();
+  const floorEnabled = layoutMode === "floor";
   const {
     now,
     horizon,
     setHorizon,
     horizonLabel,
     traceWindowMs,
+    lanes,
     layout,
     deck,
     setLaneWidth,
@@ -48,9 +52,9 @@ export function ScopeLanesView({
   } = useAgentLanesData({
     scoutAgents: agents,
     defaultWidthTier: "md",
+    // The floor's recency bands span up to 4h; admission follows the bands.
+    horizonOverride: floorEnabled ? "4h" : undefined,
   });
-
-  const { layoutMode, setLayoutMode } = useScopeLaneLayout();
   const {
     resolvedSpaces,
     flatColumns,
@@ -114,7 +118,7 @@ export function ScopeLanesView({
       {...scopeAttrs}
     >
       <ScopeLanesBar
-        liveCount={flatColumns.length}
+        liveCount={floorEnabled ? lanes.length : flatColumns.length}
         horizon={horizon}
         horizonLabel={horizonLabel}
         layoutMode={layoutMode}
@@ -134,8 +138,10 @@ export function ScopeLanesView({
         </div>
       ) : null}
 
-      {flatColumns.length === 0 ? (
+      {(floorEnabled ? lanes.length : flatColumns.length) === 0 ? (
         <div className="scope-lanes__empty">{emptyMessage}</div>
+      ) : floorEnabled ? (
+        <AgentFloorView lanes={lanes} now={now} onOpenTrace={openTraceSheet} />
       ) : (
         <div className="scope-lanes__canvas" role="listbox" aria-label="Session lanes">
           <div

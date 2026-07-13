@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenScout — Living Cube</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000;
+      --ink: #fff;
+      --muted: rgba(255, 255, 255, 0.46);
+      --hairline: rgba(255, 255, 255, 0.13);
+      --panel: rgba(255, 255, 255, 0.035);
+      --accent: #ff7139;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 48px 0 64px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font: 600 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 540;
+      letter-spacing: -0.045em;
+    }
+
+    .thesis {
+      max-width: 480px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 310px;
+      gap: 34px;
+      padding-top: 34px;
+    }
+
+    .hero {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 660px;
+      overflow: hidden;
+      border: 1px solid var(--hairline);
+      background:
+        radial-gradient(circle at 50% 48%, rgba(255,255,255,0.035), transparent 44%),
+        #000;
+    }
+
+    .hero::before,
+    .hero::after {
+      content: "";
+      position: absolute;
+      background: var(--hairline);
+      pointer-events: none;
+    }
+
+    .hero::before { width: 1px; height: 100%; left: 50%; }
+    .hero::after { width: 100%; height: 1px; top: 50%; }
+
+    .cube {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: min(78%, 560px);
+      aspect-ratio: 1;
+    }
+
+    .cube .outer {
+      fill: none;
+      stroke: var(--ink);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .cube .outer.shell { stroke-width: 3.25; }
+    .cube .outer.depth { stroke-width: 1.45; opacity: 0.38; }
+    .cube .inner { stroke-width: 2.35; opacity: 0.86; }
+
+    .matrix-dot {
+      fill: var(--ink);
+      transform-box: fill-box;
+      transform-origin: center;
+      will-change: opacity, transform;
+    }
+
+    .matrix-dot.accent { fill: var(--accent); }
+
+    aside {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .panel {
+      padding: 18px;
+      border: 1px solid var(--hairline);
+      background: var(--panel);
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    button {
+      appearance: none;
+      min-height: 34px;
+      border: 1px solid var(--hairline);
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+
+    button:hover { color: var(--ink); border-color: rgba(255,255,255,0.32); }
+    button[aria-pressed="true"] { color: #000; border-color: #fff; background: #fff; }
+
+    .field { margin-top: 16px; }
+
+    .field label,
+    .field-output {
+      color: var(--muted);
+      font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .field-head {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #fff;
+    }
+
+    .size-row {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      min-height: 112px;
+    }
+
+    .size-test { display: grid; justify-items: center; gap: 9px; }
+    .size-test svg { display: block; }
+    .size-test span {
+      color: var(--muted);
+      font: 500 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .notes {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .notes li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; }
+    .notes b { color: var(--ink); font-weight: 600; }
+
+    .sequence {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 1px;
+      margin-top: 34px;
+      border: 1px solid var(--hairline);
+      background: var(--hairline);
+    }
+
+    .sequence-frame {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      aspect-ratio: 1;
+      background: #000;
+    }
+
+    .sequence-frame svg { width: 76%; height: 76%; }
+
+    @media (max-width: 860px) {
+      header { align-items: start; flex-direction: column; }
+      .stage { grid-template-columns: 1fr; }
+      .hero { min-height: 540px; }
+      aside { display: grid; grid-template-columns: 1fr 1fr; }
+      .sequence { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 560px) {
+      main { width: min(100% - 24px, 1180px); padding-top: 28px; }
+      aside { grid-template-columns: 1fr; }
+      .hero { min-height: 420px; }
+      .sequence { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">OpenScout identity study 05</p>
+        <h1>Living cube</h1>
+      </div>
+      <p class="thesis">The frame is identity. The inner matrix is state. During work, a slow wave crosses the three planes, gathers at the broker, and returns to quiet.</p>
+    </header>
+
+    <section class="stage">
+      <div class="hero">
+        <svg id="hero-cube" class="cube" viewBox="0 0 480 480" role="img" aria-label="Animated OpenScout living cube mark"></svg>
+      </div>
+
+      <aside>
+        <section class="panel">
+          <h2>State</h2>
+          <div class="state-grid" id="state-controls">
+            <button data-state="idle">Idle</button>
+            <button data-state="working" aria-pressed="true">Working</button>
+            <button data-state="attention">Attention</button>
+            <button data-state="done">Done</button>
+          </div>
+          <div class="field">
+            <div class="field-head"><label for="tempo">Tempo</label><output class="field-output" id="tempo-output">7.0s</output></div>
+            <input id="tempo" type="range" min="4" max="12" value="7" step="0.5" />
+          </div>
+          <div class="field">
+            <div class="field-head"><label for="density">Matrix</label><output class="field-output" id="density-output">5 × 5</output></div>
+            <input id="density" type="range" min="4" max="7" value="5" step="1" />
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Scale test</h2>
+          <div class="size-row">
+            <div class="size-test"><svg class="scale-cube" data-density="2" width="24" height="24" viewBox="0 0 480 480"></svg><span>24</span></div>
+            <div class="size-test"><svg class="scale-cube" data-density="3" width="40" height="40" viewBox="0 0 480 480"></svg><span>40</span></div>
+            <div class="size-test"><svg class="scale-cube" data-density="4" width="72" height="72" viewBox="0 0 480 480"></svg><span>72</span></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Motion rules</h2>
+          <ul class="notes">
+            <li><b>1</b><span>The cube geometry never moves.</span></li>
+            <li><b>2</b><span>Working is a seven-second inward/outward wave, not a spinner.</span></li>
+            <li><b>3</b><span>Attention spends one orange point at the broker.</span></li>
+            <li><b>4</b><span>Reduced motion resolves to a meaningful static frame.</span></li>
+          </ul>
+        </section>
+      </aside>
+    </section>
+
+    <section class="sequence" id="sequence" aria-label="Six-frame working animation sequence"></section>
+  </main>
+
+  <script>
+    const NS = "http://www.w3.org/2000/svg";
+    const geometry = {
+      outer: [[240, 42], [412, 141], [412, 339], [240, 438], [68, 339], [68, 141]],
+      center: [240, 240],
+      inner: {
+        top: [240, 132], rightTop: [334, 186], rightBottom: [334, 294],
+        bottom: [240, 348], leftBottom: [146, 294], leftTop: [146, 186]
+      }
+    };
+
+    const faces = [
+      { id: "top", points: [geometry.inner.top, geometry.inner.rightTop, geometry.center, geometry.inner.leftTop], bias: -0.18 },
+      { id: "right", points: [geometry.center, geometry.inner.rightTop, geometry.inner.rightBottom, geometry.inner.bottom], bias: 0.08 },
+      { id: "left", points: [geometry.inner.leftTop, geometry.center, geometry.inner.bottom, geometry.inner.leftBottom], bias: 0.3 }
+    ];
+
+    const app = {
+      state: "working",
+      tempo: 7,
+      density: 5,
+      reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      startedAt: performance.now(),
+      cubes: []
+    };
+
+    function node(name, attributes = {}) {
+      const element = document.createElementNS(NS, name);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      return element;
+    }
+
+    function path(svg, d, className) {
+      svg.append(node("path", { d, class: className }));
+    }
+
+    function interpolateFace(points, u, v) {
+      const [p00, p10, p11, p01] = points;
+      return [
+        (1-u)*(1-v)*p00[0] + u*(1-v)*p10[0] + u*v*p11[0] + (1-u)*v*p01[0],
+        (1-u)*(1-v)*p00[1] + u*(1-v)*p10[1] + u*v*p11[1] + (1-u)*v*p01[1]
+      ];
+    }
+
+    function shell(svg) {
+      svg.replaceChildren();
+      const o = geometry.outer;
+      path(svg, `M${o[0]} L${o[1]} L${o[2]} L${o[3]} L${o[4]} L${o[5]} Z`, "outer shell");
+      path(svg, `M${o[0]} L240 240 M${o[1]} L240 240 M${o[2]} L240 240 M${o[3]} L240 240 M${o[4]} L240 240 M${o[5]} L240 240`, "outer depth");
+
+      const i = geometry.inner;
+      path(svg, `M${i.top} L${i.rightTop} L${i.rightBottom} L${i.bottom} L${i.leftBottom} L${i.leftTop} Z`, "outer inner");
+
+      const matrix = node("g", { class: "matrix" });
+      svg.append(matrix);
+      return matrix;
+    }
+
+    function populate(svg, density = app.density) {
+      const matrix = shell(svg);
+      const dots = [];
+      const margin = 0.13;
+      for (let faceIndex = 0; faceIndex < faces.length; faceIndex++) {
+        const face = faces[faceIndex];
+        for (let row = 0; row < density; row++) {
+          for (let col = 0; col < density; col++) {
+            const u = margin + (col + 0.5) / density * (1 - margin * 2);
+            const v = margin + (row + 0.5) / density * (1 - margin * 2);
+            const [x, y] = interpolateFace(face.points, u, v);
+            const distance = Math.hypot(x - 240, y - 240) / 150;
+            const phase = ((x * 0.0032 + y * 0.0021 + face.bias) % 1 + 1) % 1;
+            const dot = node("circle", {
+              cx: x.toFixed(2), cy: y.toFixed(2), r: "4.1", class: "matrix-dot",
+              "data-phase": phase.toFixed(4), "data-distance": distance.toFixed(4), "data-face": faceIndex
+            });
+            matrix.append(dot);
+            dots.push(dot);
+          }
+        }
+      }
+
+      const broker = node("circle", { cx: 240, cy: 240, r: 6.2, class: "matrix-dot broker" });
+      matrix.append(broker);
+      return { svg, dots, broker };
+    }
+
+    function wrappedDistance(a, b) {
+      const d = Math.abs(a - b) % 1;
+      return Math.min(d, 1 - d);
+    }
+
+    function energyFor(dot, phase, state) {
+      const dotPhase = Number(dot.dataset.phase);
+      const distance = Number(dot.dataset.distance);
+      if (state === "idle") return 0.16 + 0.09 * (0.5 + 0.5 * Math.sin((phase + dotPhase) * Math.PI * 2));
+      if (state === "working") {
+        const wave = Math.exp(-Math.pow(wrappedDistance(phase, dotPhase) / 0.115, 2));
+        const echo = Math.exp(-Math.pow(wrappedDistance((phase + 0.34) % 1, 1 - distance * 0.62) / 0.18, 2)) * 0.34;
+        return Math.min(1, 0.1 + wave * 0.82 + echo);
+      }
+      if (state === "attention") {
+        const inward = Math.max(0, 1 - distance);
+        return 0.11 + inward * (0.25 + 0.3 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 4)));
+      }
+      const settle = Math.exp(-Math.pow(wrappedDistance(phase, distance * 0.58) / 0.2, 2));
+      return 0.22 + settle * 0.44;
+    }
+
+    function paint(cube, phase, state = app.state) {
+      for (const dot of cube.dots) {
+        const energy = energyFor(dot, phase, state);
+        dot.style.opacity = energy.toFixed(3);
+        dot.style.transform = `scale(${(0.78 + energy * 0.28).toFixed(3)})`;
+        dot.classList.remove("accent");
+      }
+      const brokerPulse = state === "attention"
+        ? 0.78 + 0.22 * Math.sin(phase * Math.PI * 4)
+        : state === "working" ? 0.56 + 0.24 * Math.sin(phase * Math.PI * 2) : 0.58;
+      cube.broker.style.opacity = String(brokerPulse);
+      cube.broker.style.transform = `scale(${state === "attention" ? 1.28 : 1})`;
+      cube.broker.classList.toggle("accent", state === "attention");
+    }
+
+    function rebuild() {
+      app.cubes = [populate(document.querySelector("#hero-cube"))];
+      for (const svg of document.querySelectorAll(".scale-cube")) {
+        app.cubes.push(populate(svg, Number(svg.dataset.density || app.density)));
+      }
+      for (const [index, frame] of [...document.querySelectorAll(".sequence-frame svg")].entries()) {
+        const cube = populate(frame);
+        paint(cube, index / 6, "working");
+      }
+    }
+
+    function buildSequence() {
+      const sequence = document.querySelector("#sequence");
+      for (let index = 0; index < 6; index++) {
+        const frame = document.createElement("div");
+        frame.className = "sequence-frame";
+        frame.append(node("svg", { viewBox: "0 0 480 480", "aria-hidden": "true" }));
+        sequence.append(frame);
+      }
+    }
+
+    function frame(now) {
+      const elapsed = (now - app.startedAt) / 1000;
+      const phase = app.reduced ? 0.42 : (elapsed / app.tempo) % 1;
+      for (const cube of app.cubes) paint(cube, phase);
+      requestAnimationFrame(frame);
+    }
+
+    document.querySelector("#state-controls").addEventListener("click", event => {
+      const button = event.target.closest("button[data-state]");
+      if (!button) return;
+      app.state = button.dataset.state;
+      app.startedAt = performance.now();
+      for (const candidate of document.querySelectorAll("button[data-state]")) {
+        candidate.setAttribute("aria-pressed", String(candidate === button));
+      }
+    });
+
+    document.querySelector("#tempo").addEventListener("input", event => {
+      app.tempo = Number(event.target.value);
+      document.querySelector("#tempo-output").textContent = `${app.tempo.toFixed(1)}s`;
+      app.startedAt = performance.now();
+    });
+
+    document.querySelector("#density").addEventListener("input", event => {
+      app.density = Number(event.target.value);
+      document.querySelector("#density-output").textContent = `${app.density} × ${app.density}`;
+      rebuild();
+    });
+
+    buildSequence();
+    rebuild();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

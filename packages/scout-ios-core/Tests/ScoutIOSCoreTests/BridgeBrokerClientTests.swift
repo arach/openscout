@@ -47,11 +47,73 @@ final class BridgeBrokerClientTests: XCTestCase {
             "mobile/message/send", "mobile/session/create",
             "mobile/comms/conversations", "mobile/comms/messages",
             "mobile/comms/send", "mobile/comms/read", "mobile/attachments/upload",
-            "mobile/terminal/provision",
+            "mobile/terminal/provision", "mobile/terminal/status",
             "question/answer", "action/decide", "turn/interrupt",
         ] {
             XCTAssertNotNil(trpcRouteMap[method], "missing route for \(method)")
         }
+    }
+
+    // MARK: - Metadata-only request observability
+
+    @MainActor
+    func testBrokerRequestLogIsBoundedAndTracksOnlySuccessfulReads() {
+        let log = BrokerRequestLog(capacity: 2)
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        log.record(
+            startedAt: start,
+            completedAt: start.addingTimeInterval(0.1),
+            operation: "mobile/comms/send",
+            kind: "mutation",
+            outcome: .success,
+            route: .lan
+        )
+        XCTAssertNil(log.lastSuccessfulReadAt)
+
+        log.record(
+            startedAt: start,
+            completedAt: start.addingTimeInterval(0.2),
+            operation: "mobile/agents",
+            kind: "query",
+            outcome: .failure,
+            route: .tailnet,
+            failureCategory: "Timeout"
+        )
+        XCTAssertNil(log.lastSuccessfulReadAt)
+
+        let successfulReadAt = start.addingTimeInterval(0.3)
+        log.record(
+            startedAt: start,
+            completedAt: successfulReadAt,
+            operation: "mobile/tail",
+            kind: "query",
+            outcome: .success,
+            route: .oscout
+        )
+
+        XCTAssertEqual(log.entries.count, 2)
+        XCTAssertEqual(log.entries.map(\.operation), ["mobile/agents", "mobile/tail"])
+        XCTAssertEqual(log.lastSuccessfulReadAt, successfulReadAt)
+
+        log.clear()
+        XCTAssertTrue(log.entries.isEmpty)
+        XCTAssertEqual(log.lastSuccessfulReadAt, successfulReadAt)
+    }
+
+    func testBrokerRequestFailureCategoryNeverCopiesServerMessage() {
+        let sensitiveMessage = "denied for /Users/person/private with bearer secret"
+        let category = brokerRequestFailureCategory(
+            BridgeConnectionError.rpcError(code: 403, message: sensitiveMessage)
+        )
+
+        XCTAssertEqual(category, "RPC 403")
+        XCTAssertFalse(category.contains(sensitiveMessage))
+        XCTAssertEqual(
+            brokerRequestFailureCategory(BridgeConnectionError.decodingFailed(sensitiveMessage)),
+            "Decode"
+        )
+        XCTAssertEqual(brokerRequestFailureCategory(URLError(.notConnectedToInternet)), "Network -1009")
     }
 
     // MARK: - Listing wire → contract mapping

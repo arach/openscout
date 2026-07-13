@@ -334,8 +334,18 @@ html[data-site-theme="dark"] .dot-grid {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: var(--site-page-bg);
-  border-bottom: 1px solid var(--site-border);
+  --site-header-bg: #101112;
+  --site-header-bg-strong: #0d0e0f;
+  --site-header-ink: #f4f1e8;
+  --site-header-copy: rgba(244, 241, 232, 0.74);
+  --site-header-muted: rgba(244, 241, 232, 0.48);
+  --site-header-border: rgba(244, 241, 232, 0.16);
+  --site-logo-bg: var(--site-header-bg-strong);
+  --site-logo-ink: var(--site-header-ink);
+  --site-logo-border: rgba(244, 241, 232, 0.26);
+  background: var(--site-header-bg);
+  border-bottom: 1px solid var(--site-header-border);
+  color: var(--site-header-ink);
 }
 
 .status-dot {
@@ -358,14 +368,27 @@ html[data-site-theme="dark"] .dot-grid {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
-  gap: 1.5rem;
+  height: 64px;
+  gap: 1.75rem;
+}
+
+.site-wordmark {
+  gap: 0.7rem;
+  text-decoration: none;
+}
+
+.site-wordmark__text {
+  color: var(--site-header-ink);
+  font-size: 1.22rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1;
 }
 
 .operator-link {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 12px;
-  color: var(--site-copy);
+  color: var(--site-header-copy);
   transition: color 0.13s ease;
   letter-spacing: 0.01em;
   position: relative;
@@ -376,7 +399,7 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .operator-link:hover {
-  color: var(--site-ink);
+  color: var(--site-header-ink);
   text-decoration-color: currentColor;
 }
 
@@ -1759,7 +1782,7 @@ html[data-site-theme="dark"] .surface-phone__device {
 }
 
 .silo-win.is-active .silo-win__dots i:first-child {
-  background: var(--site-accent);
+  background: var(--site-ink);
 }
 
 .silo-win__app {
@@ -1782,10 +1805,98 @@ html[data-site-theme="dark"] .surface-phone__device {
 }
 
 .silo-win__body {
-  padding: 9px 11px;
+  position: relative;
+  min-height: 78px;
+  padding: 8px 10px 10px;
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 11px;
-  line-height: 1.7;
+  line-height: 1.45;
+  color: var(--site-copy);
+}
+
+.silo-win__body--ide {
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.silo-win__body--tui {
+  display: grid;
+  gap: 7px;
+}
+
+.silo-win__ide-rail {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  padding: 4px 3px;
+  border: 1px solid var(--site-border-soft);
+  border-radius: 5px;
+  background: var(--site-panel);
+}
+
+.silo-win__ide-rail span {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+  opacity: 0.42;
+}
+
+.silo-win__ide-main,
+.silo-win__tui-rows {
+  min-width: 0;
+}
+
+.silo-win__ide-tabs {
+  display: grid;
+  grid-template-columns: 0.72fr 0.44fr;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.silo-win__ide-tabs span,
+.silo-win__tui-head span {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+  opacity: 0.36;
+}
+
+.silo-win__ide-editor,
+.silo-win__tui-rows {
+  display: grid;
+  gap: 5px;
+}
+
+.silo-win__ide-editor span,
+.silo-win__tui-rows span {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--site-border);
+}
+
+.silo-win__ide-editor span:nth-child(2),
+.silo-win__tui-rows span:nth-child(2) {
+  width: 84%;
+}
+
+.silo-win__ide-editor span:nth-child(3),
+.silo-win__tui-rows span:nth-child(3) {
+  width: 58%;
+}
+
+.silo-win__tui-head {
+  display: grid;
+  grid-template-columns: 0.38fr 0.62fr;
+  gap: 5px;
+}
+
+.silo-win__title {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--site-copy);
 }
 

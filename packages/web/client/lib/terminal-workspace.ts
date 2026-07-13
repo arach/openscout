@@ -8,6 +8,129 @@ export type TerminalProjectDestination = {
   source: "configured" | "agent";
 };
 
+export type TerminalWorkspaceLayout<T> = {
+  id: string;
+  name: string;
+  tiles: T[];
+};
+
+export type TerminalWorkspaceDeck<T> = {
+  version: 1;
+  activeWorkspaceId: string;
+  workspaces: TerminalWorkspaceLayout<T>[];
+};
+
+export function createTerminalWorkspaceDeck<T>(
+  id = "main",
+  name = "Main",
+): TerminalWorkspaceDeck<T> {
+  return {
+    version: 1,
+    activeWorkspaceId: id,
+    workspaces: [{ id, name, tiles: [] }],
+  };
+}
+
+export function normalizeTerminalWorkspaceDeck<T>(
+  value: unknown,
+  isTile: (value: unknown) => value is T,
+): TerminalWorkspaceDeck<T> {
+  if (!value || typeof value !== "object") return createTerminalWorkspaceDeck<T>();
+  const candidate = value as Partial<TerminalWorkspaceDeck<unknown>>;
+  if (!Array.isArray(candidate.workspaces)) return createTerminalWorkspaceDeck<T>();
+
+  const workspaces: TerminalWorkspaceLayout<T>[] = [];
+  const seenIds = new Set<string>();
+  for (const workspace of candidate.workspaces) {
+    if (!workspace || typeof workspace !== "object") continue;
+    const id = typeof workspace.id === "string" ? workspace.id.trim() : "";
+    const name = typeof workspace.name === "string" ? workspace.name.trim() : "";
+    if (!id || !name || seenIds.has(id) || !Array.isArray(workspace.tiles)) continue;
+    seenIds.add(id);
+    workspaces.push({ id, name, tiles: workspace.tiles.filter(isTile) });
+  }
+  if (workspaces.length === 0) return createTerminalWorkspaceDeck<T>();
+
+  const activeWorkspaceId = typeof candidate.activeWorkspaceId === "string"
+    && seenIds.has(candidate.activeWorkspaceId)
+    ? candidate.activeWorkspaceId
+    : workspaces[0]!.id;
+  return { version: 1, activeWorkspaceId, workspaces };
+}
+
+export function addTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  id: string,
+): TerminalWorkspaceDeck<T> {
+  if (!id.trim() || deck.workspaces.some((workspace) => workspace.id === id)) return deck;
+  const usedNames = new Set(deck.workspaces.map((workspace) => workspace.name));
+  let index = deck.workspaces.length + 1;
+  while (usedNames.has(`Workspace ${index}`)) index += 1;
+  const workspace = { id, name: `Workspace ${index}`, tiles: [] as T[] };
+  return {
+    ...deck,
+    activeWorkspaceId: workspace.id,
+    workspaces: [...deck.workspaces, workspace],
+  };
+}
+
+export function selectTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  id: string,
+): TerminalWorkspaceDeck<T> {
+  if (id === deck.activeWorkspaceId || !deck.workspaces.some((workspace) => workspace.id === id)) {
+    return deck;
+  }
+  return { ...deck, activeWorkspaceId: id };
+}
+
+export function closeTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  id: string,
+): TerminalWorkspaceDeck<T> {
+  if (deck.workspaces.length <= 1) return deck;
+  const index = deck.workspaces.findIndex((workspace) => workspace.id === id);
+  if (index < 0) return deck;
+  const workspaces = deck.workspaces.filter((workspace) => workspace.id !== id);
+  const activeWorkspaceId = deck.activeWorkspaceId === id
+    ? workspaces[Math.min(index, workspaces.length - 1)]!.id
+    : deck.activeWorkspaceId;
+  return { ...deck, activeWorkspaceId, workspaces };
+}
+
+export function renameTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  id: string,
+  name: string,
+): TerminalWorkspaceDeck<T> {
+  const nextName = name.trim();
+  if (!nextName) return deck;
+  let changed = false;
+  const workspaces = deck.workspaces.map((workspace) => {
+    if (workspace.id !== id || workspace.name === nextName) return workspace;
+    changed = true;
+    return { ...workspace, name: nextName };
+  });
+  return changed ? { ...deck, workspaces } : deck;
+}
+
+export function updateActiveTerminalWorkspaceTiles<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  update: T[] | ((tiles: T[]) => T[]),
+): TerminalWorkspaceDeck<T> {
+  let changed = false;
+  const workspaces = deck.workspaces.map((workspace) => {
+    if (workspace.id !== deck.activeWorkspaceId) return workspace;
+    const tiles = typeof update === "function"
+      ? (update as (tiles: T[]) => T[])(workspace.tiles)
+      : update;
+    if (tiles === workspace.tiles) return workspace;
+    changed = true;
+    return { ...workspace, tiles };
+  });
+  return changed ? { ...deck, workspaces } : deck;
+}
+
 type ConfiguredTerminalProject = {
   id: string;
   title: string;
