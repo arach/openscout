@@ -762,7 +762,7 @@ describe("isAgentLaneWorking", () => {
     expect(data.events[0]?.detail).toBeUndefined();
   });
 
-  test("keeps tail events inside the selected horizon instead of a fixed count cap", () => {
+  test("tops the trace tail up past the horizon when the window is sparse", () => {
     const transcript = {
       source: "codex",
       transcriptPath: "/tmp/rollout.jsonl",
@@ -784,11 +784,40 @@ describe("isAgentLaneWorking", () => {
       windowMs: 30 * 60_000,
     });
 
+    // Presence is horizon-gated by the caller; content keeps a tail of history
+    // (up to LANE_TRACE_FILL_MIN) so a present-but-quiet lane isn't empty.
     expect(data.events.map((event) => event.text)).toEqual([
+      "stale",
       "recent-a",
       "recent-b",
     ]);
-    expect(data.metadata?.session?.sessionStart).toBe(NOW - 20 * 60_000);
+    expect(data.metadata?.session?.sessionStart).toBe(NOW - 45 * 60_000);
+  });
+
+  test("keeps the trace window-only when the horizon already fills the lane", () => {
+    const transcript = {
+      source: "codex",
+      transcriptPath: "/tmp/rollout.jsonl",
+      sessionId: "sess-dense",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const events = [
+      stubTailEvent("sess-dense", NOW - 45 * 60_000, "tool", { summary: "stale" }),
+      ...Array.from({ length: 60 }, (_, index) =>
+        stubTailEvent("sess-dense", NOW - (60 - index) * 1_000, "tool", { summary: `in-window-${index}` })),
+    ];
+
+    const data = observeDataFromTail(transcript, events, true, {
+      now: NOW,
+      windowMs: 30 * 60_000,
+    });
+
+    expect(data.events).toHaveLength(60);
+    expect(data.events.some((event) => event.text === "stale")).toBe(false);
     expect(data.events.every((event) => (event.at ?? 0) >= NOW - 30 * 60_000)).toBe(true);
   });
 
@@ -1194,7 +1223,9 @@ describe("isAgentLaneWorking", () => {
     expect(lanes).toHaveLength(1);
     expect(lanes[0]?.id).toBe(agent.id);
     expect(lanes[0]?.current).toBe(false);
-    expect(lanes[0]?.observe?.events).toEqual([]);
+    // Presence keeps the lane; the trace fill floor keeps its history visible
+    // instead of an empty window.
+    expect(lanes[0]?.observe?.events.map((event) => event.id)).toEqual(["evt-1"]);
   });
 });
 

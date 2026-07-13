@@ -5,8 +5,9 @@ import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client"
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import {
   filesFromObserveEvents,
-  filterObserveDataForHorizon,
+  filterObserveDataForHorizonWithFill,
   isPlausibleFilePath,
+  LANE_TRACE_FILL_MIN,
   laneSnippetText,
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
@@ -65,11 +66,13 @@ export function agentLaneHorizonLabel(horizon: AgentLaneHorizonKey): string {
     ?? horizon;
 }
 
-/** Scale tail replay depth with the selected lane horizon. */
+/** Scale tail replay depth with the selected lane horizon. The floor is
+ * 2,000 even for the 5m window: replay feeds the trace FILL (last-N history
+ * for present-but-quiet lanes), and one chatty lane can crowd a quiet lane
+ * out of a 500-event shared buffer. */
 export function agentLaneTailRecentLimit(horizon: AgentLaneHorizonKey): number {
   switch (horizon) {
     case "5m":
-      return 500;
     case "30m":
       return 2_000;
     case "4h":
@@ -77,7 +80,7 @@ export function agentLaneTailRecentLimit(horizon: AgentLaneHorizonKey): number {
     case "24h":
       return 10_000;
     default:
-      return 500;
+      return 2_000;
   }
 }
 
@@ -792,7 +795,12 @@ export function observeDataFromTail(
 ): ObserveData {
   const now = options?.now ?? Date.now();
   const rawTail = rawTailEventsForHorizon(events, now, options?.windowMs);
-  const tail = tailEventsForHorizon(rawTail, now, undefined);
+  const windowedTail = tailEventsForHorizon(rawTail, now, undefined);
+  // Lane presence is horizon-gated by the caller; trace content keeps a
+  // minimum tail of history so a freshly-admitted lane isn't nearly empty.
+  const tail = windowedTail.length >= LANE_TRACE_FILL_MIN
+    ? windowedTail
+    : tailEventsForHorizon(events, now, undefined).slice(-LANE_TRACE_FILL_MIN);
   const sessionStart = tail[0]?.ts ?? transcript.mtimeMs;
 
   const observeEvents = tail.map((event): ObserveEvent => {
@@ -2015,7 +2023,7 @@ export function buildAgentLanes(input: {
       providerPresenceAt,
     );
     const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
-    let observe = filterObserveDataForHorizon(observeEntry?.data ?? null, now, windowMs);
+    let observe = filterObserveDataForHorizonWithFill(observeEntry?.data ?? null, now, windowMs);
     if (
       placeholderEligible
       && current

@@ -131,6 +131,28 @@ export function countObserveEventsBeforeHorizon(
   }, 0);
 }
 
+/** Minimum events a lane trace keeps regardless of the horizon window. Lane
+ * PRESENCE is horizon-gated; trace CONTENT tops up past the window so a
+ * freshly-admitted lane isn't nearly empty — tail -n style, with the horizon
+ * only deciding which lanes exist. */
+export const LANE_TRACE_FILL_MIN = 50;
+
+/** Horizon-filter a lane's observe data, but keep at least `fillMin` trailing
+ * events when the window alone is too sparse to fill the lane. The fill path
+ * keeps the full touched-files inventory — files are a summary, not a feed. */
+export function filterObserveDataForHorizonWithFill(
+  data: ObserveData | null | undefined,
+  now: number,
+  windowMs: number,
+  fillMin: number = LANE_TRACE_FILL_MIN,
+): ObserveData | null {
+  const filtered = filterObserveDataForHorizon(data, now, windowMs);
+  if (!data || !filtered) return filtered ?? null;
+  if (filtered.events.length >= fillMin) return filtered;
+  if (data.events.length <= filtered.events.length) return filtered;
+  return { ...data, events: data.events.slice(-fillMin) };
+}
+
 export function filterObserveDataForHorizon(
   data: ObserveData | null | undefined,
   now: number,

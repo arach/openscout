@@ -46,6 +46,7 @@ import {
   fmtLaneAgeTitle,
   fmtLaneWallGapLabel,
   fmtTraceSpanMs,
+  LANE_TRACE_FILL_MIN,
   laneSnippetText,
   laneTextNeedsExpand,
   laneToolArgSnippet,
@@ -2882,12 +2883,17 @@ export function SessionObserve({
   const visible = (() => {
     let filtered = events.filter((event) => event.t <= cursor);
     if (useHorizonTrace && traceWindowMs) {
-      filtered = filterObserveEventsForHorizon(
+      const horizoned = filterObserveEventsForHorizon(
         filtered,
         sessionStartMs,
         now,
         traceWindowMs,
       );
+      // The horizon decides lane presence; content keeps a minimum tail so a
+      // present-but-quiet lane still fills with recent history.
+      filtered = horizoned.length >= LANE_TRACE_FILL_MIN
+        ? horizoned
+        : filtered.slice(-LANE_TRACE_FILL_MIN);
     } else if (laneMode && traceLimit && traceLimit > 0) {
       filtered = filtered.slice(-traceLimit);
     }
@@ -2895,12 +2901,13 @@ export function SessionObserve({
   })();
   const laneTraceStats = useMemo(() => {
     if (!useHorizonTrace || !traceWindowMs) return null;
-    const hiddenBeforeCount = countObserveEventsBeforeHorizon(
-      events,
-      sessionStartMs,
-      now,
-      traceWindowMs,
-    );
+    // Count events hidden before the OLDEST VISIBLE event (not the horizon
+    // cutoff) so the "earlier" stat stays honest when the tail fill reaches
+    // back past the window.
+    const oldestVisibleId = visible[0]?.id;
+    const hiddenBeforeCount = oldestVisibleId === undefined
+      ? countObserveEventsBeforeHorizon(events, sessionStartMs, now, traceWindowMs)
+      : Math.max(0, events.findIndex((event) => event.id === oldestVisibleId));
     return laneTraceWindowStats(
       visible,
       sessionStartMs,
