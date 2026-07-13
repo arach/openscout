@@ -35,7 +35,7 @@ export function ScopeLanesBar({
       <div className="scope-lanes-bar__summary">
         <span className="scope-lanes-bar__count">{liveCount} lane{liveCount === 1 ? "" : "s"}</span>
         <span className="scope-lanes-bar__window">
-          {floorMode ? "bands 5m · 30m · 4h" : `window ${horizonLabel}`}
+          {floorMode ? "past 30m · lanes 4h" : `window ${horizonLabel}`}
         </span>
       </div>
       <div className="scope-lanes-bar__controls">

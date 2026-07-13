@@ -1,7 +1,9 @@
-/* Agent floor — isometric fleet floor treatment, shared across surfaces.
-   The component paints entirely from the --floor-* inputs below. Defaults
-   follow the app-global tokens (so light/dark theme modes just work); a host
-   surface with its own palette reskins by overriding the inputs. */
+/* Agent floor — per-agent time lanes on an isometric plane, shared across
+   surfaces. Each agent keeps a lane strip; depth is time (front = now, five
+   -minute buckets receding). The component paints entirely from the --floor-*
+   inputs below. Defaults follow the app-global tokens (so light/dark theme
+   modes just work); a host surface with its own palette reskins by overriding
+   the inputs. */
 
 .agent-floor {
   /* palette inputs */
@@ -94,15 +96,15 @@
   border: 1px solid var(--floor-line);
   background:
     linear-gradient(180deg,
-      transparent 0 33.4%,
-      color-mix(in oklab, var(--floor-ink) 3%, transparent) 33.4% 66.7%,
-      color-mix(in oklab, var(--floor-ink) 5.5%, transparent) 66.7% 100%),
-    repeating-linear-gradient(0deg, var(--floor-line-soft) 0 1px, transparent 1px 53px),
-    repeating-linear-gradient(90deg, var(--floor-line-soft) 0 1px, transparent 1px 53px),
+      transparent 26%,
+      color-mix(in oklab, var(--floor-ink) 4.5%, transparent) 100%),
+    repeating-linear-gradient(0deg, var(--floor-line-soft) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, var(--floor-line-soft) 0 1px, transparent 1px 60px),
     linear-gradient(135deg, var(--floor-face-1), var(--floor-bg));
   box-shadow: 0 70px 130px -44px var(--floor-shadow-strong);
 }
 
+/* Time-bucket seams across the plane. */
 .agent-floor__seam {
   position: absolute;
   left: 0;
@@ -118,31 +120,31 @@
 /* Billboard — stands content back upright above the tilted plane. */
 .agent-floor__bb {
   position: absolute;
-  width: 196px;
-  margin-left: -98px;
+  width: 160px;
+  margin-left: -80px;
   transform: translateZ(var(--z, 6px)) rotateZ(-45deg) rotateX(-57deg);
 }
 
-.agent-floor__band-label {
+.agent-floor__tick {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 130px;
-  margin-left: -65px;
+  gap: 5px;
+  width: 60px;
+  margin-left: -30px;
   font-family: var(--floor-mono);
   font-size: 9.5px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--floor-muted);
+  color: color-mix(in oklab, var(--floor-muted) 80%, transparent);
   white-space: nowrap;
 }
 
-.agent-floor__band-label.is-now {
+.agent-floor__tick.is-now {
   color: color-mix(in oklab, var(--floor-ink) 78%, var(--floor-muted));
 }
 
-.agent-floor__band-pulse,
+.agent-floor__tick-pulse,
 .agent-floor__legend-pulse {
   width: 5px;
   height: 5px;
@@ -150,10 +152,10 @@
   background: var(--floor-ok);
 }
 
-.agent-floor__band-empty {
+.agent-floor__chip {
   --z: 18px;
-  width: 200px;
-  margin-left: -100px;
+  width: 170px;
+  margin-left: -85px;
   font-family: var(--floor-mono);
   font-size: 9.5px;
   color: var(--floor-muted);
@@ -165,18 +167,15 @@
   white-space: nowrap;
 }
 
-.agent-floor__band-range {
-  color: color-mix(in oklab, var(--floor-muted) 72%, transparent);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* ── Agent lanes ── */
+
+.agent-floor__lanes {
+  position: absolute;
+  transform-style: preserve-3d;
 }
 
-/* ── Tower ── */
-
-.agent-floor__tower {
+.agent-floor__lane {
   position: absolute;
-  width: 150px;
-  height: 150px;
   padding: 0;
   border: 0;
   background: none;
@@ -188,6 +187,71 @@
   text-align: left;
 }
 
+.agent-floor__lane:focus-visible {
+  outline: none;
+}
+
+.agent-floor__lane-strip {
+  position: absolute;
+  inset: 0 6px;
+  display: block;
+  box-shadow:
+    inset 1px 0 0 var(--floor-line-soft),
+    inset -1px 0 0 var(--floor-line-soft);
+  transition: background 0.16s ease;
+}
+
+.agent-floor__lane.is-alt .agent-floor__lane-strip {
+  background: color-mix(in oklab, var(--floor-ink) 2.5%, transparent);
+}
+
+.agent-floor__lane:hover .agent-floor__lane-strip,
+.agent-floor__lane:focus-visible .agent-floor__lane-strip {
+  background: color-mix(in oklab, var(--floor-ink) 5%, transparent);
+}
+
+.agent-floor__stack {
+  position: absolute;
+  transform-style: preserve-3d;
+  display: block;
+}
+
+.agent-floor__pad {
+  position: absolute;
+  width: 96px;
+  height: 96px;
+  transform-style: preserve-3d;
+  display: block;
+}
+
+.agent-floor__pad .agent-floor__block.is-head {
+  left: calc((96px - var(--bs)) / 2);
+  top: calc((96px - var(--bs)) / 2);
+}
+
+.agent-floor__ground {
+  position: absolute;
+  left: -27px;
+  top: -27px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--floor-shadow), transparent);
+  display: block;
+}
+
+/* ── Iso blocks (size parameterized via --bs footprint / --bh face height) ── */
+
+.agent-floor__block {
+  --ring: var(--floor-line);
+  position: absolute;
+  width: var(--bs, 56px);
+  height: var(--bs, 56px);
+  transform: translateZ(var(--z, 0px));
+  transform-style: preserve-3d;
+  display: block;
+}
+
 .agent-floor__face {
   position: absolute;
   left: 0;
@@ -196,84 +260,28 @@
   display: block;
 }
 
-.agent-floor__ground {
-  position: absolute;
-  left: -25px;
-  top: -25px;
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--floor-shadow), transparent);
-}
-
-.agent-floor__plinth-left {
-  top: 150px;
-  width: 150px;
-  height: 14px;
-  transform: rotateX(90deg);
-  background: var(--floor-face-2);
-}
-
-.agent-floor__plinth-right {
-  left: 150px;
-  width: 150px;
-  height: 14px;
-  transform: rotateZ(90deg) rotateX(90deg);
-  background: var(--floor-face-1);
-}
-
-.agent-floor__plinth-top {
-  width: 150px;
-  height: 150px;
-  transform: translateZ(14px);
-  border-radius: 4px;
-  background: linear-gradient(135deg, var(--floor-face-3), var(--floor-face-1));
-  box-shadow: inset 0 0 0 1px var(--floor-line);
-}
-
-.agent-floor__stack {
-  position: absolute;
-  left: 33px;
-  top: 33px;
-  width: 84px;
-  height: 84px;
-  transform: translateZ(16px);
-  transform-style: preserve-3d;
-  display: block;
-}
-
-.agent-floor__block {
-  --ring: var(--floor-line);
-  position: absolute;
-  width: 84px;
-  height: 84px;
-  transform: translateZ(var(--z, 0px));
-  transform-style: preserve-3d;
-  display: block;
-}
-
 .agent-floor__block .is-left {
-  top: 84px;
-  width: 84px;
-  height: 15px;
+  top: var(--bs, 56px);
+  width: var(--bs, 56px);
+  height: var(--bh, 12px);
   transform: rotateX(90deg);
   background: var(--floor-face-2);
   box-shadow: inset 0 0 0 1px var(--ring);
 }
 
 .agent-floor__block .is-right {
-  left: 84px;
-  width: 84px;
-  height: 15px;
+  left: var(--bs, 56px);
+  width: var(--bs, 56px);
+  height: var(--bh, 12px);
   transform: rotateZ(90deg) rotateX(90deg);
   background: var(--floor-face-1);
   box-shadow: inset 0 0 0 1px var(--ring);
 }
 
 .agent-floor__block .is-top {
-  width: 84px;
-  height: 84px;
-  transform: translateZ(15px);
+  width: var(--bs, 56px);
+  height: var(--bs, 56px);
+  transform: translateZ(var(--bh, 12px));
   background: var(--floor-face-3);
   box-shadow: inset 0 0 0 1px var(--ring);
 }
@@ -314,11 +322,15 @@
   background: linear-gradient(135deg, color-mix(in oklab, var(--floor-ink) 16%, var(--floor-bg)), var(--floor-face-3));
 }
 
+.agent-floor__block.is-pedestal .is-top {
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--floor-face-3), var(--floor-face-1));
+}
+
 /* ── Identity card ── */
 
 .agent-floor__card-anchor {
-  left: 75px;
-  top: 75px;
+  /* left/top set inline at the lane's pad center */
 }
 
 .agent-floor__card {
@@ -331,13 +343,9 @@
   transition: border-color 0.14s ease;
 }
 
-.agent-floor__tower:hover .agent-floor__card,
-.agent-floor__tower:focus-visible .agent-floor__card {
+.agent-floor__lane:hover .agent-floor__card,
+.agent-floor__lane:focus-visible .agent-floor__card {
   border-color: var(--floor-accent-line);
-}
-
-.agent-floor__tower:focus-visible {
-  outline: none;
 }
 
 .agent-floor__card-row {
@@ -485,7 +493,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agent-floor__band-pulse,
+  .agent-floor__tick-pulse,
   .agent-floor__legend-pulse,
   .agent-floor__card-dot.is-live {
     animation: agent-floor-pulse 2.2s ease-in-out infinite;

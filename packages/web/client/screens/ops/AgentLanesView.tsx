@@ -820,7 +820,7 @@ export function AgentLanesView({
               <span className="s-agent-lanes-meta-stat">{pinnedCount} pinned</span>
             ) : null}
             <span className="s-agent-lanes-meta-stat">
-              {floorMode ? "bands 5m · 30m · 4h" : `trace ${horizonLabel}`}
+              {floorMode ? "past 30m · lanes 4h" : `trace ${horizonLabel}`}
             </span>
             {activeFilterLabel ? (
               <span className="s-agent-lanes-meta-filter">{activeFilterLabel}</span>

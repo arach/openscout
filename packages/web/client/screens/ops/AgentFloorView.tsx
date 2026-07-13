@@ -15,11 +15,12 @@ import {
 
 /**
  * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
- * isometric plane with three recency bands (front = live/now, mid = 5–30 min,
- * back = 30 min–4 h). Each lane is a tower of stacked blocks, one per recent
- * trace event, so tower height reads as "how much work happened in the last
- * 30 minutes". Live lanes carry a glowing head block; clicking a tower opens
- * the host surface's trace detail.
+ * isometric plane where each agent keeps a LANE strip and the depth axis is
+ * TIME: the agent's pad and identity card sit at the front ("now") and their
+ * work recedes into the past as block stacks, one stack per five-minute
+ * bucket over the last thirty minutes. Stack height reads as "how much work
+ * happened then"; an empty strip reads as a quiet recent past. Live agents'
+ * pads glow; clicking a lane opens the host surface's trace detail.
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -28,24 +29,34 @@ import {
  * by overriding those inputs, not by touching the component.
  */
 
-/** Blocks always read the last 30 minutes, independent of the lane horizon. */
+/** The time axis covers the last 30 minutes in five-minute buckets. */
 const FLOOR_TRACE_WINDOW_MS = 30 * 60_000;
-const NOW_BAND_MS = 5 * 60_000;
-const MAX_TOWER_BLOCKS = 8;
-const MAX_TOWERS_PER_BAND = 5;
+const BUCKET_MS = 5 * 60_000;
+const BUCKET_COUNT = 6;
+const BUCKET_MAX_BLOCKS = 8;
+const MAX_FLOOR_LANES = 8;
 
-const PLINTH = 150;
-const BLOCK_STEP = 17;
-const STACK_BASE_Z = 16;
-const CARD_LIFT = 78;
-const MIN_PLANE = 640;
+const LANE_PITCH = 132;
+const STACK_SIZE = 56;
+const STACK_STEP = 14;
+const BLOCK_H = 12;
+const PAD_SIZE = 96;
+const PAD_H = 12;
+const BUCKET_DEPTH = 88;
+const FRONT_APRON = 150;
+const BACK_MARGIN = 48;
+const EDGE_MARGIN = 24;
+const MIN_PLANE_W = 480;
+const CARD_LIFT = 84;
+const CARD_STAGGER = 42;
 
 type FloorBlockKind = "tool" | "edit" | "msg";
 
-type FloorTower = {
+type FloorLaneSeries = {
   lane: AgentLane;
   live: boolean;
-  blocks: FloorBlockKind[];
+  /** Index 0 = the 0–5m bucket, blocks in chronological order. */
+  buckets: FloorBlockKind[][];
   counts: Record<FloorBlockKind, number>;
   lastLabel: string | null;
   lastAt: number | null;
@@ -62,46 +73,39 @@ function classifyObserveEvent(event: ObserveEvent): FloorBlockKind | null {
   return null;
 }
 
-function buildTower(lane: AgentLane, now: number): FloorTower {
+function buildFloorLane(lane: AgentLane, now: number): FloorLaneSeries {
   const sessionStart = lane.observe?.metadata?.session?.sessionStart;
-  const cutoff = now - FLOOR_TRACE_WINDOW_MS;
   const counts: Record<FloorBlockKind, number> = { tool: 0, edit: 0, msg: 0 };
-  const recent: Array<{ kind: FloorBlockKind; at: number | null; label: string }> = [];
+  const buckets: FloorBlockKind[][] = Array.from({ length: BUCKET_COUNT }, () => []);
+  let classified = 0;
+  let last: { at: number | null; label: string } | null = null;
 
   for (const event of lane.observe?.events ?? []) {
     const kind = classifyObserveEvent(event);
     if (!kind) continue;
     const at = observeEventWallMs(event, sessionStart);
-    if (at !== null && at < cutoff) continue;
+    const age = at === null ? 0 : Math.max(0, now - at);
+    if (age >= FLOOR_TRACE_WINDOW_MS) continue;
     counts[kind] += 1;
-    recent.push({
-      kind,
+    classified += 1;
+    buckets[Math.min(BUCKET_COUNT - 1, Math.floor(age / BUCKET_MS))].push(kind);
+    last = {
       at,
       label: kind === "msg" ? "message" : event.tool?.trim() || "tool",
-    });
+    };
   }
 
-  const last = recent.at(-1);
   return {
     lane,
     // "Session ready" placeholder observes report as live without any real
     // work — require at least one classifiable event so dormant-but-registered
-    // agents don't glow in the now band.
-    live: isAgentLaneLive(lane.observe) && recent.length > 0,
-    blocks: recent.slice(-MAX_TOWER_BLOCKS).map((entry) => entry.kind),
+    // agents don't glow at the now edge.
+    live: isAgentLaneLive(lane.observe) && classified > 0,
+    buckets: buckets.map((bucket) => bucket.slice(-BUCKET_MAX_BLOCKS)),
     counts,
     lastLabel: last?.label ?? null,
     lastAt: last?.at ?? (lane.lastActiveAt || null),
   };
-}
-
-/** 0 = front (now), 1 = 5–30 min, 2 = 30 min–4 h. */
-function towerBand(tower: FloorTower, now: number): 0 | 1 | 2 {
-  if (tower.live) return 0;
-  const age = now - (tower.lane.lastActiveAt || 0);
-  if (age <= NOW_BAND_MS) return 0;
-  if (age <= FLOOR_TRACE_WINDOW_MS) return 1;
-  return 2;
 }
 
 function countsLabel(counts: Record<FloorBlockKind, number>): string {
@@ -114,15 +118,18 @@ function countsLabel(counts: Record<FloorBlockKind, number>): string {
   ].join(" · ");
 }
 
-function TowerBlock({ kind, z, live }: {
-  kind: FloorBlockKind | "head";
+function IsoBlock({ kind, z, size = STACK_SIZE, faceH = BLOCK_H, pad, live }: {
+  kind: FloorBlockKind | "head" | "pad";
   z: number;
+  size?: number;
+  faceH?: number;
+  pad?: boolean;
   live?: boolean;
 }) {
   return (
     <span
-      className={`agent-floor__block is-${kind}${live ? " is-live" : ""}`}
-      style={{ "--z": `${z}px` } as CSSProperties}
+      className={`agent-floor__block is-${kind}${pad ? " is-pedestal" : ""}${live ? " is-live" : ""}`}
+      style={{ "--z": `${z}px`, "--bs": `${size}px`, "--bh": `${faceH}px` } as CSSProperties}
       aria-hidden="true"
     >
       <span className="agent-floor__face is-left" />
@@ -132,46 +139,69 @@ function TowerBlock({ kind, z, live }: {
   );
 }
 
-function FloorTowerFigure({ tower, x, y, onOpen }: {
-  tower: FloorTower;
-  x: number;
-  y: number;
+function FloorLaneStrip({ series, index, planeD, onOpen }: {
+  series: FloorLaneSeries;
+  index: number;
+  planeD: number;
   onOpen: (lane: AgentLane) => void;
 }) {
-  const { lane, live, blocks } = tower;
+  const { lane, live, buckets } = series;
   const agent = lane.agent;
   const name = lanePrimaryLabel(agent, lane.source);
   const sprite = agentSpriteProps(agent);
-  const stackCount = blocks.length + (live ? 1 : 0);
-  const cardZ = STACK_BASE_Z + stackCount * BLOCK_STEP + CARD_LIFT;
-  const lastAgo = tower.lastAt ? timeAgo(tower.lastAt) : null;
+  const lastAgo = series.lastAt ? timeAgo(series.lastAt) : null;
   // Registry state may claim "working" while nothing observable has landed —
   // say "quiet", not "idle", but never claim live work we can't show.
   const restingLabel = /^(working|active|running|in_turn|in_flight)/i.test(agent.state ?? "")
     ? "quiet"
     : "idle";
 
+  const padX = (LANE_PITCH - PAD_SIZE) / 2;
+  const padY = planeD - FRONT_APRON + (FRONT_APRON - PAD_SIZE) / 2;
+  const stackX = (LANE_PITCH - STACK_SIZE) / 2;
+  const cardZ = PAD_H + 4 + (live ? STACK_STEP : 0) + CARD_LIFT + (index % 3) * CARD_STAGGER;
+
   return (
     <button
       type="button"
-      className={`agent-floor__tower${live ? " is-live" : ""}`}
-      style={{ left: x, top: y }}
+      className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}`}
+      style={{ left: index * LANE_PITCH, top: 0, width: LANE_PITCH, height: planeD }}
       onClick={() => onOpen(lane)}
       aria-label={`${name} — open timeline`}
     >
-      <span className="agent-floor__ground" aria-hidden="true" />
-      <span className="agent-floor__face agent-floor__plinth-left" aria-hidden="true" />
-      <span className="agent-floor__face agent-floor__plinth-right" aria-hidden="true" />
-      <span className="agent-floor__face agent-floor__plinth-top" aria-hidden="true" />
-      <span className="agent-floor__stack" aria-hidden="true">
-        {blocks.map((kind, index) => (
-          <TowerBlock key={index} kind={kind} z={index * BLOCK_STEP} />
-        ))}
-        {live ? <TowerBlock kind="head" z={blocks.length * BLOCK_STEP} live /> : null}
+      <span className="agent-floor__lane-strip" aria-hidden="true" />
+
+      {buckets.map((blocks, bucketIndex) => {
+        if (blocks.length === 0) return null;
+        const top = planeD - FRONT_APRON - (bucketIndex + 1) * BUCKET_DEPTH
+          + (BUCKET_DEPTH - STACK_SIZE) / 2;
+        return (
+          <span
+            key={bucketIndex}
+            className="agent-floor__stack"
+            style={{ left: stackX, top }}
+            aria-hidden="true"
+          >
+            {blocks.map((kind, blockIndex) => (
+              <IsoBlock key={blockIndex} kind={kind} z={blockIndex * STACK_STEP} />
+            ))}
+          </span>
+        );
+      })}
+
+      <span className="agent-floor__pad" style={{ left: padX, top: padY }} aria-hidden="true">
+        <span className="agent-floor__ground" />
+        <IsoBlock kind="pad" z={0} size={PAD_SIZE} faceH={PAD_H} pad />
+        {live ? <IsoBlock kind="head" z={PAD_H + 2} size={STACK_SIZE} faceH={BLOCK_H} live /> : null}
       </span>
+
       <span
         className="agent-floor__bb agent-floor__card-anchor"
-        style={{ "--z": `${cardZ}px` } as CSSProperties}
+        style={{
+          left: LANE_PITCH / 2,
+          top: padY + PAD_SIZE / 2,
+          "--z": `${cardZ}px`,
+        } as CSSProperties}
       >
         <span className="agent-floor__card">
           <span className="agent-floor__card-row">
@@ -180,12 +210,12 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
             <HarnessMark harness={agent.harness} size={12} className="agent-floor__card-mark" />
             <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
           </span>
-          <span className="agent-floor__card-counts">{countsLabel(tower.counts)}</span>
+          <span className="agent-floor__card-counts">{countsLabel(series.counts)}</span>
           <span className="agent-floor__card-last">
             {live ? (
               <>
                 <span className="agent-floor__card-run">▸</span>
-                <span className="agent-floor__card-tool">{tower.lastLabel ?? "working"}</span>
+                <span className="agent-floor__card-tool">{series.lastLabel ?? "working"}</span>
                 <span className="agent-floor__card-ago">{lastAgo ?? "now"}</span>
               </>
             ) : (
@@ -203,41 +233,28 @@ function FloorTowerFigure({ tower, x, y, onOpen }: {
   );
 }
 
-const BAND_RANGE_LABEL = ["", "5 – 30 min", "30 min – 4 h"] as const;
-
 export function AgentFloorView({ lanes, now, onOpenTrace }: {
   lanes: AgentLane[];
   now: number;
   onOpenTrace: (lane: AgentLane) => void;
 }) {
-  const { bands, overflow, plane } = useMemo(() => {
-    const grouped: FloorTower[][] = [[], [], []];
-    for (const lane of lanes) {
-      const tower = buildTower(lane, now);
-      grouped[towerBand(tower, now)].push(tower);
-    }
-    for (const band of grouped) {
-      band.sort((left, right) => right.lane.lastActiveAt - left.lane.lastActiveAt);
-    }
-    const overflowCounts = grouped.map((band) => Math.max(0, band.length - MAX_TOWERS_PER_BAND));
-    const shown = grouped.map((band) => band.slice(0, MAX_TOWERS_PER_BAND));
-    const maxCount = Math.max(1, ...shown.map((band) => band.length));
-    const planeSize = Math.max(MIN_PLANE, 40 + maxCount * (PLINTH + 40));
-    return { bands: shown, overflow: overflowCounts, plane: planeSize };
+  const { series, overflow, planeW, planeD, lanesStartX } = useMemo(() => {
+    const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+    const shown = sorted.slice(0, MAX_FLOOR_LANES).map((lane) => buildFloorLane(lane, now));
+    const stripsW = shown.length * LANE_PITCH;
+    const width = Math.max(MIN_PLANE_W, stripsW + EDGE_MARGIN * 2);
+    return {
+      series: shown,
+      overflow: Math.max(0, lanes.length - shown.length),
+      planeW: width,
+      planeD: BACK_MARGIN + BUCKET_COUNT * BUCKET_DEPTH + FRONT_APRON,
+      lanesStartX: (width - stripsW) / 2,
+    };
   }, [lanes, now]);
 
-  const bandDepth = plane / 3;
-  const towerXY = (bandIndex: number, index: number, count: number): { x: number; y: number } => {
-    const usable = plane - PLINTH - 32;
-    const x = count <= 1
-      ? (plane - PLINTH) / 2
-      : 16 + (index * usable) / (count - 1);
-    const bandTop = (2 - bandIndex) * bandDepth;
-    const y = bandTop + bandDepth / 2 - PLINTH / 2 + (index % 2 === 0 ? -14 : 14);
-    return { x, y };
-  };
-
-  const liveCount = bands[0].filter((tower) => tower.live).length;
+  const liveCount = series.filter((entry) => entry.live).length;
+  const seamY = (bucketIndex: number) =>
+    planeD - FRONT_APRON - bucketIndex * BUCKET_DEPTH;
 
   return (
     <div className="agent-floor" data-live-count={liveCount}>
@@ -246,73 +263,58 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           <div
             className="agent-floor__field"
             style={{
-              width: plane,
-              height: plane,
-              left: -plane / 2,
-              top: -plane / 2,
+              width: planeW,
+              height: planeD,
+              left: -planeW / 2,
+              top: -planeD / 2,
             }}
           >
             <div className="agent-floor__plane" />
-            <div className="agent-floor__seam is-front" style={{ top: bandDepth * 2 }} />
-            <div className="agent-floor__seam is-back" style={{ top: bandDepth }} />
 
-            <div
-              className="agent-floor__bb agent-floor__band-label is-now"
-              style={{ left: 0.13 * plane, top: plane - 40 }}
-            >
-              <span className="agent-floor__band-pulse" />
-              <span>now — live</span>
-            </div>
-            <div
-              className="agent-floor__bb agent-floor__band-label"
-              style={{ left: 0.94 * plane, top: 0.61 * plane }}
-            >
-              {BAND_RANGE_LABEL[1]}
-            </div>
-            {bands[2].length === 0 ? (
+            {Array.from({ length: BUCKET_COUNT + 1 }, (_, bucketIndex) => (
               <div
-                className="agent-floor__bb agent-floor__band-empty"
-                style={{ left: 0.52 * plane, top: 0.15 * plane }}
-              >
-                <span className="agent-floor__band-range">{BAND_RANGE_LABEL[2]}</span>
-                {" · nothing this old"}
-              </div>
-            ) : (
+                key={bucketIndex}
+                className={`agent-floor__seam${bucketIndex === 0 ? " is-front" : ""}`}
+                style={{ top: seamY(bucketIndex) }}
+              />
+            ))}
+            {Array.from({ length: BUCKET_COUNT + 1 }, (_, bucketIndex) => (
               <div
-                className="agent-floor__bb agent-floor__band-label"
-                style={{ left: 0.13 * plane, top: 0.28 * plane }}
+                key={bucketIndex}
+                className={`agent-floor__bb agent-floor__tick${bucketIndex === 0 ? " is-now" : ""}`}
+                style={{ left: lanesStartX - 34, top: seamY(bucketIndex) }}
               >
-                {BAND_RANGE_LABEL[2]}
+                {bucketIndex === 0 ? (
+                  <>
+                    <span className="agent-floor__tick-pulse" />
+                    <span>now</span>
+                  </>
+                ) : (
+                  `${bucketIndex * 5}m`
+                )}
               </div>
-            )}
+            ))}
 
-            {[2, 1, 0].map((bandIndex) =>
-              bands[bandIndex].map((tower, index) => {
-                const { x, y } = towerXY(bandIndex, index, bands[bandIndex].length);
-                return (
-                  <FloorTowerFigure
-                    key={tower.lane.id}
-                    tower={tower}
-                    x={x}
-                    y={y}
-                    onOpen={onOpenTrace}
-                  />
-                );
-              }))}
+            <div className="agent-floor__lanes" style={{ left: lanesStartX, top: 0 }}>
+              {series.map((entry, index) => (
+                <FloorLaneStrip
+                  key={entry.lane.id}
+                  series={entry}
+                  index={index}
+                  planeD={planeD}
+                  onOpen={onOpenTrace}
+                />
+              ))}
+            </div>
 
-            {overflow.map((count, bandIndex) =>
-              count > 0 ? (
-                <div
-                  key={bandIndex}
-                  className="agent-floor__bb agent-floor__band-empty"
-                  style={{
-                    left: 0.85 * plane,
-                    top: (2 - bandIndex) * bandDepth + bandDepth / 2,
-                  }}
-                >
-                  +{count} {bandIndex === 0 ? "more" : "earlier"}
-                </div>
-              ) : null)}
+            {overflow > 0 ? (
+              <div
+                className="agent-floor__bb agent-floor__chip"
+                style={{ left: planeW - 36, top: planeD - FRONT_APRON - BUCKET_DEPTH }}
+              >
+                +{overflow} more agent{overflow === 1 ? "" : "s"}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -328,10 +330,10 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           <span className="agent-floor__legend-swatch is-msg" />message
         </span>
         <span className="agent-floor__legend-item">
-          <span className="agent-floor__legend-pulse" />live — top block glows
+          <span className="agent-floor__legend-pulse" />live — pad glows
         </span>
         <span className="agent-floor__legend-note">
-          Tower height = last 30 min of work · agents drift back a band as they go quiet · click a tower for the timeline
+          Each agent keeps a lane · stacks step back in 5-min buckets over the last 30 min · click a lane for its timeline
         </span>
       </footer>
     </div>
