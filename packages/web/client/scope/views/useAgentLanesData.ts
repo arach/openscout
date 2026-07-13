@@ -49,14 +49,18 @@ export function useAgentLanesData({
   defaultWidthTier = "md",
   harnessFilter,
   projectFilter,
+  horizonOverride,
 }: {
   scoutAgents: Agent[];
   defaultWidthTier?: AgentLaneWidthTier;
   harnessFilter?: string | null;
   projectFilter?: string | null;
+  /** Pin the admission window (e.g. floor layout) without touching the stored choice. */
+  horizonOverride?: AgentLaneHorizonKey;
 }) {
   const [now, setNow] = useState(Date.now());
-  const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
+  const [storedHorizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
+  const horizon = horizonOverride ?? storedHorizon;
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
 
@@ -95,11 +99,11 @@ export function useAgentLanesData({
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(LANE_HORIZON_STORAGE_KEY, horizon);
+      sessionStorage.setItem(LANE_HORIZON_STORAGE_KEY, storedHorizon);
     } catch {
       // ignore storage failures
     }
-  }, [horizon]);
+  }, [storedHorizon]);
 
   const laneOrderRef = useRef(createStableLaneOrder());
   const observeAgents = useMemo(
