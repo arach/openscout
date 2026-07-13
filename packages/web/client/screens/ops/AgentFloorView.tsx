@@ -1,6 +1,6 @@
 import "./agent-floor.css";
 
-import { useMemo, type CSSProperties } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { agentSpriteProps, SpriteAvatar } from "../../components/SpriteAvatar.tsx";
@@ -15,12 +15,14 @@ import {
 
 /**
  * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
- * isometric plane where each agent keeps a LANE strip and the depth axis is
- * TIME: the agent's pad and identity card sit at the front ("now") and their
- * work recedes into the past as block stacks, one stack per five-minute
- * bucket over the last thirty minutes. Stack height reads as "how much work
- * happened then"; an empty strip reads as a quiet recent past. Live agents'
- * pads glow; clicking a lane opens the host surface's trace detail.
+ * isometric plane where each agent keeps a LANE strip stacked along the
+ * isometric Y and the other axis is TIME: the agent's pad and identity card
+ * sit at the "now" edge and their work recedes into the past as block stacks,
+ * one per five-minute bucket over the last thirty minutes. Stack height reads
+ * as "how much work happened then"; an empty strip reads as a quiet recent
+ * past. Live agents' pads glow; clicking a lane opens the host surface's
+ * trace detail. Which side history accumulates on is a user preference (the
+ * legend control flips it; persisted).
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -46,9 +48,24 @@ const BUCKET_DEPTH = 88;
 const FRONT_APRON = 150;
 const BACK_MARGIN = 48;
 const EDGE_MARGIN = 24;
-const MIN_PLANE_W = 480;
+const MIN_PLANE_D = 480;
 const CARD_LIFT = 84;
 const CARD_STAGGER = 42;
+
+/** Which plane edge history drifts toward ("now" sits on the other side). */
+type FloorOrientation = "past-left" | "past-right";
+
+const FLOOR_ORIENT_STORAGE_KEY = "openscout:agent-floor-orient";
+
+function readStoredOrientation(): FloorOrientation {
+  try {
+    const stored = localStorage.getItem(FLOOR_ORIENT_STORAGE_KEY);
+    if (stored === "past-left" || stored === "past-right") return stored;
+  } catch {
+    // ignore storage failures
+  }
+  return "past-left";
+}
 
 type FloorBlockKind = "tool" | "edit" | "msg";
 
@@ -139,10 +156,12 @@ function IsoBlock({ kind, z, size = STACK_SIZE, faceH = BLOCK_H, pad, live }: {
   );
 }
 
-function FloorLaneStrip({ series, index, planeD, onOpen }: {
+function FloorLaneStrip({ series, index, planeW, flip, onOpen }: {
   series: FloorLaneSeries;
   index: number;
-  planeD: number;
+  planeW: number;
+  /** true = past accumulates to the RIGHT (pads on the left edge). */
+  flip: boolean;
   onOpen: (lane: AgentLane) => void;
 }) {
   const { lane, live, buckets } = series;
@@ -156,16 +175,24 @@ function FloorLaneStrip({ series, index, planeD, onOpen }: {
     ? "quiet"
     : "idle";
 
-  const padX = (LANE_PITCH - PAD_SIZE) / 2;
-  const padY = planeD - FRONT_APRON + (FRONT_APRON - PAD_SIZE) / 2;
-  const stackX = (LANE_PITCH - STACK_SIZE) / 2;
+  const padX = flip
+    ? (FRONT_APRON - PAD_SIZE) / 2
+    : planeW - FRONT_APRON + (FRONT_APRON - PAD_SIZE) / 2;
+  const padY = (LANE_PITCH - PAD_SIZE) / 2;
+  const stackY = (LANE_PITCH - STACK_SIZE) / 2;
+  const stackX = (bucketIndex: number) => {
+    const inset = (BUCKET_DEPTH - STACK_SIZE) / 2;
+    return flip
+      ? FRONT_APRON + bucketIndex * BUCKET_DEPTH + inset
+      : planeW - FRONT_APRON - (bucketIndex + 1) * BUCKET_DEPTH + inset;
+  };
   const cardZ = PAD_H + 4 + (live ? STACK_STEP : 0) + CARD_LIFT + (index % 3) * CARD_STAGGER;
 
   return (
     <button
       type="button"
       className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}`}
-      style={{ left: index * LANE_PITCH, top: 0, width: LANE_PITCH, height: planeD }}
+      style={{ left: 0, top: index * LANE_PITCH, width: planeW, height: LANE_PITCH }}
       onClick={() => onOpen(lane)}
       aria-label={`${name} — open timeline`}
     >
@@ -173,13 +200,11 @@ function FloorLaneStrip({ series, index, planeD, onOpen }: {
 
       {buckets.map((blocks, bucketIndex) => {
         if (blocks.length === 0) return null;
-        const top = planeD - FRONT_APRON - (bucketIndex + 1) * BUCKET_DEPTH
-          + (BUCKET_DEPTH - STACK_SIZE) / 2;
         return (
           <span
             key={bucketIndex}
             className="agent-floor__stack"
-            style={{ left: stackX, top }}
+            style={{ left: stackX(bucketIndex), top: stackY }}
             aria-hidden="true"
           >
             {blocks.map((kind, blockIndex) => (
@@ -198,7 +223,7 @@ function FloorLaneStrip({ series, index, planeD, onOpen }: {
       <span
         className="agent-floor__bb agent-floor__card-anchor"
         style={{
-          left: LANE_PITCH / 2,
+          left: padX + PAD_SIZE / 2,
           top: padY + PAD_SIZE / 2,
           "--z": `${cardZ}px`,
         } as CSSProperties}
@@ -238,26 +263,43 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   now: number;
   onOpenTrace: (lane: AgentLane) => void;
 }) {
-  const { series, overflow, planeW, planeD, lanesStartX } = useMemo(() => {
+  const [orientation, setOrientation] = useState<FloorOrientation>(readStoredOrientation);
+  const flip = orientation === "past-right";
+  const flipOrientation = useCallback(() => {
+    setOrientation((current) => {
+      const next: FloorOrientation = current === "past-left" ? "past-right" : "past-left";
+      try {
+        localStorage.setItem(FLOOR_ORIENT_STORAGE_KEY, next);
+      } catch {
+        // ignore storage failures
+      }
+      return next;
+    });
+  }, []);
+
+  const { series, overflow, planeW, planeD, lanesStartY } = useMemo(() => {
     const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
-    const shown = sorted.slice(0, MAX_FLOOR_LANES).map((lane) => buildFloorLane(lane, now));
-    const stripsW = shown.length * LANE_PITCH;
-    const width = Math.max(MIN_PLANE_W, stripsW + EDGE_MARGIN * 2);
+    // Most recent lane renders nearest the viewer (largest isometric Y).
+    const shown = sorted.slice(0, MAX_FLOOR_LANES).reverse().map((lane) => buildFloorLane(lane, now));
+    const stripsH = shown.length * LANE_PITCH;
+    const depth = Math.max(MIN_PLANE_D, stripsH + EDGE_MARGIN * 2);
     return {
       series: shown,
       overflow: Math.max(0, lanes.length - shown.length),
-      planeW: width,
-      planeD: BACK_MARGIN + BUCKET_COUNT * BUCKET_DEPTH + FRONT_APRON,
-      lanesStartX: (width - stripsW) / 2,
+      planeW: BACK_MARGIN + BUCKET_COUNT * BUCKET_DEPTH + FRONT_APRON,
+      planeD: depth,
+      lanesStartY: (depth - stripsH) / 2,
     };
   }, [lanes, now]);
 
   const liveCount = series.filter((entry) => entry.live).length;
-  const seamY = (bucketIndex: number) =>
-    planeD - FRONT_APRON - bucketIndex * BUCKET_DEPTH;
+  const seamX = (bucketIndex: number) => (flip
+    ? FRONT_APRON + bucketIndex * BUCKET_DEPTH
+    : planeW - FRONT_APRON - bucketIndex * BUCKET_DEPTH);
+  const ticksY = lanesStartY + series.length * LANE_PITCH + 26;
 
   return (
-    <div className="agent-floor" data-live-count={liveCount}>
+    <div className="agent-floor" data-live-count={liveCount} data-floor-orient={orientation}>
       <div className="agent-floor__viewport">
         <div className="agent-floor__stage">
           <div
@@ -275,14 +317,14 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
               <div
                 key={bucketIndex}
                 className={`agent-floor__seam${bucketIndex === 0 ? " is-front" : ""}`}
-                style={{ top: seamY(bucketIndex) }}
+                style={{ left: seamX(bucketIndex) }}
               />
             ))}
             {Array.from({ length: BUCKET_COUNT + 1 }, (_, bucketIndex) => (
               <div
                 key={bucketIndex}
                 className={`agent-floor__bb agent-floor__tick${bucketIndex === 0 ? " is-now" : ""}`}
-                style={{ left: lanesStartX - 34, top: seamY(bucketIndex) }}
+                style={{ left: seamX(bucketIndex), top: ticksY }}
               >
                 {bucketIndex === 0 ? (
                   <>
@@ -295,13 +337,14 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
               </div>
             ))}
 
-            <div className="agent-floor__lanes" style={{ left: lanesStartX, top: 0 }}>
+            <div className="agent-floor__lanes" style={{ left: 0, top: lanesStartY }}>
               {series.map((entry, index) => (
                 <FloorLaneStrip
                   key={entry.lane.id}
                   series={entry}
                   index={index}
-                  planeD={planeD}
+                  planeW={planeW}
+                  flip={flip}
                   onOpen={onOpenTrace}
                 />
               ))}
@@ -310,7 +353,10 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
             {overflow > 0 ? (
               <div
                 className="agent-floor__bb agent-floor__chip"
-                style={{ left: planeW - 36, top: planeD - FRONT_APRON - BUCKET_DEPTH }}
+                style={{
+                  left: flip ? FRONT_APRON / 2 : planeW - FRONT_APRON / 2,
+                  top: ticksY + 30,
+                }}
               >
                 +{overflow} more agent{overflow === 1 ? "" : "s"}
               </div>
@@ -332,6 +378,14 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
         <span className="agent-floor__legend-item">
           <span className="agent-floor__legend-pulse" />live — pad glows
         </span>
+        <button
+          type="button"
+          className="agent-floor__legend-flip"
+          onClick={flipOrientation}
+          title="Flip which side history accumulates on"
+        >
+          past {flip ? "→" : "←"}
+        </button>
         <span className="agent-floor__legend-note">
           Each agent keeps a lane · stacks step back in 5-min buckets over the last 30 min · click a lane for its timeline
         </span>
