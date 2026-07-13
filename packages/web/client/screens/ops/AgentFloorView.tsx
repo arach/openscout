@@ -16,13 +16,15 @@ import {
 /**
  * AgentFloorView — the "floor" lane treatment, shared across surfaces. An
  * isometric plane where each agent keeps a LANE strip stacked along the
- * isometric Y and the other axis is TIME: the agent's pad and identity card
- * sit at the "now" edge and their work recedes into the past as block stacks,
- * one per five-minute bucket over the last thirty minutes. Stack height reads
- * as "how much work happened then"; an empty strip reads as a quiet recent
- * past. Live agents' pads glow; clicking a lane opens the host surface's
- * trace detail. Which side history accumulates on is a user preference (the
- * legend control flips it; persisted).
+ * isometric Y and the other axis is TIME, anchored to wall-clock five-minute
+ * slots: the leading slot is live and grows as events land; behind it, slots
+ * are MINTED — once their five minutes pass they sit still (the whole strip
+ * shifts one slot only at each mint boundary). Each minted tower stands on a
+ * slab whose side carries the tool/edit/message mix; hovering a tower
+ * projects a readable summary of that slot, and hovering a lane flattens the
+ * lanes around it until you're done reading. Clicking a lane opens the host
+ * surface's trace detail. Which side history accumulates on is a persisted
+ * preference (the legend control flips it).
  *
  * Theming: the component paints entirely from `--floor-*` inputs, which
  * default to the app-global tokens (`--bg`, `--ink`, `--dim`, `--accent`,
@@ -31,17 +33,19 @@ import {
  * by overriding those inputs, not by touching the component.
  */
 
-/** The time axis covers the last 30 minutes in five-minute buckets. */
-const FLOOR_TRACE_WINDOW_MS = 30 * 60_000;
 const BUCKET_MS = 5 * 60_000;
-const BUCKET_COUNT = 6;
-const BUCKET_MAX_BLOCKS = 8;
+/** Minted (static) slots behind the live one — 6 × 5m = 30 min of past. */
+const MINTED_SLOTS = 6;
+const TOTAL_SLOTS = MINTED_SLOTS + 1;
+const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
 
 const LANE_PITCH = 132;
 const STACK_SIZE = 56;
 const STACK_STEP = 14;
 const BLOCK_H = 12;
+const SLAB_SIZE = 66;
+const SLAB_H = 7;
 const PAD_SIZE = 96;
 const PAD_H = 12;
 const BUCKET_DEPTH = 88;
@@ -67,13 +71,29 @@ function readStoredOrientation(): FloorOrientation {
   return "past-left";
 }
 
+function fmtSlotClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 type FloorBlockKind = "tool" | "edit" | "msg";
+
+type FloorSlot = {
+  blocks: FloorBlockKind[];
+  counts: Record<FloorBlockKind, number>;
+  /** Tool name → call count, for the hover projection. */
+  tools: Array<[string, number]>;
+  total: number;
+};
 
 type FloorLaneSeries = {
   lane: AgentLane;
   live: boolean;
-  /** Index 0 = the 0–5m bucket, blocks in chronological order. */
-  buckets: FloorBlockKind[][];
+  /** Index 0 = the live slot, 1..MINTED_SLOTS = minted five-minute slots. */
+  slots: FloorSlot[];
   counts: Record<FloorBlockKind, number>;
   lastLabel: string | null;
   lastAt: number | null;
@@ -90,10 +110,20 @@ function classifyObserveEvent(event: ObserveEvent): FloorBlockKind | null {
   return null;
 }
 
-function buildFloorLane(lane: AgentLane, now: number): FloorLaneSeries {
+function buildFloorLane(lane: AgentLane, periodStart: number): FloorLaneSeries {
   const sessionStart = lane.observe?.metadata?.session?.sessionStart;
   const counts: Record<FloorBlockKind, number> = { tool: 0, edit: 0, msg: 0 };
-  const buckets: FloorBlockKind[][] = Array.from({ length: BUCKET_COUNT }, () => []);
+  const slots: Array<{
+    blocks: FloorBlockKind[];
+    counts: Record<FloorBlockKind, number>;
+    tools: Map<string, number>;
+    total: number;
+  }> = Array.from({ length: TOTAL_SLOTS }, () => ({
+    blocks: [],
+    counts: { tool: 0, edit: 0, msg: 0 },
+    tools: new Map(),
+    total: 0,
+  }));
   let classified = 0;
   let last: { at: number | null; label: string } | null = null;
 
@@ -101,11 +131,19 @@ function buildFloorLane(lane: AgentLane, now: number): FloorLaneSeries {
     const kind = classifyObserveEvent(event);
     if (!kind) continue;
     const at = observeEventWallMs(event, sessionStart);
-    const age = at === null ? 0 : Math.max(0, now - at);
-    if (age >= FLOOR_TRACE_WINDOW_MS) continue;
+    // Wall-clock slot: 0 = the live period, k = the k-th minted five minutes.
+    const slotIndex = at === null || at >= periodStart
+      ? 0
+      : Math.floor((periodStart - at) / BUCKET_MS) + 1;
+    if (slotIndex >= TOTAL_SLOTS) continue;
+    const slot = slots[slotIndex];
+    slot.blocks.push(kind);
+    slot.counts[kind] += 1;
+    slot.total += 1;
     counts[kind] += 1;
     classified += 1;
-    buckets[Math.min(BUCKET_COUNT - 1, Math.floor(age / BUCKET_MS))].push(kind);
+    const toolName = kind === "msg" ? null : event.tool?.trim() || "tool";
+    if (toolName) slot.tools.set(toolName, (slot.tools.get(toolName) ?? 0) + 1);
     last = {
       at,
       label: kind === "msg" ? "message" : event.tool?.trim() || "tool",
@@ -118,7 +156,12 @@ function buildFloorLane(lane: AgentLane, now: number): FloorLaneSeries {
     // work — require at least one classifiable event so dormant-but-registered
     // agents don't glow at the now edge.
     live: isAgentLaneLive(lane.observe) && classified > 0,
-    buckets: buckets.map((bucket) => bucket.slice(-BUCKET_MAX_BLOCKS)),
+    slots: slots.map((slot) => ({
+      blocks: slot.blocks.slice(-SLOT_MAX_BLOCKS),
+      counts: slot.counts,
+      tools: [...slot.tools.entries()].sort((left, right) => right[1] - left[1]),
+      total: slot.total,
+    })),
     counts,
     lastLabel: last?.label ?? null,
     lastAt: last?.at ?? (lane.lastActiveAt || null),
@@ -156,15 +199,73 @@ function IsoBlock({ kind, z, size = STACK_SIZE, faceH = BLOCK_H, pad, live }: {
   );
 }
 
-function FloorLaneStrip({ series, index, planeW, flip, onOpen }: {
+/** Slab under a minted tower — its sides carry the tool/edit/msg mix. */
+function SlotSlab({ slot }: { slot: FloorSlot }) {
+  const total = Math.max(1, slot.total);
+  const toolPct = (slot.counts.tool / total) * 100;
+  const editPct = (slot.counts.edit / total) * 100;
+  return (
+    <span
+      className="agent-floor__block agent-floor__slab"
+      style={{
+        "--z": "0px",
+        "--bs": `${SLAB_SIZE}px`,
+        "--bh": `${SLAB_H}px`,
+        "--mix-a": `${toolPct.toFixed(1)}%`,
+        "--mix-b": `${(toolPct + editPct).toFixed(1)}%`,
+      } as CSSProperties}
+      aria-hidden="true"
+    >
+      <span className="agent-floor__face is-left" />
+      <span className="agent-floor__face is-right" />
+      <span className="agent-floor__face is-top" />
+    </span>
+  );
+}
+
+function SlotPeek({ slot, slotIndex, periodStart }: {
+  slot: FloorSlot;
+  slotIndex: number;
+  periodStart: number;
+}) {
+  const rangeLabel = slotIndex === 0
+    ? `${fmtSlotClock(periodStart)} — now`
+    : `${fmtSlotClock(periodStart - slotIndex * BUCKET_MS)} – ${fmtSlotClock(periodStart - (slotIndex - 1) * BUCKET_MS)}`;
+  return (
+    <span className="agent-floor__peek">
+      <span className="agent-floor__peek-range">{rangeLabel}</span>
+      <span className="agent-floor__peek-cols">
+        <span className="agent-floor__peek-col">
+          {slot.tools.slice(0, 3).map(([tool, count]) => (
+            <span key={tool} className="agent-floor__peek-tool">
+              {tool}{count > 1 ? ` ×${count}` : ""}
+            </span>
+          ))}
+          {slot.tools.length === 0 ? (
+            <span className="agent-floor__peek-tool is-empty">no tools</span>
+          ) : null}
+        </span>
+        <span className="agent-floor__peek-col is-right">
+          <span>{slot.counts.edit} edit{slot.counts.edit === 1 ? "" : "s"}</span>
+          <span>{slot.counts.msg} msg{slot.counts.msg === 1 ? "" : "s"}</span>
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function FloorLaneStrip({ series, index, planeW, flip, periodStart, peekSlot, onPeek, onOpen }: {
   series: FloorLaneSeries;
   index: number;
   planeW: number;
   /** true = past accumulates to the RIGHT (pads on the left edge). */
   flip: boolean;
+  periodStart: number;
+  peekSlot: number | null;
+  onPeek: (laneId: string, slotIndex: number | null) => void;
   onOpen: (lane: AgentLane) => void;
 }) {
-  const { lane, live, buckets } = series;
+  const { lane, live, slots } = series;
   const agent = lane.agent;
   const name = lanePrimaryLabel(agent, lane.source);
   const sprite = agentSpriteProps(agent);
@@ -180,11 +281,11 @@ function FloorLaneStrip({ series, index, planeW, flip, onOpen }: {
     : planeW - FRONT_APRON + (FRONT_APRON - PAD_SIZE) / 2;
   const padY = (LANE_PITCH - PAD_SIZE) / 2;
   const stackY = (LANE_PITCH - STACK_SIZE) / 2;
-  const stackX = (bucketIndex: number) => {
-    const inset = (BUCKET_DEPTH - STACK_SIZE) / 2;
+  const slotX = (slotIndex: number, width: number) => {
+    const inset = (BUCKET_DEPTH - width) / 2;
     return flip
-      ? FRONT_APRON + bucketIndex * BUCKET_DEPTH + inset
-      : planeW - FRONT_APRON - (bucketIndex + 1) * BUCKET_DEPTH + inset;
+      ? FRONT_APRON + slotIndex * BUCKET_DEPTH + inset
+      : planeW - FRONT_APRON - (slotIndex + 1) * BUCKET_DEPTH + inset;
   };
   const cardZ = PAD_H + 4 + (live ? STACK_STEP : 0) + CARD_LIFT + (index % 3) * CARD_STAGGER;
 
@@ -194,22 +295,43 @@ function FloorLaneStrip({ series, index, planeW, flip, onOpen }: {
       className={`agent-floor__lane${live ? " is-live" : ""}${index % 2 === 1 ? " is-alt" : ""}`}
       style={{ left: 0, top: index * LANE_PITCH, width: planeW, height: LANE_PITCH }}
       onClick={() => onOpen(lane)}
+      onMouseLeave={() => onPeek(lane.id, null)}
       aria-label={`${name} — open timeline`}
     >
       <span className="agent-floor__lane-strip" aria-hidden="true" />
 
-      {buckets.map((blocks, bucketIndex) => {
-        if (blocks.length === 0) return null;
+      {slots.map((slot, slotIndex) => {
+        if (slot.total === 0) return null;
+        const peeking = peekSlot === slotIndex;
+        const stackTopZ = SLAB_H + 2 + slot.blocks.length * STACK_STEP;
         return (
           <span
-            key={bucketIndex}
-            className="agent-floor__stack"
-            style={{ left: stackX(bucketIndex), top: stackY }}
-            aria-hidden="true"
+            key={slotIndex}
+            className={`agent-floor__stack${slotIndex === 0 ? " is-now" : " is-minted"}${peeking ? " is-peeking" : ""}`}
+            style={{ left: slotX(slotIndex, SLAB_SIZE), top: stackY - (SLAB_SIZE - STACK_SIZE) / 2 }}
+            onMouseEnter={() => onPeek(lane.id, slotIndex)}
           >
-            {blocks.map((kind, blockIndex) => (
-              <IsoBlock key={blockIndex} kind={kind} z={blockIndex * STACK_STEP} />
-            ))}
+            <SlotSlab slot={slot} />
+            <span
+              className="agent-floor__stack-blocks"
+              style={{ left: (SLAB_SIZE - STACK_SIZE) / 2, top: (SLAB_SIZE - STACK_SIZE) / 2 }}
+            >
+              {slot.blocks.map((kind, blockIndex) => (
+                <IsoBlock key={blockIndex} kind={kind} z={SLAB_H + 2 + blockIndex * STACK_STEP} />
+              ))}
+            </span>
+            {peeking ? (
+              <span
+                className="agent-floor__bb agent-floor__peek-anchor"
+                style={{
+                  left: SLAB_SIZE / 2,
+                  top: SLAB_SIZE / 2,
+                  "--z": `${stackTopZ + 46}px`,
+                } as CSSProperties}
+              >
+                <SlotPeek slot={slot} slotIndex={slotIndex} periodStart={periodStart} />
+              </span>
+            ) : null}
           </span>
         );
       })}
@@ -264,6 +386,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
   onOpenTrace: (lane: AgentLane) => void;
 }) {
   const [orientation, setOrientation] = useState<FloorOrientation>(readStoredOrientation);
+  const [peek, setPeek] = useState<{ laneId: string; slot: number } | null>(null);
   const flip = orientation === "past-right";
   const flipOrientation = useCallback(() => {
     setOrientation((current) => {
@@ -276,26 +399,34 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
       return next;
     });
   }, []);
+  const handlePeek = useCallback((laneId: string, slot: number | null) => {
+    setPeek(slot === null ? null : { laneId, slot });
+  }, []);
+
+  // Slots anchor to wall-clock five-minute periods: minted towers hold still;
+  // everything shifts one slot only when a new period mints.
+  const periodStart = Math.floor(now / BUCKET_MS) * BUCKET_MS;
 
   const { series, overflow, planeW, planeD, lanesStartY } = useMemo(() => {
     const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
     // Most recent lane renders nearest the viewer (largest isometric Y).
-    const shown = sorted.slice(0, MAX_FLOOR_LANES).reverse().map((lane) => buildFloorLane(lane, now));
+    const shown = sorted.slice(0, MAX_FLOOR_LANES).reverse()
+      .map((lane) => buildFloorLane(lane, periodStart));
     const stripsH = shown.length * LANE_PITCH;
     const depth = Math.max(MIN_PLANE_D, stripsH + EDGE_MARGIN * 2);
     return {
       series: shown,
       overflow: Math.max(0, lanes.length - shown.length),
-      planeW: BACK_MARGIN + BUCKET_COUNT * BUCKET_DEPTH + FRONT_APRON,
+      planeW: BACK_MARGIN + TOTAL_SLOTS * BUCKET_DEPTH + FRONT_APRON,
       planeD: depth,
       lanesStartY: (depth - stripsH) / 2,
     };
-  }, [lanes, now]);
+  }, [lanes, periodStart]);
 
   const liveCount = series.filter((entry) => entry.live).length;
-  const seamX = (bucketIndex: number) => (flip
-    ? FRONT_APRON + bucketIndex * BUCKET_DEPTH
-    : planeW - FRONT_APRON - bucketIndex * BUCKET_DEPTH);
+  const seamX = (slotIndex: number) => (flip
+    ? FRONT_APRON + slotIndex * BUCKET_DEPTH
+    : planeW - FRONT_APRON - slotIndex * BUCKET_DEPTH);
   const ticksY = lanesStartY + series.length * LANE_PITCH + 26;
 
   return (
@@ -313,26 +444,26 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           >
             <div className="agent-floor__plane" />
 
-            {Array.from({ length: BUCKET_COUNT + 1 }, (_, bucketIndex) => (
+            {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
               <div
-                key={bucketIndex}
-                className={`agent-floor__seam${bucketIndex === 0 ? " is-front" : ""}`}
-                style={{ left: seamX(bucketIndex) }}
+                key={slotIndex}
+                className={`agent-floor__seam${slotIndex === 0 ? " is-front" : ""}`}
+                style={{ left: seamX(slotIndex) }}
               />
             ))}
-            {Array.from({ length: BUCKET_COUNT + 1 }, (_, bucketIndex) => (
+            {Array.from({ length: TOTAL_SLOTS + 1 }, (_, slotIndex) => (
               <div
-                key={bucketIndex}
-                className={`agent-floor__bb agent-floor__tick${bucketIndex === 0 ? " is-now" : ""}`}
-                style={{ left: seamX(bucketIndex), top: ticksY }}
+                key={slotIndex}
+                className={`agent-floor__bb agent-floor__tick${slotIndex === 0 ? " is-now" : ""}`}
+                style={{ left: seamX(slotIndex), top: ticksY }}
               >
-                {bucketIndex === 0 ? (
+                {slotIndex === 0 ? (
                   <>
                     <span className="agent-floor__tick-pulse" />
                     <span>now</span>
                   </>
                 ) : (
-                  `${bucketIndex * 5}m`
+                  fmtSlotClock(periodStart - (slotIndex - 1) * BUCKET_MS)
                 )}
               </div>
             ))}
@@ -345,6 +476,9 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
                   index={index}
                   planeW={planeW}
                   flip={flip}
+                  periodStart={periodStart}
+                  peekSlot={peek?.laneId === entry.lane.id ? peek.slot : null}
+                  onPeek={handlePeek}
                   onOpen={onOpenTrace}
                 />
               ))}
@@ -387,7 +521,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace }: {
           past {flip ? "→" : "←"}
         </button>
         <span className="agent-floor__legend-note">
-          Each agent keeps a lane · stacks step back in 5-min buckets over the last 30 min · click a lane for its timeline
+          Towers mint every 5 min and hold still · the leading slot is live · hover a tower for its summary · click a lane for the timeline
         </span>
       </footer>
     </div>

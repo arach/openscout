@@ -196,6 +196,15 @@
   color: inherit;
   font: inherit;
   text-align: left;
+  transition: opacity 0.32s ease, transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Focus the lane you're reading — the others drop toward the plane and dim. */
+@media (hover: hover) {
+  .agent-floor__lanes:has(.agent-floor__lane:hover) .agent-floor__lane:not(:hover) {
+    opacity: 0.35;
+    transform: scaleZ(0.18);
+  }
 }
 
 .agent-floor__lane:focus-visible {
@@ -225,6 +234,87 @@
   position: absolute;
   transform-style: preserve-3d;
   display: block;
+}
+
+.agent-floor__stack-blocks {
+  position: absolute;
+  transform-style: preserve-3d;
+  display: block;
+}
+
+/* Minted-slot slab — its sides carry the tool/edit/msg mix as segments. */
+.agent-floor__slab {
+  --ring: var(--floor-line-2);
+}
+
+.agent-floor__slab .is-left,
+.agent-floor__slab .is-right {
+  background:
+    linear-gradient(90deg,
+      var(--floor-face-3) 0 var(--mix-a, 100%),
+      color-mix(in oklab, var(--floor-accent) 45%, var(--floor-face-3)) var(--mix-a, 100%) var(--mix-b, 100%),
+      color-mix(in oklab, var(--floor-ok) 40%, var(--floor-face-3)) var(--mix-b, 100%) 100%);
+}
+
+.agent-floor__slab .is-top {
+  background: var(--floor-face-2);
+}
+
+/* Hover projection — a readable summary of one five-minute slot. */
+.agent-floor__peek-anchor {
+  pointer-events: none;
+}
+
+.agent-floor__peek {
+  display: block;
+  background: linear-gradient(180deg, var(--floor-face-2), var(--floor-face-1));
+  border: 1px solid var(--floor-accent-line);
+  border-radius: 9px;
+  padding: 7px 10px;
+  box-shadow: 0 18px 38px -16px var(--floor-shadow-strong);
+}
+
+.agent-floor__peek-range {
+  display: block;
+  font-family: var(--floor-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--floor-muted);
+  margin-bottom: 5px;
+  white-space: nowrap;
+}
+
+.agent-floor__peek-cols {
+  display: flex;
+  gap: 12px;
+}
+
+.agent-floor__peek-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--floor-mono);
+  font-size: 10px;
+  color: color-mix(in oklab, var(--floor-ink) 82%, var(--floor-muted));
+}
+
+.agent-floor__peek-col.is-right {
+  flex: none;
+  text-align: right;
+  color: color-mix(in oklab, var(--floor-ink) 62%, var(--floor-muted));
+}
+
+.agent-floor__peek-tool {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__peek-tool.is-empty {
+  color: var(--floor-muted);
 }
 
 .agent-floor__pad {
