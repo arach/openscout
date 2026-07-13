@@ -22,6 +22,22 @@ enum TerminalDictationPhase: Equatable {
     }
 }
 
+/// The two visible layouts owned by hudson's hosted keyboard. Hiding the
+/// keyboard is a Scout presentation concern, so `TerminalSurface` keeps that as
+/// a separate third state instead of teaching the reusable keyboard about its
+/// container.
+enum TerminalKeyboardLayout: Equatable {
+    case quick
+    case full
+
+    var hostedInitialLayout: HudHostedKeyboard.InitialLayout {
+        switch self {
+        case .quick: .minimal
+        case .full: .compact
+        }
+    }
+}
+
 struct TerminalHostedKeyboard: UIViewRepresentable {
     /// Writes raw bytes to the PTY channel.
     var send: (Data) -> Void
@@ -36,6 +52,10 @@ struct TerminalHostedKeyboard: UIViewRepresentable {
     /// The keyboard self-sizes; it reports its height back here so the host can
     /// give the representable the right frame.
     @Binding var preferredHeight: CGFloat
+    /// Programmatic layout selection plus a callback for the keyboard's native
+    /// swipe gestures, so the SwiftUI container and UIKit keyboard stay in sync.
+    var layout: TerminalKeyboardLayout
+    var onLayoutChange: (TerminalKeyboardLayout) -> Void
 
     /// Terminal quick-tray (the collapsed, swipe-down layout): ESC / TAB / mic /
     /// ^C / RET. The hosted keyboard injects the dictate button between slots 2
@@ -53,18 +73,27 @@ struct TerminalHostedKeyboard: UIViewRepresentable {
 
     func makeUIView(context: Context) -> HudHostedKeyboard {
         let keyboard = HudHostedKeyboard()
+        keyboard.preferredInitialLayout = layout.hostedInitialLayout
         keyboard.inputHost = context.coordinator
         keyboard.customMinimalSlotConfigs = Self.minimalSlots
         keyboard.showsMinimalDictateButton = true
         keyboard.onDictationToggle = { [weak coordinator = context.coordinator] in
             coordinator?.onDictate()
         }
-        keyboard.onLayoutHeightChange = { [weak keyboard] in
+        keyboard.onLayoutHeightChange = { [weak keyboard, weak coordinator = context.coordinator] in
             guard let keyboard else { return }
             let height = keyboard.intrinsicContentSize.height
-            DispatchQueue.main.async { preferredHeight = height }
+            // The minimal tray is 48pt plus any bottom safe-area inset; the
+            // QWERTY is 230pt plus that same inset. The wide gap is deliberate
+            // and makes this resilient to future padding tweaks.
+            let resolvedLayout: TerminalKeyboardLayout = height < 160 ? .quick : .full
+            DispatchQueue.main.async {
+                preferredHeight = height
+                coordinator?.onLayoutChange(resolvedLayout)
+            }
         }
         context.coordinator.keyboard = keyboard
+        context.coordinator.onLayoutChange = onLayoutChange
         context.coordinator.lastSuccessPulse = successPulse
         keyboard.setDictationState(dictationPhase.keyboardState)
         DispatchQueue.main.async { preferredHeight = keyboard.intrinsicContentSize.height }
@@ -74,6 +103,11 @@ struct TerminalHostedKeyboard: UIViewRepresentable {
     func updateUIView(_ uiView: HudHostedKeyboard, context: Context) {
         context.coordinator.send = send
         context.coordinator.onDictate = onDictate
+        context.coordinator.onLayoutChange = onLayoutChange
+        let targetLayout = layout.hostedInitialLayout
+        if uiView.preferredInitialLayout != targetLayout {
+            uiView.preferredInitialLayout = targetLayout
+        }
         uiView.setDictationState(dictationPhase.keyboardState)
         if successPulse != context.coordinator.lastSuccessPulse {
             context.coordinator.lastSuccessPulse = successPulse
@@ -85,6 +119,7 @@ struct TerminalHostedKeyboard: UIViewRepresentable {
     final class Coordinator: KeyboardInputHost {
         var send: (Data) -> Void
         var onDictate: () -> Void
+        var onLayoutChange: (TerminalKeyboardLayout) -> Void = { _ in }
         weak var keyboard: HudHostedKeyboard?
         /// Last `successPulse` we flashed, so a re-render only flashes once per bump.
         var lastSuccessPulse = 0

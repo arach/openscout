@@ -38,6 +38,91 @@ export interface MobileTerminalProvisionResult {
   hostKeyFingerprint: string;
 }
 
+export interface MobileTerminalStatusResult {
+  shellExecutable: string;
+  wrapperKind: "tmux";
+  wrapperInstalled: boolean;
+  sessionName: "scout";
+  sessionExists: boolean;
+  attachedClients: number;
+  paneColumns: number | null;
+  paneRows: number | null;
+  paneCommand: string | null;
+}
+
+/**
+ * Inspect the persistent shell wrapper without reading its transcript or
+ * mutating it. This is intentionally metadata-only diagnostics for the mobile
+ * Settings surface.
+ */
+export async function readMobileTerminalStatus(): Promise<MobileTerminalStatusResult> {
+  const base: MobileTerminalStatusResult = {
+    shellExecutable: process.env.SHELL?.trim() || "/bin/zsh",
+    wrapperKind: "tmux",
+    wrapperInstalled: false,
+    sessionName: "scout",
+    sessionExists: false,
+    attachedClients: 0,
+    paneColumns: null,
+    paneRows: null,
+    paneCommand: null,
+  };
+
+  let tmuxPath: string;
+  try {
+    const resolved = await execSystemFile("zsh", ["-lc", "command -v tmux"], {
+      timeoutMs: 2_000,
+      maxStdoutBytes: 4 * 1024,
+      maxStderrBytes: 4 * 1024,
+    });
+    tmuxPath = resolved.stdout.trim();
+    if (!tmuxPath) return base;
+  } catch {
+    return base;
+  }
+
+  const installed = { ...base, wrapperInstalled: true };
+  try {
+    await execSystemFile(tmuxPath, ["has-session", "-t", "scout"], {
+      timeoutMs: 2_000,
+      maxStdoutBytes: 4 * 1024,
+      maxStderrBytes: 4 * 1024,
+    });
+  } catch {
+    return installed;
+  }
+
+  const [clients, panes] = await Promise.all([
+    execSystemFile(tmuxPath, ["list-clients", "-t", "scout", "-F", "#{client_name}"], {
+      timeoutMs: 2_000,
+      maxStdoutBytes: 16 * 1024,
+      maxStderrBytes: 4 * 1024,
+    }).catch(() => ({ stdout: "", stderr: "", exitCode: 0 })),
+    execSystemFile(tmuxPath, [
+      "list-panes", "-t", "scout", "-F",
+      "#{pane_width}\t#{pane_height}\t#{pane_current_command}",
+    ], {
+      timeoutMs: 2_000,
+      maxStdoutBytes: 16 * 1024,
+      maxStderrBytes: 4 * 1024,
+    }).catch(() => ({ stdout: "", stderr: "", exitCode: 0 })),
+  ]);
+
+  const attachedClients = clients.stdout.split("\n").filter((line) => line.trim()).length;
+  const [columnsRaw, rowsRaw, commandRaw] = panes.stdout.trim().split("\t");
+  const paneColumns = Number.parseInt(columnsRaw ?? "", 10);
+  const paneRows = Number.parseInt(rowsRaw ?? "", 10);
+
+  return {
+    ...installed,
+    sessionExists: true,
+    attachedClients,
+    paneColumns: Number.isFinite(paneColumns) ? paneColumns : null,
+    paneRows: Number.isFinite(paneRows) ? paneRows : null,
+    paneCommand: commandRaw?.trim() || null,
+  };
+}
+
 export async function provisionMobileTerminalAccess(
   sshPublicKey: string,
   deviceId: string | undefined,

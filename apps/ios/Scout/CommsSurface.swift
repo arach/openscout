@@ -140,20 +140,6 @@ struct CommsSurface: View {
             let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
             liveNames.formUnion(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
         }
-        #if DEBUG
-        if rows.isEmpty, ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" {
-            let demoClient = model.client
-            rows = CommsSurface.demoConversations().map { conversation in
-                MachineCommsConversation(
-                    id: "demo::\(conversation.id)",
-                    machineId: "demo",
-                    machineName: "Demo",
-                    client: demoClient,
-                    conversation: conversation
-                )
-            }
-        }
-        #endif
         conversations = rows.sorted {
             let lhs = $0.conversation.lastMessageAt ?? .distantPast
             let rhs = $1.conversation.lastMessageAt ?? .distantPast
@@ -870,13 +856,7 @@ struct CommsThreadView: View {
 
     private func load() async {
         isLoading = true
-        var rows = (try? await client.conversationMessages(conversationId: conversation.id, limit: 200)) ?? []
-        #if DEBUG
-        if rows.isEmpty, ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" {
-            rows = CommsSurface.demoMessages(for: conversation)
-        }
-        #endif
-        messages = rows
+        messages = (try? await client.conversationMessages(conversationId: conversation.id, limit: 200)) ?? []
         isLoading = false
     }
 
@@ -1010,62 +990,3 @@ private struct CommsBubble: View {
 private func relativeAge(_ date: Date?) -> String? {
     ScoutTimestamp.relativeAge(since: date)
 }
-
-#if DEBUG
-extension CommsSurface {
-    /// Synthetic comms (DEBUG, `SCOUT_DEMO=1` only) so the surface can be
-    /// seen on the simulator before the broker serves `mobile/comms/*`. Never ships.
-    static func demoConversations() -> [CommsConversation] {
-        let now = Date()
-        return [
-            CommsConversation(
-                id: "c.demo-shared", kind: .channel, title: "shared",
-                topic: "fleet-wide coordination",
-                lastMessagePreview: "shipping the projects-first Home now — machine rail looks great",
-                lastMessageAuthor: "broker-smith",
-                lastMessageAt: now.addingTimeInterval(-90), messageCount: 42, unreadCount: 3
-            ),
-            CommsConversation(
-                id: "c.demo-voice", kind: .channel, title: "voice",
-                topic: "TTS + dictation",
-                lastMessagePreview: "Parakeet warm-up no longer cancels on thread exit",
-                lastMessageAuthor: "tail-tuner",
-                lastMessageAt: now.addingTimeInterval(-1_500), messageCount: 11, unreadCount: 0
-            ),
-            CommsConversation(
-                id: "c.demo-broker-smith", kind: .direct, title: "broker-smith",
-                participants: ["broker-smith"],
-                lastMessagePreview: "Done — mobile/comms routes are wired in both mirrors.",
-                lastMessageAuthor: "broker-smith",
-                lastMessageAt: now.addingTimeInterval(-300), messageCount: 8, unreadCount: 1
-            ),
-            CommsConversation(
-                id: "c.demo-tail-tuner", kind: .direct, title: "tail-tuner",
-                participants: ["tail-tuner"],
-                lastMessagePreview: "You: can you confirm the firehose still streams?",
-                lastMessageAuthor: "You",
-                lastMessageAt: now.addingTimeInterval(-3_400), messageCount: 5, unreadCount: 0
-            ),
-        ]
-    }
-
-    static func demoMessages(for conversation: CommsConversation) -> [CommsMessage] {
-        let now = Date()
-        let other = conversation.participants.first ?? "broker-smith"
-        return [
-            CommsMessage(id: "d1", conversationId: conversation.id, actorId: other,
-                         authorLabel: other, authorKind: .agent,
-                         body: "Picking up the **comms surface** now. Channels + DMs, operator posts as you.",
-                         createdAt: now.addingTimeInterval(-600)),
-            CommsMessage(id: "d2", conversationId: conversation.id, actorId: "operator",
-                         authorLabel: "You", authorKind: .person,
-                         body: "Nice. Make sure code blocks render right:\n```swift\nlet x = 1\n```",
-                         createdAt: now.addingTimeInterval(-540), isOperator: true),
-            CommsMessage(id: "d3", conversationId: conversation.id, actorId: other,
-                         authorLabel: other, authorKind: .agent,
-                         body: "They do — `MessageMarkupView` handles fences + highlighting. Shipping it.",
-                         createdAt: now.addingTimeInterval(-120)),
-        ]
-    }
-}
-#endif

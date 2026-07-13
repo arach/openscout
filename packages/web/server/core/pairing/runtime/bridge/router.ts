@@ -54,7 +54,10 @@ import {
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
 import { readScoutBrokerTailRecent } from "../../../broker/service.ts";
-import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
+import {
+  provisionMobileTerminalAccess,
+  readMobileTerminalStatus,
+} from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
   queryMobileAgentDetail,
@@ -1194,6 +1197,16 @@ const mobileRouter = t.router({
       }
       return await provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
     }),
+
+  terminalStatus: procedure.query(async ({ ctx }) => {
+    if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Terminal status requires a trusted paired device over the encrypted bridge.",
+      });
+    }
+    return await readMobileTerminalStatus();
+  }),
 });
 
 // -- Workspace --------------------------------------------------------------

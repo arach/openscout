@@ -15,6 +15,10 @@ HKIT_BIN="${HKIT_BIN:-$HUDSON_DIR/packages/tools/hkit/bin/hkit.mjs}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-0}"
 SKIP_SIGN="${SKIP_SIGN:-0}"
 
+if [ "$SKIP_NOTARIZE" != "1" ]; then
+    OPENSCOUT_NOTARY_PROFILE="${OPENSCOUT_NOTARY_PROFILE:-notarytool}"
+fi
+
 if [ ! -f "$HKIT_BIN" ]; then
     echo "Error: Hudson hkit packager not found at $HKIT_BIN"
     echo "Set HUDSON_DIR or HKIT_BIN. OpenScout packaging intentionally uses the local Hudson file path."

@@ -1,0 +1,7 @@
+{
+  "description": "Scout is the companion cockpit for AI agents running on your Mac. See what Claude Code, Codex, and other connected agents are doing, follow progress across projects, and respond without returning to your desk.\n\nPair Scout with the OpenScout broker on your Mac, then use Home to scan active work, Agents to browse the fleet, Comms to message collaborators, and Tail to follow the latest activity as it happens. Open a conversation to read progress and reply by keyboard or voice.\n\nKey features:\n\n- One calm view of active agents, projects, and recent work\n- Live conversations with agent output, tool activity, and file changes\n- Comms channels and direct messages for coordination\n- Tail view that follows new activity and clearly shows when you detach\n- Last-fetch status on every page plus metadata-only request diagnostics\n- Voice dictation for quick replies\n- Built-in terminal access for your paired machine\n- Local-network, Tailscale, and OpenScout Network connection routes\n\nYour agents and credentials stay on infrastructure you control. Scout connects to your paired OpenScout broker and acts as a mobile operator surface.\n\nRequires OpenScout running on a Mac. Visit openscout.app to get started.",
+  "keywords": "ai,agents,coding,codex,claude,developer,terminal,automation,remote,local",
+  "marketingUrl": "https://openscout.app",
+  "supportUrl": "https://github.com/arach/openscout/issues",
+  "promotionalText": "Monitor, message, and steer the AI agents running on your Mac—from one calm, local-first mobile cockpit."
+}

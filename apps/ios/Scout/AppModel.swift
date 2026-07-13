@@ -200,6 +200,14 @@ final class AppModel {
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
 
+    /// Wall-clock time of the most recent successfully decoded broker query. The
+    /// transport owns this measurement, so every surface contributes without UI
+    /// call sites having to remember to report a fetch. Mutations, connection
+    /// handshakes, failed calls, and arbitrary UI activity do not advance it.
+    var lastSuccessfulFetchAt: Date? {
+        return BrokerRequestLog.shared.lastSuccessfulReadAt
+    }
+
     /// Bumped whenever the trusted-bridge set changes (forgetting a Mac). The
     /// `pairedMachines` list is computed straight off the keychain and reads no
     /// other observed state, so without this nudge a forget wouldn't re-render.

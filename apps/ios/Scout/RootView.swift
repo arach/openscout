@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var showConnection = false
     @State private var showSettings = false
     @State private var sessionStatusContext: String?
+    @State private var terminalDiagnostics = TerminalDiagnosticsModel()
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -55,11 +56,19 @@ struct RootView: View {
 
     @State private var surface: Surface = Self.initialSurface
 
-    /// Launch tab. Defaults to Home; in DEBUG a `SCOUT_TAB` env value
-    /// (e.g. "Comms") jumps straight to a surface so the simulator can verify
-    /// any tab without driving touch input. Never affects release builds.
+    /// Launch tab. Defaults to Home; in DEBUG either `--scout-tab Comms` or a
+    /// `SCOUT_TAB=Comms` environment value jumps straight to a surface so the
+    /// simulator can verify any tab without driving touch input. Launch args are
+    /// the reliable path on current simulator runtimes; neither path ships in
+    /// release behavior.
     private static var initialSurface: Surface {
         #if DEBUG
+        let arguments = CommandLine.arguments
+        if let flag = arguments.firstIndex(of: "--scout-tab"),
+           arguments.indices.contains(flag + 1),
+           let surface = Surface(rawValue: arguments[flag + 1]) {
+            return surface
+        }
         if let raw = ProcessInfo.processInfo.environment["SCOUT_TAB"],
            let s = Surface(rawValue: raw) { return s }
         #endif
@@ -105,11 +114,13 @@ struct RootView: View {
                             case .comms:    CommsSurface(model: model, reloadToken: model.fleetDataReadyToken)
                             case .terminal: TerminalSurface(
                                 client: client,
+                                diagnostics: terminalDiagnostics,
                                 reloadToken: model.dataReadyToken,
                                 terminalTargetID: activeMachine?.id,
                                 connectedHost: model.terminalSSHHost,
                                 onReconnectBridge: { Task { await model.reconnect() } },
-                                onOpenConnectionSettings: { showConnection = true }
+                                onOpenConnectionSettings: { showConnection = true },
+                                isPresentingSettings: showSettings
                             )
                             case .new:
                                 NewSessionSurface(
@@ -136,12 +147,21 @@ struct RootView: View {
                     // boundary: fill down + bottom-align the content, THEN ignore the
                     // bottom safe area. Safe to sit on the swipe-up gesture —
                     // hit-testing is off, it's a pure readout.
-                    ScoutStatusBar(leading: appReadouts(layout), trailing: statsReadouts(layout))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .ignoresSafeArea(edges: .bottom)
-                        // The nav stack leaves a residual inset; push the last bit so
-                        // the bar sits flush in the indicator band, not floating.
-                        .offset(y: 14)
+                    // Tick independently of broker polling so "FETCH NOW" ages
+                    // into seconds/minutes even when a stalled request produces no
+                    // model mutation. The timestamp itself only advances after a
+                    // successfully decoded broker query (see BrokerRequestLog).
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        ScoutStatusBar(
+                            leading: appReadouts(layout),
+                            trailing: statsReadouts(layout, now: context.date)
+                        )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .ignoresSafeArea(edges: .bottom)
+                    // The nav stack leaves a residual inset; push the last bit so
+                    // the bar sits flush in the indicator band, not floating.
+                    .offset(y: 14)
                 }
                 .task(id: "\(model.fleetDataReadyToken)|\(surface.rawValue)") {
                     guard model.fleetDataReadyToken != 0, surface != .home else { return }
@@ -166,18 +186,41 @@ struct RootView: View {
         // Settings is a full page, not a card sheet — the shell carries its own
         // close control, so present it edge-to-edge.
         .fullScreenCover(isPresented: $showSettings) {
-            AppSettingsView(model: model)
+            AppSettingsView(
+                model: model,
+                context: settingsContext,
+                terminalDiagnostics: terminalDiagnostics
+            )
         }
         #if DEBUG
         // Sim verification hook (sibling to `SCOUT_TAB`): open Settings on
         // launch so the inspector panels can be screenshotted without touch input.
         .onAppear {
             if ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS"] != nil {
-                showSettings = true
+                let delayMilliseconds = Int(
+                    ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS_DELAY_MS"] ?? "0"
+                ) ?? 0
+                Task { @MainActor in
+                    if delayMilliseconds > 0 {
+                        try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+                    }
+                    showSettings = true
+                }
             }
         }
         #endif
         .onChange(of: surface) { _, _ in sessionStatusContext = nil }
+    }
+
+    private var settingsContext: AppSettingsContext {
+        switch surface {
+        case .home: .home
+        case .agents: .agents
+        case .tail: .tail
+        case .comms: .comms
+        case .terminal: .terminal
+        case .new: .new
+        }
     }
 
     /// Conventional docked tab bar (vs the floating `HudLiquidBar` pill): a
@@ -251,8 +294,9 @@ struct RootView: View {
 
     /// Trailing run: the fleet rollup — total agents, paired machines, and how
     /// many are active right now (accent when something's running).
-    private func statsReadouts(_ layout: ScoutLayoutMetrics) -> [StatusReadout] {
+    private func statsReadouts(_ layout: ScoutLayoutMetrics, now: Date) -> [StatusReadout] {
         var items = [
+            fetchReadout(layout, now: now),
             StatusReadout(label: pluralized(model.agentCount, "agent"), tint: ScoutInk.muted),
             StatusReadout(
                 label: "\(model.activeAgentCount) active",
@@ -271,6 +315,28 @@ struct RootView: View {
             )
         }
         return items
+    }
+
+    /// Compact, passive freshness readout. This is deliberately a wall-clock
+    /// confirmation rather than "FETCH NOW": the protected area reports state
+    /// and never presents text that looks like an action.
+    private func fetchReadout(_ layout: ScoutLayoutMetrics, now: Date) -> StatusReadout {
+        guard let fetchedAt = model.lastSuccessfulFetchAt else {
+            return StatusReadout(
+                label: layout.isMiniPhone ? "SYNC —" : "FETCHED —",
+                tint: ScoutInk.dim
+            )
+        }
+
+        let age = max(0, Int(now.timeIntervalSince(fetchedAt)))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        let clock = formatter.string(from: fetchedAt)
+        return StatusReadout(
+            label: "\(layout.isMiniPhone ? "SYNC" : "FETCHED") \(clock)",
+            tint: age >= 60 ? HudPalette.statusWarn : ScoutInk.muted
+        )
     }
 
     private func pluralized(_ count: Int, _ noun: String) -> String {

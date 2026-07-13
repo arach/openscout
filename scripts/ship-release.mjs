@@ -23,7 +23,7 @@ const VERSION_MANIFESTS = [
   "apps/cloud",
   "apps/desktop",
   "apps/mesh-front-door",
-  "landing",
+  "landing/oscout.net",
   "packages/agent-sessions",
   "packages/cli",
   "packages/protocol",
