@@ -22,7 +22,7 @@ type Navigate = (route: Route) => void;
 type ProjectSort = "recent" | "name" | "sessions";
 
 const SMART_VIEWS: Array<{ id: SmartView; label: string }> = [
-  { id: "needs", label: "Needs you" },
+  { id: "needs", label: "Your turn" },
   { id: "working", label: "Working" },
   { id: "recent", label: "Recent" },
   { id: "everything", label: "Everything" },

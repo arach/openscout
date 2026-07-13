@@ -66,6 +66,9 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_WEB_FLAG_BUNDLE",
     "OPENSCOUT_WEB_EXPERIENCE",
     "OPENSCOUT_WEB_AB_VARIANT",
+    "OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN",
+    "OPENSCOUT_BASE_START_PAIRING",
+    "OPENSCOUT_BASE_PAIRING_ENABLED",
     "OPENSCOUT_REPO_WATCH_INTERVAL_MS",
     "OPENSCOUT_REPO_WATCH_ROOTS",
     "OPENSCOUT_REPO_WATCH_NATIVE",
@@ -195,6 +198,7 @@ struct Config {
     daemon_state_path: PathBuf,
     host_info_path: PathBuf,
     bun_executable: String,
+    advertise_scope: String,
     broker_host: String,
     broker_port: u16,
     broker_url: String,
@@ -318,6 +322,7 @@ impl Config {
             daemon_state_path,
             host_info_path,
             bun_executable,
+            advertise_scope,
             broker_host,
             broker_port,
             broker_url,
@@ -684,9 +689,6 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .arg(config.runtime_entrypoint())
         .arg("base")
         .current_dir(&config.runtime_package_dir)
-        .env_remove("OPENSCOUT_BROKER_HOST")
-        .env_remove("OPENSCOUT_BROKER_URL")
-        .env_remove("OPENSCOUT_ADVERTISE_SCOPE")
         .env("OPENSCOUT_PARENT_PID", std::process::id().to_string())
         .env(
             "OPENSCOUT_SUPPORT_DIRECTORY",
@@ -696,7 +698,10 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
             "OPENSCOUT_RUNTIME_PACKAGE_DIR",
             config.runtime_package_dir.to_string_lossy().to_string(),
         )
+        .env("OPENSCOUT_BROKER_HOST", &config.broker_host)
         .env("OPENSCOUT_BROKER_PORT", config.broker_port.to_string())
+        .env("OPENSCOUT_BROKER_URL", &config.broker_url)
+        .env("OPENSCOUT_ADVERTISE_SCOPE", &config.advertise_scope)
         .env(
             "OPENSCOUT_BROKER_SOCKET_PATH",
             config.broker_socket_path.to_string_lossy().to_string(),
@@ -1644,6 +1649,9 @@ fn render_launch_agent_plist(config: &Config) -> String {
             "OPENSCOUT_PROBES_SOCKET",
             config.probes_socket_path.to_string_lossy().to_string(),
         ),
+        ("OPENSCOUT_BROKER_HOST", config.broker_host.clone()),
+        ("OPENSCOUT_BROKER_URL", config.broker_url.clone()),
+        ("OPENSCOUT_ADVERTISE_SCOPE", config.advertise_scope.clone()),
         ("OPENSCOUT_BROKER_SERVICE_MODE", config.service_mode.clone()),
         ("OPENSCOUT_BROKER_SERVICE_LABEL", config.label.clone()),
         ("OPENSCOUT_SERVICE_LABEL", config.label.clone()),
@@ -2745,6 +2753,7 @@ mod tests {
                 "/Users/test/Library/Application Support/OpenScout/.host-info",
             ),
             bun_executable: "/Users/test/.bun/bin/bun".to_string(),
+            advertise_scope: "local".to_string(),
             broker_host: DEFAULT_BROKER_HOST.to_string(),
             broker_port: DEFAULT_BROKER_PORT,
             broker_url: "http://127.0.0.1:43110".to_string(),

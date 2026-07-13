@@ -6,6 +6,7 @@ import {
 } from "@openscout/runtime/broker-api";
 
 import {
+  getScoutMobileAgents,
   getScoutMobileConversations,
   getScoutMobileSessionSnapshot,
 } from "./service.ts";
@@ -114,6 +115,59 @@ describe("getScoutMobileSessionSnapshot", () => {
     const conversations = await getScoutMobileConversations();
 
     expect(conversations.find((conversation) => conversation.id === "dm.operator.scoutbot")?.title).toBe("Scout");
+  });
+
+  test("orders agents by endpoint freshness and keeps wakeable cold agents available", async () => {
+    const brokerSnapshot = brokerSnapshotWithFlight({
+      id: "flight-queued",
+      state: "queued",
+      summary: "Queued",
+    }) as ReturnType<typeof brokerSnapshotWithFlight> & {
+      agents: Record<string, Record<string, unknown>>;
+      endpoints: Record<string, Record<string, unknown>>;
+      messages: Record<string, Record<string, unknown>>;
+      flights: Record<string, Record<string, unknown>>;
+    };
+    brokerSnapshot.flights = {};
+    brokerSnapshot.endpoints["endpoint-scoutbot"] = {
+      ...brokerSnapshot.endpoints["endpoint-scoutbot"],
+      state: "offline",
+      metadata: { source: "scoutbot", lastCompletedAt: 10_000 } as { source: string } & Record<string, unknown>,
+    };
+    brokerSnapshot.agents.old = {
+      id: "old",
+      kind: "agent",
+      definitionId: "old",
+      displayName: "Old",
+      handle: "old",
+      wakePolicy: "manual",
+    };
+    brokerSnapshot.endpoints["endpoint-old"] = {
+      id: "endpoint-old",
+      agentId: "old",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "active",
+      metadata: { lastSeenAt: 5_000 },
+    };
+    brokerSnapshot.messages["msg-old"] = {
+      id: "msg-old",
+      conversationId: "dm.operator.scoutbot",
+      actorId: "old",
+      class: "agent",
+      body: "older activity",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 9_000,
+    };
+    installBrokerSnapshot(brokerSnapshot);
+
+    const agents = await getScoutMobileAgents({ limit: 2 });
+
+    expect(agents.map((agent) => agent.id)).toEqual(["scoutbot", "old"]);
+    expect(agents[0]?.state).toBe("available");
+    expect(agents[0]?.lastActiveAt).toBe(10_000_000);
   });
 });
 

@@ -1,8 +1,8 @@
 import type { RuntimeErrnoError } from "./portable-types.js";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -22,7 +22,10 @@ import {
   type OpenScoutLocalEdgeConfig,
   type OpenScoutLocalEdgeScheme,
 } from "./local-edge.js";
-import { openScoutNetworkServiceEnvironment } from "./open-scout-network.js";
+import {
+  openScoutNetworkServiceEnvironment,
+  readOpenScoutNetworkSettingsSync,
+} from "./open-scout-network.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const RESTART_MIN_DELAY_MS = 1_000;
@@ -30,26 +33,40 @@ const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
 const CHILD_SHUTDOWN_TIMEOUT_MS = 12_000;
+const PAIRING_SUPERVISOR_POLL_MS = 15_000;
+const WEB_START_RETRY_MS = 5_000;
 const MENU_BUNDLE_ID = "app.openscout.scout.menu";
 const MENU_PROCESS_NAME = "ScoutMenu";
 const PROCESS_NAME = "scout-base";
 const BROKER_LAUNCHER_PROCESS_NAME = "scout-broker-run";
 const EDGE_PROCESS_NAME = "scout-edge";
 const MDNS_PROCESS_NAME = "scout-mdns";
+const PAIRING_LAUNCHER_PROCESS_NAME = "scout-pairing-run";
 
 process.title = PROCESS_NAME;
 
 let shuttingDown = false;
 let brokerProcess: ChildProcess | null = null;
+let pairingProcess: ChildProcess | null = null;
 let caddyProcess: ChildProcess | null = null;
 let mdnsProcesses: ChildProcess[] = [];
 let brokerRestartDelayMs = RESTART_MIN_DELAY_MS;
+let pairingRestartDelayMs = RESTART_MIN_DELAY_MS;
 let edgeRestartDelayMs = RESTART_MIN_DELAY_MS;
 let supervisedWebPid: number | null = null;
 let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
+let pairingSupervisorTimer: ReturnType<typeof setInterval> | null = null;
+let webStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let pairingStartInFlight = false;
+let webStartInFlight = false;
 
 const config = resolveBrokerServiceConfig();
 const brokerControlUrl = buildLocalBrokerControlUrl(config.brokerHost, config.brokerPort);
+
+type PairingRuntimeEntrypoint = {
+  scriptPath: string;
+  workingDirectory: string;
+};
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -110,6 +127,14 @@ function runtimeEntrypoint(config: BrokerServiceConfig): string {
   return join(config.runtimePackageDir, "bin", "openscout-runtime.mjs");
 }
 
+function readBooleanEnv(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
 function spawnBroker(): void {
   if (shuttingDown || brokerProcess) {
     return;
@@ -167,6 +192,199 @@ function scheduleBrokerRestart(): void {
       void startWebWhenBrokerIsReady();
     }
   }, delay).unref();
+}
+
+function resolvePairingRuntimePidPath(): string {
+  return join(homedir(), ".scout", "pairing", "runtime.pid");
+}
+
+function readPairingRuntimePid(): number | null {
+  try {
+    const raw = readFileSync(resolvePairingRuntimePidPath(), "utf8").trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) {
+      return true;
+    }
+    await sleep(100);
+  }
+  return !isProcessRunning(pid);
+}
+
+async function terminateProcessId(pid: number, label: string): Promise<void> {
+  if (!isProcessRunning(pid)) {
+    return;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  if (await waitForPidExit(pid, CHILD_SHUTDOWN_TIMEOUT_MS)) {
+    return;
+  }
+  warn(`${label} did not exit after SIGTERM; forcing shutdown`, { pid });
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    return;
+  }
+  await waitForPidExit(pid, 2_000);
+}
+
+function resolvePairingRuntimeWorkingDirectory(scriptPath: string): string {
+  const normalizedPath = resolve(scriptPath);
+  const packagesWebMarker = "/packages/web/";
+  const markerIndex = normalizedPath.indexOf(packagesWebMarker);
+  if (markerIndex >= 0) {
+    return normalizedPath.slice(0, markerIndex + packagesWebMarker.length - 1);
+  }
+  const parent = dirname(normalizedPath);
+  const parentName = basename(parent);
+  return parentName === "dist" || parentName === "server" ? dirname(parent) : parent;
+}
+
+function resolvePairingRuntimeEntrypoint(): PairingRuntimeEntrypoint | null {
+  const explicitPath = process.env.OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN?.trim();
+  const candidates = [
+    explicitPath,
+    resolve(config.runtimePackageDir, "../web/dist/pairing-runtime-controller.mjs"),
+    resolve(config.runtimePackageDir, "../web/server/pairing-runtime-controller.ts"),
+  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);
+
+  for (const scriptPath of candidates) {
+    if (!existsSync(scriptPath)) {
+      continue;
+    }
+    return {
+      scriptPath,
+      workingDirectory: resolvePairingRuntimeWorkingDirectory(scriptPath),
+    };
+  }
+  return null;
+}
+
+function shouldSupervisePairingRuntime(): boolean {
+  if (readBooleanEnv(process.env.OPENSCOUT_BASE_PAIRING_ENABLED) === false) {
+    return false;
+  }
+  if (readBooleanEnv(process.env.OPENSCOUT_BASE_START_PAIRING) === true) {
+    return true;
+  }
+  const networkSettings = readOpenScoutNetworkSettingsSync();
+  if (networkSettings.discoveryEnabled && networkSettings.keepPairingRelayRunning) {
+    return true;
+  }
+  if (networkSettings.keepPairingRelayRunning && process.env.OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN?.trim()) {
+    return true;
+  }
+  const existingPid = readPairingRuntimePid();
+  return existingPid !== null && isProcessRunning(existingPid);
+}
+
+async function stopUnownedPairingRuntime(): Promise<void> {
+  const existingPid = readPairingRuntimePid();
+  if (!existingPid || !isProcessRunning(existingPid)) {
+    return;
+  }
+  if (pairingProcess?.pid === existingPid) {
+    return;
+  }
+  warn("stopping unowned pairing runtime before supervisor takeover", { pid: existingPid });
+  await terminateProcessId(existingPid, "pairing runtime");
+}
+
+async function spawnPairingRuntime(): Promise<void> {
+  if (shuttingDown || pairingProcess || pairingStartInFlight || !shouldSupervisePairingRuntime()) {
+    return;
+  }
+  pairingStartInFlight = true;
+  try {
+    if (!config.bunExecutable) {
+      warn("pairing supervisor cannot start runtime without Bun");
+      schedulePairingRestart();
+      return;
+    }
+    const entrypoint = resolvePairingRuntimeEntrypoint();
+    if (!entrypoint) {
+      warn("pairing supervisor cannot find runtime controller entrypoint");
+      return;
+    }
+
+    await stopUnownedPairingRuntime();
+
+    const stdout = logFile("pairing.stdout.log");
+    const stderr = logFile("pairing.stderr.log");
+    pairingProcess = spawn(config.bunExecutable, [entrypoint.scriptPath], {
+      argv0: PAIRING_LAUNCHER_PROCESS_NAME,
+      cwd: entrypoint.workingDirectory,
+      env: {
+        ...process.env,
+        OPENSCOUT_PARENT_PID: String(process.pid),
+        ...openScoutNetworkServiceEnvironment(process.env),
+      },
+      stdio: ["ignore", stdout, stderr],
+    });
+
+    log("pairing runtime started", {
+      pid: pairingProcess.pid,
+      script: entrypoint.scriptPath,
+    });
+    pairingRestartDelayMs = RESTART_MIN_DELAY_MS;
+
+    pairingProcess.once("error", (error: RuntimeErrnoError) => {
+      pairingProcess = null;
+      warn("pairing runtime failed to start", error.message);
+      schedulePairingRestart();
+    });
+    pairingProcess.once("exit", (code, signal) => {
+      log("pairing runtime exited", { code, signal });
+      pairingProcess = null;
+      if (!shuttingDown && shouldSupervisePairingRuntime()) {
+        schedulePairingRestart();
+      }
+    });
+  } finally {
+    pairingStartInFlight = false;
+  }
+}
+
+function schedulePairingRestart(): void {
+  const delay = pairingRestartDelayMs;
+  pairingRestartDelayMs = Math.min(pairingRestartDelayMs * 2, RESTART_MAX_DELAY_MS);
+  setTimeout(() => {
+    if (!shuttingDown) {
+      void spawnPairingRuntime();
+    }
+  }, delay).unref();
+}
+
+function startPairingRuntimeSupervisor(): void {
+  if (pairingSupervisorTimer) {
+    return;
+  }
+  void spawnPairingRuntime();
+  pairingSupervisorTimer = setInterval(() => {
+    void spawnPairingRuntime();
+  }, PAIRING_SUPERVISOR_POLL_MS);
+  pairingSupervisorTimer.unref();
 }
 
 async function waitForBrokerHealth(timeoutMs = BROKER_HEALTH_TIMEOUT_MS): Promise<boolean> {
@@ -348,35 +566,57 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
   if (process.env.OPENSCOUT_BASE_START_WEB === "0") {
     return;
   }
-  if (!(await waitForBrokerHealth())) {
-    warn("broker did not become healthy before web startup timeout");
+  if (webStartInFlight) {
     return;
   }
-
+  webStartInFlight = true;
   try {
-    const edgeConfig = resolveEdgeConfig();
-    const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
-    const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "x-forwarded-host": edgeConfig.portalHost,
-        "x-forwarded-proto": scheme,
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    const body = await response.json() as { ok?: boolean; pid?: number | null; error?: string | null };
-    supervisedWebPid = typeof body.pid === "number"
-      ? body.pid
-      : resolvePortListenerPid(Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort());
-    if (!response.ok || body.ok !== true) {
-      warn("web server did not report healthy", body.error ?? response.statusText);
+    if (!(await waitForBrokerHealth())) {
+      warn("broker did not become healthy before web startup timeout");
+      scheduleWebStartRetry();
       return;
     }
-    log("web server ready", { pid: supervisedWebPid });
-  } catch (error) {
-    warn("web server startup failed", error instanceof Error ? error.message : String(error));
+
+    try {
+      const edgeConfig = resolveEdgeConfig();
+      const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
+      const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "x-forwarded-host": edgeConfig.portalHost,
+          "x-forwarded-proto": scheme,
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await response.json() as { ok?: boolean; pid?: number | null; error?: string | null };
+      supervisedWebPid = typeof body.pid === "number"
+        ? body.pid
+        : resolvePortListenerPid(Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort());
+      if (!response.ok || body.ok !== true) {
+        warn("web server did not report healthy", body.error ?? response.statusText);
+        scheduleWebStartRetry();
+        return;
+      }
+      log("web server ready", { pid: supervisedWebPid });
+    } catch (error) {
+      warn("web server startup failed", error instanceof Error ? error.message : String(error));
+      scheduleWebStartRetry();
+    }
+  } finally {
+    webStartInFlight = false;
   }
+}
+
+function scheduleWebStartRetry(): void {
+  if (shuttingDown || webStartRetryTimer || process.env.OPENSCOUT_BASE_START_WEB === "0") {
+    return;
+  }
+  webStartRetryTimer = setTimeout(() => {
+    webStartRetryTimer = null;
+    void startWebWhenBrokerIsReady();
+  }, WEB_START_RETRY_MS);
+  webStartRetryTimer.unref();
 }
 
 function resolvePortListenerPid(port: number): number | null {
@@ -497,10 +737,20 @@ async function shutdown(exitCode = 0): Promise<void> {
     clearInterval(baseKeepAlive);
     baseKeepAlive = null;
   }
+  if (pairingSupervisorTimer) {
+    clearInterval(pairingSupervisorTimer);
+    pairingSupervisorTimer = null;
+  }
+  if (webStartRetryTimer) {
+    clearTimeout(webStartRetryTimer);
+    webStartRetryTimer = null;
+  }
   stopSupervisedWeb();
   stopMenuBarApp();
   const activeCaddyProcess = caddyProcess;
+  const activePairingProcess = pairingProcess;
   stopEdgeProcesses();
+  await terminateChildProcess(activePairingProcess, "pairing runtime");
   await terminateChildProcess(brokerProcess, "broker");
   await terminateChildProcess(activeCaddyProcess, "local edge", 2_000);
   process.exit(exitCode);
@@ -546,3 +796,4 @@ spawnBroker();
 startLocalEdge();
 startMenuBarApp();
 void startWebWhenBrokerIsReady();
+startPairingRuntimeSupervisor();
