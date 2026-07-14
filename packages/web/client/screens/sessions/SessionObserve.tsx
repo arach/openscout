@@ -67,6 +67,7 @@ import {
 } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import { resumeAgentSession } from "../../lib/session-start.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
@@ -2627,22 +2628,35 @@ export function SessionObserveContextRail({
 
 function SessionObserveComposer({
   conversationId,
+  agentId,
+  sessionId,
 }: {
   conversationId?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState(() => conversationId?.trim() || null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const canSubmit = draft.trim().length > 0 && !sending;
+  useEffect(() => {
+    setActiveConversationId(conversationId?.trim() || null);
+  }, [conversationId]);
+
+  const resumableAgentId = agentId?.trim() || null;
+  const resumableSessionId = sessionId?.trim() || null;
+  const canResumeSession = Boolean(resumableAgentId && resumableSessionId);
+  const canWrite = Boolean(activeConversationId || canResumeSession);
+  const canSubmit = canWrite && draft.trim().length > 0 && !sending;
 
   const submit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const body = draft.trim();
     if (!body || sending) return;
-    if (!conversationId) {
+    if (!activeConversationId && (!resumableAgentId || !resumableSessionId)) {
       setError("No writable session target is attached yet.");
       return;
     }
@@ -2651,14 +2665,26 @@ function SessionObserveComposer({
     setStatus(null);
     setError(null);
     try {
-      await api("/api/send", {
-        method: "POST",
-        body: JSON.stringify({
-          body,
-          conversationId,
-          intent: "steer",
-        }),
-      });
+      if (activeConversationId) {
+        await api("/api/send", {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            conversationId: activeConversationId,
+            intent: "steer",
+          }),
+        });
+      } else {
+        const result = await resumeAgentSession({
+          agentId: resumableAgentId!,
+          sessionId: resumableSessionId!,
+          instructions: body,
+        });
+        const resumedConversationId = result.conversationId?.trim();
+        if (resumedConversationId) {
+          setActiveConversationId(resumedConversationId);
+        }
+      }
       setDraft("");
       setStatus("Sent into this session.");
       inputRef.current?.focus();
@@ -2678,7 +2704,8 @@ function SessionObserveComposer({
             className="s-observe-compose-input"
             value={draft}
             rows={3}
-            placeholder="Write into this session..."
+            placeholder={canWrite ? "Write into this session..." : "This trace is read-only"}
+            disabled={!canWrite || sending}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (!isComposerSendShortcut(event)) return;
@@ -2691,11 +2718,13 @@ function SessionObserveComposer({
             className="s-observe-compose-tool"
             aria-label="Add context"
             title="Add context"
+            disabled={!canWrite || sending}
             onClick={() => inputRef.current?.focus()}
           >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <DictationMic
+            disabled={!canWrite || sending}
             onAppend={(text) =>
               setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
             }
@@ -2712,6 +2741,11 @@ function SessionObserveComposer({
         </div>
       </div>
       {error ? <div className="s-observe-compose-status s-observe-compose-status--error">{error}</div> : null}
+      {!canWrite ? (
+        <div className="s-observe-compose-status s-observe-compose-status--muted">
+          No broker conversation or resumable agent session is attached to this trace.
+        </div>
+      ) : null}
       {status ? <div className="s-observe-compose-status">{status}</div> : null}
     </form>
   );
@@ -3030,6 +3064,8 @@ export function SessionObserve({
           />
           <SessionObserveComposer
             conversationId={conversationId}
+            agentId={agentId}
+            sessionId={sessionId}
           />
         </footer>
       )}

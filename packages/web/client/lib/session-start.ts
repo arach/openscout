@@ -29,26 +29,40 @@ export async function startAgentSession(
   const attachments = input?.attachments?.filter(Boolean) ?? [];
   const instructions = input?.instructions?.trim();
   const payload = newSessionPayloadForAgent(agent);
-  const body =
-    attachments.length === 0 && instructions
-      ? { ...payload, seed: { instructions } }
-      : payload;
+  const body = instructions || attachments.length > 0
+    ? {
+        ...payload,
+        seed: {
+          ...(instructions ? { instructions } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+        },
+      }
+    : payload;
 
   const result = await api<SessionInitiationResult>("/api/sessions", {
     method: "POST",
     body: JSON.stringify(body),
   });
 
-  const conversationId = result.conversationId?.trim();
-  if (conversationId && attachments.length > 0) {
-    await sendConversationAttachments({
-      conversationId,
-      body: instructions || "Shared capture",
-      attachments,
-    });
-  }
-
   return result;
+}
+
+export async function resumeAgentSession(input: {
+  agentId: string;
+  sessionId: string;
+  instructions: string;
+}): Promise<SessionInitiationResult> {
+  return api<SessionInitiationResult>("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({
+      target: { agentId: input.agentId.trim() },
+      execution: {
+        session: "existing",
+        targetSessionId: input.sessionId.trim(),
+      },
+      seed: { instructions: input.instructions.trim() },
+    }),
+  });
 }
 
 export type CaptureDeliveryMode = "new-session" | "existing-chat";

@@ -242,11 +242,11 @@ export type SessionRefObservePayload =
   | {
       kind: "broker";
       refId: string;
-      agentId: null;
+      agentId: string;
       source: "broker";
       fidelity: "synthetic";
       historyPath: null;
-      sessionId: string;
+      sessionId: string | null;
       updatedAt: number;
       data: ObserveData;
     };
@@ -1726,14 +1726,18 @@ async function loadBrokerSessionRefObservePayload(
     return null;
   }
   const actor = broker.snapshot.actors[endpoint.agentId];
+  const metadata = endpointMetadataRecord(endpoint);
+  const writableSessionId = metadataString(metadata, "externalSessionId")
+    ?? endpoint.sessionId?.trim()
+    ?? null;
   return {
     kind: "broker",
     refId: normalizedRef,
-    agentId: null,
+    agentId: endpoint.agentId,
     source: "broker",
     fidelity: "synthetic",
     historyPath: null,
-    sessionId: endpoint.agentId,
+    sessionId: writableSessionId,
     updatedAt: Date.now(),
     data: brokerSessionObserveData({
       refId: normalizedRef,
