@@ -2329,6 +2329,38 @@ button.s-thread-sidebar-participant:focus-visible {
   color: var(--dim);
 }
 
+.s-conv-grid-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xl);
+}
+
+.s-conv-grid-new,
+.s-conv-empty-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: 36px;
+  padding: 0 var(--space-xl);
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+}
+
+.s-conv-grid-new:hover,
+.s-conv-empty-new:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+
 .s-conv-grid-count strong {
   color: var(--ink);
   font-size: var(--text-3xl);
@@ -2571,6 +2603,11 @@ button.s-thread-sidebar-participant:focus-visible {
   .s-conv-grid-count {
     justify-items: start;
   }
+
+  .s-conv-grid-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 /* ── Conversations zero state (no conversation selected) ── */
@@ -2669,6 +2706,11 @@ button.s-thread-sidebar-participant:focus-visible {
 .s-conv-empty-action:hover {
   background: color-mix(in srgb, var(--red, #ef4444) 14%, transparent);
   color: var(--ink);
+}
+
+.s-conv-empty-new {
+  align-self: center;
+  margin-top: var(--space-3xl);
 }
 
 .s-conv-empty-hint {
