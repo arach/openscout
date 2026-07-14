@@ -1372,6 +1372,10 @@ button.s-thread-msg-actor:focus-visible {
   color: var(--muted);
 }
 
+.s-thread-compose-voice-status--error {
+  color: var(--red, #ef4444);
+}
+
 .s-thread-compose-mode-row {
   display: flex;
   align-items: center;

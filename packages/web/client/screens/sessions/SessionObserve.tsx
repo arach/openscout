@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -1322,8 +1321,6 @@ function StreamRow({
   prevWallMs,
   laneMode = false,
   entering = false,
-  nudging = false,
-  nudgeDelayMs = 0,
   repeatCount = 1,
   sessionStartMs,
   nowMs = Date.now(),
@@ -1345,8 +1342,6 @@ function StreamRow({
   prevWallMs?: number | null;
   laneMode?: boolean;
   entering?: boolean;
-  nudging?: boolean;
-  nudgeDelayMs?: number;
   repeatCount?: number;
   sessionStartMs?: number;
   nowMs?: number;
@@ -1384,7 +1379,6 @@ function StreamRow({
     "s-observe-row",
     `s-observe-row--kind-${event.kind}`,
     entering ? "s-observe-row--enter" : "",
-    nudging ? "s-observe-row--nudge" : "",
     laneSelectable ? "s-observe-row--selectable" : "",
     highlighted ? "s-observe-row--highlighted" : "",
     focusAnchor ? "s-observe-row--focus-anchor" : "",
@@ -1468,9 +1462,6 @@ function StreamRow({
     <div
       className={rowClass}
       data-event-id={event.id}
-      style={nudging && nudgeDelayMs > 0
-        ? ({ "--row-nudge-delay": `${nudgeDelayMs}ms` } as CSSProperties)
-        : undefined}
       onClick={laneSelectable ? (clickEvent) => {
         if (isObserveInteractiveTarget(clickEvent.target)) return;
         onLaneEventSelect?.(event);
@@ -1543,8 +1534,6 @@ function ReplayStream({
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const laneEventsPrimedRef = useRef(false);
   const [enteringEventIds, setEnteringEventIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [nudgingEventIds, setNudgingEventIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [streamScrollNudge, setStreamScrollNudge] = useState(false);
   const [expandedTechnicalRollups, setExpandedTechnicalRollups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -1603,20 +1592,10 @@ function ReplayStream({
 
     const freshSet = new Set(fresh);
     setEnteringEventIds(freshSet);
-    if (followEnd) {
-      setNudgingEventIds(new Set(
-        displayRows
-          .filter((row) => !freshSet.has(row.event.id))
-          .map((row) => row.event.id),
-      ));
-      setStreamScrollNudge(true);
-    }
 
     const timer = window.setTimeout(() => {
       setEnteringEventIds(new Set());
-      setNudgingEventIds(new Set());
-      setStreamScrollNudge(false);
-    }, 520);
+    }, 380);
     return () => window.clearTimeout(timer);
   }, [displayRows, followEnd, laneMode]);
 
@@ -1629,12 +1608,9 @@ function ReplayStream({
     prevFollowEndRef.current = true;
     scrollTraceToEnd(
       endRef.current,
-      justEnabled ? "instant" : "smooth",
+      laneMode || justEnabled ? "instant" : "smooth",
     );
-  }, [displayRows.length, followEnd]);
-
-  const laneNudgeStrideMs = 28;
-  const laneNudgeCapMs = 154;
+  }, [displayRows.length, followEnd, laneMode]);
   const laneToolHover = useLaneToolHoverCard(laneMode);
 
   const renderDisplayRow = (
@@ -1670,13 +1646,7 @@ function ReplayStream({
         stackedTool={stackedTool}
         laneGutter={laneGutter}
         entering={laneMode && enteringEventIds.has(row.event.id)}
-        nudging={laneMode && nudgingEventIds.has(row.event.id)}
         repeatCount={row.repeatCount}
-        nudgeDelayMs={
-          laneMode && nudgingEventIds.has(row.event.id)
-            ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
-            : 0
-        }
         sessionStartMs={sessionStartMs}
         nowMs={nowMs}
         preferWallAge={preferWallAge}
@@ -1709,7 +1679,7 @@ function ReplayStream({
   };
 
   return (
-    <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
+    <div className="s-observe-stream">
       <div className="s-observe-spine" />
       {displayRows.map((row, index) => {
         const prevRow = index > 0 ? displayRows[index - 1]! : null;

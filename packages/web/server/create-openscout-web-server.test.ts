@@ -1296,6 +1296,63 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
+  test("serves broker-backed messages for a broker-backed conversation", async () => {
+    const chatId = "chn-0600eb9f39144007919e969bc3c13e11";
+    scoutBrokerContextResult = {
+      snapshot: {
+        conversations: {
+          [chatId]: {
+            id: chatId,
+            kind: "direct",
+            title: "Vox",
+            participantIds: ["operator", "session-vox-zeno"],
+          },
+        },
+        messages: {
+          "msg-vox-1": {
+            id: "msg-vox-1",
+            conversationId: chatId,
+            actorId: "session-vox-zeno",
+            body: "loaded from the broker snapshot",
+            class: "agent",
+            createdAt: 1_783_915_198_766,
+            metadata: { flightId: "flt-vox" },
+          },
+        },
+        agents: {},
+        actors: {
+          "session-vox-zeno": {
+            id: "session-vox-zeno",
+            displayName: "vox-zeno-2",
+          },
+        },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      `http://localhost/api/messages?conversationId=${chatId}&limit=260`,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([
+      expect.objectContaining({
+        id: "msg-vox-1",
+        conversationId: chatId,
+        chatId,
+        cId: chatId,
+        actorName: "vox-zeno-2",
+        body: "loaded from the broker snapshot",
+        metadata: { flightId: "flt-vox" },
+      }),
+    ]);
+  });
+
   test("includes broker-registered agent cards in the agents API", async () => {
     queryAgentsResult = [
       {
@@ -1340,7 +1397,7 @@ describe("createOpenScoutWebServer", () => {
       capabilities: ["chat", "invoke"],
       project: "openscout-a2a-sidecar",
       branch: "main",
-      role: null,
+      role: "weather",
       harnessSessionId: null,
       conversationId: null,
       authorityNodeId: "node-1",
@@ -1393,6 +1450,126 @@ describe("createOpenScoutWebServer", () => {
     expect(agents.filter((agent) => agent.id === "weather-a2a.local")).toHaveLength(1);
     expect(agents.find((agent) => agent.id === "weather-a2a.local")).toMatchObject({
       name: "Projected A2A Agent",
+    });
+  });
+
+  test("coalesces Scoutbot placeholders and projects broker-native authority and activity", async () => {
+    queryAgentsResult = [
+      {
+        id: "scoutbot",
+        definitionId: "scoutbot",
+        name: "Scout",
+        handle: "scoutbot",
+        role: "operator-assistant",
+      },
+      {
+        id: "scoutbot.test-node",
+        definitionId: "scoutbot",
+        name: "Scoutbot",
+        handle: "scoutbot",
+      },
+    ];
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      snapshot: {
+        agents: {
+          scoutbot: {
+            id: "scoutbot",
+            kind: "agent",
+            definitionId: "scoutbot",
+            displayName: "Scout",
+            handle: "scoutbot",
+            labels: ["assistant", "scout", "scoutbot"],
+            selector: "@scoutbot",
+            defaultSelector: "@scoutbot",
+            agentClass: "operator",
+            capabilities: ["chat", "invoke", "deliver"],
+            wakePolicy: "keep_warm",
+            homeNodeId: "node-1",
+            authorityNodeId: "node-1",
+            advertiseScope: "local",
+            metadata: {
+              brokerRegistered: true,
+              source: "scoutbot",
+              role: "operator-assistant",
+              roleConfig: {
+                roleId: "scoutbot",
+                grants: {
+                  read: ["agents_search", "broker_feed"],
+                  write: ["messages_send", "ask"],
+                  shell: false,
+                  codebaseWrites: false,
+                },
+              },
+            },
+          },
+        },
+        endpoints: {
+          "endpoint.scoutbot": {
+            id: "endpoint.scoutbot",
+            agentId: "scoutbot",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "waiting",
+            cwd: "/tmp/openscout",
+            projectRoot: "/tmp/openscout",
+            metadata: {
+              source: "scoutbot",
+              approvalPolicy: "never",
+              sandbox: "read-only",
+              shellTool: false,
+            },
+          },
+        },
+        messages: {
+          "msg-scout": {
+            id: "msg-scout",
+            conversationId: "dm.operator.scoutbot",
+            actorId: "scoutbot",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "I dispatched the review.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: 1_700_000_200_000,
+          },
+        },
+        invocations: {},
+        flights: {},
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents");
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    const scoutbots = agents.filter((agent) => agent.definitionId === "scoutbot");
+
+    expect(scoutbots).toHaveLength(1);
+    expect(scoutbots[0]).toMatchObject({
+      id: "scoutbot",
+      agentClass: "operator",
+      role: "operator-assistant",
+      authorityProfile: {
+        roleId: "scoutbot",
+        readTools: ["agents_search", "broker_feed"],
+        writeTools: ["messages_send", "ask"],
+        shell: false,
+        codebaseWrites: false,
+      },
+      runtimePolicy: {
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        shellTool: false,
+      },
+      brokerActivity: [expect.objectContaining({
+        id: "msg-scout",
+        kind: "message",
+        summary: "I dispatched the review.",
+      })],
     });
   });
 

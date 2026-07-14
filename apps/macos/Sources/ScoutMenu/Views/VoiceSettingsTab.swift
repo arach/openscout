@@ -25,6 +25,9 @@ struct VoiceSettingsTab: View {
             historyCard
         }
         .task { await refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refresh() }
+        }
         .onChange(of: voice.preference) { _, _ in
             devices = ScoutVoiceSettingsStore.listInputDevices()
             syncSelectedDevice()
@@ -98,7 +101,7 @@ struct VoiceSettingsTab: View {
         if mic.isTerminal {
             return mic.status == "restricted"
                 ? "Microphone access is restricted on this Mac."
-                : "Open Privacy & Security → Microphone to change it."
+                : "Choose Retry access below. Scout will open the right macOS pane and detect the change."
         }
         if mic.canRequest {
             return "Click Request access to show the macOS permission dialog. Web chat dictation uses Scout Menu as the voice host."
@@ -220,14 +223,14 @@ struct VoiceSettingsTab: View {
                 title: "Microphone",
                 status: ScoutVoicePermissions.microphoneStatus(),
                 openSettings: ScoutVoicePermissions.openMicrophonePrivacySettings,
-                request: { await ScoutVoicePermissions.ensureMicrophoneAccess() }
+                request: { await ScoutVoicePermissions.recoverMicrophoneAccess() }
             )
 
             permissionRow(
                 title: "Speech recognition",
                 status: ScoutVoicePermissions.speechRecognitionStatus(),
                 openSettings: ScoutVoicePermissions.openSpeechRecognitionPrivacySettings,
-                request: { await ScoutVoicePermissions.ensureSpeechRecognitionAccess() }
+                request: { await ScoutVoicePermissions.recoverSpeechRecognitionAccess() }
             )
         }
     }
@@ -254,8 +257,8 @@ struct VoiceSettingsTab: View {
 
                 Spacer()
 
-                if status.canRequest {
-                    Button("Request access") {
+                if !status.granted && !status.isUnavailable && status.status != "restricted" {
+                    Button(status.canRequest ? "Request access" : "Retry access") {
                         Task {
                             _ = await request()
                             await refresh()
@@ -306,9 +309,9 @@ struct VoiceSettingsTab: View {
     private func settingsButtonTitle(for status: ScoutVoicePermissionStatus) -> String {
         switch status.kind {
         case .microphone:
-            return "Open Privacy & Security → Microphone"
+            return "Open microphone settings"
         case .speechRecognition:
-            return "Open Privacy & Security → Speech Recognition"
+            return "Open speech settings"
         }
     }
 
@@ -453,7 +456,7 @@ struct VoiceSettingsTab: View {
             tips.insert(
                 mic.status == "restricted"
                     ? "Microphone access is restricted on this Mac."
-                    : "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it.",
+                    : "Microphone access is off for Scout Menu. Choose Retry access above to reopen the macOS permission pane.",
                 at: 0
             )
         } else if mic.status == "notDetermined" {

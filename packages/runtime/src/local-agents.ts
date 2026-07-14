@@ -2427,7 +2427,26 @@ function attachedLocalSessionSystemPrompt(endpoint: AgentEndpoint): string {
   return "Resume the existing session without changing its identity or prior context.";
 }
 
-function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServerSessionOptions & {
+function attachedCodexApprovalPolicy(endpoint: AgentEndpoint): CodexApprovalPolicy | undefined {
+  const value = endpointMetadataString(endpoint, "approvalPolicy");
+  return value === "untrusted"
+    || value === "on-request"
+    || value === "on-failure"
+    || value === "never"
+    ? value
+    : undefined;
+}
+
+function attachedCodexSandbox(endpoint: AgentEndpoint): CodexSandboxMode | undefined {
+  const value = endpointMetadataString(endpoint, "sandbox");
+  return value === "read-only"
+    || value === "workspace-write"
+    || value === "danger-full-access"
+    ? value
+    : undefined;
+}
+
+export function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServerSessionOptions & {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2454,6 +2473,8 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServ
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
     launchArgs: attachedCodexEndpointLaunchArgs(endpoint),
+    approvalPolicy: attachedCodexApprovalPolicy(endpoint),
+    sandbox: attachedCodexSandbox(endpoint),
     threadId,
     requireExistingThread: Boolean(threadId) && !ownsSessionThread,
   });

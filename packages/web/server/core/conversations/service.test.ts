@@ -6,7 +6,7 @@ mock.module("../broker/service.ts", () => ({
   loadScoutBrokerContext: async () => brokerContextResult,
 }));
 
-const { getScoutConversations } = await import("./service.ts");
+const { getScoutConversationMessages, getScoutConversations } = await import("./service.ts");
 
 mock.restore();
 
@@ -146,6 +146,82 @@ describe("getScoutConversations", () => {
         messageCount: 1,
       }),
     );
+  });
+
+  test("reads conversation messages from the broker snapshot used by the list", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.messages["msg-2"] = {
+      id: "msg-2",
+      conversationId: "chat_hudson-main",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "hello from the broker",
+      replyToMessageId: "msg-1",
+      attachments: [{
+        id: "att-1",
+        mediaType: "image/png",
+        url: "http://127.0.0.1:43120/api/image-blobs/att-1",
+      }],
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_800_000,
+      metadata: { flightId: "flt-1" },
+    };
+    snapshot.conversations["c.thread-1"] = {
+      id: "c.thread-1",
+      kind: "thread",
+      title: "Thread",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", "hudson.main.mini"],
+      parentConversationId: "chat_hudson-main",
+      messageId: "msg-2",
+    };
+    snapshot.messages["msg-thread-1"] = {
+      id: "msg-thread-1",
+      conversationId: "c.thread-1",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "thread reply",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const messages = await getScoutConversationMessages("chat_hudson-main", 260);
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: "msg-1",
+        conversationId: "chat_hudson-main",
+        actorId: "operator",
+        actorName: "Operator",
+        body: "hello",
+      }),
+      expect.objectContaining({
+        id: "msg-2",
+        conversationId: "chat_hudson-main",
+        actorId: "hudson.main.mini",
+        actorName: "Hudson",
+        body: "hello from the broker",
+        replyToMessageId: "msg-1",
+        metadata: { flightId: "flt-1" },
+        attachments: [expect.objectContaining({ id: "att-1", mediaType: "image/png" })],
+        threadSummary: {
+          count: 1,
+          participants: ["Operator", "Hudson"],
+          lastActiveAt: 1_779_461_900_000,
+        },
+      }),
+    ]);
   });
 
   test("adds scoped labels for same-project agent-agent participants", async () => {

@@ -16,6 +16,29 @@ export type WebTerminalSurfaceDescriptor = {
   socketDir: string | null;
 };
 
+export type WebAgentBrokerActivity = {
+  id: string;
+  kind: "message" | "invocation" | "flight";
+  at: number;
+  state: string | null;
+  summary: string;
+  conversationId: string | null;
+};
+
+export type WebAgentAuthorityProfile = {
+  roleId: string;
+  readTools: string[];
+  writeTools: string[];
+  shell: boolean;
+  codebaseWrites: boolean;
+};
+
+export type WebAgentRuntimePolicy = {
+  approvalPolicy: string | null;
+  sandbox: string | null;
+  shellTool: boolean | null;
+};
+
 export type WebAgent = {
   id: string;
   definitionId: string;
@@ -59,6 +82,9 @@ export type WebAgent = {
   providerUrl?: string | null;
   protocol?: string | null;
   skills?: string[];
+  brokerActivity?: WebAgentBrokerActivity[];
+  authorityProfile?: WebAgentAuthorityProfile | null;
+  runtimePolicy?: WebAgentRuntimePolicy | null;
 };
 
 export type WebActivityItem = {

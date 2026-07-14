@@ -111,6 +111,24 @@ export function agentLaneToCardModel(
   const cwdRaw = facts?.cwd ?? agent.cwd ?? agent.projectRoot ?? null;
   const cwd = cwdRaw ? formatCwd(cwdRaw) : null;
   const sessionIdFull = agent.harnessSessionId?.trim() || null;
+  const authority = agent.agentClass === "operator"
+    ? {
+        label: "operator",
+        title: [
+          agent.role ? `Role: ${agent.role}` : "Privileged operator agent",
+          agent.authorityProfile
+            ? `Reads: ${agent.authorityProfile.readTools.join(", ") || "none"}`
+            : null,
+          agent.authorityProfile
+            ? `Writes: ${agent.authorityProfile.writeTools.join(", ") || "none"}`
+            : null,
+          agent.authorityProfile
+            ? `Shell: ${agent.authorityProfile.shell ? "allowed" : "blocked"}; code writes: ${agent.authorityProfile.codebaseWrites ? "allowed" : "blocked"}`
+            : null,
+          agent.runtimePolicy?.sandbox ? `Sandbox: ${agent.runtimePolicy.sandbox}` : null,
+        ].filter(Boolean).join(" · "),
+      }
+    : null;
 
   // The card no longer lists files inline; instead each tool-use pill reveals its
   // own top-N inventory on hover — tools → recent tool calls, edits → files
@@ -182,6 +200,7 @@ export function agentLaneToCardModel(
 
   return {
     name: lanePrimaryLabel(agent, source),
+    authority,
     harness: agent.harness ?? preview?.harness ?? session?.adapterType ?? null,
     model: formatModelName(facts?.model ?? preview?.model ?? agent.model ?? session?.model ?? null),
     effort: facts?.effort ?? session?.effort ?? null,

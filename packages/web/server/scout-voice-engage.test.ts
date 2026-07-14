@@ -62,7 +62,7 @@ describe("engageScoutVoiceDictation", () => {
     });
   });
 
-  test("does not auto-open privacy settings for denied microphone on mic engage", async () => {
+  test("queues permission recovery for a denied microphone on mic engage", async () => {
     registerScoutVoiceHost({
       hostId: "scout-menu",
       platform: "macos",
@@ -80,7 +80,9 @@ describe("engageScoutVoiceDictation", () => {
     expect(result.issue?.code).toBe("microphone_denied");
     expect(result.issue?.action).toBe("open_microphone_settings");
 
-    await expect(awaitScoutVoiceHostCommand("scout-menu", 25)).resolves.toEqual({ command: null });
+    await expect(awaitScoutVoiceHostCommand("scout-menu", 1_000)).resolves.toMatchObject({
+      command: { type: "permissions.request", kind: "microphone" },
+    });
   });
 
   test("is ready when host, permissions, and input device are available", () => {

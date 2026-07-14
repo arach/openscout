@@ -5,12 +5,21 @@
   inset: 0;
   z-index: 90;
   background: color-mix(in srgb, var(--bg) 55%, transparent);
-  backdrop-filter: blur(2px);
   transition: opacity 180ms ease;
 }
 
-.s-settings-scrim--open { opacity: 1; pointer-events: auto; }
-.s-settings-scrim--closed { opacity: 0; pointer-events: none; }
+.s-settings-scrim--open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.s-settings-scrim--closed {
+  opacity: 0;
+  pointer-events: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 
 .s-settings-drawer {
   position: fixed;

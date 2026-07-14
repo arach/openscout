@@ -83,7 +83,7 @@ public final class ScoutVoiceService: ObservableObject {
     public func ensureCaptureAccess() async -> Bool {
         refreshPermissionState()
 
-        let micGranted = await ScoutVoicePermissions.ensureMicrophoneAccess()
+        let micGranted = await ScoutVoicePermissions.recoverMicrophoneAccess()
         if !micGranted {
             let message = ScoutVoicePermissions.microphoneStatusMessage(
                 for: AVCaptureDevice.authorizationStatus(for: .audio)

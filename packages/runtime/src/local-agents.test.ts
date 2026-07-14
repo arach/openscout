@@ -10,6 +10,7 @@ import {
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   SUPPORTED_SCOUT_HARNESSES,
   buildAttachedSessionInvocationPrompt,
+  buildCodexEndpointSessionOptions,
   buildLocalAgentDirectInvocationPrompt,
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
@@ -174,6 +175,28 @@ for await (const line of rl) {
 }
 
 describe("local agent prompts", () => {
+  test("applies an attached endpoint's explicit Codex permission boundary", () => {
+    const options = buildCodexEndpointSessionOptions({
+      id: "endpoint.scoutbot",
+      agentId: "scoutbot",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "waiting",
+      cwd: "/tmp/openscout",
+      metadata: {
+        source: "scoutbot",
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        launchArgs: ["-c", "features.shell_tool=false"],
+      },
+    });
+
+    expect(options.approvalPolicy).toBe("never");
+    expect(options.sandbox).toBe("read-only");
+    expect(options.launchArgs).toContain("features.shell_tool=false");
+  });
+
   test("derives context-window usage from observed token metadata", () => {
     expect(resolveLocalAgentContextWindowUsage({
       session: {

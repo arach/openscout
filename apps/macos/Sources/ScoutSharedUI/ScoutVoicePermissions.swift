@@ -93,7 +93,7 @@ public enum ScoutVoicePermissions {
         case .notDetermined:
             return "Microphone has not been requested yet. Click Request access or tap the mic in chat to show the macOS prompt."
         case .denied:
-            return "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it."
+            return "Microphone access is off for Scout Menu. Choose Retry access; Scout will open macOS Microphone settings and detect the change."
         case .restricted:
             return "Microphone access is restricted on this Mac."
         @unknown default:
@@ -108,7 +108,7 @@ public enum ScoutVoicePermissions {
         case .notDetermined:
             return "Speech recognition has not been requested yet. Click Request access to show the macOS prompt."
         case .denied:
-            return "Speech recognition is off for Scout Menu. Open Privacy & Security → Speech Recognition to change it."
+            return "Speech recognition is off for Scout Menu. Choose Retry access; Scout will open macOS Speech Recognition settings and detect the change."
         case .restricted:
             return "Speech recognition is restricted on this Mac."
         @unknown default:
@@ -133,6 +133,18 @@ public enum ScoutVoicePermissions {
         }
     }
 
+    /// User-initiated recovery for microphone access. macOS only presents the
+    /// consent sheet while access is undetermined; after a denial the only
+    /// supported retry path is the app-specific Privacy & Security pane.
+    public static func recoverMicrophoneAccess() async -> Bool {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        if status == .denied {
+            openMicrophonePrivacySettings()
+            return false
+        }
+        return await ensureMicrophoneAccess()
+    }
+
     public static func ensureSpeechRecognitionAccess() async -> Bool {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -148,6 +160,15 @@ public enum ScoutVoicePermissions {
         @unknown default:
             return false
         }
+    }
+
+    public static func recoverSpeechRecognitionAccess() async -> Bool {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        if status == .denied {
+            openSpeechRecognitionPrivacySettings()
+            return false
+        }
+        return await ensureSpeechRecognitionAccess()
     }
 
     public static func openMicrophonePrivacySettings() {

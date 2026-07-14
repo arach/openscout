@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   openScoutVoicePrivacySettings,
@@ -61,7 +61,7 @@ function permissionDetail(status: ScoutVoicePermissionStatus | null, kind: Voice
     return `Click Request to show the macOS permission dialog for ${PERMISSION_META[kind].appLabel}.`;
   }
   if (status.status === "denied") {
-    return `Open Privacy & Security → ${PERMISSION_META[kind].privacyPane} to change it.`;
+    return `Choose Retry access. Scout Menu will open macOS ${PERMISSION_META[kind].privacyPane} settings and detect the change automatically.`;
   }
   if (status.status === "restricted") {
     return `${PERMISSION_META[kind].label} access is restricted on this Mac.`;
@@ -71,6 +71,10 @@ function permissionDetail(status: ScoutVoicePermissionStatus | null, kind: Voice
 
 function canOpenPermissionSettings(status: ScoutVoicePermissionStatus | null): boolean {
   return Boolean(status && !status.granted && !status.canRequest && status.status !== "unknown");
+}
+
+function canRetryPermission(status: ScoutVoicePermissionStatus | null): boolean {
+  return Boolean(status && !status.granted && status.status !== "restricted" && status.status !== "unknown");
 }
 
 export function VoiceHostStatusBanner({
@@ -97,7 +101,7 @@ export function VoiceHostStatusBanner({
     headline = "Microphone blocked for Scout Menu";
     detail = micPermission?.status === "restricted"
       ? "Microphone access is restricted on this Mac."
-      : "Open Privacy & Security → Microphone to change it.";
+      : "Choose Retry access below. Scout will open the right macOS pane and detect the change.";
   } else if (hostOnline && !micOk && micPermission?.canRequest) {
     tone = "warn";
     headline = "Microphone access needed";
@@ -152,13 +156,19 @@ function VoicePermissionCard({
   onRefresh: () => Promise<void>;
 }) {
   const [acting, setActing] = useState(false);
+  const statusRef = useRef(status);
   const meta = PERMISSION_META[kind];
   const tone = permissionTone(status);
 
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
   const pollAfterRequest = useCallback(async () => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 600));
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
       await onRefresh();
+      if (statusRef.current?.granted) return;
     }
   }, [onRefresh]);
 
@@ -200,14 +210,16 @@ function VoicePermissionCard({
       <p className="s-voice-permission-card-hint">{meta.hint}</p>
       <p className="s-voice-permission-card-detail">{permissionDetail(status, kind)}</p>
       <div className="s-voice-permission-card-actions">
-        {status?.canRequest ? (
+        {canRetryPermission(status) ? (
           <button
             type="button"
             className="s-voice-permission-btn s-voice-permission-btn--primary"
             disabled={disabled || acting}
             onClick={() => void requestAccess()}
           >
-            {acting ? "Requesting…" : "Request access"}
+            {acting
+              ? (status?.canRequest ? "Requesting…" : "Waiting for macOS…")
+              : (status?.canRequest ? "Request access" : "Retry access")}
           </button>
         ) : null}
         {canOpenPermissionSettings(status) ? (
