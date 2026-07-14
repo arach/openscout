@@ -2143,16 +2143,65 @@ async function buildAgentAttentionIndexSnapshot(
   return index;
 }
 
-async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
+function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
+  if (limit === undefined) return agents;
+  return [...agents]
+    .sort((left, right) =>
+      (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+      || left.name.localeCompare(right.name),
+    )
+    .slice(0, limit);
+}
+
+function agentListSummary(agent: WebAgent) {
+  return {
+    id: agent.id,
+    name: agent.name,
+    handle: agent.handle,
+    agentClass: agent.agentClass,
+    harness: agent.harness,
+    state: agent.state,
+    pendingAsk: agent.pendingAsk,
+    role: agent.role,
+    projectRoot: agent.projectRoot,
+    cwd: agent.cwd,
+    project: agent.project,
+    branch: agent.branch,
+    selector: agent.selector,
+    model: agent.model,
+    transport: agent.transport,
+    capabilities: agent.capabilities,
+    authorityNodeName: agent.authorityNodeName,
+    homeNodeName: agent.homeNodeName,
+    conversationId: agent.conversationId,
+    harnessSessionId: agent.harnessSessionId,
+    updatedAt: agent.updatedAt,
+    createdAt: agent.createdAt,
+  };
+}
+
+async function queryAgentsIncludingBrokerCards(
+  limit?: number,
+  includeAttention = true,
+): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
-  const agents = queryAgents()
+  // Archived rows are filtered outside SQL, so over-fetch by their count to
+  // keep a bounded response from coming back short when an archived agent is
+  // among the newest database rows.
+  const databaseLimit = limit === undefined ? undefined : limit + archivedIds.size;
+  const agents = queryAgents(databaseLimit)
     .map(withResolvedHarnessSessionIdentity)
     .filter((agent) => !archivedIds.has(agent.id));
   const broker = await loadScoutBrokerContext().catch(() => null);
-  const attention = await queryAgentAttentionIndex(broker);
+  // The HUD's first page is deliberately a summary read. The full attention
+  // index opens the pairing bridge and can take seconds on a busy machine, so
+  // only rich callers pay that cost.
+  const attention = includeAttention
+    ? await queryAgentAttentionIndex(broker)
+    : new Map<string, AgentAttentionEntry>();
   if (!broker) {
-    return applyAgentAttention(agents, attention);
+    return mostRecentAgents(applyAgentAttention(agents, attention), limit);
   }
   const brokerAgents = brokerCardAgentsForWeb(broker)
     .filter((agent) => !archivedIds.has(agent.id))
@@ -2167,10 +2216,10 @@ async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
     ))
     .map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
   const existingIds = new Set(mergedAgents.map((agent) => agent.id));
-  return applyAgentAttention([
+  return mostRecentAgents(applyAgentAttention([
     ...mergedAgents,
     ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
-  ], attention);
+  ], attention), limit);
 }
 
 function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefined): WebAgent {
@@ -4243,7 +4292,13 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/agents", async (c) => {
+    const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
+    const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
+    const summary = c.req.query("detail") === "summary";
+    const agents = await queryAgentsIncludingBrokerCards(limit, !summary);
+    return c.json(summary ? agents.map(agentListSummary) : agents);
+  });
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {

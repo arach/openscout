@@ -87,6 +87,7 @@ public final class HUDController {
             )
             panel.alphaValue = 0
             OverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
+            HUDState.shared.setVisible(true)
             warmAndFadeIn(panel)
             installMonitors()
             installGeometryObserver()
@@ -152,6 +153,7 @@ public final class HUDController {
         p.alphaValue = 0
         OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
         self.panel = p
+        HUDState.shared.setVisible(true)
 
         // Debug hook: write the window number so screencapture -l<id>
         // can target just this panel (used by the iteration loop).
@@ -170,6 +172,7 @@ public final class HUDController {
 
     public func dismiss() {
         guard let p = panel else { return }
+        HUDState.shared.setVisible(false)
         if HUDMotionState.shared.phase == .idle {
             HUDMotionState.shared.begin(.moving)
         }
@@ -189,6 +192,11 @@ public final class HUDController {
             p.animator().alphaValue = 0
         }) { [weak self] in
             Task { @MainActor [weak self] in
+                // A show request can reuse this panel while the fade-out is
+                // still completing. In that case visibility has already been
+                // restored; do not let the stale dismissal completion tear
+                // down the live panel and strand its store lifecycle as active.
+                guard !HUDState.shared.isVisible else { return }
                 p.orderOut(nil)
                 self?.panel = nil
                 HUDMotionState.shared.settle()

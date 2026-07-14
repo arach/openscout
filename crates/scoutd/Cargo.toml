@@ -9,5 +9,6 @@ name = "scoutd"
 path = "src/main.rs"
 
 [dependencies]
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

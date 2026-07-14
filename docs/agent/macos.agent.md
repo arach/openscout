@@ -1,6 +1,6 @@
 # macOS App Agent Notes
 
-Verified: 2026-06-10
+Verified: 2026-07-14
 
 Source: `apps/macos/**`, `packages/scout-native-core/**`.
 
@@ -33,7 +33,10 @@ External: `packages/scout-native-core` (`ScoutNativeCore` + `ScoutCapabilities`)
 
 Hosts `0.0.0.0`/`::` normalize to `127.0.0.1` client-side. `43110` is the real default broker port, not a sentinel. scoutd never reads the config file — the helper forwards `OPENSCOUT_BROKER_*` env (from `ScoutBroker.configuredEndpoint()`) when invoking it, unless the environment already pins a target.
 
-Clients: comms/agents/activity/compose/runner hit web `api/*`; tail hits broker `v1/tail/*`.
+Clients: comms/activity/compose/runner and rich agent reads hit web `api/*`; the
+bounded HUD agent roster subscribes to scoutd's native read projection over the
+probe Unix socket and falls back to web summary reads when that service is absent.
+Tail hits broker `v1/tail/*`.
 
 ## Relations
 
@@ -79,7 +82,7 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Store | Target | Cadence | Notes |
 |---|---|---|---|
 | `ScoutTailStore` | ScoutAppCore | 1.4s poll; discovery sub-fetch ≤ 1/30s | merge-by-id, 700-event cap; feeds Tail surface + HUD tail |
-| `ScoutAgentsStore` | ScoutAppCore | 2.0s | HUD agents |
+| `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
 | `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD activity |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |
 | `ScoutCommsStore` | Scout | adaptive: 2.5s working / 10s idle / 30s error backoff | main-window channels/messages/agents |
@@ -110,6 +113,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 7. `scout://services/*` executes only in the helper and only with a valid, unexpired HMAC signature; Scout forwards, never executes.
 8. Scout never terminates on last-window close — it flips `.regular` ↔ `.accessory`.
 9. The helper stays supervision-only: service lights, restarts, pairing, Tailscale, wake-Scout.
+10. The bounded HUD agent roster must not require the web process or request a full broker snapshot; native failure may use the bounded web summary as a compatibility fallback.
 
 ## Forbidden
 
@@ -128,6 +132,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 | Targets/products | `Package.swift` |
 | Endpoint resolution | `Sources/ScoutAppCore/ScoutEndpoints.swift` |
 | Shared stores/clients | `Sources/ScoutAppCore/Scout{Tail,Agents,Activity}Store.swift`, `ScoutComposeService.swift`, `ScoutRunnerService.swift` |
+| Native agent read stream | `Sources/ScoutAppCore/ScoutNativeReadClient.swift`, `ScoutdProbeClient.swift` |
 | App entry, scheme + lifecycle | `Sources/Scout/ScoutApp.swift` |
 | Window shell + feeds box + key yield | `Sources/Scout/ScoutRootView.swift`, `ScoutCommands.swift` |
 | HUD panel + keys | `Sources/ScoutHUD/HUDController.swift`, `OverlayPanelShell.swift`, `HotkeyManager.swift` |
