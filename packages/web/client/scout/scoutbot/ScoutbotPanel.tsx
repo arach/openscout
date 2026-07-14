@@ -1,26 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronDown, Loader2, Radio, Sparkles, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Bot, ChevronDown, Square, Volume2, VolumeX } from "lucide-react";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { ScoutbotBroadcastChip } from "../../components/ScoutbotBroadcastChip.tsx";
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
-import {
-  clearClientBroadcast,
-  dismissPromotedBroadcast,
-  emitClientBroadcast,
-  onToggleScoutbot,
-  selectActiveBroadcast,
-  useScoutbotBroadcastStore,
-} from "../../lib/scoutbot-broadcast-store.ts";
-import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
-import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
+import { onToggleScoutbot } from "../../lib/scoutbot-broadcast-store.ts";
+import { extractScoutbotUiActions, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import {
   isScoutSpeechStopped,
-  playPreparedScoutSpeechWithEffects,
-  prepareScoutSpeech,
   ensureScoutVoiceAutoProbe,
   getSharedScoutVoiceClient,
   startScoutSpeechWithEffects,
@@ -28,8 +18,6 @@ import {
   type ScoutVoiceLiveHandle,
   type ScoutVoiceSessionState,
   type ScoutSpeechHandle,
-  type ScoutSpeechResult,
-  type ScoutSpeechTimingCueRequest,
 } from "../../lib/scout-voice.ts";
 import { useScout } from "../Provider.tsx";
 import {
@@ -44,49 +32,30 @@ import { ScoutbotSettingsPanel } from "./ScoutbotSettingsPanel.tsx";
 import {
   DEFAULT_SCOUTBOT_VOICE_PRESET_ID,
   DEFAULT_SCOUTBOT_VOICE_SPEED,
-  SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS,
-  SCOUTBOT_VOICE_SPEEDS,
-  STATE_PROMPT,
   SCOUT_VOICE_STOP_TIMEOUT_MS,
-  buildScoutbotBriefSpeechPlan,
-  estimateBriefDuration,
   extractAbsoluteFilePaths,
-  formatReminderDueAt,
   isScoutVoiceCancellation,
   makeScoutAudioLaunchContext,
   releaseScoutVoiceLive,
-  resolveScoutbotBriefCueSchedule,
   resolveScoutbotFxParams,
   shortenForMenu,
-  wait,
   withTimeout,
-  type PreparedBriefSpeech,
   type ScoutbotAgentConfig,
   type ScoutbotAgentConfigUpdateResult,
   type ScoutbotAskAgentResult,
   type ScoutbotAssistantReply,
   type ScoutbotAssistantSession,
   type ScoutbotAssistantSessionState,
-  type ScoutbotBrief,
-  type ScoutbotBriefCueSchedule,
-  type ScoutbotBriefSegment,
-  type ScoutbotReminder,
-  type ScoutbotReminderCreateResult,
-  type ScoutbotReminderState,
   type ScoutbotVoiceDefaults,
   type VoiceProbeState,
   type ScoutVoiceCancelReason,
 } from "./scoutbot-model.ts";
 
-function agentPromptHandle(agent: { handle: string | null; name: string; id: string }): string {
-  const raw = agent.handle?.trim() || agent.name.trim() || agent.id;
-  return raw.replace(/^@+/, "").replace(/\s+/g, "-");
-}
-
-function isScoutbotPromptAgent(agent: { handle: string | null; name: string; id: string; role?: string | null }): boolean {
-  const values = [agent.handle, agent.name, agent.id, agent.role].filter(Boolean).map((value) => value!.toLowerCase());
-  return values.some((value) => value === "scoutbot" || value.includes("scoutbot"));
-}
+const SCOUTBOT_STARTER_PROMPTS = [
+  "Explain what went wrong here.",
+  "Help me rewrite this message.",
+  "What should I try next?",
+] as const;
 
 export function ScoutbotPanel({
   height,
@@ -115,9 +84,6 @@ export function ScoutbotPanel({
   const [voiceReplies, setVoiceReplies] = usePersistentBoolean("openscout.scoutbot.voiceReplies", false);
   const [voiceSpeed, setVoiceSpeed] = usePersistentNumber("openscout.scoutbot.voiceSpeed", DEFAULT_SCOUTBOT_VOICE_SPEED);
   const [voicePresetId, setVoicePresetId] = usePersistentString("openscout.scoutbot.voicePresetId", DEFAULT_SCOUTBOT_VOICE_PRESET_ID);
-  const [briefing, setBriefing] = useState(false);
-  const [brief, setBrief] = useState<ScoutbotBrief | null>(null);
-  const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<ScoutVoiceSessionState | null>(null);
   const [partial, setPartial] = useState("");
@@ -137,7 +103,6 @@ export function ScoutbotPanel({
   const [modelDraft, setModelDraft] = useState("");
   const [promptDraft, setPromptDraft] = useState("");
   const [voiceDefaults, setVoiceDefaults] = useState<ScoutbotVoiceDefaults | null>(null);
-  const [reminderState, setReminderState] = useState<ScoutbotReminderState | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
   const [composeFocusNonce, setComposeFocusNonce] = useState(0);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
@@ -146,16 +111,10 @@ export function ScoutbotPanel({
   const liveRef = useRef<ScoutVoiceLiveHandle | null>(null);
   const liveCancelReasonRef = useRef<ScoutVoiceCancelReason | null>(null);
   const speechRef = useRef<ScoutSpeechHandle | null>(null);
-  const speechPrepareAbortRef = useRef<AbortController | null>(null);
-  const briefRunRef = useRef<string | null>(null);
-  const initializedDueReminderIdsRef = useRef(false);
-  const announcedDueReminderIdsRef = useRef<Set<string>>(new Set());
   const voiceRepliesRef = useRef(voiceReplies);
   voiceRepliesRef.current = voiceReplies;
 
   const stopSpeech = useCallback(() => {
-    speechPrepareAbortRef.current?.abort();
-    speechPrepareAbortRef.current = null;
     speechRef.current?.stop();
     speechRef.current = null;
     setSpeaking(false);
@@ -263,20 +222,10 @@ export function ScoutbotPanel({
   );
 
   useEffect(() => () => {
-    briefRunRef.current = null;
     stopSpeech();
   }, [stopSpeech]);
 
-  const suggestedPrompts = useMemo(() => {
-    const promptAgent = agents.find((agent) => !isScoutbotPromptAgent(agent) && agent.state === "working")
-      ?? agents.find((agent) => !isScoutbotPromptAgent(agent));
-    const mention = promptAgent ? `@${agentPromptHandle(promptAgent)}` : "@agent";
-    return [
-      "Let me know when this turn finishes.",
-      `Ask ${mention} what needs me next.`,
-      "Summarize these lanes and call out blockers.",
-    ];
-  }, [agents]);
+  const suggestedPrompts = SCOUTBOT_STARTER_PROMPTS;
 
   const syncLastMessages = useCallback((session: ScoutbotAssistantSession) => {
     const lastUser = [...session.messages].reverse().find((message) => message.role === "user");
@@ -298,57 +247,6 @@ export function ScoutbotPanel({
   useEffect(() => {
     void loadScoutbotSession();
   }, [loadScoutbotSession]);
-
-  const loadScoutbotReminders = useCallback(async () => {
-    try {
-      setReminderState(await api<ScoutbotReminderState>("/api/scoutbot/reminders"));
-    } catch {
-      setReminderState(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadScoutbotReminders();
-    const timer = window.setInterval(() => {
-      void loadScoutbotReminders();
-    }, 15_000);
-    window.addEventListener("focus", loadScoutbotReminders);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", loadScoutbotReminders);
-    };
-  }, [loadScoutbotReminders]);
-
-  const createScoutbotReminder = useCallback(async (input: {
-    title?: string;
-    body: string;
-    dueAt?: number;
-    delayMs?: number;
-    delayMinutes?: number;
-    context?: Record<string, unknown>;
-  }): Promise<ScoutbotReminder> => {
-    const result = await api<ScoutbotReminderCreateResult>("/api/scoutbot/reminders", {
-      method: "POST",
-      body: JSON.stringify({
-        ...input,
-        source: "scoutbot",
-      }),
-    });
-    setReminderState({
-      generatedAt: result.generatedAt,
-      reminders: result.reminders,
-      due: result.due,
-      scheduled: result.scheduled,
-    });
-    return result.reminder;
-  }, []);
-
-  const dismissScoutbotReminder = useCallback(async (id: string) => {
-    const next = await api<ScoutbotReminderState>(`/api/scoutbot/reminders/${encodeURIComponent(id)}/dismiss`, {
-      method: "POST",
-    });
-    setReminderState(next);
-  }, []);
 
   const loadScoutbotConfig = useCallback(async () => {
     setConfigLoading(true);
@@ -437,25 +335,37 @@ export function ScoutbotPanel({
   }, [stopSpeech, switchingSessionId, syncLastMessages]);
 
   const resetScoutbotSession = useCallback(async () => {
+    if (resettingSession || sending) return;
+    if (sessionState?.session.messages.length === 0) {
+      setDraft("");
+      setError(null);
+      setChatExpanded(false);
+      setSessionPickerOpen(false);
+      setAskStatus("New chat ready");
+      setComposeFocusNonce((nonce) => nonce + 1);
+      return;
+    }
     setResettingSession(true);
     setError(null);
-    setAskStatus("Starting fresh session");
+    setAskStatus("Starting new chat");
     stopSpeech();
     try {
       const state = await api<ScoutbotAssistantSessionState>("/api/scoutbot/session/reset", { method: "POST" });
       setSessionState(state);
+      setDraft("");
       setLastAsk(null);
       setLastReply(null);
       setChatExpanded(false);
       setSessionPickerOpen(false);
-      setAskStatus("Fresh session ready");
+      setAskStatus("New chat ready");
+      setComposeFocusNonce((nonce) => nonce + 1);
     } catch (err) {
       setAskStatus(null);
-      setError(err instanceof Error ? err.message : "Could not start a fresh session.");
+      setError(err instanceof Error ? err.message : "Could not start a new chat.");
     } finally {
       setResettingSession(false);
     }
-  }, [stopSpeech]);
+  }, [resettingSession, sending, sessionState, stopSpeech]);
 
   const archiveScoutbotSession = useCallback(async (id: string) => {
     if (!id || archivingSessionId) return;
@@ -545,321 +455,12 @@ export function ScoutbotPanel({
           setAskStatus(null);
           setError(err instanceof Error ? err.message : "Could not ask agent.");
         });
-      } else if (action.type === "reminder") {
-        void createScoutbotReminder({
-          title: action.title,
-          body: action.body,
-          dueAt: action.dueAt,
-          delayMs: action.delayMs,
-          delayMinutes: action.delayMinutes,
-          context: { route, reason: action.reason },
-        }).then((reminder) => {
-          setAskStatus(`Reminder set for ${formatReminderDueAt(reminder.dueAt)}`);
-        }).catch((err) => {
-          setError(err instanceof Error ? err.message : "Could not set reminder.");
-        });
-      } else {
+      } else if (action.type !== "reminder") {
         applyScoutbotUiAction(action);
       }
     }
     speakScoutbotText(replyText);
-  }, [applyScoutbotUiAction, createScoutbotReminder, route, speakScoutbotText]);
-
-  useEffect(() => {
-    const due = reminderState?.due ?? [];
-    if (!initializedDueReminderIdsRef.current) {
-      for (const reminder of due) {
-        announcedDueReminderIdsRef.current.add(reminder.id);
-      }
-      initializedDueReminderIdsRef.current = true;
-      return;
-    }
-
-    const freshDue = due.find((reminder) => !announcedDueReminderIdsRef.current.has(reminder.id));
-    if (!freshDue) {
-      return;
-    }
-
-    for (const reminder of due) {
-      announcedDueReminderIdsRef.current.add(reminder.id);
-    }
-    const text = `Reminder due: ${freshDue.body}`;
-    setAskStatus("Reminder due");
-    setLastReply(text);
-    speakScoutbotText(text);
-  }, [reminderState, speakScoutbotText]);
-
-  const cycleVoiceSpeed = useCallback(() => {
-    const nearestIndex = SCOUTBOT_VOICE_SPEEDS.reduce((bestIndex, candidate, index) => (
-      Math.abs(candidate - voiceSpeed) < Math.abs(SCOUTBOT_VOICE_SPEEDS[bestIndex] - voiceSpeed)
-        ? index
-        : bestIndex
-    ), 0);
-    setVoiceSpeed(SCOUTBOT_VOICE_SPEEDS[(nearestIndex + 1) % SCOUTBOT_VOICE_SPEEDS.length]);
-  }, [setVoiceSpeed, voiceSpeed]);
-
-  const prepareBriefSpeech = useCallback((
-    text: string,
-    cues: ScoutSpeechTimingCueRequest[],
-    runId: string,
-  ): PreparedBriefSpeech => {
-    if (!voiceRepliesRef.current) {
-      return {
-        promise: Promise.resolve(null),
-        abort: () => undefined,
-      };
-    }
-    speechPrepareAbortRef.current?.abort();
-    const controller = new AbortController();
-    speechPrepareAbortRef.current = controller;
-    const abort = () => {
-      controller.abort();
-      if (speechPrepareAbortRef.current === controller) {
-        speechPrepareAbortRef.current = null;
-      }
-    };
-    const promise = prepareScoutSpeech(text, {
-      speed: voiceSpeed,
-      instructions: SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS,
-      signal: controller.signal,
-      originAppId: "openscout.scoutbot",
-      utteranceId: `scoutbot-brief:${runId}`,
-      ...(cues.length > 0 ? { speechTiming: { enabled: true, cues } } : {}),
-    })
-      .catch((err) => {
-        if (!isScoutSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Scout voice speech failed.");
-        }
-        return null;
-      })
-      .finally(() => {
-        if (speechPrepareAbortRef.current === controller) {
-          speechPrepareAbortRef.current = null;
-        }
-      });
-    return { promise, abort };
-  }, [voiceSpeed]);
-
-  const playBriefSpeech = useCallback(async (
-    prepared: Promise<ScoutSpeechResult | null>,
-    runId: string,
-    options: {
-      cueSchedule?: ScoutbotBriefCueSchedule[];
-      onCue?: (cue: ScoutbotBriefCueSchedule) => void;
-    } = {},
-  ): Promise<boolean> => {
-    const audio = await prepared;
-    if (!audio || briefRunRef.current !== runId || !voiceRepliesRef.current) {
-      return false;
-    }
-    const controller = new AbortController();
-    const cueTimers: number[] = [];
-    const fxParams = resolveScoutbotFxParams(voicePresetId, onlineCount);
-    const playbackRate = Math.min(2, Math.max(0.5, fxParams.playbackRate ?? 1));
-    const clearCueTimers = () => {
-      for (const timer of cueTimers) {
-        window.clearTimeout(timer);
-      }
-      cueTimers.length = 0;
-    };
-    const scheduleCueTimers = () => {
-      if (!options.cueSchedule?.length) {
-        return;
-      }
-      for (const cue of options.cueSchedule) {
-        const delayMs = Math.max(0, cue.activateMs / playbackRate);
-        cueTimers.push(window.setTimeout(() => {
-          if (controller.signal.aborted || briefRunRef.current !== runId) {
-            return;
-          }
-          options.onCue?.(cue);
-        }, delayMs));
-      }
-    };
-    const promise = playPreparedScoutSpeechWithEffects(audio, {
-      signal: controller.signal,
-      presetId: voicePresetId,
-      params: fxParams,
-      onPlaybackStart: scheduleCueTimers,
-    });
-    const speech: ScoutSpeechHandle = {
-      promise,
-      stop: () => {
-        clearCueTimers();
-        controller.abort();
-      },
-    };
-    speechRef.current?.stop();
-    speechRef.current = speech;
-    setSpeaking(true);
-    try {
-      await promise;
-    } catch (err) {
-      if (!isScoutSpeechStopped(err)) {
-        throw err;
-      }
-    } finally {
-      clearCueTimers();
-      if (speechRef.current === speech) {
-        speechRef.current = null;
-        setSpeaking(false);
-      }
-    }
-    return true;
-  }, [onlineCount, voicePresetId]);
-
-  const runBrief = useCallback(async (nextBrief: ScoutbotBrief, runId: string) => {
-    const segments: ScoutbotBriefSegment[] = [
-      ...nextBrief.steps.map((step) => ({
-        id: step.id,
-        cueId: `step:${step.id}`,
-        label: step.label,
-        route: step.route,
-        narration: step.narration,
-        durationMs: step.durationMs,
-      })),
-      {
-        id: "recommendation",
-        cueId: "recommendation",
-        label: "Recommendation",
-        route: null,
-        narration: `Recommendation: ${nextBrief.recommendation}`,
-        durationMs: estimateBriefDuration(nextBrief.recommendation),
-      },
-    ];
-    const spokenLines: string[] = [];
-    const speechPlan = buildScoutbotBriefSpeechPlan(segments);
-    let preparedBriefSpeech: PreparedBriefSpeech | null = null;
-    let preparedAudio: ScoutSpeechResult | null = null;
-
-    const activateSegment = (segment: ScoutbotBriefSegment, index: number) => {
-      setBriefStepIndex(Math.min(index, nextBrief.steps.length - 1));
-      setAskStatus(`Brief ${Math.min(index + 1, nextBrief.steps.length)}/${nextBrief.steps.length}: ${segment.label}`);
-      if (segment.route) {
-        const action = normalizeScoutbotUiAction({ type: "navigate", route: segment.route });
-        if (action?.type === "navigate") {
-          applyScoutbotUiAction(action);
-        }
-      }
-      spokenLines.push(`${segment.label}: ${segment.narration}`);
-    };
-
-    const runEstimatedSequence = async () => {
-      for (let index = 0; index < segments.length; index += 1) {
-        if (briefRunRef.current !== runId) return;
-        if (Date.now() > nextBrief.expiresAt) {
-          setAskStatus("Brief expired; refresh before acting");
-          break;
-        }
-
-        const segment = segments[index];
-        activateSegment(segment, index);
-        await wait(Math.min(segment.durationMs, 2400));
-      }
-    };
-
-    if (voiceRepliesRef.current) {
-      setAskStatus("Preparing brief audio");
-      preparedBriefSpeech = prepareBriefSpeech(
-        speechPlan.text || toSpokenScoutText(nextBrief.summary),
-        speechPlan.cues,
-        runId,
-      );
-      preparedAudio = await preparedBriefSpeech.promise;
-      if (briefRunRef.current !== runId) {
-        preparedBriefSpeech.abort();
-        return;
-      }
-    }
-
-    const cueSchedule = preparedAudio ? resolveScoutbotBriefCueSchedule(preparedAudio, segments) : null;
-    if (preparedAudio && cueSchedule) {
-      const activatedSegmentIndexes = new Set<number>();
-      try {
-        const playedWithTiming = await playBriefSpeech(Promise.resolve(preparedAudio), runId, {
-          cueSchedule,
-          onCue: (cue) => {
-            if (activatedSegmentIndexes.has(cue.segmentIndex)) {
-              return;
-            }
-            if (Date.now() > nextBrief.expiresAt) {
-              setAskStatus("Brief expired; refresh before acting");
-              return;
-            }
-            activatedSegmentIndexes.add(cue.segmentIndex);
-            activateSegment(segments[cue.segmentIndex], cue.segmentIndex);
-          },
-        });
-        if (!playedWithTiming && briefRunRef.current === runId) {
-          await runEstimatedSequence();
-        }
-      } catch (err) {
-        if (!isScoutSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Scout voice speech failed.");
-        }
-      }
-    } else {
-      const playback = preparedAudio && voiceRepliesRef.current
-        ? playBriefSpeech(Promise.resolve(preparedAudio), runId)
-        : null;
-      await runEstimatedSequence();
-      if (playback) {
-        try {
-          await playback;
-        } catch (err) {
-          if (!isScoutSpeechStopped(err)) {
-            setError(err instanceof Error ? err.message : "Scout voice speech failed.");
-          }
-        }
-      }
-    }
-
-    if (briefRunRef.current !== runId) return;
-    setLastReply([
-      nextBrief.summary,
-      "",
-      ...spokenLines,
-    ].join("\n"));
-    setAskStatus(Date.now() > nextBrief.expiresAt ? "Brief expired" : "Brief complete");
-    setBriefing(false);
-    setBriefStepIndex(null);
-    briefRunRef.current = null;
-  }, [applyScoutbotUiAction, playBriefSpeech, prepareBriefSpeech]);
-
-  const startBrief = useCallback(async () => {
-    if (briefing || sending) return;
-    const runId = `brief-${Date.now()}`;
-    briefRunRef.current = runId;
-    setBriefing(true);
-    setBrief(null);
-    setBriefStepIndex(null);
-    setError(null);
-    setLastAsk("One-minute brief");
-    setLastReply(null);
-    setAskStatus("Preparing one-minute brief");
-    stopSpeech();
-    try {
-      await ensureOpenAIKeyOnServer().catch(() => null);
-      const nextBrief = await api<ScoutbotBrief>("/api/scoutbot/brief", {
-        method: "POST",
-        body: JSON.stringify({
-          route,
-          ttlMs: 2 * 60_000,
-        }),
-      });
-      if (briefRunRef.current !== runId) return;
-      setBrief(nextBrief);
-      await runBrief(nextBrief, runId);
-    } catch (err) {
-      if (briefRunRef.current === runId) {
-        setAskStatus(null);
-        setError(err instanceof Error ? err.message : "Could not prepare brief.");
-        setBriefing(false);
-        setBriefStepIndex(null);
-        briefRunRef.current = null;
-      }
-    }
-  }, [briefing, route, runBrief, sending, stopSpeech]);
+  }, [applyScoutbotUiAction, speakScoutbotText]);
 
   const askScoutbot = useCallback(async (body: string) => {
     const trimmed = body.trim();
@@ -871,21 +472,6 @@ export function ScoutbotPanel({
     setAskStatus("Sending");
     setDraft((current) => current.trim() === trimmed ? "" : current);
     try {
-      const reminderIntent = parseScoutbotReminderIntent(trimmed);
-      if (reminderIntent) {
-        setAskStatus("Setting reminder");
-        const reminder = await createScoutbotReminder({
-          title: reminderIntent.title,
-          body: reminderIntent.body,
-          delayMs: reminderIntent.delayMs,
-          context: { route, naturalLanguage: trimmed },
-        });
-        const reply = `Reminder set for ${formatReminderDueAt(reminder.dueAt)}: ${reminder.body}`;
-        setAskStatus("Reminder set");
-        handleScoutbotReply(reply);
-        return;
-      }
-
       await ensureOpenAIKeyOnServer().catch(() => null);
       const result = await api<ScoutbotAssistantReply>("/api/scoutbot/chat", {
         method: "POST",
@@ -907,7 +493,7 @@ export function ScoutbotPanel({
     } finally {
       setSending(false);
     }
-  }, [createScoutbotReminder, handleScoutbotReply, route, sending]);
+  }, [handleScoutbotReply, route, sending]);
 
   const startVoice = useCallback(async () => {
     if (recording) return;
@@ -1007,9 +593,6 @@ export function ScoutbotPanel({
     [collapsed, setCollapsed],
   );
 
-  const broadcastSnap = useScoutbotBroadcastStore();
-  const promotedBroadcast = selectActiveBroadcast(broadcastSnap);
-
   useEffect(() => {
     const submitHandler = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -1041,55 +624,26 @@ export function ScoutbotPanel({
     return () => window.removeEventListener("scout:scoutbot-compose", composeHandler);
   }, [setCollapsed]);
 
-  useEffect(() => {
-    const briefHandler = () => {
-      setCollapsed(false);
-      if (!briefing && !sending) {
-        void startBrief();
-      }
-    };
-    window.addEventListener("scout:scoutbot-brief-now", briefHandler);
-    return () => window.removeEventListener("scout:scoutbot-brief-now", briefHandler);
-  }, [briefing, sending, setCollapsed, startBrief]);
-
   const scoutbotPublicState = useMemo<ScoutbotPublicState>(() => {
     const activity: ScoutbotActivity = speaking
       ? "speaking"
-      : briefing
-        ? "briefing"
-        : sending
-          ? "thinking"
-          : recording
-            ? "listening"
-            : "idle";
+      : sending
+        ? "thinking"
+        : recording
+          ? "listening"
+          : "idle";
     const session = sessionState?.session ?? null;
     const lastMessage = session && session.messages.length > 0
       ? session.messages[session.messages.length - 1]
       : null;
-    const due = (reminderState?.due ?? []).slice(0, 5).map((reminder) => ({
-      id: reminder.id,
-      body: reminder.body,
-      status: reminder.status,
-      dueAt: reminder.dueAt,
-    }));
-    const nextScheduled = reminderState?.scheduled[0];
     return {
       activity,
-      brief: {
-        lastDeliveredAt: brief && !briefing ? brief.preparedAt : null,
-      },
+      brief: { lastDeliveredAt: null },
       reminders: {
-        dueCount: reminderState?.due.length ?? 0,
-        upcomingCount: reminderState?.scheduled.length ?? 0,
-        due,
-        next: nextScheduled
-          ? {
-              id: nextScheduled.id,
-              body: nextScheduled.body,
-              status: nextScheduled.status,
-              dueAt: nextScheduled.dueAt,
-            }
-          : null,
+        dueCount: 0,
+        upcomingCount: 0,
+        due: [],
+        next: null,
       },
       voice: {
         available: voiceAvailable,
@@ -1104,11 +658,8 @@ export function ScoutbotPanel({
     };
   }, [
     speaking,
-    briefing,
     sending,
     recording,
-    brief,
-    reminderState,
     voiceAvailable,
     voiceReplies,
     error,
@@ -1125,13 +676,11 @@ export function ScoutbotPanel({
       focusScoutbot: () => setCollapsed(false),
       triggerBrief: () => {
         setCollapsed(false);
-        if (!briefing && !sending) {
-          void startBrief();
-        }
+        setComposeFocusNonce((nonce) => nonce + 1);
       },
       triggerAskState: () => {
         setCollapsed(false);
-        void askScoutbot(STATE_PROMPT);
+        setComposeFocusNonce((nonce) => nonce + 1);
       },
       toggleVoiceReplies: () => {
         const next = !voiceReplies;
@@ -1148,65 +697,29 @@ export function ScoutbotPanel({
           void resetScoutbotSession();
         }
       },
-      dismissReminder: (id) => {
-        void dismissScoutbotReminder(id);
-      },
-      askReminderStatus: ({ body }) => {
+      dismissReminder: () => undefined,
+      askReminderStatus: () => {
         setCollapsed(false);
-        void askScoutbot(
-          `Reminder due: ${body}. Check the current Scout control-plane state and give me the shortest useful status update.`,
-        );
+        setComposeFocusNonce((nonce) => nonce + 1);
       },
     };
     publisher.registerActions(actions);
   }, [
     publisher,
     setCollapsed,
-    briefing,
-    sending,
-    startBrief,
-    askScoutbot,
     voiceReplies,
     setVoiceReplies,
     stopSpeech,
     setSettingsOpen,
     resettingSession,
     resetScoutbotSession,
-    dismissScoutbotReminder,
   ]);
 
-  // Sync attention states onto the broadcast store so the chip surfaces them.
-  const dueReminderCount = reminderState?.due.length ?? 0;
   useEffect(() => {
-    if (dueReminderCount > 0) {
-      emitClientBroadcast({
-        key: "reminder.due",
-        tier: "warn",
-        text: `${dueReminderCount} reminder${dueReminderCount === 1 ? "" : "s"} due`,
-      });
-    } else {
-      clearClientBroadcast("reminder.due");
-    }
-  }, [dueReminderCount]);
-
-  useEffect(() => {
-    clearClientBroadcast("voice.offline");
     if (voiceAvailable === true) {
       setVoiceSetupOpen(false);
     }
   }, [voiceAvailable]);
-
-  useEffect(() => {
-    if (error) {
-      emitClientBroadcast({
-        key: "scoutbot.error",
-        tier: "error",
-        text: error,
-      });
-    } else {
-      clearClientBroadcast("scoutbot.error");
-    }
-  }, [error]);
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
@@ -1215,8 +728,7 @@ export function ScoutbotPanel({
     : voiceAvailable === false ? "Open Scout" : "Start Talking";
   const isEmptyChat = sessionState !== null
     && sessionState.session.messages.length === 0
-    && !sending
-    && !briefing;
+    && !sending;
   if (collapsed && !forceExpanded) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">
@@ -1260,48 +772,6 @@ export function ScoutbotPanel({
         </div>
       </div>
 
-      {promotedBroadcast && !(isEmptyChat && promotedBroadcast.tier === "info") && (
-        <div className={`rounded border px-2.5 py-1.5 font-mono text-[10px] leading-relaxed ${
-          promotedBroadcast.tier === "error"
-            ? "border-rose-300/30 bg-rose-300/[0.07] text-rose-50"
-            : promotedBroadcast.tier === "warn"
-              ? "border-amber-300/30 bg-amber-300/[0.07] text-amber-50"
-              : "border-lime-300/20 bg-lime-300/[0.05] text-[var(--scout-chrome-ink)]"
-        }`}>
-          <div className="flex items-center gap-2">
-            <Sparkles size={11} className={`shrink-0 ${
-              promotedBroadcast.tier === "error"
-                ? "text-rose-200"
-                : promotedBroadcast.tier === "warn"
-                  ? "text-amber-200"
-                  : "text-lime-200"
-            }`} />
-            <span className="min-w-0 flex-1 truncate text-[var(--scout-chrome-ink)]">
-              {promotedBroadcast.text}
-            </span>
-            <button
-              type="button"
-              title="Ask about this"
-              aria-label="Ask about this"
-              onClick={() => void askScoutbot(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
-              disabled={sending || briefing}
-              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
-            >
-              <Radio size={11} />
-            </button>
-            <button
-              type="button"
-              title="Dismiss"
-              aria-label="Dismiss broadcast"
-              onClick={() => dismissPromotedBroadcast()}
-              className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
-            >
-              <X size={11} />
-            </button>
-          </div>
-        </div>
-      )}
-
       {settingsOpen && (
         <ScoutbotSettingsPanel
           voicePresetId={voicePresetId}
@@ -1330,10 +800,12 @@ export function ScoutbotPanel({
             onToggleExpanded={() => setChatExpanded((v) => !v)}
             sessionPickerOpen={sessionPickerOpen}
             onToggleSessionPicker={() => setSessionPickerOpen((v) => !v)}
+            onStartNewChat={() => void resetScoutbotSession()}
+            startingNewChat={resettingSession}
             onSwitchSession={(id) => void switchScoutbotSession(id)}
             switchingSessionId={switchingSessionId}
             sending={sending}
-            briefing={briefing}
+            briefing={false}
             pendingAsk={sending ? lastAsk : null}
             onArchiveSession={(id) => void archiveScoutbotSession(id)}
             archivingSessionId={archivingSessionId}
