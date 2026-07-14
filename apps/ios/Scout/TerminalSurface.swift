@@ -3,7 +3,6 @@ import CryptoKit
 import HudsonUI
 import HudsonTerminal
 import HudsonVoice
-import TerminiSSH
 import ScoutCapabilities
 
 /// Shared, metadata-only snapshot of the live Terminal surface. Root owns one
@@ -78,29 +77,30 @@ final class TerminalDiagnosticsModel {
         recordProvisioning(.ready)
     }
 
-    func sample(_ workspace: TerminiSSHWorkspace, keyboardHeight: CGFloat) {
-        switch workspace.status {
+    func sample(_ session: HudTerminalSSHSession, keyboardHeight: CGFloat) {
+        let snapshot = session.snapshot
+        switch snapshot.status {
         case .connecting:
             sshState = .connecting
-            sshDetail = workspace.statusMessage
+            sshDetail = snapshot.statusMessage
         case .connected:
             sshState = .connected
-            sshDetail = workspace.statusMessage
+            sshDetail = snapshot.statusMessage
         case .disconnected:
             sshState = .disconnected
-            sshDetail = workspace.statusMessage
+            sshDetail = snapshot.statusMessage
         case .failed(let message):
             sshState = .failed
-            sshDetail = message.isEmpty ? workspace.statusMessage : message
+            sshDetail = message.isEmpty ? snapshot.statusMessage : message
         }
-        if let size = workspace.terminalSize {
-            ptyColumns = size.columns
-            ptyRows = size.rows
-            cellWidthPixels = size.cellWidthPixels
-            cellHeightPixels = size.cellHeightPixels
+        if let grid = snapshot.grid {
+            ptyColumns = grid.columns
+            ptyRows = grid.rows
+            cellWidthPixels = grid.cellWidthPixels
+            cellHeightPixels = grid.cellHeightPixels
         }
-        rendererDiagnostics = workspace.diagnostics?.lines ?? []
-        rendererVisibleText = workspace.controller.visibleText() ?? ""
+        rendererDiagnostics = snapshot.rendererDiagnostics
+        rendererVisibleText = snapshot.rendererVisibleText
         self.keyboardHeight = keyboardHeight
         lastUpdatedAt = .now
     }
@@ -133,7 +133,7 @@ final class TerminalDiagnosticsModel {
 ///
 /// Flow on appear: generate (once) a device SSH identity, ask the broker to
 /// authorize its public key on the Mac (`mobile/terminal/provision`), build the
-/// connection from the returned host/user, then open a live PTY via Termini.
+/// connection from the returned host/user, then open a Hudson terminal session.
 /// No mock console — when this can't connect it says exactly why.
 struct TerminalSurface: View {
     let client: any ScoutBrokerClient
@@ -156,7 +156,7 @@ struct TerminalSurface: View {
     /// actively diagnosing.
     var isPresentingSettings = false
 
-    @State private var workspace: TerminiSSHWorkspace?
+    @State private var terminalSession: HudTerminalSSHSession?
     @State private var phase: Phase = .preparing
     @State private var endpoint: String = ""
     @State private var preparedIdentityToken: String?
@@ -196,7 +196,7 @@ struct TerminalSurface: View {
         case quick
         case full
 
-        var visibleLayout: TerminalKeyboardLayout? {
+        var visibleLayout: HudTerminalKeyboardLayout? {
             switch self {
             case .hidden: nil
             case .quick: .quick
@@ -239,10 +239,10 @@ struct TerminalSurface: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
         .overlay(alignment: .bottomTrailing) { keyboardLauncher }
         .task(id: preparationToken) { await prepare() }
-        .task(id: workspace.map(ObjectIdentifier.init)) {
-            guard let observedWorkspace = workspace else { return }
-            while !Task.isCancelled, workspace === observedWorkspace {
-                diagnostics.sample(observedWorkspace, keyboardHeight: presentedKeyboardHeight)
+        .task(id: terminalSession.map(ObjectIdentifier.init)) {
+            guard let observedSession = terminalSession else { return }
+            while !Task.isCancelled, terminalSession === observedSession {
+                diagnostics.sample(observedSession, keyboardHeight: presentedKeyboardHeight)
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
@@ -252,20 +252,20 @@ struct TerminalSurface: View {
         .onChange(of: voice.finalCount) { _, _ in
             let text = voice.finalText
             guard !text.isEmpty else { return }
-            workspace?.controller.onTransportWrite?(Data(text.utf8))
+            terminalSession?.send(text)
             dictationSuccessPulse += 1
         }
         .onDisappear {
             preparationGeneration &+= 1
             if voice.isListening { voice.cancel() }
-            if let workspace { diagnostics.sample(workspace, keyboardHeight: presentedKeyboardHeight) }
+            if let terminalSession { diagnostics.sample(terminalSession, keyboardHeight: presentedKeyboardHeight) }
             diagnostics.surfaceState = isPresentingSettings ? .settings : .hidden
             guard !isPresentingSettings else { return }
-            let activeWorkspace = workspace
-            workspace = nil
+            let activeSession = terminalSession
+            terminalSession = nil
             endpoint = ""
             preparedIdentityToken = nil
-            Task { await activeWorkspace?.disconnect() }
+            Task { await activeSession?.disconnect() }
         }
     }
 
@@ -284,8 +284,8 @@ struct TerminalSurface: View {
         if case .live = phase, let layout = keyboardPresentation.visibleLayout {
             VStack(spacing: 0) {
                 keyboardControlBar(layout: layout)
-                TerminalHostedKeyboard(
-                    send: { workspace?.controller.onTransportWrite?($0) },
+                HudTerminalHostedKeyboard(
+                    send: { terminalSession?.send($0) },
                     onDictate: { voice.toggleFromUserIntent() },
                     dictationPhase: dictationPhase,
                     successPulse: dictationSuccessPulse,
@@ -331,7 +331,7 @@ struct TerminalSurface: View {
         }
     }
 
-    private func keyboardControlBar(layout: TerminalKeyboardLayout) -> some View {
+    private func keyboardControlBar(layout: HudTerminalKeyboardLayout) -> some View {
         HStack(spacing: HudSpacing.sm) {
             Button {
                 keyboardPresentation = .hidden
@@ -369,7 +369,7 @@ struct TerminalSurface: View {
     }
 
     /// Maps the live voice session onto the keyboard's dictate button.
-    private var dictationPhase: TerminalDictationPhase {
+    private var dictationPhase: HudTerminalDictationPhase {
         switch voice.state {
         case .listening:    return .recording
         case .transcribing: return .processing
@@ -383,7 +383,7 @@ struct TerminalSurface: View {
     private var content: some View {
         switch phase {
         case .live:
-            if let workspace {
+            if let terminalSession {
                 ZStack {
                     // Terminal background fills the full area so the inset margins
                     // below read as part of the terminal, not the app chrome.
@@ -393,13 +393,13 @@ struct TerminalSurface: View {
                     // clipping). The PTY recomputes its column count for this
                     // narrower width, so nothing is ever wider than the screen.
                     HudTerminalSurface(
-                        controller: workspace.controller,
+                        session: terminalSession,
                         showsSystemKeyboard: false,
                         appearance: terminalAppearance
                     )
                     .padding(.horizontal, HudSpacing.sm)
-                    if !workspace.isConnected {
-                        terminalOverlay(workspace)
+                    if !terminalSession.isConnected {
+                        terminalOverlay(terminalSession)
                     }
                 }
             }
@@ -417,12 +417,12 @@ struct TerminalSurface: View {
     }
 
     @ViewBuilder
-    private func terminalOverlay(_ workspace: TerminiSSHWorkspace) -> some View {
-        switch workspace.status {
+    private func terminalOverlay(_ session: HudTerminalSSHSession) -> some View {
+        switch session.status {
         case .connecting:
             blockingOverlay {
                 ProgressView().tint(HudPalette.accent)
-                Text(workspace.statusMessage.isEmpty ? "Connecting…" : workspace.statusMessage)
+                Text(session.statusMessage.isEmpty ? "Connecting…" : session.statusMessage)
                     .font(HudFont.mono(HudTextSize.xxs))
                     .foregroundStyle(ScoutInk.muted)
                     .multilineTextAlignment(.center)
@@ -432,12 +432,12 @@ struct TerminalSurface: View {
         case .failed(let message):
             recoveryOverlay(
                 title: "Terminal disconnected",
-                detail: message.isEmpty ? workspace.statusMessage : message
+                detail: message.isEmpty ? session.statusMessage : message
             )
         case .disconnected:
             recoveryOverlay(
                 title: "Terminal disconnected",
-                detail: workspace.statusMessage.isEmpty ? "The SSH session is not connected." : workspace.statusMessage
+                detail: session.statusMessage.isEmpty ? "The SSH session is not connected." : session.statusMessage
             )
         }
     }
@@ -524,8 +524,8 @@ struct TerminalSurface: View {
             phaseIsLive = false
         }
         let sameLiveTarget = preparedIdentityToken == identityToken && phaseIsLive
-        let workspaceIsActive = workspace?.isConnected == true || workspace?.isConnecting == true
-        if !force, sameLiveTarget, workspaceIsActive {
+        let sessionIsActive = terminalSession?.isConnected == true || terminalSession?.isConnecting == true
+        if !force, sameLiveTarget, sessionIsActive {
             return
         }
 
@@ -533,9 +533,9 @@ struct TerminalSurface: View {
         let generation = preparationGeneration
 
         if force || sameLiveTarget || preparedIdentityToken != identityToken {
-            await workspace?.disconnect()
+            await terminalSession?.disconnect()
             guard generation == preparationGeneration, !Task.isCancelled else { return }
-            workspace = nil
+            terminalSession = nil
             endpoint = ""
             preparedIdentityToken = nil
         }
@@ -574,13 +574,12 @@ struct TerminalSurface: View {
             endpoint = "\(access.username)@\(sshHost)"
             diagnostics.recordAccess(access, resolvedHost: sshHost)
 
-            let connection = TerminiConnectionConfig(
+            let connection = HudTerminalSSHConnection(
                 name: "Scout Terminal",
                 host: sshHost,
                 port: access.port,
                 username: access.username,
-                authenticationMode: .privateKey,
-                privateKeyPEM: TerminalIdentity.privateKeyPEM(for: key),
+                authentication: .privateKey(pem: TerminalIdentity.privateKeyPEM(for: key)),
                 // Run tmux over an SSH *exec* channel (PTY + exec ==
                 // `ssh -t host …`), not typed into an interactive shell. The
                 // command is a *login, non-interactive* shell that re-execs into
@@ -597,11 +596,10 @@ struct TerminalSurface: View {
                 //      only by *interactive* shells, so `-lc` skips it entirely.
                 //      The inner pane is interactive and prompts at most once, on
                 //      first session create, answerable in-pane.
-                startupCommand: "/bin/zsh -lc 'for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if [[ -x $p ]]; then exec $p new -A -s scout; fi; done; print -u2 -- \"tmux is not installed in a supported location\"; exit 127'",
+                startup: .exec(command: "/bin/zsh -lc 'for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if [[ -x $p ]]; then exec $p new -A -s scout; fi; done; print -u2 -- \"tmux is not installed in a supported location\"; exit 127'"),
                 // Give tmux the PTY from the first byte. Typing this command
                 // into a transient login shell lets terminal capability replies
                 // contaminate that shell's input line before tmux attaches.
-                useExecRequest: true,
                 // Provisioning is over the already-authenticated Noise bridge;
                 // require that it returns the Mac's host-key fingerprint and pin
                 // it before SSH auth. No empty-fingerprint TOFU fallback.
@@ -609,18 +607,18 @@ struct TerminalSurface: View {
                 hostKeyFingerprint: hostKeyFingerprint
             )
 
-            let ws = TerminiSSHWorkspace(connection: connection)
-            workspace = ws
+            let session = HudTerminalSSHSession(connection: connection)
+            terminalSession = session
             preparedIdentityToken = identityToken
             phase = .live
-            await ws.connect()
+            await session.connect()
             guard generation == preparationGeneration, !Task.isCancelled else {
-                await ws.disconnect()
-                if workspace === ws { workspace = nil }
+                await session.disconnect()
+                if terminalSession === session { terminalSession = nil }
                 return
             }
-            diagnostics.sample(ws, keyboardHeight: presentedKeyboardHeight)
-            await paintPromptOnAttach(ws)
+            diagnostics.sample(session, keyboardHeight: presentedKeyboardHeight)
+            await paintPromptOnAttach(session)
         } catch {
             guard generation == preparationGeneration, !Task.isCancelled else { return }
             phase = .failed(error.localizedDescription)
@@ -633,19 +631,19 @@ struct TerminalSurface: View {
     /// make the whole prompt appear. So once connected, send a clear-screen (⌃L):
     /// zsh repaints a clean prompt (no leftover input), which the emulator renders.
     /// Without this the pane opens on a bare floating cursor even though the prompt
-    /// is right there in tmux. `onTransportWrite` is the session's own keystroke
-    /// path to the channel, so this is exactly a typed ⌃L — no shared-package change.
+    /// is right there in tmux. Hudson's `send` is the session's own keystroke
+    /// path to the channel, so this is exactly a typed ⌃L.
     /// Two beats: the first kick can land before the inner shell is ready; the
     /// second catches it.
-    private func paintPromptOnAttach(_ ws: TerminiSSHWorkspace) async {
+    private func paintPromptOnAttach(_ session: HudTerminalSSHSession) async {
         for _ in 0..<24 {
-            if ws.isConnected { break }
+            if session.isConnected { break }
             try? await Task.sleep(for: .milliseconds(150))
         }
         for delay in [450, 1100] {
             try? await Task.sleep(for: .milliseconds(delay))
-            guard ws.isConnected else { return }
-            ws.controller.onTransportWrite?(Data([0x0C]))
+            guard session.isConnected else { return }
+            session.send(Data([0x0C]))
         }
     }
 
