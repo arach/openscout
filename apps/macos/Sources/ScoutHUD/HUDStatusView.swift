@@ -51,7 +51,7 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
-    @StateObject private var agentsStore = ScoutAgentsStore()
+    @StateObject private var agentsStore = ScoutAgentsStore(pageSize: 10, requestsSummary: true)
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
     @StateObject private var sessionsTail = ScoutTailStore(
@@ -285,14 +285,38 @@ struct HUDStatusView: View {
             if !active { tailHovered = false }
         }
         .onAppear {
-            agentsStore.start()
-            activityStore.start()
+            syncPrimaryStoreLifecycles(for: state.view, isVisible: state.isVisible)
             HUDDockState.shared.setSuggestionAgents(agents)
+        }
+        .onChange(of: state.view) { _, view in
+            syncPrimaryStoreLifecycles(for: view, isVisible: state.isVisible)
+        }
+        .onChange(of: state.isVisible) { _, isVisible in
+            syncPrimaryStoreLifecycles(for: state.view, isVisible: isVisible)
         }
         .onChange(of: agents) { _, next in
             HUDDockState.shared.setSuggestionAgents(next)
         }
         .onDisappear {
+            agentsStore.stop()
+            activityStore.stop()
+        }
+    }
+
+    private func syncPrimaryStoreLifecycles(for view: HUDView, isVisible: Bool) {
+        guard isVisible else {
+            agentsStore.stop()
+            activityStore.stop()
+            return
+        }
+        switch view {
+        case .agents:
+            activityStore.stop()
+            agentsStore.start()
+        case .activity:
+            agentsStore.stop()
+            activityStore.start()
+        case .tail, .sessions, .assistant:
             agentsStore.stop()
             activityStore.stop()
         }
@@ -622,7 +646,14 @@ struct HUDStatusView: View {
         if agentsStore.agents == nil && agentsStore.lastError == nil {
             FleetLoadingView()
         } else {
-            HUDAgentsView(agents: agents, activeAgentId: activeAgentId)
+            HUDAgentsView(
+                agents: agents,
+                activeAgentId: activeAgentId,
+                canLoadMore: agentsStore.canLoadMore,
+                isLoadingMore: agentsStore.isLoadingMore,
+                loadMoreCount: agentsStore.loadMoreCount,
+                onLoadMore: agentsStore.loadMore
+            )
         }
     }
 

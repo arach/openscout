@@ -322,13 +322,49 @@ public final class ScoutdProbeClient: @unchecked Sendable {
     }
 }
 
-private struct UnixDomainSocketProbeTransport: ScoutdProbeTransport {
+struct UnixDomainSocketProbeTransport: ScoutdProbeTransport, ScoutdStreamingTransport {
     private let maxResponseBytes = 8 * 1024 * 1024
+    private let maxStreamFrameBytes = 2 * 1024 * 1024
 
     func roundTrip(socketPath: String, request: Data, timeout: TimeInterval) async throws -> Data {
         try await Task.detached(priority: .utility) {
             try roundTripSync(socketPath: socketPath, request: request, timeout: timeout)
         }.value
+    }
+
+    func lineSubscription(
+        socketPath: String,
+        request: Data,
+        timeout: TimeInterval
+    ) -> ScoutdStreamingSubscription {
+        let socket = ScoutdStreamingSocket()
+        let frames = AsyncThrowingStream<Data, Error>(bufferingPolicy: .bufferingNewest(8)) { continuation in
+            let task = Task.detached(priority: .utility) {
+                do {
+                    try streamLinesSync(
+                        socketPath: socketPath,
+                        request: request,
+                        timeout: timeout,
+                        socket: socket,
+                        onLine: { continuation.yield($0) }
+                    )
+                    continuation.finish()
+                } catch {
+                    if Task.isCancelled || ScoutAppError.isCancellation(error) {
+                        continuation.finish()
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
+                }
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+                socket.close()
+            }
+        }
+        return ScoutdStreamingSubscription(frames: frames) {
+            socket.close()
+        }
     }
 
     private func roundTripSync(socketPath: String, request: Data, timeout: TimeInterval) throws -> Data {
@@ -342,6 +378,62 @@ private struct UnixDomainSocketProbeTransport: ScoutdProbeTransport {
         try writeAll(fd: fd, data: request, timeout: timeout)
         Darwin.shutdown(fd, SHUT_WR)
         return try readToEOF(fd: fd, timeout: timeout)
+    }
+
+    private func streamLinesSync(
+        socketPath: String,
+        request: Data,
+        timeout: TimeInterval,
+        socket: ScoutdStreamingSocket,
+        onLine: (Data) -> Void
+    ) throws {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("create scoutd native-read socket")
+        }
+        guard socket.install(fd) else {
+            Darwin.close(fd)
+            throw CancellationError()
+        }
+        defer { socket.close() }
+
+        try connect(fd: fd, socketPath: socketPath, timeout: timeout)
+        try writeAll(fd: fd, data: request, timeout: timeout)
+
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while !Task.isCancelled {
+            let deadline = Date().addingTimeInterval(timeout)
+            try waitFor(
+                fd: fd,
+                events: Int16(POLLIN),
+                deadline: deadline,
+                operation: "read scoutd native-read frame"
+            )
+            let readCount = Darwin.read(fd, &buffer, buffer.count)
+            if readCount > 0 {
+                pending.append(buffer, count: readCount)
+                if pending.count > maxStreamFrameBytes {
+                    throw ScoutdProbeClientError.responseTooLarge(maxStreamFrameBytes)
+                }
+                while let newline = pending.firstIndex(of: 0x0a) {
+                    let line = pending.subdata(in: pending.startIndex..<newline)
+                    pending.removeSubrange(pending.startIndex...newline)
+                    if !line.isEmpty {
+                        onLine(line)
+                    }
+                }
+                continue
+            }
+            if readCount == 0 {
+                throw ScoutdProbeClientError.transport("scoutd native-read stream closed")
+            }
+            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
+                continue
+            }
+            throw posixError("read scoutd native-read stream")
+        }
+        throw CancellationError()
     }
 
     private func connect(fd: Int32, socketPath: String, timeout: TimeInterval) throws {
@@ -475,5 +567,32 @@ private struct UnixDomainSocketProbeTransport: ScoutdProbeTransport {
     private func posixError(_ operation: String, code: Int32 = errno) -> ScoutdProbeClientError {
         let message = String(cString: strerror(code))
         return .transport("failed to \(operation): \(message)")
+    }
+}
+
+private final class ScoutdStreamingSocket: @unchecked Sendable {
+    private let lock = NSLock()
+    private var descriptor: Int32?
+    private var closed = false
+
+    func install(_ descriptor: Int32) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return false }
+        self.descriptor = descriptor
+        return true
+    }
+
+    func close() {
+        let descriptor: Int32?
+        lock.lock()
+        closed = true
+        descriptor = self.descriptor
+        self.descriptor = nil
+        lock.unlock()
+        if let descriptor {
+            Darwin.shutdown(descriptor, SHUT_RDWR)
+            Darwin.close(descriptor)
+        }
     }
 }

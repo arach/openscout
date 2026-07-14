@@ -37,6 +37,7 @@ let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
 let queryAgentsResult: Array<Record<string, unknown>> = [];
+const queryAgentsLimits: Array<number | undefined> = [];
 let queryTerminalSessionsResult: Array<Record<string, unknown>> = [];
 let queryDiscoveredTerminalSessionsResult: Array<Record<string, unknown>> = [];
 let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
@@ -111,7 +112,10 @@ mock.module("./db-queries.ts", () => ({
   },
   queryAgentById: (agentId: string) =>
     queryAgentsResult.find((agent) => agent.id === agentId) ?? null,
-  queryAgents: () => queryAgentsResult,
+  queryAgents: (limit?: number) => {
+    queryAgentsLimits.push(limit);
+    return limit === undefined ? queryAgentsResult : queryAgentsResult.slice(0, limit);
+  },
   queryActivity: () => [],
   queryBrokerDiagnostics: () => brokerDiagnosticsResult,
   queryConversationDefinitionById: (conversationId: string) =>
@@ -724,6 +728,7 @@ beforeEach(() => {
   brokerDiagnosticsResult = makeBrokerDiagnostics();
   queryFleetResult = null;
   queryAgentsResult = [];
+  queryAgentsLimits.length = 0;
   queryTerminalSessionsResult = [];
   queryDiscoveredTerminalSessionsResult = [];
   pairingStateResult = makePairingState();
@@ -1424,6 +1429,75 @@ describe("createOpenScoutWebServer", () => {
       handle: "weather-a2a",
       conversationId: null,
     });
+  });
+
+  test("limits the agents API to the most recently active merged cards", async () => {
+    queryAgentsResult = Array.from({ length: 6 }, (_, index) => ({
+      id: `local-agent-${index + 1}`,
+      definitionId: `local-agent-${index + 1}`,
+      name: `Local Agent ${index + 1}`,
+      updatedAt: 1_699_999_990_000 - (index * 1_000),
+    }));
+    scoutBrokerContextResult = makeA2aBrokerContext();
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents?limit=5");
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    expect(agents.map((agent) => agent.id)).toEqual([
+      "weather-a2a.local",
+      "local-agent-1",
+      "local-agent-2",
+      "local-agent-3",
+      "local-agent-4",
+    ]);
+    expect(queryAgentsLimits).toContain(5);
+  });
+
+  test("serves a lightweight agent summary without rich broker activity", async () => {
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      snapshot: {
+        messages: {
+          "msg-weather": {
+            id: "msg-weather",
+            conversationId: "c.weather",
+            actorId: "weather-a2a.local",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "A long broker activity payload that the first HUD page does not need.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: 1_700_000_200_000,
+          },
+        },
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents?limit=5&detail=summary",
+    );
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    expect(agents).toHaveLength(1);
+    expect(agents[0]).toMatchObject({
+      id: "weather-a2a.local",
+      name: "Weather A2A Agent",
+      updatedAt: 1_700_000_200_000,
+    });
+    expect(agents[0]).not.toHaveProperty("brokerActivity");
+    expect(agents[0]).not.toHaveProperty("authorityProfile");
+    expect(agents[0]).not.toHaveProperty("runtimePolicy");
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
