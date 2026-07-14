@@ -624,10 +624,10 @@ export function BrokerAttemptInspector({
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   }, [contextText]);
 
-  const askScout = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("scout:scoutbot-compose", {
+  const sendToScout = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("scout:scoutbot-submit", {
       detail: {
-        body: `Look into this failed dispatch — what went wrong and how do I fix it?\n\n${contextText}`,
+        body: `Review and triage this failed dispatch. Determine the root cause, decide whether it needs action or can be dismissed as transient, and report back with your verdict and the next step. Don't ask clarifying questions — make the call from the context below.\n\n${contextText}`,
       },
     }));
   }, [contextText]);
@@ -653,62 +653,67 @@ export function BrokerAttemptInspector({
   return (
     <aside className="sys-panel sys-broker-inspector" aria-label="Dispatch route inspector">
       <div className="sys-broker-inspector-head">
-        <div>
-          <div className="sys-kicker">Inspector</div>
-          <h3 className="sys-state-title">{attempt.detail}</h3>
-          {isFailure && (
-            <div className="sys-broker-inspector-error" role="status">
-              <span className="sys-broker-inspector-error-label">Error</span>
-              <p>{errorSummary ?? attempt.status}</p>
-            </div>
-          )}
-        </div>
-        <div className="sys-inline-actions">
-          {isFailure && (
-            <>
-              <button
-                type="button"
-                className="s-btn s-btn-sm s-btn-primary"
-                onClick={askScout}
-                title="Send this failed dispatch to Scout in the chat below"
-              >
-                <Sparkles size={12} aria-hidden="true" />
-                Ask Scout
-              </button>
-              <button
-                type="button"
-                className="s-btn s-btn-sm"
-                onClick={() => void copyEverything()}
-                title="Copy the full dispatch failure context"
-              >
-                {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-                {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy everything"}
-              </button>
-              <button
-                type="button"
-                className="s-btn s-btn-sm"
-                disabled={reviewStatus === "running"}
-                onClick={() => void invokeCodex()}
-                title="Ask an OpenScout Codex agent to review this failed dispatch"
-              >
-                <Bot size={12} aria-hidden="true" />
-                {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
-              </button>
-            </>
-          )}
-          {attempt.conversationId && (
-            <button
-              type="button"
-              className="s-btn s-btn-sm"
-              onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
-            >
-              Open thread
-            </button>
-          )}
-          <button type="button" className="s-btn s-btn-sm" onClick={onClose}>
-            Close
+        <div className="sys-broker-inspector-title">
+          <div>
+            <div className="sys-kicker">Inspector</div>
+            <h3 className="sys-state-title">{attempt.detail}</h3>
+            {isFailure && (
+              <div className="sys-broker-inspector-error" role="status">
+                <span className="sys-broker-inspector-error-label">Error</span>
+                <p>{errorSummary ?? attempt.status}</p>
+              </div>
+            )}
+          </div>
+          <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close inspector">
+            ×
           </button>
         </div>
+        {(isFailure || attempt.conversationId) && (
+          <div className="sys-broker-inspector-actions">
+            {isFailure && (
+              <>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm s-btn-primary"
+                  onClick={sendToScout}
+                  title="Send this failed dispatch straight to Scout to review and triage"
+                >
+                  <Sparkles size={12} aria-hidden="true" />
+                  Send to Scout
+                </button>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm"
+                  disabled={reviewStatus === "running"}
+                  onClick={() => void invokeCodex()}
+                  title="Ask an OpenScout Codex agent to review this failed dispatch"
+                >
+                  <Bot size={12} aria-hidden="true" />
+                  {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
+                </button>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm"
+                  onClick={() => void copyEverything()}
+                  title="Copy the full dispatch failure context"
+                >
+                  {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+                  {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy everything"}
+                </button>
+              </>
+            )}
+            {attempt.conversationId && (
+              <button
+                type="button"
+                className="s-btn s-btn-sm sys-broker-inspector-thread"
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
+              >
+                <ExternalLink size={12} aria-hidden="true" />
+                Open thread
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {reviewMessage && (
         <div className={`sys-broker-review-status sys-broker-review-status--${reviewStatus}`} role="status">
