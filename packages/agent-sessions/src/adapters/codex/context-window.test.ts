@@ -12,8 +12,9 @@ describe("codex context-window", () => {
     expect(CODEX_GPT5_CONTEXT_WINDOW_TOKENS).toBe(258_400);
   });
 
-  test("every observed Codex model resolves to that window", () => {
+  test("GPT-5.x Codex models resolve to the current usable window", () => {
     for (const model of [
+      "gpt-5.6",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -32,6 +33,7 @@ describe("codex context-window", () => {
 
   test("isGpt5Family recognizes the family (and tolerates casing/underscores)", () => {
     expect(isGpt5Family("gpt-5")).toBe(true);
+    expect(isGpt5Family("gpt-5.6")).toBe(true);
     expect(isGpt5Family("gpt-5.5")).toBe(true);
     expect(isGpt5Family("gpt-5.3-codex")).toBe(true);
     expect(isGpt5Family("GPT_5.4")).toBe(true);

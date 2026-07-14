@@ -46,7 +46,8 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
             .init(harness: "claude", value: "claude-haiku-4-5", label: "Haiku 4.5", detail: "Claude API alias"),
         ]),
         .init(id: "codex", label: "Codex", models: [
-            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Recommended"),
+            .init(harness: "codex", value: "gpt-5.6", label: "GPT-5.6", detail: "Recommended"),
+            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Previous"),
             .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
     ]
