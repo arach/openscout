@@ -511,7 +511,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
-  if (parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "dispatch" || parts[0] === "broker") return { view: "broker" };
   if (parts[0] === "briefings" && parts[1]) {
     return { view: "briefings", briefingId: decodeURIComponent(parts[1]) };
   }
@@ -750,7 +750,7 @@ export function routePath(r: Route, pathname?: string): string {
     case "mesh":
       return pathWithMachineScope("/mesh", r);
     case "broker":
-      return "/broker";
+      return "/dispatch";
     case "briefings":
       return r.briefingId
         ? `/briefings/${encodeURIComponent(r.briefingId)}`

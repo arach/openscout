@@ -1240,6 +1240,7 @@ const brokerService = createBrokerCoreService({
   threadEvents,
   isReconciledStaleFlightActivityItem,
   readChildServices: () => webControl.readChildServiceSnapshots(),
+  readProjectionStatus: () => projection.statusSnapshot(),
   readHome: () => homeService.read(),
   readCapabilities: readBrokerCapabilityMatrixSnapshot,
   executeCommand: handleCommand,

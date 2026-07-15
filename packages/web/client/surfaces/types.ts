@@ -29,7 +29,7 @@ export type ScoutSurfaceDefinition = {
   id: string;
   label: string;
   route: Route;
-  /** Full web shell path (e.g. `/broker`). */
+  /** Full web shell path (e.g. `/dispatch`). */
   webPath: string;
   /** Named export on the same module that renders this surface. */
   screen: string;

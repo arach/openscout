@@ -39,6 +39,7 @@ import type {
   ScoutBrokerCollaborationRecordQuery,
   ScoutBrokerAgentFeedQuery,
   ScoutBrokerMessageQuery,
+  ScoutBrokerProjectionStatus,
 } from "./broker-api.js";
 import { loadOpenScoutRuntimeBuildIdentity } from "./build-info.js";
 import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
@@ -112,6 +113,7 @@ export type BrokerCoreServiceDeps = {
   isReconciledStaleFlightActivityItem: (item: ActivityItem) => boolean;
   build?: ScoutBrokerBuildIdentity;
   readChildServices?: () => ScoutBrokerChildServiceSnapshots;
+  readProjectionStatus?: () => ScoutBrokerProjectionStatus;
   readHome?: () => Promise<unknown>;
   readCapabilities?: (
     query?: ScoutBrokerCapabilitiesQuery,
@@ -803,6 +805,9 @@ export function createBrokerCoreService(
         meshId: deps.meshId,
         build: deps.build ?? loadOpenScoutRuntimeBuildIdentity(),
         services: deps.readChildServices?.(),
+        ...(deps.readProjectionStatus
+          ? { projection: deps.readProjectionStatus() }
+          : {}),
         counts: {
           nodes: Object.keys(snapshot.nodes).length,
           actors: Object.keys(snapshot.actors).length,

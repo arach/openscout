@@ -181,6 +181,20 @@ function countSql(sql: string, ...params: SQLQueryBindings[]): number {
   return row?.count ?? 0;
 }
 
+function queryMessageProjectionWatermark(): { count: number; latestAt: number | null } {
+  const createdAtExpression = sqlTimestampMsExpression("m.created_at");
+  const row = db()
+    .prepare(
+      `SELECT COUNT(*) AS count, MAX(${createdAtExpression}) AS latest_at
+       FROM messages m`,
+    )
+    .get() as { count: number; latest_at: number | null } | undefined;
+  return {
+    count: row?.count ?? 0,
+    latestAt: normalizeTimestampMs(row?.latest_at) ?? null,
+  };
+}
+
 function compareHistoryRows(left: { ts: number; id: string }, right: { ts: number; id: string }): number {
   return right.ts - left.ts || left.id.localeCompare(right.id);
 }
@@ -580,6 +594,7 @@ export function queryBrokerDiagnostics(opts?: {
   const dispatchAtExpression = sqlTimestampMsExpression("sd.dispatched_at");
   const deliveryCreatedAtExpression = sqlTimestampMsExpression("d.created_at");
   const attemptCreatedAtExpression = sqlTimestampMsExpression("da.created_at");
+  const projectionMessages = queryMessageProjectionWatermark();
 
   const dialoguePage = paginateHistory(
     queryMessageRows({
@@ -661,6 +676,15 @@ export function queryBrokerDiagnostics(opts?: {
   return {
     generatedAt: now,
     windowMs,
+    source: {
+      mode: "sqlite_projection",
+      status: "unknown",
+      latestMessageAt: projectionMessages.latestAt,
+      projectionLatestMessageAt: projectionMessages.latestAt,
+      liveMessageCount: null,
+      projectionMessageCount: projectionMessages.count,
+      detail: null,
+    },
     ledger: {
       mode: "latest",
       limit,

@@ -118,6 +118,7 @@ function mergeBrokerPage(
 ): BrokerDiagnostics {
   return {
     ...next,
+    source: current.source,
     attempts: key === "attempts" ? [...current.attempts, ...next.attempts] : current.attempts,
     failedQueries: key === "failedQueries" ? [...current.failedQueries, ...next.failedQueries] : current.failedQueries,
     failedDeliveries: key === "failedDeliveries" ? [...current.failedDeliveries, ...next.failedDeliveries] : current.failedDeliveries,
@@ -346,7 +347,7 @@ export function BrokerScreen({
                 {loading
                   ? "Loading dispatch ledger..."
                   : broker
-                    ? `Updated ${timeAgo(broker.generatedAt)}`
+                    ? `Updated ${timeAgo(broker.generatedAt)}${broker.source?.latestMessageAt ? ` · latest message ${timeAgo(broker.source.latestMessageAt)}` : ""}`
                     : "Waiting for dispatch data"}
               </div>
               <button
@@ -364,6 +365,17 @@ export function BrokerScreen({
             <div className="sys-banner sys-banner-warning">
               <strong>Refresh failed.</strong>
               <span>{error}</span>
+            </div>
+          )}
+
+          {broker?.source?.status === "degraded" && broker.source.detail && (
+            <div className="sys-banner sys-banner-warning">
+              <strong>
+                {broker.source.mode === "live_broker"
+                  ? "Failure history may be incomplete."
+                  : "Live message feed is unavailable."}
+              </strong>
+              <span>{broker.source.detail}</span>
             </div>
           )}
 
@@ -798,7 +810,7 @@ export const scoutSurface = defineSurface({
   id: "dispatch",
   label: "Dispatch",
   route: { view: "broker" },
-  webPath: "/broker",
+  webPath: "/dispatch",
   screen: "BrokerScreen",
   embed: {
     path: "/embed/dispatch",

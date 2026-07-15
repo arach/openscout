@@ -18,6 +18,11 @@ type RecoverableSQLiteProjectionOptions = {
   createStore?: (dbPath: string) => SQLiteControlPlaneStore;
 };
 
+export type SQLiteProjectionStatusSnapshot = {
+  state: "ready" | "degraded" | "disabled";
+  detail: string | null;
+};
+
 function normalizeEntries(
   entriesInput: BrokerJournalEntry | BrokerJournalEntry[],
 ): BrokerJournalEntry[] {
@@ -362,6 +367,23 @@ export class RecoverableSQLiteProjection {
     private readonly journal: FileBackedBrokerJournal,
     private readonly options: RecoverableSQLiteProjectionOptions = {},
   ) {}
+
+  statusSnapshot(): SQLiteProjectionStatusSnapshot {
+    if (this.options.disabled) {
+      return {
+        state: "disabled",
+        detail: "SQLite projection is disabled by configuration.",
+      };
+    }
+    if (this.store) {
+      return { state: "ready", detail: null };
+    }
+    return {
+      state: "degraded",
+      detail: this.lastUnavailableReason
+        ?? (this.closed ? "SQLite projection is closed." : "SQLite projection is not ready."),
+    };
+  }
 
   warm(): void {
     this.enqueue(async () => {
