@@ -102,7 +102,15 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 onReload: { reloadToken = UUID() }
             )
         }
-        .background(ScoutDesign.bg)
+        .background {
+            ScoutDesign.bg
+            if surface == .code {
+                // The code surface reads on a recessed well (see code-screen.css).
+                // Matching the native backdrop keeps transient unpainted webview
+                // strips (panel resizes) invisible instead of window-colored.
+                Color.black.opacity(colorScheme == .dark ? 0.26 : 0.035)
+            }
+        }
         .onChange(of: colorScheme) { _, _ in
             reloadToken = UUID()
         }
@@ -410,6 +418,19 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
                   const viteUnavailable = bodyText.includes('Vite dev server unavailable');
                   return {
                     ready: Boolean(root) && bodyText.trim().length > 8,
+                    viteUnavailable
+                  };
+                })()
+                """
+            case .code:
+                return """
+                (() => {
+                  const root = document.querySelector('[data-scout-surface="code"]')
+                    || document.querySelector('.s-code-screen');
+                  const bodyText = document.body?.innerText || '';
+                  const viteUnavailable = bodyText.includes('Vite dev server unavailable');
+                  return {
+                    ready: Boolean(root),
                     viteUnavailable
                   };
                 })()

@@ -512,6 +512,17 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
   if (parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "code") {
+    const wt = url.searchParams.get("wt")?.trim() || undefined;
+    if (parts[1]) {
+      const project = decodeURIComponent(parts[1]);
+      const path = parts.length > 2 ? parts.slice(2).map(decodeURIComponent).join("/") : undefined;
+      return { view: "code", project, ...(path ? { path } : {}), ...(wt ? { wt } : {}) };
+    }
+    const root = url.searchParams.get("root")?.trim() || undefined;
+    const file = url.searchParams.get("file")?.trim() || undefined;
+    return { view: "code", ...(root ? { root } : {}), ...(file ? { file } : {}), ...(wt ? { wt } : {}) };
+  }
   if (parts[0] === "briefings" && parts[1]) {
     return { view: "briefings", briefingId: decodeURIComponent(parts[1]) };
   }
@@ -751,6 +762,20 @@ export function routePath(r: Route, pathname?: string): string {
       return pathWithMachineScope("/mesh", r);
     case "broker":
       return "/broker";
+    case "code": {
+      if (r.project) {
+        const segments = [encodeURIComponent(r.project)];
+        if (r.path) segments.push(...r.path.split("/").map(encodeURIComponent));
+        const base = `/code/${segments.join("/")}`;
+        return r.wt ? `${base}?wt=${encodeURIComponent(r.wt)}` : base;
+      }
+      const params = new URLSearchParams();
+      if (r.root) params.set("root", r.root);
+      if (r.file) params.set("file", r.file);
+      if (r.wt) params.set("wt", r.wt);
+      const search = params.toString();
+      return search ? `/code?${search}` : "/code";
+    }
     case "briefings":
       return r.briefingId
         ? `/briefings/${encodeURIComponent(r.briefingId)}`

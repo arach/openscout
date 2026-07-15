@@ -13,6 +13,7 @@ import {
   saveOpenScoutOnboardingProject,
 } from "./onboarding.js";
 import { DEFAULT_OPERATOR_NAME, readOpenScoutSettings, writeOpenScoutSettings } from "./setup.js";
+import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { loadUserConfig } from "./user-config.js";
 
 const originalEnv = {
@@ -54,6 +55,10 @@ function prepareHome(name: string): string {
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
   process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+  const settingsPath = resolveOpenScoutSupportPaths().settingsPath;
+  if (!settingsPath.startsWith(home)) {
+    throw new Error(`Test isolation failed: settings would write to ${settingsPath}`);
+  }
   return home;
 }
 

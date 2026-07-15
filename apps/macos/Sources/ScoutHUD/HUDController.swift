@@ -13,8 +13,8 @@ private extension NSRect {
 }
 
 // Singleton controller for the OpenScout HUD overlay.
-// One non-activating glass panel; summon/dismiss via Hyper+H or the
-// menu-bar item. Esc dismisses.
+// One non-activating glass panel; summon/dismiss via Hyper+H, or open the
+// task composer directly via Hyper+A / the configured hot corner. Esc dismisses.
 
 @MainActor
 public final class HUDController {
@@ -22,6 +22,7 @@ public final class HUDController {
 
     private var panel: OverlayPanel?
     private var geometrySubscription: AnyCancellable?
+    private var captureAnchor: HUDCaptureAnchor?
 
     public var isVisible: Bool {
         guard let panel else { return false }
@@ -68,7 +69,8 @@ public final class HUDController {
         if isVisible { dismiss() } else { show() }
     }
 
-    public func show() {
+    public func show(captureAnchor: HUDCaptureAnchor? = nil) {
+        self.captureAnchor = captureAnchor
         // Reuse the panel if it already exists (still fading out, etc).
         if let panel {
             panel.onFlagsChanged = { [weak self] event in
@@ -130,8 +132,7 @@ public final class HUDController {
         // behind the rounded shape; we don't add any on HUDStatusView.
         config.hasShadow = true
         config.onKeyDown = { [weak self] event in
-            guard let self else { return }
-            self.handleKeyDown(event)
+            self?.handleKeyDown(event) ?? false
         }
         config.onKeyUp = { [weak self] event in
             self?.handleKeyUp(event)
@@ -171,6 +172,9 @@ public final class HUDController {
     }
 
     public func dismiss() {
+        if HUDRunnerState.shared.isPresented {
+            guard HUDRunnerState.shared.dismiss() else { return }
+        }
         guard let p = panel else { return }
         HUDState.shared.setVisible(false)
         if HUDMotionState.shared.phase == .idle {
@@ -199,6 +203,7 @@ public final class HUDController {
                 guard !HUDState.shared.isVisible else { return }
                 p.orderOut(nil)
                 self?.panel = nil
+                self?.captureAnchor = nil
                 HUDMotionState.shared.settle()
                 HUDStateFile.shared.touch()
             }
@@ -210,8 +215,7 @@ public final class HUDController {
         guard isVisible, shouldClaimHostKey(event) else {
             return false
         }
-        handleKeyDown(event)
-        return true
+        return handleKeyDown(event)
     }
 
     // Drive the panel frame from HUDState.size + view. The Tail tab shares
@@ -233,7 +237,7 @@ public final class HUDController {
 
     private func applyGeometry(size: HUDSize, view: HUDView, tailCollapsed _: Bool) {
         guard let p = panel else { return }
-        let screen = p.screen ?? NSScreen.main
+        let screen = captureAnchor?.screen() ?? p.screen ?? NSScreen.main
         let target = size.contentSize(for: view, collapsed: false, on: screen)
         let targetMinContentSize = minContentSize(for: view, tailCollapsed: false)
         p.contentMinSize = targetMinContentSize
@@ -246,7 +250,12 @@ public final class HUDController {
         let frameSize = p.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
 
         let newFrame: NSRect
-        if size.isScreenAnchored(for: view), let visible = screen?.visibleFrame {
+        if let captureAnchor, let visible = screen?.visibleFrame {
+            newFrame = NSRect(
+                origin: captureAnchor.corner.panelOrigin(size: frameSize, in: visible),
+                size: frameSize
+            )
+        } else if size.isScreenAnchored(for: view), let visible = screen?.visibleFrame {
             // Dock to top half of the active screen. macOS coordinate
             // space has origin at bottom-left, so "top half" means y
             // starts at visible.midY and extends to visible.maxY.
@@ -295,6 +304,12 @@ public final class HUDController {
     }
 
     private func placement(for view: HUDView, size: HUDSize, tailCollapsed _: Bool) -> OverlayPanelShell.Placement {
+        if let captureAnchor {
+            return .screenCorner(
+                captureAnchor.corner,
+                displayID: captureAnchor.displayID
+            )
+        }
         if size.isScreenAnchored(for: view) {
             return .topCenter(margin: 0)
         }
@@ -363,7 +378,7 @@ public final class HUDController {
         ) { [weak self] event in
             guard let self else { return }
             guard self.shouldHandleGlobalKey(event) else { return }
-            self.handleKeyDown(event)
+            _ = self.handleKeyDown(event)
         }
 
         globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -402,10 +417,23 @@ public final class HUDController {
         }
         if HUDRunnerState.shared.isPresented {
             let keyCode = event.keyCode
-            if event.modifierFlags.contains(.command), (keyCode == 36 || keyCode == 76) {
+            if event.modifierFlags.contains(.command),
+               (keyCode == 36 || keyCode == 76 || keyCode == 37 || keyCode == 31 || keyCode == 15) {
                 return true
             }
-            if keyCode == 125 || keyCode == 126 || keyCode == 36 || keyCode == 48 {
+            if HUDRunnerState.shared.shouldHandleProjectNavigation {
+                if keyCode == 125 || keyCode == 126 || keyCode == 36 {
+                    return true
+                }
+                let navModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
+                if keyCode == 48,
+                   event.modifierFlags.intersection(navModifiers).isEmpty {
+                    return true
+                }
+            }
+            let focusModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
+            if keyCode == 48,
+               event.modifierFlags.intersection(focusModifiers).isEmpty {
                 return true
             }
         }
@@ -436,75 +464,91 @@ public final class HUDController {
         }
     }
 
-    private func handleKeyDown(_ event: NSEvent) {
+    @discardableResult
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
         // Esc always cascades — it's the only way to blur the dock
         // back into nav mode, so it must fire even when focused.
         if event.keyCode == 53 {
             Task { @MainActor in self.handleEscape() }
-            return
+            return true
         }
-        if HUDRunnerState.shared.handleKey(keyCode: event.keyCode, modifiers: event.modifierFlags) { return }
-        if HUDRunnerState.shared.isPresented { return }
-        if HUDDockState.shared.handleSuggestionKey(keyCode: event.keyCode) { return }
+        if HUDRunnerState.shared.handleKey(keyCode: event.keyCode, modifiers: event.modifierFlags) { return true }
+        if HUDRunnerState.shared.isPresented { return false }
+        if HUDDockState.shared.handleSuggestionKey(keyCode: event.keyCode) { return true }
         if event.keyCode == 45,
            event.modifierFlags.contains(.command),
            !HUDRunnerState.shared.isPresented,
            HUDNavBus.shared.createNew != nil {
             Task { @MainActor in HUDNavBus.shared.createNew?() }
-            return
+            return true
         }
         // While the dock is focused the TextField owns the keystroke;
         // suppress the rest so the operator can type "j", "1", etc.
         // as text without also cycling rows or switching tabs.
-        if shouldSuppressNavHotkeys(for: event) { return }
+        if shouldSuppressNavHotkeys(for: event) { return false }
         switch event.keyCode {
         case 18: // 1
             Task { @MainActor in HUDState.shared.select(.agents) }
+            return true
         case 19: // 2
             Task { @MainActor in HUDState.shared.select(.activity) }
+            return true
         case 20: // 3
             Task { @MainActor in HUDState.shared.select(.tail) }
+            return true
         case 21: // 4
             Task { @MainActor in HUDState.shared.select(.sessions) }
+            return true
         case 23: // 5
             Task { @MainActor in HUDState.shared.select(.assistant) }
+            return true
         case 36: // Return — engage selected row
             Task { @MainActor in
                 HUDNavBus.shared.engageSelected?()
                 self.activateSelected()
             }
+            return true
         case 38: // j — next row
             Task { @MainActor in HUDNavBus.shared.cycleNext?() }
+            return true
         case 40: // k — prev row
             Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
+            return true
         case 34: // i — focus the message dock
             Task { @MainActor in HUDDockState.shared.focus() }
+            return true
         case 125: // Down arrow — next row; command steps tier down
             if isCommandOnly(event.modifierFlags) {
                 Task { @MainActor in HUDState.shared.stepSize(-1) }
             } else {
                 Task { @MainActor in HUDNavBus.shared.cycleNext?() }
             }
+            return true
         case 126: // Up arrow — previous row; command steps tier up
             if isCommandOnly(event.modifierFlags) {
                 Task { @MainActor in HUDState.shared.stepSize(+1) }
             } else {
                 Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
             }
+            return true
         case 46: // m — hold to talk (push-to-talk); tap to toggle dictation
             guard HUDKeyboardInput.isUnmodifiedCharacterShortcut(event),
-                  !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel) else { break }
+                  !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel) else { return false }
             handleMicKeyDown(event)
+            return true
         case 5: // g — top; G with shift = bottom
             if event.modifierFlags.contains(.shift) {
                 Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
             } else {
                 Task { @MainActor in HUDNavBus.shared.jumpTop?() }
             }
+            return true
         case 3: // f — toggle live-follow
             Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
+            return true
         case 17: // t — cycle visual treatment
             Task { @MainActor in HUDNavBus.shared.cycleTreatment?() }
+            return true
         case 44: // / focuses dock; ? toggles cheatsheet
             if event.modifierFlags.contains(.shift) {
                 Task { @MainActor in HUDCheatsheetState.shared.toggle() }
@@ -515,20 +559,27 @@ public final class HUDController {
                     HUDDockState.shared.focus()
                 }
             }
+            return true
         case 33: // [
             Task { @MainActor in HUDState.shared.stepSize(-1) }
+            return true
         case 30: // ]
             Task { @MainActor in HUDState.shared.stepSize(+1) }
+            return true
         case 124: // Right arrow — command steps tier up
             if event.modifierFlags.contains(.command) {
                 Task { @MainActor in HUDState.shared.stepSize(+1) }
+                return true
             }
+            return false
         case 123: // Left arrow — command steps tier down
             if event.modifierFlags.contains(.command) {
                 Task { @MainActor in HUDState.shared.stepSize(-1) }
+                return true
             }
+            return false
         default:
-            break
+            return false
         }
     }
 
@@ -647,7 +698,7 @@ public final class HUDController {
     private func handleEscape() {
         // Runner draft overlay
         if HUDRunnerState.shared.isPresented {
-            HUDRunnerState.shared.dismiss()
+            HUDRunnerState.shared.escapePressed()
             return
         }
 

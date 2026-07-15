@@ -3489,6 +3489,124 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
+  test("serves fast HUD runner options with runtime and effort controls", async () => {
+    const home = useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_HOME = join(home, ".openscout");
+    const projectRoot = mkdtempSync(join(tmpdir(), "openscout-runner-project-"));
+    testDirectories.add(projectRoot);
+    writeFileSync(join(projectRoot, "package.json"), "{\"name\":\"runner-project\"}\n", "utf8");
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Agent One",
+        handle: "agent-one",
+        state: "working",
+        harness: "claude",
+        model: "claude-opus-4-8",
+        projectRoot,
+        cwd: projectRoot,
+        harnessSessionId: "session-1",
+      },
+      {
+        id: "agent-observed",
+        name: "Observed Codex",
+        state: "available",
+        harness: "codex",
+        model: "gpt-custom",
+        projectRoot,
+        cwd: projectRoot,
+      },
+    ];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: projectRoot,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/runner/options");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      defaults: {
+        directory: string;
+        harness: string;
+        model: string;
+        reasoningEffort: string;
+        persistence: string;
+      };
+      runners: Array<{ id: string; supports: string[] }>;
+      harnesses: Array<{ id: string; label: string }>;
+      models: Array<{ id: string; family?: string; version?: string; harnesses: string[] }>;
+      efforts: Array<{ id: string; harnesses: string[] }>;
+      projects: Array<{ title: string; root: string }>;
+      agents: Array<{ id: string; projectRoot: string | null; harnessSessionId: string | null }>;
+    };
+    expect(payload.defaults).toEqual(expect.objectContaining({
+      directory: projectRoot,
+      harness: "claude",
+      model: "claude-opus-4-8",
+      reasoningEffort: "medium",
+      persistence: "sticky",
+    }));
+    expect(payload.runners).toContainEqual(expect.objectContaining({
+      id: "scout",
+      supports: expect.arrayContaining(["claude", "codex"]),
+    }));
+    expect(payload.harnesses.map((entry) => entry.id)).toEqual(expect.arrayContaining(["claude", "codex"]));
+    expect(payload.models).toContainEqual(expect.objectContaining({
+      id: "gpt-5.6-sol",
+      family: "GPT",
+      version: "5.6 Sol",
+      harnesses: ["codex"],
+    }));
+    expect(payload.models).toContainEqual(expect.objectContaining({
+      id: "gpt-custom",
+      harnesses: ["codex"],
+    }));
+    expect(payload.models.some((entry) => entry.id.startsWith("gpt-5.4"))).toBe(false);
+    expect(payload.efforts.map((entry) => entry.id)).toEqual(expect.arrayContaining(["medium", "high", "xhigh"]));
+    expect(payload.projects).toContainEqual(expect.objectContaining({ root: projectRoot }));
+    expect(payload.agents).toContainEqual(expect.objectContaining({
+      id: "agent-1",
+      projectRoot,
+      harnessSessionId: "session-1",
+    }));
+  });
+
+  test("defaults HUD runner options to a known project when process cwd is not a project", async () => {
+    const home = useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_HOME = join(home, ".openscout");
+    const launcherDirectory = mkdtempSync(join(tmpdir(), "openscout-runner-launcher-"));
+    testDirectories.add(launcherDirectory);
+    const projectRoot = join(home, "dev", "runner-project");
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, "package.json"), "{\"name\":\"runner-project\"}\n", "utf8");
+    queryAgentsResult = [{
+      id: "agent-1",
+      name: "Agent One",
+      harness: "claude",
+      model: "claude-opus-4-8",
+      projectRoot,
+      cwd: projectRoot,
+    }];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: launcherDirectory,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/runner/options");
+    const payload = await response.json() as {
+      defaults: { directory: string };
+      projects: Array<{ root: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.defaults.directory).toBe(projectRoot);
+    expect(payload.projects).toContainEqual(expect.objectContaining({ root: projectRoot }));
+    expect(payload.projects.some((project) => project.root === launcherDirectory)).toBe(false);
+  });
+
   test("routes session initiation effort and fork source through askScoutQuestion", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "operator";
     const server = await createOpenScoutWebServer({

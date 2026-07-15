@@ -2564,6 +2564,11 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
+.s-observe-compose-tool:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .s-observe-compose-send {
   grid-column: 4;
   grid-row: 2;
@@ -2601,6 +2606,10 @@
 
 .s-observe-compose-status--error {
   color: var(--red);
+}
+
+.s-observe-compose-status--muted {
+  color: var(--dim);
 }
 
 /* ── Scrubber footer ── */

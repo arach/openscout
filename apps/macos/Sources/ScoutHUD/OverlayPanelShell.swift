@@ -7,7 +7,7 @@ import SwiftUI
 
 final class OverlayPanel: NSPanel {
     var activatesOnMouseDown = false
-    var onKeyDown: ((NSEvent) -> Void)?
+    var onKeyDown: ((NSEvent) -> Bool)?
     var onKeyUp: ((NSEvent) -> Void)?
     var onFlagsChanged: ((NSEvent) -> Void)?
 
@@ -38,8 +38,15 @@ final class OverlayPanel: NSPanel {
         let hasCommand = event.modifierFlags.contains(.command)
         let isSuggestionKey = HUDDockState.shared.suggestionsVisible
             && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
+        let runnerTabIsForward = kc != 48
+            || !event.modifierFlags.contains(.shift)
+        let runnerTabModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
+        let isRunnerFocusTab = HUDRunnerState.shared.isPresented
+            && kc == 48
+            && event.modifierFlags.intersection(runnerTabModifiers).isEmpty
         let isRunnerProjectKey = HUDRunnerState.shared.isPresented
-            && HUDRunnerState.shared.shouldShowProjectMatches
+            && HUDRunnerState.shared.shouldHandleProjectNavigation
+            && runnerTabIsForward
             && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
         let isIdleAgentRosterArrow = HUDState.shared.view == .agents
             && !HUDDockState.shared.suggestionsVisible
@@ -49,16 +56,16 @@ final class OverlayPanel: NSPanel {
             && !isEscape
             && !hasCommand
             && !isSuggestionKey
+            && !isRunnerFocusTab
             && !isRunnerProjectKey
             && !isIdleAgentRosterArrow {
             super.keyDown(with: event)
             return
         }
-        if let onKeyDown {
-            onKeyDown(event)
-        } else {
-            super.keyDown(with: event)
+        if let onKeyDown, onKeyDown(event) {
+            return
         }
+        super.keyDown(with: event)
     }
 
     // Mirror of keyDown for push-to-talk release. Only the mic key (46) is
@@ -163,6 +170,7 @@ public enum OverlayPanelShell {
         case mouseScreenCentered(yOffsetRatio: CGFloat = 0)
         case topCenter(margin: CGFloat = 40)
         case rightCenter(margin: CGFloat = 24)
+        case screenCorner(HUDCaptureCorner, displayID: UInt32? = nil, margin: CGFloat = 0)
     }
 
     struct Config {
@@ -179,7 +187,7 @@ public enum OverlayPanelShell {
             .fullScreenAuxiliary,
         ]
         var activatesOnMouseDown = false
-        var onKeyDown: ((NSEvent) -> Void)? = nil
+        var onKeyDown: ((NSEvent) -> Bool)? = nil
         var onKeyUp: ((NSEvent) -> Void)? = nil
         var onFlagsChanged: ((NSEvent) -> Void)? = nil
         var appearance: NSAppearance? = NSAppearance(named: .darkAqua)
@@ -239,6 +247,10 @@ public enum OverlayPanelShell {
         switch placement {
         case .mouseScreenCentered, .topCenter, .rightCenter:
             screen = mouseScreen()
+        case .screenCorner(_, let displayID, _):
+            screen = displayID.flatMap { id in
+                HUDCaptureAnchor(corner: .bottomLeft, displayID: id).screen()
+            } ?? mouseScreen()
         case .centered:
             screen = NSScreen.main ?? mouseScreen()
         }
@@ -263,6 +275,8 @@ public enum OverlayPanelShell {
                 x: visibleFrame.maxX - size.width - margin,
                 y: visibleFrame.midY - size.height / 2
             )
+        case .screenCorner(let corner, _, let margin):
+            origin = corner.panelOrigin(size: size, in: visibleFrame, margin: margin)
         }
 
         window.setFrameOrigin(origin)

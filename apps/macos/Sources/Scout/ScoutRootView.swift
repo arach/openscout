@@ -214,6 +214,7 @@ struct ScoutRootView: View {
     @ObservedObject private var activityLog = HudLogStore.shared
     @State private var showingActivityLog = false
     @State private var section: ScoutSection = .comms
+    @State private var codeLinkQueryItems: [URLQueryItem] = []
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
     @State private var agentContentMode: ScoutAgentContentMode = .roster
@@ -328,7 +329,34 @@ struct ScoutRootView: View {
                         compactInspectorPresented = false
                     }
                 }
+                .onOpenURL { url in
+                    handleScoutDeepLink(url)
+                }
         }
+    }
+
+    /// scout://code/<project>/<relative/file/path>[?wt=…] — same link grammar the
+    /// web serves at /code/<project>/<path>; extra query params pass through so
+    /// the absolute ?root=/&file= form works too.
+    private func handleScoutDeepLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "scout" else { return }
+        guard url.host?.lowercased() == "code" else { return }
+        var items: [URLQueryItem] = []
+        let segments = url.pathComponents.filter { $0 != "/" }
+        if let project = segments.first {
+            items.append(URLQueryItem(name: "project", value: project))
+            let rest = segments.dropFirst().joined(separator: "/")
+            if !rest.isEmpty {
+                items.append(URLQueryItem(name: "path", value: rest))
+            }
+        }
+        if let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
+            for item in query where !items.contains(where: { $0.name == item.name }) {
+                items.append(item)
+            }
+        }
+        codeLinkQueryItems = items
+        section = .code
     }
 
     @ViewBuilder
@@ -346,7 +374,7 @@ struct ScoutRootView: View {
     }
 
     private func rootShell(layout: ScoutShellLayout) -> some View {
-        HudChromeShell(titlebarStyle: .systemToolbar, titlebarActions: chromeTitlebarActions(layout: layout)) {
+        HudChromeShell(titlebarStyle: .floating, titlebarActions: chromeTitlebarActions(layout: layout)) {
             HudResizableNavigationSidebar(
                 selection: Binding(
                     get: { section },
@@ -364,13 +392,17 @@ struct ScoutRootView: View {
                 maxLabelWidth: 260,
                 collapseLabelWidth: 44,
                 railHeader: {
+                    // Full-height window: the traffic lights float over this
+                    // corner, so the identity mark steps down below them.
                     ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
+                        .padding(.top, 26)
                 },
                 labelHeader: {
                     Text("Scout")
                         .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                         .foregroundStyle(ScoutPalette.ink)
                         .lineLimit(1)
+                        .padding(.top, 26)
                 },
                 footer: {
                     ScoutSidebarSettingsButton(
@@ -409,8 +441,6 @@ struct ScoutRootView: View {
                 showingActivityLog = false
             }
         }
-        .toolbarBackground(ScoutDesign.chrome, for: .windowToolbar)
-        .toolbarColorScheme(appearance.themeMode.colorScheme, for: .windowToolbar)
         .background {
             #if os(macOS)
             ScoutWindowBackdrop(opacity: appearance.windowOpacity)
@@ -424,6 +454,9 @@ struct ScoutRootView: View {
             if let cId = ScoutExternalCommand.takePendingChannelId() {
                 openChannelFromExternalCommand(cId)
             }
+            if let url = ScoutExternalCommand.takePendingCodeLinkURL() {
+                handleScoutDeepLink(url)
+            }
             syncScopedStoreLifecycles()
             ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: section == .comms)
         }
@@ -431,6 +464,11 @@ struct ScoutRootView: View {
             guard let cId = notification.userInfo?["cId"] as? String else { return }
             openChannelFromExternalCommand(cId)
             ScoutExternalCommand.clearPendingChannelId(cId)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openCodeLinkNotificationName)) { notification in
+            guard let url = notification.userInfo?["url"] as? URL else { return }
+            handleScoutDeepLink(url)
+            _ = ScoutExternalCommand.takePendingCodeLinkURL()
         }
         .onDisappear {
             store.stop()
@@ -703,7 +741,7 @@ struct ScoutRootView: View {
             treeMove(delta)
         case .repos:
             reposTreeMove(delta)
-        case .terminals, .tail, .dispatch, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .code, .settings:
             break
         }
     }
@@ -719,7 +757,7 @@ struct ScoutRootView: View {
             treeEdge(last: last)
         case .repos:
             reposTreeEdge(last: last)
-        case .terminals, .tail, .dispatch, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .code, .settings:
             break
         }
     }
@@ -1400,6 +1438,7 @@ struct ScoutRootView: View {
             .item(HudSidebarItem(id: .dispatch, title: "Dispatch", icon: "paperplane", selectedIcon: "paperplane.fill")),
             .item(HudSidebarItem(id: .lanes, title: "Lanes", icon: "rectangle.split.3x1", selectedIcon: "rectangle.split.3x1.fill")),
             .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
+            .item(HudSidebarItem(id: .code, title: "Code", icon: "chevron.left.forwardslash.chevron.right", selectedIcon: "chevron.left.forwardslash.chevron.right")),
         ]
     }
 
@@ -1464,6 +1503,8 @@ struct ScoutRootView: View {
             dispatchContent
         case .lanes:
             lanesContent(layout: layout)
+        case .code:
+            codeContent
         case .settings:
             settingsContent
         }
@@ -3262,6 +3303,11 @@ struct ScoutRootView: View {
         ScoutWebEmbedContent(surface: .dispatch)
     }
 
+    private var codeContent: some View {
+        ScoutWebEmbedContent(surface: .code, extraQueryItems: codeLinkQueryItems)
+            .id(codeLinkQueryItems.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&"))
+    }
+
     private func lanesContent(layout: ScoutShellLayout) -> some View {
         ScoutLanesContent(windowWidth: layout.windowWidth)
     }
@@ -3884,7 +3930,7 @@ struct ScoutRootView: View {
         }
         .padding(.horizontal, HudSpacing.xxl)
         .frame(height: 24)
-        .background(ScoutDesign.chrome)
+        .background(ScoutDesign.band)
     }
 
     private var statusPreviewMessage: String? {
@@ -3981,6 +4027,18 @@ enum ScoutDesign {
     static var surface: Color { ScoutPalette.surface }
     static var hairline: Color { ScoutPalette.hairline }
     static var hairlineStrong: Color { ScoutPalette.hairlineStrong }
+
+    /// Window band for the titlebar and status bar: one visible step off the
+    /// ground with a faint vertical grade, so the columns' structural rules
+    /// terminate into a plane instead of dissolving into content black.
+    /// `Color.primary` flips with appearance — lightens dark mode, inks light.
+    static var band: LinearGradient {
+        LinearGradient(
+            colors: [Color.primary.opacity(0.065), Color.primary.opacity(0.03)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
     static let columnHeaderHeight = HudSidebarLayout.headerTopPadding
         + HudSidebarLayout.headerHeight
         + HudSidebarLayout.headerBottomPadding
@@ -7454,17 +7512,11 @@ private struct ScoutThemedSidebarPanel<Content: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if edge == .trailing {
-                resizeHandle(showsHairline: true)
-            }
-
-            panelContent
-
-            if edge == .leading {
-                resizeHandle(showsHairline: true)
-            }
-        }
+        // No in-flow drag strip: it reserved a full-height transparent column
+        // that read as a gap of window ground beside any non-window-colored
+        // surface (the Code well exposed it). The overlay handle on the panel's
+        // inner edge keeps resizing working; the boundary is one hairline.
+        panelContent
     }
 
     private var panelContent: some View {
@@ -7527,7 +7579,6 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
-            HudDivider(color: theme.hairline.standard)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -7543,10 +7594,10 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
     }
 
     private var headerBar: some View {
-        // The parent VStack draws the under-header rule (theme.hairline.standard
-        // == hairlineStrong), so this is the one header that opts out of the
-        // baked divider. `.clear` keeps the panel's inherited surface.
-        ScoutColumnHeader(horizontalPadding: ScoutDesign.panelGutter, background: .clear, showsDivider: false) {
+        // Baked divider like every other column header — an external divider
+        // stacked after the header sat one hairline lower than the content
+        // columns' rule, reading as a 1px misalignment at the panel seam.
+        ScoutColumnHeader(horizontalPadding: ScoutDesign.panelGutter, background: .clear) {
             header
                 .frame(maxWidth: .infinity, alignment: .leading)
         } secondary: {

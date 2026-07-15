@@ -51,6 +51,7 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
+    @ObservedObject private var runner = HUDRunnerState.shared
     @StateObject private var agentsStore = ScoutAgentsStore(pageSize: 10, requestsSummary: true)
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
@@ -218,6 +219,8 @@ struct HUDStatusView: View {
             } else if isTailOverlay && state.tailCollapsed {
                 tailCollapsedRail
                     .transition(tailCollapsedTransition)
+                    .disabled(runner.isPresented)
+                    .accessibilityHidden(runner.isPresented)
             } else {
                 VStack(spacing: 0) {
                     masthead
@@ -237,16 +240,20 @@ struct HUDStatusView: View {
                     }
                 }
                 .transition(tailExpandedTransition)
+                .disabled(runner.isPresented)
+                .accessibilityHidden(runner.isPresented)
             }
 
             // `?` cheatsheet — drawn on top of the panel body, masthead
             // and dock stay visible underneath. Toggled from HUDController.
             if !isTailCollapsing {
                 HUDCheatsheetOverlay()
+                    .disabled(runner.isPresented)
+                    .accessibilityHidden(runner.isPresented)
             }
 
-            // Runner draft — a HUD-local composer for broker-owned project
-            // asks. Swift gathers helpful inputs; TS owns routing.
+            // Task draft — a HUD-local composer for broker-owned project asks.
+            // Swift gathers helpful inputs; TS owns routing.
             if !isTailCollapsing {
                 HUDRunnerOverlay()
             }

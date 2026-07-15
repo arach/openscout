@@ -246,6 +246,7 @@ import {
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
 import {
+  addOpenScoutWorkspaceRoot,
   ensureOpenScoutOnboardingCompletion,
   ensureOpenScoutOnboardingLocalConfig,
   loadOpenScoutOnboardingState,
@@ -3575,6 +3576,320 @@ function isProviderConfigured(envKeys: readonly string[]): boolean {
   return envKeys.some((key) => Boolean(process.env[key]?.trim()));
 }
 
+type HudRunnerHarnessOption = {
+  id: string;
+  name: string | null;
+  label: string;
+  description: string | null;
+  state: string | null;
+  ready: boolean | null;
+  detail: string | null;
+};
+
+type HudRunnerModelOption = {
+  id: string;
+  label: string;
+  harnesses: string[];
+  source: string;
+  family?: string;
+  version?: string;
+};
+
+type HudRunnerEffortOption = {
+  id: string;
+  label: string;
+  description: string;
+  harnesses: string[];
+};
+
+type HudRunnerProjectOption = {
+  id: string;
+  title: string;
+  root: string;
+  source: string | null;
+  registrationKind: string | null;
+  defaultHarness: string | null;
+};
+
+type HudRunnerAgentOption = {
+  id: string;
+  name: string;
+  handle: string | null;
+  status: string | null;
+  harness: string | null;
+  model: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  harnessSessionId: string | null;
+};
+
+const HUD_PROJECT_MARKERS = [
+  ".git",
+  ".openscout/project.json",
+  "AGENTS.md",
+  "package.json",
+  "Package.swift",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+] as const;
+
+const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
+  {
+    id: "claude-opus-4-8",
+    label: "Opus 4.8",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Opus",
+    version: "4.8",
+  },
+  {
+    id: "claude-sonnet-4-6",
+    label: "Sonnet 4.6",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Sonnet",
+    version: "4.6",
+  },
+  {
+    id: "claude-haiku-4-5",
+    label: "Haiku 4.5",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Haiku",
+    version: "4.5",
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Sol",
+  },
+  {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Terra",
+  },
+  {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Luna",
+  },
+  {
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.5",
+  },
+  {
+    id: "gpt-5.5-mini",
+    label: "GPT-5.5 mini",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.5 mini",
+  },
+];
+
+const HUD_RUNNER_EFFORT_OPTIONS: HudRunnerEffortOption[] = [
+  { id: "none", label: "None", description: "No extra thinking", harnesses: ["codex"] },
+  { id: "minimal", label: "Minimal", description: "Smallest reasoning budget", harnesses: ["codex"] },
+  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
+  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
+  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
+  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
+  { id: "max", label: "Max", description: "Maximum reasoning depth", harnesses: ["claude", "codex"] },
+  { id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"] },
+];
+
+function isRetiredHudRunnerModel(model: string, harness: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return harness === "codex"
+    && (normalized === "gpt-5.3-codex-spark" || normalized.startsWith("gpt-5.4"));
+}
+
+function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
+  const models = HUD_RUNNER_MODEL_OPTIONS.map((model) => ({
+    ...model,
+    harnesses: [...model.harnesses],
+  }));
+  const seen = new Set(models.map((model) => `${model.harnesses[0] ?? ""}:${model.id.toLowerCase()}`));
+
+  for (const agent of agents) {
+    const harness = agent.harness?.trim().toLowerCase() ?? "";
+    const model = agent.model?.trim() ?? "";
+    if (!harness || !model || isRetiredHudRunnerModel(model, harness)) continue;
+    const key = `${harness}:${model.toLowerCase()}`;
+    if (!seen.add(key)) continue;
+    models.push({
+      id: model,
+      label: model,
+      harnesses: [harness],
+      source: "observed",
+    });
+  }
+
+  return models;
+}
+
+function defaultHudRunnerModel(
+  harness: string | null | undefined,
+  models: HudRunnerModelOption[],
+): string | null {
+  return models.find((model) => model.harnesses.includes(harness ?? ""))?.id ?? null;
+}
+
+function normalizeHudRunnerRoot(root: string): string {
+  return resolve(expandHomePath(root.trim()));
+}
+
+function isLikelyHudProjectRoot(root: string): boolean {
+  const normalized = normalizeHudRunnerRoot(root);
+  try {
+    if (!statSync(normalized).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return HUD_PROJECT_MARKERS.some((marker) => existsSync(join(normalized, marker)));
+}
+
+function currentDirectoryProjectOption(
+  currentDirectory: string,
+  defaultHarness: string,
+): HudRunnerProjectOption | null {
+  const trimmed = currentDirectory.trim();
+  if (!trimmed || !isLikelyHudProjectRoot(trimmed)) return null;
+  const root = normalizeHudRunnerRoot(trimmed);
+  return {
+    id: `current:${root}`,
+    title: basename(root) || root,
+    root,
+    source: "currentDirectory",
+    registrationKind: "current",
+    defaultHarness,
+  };
+}
+
+function dedupeHudRunnerProjects(projects: HudRunnerProjectOption[]): HudRunnerProjectOption[] {
+  const seen = new Set<string>();
+  const result: HudRunnerProjectOption[] = [];
+  for (const project of projects) {
+    const root = normalizeHudRunnerRoot(project.root);
+    if (!seen.add(root)) continue;
+    result.push({ ...project, root });
+  }
+  return result;
+}
+
+async function buildHudRunnerOptions(currentDirectory: string) {
+  // This endpoint sits on the global-hotkey path, so it deliberately avoids
+  // the workspace scan performed by the full agent-configuration snapshot.
+  const [settingsResult, catalogResult] = await Promise.allSettled([
+    readOpenScoutSettings({ currentDirectory }),
+    loadHarnessCatalogSnapshot(),
+  ]);
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
+  const agents = queryAgents(50);
+  const defaultHarness = settings?.agents.defaultHarness ?? "claude";
+
+  const harnessesById = new Map<string, HudRunnerHarnessOption>();
+  for (const entry of catalog?.entries ?? []) {
+    const id = String(entry.harness || entry.name || "").trim();
+    if (!id) continue;
+    harnessesById.set(id, {
+      id,
+      name: entry.name,
+      label: entry.label || id,
+      description: entry.description || null,
+      state: entry.readinessReport.state,
+      ready: entry.readinessReport.ready,
+      detail: entry.readinessReport.detail,
+    });
+  }
+  for (const fallback of [
+    { id: "claude", label: "Claude Code" },
+    { id: "codex", label: "Codex" },
+  ]) {
+    if (harnessesById.has(fallback.id)) continue;
+    harnessesById.set(fallback.id, {
+      id: fallback.id,
+      name: fallback.id,
+      label: fallback.label,
+      description: null,
+      state: null,
+      ready: null,
+      detail: null,
+    });
+  }
+
+  const projectOptions: HudRunnerProjectOption[] = agents
+    .map((agent) => agent.projectRoot ?? agent.cwd)
+    .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+    .map((root) => {
+      const normalizedRoot = normalizeHudRunnerRoot(root);
+      return {
+        id: `agent:${normalizedRoot}`,
+        title: basename(normalizedRoot) || normalizedRoot,
+        root: normalizedRoot,
+        source: "agent",
+        registrationKind: null,
+        defaultHarness,
+      };
+    });
+  const currentProject = currentDirectoryProjectOption(currentDirectory, defaultHarness);
+  if (currentProject) projectOptions.unshift(currentProject);
+  const projects = dedupeHudRunnerProjects(projectOptions);
+  const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
+  const models = hudRunnerModels(agents);
+  const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
+    const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
+    return rank(left.id) - rank(right.id) || left.label.localeCompare(right.label);
+  });
+
+  return {
+    defaults: {
+      runner: "scout",
+      directory: defaultDirectory,
+      harness: defaultHarness,
+      model: defaultHudRunnerModel(defaultHarness, models),
+      reasoningEffort: "medium",
+      persistence: "sticky",
+    },
+    runners: [{
+      id: "scout",
+      label: "Scout",
+      description: "Start a broker-owned Scout session",
+      supports: harnesses.map((harness) => harness.id),
+    }],
+    harnesses,
+    models,
+    efforts: HUD_RUNNER_EFFORT_OPTIONS,
+    projects,
+    agents: agents.map((agent): HudRunnerAgentOption => ({
+      id: agent.id,
+      name: agent.name,
+      handle: agent.handle,
+      status: agent.state,
+      harness: agent.harness,
+      model: agent.model,
+      projectRoot: agent.projectRoot ? normalizeHudRunnerRoot(agent.projectRoot) : null,
+      cwd: agent.cwd ? normalizeHudRunnerRoot(agent.cwd) : null,
+      harnessSessionId: agent.harnessSessionId,
+    })),
+  };
+}
+
 async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   const [settingsResult, setupResult, catalogResult, shellResult] = await Promise.allSettled([
     readOpenScoutSettings({ currentDirectory }),
@@ -3965,6 +4280,50 @@ export async function createOpenScoutWebServer(
     return c.json(result.payload);
   });
 
+  // One-off project registration: appends to discovery.workspaceRoots
+  // (never replaces — that's the onboarding writer's job), then re-scans
+  // and reports which projects actually appeared under the new root.
+  app.post("/api/projects/add", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { root?: string };
+    const requested = body.root?.trim();
+    if (!requested) {
+      return c.json({ error: "root is required" }, 400);
+    }
+    const root = resolve(expandHomePath(requested));
+    if (!existsSync(root)) {
+      return c.json({ error: `That folder doesn't exist: ${root}` }, 400);
+    }
+    if (!statSync(root).isDirectory()) {
+      return c.json({ error: `Not a folder: ${root}` }, 400);
+    }
+
+    try {
+      const { alreadyRegistered } = await addOpenScoutWorkspaceRoot({ root, currentDirectory });
+      const setup = await loadResolvedRelayAgents({ currentDirectory });
+      const registered = setup.projectInventory
+        .filter((project) => project.projectRoot === root || project.projectRoot.startsWith(`${root}/`))
+        .map((project) => ({
+          id: project.agentId,
+          title: project.displayName,
+          root: project.projectRoot,
+          source: project.source,
+          registrationKind: project.registrationKind,
+          defaultHarness: project.defaultHarness,
+          projectConfigPath: project.projectConfigPath,
+        }));
+      return c.json({
+        ok: true,
+        root,
+        alreadyRegistered,
+        projects: registered,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[projects/add]", message);
+      return c.json({ error: message }, 500);
+    }
+  });
+
   app.get("/api/file/preview", (c) => {
     const requestedPath = c.req.query("path");
     if (!requestedPath) {
@@ -4291,6 +4650,9 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
+  );
+  app.get("/api/runner/options", async (c) =>
+    c.json(await buildHudRunnerOptions(currentDirectory)),
   );
   app.get("/api/agents", async (c) => {
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));

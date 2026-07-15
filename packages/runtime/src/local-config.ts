@@ -8,6 +8,8 @@ import {
 import { homedir, hostname as osHostname } from "node:os";
 import { dirname, join } from "node:path";
 
+import { assertTestIsolatedUserData } from "./support-paths.js";
+
 export const LOCAL_CONFIG_VERSION = 1;
 export const DEFAULT_SCOUT_WEB_PORTAL_HOST = "scout.local";
 export const DEFAULT_SCOUT_WEB_LOCAL_NAME = DEFAULT_SCOUT_WEB_PORTAL_HOST;
@@ -232,6 +234,7 @@ export function resolveHost(): string {
 }
 
 export function writeLocalConfig(config: LocalConfig): void {
+  assertTestIsolatedUserData("write the OpenScout local config", "OPENSCOUT_HOME");
   const configPath = localConfigPath();
   mkdirSync(dirname(configPath), { recursive: true });
   const body = JSON.stringify(

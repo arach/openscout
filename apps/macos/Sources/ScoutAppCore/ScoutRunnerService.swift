@@ -6,6 +6,7 @@ public struct HudRunnerOptions: Decodable {
         public let directory: String?
         public let harness: String?
         public let model: String?
+        public let reasoningEffort: String?
         public let persistence: String?
     }
 
@@ -13,6 +14,7 @@ public struct HudRunnerOptions: Decodable {
     public let runners: [HudRunnerOption]
     public let harnesses: [HudRunnerHarnessOption]
     public let models: [HudRunnerModelOption]
+    public let efforts: [HudRunnerEffortOption]?
     public let projects: [HudRunnerProjectOption]
     public let agents: [HudRunnerAgentOption]
 }
@@ -64,12 +66,37 @@ public struct HudRunnerModelOption: Decodable, Identifiable {
     public let label: String
     public let harnesses: [String]
     public let source: String?
+    public let family: String?
+    public let version: String?
 
-    public init(id: String, label: String, harnesses: [String], source: String?) {
+    public init(
+        id: String,
+        label: String,
+        harnesses: [String],
+        source: String?,
+        family: String? = nil,
+        version: String? = nil
+    ) {
         self.id = id
         self.label = label
         self.harnesses = harnesses
         self.source = source
+        self.family = family
+        self.version = version
+    }
+}
+
+public struct HudRunnerEffortOption: Decodable, Identifiable {
+    public let id: String
+    public let label: String
+    public let description: String?
+    public let harnesses: [String]
+
+    public init(id: String, label: String, description: String?, harnesses: [String]) {
+        self.id = id
+        self.label = label
+        self.description = description
+        self.harnesses = harnesses
     }
 }
 

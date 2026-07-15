@@ -7,7 +7,12 @@ import type { SessionState } from "@openscout/agent-sessions";
 import type { WebAgent } from "../../db-queries.ts";
 
 let queryAgentsResult: WebAgent[] = [];
-let brokerContextResult: { snapshot: { endpoints: Record<string, Record<string, unknown>> } } | null = null;
+let brokerContextResult: {
+  snapshot: {
+    endpoints: Record<string, Record<string, unknown>>;
+    actors?: Record<string, { displayName?: string }>;
+  };
+} | null = null;
 let localSnapshotResult: SessionState | null = null;
 let localAgentSnapshotResult: SessionState | null = null;
 let pairingSnapshotResult: SessionState | null = null;
@@ -930,5 +935,35 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.historyPath).toBe(transcriptPath);
     expect(payload?.sessionId).toBe("019edd6b-fc26-7a53-a4a0-dd36c5378515");
     expect(payload?.data.events.some((event) => event.text.includes("Read started"))).toBe(true);
+  });
+});
+
+describe("loadSessionRefObservePayload", () => {
+  test("preserves the writable agent and harness session for broker session refs", async () => {
+    brokerContextResult = {
+      snapshot: {
+        actors: {},
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "codex",
+            state: "active",
+            sessionId: "runtime-session-1",
+            transport: "codex_app_server",
+            metadata: {
+              externalSessionId: "019f5b95-dce0-73d3-a4da-aff357e1d464",
+            },
+          },
+        },
+      },
+    };
+
+    const payload = await loadSessionRefObservePayload("019f5b95-dce0-73d3-a4da-aff357e1d464");
+
+    expect(payload?.kind).toBe("broker");
+    expect(payload?.agentId).toBe("agent-1");
+    expect(payload?.sessionId).toBe("019f5b95-dce0-73d3-a4da-aff357e1d464");
   });
 });

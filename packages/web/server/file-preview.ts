@@ -1,6 +1,8 @@
-import { closeSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
+
+import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { queryAgents } from "./db-queries.ts";
 
@@ -66,9 +68,23 @@ export type FilePreviewContent =
 
 export type TrustedRoot = {
   path: string;
-  source: "agent-project" | "agent-cwd" | "current-directory";
+  source: "agent-project" | "agent-cwd" | "current-directory" | "workspace-root";
   agentId?: string;
 };
+
+/** Roots the operator registered explicitly (settings discovery.workspaceRoots). */
+function registeredWorkspaceRoots(): string[] {
+  try {
+    const raw = readFileSync(resolveOpenScoutSupportPaths().settingsPath, "utf8");
+    const parsed = JSON.parse(raw) as { discovery?: { workspaceRoots?: unknown } };
+    const roots = parsed.discovery?.workspaceRoots;
+    return Array.isArray(roots)
+      ? roots.filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 function expand(path: string): string {
   const trimmed = path.trim();
@@ -78,7 +94,23 @@ function expand(path: string): string {
   return trimmed;
 }
 
+// Root collection walks the agent DB (500 rows) plus a realpath per candidate —
+// seconds of latency that every file click and tree expand would otherwise pay.
+// The set changes rarely (new agent/new workspace root), so a short TTL is safe.
+const TRUSTED_ROOTS_TTL_MS = 15_000;
+let trustedRootsCache: { key: string; at: number; roots: TrustedRoot[] } | null = null;
+
 export function collectTrustedRoots(input: { currentDirectory: string }): TrustedRoot[] {
+  const cached = trustedRootsCache;
+  if (cached && cached.key === input.currentDirectory && Date.now() - cached.at < TRUSTED_ROOTS_TTL_MS) {
+    return cached.roots;
+  }
+  const roots = collectTrustedRootsUncached(input);
+  trustedRootsCache = { key: input.currentDirectory, at: Date.now(), roots };
+  return roots;
+}
+
+function collectTrustedRootsUncached(input: { currentDirectory: string }): TrustedRoot[] {
   const seen = new Map<string, TrustedRoot>();
   const add = (raw: string | null | undefined, source: TrustedRoot["source"], agentId?: string) => {
     if (!raw) return;
@@ -95,6 +127,10 @@ export function collectTrustedRoots(input: { currentDirectory: string }): Truste
   };
 
   add(input.currentDirectory, "current-directory");
+
+  for (const root of registeredWorkspaceRoots()) {
+    add(root, "workspace-root");
+  }
 
   try {
     const agents = queryAgents(500);
