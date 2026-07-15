@@ -49,6 +49,12 @@ export type NativeScoutdDoctorReport = {
     brokerUrl: string | null;
     brokerSocketPath: string | null;
     scoutdStatePath: string | null;
+    runtimeFreshness: {
+      state: string;
+      intentional: boolean | null;
+      basis: string | null;
+      detail: string | null;
+    } | null;
   } | null;
   warnings: string[];
   probes: {
@@ -418,6 +424,7 @@ function readStatus(raw: unknown): NativeScoutdDoctorReport["status"] {
   }
   const status = isRecord(raw.status) ? raw.status : raw;
   const health = isRecord(status.health) ? status.health : {};
+  const runtimeFreshness = isRecord(status.runtimeFreshness) ? status.runtimeFreshness : null;
 
   return {
     label: readString(status.label),
@@ -432,6 +439,14 @@ function readStatus(raw: unknown): NativeScoutdDoctorReport["status"] {
     brokerUrl: readString(status.brokerUrl),
     brokerSocketPath: readString(status.brokerSocketPath),
     scoutdStatePath: readString(status.scoutdStatePath),
+    runtimeFreshness: runtimeFreshness && readString(runtimeFreshness.state)
+      ? {
+          state: readString(runtimeFreshness.state)!,
+          intentional: readBoolean(runtimeFreshness.intentional),
+          basis: readString(runtimeFreshness.basis),
+          detail: readString(runtimeFreshness.detail),
+        }
+      : null,
   };
 }
 
@@ -606,6 +621,14 @@ export function renderNativeScoutdDoctorSection(report: NativeScoutdDoctorReport
     }
     if (status.scoutdStatePath) {
       lines.push(`  State file: ${status.scoutdStatePath}`);
+    }
+    if (status.runtimeFreshness) {
+      lines.push(
+        `  Runtime freshness: ${status.runtimeFreshness.state}${status.runtimeFreshness.intentional ? " (intentional)" : ""}`,
+      );
+      if (status.runtimeFreshness.detail) {
+        lines.push(`  Runtime detail: ${status.runtimeFreshness.detail}`);
+      }
     }
   }
 

@@ -62,6 +62,13 @@ follow-up handles (`ref`, flight, conversation, work, session) and may return a
 friendly worker handle. Exact session routing is only for continuity; card/name
 promotion happens after the worker is known good.
 
+Fresh broker-created Claude project sessions use `tmux` by default so operators
+can inspect and attach to the live terminal. `claude_stream_json` remains a
+supported explicit transport for configured agents and recovery paths; it is
+not the default for a new cardless Claude task. Set
+`OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT=claude_stream_json` to intentionally use
+the backup transport for newly spawned cardless Claude sessions.
+
 ## Endpoint States
 
 | State | Meaning |

@@ -42,6 +42,45 @@ const terminalRelayOutput = resolve(outputDirectory, "openscout-terminal-relay.m
 const pairingRuntimeControllerOutput = resolve(outputDirectory, "pairing-runtime-controller.mjs");
 const runtimeOutputDirectory = resolve(outputDirectory, "runtime");
 const clientDir = resolve(outputDirectory, "client");
+const buildManifestOutput = resolve(outputDirectory, "build-manifest.json");
+
+function gitOutput(args) {
+  const result = spawnSync("git", ["-C", repoRoot, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if ((result.status ?? 1) !== 0) return null;
+  return result.stdout?.trim() ?? "";
+}
+
+function gitValue(args) {
+  return gitOutput(args) || null;
+}
+
+function readPackageVersion() {
+  try {
+    const parsed = JSON.parse(readFileSync(resolve(packageDirectory, "package.json"), "utf8"));
+    return typeof parsed.version === "string" && parsed.version.trim()
+      ? parsed.version.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// This manifest is the artifact identity scoutd evaluates. Runtime status must
+// describe the code that was actually bundled, not whichever commit happens to
+// be checked out when a stale bundle is launched later.
+const sourceStatus = gitOutput(["status", "--porcelain", "--untracked-files=normal"]);
+const buildManifest = {
+  schemaVersion: 1,
+  packageName: "@openscout/scout",
+  version: readPackageVersion(),
+  commit: gitValue(["rev-parse", "HEAD"]),
+  branch: gitValue(["rev-parse", "--abbrev-ref", "HEAD"]),
+  sourceDirty: sourceStatus === null ? null : sourceStatus.length > 0,
+  builtAt: new Date().toISOString(),
+};
 
 // The published @openscout/scout package root is what broker-process-manager's
 // resolveScoutdCommand() treats as `runtimePackageDir` at runtime, and its first
@@ -56,6 +95,7 @@ const scoutdPackagedBinary = resolve(packageDirectory, "bin", "scoutd");
 const scoutdSignScript = resolve(repoRoot, "scripts", "sign-scoutd.sh");
 
 mkdirSync(outputDirectory, { recursive: true });
+rmSync(buildManifestOutput, { force: true });
 
 // Use --outdir so bun can emit WASM/asset side-files alongside the main bundle
 const result = spawnSync(
@@ -209,7 +249,14 @@ function buildAndPackageScoutd() {
       "--manifest-path",
       resolve(repoRoot, "crates", "scoutd", "Cargo.toml"),
     ],
-    { cwd: repoRoot, stdio: "inherit" },
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ...(buildManifest.commit ? { SCOUTD_GIT_SHA: buildManifest.commit } : {}),
+      },
+    },
   );
 
   if ((build.status ?? 1) !== 0) {
@@ -325,3 +372,6 @@ for (const built of [outputFile, statuslineOutput, nodeOutputFile, pairingRuntim
     process.exit(1);
   }
 }
+
+writeFileSync(buildManifestOutput, `${JSON.stringify(buildManifest, null, 2)}\n`);
+console.log(`  wrote build identity -> ${buildManifestOutput}`);
