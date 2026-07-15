@@ -46,8 +46,8 @@ struct HUDRunnerComposer: View {
                 Text("What should the agent do?")
                     .font(HUDType.body(13))
                     .foregroundStyle(HUDChrome.inkFaint)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .allowsHitTesting(false)
             }
 
@@ -56,7 +56,7 @@ struct HUDRunnerComposer: View {
                 .foregroundStyle(HUDChrome.ink)
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.vertical, 5)
                 .focused(focus, equals: .instructions)
                 .accessibilityLabel("Task instructions")
         }
@@ -66,12 +66,9 @@ struct HUDRunnerComposer: View {
     private var toolbar: some View {
         HStack(spacing: 7) {
             Button(action: runner.browseForAttachments) {
-                HStack(spacing: 6) {
-                    Image(systemName: "paperclip")
-                    Text("Attach")
-                }
-                .frame(height: 30)
-                .padding(.horizontal, 8)
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(
                 HUDRunnerToolbarButtonStyle(
@@ -83,12 +80,9 @@ struct HUDRunnerComposer: View {
             .help("Add files or folders (⌘O)")
             .accessibilityLabel("Attach files or folders")
 
-            Spacer()
+            HUDRunnerInlineStatus()
 
-            Text("⌘↵")
-                .font(HUDType.mono(9, weight: .semibold))
-                .foregroundStyle(HUDChrome.inkFaint)
-                .accessibilityHidden(true)
+            Spacer(minLength: 8)
 
             Button {
                 Task { await runner.toggleDictation() }
@@ -204,67 +198,48 @@ struct HUDRunnerComposer: View {
     }
 }
 
-struct HUDRunnerStatusFooter: View {
+private struct HUDRunnerInlineStatus: View {
     @ObservedObject private var runner = HUDRunnerState.shared
     @ObservedObject private var voice = HudVoiceService.shared
 
     var body: some View {
-        let status = footerStatus
-        return HStack(spacing: 7) {
-            Image(systemName: status.symbol)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(status.isError ? HUDChrome.inkMuted : HUDChrome.inkFaint)
-            Text(status.text)
-                .font(status.isError ? HUDType.body(10) : HUDType.mono(9))
-                .foregroundStyle(status.isError ? HUDChrome.inkMuted : HUDChrome.inkFaint)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 8)
-
-            if status.showsShortcuts {
-                Text("⌘L project  ·  ⌘R runtime  ·  ⌘↵ send")
-                    .font(HUDType.mono(8))
-                    .foregroundStyle(HUDChrome.inkDeep)
+        if let status = activeStatus {
+            HStack(spacing: 6) {
+                Image(systemName: status.symbol)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(status.text)
+                    .font(status.isError ? HUDType.body(10) : HUDType.mono(9))
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            .foregroundStyle(status.isError ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+            .frame(maxWidth: 220, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(status.text)
         }
-        .frame(height: 28)
-        .padding(.horizontal, 12)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(status.text)
     }
 
-    private var footerStatus: (
+    private var activeStatus: (
         symbol: String,
         text: String,
-        isError: Bool,
-        showsShortcuts: Bool
-    ) {
+        isError: Bool
+    )? {
         if let error = runner.lastError {
-            return ("exclamationmark.triangle", error, true, false)
+            return ("exclamationmark.triangle", error, true)
         }
         if runner.isStagingFiles {
-            return ("arrow.down.doc", "Staging dropped files…", false, false)
+            return ("arrow.down.doc", "Staging dropped files…", false)
         }
         if runner.isPreparingVoice {
-            return ("waveform", "Preparing voice dictation…", false, false)
+            return ("waveform", "Preparing voice dictation…", false)
         }
         if runner.isLoading {
-            return ("arrow.triangle.2.circlepath", "Loading runner inputs…", false, false)
+            return ("arrow.triangle.2.circlepath", "Loading runner inputs…", false)
         }
         if voice.state == .processing {
-            return ("waveform", "Transcribing voice…", false, false)
+            return ("waveform", "Transcribing voice…", false)
         }
-        if case .unavailable(let reason) = voice.state {
-            return ("mic.slash", reason, true, false)
-        }
-        return (
-            "arrow.down.doc",
-            "Drop or paste files, folders, screenshots, links, and text",
-            false,
-            true
-        )
+        return nil
     }
 }
 

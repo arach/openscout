@@ -80,7 +80,7 @@ struct HUDRunnerOverlay: View {
     private var geometryLayer: some View {
         GeometryReader { proxy in
             ZStack {
-                HUDChrome.canvas.opacity(0.86)
+                HUDChrome.canvas
                     .ignoresSafeArea()
                     .onTapGesture {}
 
@@ -109,18 +109,16 @@ struct HUDRunnerOverlay: View {
                     focus: $focusedField,
                     dropTargeted: dropTargeted
                 )
-                .frame(height: runner.disclosure == .none ? 240 : 198)
+                .frame(
+                    minHeight: runner.disclosure == .none ? 240 : 198,
+                    maxHeight: .infinity
+                )
             }
             .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .disabled(runner.isSubmitting)
-            HUDHairline()
-            HUDRunnerStatusFooter()
         }
-        .frame(
-            width: max(320, min(640, size.width - 20)),
-            height: max(360, min(492, size.height - 20))
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: size.width, height: size.height)
         .background(
             LinearGradient(
                 colors: [
@@ -131,12 +129,6 @@ struct HUDRunnerOverlay: View {
                 endPoint: .bottom
             )
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(HUDChrome.borderRim.opacity(0.78), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(10)
     }
 
     private func focus(_ target: HUDRunnerFocusTarget) {
