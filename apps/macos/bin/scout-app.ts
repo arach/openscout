@@ -25,8 +25,14 @@ const binaryDir = resolve(bundlePath, "Contents", "MacOS");
 const binaryPath = resolve(binaryDir, "Scout");
 const resourcesDir = resolve(bundlePath, "Contents", "Resources");
 const frameworksDir = resolve(bundlePath, "Contents", "Frameworks");
+const loginItemsDir = resolve(bundlePath, "Contents", "Library", "LoginItems");
+const menuBundlePath = resolve(loginItemsDir, "ScoutMenu.app");
+const menuBinaryDir = resolve(menuBundlePath, "Contents", "MacOS");
+const menuBinaryPath = resolve(menuBinaryDir, "ScoutMenu");
 const artifactsDir = resolve(appDir, ".build", "artifacts");
 const infoPlistTemplate = resolve(appDir, "ScoutInfo.plist");
+const menuInfoPlistTemplate = resolve(appDir, "Info.plist");
+const menuEntitlementsPath = resolve(appDir, "ScoutMenu.entitlements");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
 
@@ -77,6 +83,21 @@ function modeLabel(mode: BuildMode): string {
   return mode === "dev" ? "dev" : "build";
 }
 
+function signingIdentity(): string {
+  const explicit = process.env.OPENSCOUT_SIGN_IDENTITY?.trim();
+  if (explicit) return explicit;
+  try {
+    const identities = execSync("security find-identity -v -p codesigning", { stdio: "pipe" }).toString("utf8");
+    const matches = [...identities.matchAll(/^\s*\d+\)\s+([A-Fa-f0-9]{40})\s+\"([^\"]+)\"/gm)];
+    const preferred = matches.find((match) => match[2].startsWith("Developer ID Application:"))
+      ?? matches.find((match) => match[2].startsWith("Apple Development:"));
+    if (preferred) return preferred[1];
+  } catch {
+    // A machine without a development identity can still use an ad-hoc build.
+  }
+  return "-";
+}
+
 function swiftBuildEnvironment(mode: BuildMode): NodeJS.ProcessEnv {
   const hudsonSource = mode === "dev" ? "path" : "git";
   return {
@@ -94,11 +115,38 @@ function buildSwift(mode: BuildMode): string {
     env: swiftBuildEnvironment(mode),
     stdio: "inherit",
   });
+  execSync(`swift build -c ${configuration} --product ScoutMenu`, {
+    cwd: appDir,
+    env: swiftBuildEnvironment(mode),
+    stdio: "inherit",
+  });
   return execSync(`swift build -c ${configuration} --show-bin-path`, {
     cwd: appDir,
     env: swiftBuildEnvironment(mode),
     stdio: "pipe",
   }).toString("utf8").trim();
+}
+
+function embedMenuHelper(binPath: string, version: string, identity: string): void {
+  const builtMenuBinary = join(binPath, "ScoutMenu");
+  if (!existsSync(builtMenuBinary)) {
+    throw new Error(`Built ScoutMenu binary not found: ${builtMenuBinary}`);
+  }
+
+  mkdirSync(menuBinaryDir, { recursive: true });
+  cpSync(builtMenuBinary, menuBinaryPath);
+  chmodSync(menuBinaryPath, 0o755);
+  cpSync(menuInfoPlistTemplate, join(menuBundlePath, "Contents", "Info.plist"));
+  execSync(
+    `/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${version}" '${join(menuBundlePath, "Contents", "Info.plist")}'`,
+  );
+  execSync(
+    `/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" '${join(menuBundlePath, "Contents", "Info.plist")}'`,
+  );
+  execSync(
+    `codesign --force --sign '${identity}' --entitlements '${menuEntitlementsPath}' --identifier app.openscout.scout.menu '${menuBundlePath}'`,
+    { stdio: "inherit" },
+  );
 }
 
 function writeIcon(): void {
@@ -158,6 +206,7 @@ function embedSparkleFramework(): void {
 
 function bundleApp(mode: BuildMode): void {
   const binPath = buildSwift(mode);
+  const identity = signingIdentity();
   const builtBinary = join(binPath, "Scout");
   if (!existsSync(builtBinary)) {
     throw new Error(`Built Scout binary not found: ${builtBinary}`);
@@ -184,7 +233,8 @@ function bundleApp(mode: BuildMode): void {
 
   writeIcon();
   embedSparkleFramework();
-  execSync(`codesign --force --deep --sign - '${bundlePath}'`, { stdio: "inherit" });
+  embedMenuHelper(binPath, version, identity);
+  execSync(`codesign --force --deep --sign '${identity}' '${bundlePath}'`, { stdio: "inherit" });
   console.log(`Built ${bundlePath} (${modeLabel(mode)})`);
 }
 
@@ -202,6 +252,14 @@ function quit(): void {
   execSync("pkill -x Scout", { stdio: "ignore" });
 }
 
+function quitMenuHelper(): void {
+  try {
+    execSync("pkill -x ScoutMenu", { stdio: "ignore" });
+  } catch {
+    // The helper may not be installed or running yet.
+  }
+}
+
 function launch(): void {
   if (!existsSync(bundlePath)) bundleApp("dev");
   spawn("open", [bundlePath], {
@@ -212,6 +270,7 @@ function launch(): void {
 
 function restart(mode: BuildMode): void {
   quit();
+  quitMenuHelper();
   bundleApp(mode);
   launch();
 }

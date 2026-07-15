@@ -44,6 +44,7 @@ final class HUDRunnerState: ObservableObject {
     @Published var options: HudRunnerOptions?
     @Published var directory: String = ""
     @Published var projectQuery: String = ""
+    @Published var projectSearchQuery: String = ""
     @Published var selectedProjectId: String?
     @Published var projectCursorIndex: Int = 0
     @Published var selectedHarness: String = "claude"
@@ -55,15 +56,21 @@ final class HUDRunnerState: ObservableObject {
     @Published var instructions: String = ""
     @Published var attachments: [ScoutComposerImage] = []
     @Published var localReferences: [HUDRunnerLocalReference] = []
-    @Published var showAdvanced: Bool = false
+    @Published private(set) var disclosure: HUDRunnerDisclosure = .none
+    @Published private(set) var runtimeDraft: HUDRunnerRuntimePreset?
+    @Published private(set) var isRuntimePickerPresented = false
+    @Published private(set) var runtimePickerShowsConfiguration = false
+    @Published private(set) var runtimePickerTuningPresetID: String?
+    @Published private(set) var recentHistory: HUDRunnerRecentHistory
     @Published var isLoading: Bool = false
     @Published var isSubmitting: Bool = false
     @Published private(set) var isCommittingTask = false
     @Published var lastError: String?
     @Published var lastResponse: ScoutSessionStartResult?
-    @Published var projectFocusRequest = 0
-    @Published var runtimeFocusRequest = 0
-    @Published var instructionsFocusRequest = 0
+    @Published private(set) var focusRequest = HUDRunnerFocusRequest(
+        revision: 0,
+        target: .instructions
+    )
     @Published var focusStepRequest = 0
     private(set) var focusStepDirection = 1
     @Published var projectInputFocused = false
@@ -81,8 +88,22 @@ final class HUDRunnerState: ObservableObject {
     private var successDismissTask: Task<Void, Never>?
     private var activeFileIntakeIDs = Set<UUID>()
     private var voicePreparationID: UUID?
+    private var runtimeSelectionIsExplicit = false
+    private var persistenceSelectionIsExplicit = false
+    private let historyDefaults: UserDefaults?
 
-    private init() {}
+    private static let historyDefaultsKey = "hud.runner.recent-history.v1"
+    private static let lastProjectDirectoryDefaultsKey = "hud.runner.last-project-directory.v1"
+
+    private init(historyDefaults: UserDefaults? = HUDRunnerState.defaultHistoryDefaults) {
+        self.historyDefaults = historyDefaults
+        if let data = historyDefaults?.data(forKey: Self.historyDefaultsKey),
+           let decoded = try? JSONDecoder().decode(HUDRunnerRecentHistory.self, from: data) {
+            recentHistory = decoded
+        } else {
+            recentHistory = HUDRunnerRecentHistory()
+        }
+    }
 
     func open(
         prefillInstructions: String? = nil,
@@ -90,10 +111,17 @@ final class HUDRunnerState: ObservableObject {
         closesHUDOnDismiss: Bool = false,
         freshDraft: Bool = false
     ) {
+        let wasPresented = isPresented
         successDismissTask?.cancel()
         successDismissTask = nil
         if freshDraft, !isSubmitting {
             resetDraft()
+        } else if !wasPresented {
+            disclosure = .none
+            runtimeDraft = nil
+            isRuntimePickerPresented = false
+            runtimePickerShowsConfiguration = false
+            runtimePickerTuningPresetID = nil
         }
         HUDRunnerActivationLease.shared.begin()
         self.closesHUDOnDismiss = closesHUDOnDismiss
@@ -129,6 +157,11 @@ final class HUDRunnerState: ObservableObject {
     private func finishPresentation() {
         cancelDictation()
         isPresented = false
+        disclosure = .none
+        runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         projectInputFocused = false
         HUDRunnerActivationLease.shared.end()
     }
@@ -162,11 +195,19 @@ final class HUDRunnerState: ObservableObject {
     private func resetDraft() {
         activeFileIntakeIDs.removeAll()
         isStagingFiles = false
-        directory = options?.defaults?.directory ?? ""
+        directory = preferredInitialDirectory
         projectQuery = ""
+        projectSearchQuery = ""
         selectedProjectId = nil
         automaticSelectedProjectId = nil
         projectCursorIndex = 0
+        disclosure = .none
+        runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        runtimeSelectionIsExplicit = false
+        persistenceSelectionIsExplicit = false
         agentName = ""
         displayName = ""
         instructions = ""
@@ -195,6 +236,7 @@ final class HUDRunnerState: ObservableObject {
             let loaded = try await HudRunnerService.fetchOptions()
             options = loaded
             applyDefaultsIfNeeded(loaded)
+            pruneRecentHistory(using: loaded)
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -203,6 +245,10 @@ final class HUDRunnerState: ObservableObject {
 
     func chooseProject(_ project: HudRunnerProjectOption) {
         selectProject(project, automatic: false)
+        disclosure = .none
+        projectSearchQuery = ""
+        requestFocus(.instructions)
+        HUDRunnerAccessibility.announce("Project \(project.title) selected.", priority: .medium)
     }
 
     private func selectProject(_ project: HudRunnerProjectOption, automatic: Bool) {
@@ -211,8 +257,20 @@ final class HUDRunnerState: ObservableObject {
         projectQuery = project.title
         projectCursorIndex = 0
         directory = project.root
-        if let defaultHarness = project.defaultHarness, !defaultHarness.isEmpty {
-            selectHarness(defaultHarness)
+        cacheProjectDirectory(project.root)
+        if !runtimeSelectionIsExplicit,
+           let defaultHarness = project.defaultHarness,
+           !defaultHarness.isEmpty {
+            setRuntime(
+                normalizedRuntimePreset(
+                    HUDRunnerRuntimePreset(
+                        harness: defaultHarness,
+                        model: selectedModel,
+                        effort: reasoningEffort
+                    )
+                ),
+                explicit: false
+            )
         }
         if agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             agentName = slug(project.title)
@@ -222,19 +280,9 @@ final class HUDRunnerState: ObservableObject {
         }
     }
 
-    func updateProjectQuery(_ value: String) {
-        projectQuery = value
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let project = exactProjectMatch(for: trimmed) {
-            chooseProject(project)
-        } else {
-            selectedProjectId = nil
-            automaticSelectedProjectId = nil
-            projectCursorIndex = 0
-            if looksLikePath(trimmed) {
-                directory = trimmed
-            }
-        }
+    func updateProjectSearchQuery(_ value: String) {
+        projectSearchQuery = value
+        projectCursorIndex = 0
     }
 
     func browseForDirectory() {
@@ -249,9 +297,14 @@ final class HUDRunnerState: ObservableObject {
         }
         if panel.runModal() == .OK, let url = panel.url {
             directory = url.path
+            cacheProjectDirectory(url.path)
             projectQuery = url.path
+            projectSearchQuery = ""
             selectedProjectId = nil
             automaticSelectedProjectId = nil
+            disclosure = .none
+            requestFocus(.instructions)
+            HUDRunnerAccessibility.announce("Directory \(url.lastPathComponent) selected.", priority: .medium)
         }
     }
 
@@ -265,6 +318,276 @@ final class HUDRunnerState: ObservableObject {
         if panel.runModal() == .OK {
             _ = stageFileURLs(panel.urls)
         }
+    }
+
+    func toggleProjectChoices() {
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        runtimeDraft = nil
+        if disclosure == .projectChoices {
+            disclosure = .none
+            requestFocus(.projectSummary)
+            return
+        }
+        disclosure = .projectChoices
+        let target = projectQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.projectChoice($0.id) }
+            ?? .projectSearch
+        requestFocus(target)
+    }
+
+    func openProjectSearch() {
+        runtimeDraft = nil
+        disclosure = .projectSearch
+        projectSearchQuery = ""
+        projectCursorIndex = 0
+        requestFocus(.projectSearch)
+    }
+
+    func toggleRuntimeChoices() {
+        if disclosure == .runtimeChoices {
+            disclosure = .none
+            runtimeDraft = nil
+            requestFocus(.runtimeSummary)
+            return
+        }
+        disclosure = .runtimeChoices
+        runtimeDraft = nil
+        let target = runtimeQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+            ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func toggleRuntimePicker() {
+        if isRuntimePickerPresented {
+            closeRuntimePicker(focus: .runtimeSummary)
+            return
+        }
+        disclosure = .none
+        runtimeDraft = nil
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        isRuntimePickerPresented = true
+        let target = runtimeQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+            ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func openRuntimePickerConfiguration() {
+        disclosure = .none
+        runtimeDraft = normalizedRuntimePreset(currentRuntimePreset)
+        runtimePickerShowsConfiguration = true
+        runtimePickerTuningPresetID = nil
+        isRuntimePickerPresented = true
+        requestFocus(.harness)
+    }
+
+    func showRuntimePickerChoices() {
+        runtimeDraft = nil
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        let target = runtimeQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+            ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func closeRuntimePicker(focus target: HUDRunnerFocusTarget = .instructions) {
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        runtimeDraft = nil
+        requestFocus(target)
+    }
+
+    func openRuntimeConfiguration() {
+        disclosure = .runtimeConfiguration
+        runtimeDraft = normalizedRuntimePreset(currentRuntimePreset)
+        requestFocus(.harness)
+    }
+
+    func openRouteConfiguration() {
+        disclosure = .route
+        requestFocus(.persistence)
+    }
+
+    func stepBackDisclosure() {
+        switch disclosure {
+        case .none:
+            return
+        case .projectChoices:
+            disclosure = .none
+            requestFocus(.projectSummary)
+        case .projectSearch:
+            disclosure = .projectChoices
+            projectSearchQuery = ""
+            let target = projectQuickChoices(limit: 3).first
+                .map { HUDRunnerFocusTarget.projectChoice($0.id) }
+                ?? .projectSearch
+            requestFocus(target)
+        case .runtimeChoices:
+            disclosure = .none
+            runtimeDraft = nil
+            requestFocus(.runtimeSummary)
+        case .runtimeConfiguration:
+            disclosure = .runtimeChoices
+            runtimeDraft = nil
+            let target = runtimeQuickChoices(limit: 3).first
+                .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+                ?? .configureRuntime
+            requestFocus(target)
+        case .route:
+            if runtimeDraft != nil {
+                disclosure = .runtimeConfiguration
+                requestFocus(.harness)
+            } else {
+                disclosure = .none
+                requestFocus(.runtimeSummary)
+            }
+        }
+    }
+
+    func closeDisclosure(focus target: HUDRunnerFocusTarget = .instructions) {
+        disclosure = .none
+        runtimeDraft = nil
+        projectSearchQuery = ""
+        requestFocus(target)
+    }
+
+    func updateRuntimeDraftHarness(_ harness: String) {
+        guard runtimeDraft != nil else { return }
+        runtimeDraft = normalizedRuntimePreset(
+            HUDRunnerRuntimePreset(
+                harness: harness,
+                model: runtimeDraft?.model ?? selectedModel,
+                effort: runtimeDraft?.effort ?? reasoningEffort
+            )
+        )
+    }
+
+    func updateRuntimeDraftModel(_ model: String) {
+        guard let draft = runtimeDraft else { return }
+        runtimeDraft = normalizedRuntimePreset(
+            HUDRunnerRuntimePreset(harness: draft.harness, model: model, effort: draft.effort)
+        )
+    }
+
+    func updateRuntimeDraftEffort(_ effort: String) {
+        guard let draft = runtimeDraft else { return }
+        runtimeDraft = normalizedRuntimePreset(
+            HUDRunnerRuntimePreset(harness: draft.harness, model: draft.model, effort: effort)
+        )
+    }
+
+    func applyRuntimeDraft() {
+        guard let runtimeDraft else { return }
+        let applied = normalizedRuntimePreset(runtimeDraft)
+        setRuntime(applied, explicit: true)
+        self.runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        disclosure = .none
+        requestFocus(.instructions)
+        HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
+    }
+
+    func selectRuntimePreset(_ preset: HUDRunnerRuntimePreset) {
+        let applied = normalizedRuntimePreset(preset)
+        setRuntime(applied, explicit: true)
+        runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        disclosure = .none
+        requestFocus(.instructions)
+        HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
+    }
+
+    func applyRuntimeTweak(_ preset: HUDRunnerRuntimePreset) {
+        let applied = normalizedRuntimePreset(preset)
+        setRuntime(applied, explicit: true)
+        runtimeDraft = nil
+        runtimePickerTuningPresetID = applied.id
+        requestFocus(.runtimeTweaks(applied.id))
+        HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
+    }
+
+    func toggleRuntimeTuning(_ preset: HUDRunnerRuntimePreset) {
+        runtimePickerTuningPresetID = runtimePickerTuningPresetID == preset.id
+            ? nil
+            : preset.id
+        requestFocus(.runtimeTweaks(preset.id))
+    }
+
+    func projectQuickChoices(limit: Int = 3) -> [HudRunnerProjectOption] {
+        guard limit > 0 else { return [] }
+        let projects = projectOptions
+        var ids: [String] = []
+        if let selectedProjectId { ids.append(selectedProjectId) }
+        ids += recentHistory.projectIDs
+        ids += projects.map(\.id)
+
+        var seen = Set<String>()
+        return ids.compactMap { id in
+            guard seen.insert(id).inserted else { return nil }
+            return projects.first { $0.id == id }
+        }
+        .prefix(limit)
+        .map { $0 }
+    }
+
+    func runtimeQuickChoices(limit: Int = 3) -> [HUDRunnerRuntimePreset] {
+        guard limit > 0 else { return [] }
+        var result: [HUDRunnerRuntimePreset] = []
+
+        func append(_ preset: HUDRunnerRuntimePreset, validate: Bool = true) {
+            let normalized = normalizedRuntimePreset(preset)
+            guard (!validate || isRuntimePresetValid(normalized)),
+                  !result.contains(where: { $0.familyID == normalized.familyID }) else { return }
+            result.append(normalized)
+        }
+
+        append(currentRuntimePreset, validate: false)
+        for preset in recentHistory.runtimePresets {
+            append(preset)
+        }
+
+        let loadedHarnesses = (options?.harnesses ?? []).filter { $0.ready != false }.map(\.id)
+        let harnessIDs = loadedHarnesses.isEmpty ? ["claude", "codex"] : loadedHarnesses
+        for harness in harnessIDs {
+            append(
+                HUDRunnerRuntimePreset(
+                    harness: harness,
+                    model: preferredModel(for: harness),
+                    effort: preferredEffort(for: harness)
+                ),
+                validate: false
+            )
+        }
+        for harness in harnessIDs {
+            for model in availableModels(for: harness).prefix(2) {
+                append(
+                    HUDRunnerRuntimePreset(
+                        harness: harness,
+                        model: model.id,
+                        effort: preferredEffort(for: harness)
+                    ),
+                    validate: false
+                )
+            }
+        }
+        return Array(result.prefix(limit))
+    }
+
+    func requestFocus(_ target: HUDRunnerFocusTarget) {
+        focusRequest = HUDRunnerFocusRequest(
+            revision: focusRequest.revision &+ 1,
+            target: target
+        )
     }
 
     @discardableResult
@@ -318,7 +641,7 @@ final class HUDRunnerState: ObservableObject {
             staged = appendCapturedText(text) || staged
         }
         if staged {
-            instructionsFocusRequest &+= 1
+            requestFocus(.instructions)
         }
         return staged
     }
@@ -351,9 +674,19 @@ final class HUDRunnerState: ObservableObject {
             automaticSelectedProjectId = nil
             agentName = ""
             displayName = ""
-            if let harness = options?.defaults?.harness, !harness.isEmpty {
-                selectedHarness = harness
-                selectedModel = options?.defaults?.model ?? preferredModel(for: harness)
+            if !runtimeSelectionIsExplicit,
+               let harness = options?.defaults?.harness,
+               !harness.isEmpty {
+                setRuntime(
+                    normalizedRuntimePreset(
+                        HUDRunnerRuntimePreset(
+                            harness: harness,
+                            model: options?.defaults?.model ?? preferredModel(for: harness),
+                            effort: reasoningEffort
+                        )
+                    ),
+                    explicit: false
+                )
             }
         }
 
@@ -395,7 +728,7 @@ final class HUDRunnerState: ObservableObject {
         } else if selectedProject == nil, let automaticProject {
             selectProject(automaticProject, automatic: true)
         }
-        instructionsFocusRequest &+= 1
+        requestFocus(.instructions)
         if urls.count > ScoutCapturePayloadStore.maximumFilePathCount {
             lastError = "Only the first 64 dropped items were considered."
         }
@@ -489,19 +822,34 @@ final class HUDRunnerState: ObservableObject {
     }
 
     var availableModels: [HudRunnerModelOption] {
+        availableModels(for: selectedHarness)
+    }
+
+    func availableModels(for harness: String) -> [HudRunnerModelOption] {
         let all = options?.models ?? []
         let filtered = all.filter { model in
             model.harnesses.isEmpty
-                || model.harnesses.contains(selectedHarness)
+                || model.harnesses.contains(harness)
         }.filter { model in
-            !isRetiredModel(model.id, harness: selectedHarness)
+            !isRetiredModel(model.id, harness: harness)
         }
-        return filtered.isEmpty ? [HudRunnerModelOption(id: "", label: fallbackModelLabel(for: selectedHarness), harnesses: [], source: "fallback")] : filtered
+        return filtered.isEmpty ? [
+            HudRunnerModelOption(
+                id: "",
+                label: fallbackModelLabel(for: harness),
+                harnesses: [],
+                source: "fallback"
+            ),
+        ] : filtered
     }
 
     var availableEfforts: [HudRunnerEffortOption] {
+        availableEfforts(for: selectedHarness)
+    }
+
+    func availableEfforts(for harness: String) -> [HudRunnerEffortOption] {
         let loaded = (options?.efforts ?? []).filter { effort in
-            effort.harnesses.isEmpty || effort.harnesses.contains(selectedHarness)
+            effort.harnesses.isEmpty || effort.harnesses.contains(harness)
         }
         if !loaded.isEmpty { return loaded }
         let fallbacks = [
@@ -515,8 +863,24 @@ final class HUDRunnerState: ObservableObject {
             HudRunnerEffortOption(id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"]),
         ]
         return fallbacks.filter { effort in
-            effort.harnesses.isEmpty || effort.harnesses.contains(selectedHarness)
+            effort.harnesses.isEmpty || effort.harnesses.contains(harness)
         }
+    }
+
+    var runtimeDraftModels: [HudRunnerModelOption] {
+        availableModels(for: runtimeDraft?.harness ?? selectedHarness)
+    }
+
+    var runtimeDraftEfforts: [HudRunnerEffortOption] {
+        availableEfforts(for: runtimeDraft?.harness ?? selectedHarness)
+    }
+
+    var currentRuntimePreset: HUDRunnerRuntimePreset {
+        HUDRunnerRuntimePreset(
+            harness: selectedHarness,
+            model: selectedModel,
+            effort: reasoningEffort
+        )
     }
 
     var matchingAgents: [HudRunnerAgentOption] {
@@ -529,12 +893,12 @@ final class HUDRunnerState: ObservableObject {
 
     var selectedProject: HudRunnerProjectOption? {
         guard let selectedProjectId else { return nil }
-        return options?.projects.first { $0.id == selectedProjectId }
+        return projectOptions.first { $0.id == selectedProjectId }
     }
 
     var shouldShowProjectMatches: Bool {
-        projectInputFocused
-            && selectedProject == nil
+        disclosure == .projectSearch
+            && projectInputFocused
             && !projectMatches(limit: 1).isEmpty
     }
 
@@ -570,9 +934,15 @@ final class HUDRunnerState: ObservableObject {
         persistence == "sticky" ? "Agent card" : "One-time card"
     }
 
+    var hasTaskContent: Bool {
+        !instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !attachments.isEmpty
+            || !localReferences.isEmpty
+    }
+
     func projectMatches(limit: Int = 6) -> [HudRunnerProjectOption] {
-        let projects = options?.projects ?? []
-        let query = normalizedSearch(projectQuery)
+        let projects = projectOptions
+        let query = normalizedSearch(projectSearchQuery)
         let selected = selectedProject
 
         if query.isEmpty {
@@ -637,11 +1007,11 @@ final class HUDRunnerState: ObservableObject {
             return true
         }
         if modifiers.contains(.command), keyCode == 37 { // ⌘L — project
-            projectFocusRequest &+= 1
+            openProjectSearch()
             return true
         }
         if modifiers.contains(.command), keyCode == 15 { // ⌘R — runtime
-            runtimeFocusRequest &+= 1
+            openRuntimePickerConfiguration()
             return true
         }
         if modifiers.contains(.command), keyCode == 31 { // ⌘O — attach
@@ -665,9 +1035,6 @@ final class HUDRunnerState: ObservableObject {
         case 48: // Tab; Shift-Tab must remain reverse focus traversal.
             let forbidden: NSEvent.ModifierFlags = [.control, .option, .command]
             guard modifiers.intersection(forbidden).isEmpty else { return false }
-            if !modifiers.contains(.shift), shouldHandleProjectNavigation {
-                return acceptProjectCursor()
-            }
             focusStepDirection = modifiers.contains(.shift) ? -1 : 1
             focusStepRequest &+= 1
             return true
@@ -677,15 +1044,22 @@ final class HUDRunnerState: ObservableObject {
     }
 
     func selectHarness(_ harness: String) {
-        selectedHarness = harness
-        if !availableModels.contains(where: { $0.id == selectedModel }) {
-            selectedModel = preferredModel(for: harness)
-        }
-        if !availableEfforts.contains(where: { $0.id == reasoningEffort }) {
-            reasoningEffort = availableEfforts.first(where: { $0.id == "medium" })?.id
-                ?? availableEfforts.first?.id
-                ?? "medium"
-        }
+        setRuntime(
+            normalizedRuntimePreset(
+                HUDRunnerRuntimePreset(
+                    harness: harness,
+                    model: selectedModel,
+                    effort: reasoningEffort
+                )
+            ),
+            explicit: true
+        )
+    }
+
+    func setPersistence(_ value: String) {
+        guard value == "sticky" || value == "one_time" else { return }
+        persistence = value
+        persistenceSelectionIsExplicit = true
     }
 
     func appendDictatedText(_ phrase: String) {
@@ -763,10 +1137,12 @@ final class HUDRunnerState: ObservableObject {
             voice.consumeFinalText()
             return true
         }
-        if projectInputFocused,
-           selectedProject == nil,
-           !projectMatches(limit: 5).isEmpty {
-            instructionsFocusRequest &+= 1
+        if isRuntimePickerPresented {
+            closeRuntimePicker()
+            return true
+        }
+        if disclosure != .none {
+            stepBackDisclosure()
             return true
         }
         cancel()
@@ -777,7 +1153,7 @@ final class HUDRunnerState: ObservableObject {
         guard !isSubmitting else { return }
         guard !isPreparingVoice else {
             lastError = "Wait for voice dictation to finish preparing."
-            instructionsFocusRequest &+= 1
+            requestFocus(.instructions)
             return
         }
         guard !isStagingFiles else {
@@ -787,8 +1163,23 @@ final class HUDRunnerState: ObservableObject {
         let voice = HudVoiceService.shared
         guard !voice.state.isCaptureActive, !voice.state.isProcessing else {
             lastError = "Finish voice dictation before creating the task."
-            instructionsFocusRequest &+= 1
+            requestFocus(.instructions)
             return
+        }
+        guard hasTaskContent else {
+            lastError = "Add instructions or attach a file first."
+            requestFocus(.instructions)
+            return
+        }
+        guard !resolvedDirectoryForSubmit().isEmpty else {
+            lastError = "Choose a project first."
+            openProjectSearch()
+            return
+        }
+        if let runtimeDraft {
+            setRuntime(normalizedRuntimePreset(runtimeDraft), explicit: true)
+            self.runtimeDraft = nil
+            disclosure = .none
         }
         let id = UUID()
         submissionID = id
@@ -810,12 +1201,12 @@ final class HUDRunnerState: ObservableObject {
         let trimmedDirectory = resolvedDirectoryForSubmit()
         guard !trimmedDirectory.isEmpty else {
             lastError = "Choose a project first."
-            projectFocusRequest &+= 1
+            openProjectSearch()
             return
         }
         guard !submittedInstructions.isEmpty || !attachments.isEmpty else {
             lastError = "Add instructions or attach a file first."
-            instructionsFocusRequest &+= 1
+            requestFocus(.instructions)
             return
         }
 
@@ -829,6 +1220,12 @@ final class HUDRunnerState: ObservableObject {
         let submittedAgentName = agentName
         let submittedDisplayName = displayName
         let submittedPersistence = persistence
+        let submittedProjectID = selectedProject?.id ?? projectForDirectory(trimmedDirectory)?.id
+        let submittedRuntime = HUDRunnerRuntimePreset(
+            harness: selectedHarness,
+            model: selectedModel,
+            effort: reasoningEffort
+        )
 
         do {
             try Task.checkCancellation()
@@ -853,6 +1250,10 @@ final class HUDRunnerState: ObservableObject {
             try Task.checkCancellation()
             lastResponse = response
             lastError = nil
+            recordSuccessfulSelection(
+                projectID: submittedProjectID,
+                runtime: submittedRuntime
+            )
             let shouldCloseHUD = closesHUDOnDismiss
             finishPresentation()
             instructions = ""
@@ -893,29 +1294,34 @@ final class HUDRunnerState: ObservableObject {
     private func applyDefaultsIfNeeded(_ options: HudRunnerOptions) {
         guard !didApplyDefaults else { return }
         didApplyDefaults = true
-        let userStartedProject = selectedProjectId != nil
-            || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let userStartedProject = automaticSelectedProjectId == nil
+            && (selectedProjectId != nil
+                || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         if !userStartedProject,
            directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             directory = options.defaults?.directory ?? NSHomeDirectory()
         }
-        if let harness = options.defaults?.harness, !harness.isEmpty {
-            selectedHarness = harness
-        } else if let first = options.harnesses.first?.id {
-            selectedHarness = first
+        if !runtimeSelectionIsExplicit {
+            let defaultHarness = options.defaults?.harness?.trimmedNonEmpty
+                ?? options.harnesses.first?.id
+                ?? selectedHarness
+            let defaultRuntime = normalizedRuntimePreset(
+                HUDRunnerRuntimePreset(
+                    harness: defaultHarness,
+                    model: options.defaults?.model ?? preferredModel(for: defaultHarness),
+                    effort: options.defaults?.reasoningEffort ?? reasoningEffort
+                )
+            )
+            setRuntime(defaultRuntime, explicit: false)
         }
-        selectedModel = options.defaults?.model ?? preferredModel(for: selectedHarness)
-        if let defaultEffort = options.defaults?.reasoningEffort,
-           availableEfforts.contains(where: { $0.id == defaultEffort }) {
-            reasoningEffort = defaultEffort
-        }
-        if let defaultPersistence = options.defaults?.persistence,
+        if !persistenceSelectionIsExplicit,
+           let defaultPersistence = options.defaults?.persistence,
            defaultPersistence == "one_time" || defaultPersistence == "sticky" {
             persistence = defaultPersistence
         }
         if !userStartedProject {
             inferProject(from: capturedFileURLs)
-            if selectedProject == nil, let project = projectForDirectory(directory) {
+            if let project = projectForDirectory(directory) {
                 selectProject(project, automatic: true)
             } else if selectedProject == nil,
                       projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -955,28 +1361,24 @@ final class HUDRunnerState: ObservableObject {
         if let exact = exactProjectMatch(for: query) {
             return exact.root
         }
-        let matches = projectMatches(limit: 2)
-        if matches.count == 1 {
-            return matches[0].root
-        }
-        if !query.isEmpty {
-            return looksLikePath(query) ? query : ""
+        if !query.isEmpty, looksLikePath(query) {
+            return query
         }
         if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return directory.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return query
+        return ""
     }
 
     private func projectForDirectory(_ value: String) -> HudRunnerProjectOption? {
         let normalized = standardizedPath(value)
         guard !normalized.isEmpty else { return nil }
-        return options?.projects.first { standardizedPath($0.root) == normalized }
+        return projectOptions.first { standardizedPath($0.root) == normalized }
     }
 
     private func inferProject(from urls: [URL]) {
         guard selectedProject == nil, !urls.isEmpty else { return }
-        let projects = options?.projects ?? []
+        let projects = projectOptions
         guard !projects.isEmpty else { return }
 
         let paths = urls.map { standardizedPath($0.path) }
@@ -988,18 +1390,72 @@ final class HUDRunnerState: ObservableObject {
             standardizedPath(lhs.root).count > standardizedPath(rhs.root).count
         }
         if let match = matches.first {
-            chooseProject(match)
+            selectProject(match, automatic: true)
         }
     }
 
     private func exactProjectMatch(for value: String) -> HudRunnerProjectOption? {
         let query = normalizedSearch(value)
         guard !query.isEmpty else { return nil }
-        return options?.projects.first { project in
+        return projectOptions.first { project in
             normalizedSearch(project.title) == query
                 || normalizedSearch(URL(fileURLWithPath: project.root).lastPathComponent) == query
                 || standardizedPath(project.root) == standardizedPath(value)
         }
+    }
+
+    private var preferredInitialDirectory: String {
+        if let configured = options?.defaults?.directory?.trimmedNonEmpty {
+            return configured
+        }
+        if let cached = historyDefaults?.string(forKey: Self.lastProjectDirectoryDefaultsKey)?.trimmedNonEmpty {
+            return cached
+        }
+        return Self.developmentProjectRoot ?? ""
+    }
+
+    private var projectOptions: [HudRunnerProjectOption] {
+        var projects = options?.projects ?? []
+        let root = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !root.isEmpty else { return projects }
+        let normalized = standardizedPath(root)
+        guard !projects.contains(where: { standardizedPath($0.root) == normalized }) else {
+            return projects
+        }
+        let title = URL(fileURLWithPath: root).lastPathComponent.trimmedNonEmpty ?? root
+        projects.insert(
+            HudRunnerProjectOption(
+                id: "local:\(normalized)",
+                title: title,
+                root: root,
+                source: "local",
+                registrationKind: nil,
+                defaultHarness: nil
+            ),
+            at: 0
+        )
+        return projects
+    }
+
+    private func cacheProjectDirectory(_ value: String) {
+        let directory = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !directory.isEmpty else { return }
+        historyDefaults?.set(directory, forKey: Self.lastProjectDirectoryDefaultsKey)
+    }
+
+    private static var developmentProjectRoot: String? {
+        var cursor = Bundle.main.bundleURL.standardizedFileURL
+        guard cursor.path.contains("/apps/macos/dist/") else { return nil }
+        for _ in 0..<8 {
+            let gitMarker = cursor.appendingPathComponent(".git").path
+            if FileManager.default.fileExists(atPath: gitMarker) {
+                return cursor.path
+            }
+            let parent = cursor.deletingLastPathComponent()
+            guard parent.path != cursor.path else { break }
+            cursor = parent
+        }
+        return nil
     }
 
     private func preferredModel(for harness: String) -> String {
@@ -1023,6 +1479,113 @@ final class HUDRunnerState: ObservableObject {
             }
         }
         return candidates.first?.id ?? ""
+    }
+
+    private func preferredEffort(for harness: String) -> String {
+        let efforts = availableEfforts(for: harness)
+        return efforts.first(where: { $0.id == "medium" })?.id
+            ?? efforts.first?.id
+            ?? "medium"
+    }
+
+    private func normalizedRuntimePreset(
+        _ preset: HUDRunnerRuntimePreset
+    ) -> HUDRunnerRuntimePreset {
+        let readyHarnesses = (options?.harnesses ?? []).filter { $0.ready != false }
+        let requestedHarness = preset.harness.trimmingCharacters(in: .whitespacesAndNewlines)
+        let harness: String
+        if readyHarnesses.isEmpty || readyHarnesses.contains(where: { $0.id == requestedHarness }) {
+            harness = requestedHarness.isEmpty ? selectedHarness : requestedHarness
+        } else {
+            harness = readyHarnesses.first?.id ?? selectedHarness
+        }
+
+        let models = availableModels(for: harness)
+        let model = models.contains(where: { $0.id == preset.model })
+            ? preset.model
+            : preferredModel(for: harness)
+        let efforts = availableEfforts(for: harness)
+        let effort = efforts.contains(where: { $0.id == preset.effort })
+            ? preset.effort
+            : preferredEffort(for: harness)
+        return HUDRunnerRuntimePreset(harness: harness, model: model, effort: effort)
+    }
+
+    private func setRuntime(_ preset: HUDRunnerRuntimePreset, explicit: Bool) {
+        selectedHarness = preset.harness
+        selectedModel = preset.model
+        reasoningEffort = preset.effort
+        if explicit {
+            runtimeSelectionIsExplicit = true
+        }
+    }
+
+    private func isRuntimePresetValid(_ preset: HUDRunnerRuntimePreset) -> Bool {
+        let harnesses = options?.harnesses ?? []
+        if !harnesses.isEmpty,
+           !harnesses.contains(where: { $0.id == preset.harness && $0.ready != false }) {
+            return false
+        }
+        let configuredModels = options?.models ?? []
+        if !preset.model.isEmpty,
+           !configuredModels.isEmpty,
+           !configuredModels.contains(where: {
+               $0.id == preset.model
+                   && ($0.harnesses.isEmpty || $0.harnesses.contains(preset.harness))
+           }) {
+            return false
+        }
+        let configuredEfforts = options?.efforts ?? []
+        if !configuredEfforts.isEmpty,
+           !configuredEfforts.contains(where: {
+               $0.id == preset.effort
+                   && ($0.harnesses.isEmpty || $0.harnesses.contains(preset.harness))
+           }) {
+            return false
+        }
+        return true
+    }
+
+    private func pruneRecentHistory(using options: HudRunnerOptions) {
+        let validProjectIDs = Set(options.projects.map(\.id))
+        let validRuntimePresets = Set(
+            recentHistory.runtimePresets.filter(isRuntimePresetValid)
+        )
+        let previous = recentHistory
+        recentHistory.prune(
+            validProjectIDs: validProjectIDs,
+            isRuntimeValid: validRuntimePresets.contains
+        )
+        if recentHistory != previous {
+            persistRecentHistory()
+        }
+    }
+
+    private func recordSuccessfulSelection(
+        projectID: String?,
+        runtime: HUDRunnerRuntimePreset
+    ) {
+        if let projectID {
+            recentHistory.recordProject(projectID)
+        }
+        recentHistory.recordRuntime(normalizedRuntimePreset(runtime))
+        persistRecentHistory()
+    }
+
+    private func persistRecentHistory() {
+        guard let historyDefaults,
+              let data = try? JSONEncoder().encode(recentHistory) else { return }
+        historyDefaults.set(data, forKey: Self.historyDefaultsKey)
+    }
+
+    private static var defaultHistoryDefaults: UserDefaults? {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || NSClassFromString("XCTestCase") != nil {
+            return nil
+        }
+        return .standard
     }
 
     private func fallbackModelLabel(for harness: String) -> String {

@@ -13,6 +13,7 @@ import Foundation
 public final class HotkeyManager {
     public static let shared = HotkeyManager()
     private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
+    private var fallbackMonitors: [UInt32: [Any]] = [:]
 
     private init() {}
 
@@ -69,6 +70,7 @@ public final class HotkeyManager {
             UnregisterEventHotKey(existing)
             hotKeyRefs.removeValue(forKey: id)
         }
+        removeFallbackMonitors(id: id)
 
         hotkeyCallbacks[id] = callback
 
@@ -90,15 +92,42 @@ public final class HotkeyManager {
             hotKeyRefs[id] = ref
             return true
         }
-        return false
+
+        // Carbon refuses a chord that another app has already claimed. A
+        // listen-only AppKit monitor still observes the physical key event, so
+        // keep Scout's user-configured chord useful without stealing input or
+        // suppressing the other app's shortcut.
+        let expectedKeyCode = UInt16(keyCode)
+        let expectedModifiers = NSEvent.ModifierFlags(carbonModifiers: modifiers)
+        let handler: (NSEvent) -> Void = { event in
+            guard !event.isARepeat,
+                  event.keyCode == expectedKeyCode,
+                  event.modifierFlags.contains(expectedModifiers)
+            else { return }
+            callback()
+        }
+        var monitors: [Any] = []
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: handler) {
+            monitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
+            handler(event)
+            return event
+        }) {
+            monitors.append(local)
+        }
+        guard !monitors.isEmpty else { return false }
+        fallbackMonitors[id] = monitors
+        return true
     }
 
     public func unregister(id: UInt32) {
         if let ref = hotKeyRefs[id] {
             UnregisterEventHotKey(ref)
             hotKeyRefs.removeValue(forKey: id)
-            hotkeyCallbacks.removeValue(forKey: id)
         }
+        removeFallbackMonitors(id: id)
+        hotkeyCallbacks.removeValue(forKey: id)
     }
 
     public func unregisterAll() {
@@ -108,6 +137,26 @@ public final class HotkeyManager {
             _ = id
         }
         hotKeyRefs.removeAll()
+        for id in Array(fallbackMonitors.keys) {
+            removeFallbackMonitors(id: id)
+        }
+    }
+
+    private func removeFallbackMonitors(id: UInt32) {
+        for monitor in fallbackMonitors.removeValue(forKey: id) ?? [] {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+}
+
+private extension NSEvent.ModifierFlags {
+    init(carbonModifiers: UInt32) {
+        var flags: NSEvent.ModifierFlags = []
+        if carbonModifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if carbonModifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if carbonModifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if carbonModifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        self = flags
     }
 }
 
