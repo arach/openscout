@@ -25,6 +25,25 @@ import Testing
     #expect(panelOrigin == NSPoint(x: -560, y: 440))
 }
 
+@Test func runnerLayoutStepsOnlyForExpandedControlsAndCaptures() {
+    #expect(
+        HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: false)
+            == NSSize(width: 560, height: 380)
+    )
+    #expect(
+        HUDRunnerLayout.contentSize(disclosure: .runtimeConfiguration, hasCaptures: false)
+            == NSSize(width: 560, height: 422)
+    )
+    #expect(
+        HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: true)
+            == NSSize(width: 560, height: 424)
+    )
+    #expect(
+        HUDRunnerLayout.contentSize(disclosure: .route, hasCaptures: true)
+            == NSSize(width: 560, height: 466)
+    )
+}
+
 @MainActor
 @Test func localReferencesAreDeduplicatedInSubmissionInstructions() {
     let instructions = HUDRunnerState.instructionsForSubmission(

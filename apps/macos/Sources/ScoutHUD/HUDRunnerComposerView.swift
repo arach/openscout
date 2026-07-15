@@ -12,22 +12,23 @@ struct HUDRunnerComposer: View {
     var body: some View {
         VStack(spacing: 0) {
             editor
+                .frame(height: HUDRunnerLayout.editorHeight)
 
             if !runner.attachments.isEmpty || !runner.localReferences.isEmpty {
-                HUDHairline()
                 captureStrip
-                    .padding(.horizontal, 8)
-                    .frame(height: 48)
+                    .padding(.horizontal, 10)
+                    .frame(height: HUDRunnerLayout.captureStripHeight)
+                    .background(HUDChrome.canvasLift.opacity(0.10))
             }
 
-            HUDHairline()
             toolbar
-                .frame(height: 40)
-                .padding(.horizontal, 7)
+                .frame(height: HUDRunnerLayout.toolbarHeight)
+                .padding(.horizontal, 10)
         }
-        .background(HUDChrome.canvasAlt.opacity(0.56))
+        .background(HUDChrome.canvasAlt.opacity(0.52))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(
                     dropTargeted
                         ? HUDChrome.accent
@@ -37,43 +38,48 @@ struct HUDRunnerComposer: View {
                     lineWidth: dropTargeted ? 1.5 : 1
                 )
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(
+            color: focus.wrappedValue == .instructions
+                ? HUDChrome.ink.opacity(0.055)
+                : .clear,
+            radius: 3
+        )
     }
 
     private var editor: some View {
-        ZStack(alignment: .topLeading) {
-            if runner.instructions.isEmpty {
-                Text("What should the agent do?")
-                    .font(HUDType.body(13))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .allowsHitTesting(false)
-            }
-
-            TextEditor(text: $runner.instructions)
-                .font(HUDType.body(13))
-                .foregroundStyle(HUDChrome.ink)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 5)
-                .focused(focus, equals: .instructions)
-                .accessibilityLabel("Task instructions")
-        }
-        .frame(minHeight: 66, maxHeight: .infinity)
+        TextField(
+            "",
+            text: $runner.instructions,
+            prompt: Text("Describe the task — what should the agent build, fix, or investigate?")
+                .foregroundStyle(HUDChrome.inkFaint),
+            axis: .vertical
+        )
+        .textFieldStyle(.plain)
+        .font(HUDType.body(15))
+        .foregroundStyle(HUDChrome.ink)
+        .tint(HUDChrome.accent)
+        .lineSpacing(3)
+        .lineLimit(1...3)
+        .focused(focus, equals: .instructions)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityLabel("Task instructions")
     }
 
     private var toolbar: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
             Button(action: runner.browseForAttachments) {
                 Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 30, height: 30)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 38, height: 38)
             }
             .buttonStyle(
                 HUDRunnerToolbarButtonStyle(
                     isActive: false,
-                    isFocused: focus.wrappedValue == .attach
+                    isFocused: focus.wrappedValue == .attach,
+                    cornerRadius: 10
                 )
             )
             .focused(focus, equals: .attach)
@@ -88,13 +94,14 @@ struct HUDRunnerComposer: View {
                 Task { await runner.toggleDictation() }
             } label: {
                 Image(systemName: voiceSymbol)
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 30, height: 30)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 38, height: 38)
             }
             .buttonStyle(
                 HUDRunnerToolbarButtonStyle(
                     isActive: voice.state.isCaptureActive,
-                    isFocused: focus.wrappedValue == .voice
+                    isFocused: focus.wrappedValue == .voice,
+                    cornerRadius: 10
                 )
             )
             .disabled(
@@ -114,14 +121,15 @@ struct HUDRunnerComposer: View {
                             .tint(HUDChrome.canvas)
                     } else {
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 13, weight: .bold))
+                            .font(.system(size: 16, weight: .bold))
                     }
                 }
-                .frame(width: 32, height: 32)
+                .frame(width: 40, height: 40)
             }
             .buttonStyle(
                 HUDRunnerSendButtonStyle(
-                    isFocused: focus.wrappedValue == .create
+                    isFocused: focus.wrappedValue == .create,
+                    cornerRadius: 11
                 )
             )
             .disabled(submitDisabled)
@@ -154,7 +162,7 @@ struct HUDRunnerComposer: View {
                     )
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -208,12 +216,12 @@ private struct HUDRunnerInlineStatus: View {
                 Image(systemName: status.symbol)
                     .font(.system(size: 9, weight: .semibold))
                 Text(status.text)
-                    .font(status.isError ? HUDType.body(10) : HUDType.mono(9))
+                    .font(status.isError ? HUDType.body(11) : HUDType.mono(10))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .foregroundStyle(status.isError ? HUDChrome.inkMuted : HUDChrome.inkFaint)
-            .frame(maxWidth: 220, alignment: .leading)
+            .frame(maxWidth: 270, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(status.text)
         }
@@ -291,7 +299,7 @@ private struct HUDRunnerAttachmentChip: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 28, height: 28)
             .background(HUDChrome.canvasAlt)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
@@ -309,7 +317,7 @@ private struct HUDRunnerAttachmentChip: View {
             removeButton
         }
         .padding(.horizontal, 7)
-        .frame(width: 172, height: 42)
+        .frame(width: 164, height: 36)
         .background(HUDChrome.canvasLift.opacity(0.34))
         .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 0.75))
     }
@@ -350,7 +358,7 @@ private struct HUDRunnerReferenceChip: View {
             Image(systemName: isDirectory ? "folder.fill" : "doc.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(HUDChrome.inkMuted)
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
                 .background(HUDChrome.canvasAlt)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
 
@@ -384,7 +392,7 @@ private struct HUDRunnerReferenceChip: View {
             .focused(focus, equals: .reference(reference.id))
         }
         .padding(.horizontal, 7)
-        .frame(width: 172, height: 42)
+        .frame(width: 164, height: 36)
         .background(HUDChrome.canvasLift.opacity(0.34))
         .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 0.75))
         .help(reference.url.path)

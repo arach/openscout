@@ -35,6 +35,7 @@ struct HUDRunnerCardButtonStyle: ButtonStyle {
 struct HUDRunnerToolbarButtonStyle: ButtonStyle {
     var isActive: Bool
     var isFocused: Bool
+    var cornerRadius: CGFloat = 8
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -42,7 +43,7 @@ struct HUDRunnerToolbarButtonStyle: ButtonStyle {
             .foregroundStyle(isActive ? HUDChrome.accent : HUDChrome.inkMuted)
             .opacity(configuration.isPressed ? 0.72 : 1)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isActive
                             ? HUDChrome.accentWhisper
@@ -50,7 +51,7 @@ struct HUDRunnerToolbarButtonStyle: ButtonStyle {
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
                             ? HUDChrome.borderStrong
@@ -106,22 +107,26 @@ struct HUDRunnerPrimaryTextButtonStyle: ButtonStyle {
 }
 
 struct HUDRunnerSendButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     var isFocused: Bool = false
+    var cornerRadius: CGFloat = 9
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(HUDChrome.canvas)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(HUDChrome.accent.opacity(configuration.isPressed ? 0.72 : 0.94))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused ? HUDChrome.borderStrong : .clear,
                         lineWidth: 1.25
                     )
             )
+            .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

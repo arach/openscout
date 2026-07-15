@@ -3,6 +3,28 @@ import ScoutAppCore
 import ScoutSharedUI
 import SwiftUI
 
+enum HUDRunnerLayout {
+    static let width: CGFloat = 560
+    static let collapsedHeight: CGFloat = 380
+    static let disclosureHeightDelta: CGFloat = 42
+    static let captureHeightDelta: CGFloat = 44
+    static let editorHeight: CGFloat = 96
+    static let toolbarHeight: CGFloat = 58
+    static let captureStripHeight: CGFloat = 44
+
+    static func contentSize(
+        disclosure: HUDRunnerDisclosure,
+        hasCaptures: Bool
+    ) -> NSSize {
+        NSSize(
+            width: width,
+            height: collapsedHeight
+                + (disclosure.isExpanded ? disclosureHeightDelta : 0)
+                + (hasCaptures ? captureHeightDelta : 0)
+        )
+    }
+}
+
 struct HUDRunnerOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var runner = HUDRunnerState.shared
@@ -108,10 +130,6 @@ struct HUDRunnerOverlay: View {
                 HUDRunnerComposer(
                     focus: $focusedField,
                     dropTargeted: dropTargeted
-                )
-                .frame(
-                    minHeight: runner.disclosure == .none ? 240 : 198,
-                    maxHeight: .infinity
                 )
             }
             .padding(14)

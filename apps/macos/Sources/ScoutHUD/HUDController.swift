@@ -22,6 +22,7 @@ public final class HUDController {
 
     private var panel: OverlayPanel?
     private var geometrySubscription: AnyCancellable?
+    private var runnerGeometrySubscription: AnyCancellable?
     private var captureAnchor: HUDCaptureAnchor?
 
     public var isVisible: Bool {
@@ -79,6 +80,14 @@ public final class HUDController {
             panel.onKeyUp = { [weak self] event in
                 self?.handleKeyUp(event)
             }
+            panel.setContentSize(
+                desiredContentSize(
+                    size: HUDState.shared.size,
+                    view: HUDState.shared.view,
+                    tailCollapsed: HUDState.shared.tailCollapsed,
+                    screen: captureAnchor?.screen() ?? panel.screen ?? NSScreen.main
+                )
+            )
             OverlayPanelShell.position(
                 panel,
                 placement: placement(
@@ -103,9 +112,11 @@ public final class HUDController {
         .preferredColorScheme(.dark)
 
         var config = OverlayPanelShell.Config(
-            size: HUDState.shared.size.contentSize(
-                for: HUDState.shared.view,
-                collapsed: HUDState.shared.tailCollapsed
+            size: desiredContentSize(
+                size: HUDState.shared.size,
+                view: HUDState.shared.view,
+                tailCollapsed: HUDState.shared.tailCollapsed,
+                screen: captureAnchor?.screen() ?? NSScreen.main
             )
         )
         config.isMovableByWindowBackground = true
@@ -189,6 +200,8 @@ public final class HUDController {
         removeMonitors()
         geometrySubscription?.cancel()
         geometrySubscription = nil
+        runnerGeometrySubscription?.cancel()
+        runnerGeometrySubscription = nil
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.14
@@ -233,12 +246,44 @@ public final class HUDController {
                     self?.applyGeometry(size: size, view: view, tailCollapsed: tailCollapsed)
                 }
             }
+
+        runnerGeometrySubscription?.cancel()
+        let runner = HUDRunnerState.shared
+        let hasCaptures = Publishers.CombineLatest(
+            runner.$attachments.map { !$0.isEmpty },
+            runner.$localReferences.map { !$0.isEmpty }
+        )
+            .map { $0 || $1 }
+            .removeDuplicates()
+
+        runnerGeometrySubscription = Publishers.CombineLatest3(
+            runner.$isPresented.removeDuplicates(),
+            runner.$disclosure.removeDuplicates(),
+            hasCaptures
+        )
+            .dropFirst()
+            .sink { [weak self] _, _, _ in
+                Task { @MainActor [weak self] in
+                    let runner = HUDRunnerState.shared
+                    guard runner.isPresented || !runner.closesHUDOnDismiss else { return }
+                    self?.applyGeometry(
+                        size: HUDState.shared.size,
+                        view: HUDState.shared.view,
+                        tailCollapsed: HUDState.shared.tailCollapsed
+                    )
+                }
+            }
     }
 
     private func applyGeometry(size: HUDSize, view: HUDView, tailCollapsed _: Bool) {
         guard let p = panel else { return }
         let screen = captureAnchor?.screen() ?? p.screen ?? NSScreen.main
-        let target = size.contentSize(for: view, collapsed: false, on: screen)
+        let target = desiredContentSize(
+            size: size,
+            view: view,
+            tailCollapsed: false,
+            screen: screen
+        )
         let targetMinContentSize = minContentSize(for: view, tailCollapsed: false)
         p.contentMinSize = targetMinContentSize
         p.hasShadow = true
@@ -255,7 +300,9 @@ public final class HUDController {
                 origin: captureAnchor.corner.panelOrigin(size: frameSize, in: visible),
                 size: frameSize
             )
-        } else if size.isScreenAnchored(for: view), let visible = screen?.visibleFrame {
+        } else if !HUDRunnerState.shared.isPresented,
+                  size.isScreenAnchored(for: view),
+                  let visible = screen?.visibleFrame {
             // Dock to top half of the active screen. macOS coordinate
             // space has origin at bottom-left, so "top half" means y
             // starts at visible.midY and extends to visible.maxY.
@@ -310,10 +357,29 @@ public final class HUDController {
                 displayID: captureAnchor.displayID
             )
         }
+        if HUDRunnerState.shared.isPresented {
+            return .mouseScreenCentered(yOffsetRatio: 0.04)
+        }
         if size.isScreenAnchored(for: view) {
             return .topCenter(margin: 0)
         }
         return .mouseScreenCentered(yOffsetRatio: 0.04)
+    }
+
+    private func desiredContentSize(
+        size: HUDSize,
+        view: HUDView,
+        tailCollapsed: Bool,
+        screen: NSScreen?
+    ) -> NSSize {
+        let runner = HUDRunnerState.shared
+        if runner.isPresented {
+            return HUDRunnerLayout.contentSize(
+                disclosure: runner.disclosure,
+                hasCaptures: !runner.attachments.isEmpty || !runner.localReferences.isEmpty
+            )
+        }
+        return size.contentSize(for: view, collapsed: tailCollapsed, on: screen)
     }
 
     private func minContentSize(for _: HUDView, tailCollapsed _: Bool) -> NSSize {
