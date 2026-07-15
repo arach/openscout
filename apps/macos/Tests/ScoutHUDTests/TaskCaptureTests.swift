@@ -44,6 +44,109 @@ import Testing
     """)
 }
 
+@Test func recentHistoryMaintainsMRUOrderCapacityAndPrunesInvalidEntries() {
+    var history = HUDRunnerRecentHistory()
+    for id in ["project-a", "project-b", "project-c", "project-d"] {
+        history.recordProject(id)
+    }
+    #expect(history.projectIDs == ["project-d", "project-c", "project-b"])
+
+    history.recordProject("  project-c  ")
+    history.recordProject("   ")
+    #expect(history.projectIDs == ["project-c", "project-d", "project-b"])
+
+    let claudeOpus = HUDRunnerRuntimePreset(
+        harness: "claude",
+        model: "claude-opus-4-8",
+        effort: "medium"
+    )
+    let codexSol = HUDRunnerRuntimePreset(
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        effort: "high"
+    )
+    let pi = HUDRunnerRuntimePreset(harness: "pi", model: "pi", effort: "high")
+    let claudeSonnet = HUDRunnerRuntimePreset(
+        harness: "claude",
+        model: "claude-sonnet-4-6",
+        effort: "low"
+    )
+    for preset in [claudeOpus, codexSol, pi, claudeSonnet] {
+        history.recordRuntime(preset)
+    }
+    #expect(history.runtimePresets == [claudeSonnet, pi, codexSol])
+
+    history.recordRuntime(pi)
+    history.recordRuntime(HUDRunnerRuntimePreset(harness: " ", model: "ignored", effort: "low"))
+    #expect(history.runtimePresets == [pi, claudeSonnet, codexSol])
+
+    history.prune(
+        validProjectIDs: Set(["project-c", "project-b"]),
+        isRuntimeValid: { $0.harness != "pi" }
+    )
+    #expect(history.projectIDs == ["project-c", "project-b"])
+    #expect(history.runtimePresets == [claudeSonnet, codexSol])
+}
+
+@Test func focusOrderContainsOnlyControlsVisibleInEachDisclosure() throws {
+    let attachmentID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+    let common: [HUDRunnerFocusTarget] = [
+        .instructions,
+        .attachment(attachmentID),
+        .reference("/repo/README.md"),
+        .attach,
+        .voice,
+        .create,
+        .dismiss,
+    ]
+    func order(_ disclosure: HUDRunnerDisclosure) -> [HUDRunnerFocusTarget] {
+        HUDRunnerFocusTarget.visibleOrder(
+            disclosure: disclosure,
+            projectChoiceIDs: ["project-a", "project-b"],
+            runtimeChoiceIDs: ["runtime-a", "runtime-b"],
+            attachmentIDs: [attachmentID],
+            referenceIDs: ["/repo/README.md"]
+        )
+    }
+
+    #expect(order(.none) == [.projectSummary, .runtimeSummary] + common)
+    #expect(order(.projectChoices) == [
+        .disclosureBack,
+        .projectChoice("project-a"),
+        .projectChoice("project-b"),
+        .projectSearch,
+    ] + common)
+    #expect(order(.projectSearch) == [
+        .disclosureBack,
+        .projectSearch,
+        .browseDirectory,
+        .projectChoice("project-a"),
+        .projectChoice("project-b"),
+    ] + common)
+    #expect(order(.runtimeChoices) == [
+        .disclosureBack,
+        .runtimeChoice("runtime-a"),
+        .runtimeChoice("runtime-b"),
+        .configureRuntime,
+    ] + common)
+    #expect(order(.runtimeConfiguration) == [
+        .disclosureBack,
+        .harness,
+        .model,
+        .version,
+        .effort,
+        .route,
+        .applyRuntime,
+    ] + common)
+    #expect(order(.route) == [
+        .disclosureBack,
+        .persistence,
+        .agentName,
+        .displayName,
+        .disclosureDone,
+    ] + common)
+}
+
 @Suite(.serialized)
 struct HUDRunnerCaptureRegressionTests {
     @MainActor
@@ -95,6 +198,46 @@ struct HUDRunnerCaptureRegressionTests {
         #expect(runner.selectedHarness == "codex")
         #expect(runner.agentName == "project-b")
         #expect(runner.displayName == "Project B")
+    }
+
+    @MainActor
+    @Test func droppedProjectPreservesAnExplicitRuntimeSelection() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-runtime-drop-tests-\(UUID().uuidString)", isDirectory: true)
+        let defaultRoot = root.appendingPathComponent("project-a", isDirectory: true)
+        let droppedRoot = root.appendingPathComponent("project-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: defaultRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: droppedRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(
+            defaultDirectory: defaultRoot,
+            projects: [
+                (id: "project-a", title: "Project A", root: defaultRoot, harness: "claude"),
+                (id: "project-b", title: "Project B", root: droppedRoot, harness: "claude"),
+            ],
+            includeRuntimeCatalog: true
+        )
+        runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
+        runner.selectRuntimePreset(
+            HUDRunnerRuntimePreset(
+                harness: "codex",
+                model: "gpt-5.6-sol",
+                effort: "high"
+            )
+        )
+
+        #expect(runner.stageFileURLs([droppedRoot]))
+
+        #expect(runner.selectedProjectId == "project-b")
+        #expect(runner.currentRuntimePreset == HUDRunnerRuntimePreset(
+            harness: "codex",
+            model: "gpt-5.6-sol",
+            effort: "high"
+        ))
     }
 
     @MainActor
@@ -190,6 +333,194 @@ struct HUDRunnerCaptureRegressionTests {
         #expect(spec.execution?.model == "gpt-5.6-sol")
         #expect(spec.execution?.reasoningEffort == "high")
     }
+
+    @MainActor
+    @Test func disclosuresAreMutuallyExclusiveAndEscapeUnwindsOneLevelAtATime() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-disclosure-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(
+            defaultDirectory: root,
+            projects: [(id: "default", title: "Default", root: root, harness: "claude")],
+            includeRuntimeCatalog: true
+        )
+        runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
+
+        runner.toggleProjectChoices()
+        #expect(runner.disclosure == .projectChoices)
+        runner.toggleRuntimeChoices()
+        #expect(runner.disclosure == .runtimeChoices)
+        #expect(runner.runtimeDraft == nil)
+
+        runner.openProjectSearch()
+        #expect(runner.disclosure == .projectSearch)
+        #expect(runner.runtimeDraft == nil)
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .projectChoices)
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .none)
+        #expect(runner.isPresented)
+
+        runner.openRuntimeConfiguration()
+        let draft = try #require(runner.runtimeDraft)
+        runner.openRouteConfiguration()
+        #expect(runner.disclosure == .route)
+        #expect(runner.runtimeDraft == draft)
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .runtimeConfiguration)
+        #expect(runner.runtimeDraft == draft)
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .runtimeChoices)
+        #expect(runner.runtimeDraft == nil)
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .none)
+        #expect(runner.isPresented)
+    }
+
+    @MainActor
+    @Test func runtimeConfigurationIsTransactionalUntilApplied() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-runtime-draft-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(
+            defaultDirectory: root,
+            projects: [(id: "default", title: "Default", root: root, harness: "claude")],
+            includeRuntimeCatalog: true
+        )
+        runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
+        runner.selectRuntimePreset(
+            HUDRunnerRuntimePreset(
+                harness: "claude",
+                model: "claude-opus-4-8",
+                effort: "medium"
+            )
+        )
+        let committed = runner.currentRuntimePreset
+
+        runner.openRuntimeConfiguration()
+        runner.updateRuntimeDraftHarness("codex")
+        runner.updateRuntimeDraftModel("gpt-5.6-terra")
+        runner.updateRuntimeDraftEffort("high")
+        #expect(runner.runtimeDraft == HUDRunnerRuntimePreset(
+            harness: "codex",
+            model: "gpt-5.6-terra",
+            effort: "high"
+        ))
+        #expect(runner.currentRuntimePreset == committed)
+
+        runner.stepBackDisclosure()
+        #expect(runner.disclosure == .runtimeChoices)
+        #expect(runner.runtimeDraft == nil)
+        #expect(runner.currentRuntimePreset == committed)
+
+        runner.openRuntimeConfiguration()
+        runner.updateRuntimeDraftHarness("codex")
+        runner.updateRuntimeDraftModel("gpt-5.6-terra")
+        runner.updateRuntimeDraftEffort("high")
+        runner.applyRuntimeDraft()
+        #expect(runner.disclosure == .none)
+        #expect(runner.runtimeDraft == nil)
+        #expect(runner.currentRuntimePreset == HUDRunnerRuntimePreset(
+            harness: "codex",
+            model: "gpt-5.6-terra",
+            effort: "high"
+        ))
+    }
+
+    @MainActor
+    @Test func intakeAndInvalidSubmitPreserveTheRuntimeDraft() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-draft-intake-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(
+            defaultDirectory: root,
+            projects: [(id: "default", title: "Default", root: root, harness: "claude")],
+            includeRuntimeCatalog: true
+        )
+        runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
+        runner.selectRuntimePreset(
+            HUDRunnerRuntimePreset(
+                harness: "claude",
+                model: "claude-opus-4-8",
+                effort: "medium"
+            )
+        )
+        let committed = runner.currentRuntimePreset
+
+        runner.openRuntimeConfiguration()
+        runner.updateRuntimeDraftHarness("codex")
+        runner.updateRuntimeDraftModel("gpt-5.6-terra")
+        runner.updateRuntimeDraftEffort("high")
+        let draft = try #require(runner.runtimeDraft)
+
+        runner.beginSubmit()
+        #expect(!runner.isSubmitting)
+        #expect(runner.disclosure == .runtimeConfiguration)
+        #expect(runner.runtimeDraft == draft)
+        #expect(runner.currentRuntimePreset == committed)
+
+        #expect(runner.stageCapture(ScoutCapturePayload(text: "Review this task")))
+        #expect(runner.disclosure == .runtimeConfiguration)
+        #expect(runner.runtimeDraft == draft)
+        #expect(runner.currentRuntimePreset == committed)
+
+        #expect(runner.stageFileURLs([root]))
+        #expect(runner.disclosure == .runtimeConfiguration)
+        #expect(runner.runtimeDraft == draft)
+        #expect(runner.currentRuntimePreset == committed)
+    }
+
+    @MainActor
+    @Test func projectSearchDoesNotClearTheCommittedProject() throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-project-search-tests-\(UUID().uuidString)", isDirectory: true)
+        let projectA = root.appendingPathComponent("project-a", isDirectory: true)
+        let projectB = root.appendingPathComponent("project-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(defaultDirectory: projectA, projects: [
+            (id: "project-a", title: "Project A", root: projectA, harness: "claude"),
+            (id: "project-b", title: "Project B", root: projectB, harness: "codex"),
+        ])
+        runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
+        let committed = try #require(runner.options?.projects.first { $0.id == "project-b" })
+        runner.chooseProject(committed)
+
+        runner.openProjectSearch()
+        runner.updateProjectSearchQuery("Project A")
+
+        #expect(runner.disclosure == .projectSearch)
+        #expect(runner.projectSearchQuery == "Project A")
+        #expect(runner.projectMatches().map(\.id) == ["project-a"])
+        #expect(runner.selectedProjectId == "project-b")
+        #expect(runner.projectQuery == "Project B")
+        #expect(runner.directory == projectB.path)
+
+        #expect(runner.escapePressed())
+        #expect(runner.disclosure == .projectChoices)
+        #expect(runner.selectedProjectId == "project-b")
+        #expect(runner.directory == projectB.path)
+    }
 }
 
 private typealias RunnerProjectFixture = (
@@ -201,19 +532,51 @@ private typealias RunnerProjectFixture = (
 
 private func runnerOptions(
     defaultDirectory: URL,
-    projects: [RunnerProjectFixture]
+    projects: [RunnerProjectFixture],
+    includeRuntimeCatalog: Bool = false
 ) throws -> HudRunnerOptions {
+    var defaults: [String: Any] = [
+        "runner": "scout",
+        "directory": defaultDirectory.path,
+        "harness": "claude",
+        "model": "",
+        "persistence": "sticky",
+    ]
+    if includeRuntimeCatalog {
+        defaults["model"] = "claude-opus-4-8"
+        defaults["reasoningEffort"] = "medium"
+    }
     let object: [String: Any] = [
-        "defaults": [
-            "runner": "scout",
-            "directory": defaultDirectory.path,
-            "harness": "claude",
-            "model": "",
-            "persistence": "sticky",
-        ],
+        "defaults": defaults,
         "runners": [],
-        "harnesses": [],
-        "models": [],
+        "harnesses": includeRuntimeCatalog ? [
+            ["id": "claude", "name": "claude", "label": "Claude", "ready": true],
+            ["id": "codex", "name": "codex", "label": "Codex", "ready": true],
+        ] : [],
+        "models": includeRuntimeCatalog ? [
+            [
+                "id": "claude-opus-4-8",
+                "label": "Opus 4.8",
+                "harnesses": ["claude"],
+                "source": "test",
+            ],
+            [
+                "id": "gpt-5.6-sol",
+                "label": "GPT-5.6 Sol",
+                "harnesses": ["codex"],
+                "source": "test",
+            ],
+            [
+                "id": "gpt-5.6-terra",
+                "label": "GPT-5.6 Terra",
+                "harnesses": ["codex"],
+                "source": "test",
+            ],
+        ] : [],
+        "efforts": includeRuntimeCatalog ? [
+            ["id": "medium", "label": "Medium", "harnesses": ["claude", "codex"]],
+            ["id": "high", "label": "High", "harnesses": ["claude", "codex"]],
+        ] : [],
         "projects": projects.map { project in
             [
                 "id": project.id,
