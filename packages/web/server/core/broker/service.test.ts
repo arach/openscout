@@ -26,6 +26,7 @@ import {
 } from "./service.ts";
 
 const originalHome = process.env.HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
@@ -38,6 +39,11 @@ const testDirectories = new Set<string>();
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalSupportDirectory === undefined) {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
@@ -84,6 +90,7 @@ function useIsolatedOpenScoutHome(): string {
   const home = mkdtempSync(join(tmpdir(), "openscout-desktop-broker-"));
   testDirectories.add(home);
   process.env.HOME = home;
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
