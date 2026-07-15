@@ -24,7 +24,7 @@ describe("SCO-070 cardless sessions", () => {
   test("maps cardless harnesses to their default and backup transports", () => {
     expect(resolveCardlessSessionSpawnTarget(undefined)).toEqual({ harness: "claude", transport: "tmux" });
     expect(resolveCardlessSessionSpawnTarget("claude")).toEqual({ harness: "claude", transport: "tmux" });
-    expect(resolveCardlessSessionSpawnTarget("claude", { claudeTransport: "stream-json" })).toEqual({
+    expect(resolveCardlessSessionSpawnTarget("claude", { claudeTransport: "claude_stream_json" })).toEqual({
       harness: "claude",
       transport: "claude_stream_json",
     });
