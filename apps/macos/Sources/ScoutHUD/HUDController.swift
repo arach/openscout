@@ -35,6 +35,12 @@ public final class HUDController {
         return panel.isVisible
     }
 
+    /// The main Scout window uses this to suspend its bare-key navigation
+    /// layer while the task composer owns keyboard input in the HUD panel.
+    public var isTaskComposerPresented: Bool {
+        HUDRunnerState.shared.isPresented
+    }
+
     /// CGWindowID of the panel when visible; nil when dismissed. Consumed
     /// by HUDStateFile + external screencapture loops (scout:// IPC).
     public var currentWindowId: Int? {
@@ -96,6 +102,10 @@ public final class HUDController {
                     tailCollapsed: HUDState.shared.tailCollapsed
                 )
             )
+            // A capture corner chooses where a fresh HUD enters; it does not
+            // own the panel after that. Subsequent disclosure/capture geometry
+            // changes should preserve the operator's current position.
+            self.captureAnchor = nil
             panel.alphaValue = 0
             OverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
             HUDState.shared.setVisible(true)
@@ -161,6 +171,9 @@ public final class HUDController {
                 tailCollapsed: HUDState.shared.tailCollapsed
             )
         )
+        // Release the hot-corner anchor immediately after initial placement so
+        // manual movement remains authoritative for the rest of this session.
+        self.captureAnchor = nil
 
         p.alphaValue = 0
         OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
