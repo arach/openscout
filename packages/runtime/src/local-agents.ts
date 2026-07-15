@@ -1228,6 +1228,24 @@ function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs:
     return next;
   }
 
+  if (harness === "claude" || harness === "grok") {
+    const next: string[] = [];
+    const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
+    const flags = ["--effort", "--reasoning-effort"];
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index] ?? "";
+      if (flags.includes(current)) {
+        index += 1;
+        continue;
+      }
+      if (flags.some((flag) => current.startsWith(`${flag}=`))) {
+        continue;
+      }
+      next.push(current);
+    }
+    return next;
+  }
+
   if (harness !== "codex") {
     return normalizeLaunchArgsForHarness(harness, launchArgs);
   }
@@ -1262,6 +1280,9 @@ function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs:
 function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reasoningEffort: string): string[] {
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(["--reasoning-effort", reasoningEffort]);
+  }
+  if (harness === "claude") {
+    return ["--effort", reasoningEffort];
   }
   if (harness === "pi") {
     return ["--thinking", reasoningEffort.trim().toLowerCase() === "none" ? "off" : reasoningEffort];
@@ -2344,6 +2365,17 @@ function attachedCodexEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   );
 }
 
+function attachedClaudeEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return applyRequestedRuntimeOptionsToLaunchArgs(
+    "claude",
+    endpointMetadataStringArray(endpoint, "launchArgs"),
+    {
+      model: endpointMetadataString(endpoint, "model"),
+      reasoningEffort: endpointMetadataString(endpoint, "reasoningEffort"),
+    },
+  );
+}
+
 function attachedPiEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   return applyRequestedRuntimeOptionsToLaunchArgs(
     "pi",
@@ -2480,7 +2512,7 @@ export function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): Codex
   });
 }
 
-function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
+export function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2497,7 +2529,7 @@ function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
     systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: [],
+    launchArgs: attachedClaudeEndpointLaunchArgs(endpoint),
   };
 }
 

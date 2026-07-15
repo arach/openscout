@@ -1,8 +1,13 @@
 import Foundation
+import ScoutAppCore
 
 @MainActor
 public enum ScoutHUDRouter {
     public static let commandNotificationName = Notification.Name("app.openscout.scout.hud")
+
+    public static var shouldDeferTaskCapture: Bool {
+        HUDRunnerState.shared.isSubmitting
+    }
 
     public static func handle(url: URL) -> Bool {
         guard url.scheme?.lowercased() == "scout",
@@ -91,9 +96,44 @@ public enum ScoutHUDRouter {
             guard let value, let size = parseSize(value) else { return false }
             HUDState.shared.setSize(size)
             return true
-        case "compose", "input", "command-box", "commandbox", "capture", "quick-capture":
+        case "compose", "input", "command-box", "commandbox", "capture", "quick-capture", "task", "new-task":
             prepareCommandBox(value: value)
-            HUDRunnerState.shared.open()
+            HUDRunnerState.shared.open(
+                closesHUDOnDismiss: true,
+                freshDraft: !HUDRunnerState.shared.isPresented
+            )
+            HUDController.shared.show(captureAnchor: HUDCaptureAnchor(argument: value))
+            return true
+        case "task-capture":
+            prepareCommandBox(value: nil)
+            guard let value else { return false }
+            do {
+                let payload = try ScoutCapturePayloadStore.read(token: value)
+                HUDRunnerState.shared.open(
+                    closesHUDOnDismiss: true,
+                    freshDraft: !HUDRunnerState.shared.isPresented
+                )
+                HUDRunnerState.shared.stageCapture(payload)
+                let anchor = HUDCaptureCorner(argument: payload.corner).map {
+                    HUDCaptureAnchor(corner: $0, displayID: payload.displayID)
+                }
+                HUDController.shared.show(captureAnchor: anchor)
+            } catch {
+                HUDRunnerState.shared.open(
+                    closesHUDOnDismiss: true,
+                    freshDraft: !HUDRunnerState.shared.isPresented
+                )
+                HUDRunnerState.shared.lastError = error.localizedDescription
+                HUDController.shared.show()
+            }
+            return true
+        case "task-error":
+            prepareCommandBox(value: nil)
+            HUDRunnerState.shared.open(
+                closesHUDOnDismiss: true,
+                freshDraft: !HUDRunnerState.shared.isPresented
+            )
+            HUDRunnerState.shared.lastError = value ?? "The capture could not be staged."
             HUDController.shared.show()
             return true
         default:

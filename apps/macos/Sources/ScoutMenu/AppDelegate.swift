@@ -8,9 +8,11 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let controller = OpenScoutAppController.shared
+    private let captureHotZone = HUDCaptureHotZoneMonitor.shared
     private var statusItem: NSStatusItem!
     private var popover: NSPopover?
     private var contextMenu: NSMenu!
+    private var taskHotkeyRegistered = false
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -48,8 +50,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        contextMenu = buildContextMenu()
-
         // Surface incoming pairing requests as a floating Allow/Deny popup the
         // moment they arrive — reliable and proactive, no popover or
         // notification-permission dance.
@@ -75,6 +75,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
 
+        taskHotkeyRegistered = HotkeyManager.shared.register(
+            id: 4,
+            keyCode: CarbonKeyCode.a,
+            modifiers: CarbonModifier.hyper
+        ) {
+            Task { @MainActor in
+                ScoutAppBridge.openHUD(command: "task")
+            }
+        }
+        if !taskHotkeyRegistered {
+            NSLog("[capture] Hyper+A is already registered by another application")
+        }
+        contextMenu = buildContextMenu()
+
+        captureHotZone.start { anchor in
+            ScoutAppBridge.openHUD(command: "task", value: anchor.argument)
+        } onDrop: { [weak self] anchor, drop in
+            self?.forwardCaptureDrop(anchor: anchor, drop: drop) ?? false
+        } onPromiseError: { [weak self] _, message in
+            self?.surfaceCaptureError(message)
+        }
+
         controller.$menuBarSymbolName
             .combineLatest(controller.$menuBarTooltip)
             .sink { [weak self] symbolName, tooltip in
@@ -90,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        captureHotZone.stop()
+        HotkeyManager.shared.unregister(id: 4)
         DistributedNotificationCenter.default().removeObserver(
             self,
             name: ScoutServiceURLRelay.notificationName,
@@ -147,6 +171,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
+        let taskTitle = taskHotkeyRegistered
+            ? "New Agent Task"
+            : "New Agent Task (Hyper+A unavailable)"
+        let taskItem = NSMenuItem(
+            title: taskTitle,
+            action: #selector(newAgentTask),
+            keyEquivalent: taskHotkeyRegistered ? "a" : ""
+        )
+        taskItem.target = self
+        taskItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
+        menu.addItem(taskItem)
+
+        menu.addItem(.separator())
+
         let commsItem = NSMenuItem(title: "Open Scout App", action: #selector(openComms), keyEquivalent: "c")
         commsItem.target = self
         commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
@@ -179,6 +217,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         tailItem.target = self
         tailItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(tailItem)
+
+        let hotCornerItem = NSMenuItem(title: "Task Hot Corner", action: nil, keyEquivalent: "")
+        let hotCornerMenu = NSMenu(title: "Task Hot Corner")
+        let disabled = NSMenuItem(title: "Off", action: #selector(selectCaptureHotCorner(_:)), keyEquivalent: "")
+        disabled.target = self
+        disabled.representedObject = "off"
+        disabled.state = captureHotZone.corner == nil ? .on : .off
+        hotCornerMenu.addItem(disabled)
+        hotCornerMenu.addItem(.separator())
+        for corner in HUDCaptureCorner.allCases {
+            let item = NSMenuItem(
+                title: corner.label,
+                action: #selector(selectCaptureHotCorner(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = corner.rawValue
+            item.state = captureHotZone.corner == corner ? .on : .off
+            hotCornerMenu.addItem(item)
+        }
+        hotCornerItem.submenu = hotCornerMenu
+        menu.addItem(hotCornerItem)
 
         menu.addItem(.separator())
 
@@ -267,6 +327,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc
+    private func newAgentTask() {
+        ScoutAppBridge.openHUD(command: "task")
+    }
+
+    @objc
+    private func selectCaptureHotCorner(_ sender: NSMenuItem) {
+        let raw = sender.representedObject as? String
+        captureHotZone.corner = raw == "off" ? nil : HUDCaptureCorner(argument: raw)
+        for item in sender.menu?.items ?? [] {
+            guard let value = item.representedObject as? String else { continue }
+            item.state = (value == "off" && captureHotZone.corner == nil)
+                || value == captureHotZone.corner?.rawValue
+                ? .on
+                : .off
+        }
+    }
+
+    @objc
     private func openTailscale() {
         controller.openTailscale()
     }
@@ -299,6 +377,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func showTailMode() {
         ScoutAppBridge.openHUD(command: "tail-toggle")
+    }
+
+    private func forwardCaptureDrop(anchor: HUDCaptureAnchor, drop: HUDCaptureDrop) -> Bool {
+        var seenPaths = Set<String>()
+        var uniquePaths: [String] = []
+        for url in drop.fileURLs {
+            let path = url.standardizedFileURL.path
+            if seenPaths.insert(path).inserted {
+                uniquePaths.append(path)
+            }
+        }
+        let payload = ScoutCapturePayload(
+            corner: anchor.corner.rawValue,
+            displayID: anchor.displayID,
+            filePaths: uniquePaths,
+            attachments: drop.attachments.map {
+                ScoutCapturePayload.Attachment(
+                    data: $0.data,
+                    mediaType: $0.mediaType,
+                    fileName: $0.fileName
+                )
+            },
+            text: drop.text
+        )
+        do {
+            let token = try ScoutCapturePayloadStore.save(payload)
+            guard ScoutAppBridge.openHUD(command: "task-capture", value: token) else {
+                try? ScoutCapturePayloadStore.discard(token: token)
+                throw CocoaError(.fileNoSuchFile)
+            }
+            return true
+        } catch {
+            surfaceCaptureError(
+                "The drop could not be staged. Nothing was consumed; try dropping it again."
+            )
+            return false
+        }
+    }
+
+    private func surfaceCaptureError(_ message: String) {
+        NSLog("[capture] %@", message)
+        NSSound.beep()
+        ScoutAppBridge.openHUD(command: "task-error", value: message)
     }
 
     @objc

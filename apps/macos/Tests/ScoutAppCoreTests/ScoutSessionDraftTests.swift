@@ -96,6 +96,24 @@ final class ScoutSessionDraftTests: XCTestCase {
         XCTAssertNil(spec.execution?.targetSessionId)
     }
 
+    func testProjectDraftForwardsCaptureAttachments() {
+        let attachment = MessageAttachment(
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "capture.png",
+            url: "http://127.0.0.1:43120/api/blobs/att-1"
+        )
+        let draft = ScoutSessionDraft(
+            title: "Captured task",
+            target: .project,
+            projectPath: "/repo",
+            instructions: "Review this capture",
+            attachments: [attachment]
+        )
+
+        XCTAssertEqual(draft.spec().seed?.attachments, [attachment])
+    }
+
     private func makeAgent(
         id: String,
         name: String,

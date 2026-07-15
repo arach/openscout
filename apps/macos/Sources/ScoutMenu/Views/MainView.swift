@@ -253,8 +253,8 @@ struct MainView: View {
 
     // MARK: - Surfaces launcher
     //
-    // The two things you actually *go to* from the menu bar: the full app and
-    // the HUD overlay (plus the tail/logs overlay). Services (broker/relay/web)
+    // The primary places/actions you reach from the menu bar: Scout, a new
+    // task, the HUD overlay, and tail mode. Services (broker/relay/web)
     // live in the deck below — this row is "take me there", up top where it's
     // the first thing you reach.
     private var surfaceLauncher: some View {
@@ -265,6 +265,13 @@ struct MainView: View {
                 help: "Open native Scout"
             ) {
                 ScoutAppBridge.openScout()
+            }
+            LaunchTile(
+                glyph: "plus.square.on.square",
+                label: "TASK",
+                help: "Create an agent task  ·  ⌃⌥⇧⌘A"
+            ) {
+                ScoutAppBridge.openHUD(command: "task")
             }
             LaunchTile(
                 glyph: "square.bottomhalf.filled",

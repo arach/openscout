@@ -273,7 +273,7 @@ public final class TailModeController {
 
         if let panel {
             panel.onKeyDown = { [weak self] event in
-                self?.handleKeyDown(event)
+                self?.handleKeyDown(event) ?? false
             }
             applyGeometry(animated: false)
             panel.alphaValue = 0
@@ -298,7 +298,7 @@ public final class TailModeController {
         config.minContentSize = minContentSize(collapsed: TailModeState.shared.collapsed)
         config.maxContentSize = maxContentSize()
         config.onKeyDown = { [weak self] event in
-            self?.handleKeyDown(event)
+            self?.handleKeyDown(event) ?? false
         }
         config.onFlagsChanged = { event in
             HUDMotionState.shared.setModifierLift(event.modifierFlags.contains(.option))
@@ -612,46 +612,55 @@ public final class TailModeController {
         }
     }
 
-    private func handleKeyDown(_ event: NSEvent) {
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 {
-            if HUDNavBus.shared.unengageSelected?() == true { return }
+            if HUDNavBus.shared.unengageSelected?() == true { return true }
             hide()
-            return
+            return true
         }
 
         switch event.keyCode {
         case 36:
             HUDNavBus.shared.engageSelected?()
+            return true
         case 38, 125:
             if isCommandOnly(event.modifierFlags) {
                 TailModeState.shared.stepSize(-1)
             } else {
                 HUDNavBus.shared.cycleNext?()
             }
+            return true
         case 40, 126:
             if isCommandOnly(event.modifierFlags) {
                 TailModeState.shared.stepSize(+1)
             } else {
                 HUDNavBus.shared.cyclePrev?()
             }
+            return true
         case 5:
             if event.modifierFlags.contains(.shift) {
                 HUDNavBus.shared.jumpBottom?()
             } else {
                 HUDNavBus.shared.jumpTop?()
             }
+            return true
         case 3:
             HUDNavBus.shared.toggleFollow?()
+            return true
         case 17:
             HUDNavBus.shared.cycleTreatment?()
+            return true
         case 33, 123:
             TailModeState.shared.stepSize(-1)
+            return true
         case 30, 124:
             TailModeState.shared.stepSize(+1)
+            return true
         case 8:
             TailModeState.shared.toggleCollapsed()
+            return true
         default:
-            break
+            return false
         }
     }
 

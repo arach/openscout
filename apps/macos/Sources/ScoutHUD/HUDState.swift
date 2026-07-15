@@ -192,10 +192,16 @@ public final class HUDState: ObservableObject {
     @Published public var view: HUDView = .agents
     @Published public var size: HUDSize = .compact
     @Published public var tailCollapsed = false
+    @Published public private(set) var isVisible = false
 
     public static let shared = HUDState()
 
     private init() {}
+
+    public func setVisible(_ visible: Bool) {
+        guard isVisible != visible else { return }
+        isVisible = visible
+    }
 
     public func select(_ view: HUDView) {
         guard self.view != view else {

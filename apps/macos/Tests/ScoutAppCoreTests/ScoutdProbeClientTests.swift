@@ -63,6 +63,25 @@ final class ScoutdProbeClientTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("timed out"))
         }
     }
+
+    func testNativeReadSnapshotDecodesTypedAgents() throws {
+        let data = Data(#"{"schema":"openscout.native.read.snapshot/v1","type":"agents.snapshot","requestId":"req-1","sequence":42,"generatedAt":1784042000000,"sourceUpdatedAt":1784041999000,"source":"broker-journal","agents":[{"id":"vox-zeno","name":"Vox Zeno","handle":"vox-zeno","agentClass":"builder","harness":"codex","state":"working","projectRoot":"/Users/art/dev/openscout","project":"OpenScout","transport":"codex_app_server","capabilities":["chat","invoke"],"updatedAt":1784041998000}],"hasMore":true}"#.utf8)
+
+        let snapshot = try XCTUnwrap(ScoutNativeReadClient.decodeFrame(data))
+
+        XCTAssertEqual(snapshot.sequence, 42)
+        XCTAssertEqual(snapshot.sourceUpdatedAt, 1_784_041_999_000)
+        XCTAssertTrue(snapshot.hasMore)
+        XCTAssertEqual(snapshot.agents.map(\.id), ["vox-zeno"])
+        XCTAssertEqual(snapshot.agents[0].state, .working)
+        XCTAssertEqual(snapshot.agents[0].projectRoot, "/Users/art/dev/openscout")
+    }
+
+    func testNativeReadHeartbeatDoesNotPublishAgentState() throws {
+        let data = Data(#"{"schema":"openscout.native.read.event/v1","type":"heartbeat","requestId":"req-1","sequence":42,"generatedAt":1784042000000}"#.utf8)
+
+        XCTAssertNil(try ScoutNativeReadClient.decodeFrame(data))
+    }
 }
 
 private final class FakeProbeTransport: ScoutdProbeTransport, @unchecked Sendable {

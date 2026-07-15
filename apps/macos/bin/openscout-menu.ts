@@ -107,6 +107,7 @@ HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]
   bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
+  bun apps/macos/bin/openscout-menu.ts hud task [top-left|top-right|bottom-left|bottom-right]
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
   bun apps/macos/bin/openscout-menu.ts hud matrix [<dir>]
 
@@ -516,6 +517,7 @@ const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
 const TAIL_STATE_PATH = "/tmp/openscout-tail-state.json";
 const HUD_TABS = ["agents", "activity", "tail", "sessions", "assistant"] as const;
 const HUD_SIZES = ["compact", "medium", "large"] as const;
+const HUD_CAPTURE_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 
 type HudState = {
   visible: boolean;
@@ -544,7 +546,11 @@ function readHudState(): HudState {
 }
 
 function fireHudURL(path: string): void {
-  execSync(`open -g 'scout://hud/${path}'`, { stdio: "inherit" });
+  execFileSync(
+    "open",
+    ["-g", "-b", bundleIdentifier, `scout://hud/${path}`],
+    { stdio: "inherit" },
+  );
 }
 
 function readTailState(): TailState {
@@ -620,6 +626,14 @@ async function runHudCommand(args: string[]): Promise<void> {
       fireHudURL(`size/${name}`);
       return;
     }
+    case "task": {
+      const corner = rest[0];
+      if (corner && !HUD_CAPTURE_CORNERS.includes(corner as typeof HUD_CAPTURE_CORNERS[number])) {
+        throw new Error(`hud task [${HUD_CAPTURE_CORNERS.join("|")}]`);
+      }
+      fireHudURL(corner ? `task/${corner}` : "task");
+      return;
+    }
     case "capture": {
       const out =
         rest[0] ?? `/tmp/openscout-hud-${Date.now()}.png`;
@@ -677,7 +691,7 @@ async function runHudCommand(args: string[]): Promise<void> {
     }
     default:
       throw new Error(
-        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, capture, matrix.`,
+        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, task, capture, matrix.`,
       );
   }
 }
