@@ -8,6 +8,7 @@ struct HUDRunnerComposer: View {
     @ObservedObject private var voice = HudVoiceService.shared
     let focus: HUDRunnerFocusBinding
     let dropTargeted: Bool
+    @State private var voiceStartedAt: Date?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,6 +37,13 @@ struct HUDRunnerComposer: View {
                     lineWidth: dropTargeted ? 1.5 : 1
                 )
         )
+        .onChange(of: voice.state.isCaptureActive, initial: true) { _, active in
+            if active, voiceStartedAt == nil {
+                voiceStartedAt = Date()
+            } else if !active, !voice.state.isProcessing {
+                voiceStartedAt = nil
+            }
+        }
     }
 
     private var editor: some View {
@@ -84,7 +92,12 @@ struct HUDRunnerComposer: View {
             .help("Add files or folders (⌘O)")
             .accessibilityLabel("Attach files or folders")
 
-            Spacer(minLength: 8)
+            if voice.state.isCaptureActive || voice.state.isProcessing {
+                voiceActivity
+            } else {
+                Spacer(minLength: 8)
+                runtimeButton
+            }
 
             Button {
                 Task { await runner.toggleDictation() }
@@ -138,6 +151,102 @@ struct HUDRunnerComposer: View {
             )
             .accessibilityLabel(runner.isSubmitting ? "Creating task" : "Create task")
         }
+    }
+
+    private var runtimeButton: some View {
+        let presentation = HUDRunnerRuntimeFormatter.presentation(
+            runner.currentRuntimePreset,
+            runner: runner
+        )
+        let label = HUDRunnerRuntimeFormatter.composerLabel(
+            runner.currentRuntimePreset,
+            runner: runner
+        )
+        return Button(action: runner.toggleRuntimePicker) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(HUDChrome.inkFaint)
+            }
+            .font(HUDType.body(10, weight: .medium))
+            .foregroundStyle(HUDChrome.inkMuted)
+            .padding(.horizontal, 8)
+            .frame(height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(
+                        focus.wrappedValue == .runtimeSummary
+                            ? HUDChrome.canvasLift.opacity(0.36)
+                            : .clear
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(
+                        focus.wrappedValue == .runtimeSummary
+                            ? HUDChrome.borderStrong
+                            : .clear,
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focused(focus, equals: .runtimeSummary)
+        .help("Choose model and runtime (⌘R)")
+        .accessibilityLabel("Runtime: \(presentation.title), \(presentation.detail)")
+        .popover(
+            isPresented: Binding(
+                get: { runner.isRuntimePickerPresented },
+                set: { presented in
+                    if !presented, runner.isRuntimePickerPresented {
+                        runner.closeRuntimePicker()
+                    }
+                }
+            ),
+            arrowEdge: .top
+        ) {
+            HUDRunnerRuntimePicker(focus: focus)
+                .preferredColorScheme(.dark)
+        }
+    }
+
+    @ViewBuilder
+    private var voiceActivity: some View {
+        if voice.state.isProcessing {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(HUDChrome.inkMuted)
+                Text("Transcribing…")
+                    .font(HUDType.mono(9, weight: .medium))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Transcribing voice")
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(spacing: 10) {
+                    HUDRunnerVoiceWaveform()
+                    Text(elapsedVoiceLabel(at: context.date))
+                        .font(HUDType.mono(9, weight: .medium))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                        .monospacedDigit()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Recording voice")
+        }
+    }
+
+    private func elapsedVoiceLabel(at date: Date) -> String {
+        let elapsed = max(0, Int(date.timeIntervalSince(voiceStartedAt ?? date)))
+        return String(format: "%d:%02d", elapsed / 60, elapsed % 60)
     }
 
     private var captureStrip: some View {
@@ -199,6 +308,40 @@ struct HUDRunnerComposer: View {
         if voice.state.isCaptureActive { return "Stop voice dictation" }
         if voice.state.isProcessing { return "Transcribing voice" }
         return "Start voice dictation"
+    }
+}
+
+private struct HUDRunnerVoiceWaveform: View {
+    @State private var animate = false
+
+    private let low: [CGFloat] = [3, 5, 7, 4, 9, 5, 11, 6, 8, 4, 7, 3, 6, 9, 5, 8, 4]
+    private let high: [CGFloat] = [8, 13, 18, 10, 20, 12, 22, 15, 19, 9, 16, 8, 14, 21, 11, 17, 10]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(low.indices, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(HUDChrome.inkMuted.opacity(0.86))
+                    .frame(
+                        width: 1.5,
+                        height: animate ? high[index] : low[index]
+                    )
+                    .animation(
+                        .easeInOut(duration: 0.42 + Double(index % 5) * 0.08)
+                            .repeatForever(autoreverses: true),
+                        value: animate
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 26)
+        .overlay {
+            Rectangle()
+                .fill(HUDChrome.borderSoft.opacity(0.72))
+                .frame(height: 0.75)
+                .zIndex(-1)
+        }
+        .onAppear { animate = true }
+        .accessibilityHidden(true)
     }
 }
 

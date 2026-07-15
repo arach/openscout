@@ -5,8 +5,8 @@ import SwiftUI
 
 enum HUDRunnerLayout {
     static let width: CGFloat = 640
-    static let collapsedHeight: CGFloat = 512
-    static let collapsedRoutingHeight: CGFloat = 184
+    static let collapsedHeight: CGFloat = 406
+    static let collapsedRoutingHeight: CGFloat = 78
     static let captureHeightDelta: CGFloat = 44
     static let editorHeight: CGFloat = 96
     static let toolbarHeight: CGFloat = 58
@@ -24,8 +24,10 @@ enum HUDRunnerLayout {
             return choiceRoutingHeight(count: projectChoiceCount)
         case .runtimeChoices:
             return choiceRoutingHeight(count: runtimeChoiceCount)
-        case .runtimeConfiguration, .route:
+        case .route:
             return 236
+        case .runtimeConfiguration:
+            return 136
         }
     }
 
@@ -209,6 +211,10 @@ struct HUDRunnerOverlay: View {
     }
 
     private func moveFocus(_ direction: Int) {
+        if runner.isRuntimePickerPresented {
+            moveRuntimePickerFocus(direction)
+            return
+        }
         let projectIDs: [String]
         switch runner.disclosure {
         case .projectChoices:
@@ -228,6 +234,33 @@ struct HUDRunnerOverlay: View {
             attachmentIDs: runner.attachments.map(\.id),
             referenceIDs: runner.localReferences.map(\.id)
         )
+        guard !order.isEmpty else { return }
+        let current = focusedField.flatMap { order.firstIndex(of: $0) }
+            ?? (direction < 0 ? 0 : order.count - 1)
+        let next = (current + (direction < 0 ? -1 : 1) + order.count) % order.count
+        focusedField = order[next]
+    }
+
+    private func moveRuntimePickerFocus(_ direction: Int) {
+        let order: [HUDRunnerFocusTarget]
+        if runner.runtimePickerShowsConfiguration {
+            order = [
+                .disclosureBack,
+                .harness,
+                .model,
+                .version,
+                .effort,
+                .applyRuntime,
+            ]
+        } else {
+            let presets = runner.runtimeQuickChoices(limit: 3)
+            order = presets.flatMap { preset in
+                [
+                    HUDRunnerFocusTarget.runtimeChoice(preset.id),
+                    HUDRunnerFocusTarget.runtimeTweaks(preset.id),
+                ]
+            } + [.configureRuntime]
+        }
         guard !order.isEmpty else { return }
         let current = focusedField.flatMap { order.firstIndex(of: $0) }
             ?? (direction < 0 ? 0 : order.count - 1)

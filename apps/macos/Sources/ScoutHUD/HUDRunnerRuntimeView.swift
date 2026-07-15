@@ -23,23 +23,45 @@ struct HUDRunnerModelFamily: Identifiable {
 struct HUDRunnerRuntimeConfiguration: View {
     @ObservedObject private var runner = HUDRunnerState.shared
     let focus: HUDRunnerFocusBinding
+    var presentedInPicker = false
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 10) {
-                HUDRunnerDisclosureHeader(
-                    title: "CONFIGURE RUNTIME",
-                    detail: "Applied together",
-                    focus: focus
-                )
+            VStack(spacing: 8) {
+                if presentedInPicker {
+                    HStack(spacing: 9) {
+                        Button(action: runner.showRuntimePickerChoices) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 10, weight: .bold))
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(
+                            HUDRunnerToolbarButtonStyle(
+                                isActive: false,
+                                isFocused: focus.wrappedValue == .disclosureBack
+                            )
+                        )
+                        .focused(focus, equals: .disclosureBack)
+                        .accessibilityLabel("Back to models")
 
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                    ],
-                    alignment: .leading,
-                    spacing: 10
+                        Text("CUSTOM RUNTIME")
+                            .font(HUDType.mono(9, weight: .semibold))
+                            .tracking(HUDType.eyebrowTracking)
+                            .foregroundStyle(HUDChrome.inkMuted)
+                        Spacer()
+                    }
+                    .frame(height: 30)
+                } else {
+                    HUDRunnerDisclosureHeader(
+                        title: "CONFIGURE RUNTIME",
+                        detail: "Applied together",
+                        focus: focus
+                    )
+                }
+
+                HStack(
+                    alignment: .top,
+                    spacing: 8
                 ) {
                     harnessMenu
                     modelMenu
@@ -47,25 +69,10 @@ struct HUDRunnerRuntimeConfiguration: View {
                     effortMenu
                 }
 
-                HStack(spacing: 10) {
-                    Button(action: runner.openRouteConfiguration) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
-                            Text(runner.routingLabel)
-                        }
-                    }
-                    .buttonStyle(
-                        HUDRunnerSecondaryButtonStyle(
-                            isFocused: focus.wrappedValue == .route
-                        )
-                    )
-                    .focused(focus, equals: .route)
-                    .accessibilityLabel("Route: \(runner.routingLabel)")
-                    .accessibilityHint("Configure agent persistence and identity")
-
+                HStack {
                     Spacer()
 
-                    Button("Use this runtime", action: runner.applyRuntimeDraft)
+                    Button("Use runtime", action: runner.applyRuntimeDraft)
                         .buttonStyle(
                             HUDRunnerPrimaryTextButtonStyle(
                                 isFocused: focus.wrappedValue == .applyRuntime
@@ -73,7 +80,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                         )
                         .focused(focus, equals: .applyRuntime)
                 }
-                .frame(height: 38)
+                .frame(height: 34)
             }
         }
     }
@@ -221,8 +228,8 @@ struct HUDRunnerRuntimeConfiguration: View {
                 .foregroundStyle(HUDChrome.inkFaint)
         }
         .padding(.horizontal, 11)
-        .frame(height: 38)
-        .frame(minWidth: 250, maxWidth: .infinity, alignment: .leading)
+        .frame(height: 34)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
@@ -280,14 +287,14 @@ private struct HUDRunnerRuntimeMenuControl<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(HUDType.mono(7, weight: .semibold))
                 .tracking(HUDType.eyebrowMicro)
                 .foregroundStyle(HUDChrome.inkFaint)
             content()
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(height: 36)
                 .background(HUDChrome.canvasAlt.opacity(0.72))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -300,7 +307,7 @@ private struct HUDRunnerRuntimeMenuControl<Content: View>: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .frame(maxWidth: .infinity, minHeight: 57, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 49, alignment: .leading)
     }
 }
 
@@ -479,6 +486,31 @@ enum HUDRunnerRuntimeFormatter {
         )
     }
 
+    static func composerLabel(
+        _ preset: HUDRunnerRuntimePreset,
+        runner: HUDRunnerState
+    ) -> String {
+        let models = runner.availableModels(for: preset.harness)
+        let option = models.first { $0.id == preset.model }
+            ?? HudRunnerModelOption(
+                id: preset.model,
+                label: preset.model.isEmpty ? "Default" : preset.model,
+                harnesses: [preset.harness],
+                source: "selected"
+            )
+        let descriptor = descriptor(option)
+        let version = versionDisplay(descriptor.versionLabel)
+        let effort = effortLabel(
+            preset.effort,
+            harness: preset.harness,
+            runner: runner
+        )
+        let model = version == "Latest"
+            ? descriptor.familyLabel
+            : "\(descriptor.familyLabel) \(version)"
+        return "\(model) · \(effort)"
+    }
+
     static func descriptors(
         models: [HudRunnerModelOption],
         selectedModel: String,
@@ -628,7 +660,7 @@ enum HUDRunnerRuntimeFormatter {
         }
     }
 
-    private static func versionDisplay(_ value: String) -> String {
+    static func versionDisplay(_ value: String) -> String {
         let lower = value.lowercased()
         if value == "Latest" || value == "Default" || lower.hasPrefix("v") {
             return value

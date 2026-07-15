@@ -28,15 +28,15 @@ import Testing
 @Test func runnerLayoutStepsOnlyForExpandedControlsAndCaptures() {
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: false)
-            == NSSize(width: 640, height: 512)
+            == NSSize(width: 640, height: 406)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .runtimeConfiguration, hasCaptures: false)
-            == NSSize(width: 640, height: 564)
+            == NSSize(width: 640, height: 464)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: true)
-            == NSSize(width: 640, height: 556)
+            == NSSize(width: 640, height: 450)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .route, hasCaptures: true)
@@ -47,8 +47,30 @@ import Testing
             disclosure: .projectChoices,
             hasCaptures: false,
             projectChoiceCount: 1
-        ) == NSSize(width: 640, height: 512)
+        ) == NSSize(width: 640, height: 472)
     )
+}
+
+@MainActor
+@Test func runtimePickerStaysContextualWithoutChangingHUDSize() {
+    _ = NSApplication.shared
+    let runner = HUDRunnerState.shared
+    runner.open(closesHUDOnDismiss: false, freshDraft: true)
+    defer { _ = runner.dismiss() }
+
+    let before = HUDRunnerLayout.contentSize(
+        disclosure: runner.disclosure,
+        hasCaptures: false
+    )
+    runner.toggleRuntimePicker()
+    let after = HUDRunnerLayout.contentSize(
+        disclosure: runner.disclosure,
+        hasCaptures: false
+    )
+
+    #expect(runner.isRuntimePickerPresented)
+    #expect(runner.disclosure == .none)
+    #expect(after == before)
 }
 
 @MainActor
@@ -106,12 +128,20 @@ import Testing
     history.recordRuntime(HUDRunnerRuntimePreset(harness: " ", model: "ignored", effort: "low"))
     #expect(history.runtimePresets == [pi, claudeSonnet, codexSol])
 
+    let tunedClaude = HUDRunnerRuntimePreset(
+        harness: claudeSonnet.harness,
+        model: claudeSonnet.model,
+        effort: "high"
+    )
+    history.recordRuntime(tunedClaude)
+    #expect(history.runtimePresets == [tunedClaude, pi, codexSol])
+
     history.prune(
         validProjectIDs: Set(["project-c", "project-b"]),
         isRuntimeValid: { $0.harness != "pi" }
     )
     #expect(history.projectIDs == ["project-c", "project-b"])
-    #expect(history.runtimePresets == [claudeSonnet, codexSol])
+    #expect(history.runtimePresets == [tunedClaude, codexSol])
 }
 
 @Test func focusOrderContainsOnlyControlsVisibleInEachDisclosure() throws {

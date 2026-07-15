@@ -111,42 +111,20 @@ private struct HUDRunnerSummaryCards: View {
     let focus: HUDRunnerFocusBinding
 
     var body: some View {
-        let runtime = HUDRunnerRuntimeFormatter.presentation(
-            runner.currentRuntimePreset,
-            runner: runner
-        )
-        return VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 9) {
-                HUDRunnerSectionLabel("PROJECT")
-                HUDRunnerSummaryCard(
-                    icon: "folder",
-                    title: projectTitle,
-                    detail: projectDetail,
-                    isResolved: projectIsResolved,
-                    accessibilityLabel: "Project",
-                    accessibilityValue: "\(projectTitle), \(projectDetail)",
-                    accessibilityHint: "Shows project choices",
-                    target: .projectSummary,
-                    focus: focus,
-                    action: runner.toggleProjectChoices
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 9) {
-                HUDRunnerSectionLabel("RUNTIME")
-                HUDRunnerSummaryCard(
-                    icon: "chevron.left.forwardslash.chevron.right",
-                    title: runtime.title,
-                    detail: runtime.detail,
-                    isResolved: true,
-                    accessibilityLabel: "Runtime",
-                    accessibilityValue: "\(runtime.title), \(runtime.detail)",
-                    accessibilityHint: "Shows runtime presets",
-                    target: .runtimeSummary,
-                    focus: focus,
-                    action: runner.toggleRuntimeChoices
-                )
-            }
+        VStack(alignment: .leading, spacing: 9) {
+            HUDRunnerSectionLabel("PROJECT")
+            HUDRunnerSummaryCard(
+                icon: "folder",
+                title: projectTitle,
+                detail: projectDetail,
+                isResolved: projectIsResolved,
+                accessibilityLabel: "Project",
+                accessibilityValue: "\(projectTitle), \(projectDetail)",
+                accessibilityHint: "Shows project choices",
+                target: .projectSummary,
+                focus: focus,
+                action: runner.toggleProjectChoices
+            )
         }
     }
 

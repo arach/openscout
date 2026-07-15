@@ -58,6 +58,9 @@ final class HUDRunnerState: ObservableObject {
     @Published var localReferences: [HUDRunnerLocalReference] = []
     @Published private(set) var disclosure: HUDRunnerDisclosure = .none
     @Published private(set) var runtimeDraft: HUDRunnerRuntimePreset?
+    @Published private(set) var isRuntimePickerPresented = false
+    @Published private(set) var runtimePickerShowsConfiguration = false
+    @Published private(set) var runtimePickerTuningPresetID: String?
     @Published private(set) var recentHistory: HUDRunnerRecentHistory
     @Published var isLoading: Bool = false
     @Published var isSubmitting: Bool = false
@@ -116,6 +119,9 @@ final class HUDRunnerState: ObservableObject {
         } else if !wasPresented {
             disclosure = .none
             runtimeDraft = nil
+            isRuntimePickerPresented = false
+            runtimePickerShowsConfiguration = false
+            runtimePickerTuningPresetID = nil
         }
         HUDRunnerActivationLease.shared.begin()
         self.closesHUDOnDismiss = closesHUDOnDismiss
@@ -153,6 +159,9 @@ final class HUDRunnerState: ObservableObject {
         isPresented = false
         disclosure = .none
         runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         projectInputFocused = false
         HUDRunnerActivationLease.shared.end()
     }
@@ -194,6 +203,9 @@ final class HUDRunnerState: ObservableObject {
         projectCursorIndex = 0
         disclosure = .none
         runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         runtimeSelectionIsExplicit = false
         persistenceSelectionIsExplicit = false
         agentName = ""
@@ -309,6 +321,9 @@ final class HUDRunnerState: ObservableObject {
     }
 
     func toggleProjectChoices() {
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         runtimeDraft = nil
         if disclosure == .projectChoices {
             disclosure = .none
@@ -342,6 +357,49 @@ final class HUDRunnerState: ObservableObject {
         let target = runtimeQuickChoices(limit: 3).first
             .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
             ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func toggleRuntimePicker() {
+        if isRuntimePickerPresented {
+            closeRuntimePicker(focus: .runtimeSummary)
+            return
+        }
+        disclosure = .none
+        runtimeDraft = nil
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        isRuntimePickerPresented = true
+        let target = runtimeQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+            ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func openRuntimePickerConfiguration() {
+        disclosure = .none
+        runtimeDraft = normalizedRuntimePreset(currentRuntimePreset)
+        runtimePickerShowsConfiguration = true
+        runtimePickerTuningPresetID = nil
+        isRuntimePickerPresented = true
+        requestFocus(.harness)
+    }
+
+    func showRuntimePickerChoices() {
+        runtimeDraft = nil
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        let target = runtimeQuickChoices(limit: 3).first
+            .map { HUDRunnerFocusTarget.runtimeChoice($0.id) }
+            ?? .configureRuntime
+        requestFocus(target)
+    }
+
+    func closeRuntimePicker(focus target: HUDRunnerFocusTarget = .instructions) {
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
+        runtimeDraft = nil
         requestFocus(target)
     }
 
@@ -429,6 +487,9 @@ final class HUDRunnerState: ObservableObject {
         let applied = normalizedRuntimePreset(runtimeDraft)
         setRuntime(applied, explicit: true)
         self.runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         disclosure = .none
         requestFocus(.instructions)
         HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
@@ -438,9 +499,28 @@ final class HUDRunnerState: ObservableObject {
         let applied = normalizedRuntimePreset(preset)
         setRuntime(applied, explicit: true)
         runtimeDraft = nil
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         disclosure = .none
         requestFocus(.instructions)
         HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
+    }
+
+    func applyRuntimeTweak(_ preset: HUDRunnerRuntimePreset) {
+        let applied = normalizedRuntimePreset(preset)
+        setRuntime(applied, explicit: true)
+        runtimeDraft = nil
+        runtimePickerTuningPresetID = applied.id
+        requestFocus(.runtimeTweaks(applied.id))
+        HUDRunnerAccessibility.announce("Runtime \(runnerPresetLabel) selected.", priority: .medium)
+    }
+
+    func toggleRuntimeTuning(_ preset: HUDRunnerRuntimePreset) {
+        runtimePickerTuningPresetID = runtimePickerTuningPresetID == preset.id
+            ? nil
+            : preset.id
+        requestFocus(.runtimeTweaks(preset.id))
     }
 
     func projectQuickChoices(limit: Int = 3) -> [HudRunnerProjectOption] {
@@ -467,7 +547,7 @@ final class HUDRunnerState: ObservableObject {
         func append(_ preset: HUDRunnerRuntimePreset, validate: Bool = true) {
             let normalized = normalizedRuntimePreset(preset)
             guard (!validate || isRuntimePresetValid(normalized)),
-                  !result.contains(where: { $0.id == normalized.id }) else { return }
+                  !result.contains(where: { $0.familyID == normalized.familyID }) else { return }
             result.append(normalized)
         }
 
@@ -931,7 +1011,7 @@ final class HUDRunnerState: ObservableObject {
             return true
         }
         if modifiers.contains(.command), keyCode == 15 { // ⌘R — runtime
-            openRuntimeConfiguration()
+            openRuntimePickerConfiguration()
             return true
         }
         if modifiers.contains(.command), keyCode == 31 { // ⌘O — attach
@@ -1055,6 +1135,10 @@ final class HUDRunnerState: ObservableObject {
         if voice.state.isCaptureActive || voice.state.isProcessing {
             voice.cancel()
             voice.consumeFinalText()
+            return true
+        }
+        if isRuntimePickerPresented {
+            closeRuntimePicker()
             return true
         }
         if disclosure != .none {

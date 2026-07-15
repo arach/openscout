@@ -24,6 +24,7 @@ enum HUDRunnerFocusTarget: Hashable {
     case projectChoice(String)
     case browseDirectory
     case runtimeChoice(String)
+    case runtimeTweaks(String)
     case configureRuntime
     case harness
     case model
@@ -53,7 +54,7 @@ enum HUDRunnerFocusTarget: Hashable {
         var result: [HUDRunnerFocusTarget]
         switch disclosure {
         case .none:
-            result = [.projectSummary, .runtimeSummary]
+            result = [.projectSummary]
         case .projectChoices:
             result = [.disclosureBack]
             result += projectChoiceIDs.map(Self.projectChoice)
@@ -88,7 +89,11 @@ enum HUDRunnerFocusTarget: Hashable {
         result.append(.instructions)
         result += attachmentIDs.map(Self.attachment)
         result += referenceIDs.map(Self.reference)
-        result += [.attach, .voice, .create, .dismiss]
+        if disclosure == .none {
+            result += [.attach, .runtimeSummary, .voice, .create, .dismiss]
+        } else {
+            result += [.attach, .voice, .create, .dismiss]
+        }
         return result
     }
 }
@@ -100,6 +105,10 @@ struct HUDRunnerRuntimePreset: Codable, Equatable, Hashable, Identifiable, Senda
 
     var id: String {
         [harness, model, effort].joined(separator: "\u{1F}")
+    }
+
+    var familyID: String {
+        [harness, model].joined(separator: "\u{1F}")
     }
 }
 
@@ -121,7 +130,7 @@ struct HUDRunnerRecentHistory: Codable, Equatable, Sendable {
         guard !preset.harness.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
-        runtimePresets.removeAll { $0.id == preset.id }
+        runtimePresets.removeAll { $0.familyID == preset.familyID }
         runtimePresets.insert(preset, at: 0)
         runtimePresets = Array(runtimePresets.prefix(Self.capacity))
     }
