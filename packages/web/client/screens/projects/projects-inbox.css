@@ -285,6 +285,82 @@
   padding-right: 2px;
 }
 .pi-railProjectTools .pi-railLabel { flex: 1; min-width: 0; }
+.pi-railAddBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--hud-surface) 35%, transparent);
+  color: var(--pi-dim);
+  cursor: pointer;
+}
+.pi-railAddBtn:hover {
+  color: var(--pi-ink);
+  border-color: var(--pi-hairline-strong);
+}
+.pi-railAddBtn[aria-expanded="true"] {
+  color: var(--pi-accent);
+  border-color: color-mix(in srgb, var(--pi-accent) 45%, var(--pi-hairline));
+}
+.pi-addProject {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 8px;
+}
+.pi-addProjectBox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--hud-surface) 44%, transparent);
+  color: var(--pi-dim);
+}
+.pi-addProjectBox:focus-within {
+  border-color: color-mix(in srgb, var(--pi-accent) 45%, var(--pi-hairline));
+}
+.pi-addProjectInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--pi-ink);
+  font-family: var(--pi-mono);
+  font-size: 11.5px;
+}
+.pi-addProjectInput::placeholder {
+  color: var(--pi-dim);
+}
+.pi-addProjectSubmit {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 2px 2px;
+  color: var(--pi-accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pi-addProjectSubmit:disabled {
+  color: var(--pi-dim);
+  cursor: default;
+}
+.pi-addProjectNote {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--pi-muted);
+}
+.pi-addProjectNote[data-tone="error"] {
+  color: var(--red, #c25555);
+}
 .pi-railSortWrap {
   position: relative;
   flex: none;

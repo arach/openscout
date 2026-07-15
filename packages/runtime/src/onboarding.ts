@@ -410,6 +410,35 @@ export async function saveOpenScoutOnboardingProject(input: {
   return loadOpenScoutOnboardingState({ currentDirectory: contextRoot });
 }
 
+/**
+ * One-off project registration: appends a root to discovery.workspaceRoots
+ * and touches nothing else — unlike saveOpenScoutOnboardingProject, which is
+ * the onboarding writer and REPLACES the roots array wholesale.
+ */
+export async function addOpenScoutWorkspaceRoot(input: {
+  root: string;
+  currentDirectory?: string;
+}): Promise<{ root: string; workspaceRoots: string[]; alreadyRegistered: boolean }> {
+  const root = normalizePath(input.root);
+  const settings = await readOpenScoutSettings({ currentDirectory: input.currentDirectory });
+  const existing = settings.discovery.workspaceRoots.map(normalizePath);
+  const alreadyRegistered = existing.includes(root);
+  if (!alreadyRegistered) {
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [...existing, root],
+      },
+    }, {
+      currentDirectory: input.currentDirectory,
+    });
+  }
+  return {
+    root,
+    workspaceRoots: alreadyRegistered ? existing : [...existing, root],
+    alreadyRegistered,
+  };
+}
+
 async function triggerMeshDiscovery(broker: BrokerServiceStatus): Promise<void> {
   if (!broker.reachable || !broker.brokerUrl) return;
   try {

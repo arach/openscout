@@ -246,6 +246,7 @@ import {
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
 import {
+  addOpenScoutWorkspaceRoot,
   ensureOpenScoutOnboardingCompletion,
   ensureOpenScoutOnboardingLocalConfig,
   loadOpenScoutOnboardingState,
@@ -3914,6 +3915,50 @@ export async function createOpenScoutWebServer(
       return c.json({ error: result.error }, result.status as 400 | 403 | 404);
     }
     return c.json(result.payload);
+  });
+
+  // One-off project registration: appends to discovery.workspaceRoots
+  // (never replaces — that's the onboarding writer's job), then re-scans
+  // and reports which projects actually appeared under the new root.
+  app.post("/api/projects/add", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { root?: string };
+    const requested = body.root?.trim();
+    if (!requested) {
+      return c.json({ error: "root is required" }, 400);
+    }
+    const root = resolve(expandHomePath(requested));
+    if (!existsSync(root)) {
+      return c.json({ error: `That folder doesn't exist: ${root}` }, 400);
+    }
+    if (!statSync(root).isDirectory()) {
+      return c.json({ error: `Not a folder: ${root}` }, 400);
+    }
+
+    try {
+      const { alreadyRegistered } = await addOpenScoutWorkspaceRoot({ root, currentDirectory });
+      const setup = await loadResolvedRelayAgents({ currentDirectory });
+      const registered = setup.projectInventory
+        .filter((project) => project.projectRoot === root || project.projectRoot.startsWith(`${root}/`))
+        .map((project) => ({
+          id: project.agentId,
+          title: project.displayName,
+          root: project.projectRoot,
+          source: project.source,
+          registrationKind: project.registrationKind,
+          defaultHarness: project.defaultHarness,
+          projectConfigPath: project.projectConfigPath,
+        }));
+      return c.json({
+        ok: true,
+        root,
+        alreadyRegistered,
+        projects: registered,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[projects/add]", message);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.get("/api/file/preview", (c) => {

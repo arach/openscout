@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Archive, ChevronDown, ChevronRight, Folder, Pin, Search, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Folder, FolderPlus, Pin, Search, X } from "lucide-react";
+import { api } from "../../lib/api.ts";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { pathLeaf } from "../agents/model.ts";
@@ -117,6 +118,7 @@ export function ProjectsRail({
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => readPinnedSessions());
   const [archivedSessions, setArchivedSessions] = useState<Set<string>>(() => readArchivedSessions());
   const [previewSession, setPreviewSession] = useState<SessionPreviewState | null>(null);
+  const [addingProject, setAddingProject] = useState(false);
 
   const scoped = Boolean(route.projectSlug);
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
@@ -285,7 +287,19 @@ export function ProjectsRail({
               </select>
               <ChevronDown size={12} strokeWidth={2} aria-hidden />
             </label>
+            <button
+              type="button"
+              className="pi-railAddBtn"
+              aria-expanded={addingProject}
+              aria-label="Add project"
+              title="Add a project by path"
+              onClick={() => setAddingProject((open) => !open)}
+            >
+              <FolderPlus size={13} strokeWidth={1.8} aria-hidden />
+            </button>
           </div>
+
+          {addingProject ? <AddProjectForm onClose={() => setAddingProject(false)} /> : null}
 
           {initialLoading ? (
             <RailLoadingRows />
@@ -389,6 +403,81 @@ export function ProjectsRail({
       </div>
       {previewSession ? <ProjectSessionHoverCard preview={previewSession} nowMs={nowMs} /> : null}
     </nav>
+  );
+}
+
+type AddProjectResponse = {
+  ok: true;
+  root: string;
+  alreadyRegistered: boolean;
+  projects: Array<{ id: string; title: string; root: string }>;
+};
+
+function AddProjectForm({ onClose }: { onClose: () => void }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
+
+  const submit = async () => {
+    const root = value.trim();
+    if (!root || busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await api<AddProjectResponse>("/api/projects/add", {
+        method: "POST",
+        body: JSON.stringify({ root }),
+      });
+      const registered = result.projects[0]?.title ?? null;
+      if (result.alreadyRegistered) {
+        setNote({ text: registered ? `/${registered} is already registered` : "Already registered", tone: "ok" });
+      } else if (registered) {
+        setNote({ text: `Registered /${registered}`, tone: "ok" });
+        setValue("");
+      } else {
+        setNote({ text: "Root added, but no project found there yet", tone: "error" });
+      }
+    } catch (error) {
+      setNote({ text: error instanceof Error ? error.message : String(error), tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pi-addProject">
+      <div className="pi-addProjectBox" data-busy={busy || undefined}>
+        <FolderPlus size={13} strokeWidth={1.8} aria-hidden />
+        <input
+          className="pi-addProjectInput"
+          type="text"
+          value={value}
+          placeholder="~/dev/my-project"
+          aria-label="Project folder path"
+          autoFocus
+          disabled={busy}
+          spellCheck={false}
+          onChange={(event) => setValue(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void submit();
+            if (event.key === "Escape") onClose();
+          }}
+        />
+        <button
+          type="button"
+          className="pi-addProjectSubmit"
+          disabled={busy || !value.trim()}
+          onClick={() => void submit()}
+        >
+          {busy ? "Adding..." : "Add"}
+        </button>
+      </div>
+      {note ? (
+        <div className="pi-addProjectNote" data-tone={note.tone} role="status">
+          {note.text}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
