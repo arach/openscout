@@ -76,6 +76,9 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_REPO_WATCH_CACHE_TTL_MS",
     "OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS",
     "OPENSCOUT_REPO_SERVICE_BIN",
+    "OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT",
+    "OPENSCOUT_RUNTIME_BUILD_PIN",
+    "OPENSCOUT_RUNTIME_BUILD_PIN_REASON",
     "OPENSCOUT_HOME",
     "OPENSCOUT_PROBES_SOCKET",
 ];
@@ -359,6 +362,44 @@ struct ServiceStatus {
     effective_web_url: Option<String>,
     daemon_state: Option<String>,
     probes: probes::ProbeServerStatus,
+    runtime_freshness: RuntimeFreshness,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeBuildManifest {
+    version: Option<String>,
+    commit: Option<String>,
+    source_dirty: Option<bool>,
+    built_at: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeArtifactIdentity {
+    mode: String,
+    commit: Option<String>,
+    version: Option<String>,
+    source_dirty: Option<bool>,
+    built_at: Option<String>,
+    manifest_path: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeFreshness {
+    state: String,
+    intentional: bool,
+    basis: String,
+    artifact_commit: Option<String>,
+    expected_commit: Option<String>,
+    pin: Option<String>,
+    pin_reason: Option<String>,
+    manifest_path: Option<String>,
+    version: Option<String>,
+    built_at: Option<String>,
+    source_dirty: Option<bool>,
+    detail: String,
 }
 
 #[derive(Clone, Debug)]
@@ -473,6 +514,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let mut restart_count = 0_u32;
     let mut restart_delay = RESTART_MIN_DELAY;
     let mut last_child_exit: Option<ChildExitTelemetry> = None;
+    let mut runtime_build = configured_runtime_artifact(config);
     let mut child = spawn_base_process(config)?;
 
     let mut probe_restart_count = 0_u32;
@@ -502,6 +544,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let _repo_watch_warmer = start_repo_watch_warmer(config.clone());
     write_daemon_state(
         config,
+        &runtime_build,
         started_at_ms,
         Some(child.id()),
         "running",
@@ -527,6 +570,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                 next_probe_restart_at = Some(Instant::now() + probe_restart_delay);
                 write_daemon_state(
                     config,
+                    &runtime_build,
                     started_at_ms,
                     Some(child.id()),
                     "running",
@@ -574,6 +618,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                 last_child_exit = Some(child_exit_telemetry(&status));
                 write_daemon_state(
                     config,
+                    &runtime_build,
                     started_at_ms,
                     None,
                     "exited",
@@ -593,9 +638,11 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                     break;
                 }
                 restart_delay = doubled_delay(restart_delay);
+                runtime_build = configured_runtime_artifact(config);
                 child = spawn_base_process(config)?;
                 write_daemon_state(
                     config,
+                    &runtime_build,
                     started_at_ms,
                     Some(child.id()),
                     "running",
@@ -614,6 +661,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                 if Instant::now() >= next_state_write {
                     write_daemon_state(
                         config,
+                        &runtime_build,
                         started_at_ms,
                         Some(child.id()),
                         "running",
@@ -635,6 +683,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
 
     write_daemon_state(
         config,
+        &runtime_build,
         started_at_ms,
         Some(child.id()),
         "stopping",
@@ -653,6 +702,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
     write_daemon_state(
         config,
+        &runtime_build,
         started_at_ms,
         None,
         "stopped",
@@ -993,6 +1043,7 @@ fn send_process_signal(pid: u32, signal_name: &str) -> Result<(), String> {
 fn broker_service_status(config: &Config) -> ServiceStatus {
     let health = fetch_health(config);
     let host_info = read_host_info_json(config);
+    let daemon_state = read_daemon_state_json(config);
     let effective_broker_url = host_info
         .as_deref()
         .and_then(|body| parse_json_string_field(body, "brokerUrl"))
@@ -1013,7 +1064,8 @@ fn broker_service_status(config: &Config) -> ServiceStatus {
         health,
         effective_broker_url,
         effective_web_url,
-        daemon_state: read_daemon_state_json(config),
+        runtime_freshness: inspect_runtime_freshness(config, daemon_state.as_deref()),
+        daemon_state,
         probes: probes::probe_server_status(&config.probes_socket_path),
     }
 }
@@ -1248,6 +1300,15 @@ fn doctor_report(config: &Config, options: DoctorOptions) -> DoctorReport {
     }
     if let Some(raw_state) = status.daemon_state.as_deref() {
         warnings.extend(restart_telemetry_warnings(raw_state));
+    }
+    if matches!(
+        status.runtime_freshness.state.as_str(),
+        "stale" | "unverified"
+    ) {
+        warnings.push(format!(
+            "runtime freshness {}: {}",
+            status.runtime_freshness.state, status.runtime_freshness.detail,
+        ));
     }
     if status.probes.socket_exists && !status.probes.reachable {
         warnings.push(format!(
@@ -1735,6 +1796,7 @@ fn read_host_info_json(config: &Config) -> Option<String> {
 
 fn write_daemon_state(
     config: &Config,
+    runtime_build: &RuntimeArtifactIdentity,
     started_at_ms: u128,
     base_pid: Option<u32>,
     base_state: &str,
@@ -1754,6 +1816,7 @@ fn write_daemon_state(
 \"daemon\":\"scoutd\",\
 \"version\":{},\
 \"gitSha\":{},\
+\"runtimeBuild\":{},\
 \"scoutdPid\":{},\
 \"startedAtMs\":{},\
 \"basePid\":{},\
@@ -1771,6 +1834,7 @@ fn write_daemon_state(
 }}\n",
         json_string(BUILD_VERSION),
         json_opt_str(build_git_sha()),
+        serde_json::to_string(runtime_build).unwrap_or_else(|_| "null".to_string()),
         std::process::id(),
         started_at_ms,
         json_opt_u32(base_pid),
@@ -2189,6 +2253,231 @@ fn find_workspace_runtime_dir(start: &Path) -> Option<PathBuf> {
     }
 }
 
+fn find_runtime_workspace_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        if current.join(".git").exists()
+            && current.join("packages/runtime/package.json").exists()
+            && current.join("packages/cli/package.json").exists()
+        {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn git_value(repo_root: &Path, args: &[&str]) -> Option<String> {
+    let git = env_nonempty("OPENSCOUT_GIT_BIN").unwrap_or_else(|| "git".to_string());
+    let mut command_args = vec!["-C", repo_root.to_str()?];
+    command_args.extend_from_slice(args);
+    let output = run_command(&git, &command_args).ok()?;
+    if output.status != 0 || output.stdout.trim().is_empty() {
+        None
+    } else {
+        Some(output.stdout.trim().to_string())
+    }
+}
+
+fn git_dirty(repo_root: &Path) -> Option<bool> {
+    let git = env_nonempty("OPENSCOUT_GIT_BIN").unwrap_or_else(|| "git".to_string());
+    let output = run_command(
+        &git,
+        &[
+            "-C",
+            repo_root.to_str()?,
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+        ],
+    )
+    .ok()?;
+    (output.status == 0).then(|| !output.stdout.trim().is_empty())
+}
+
+fn runtime_manifest_candidates(config: &Config) -> Vec<PathBuf> {
+    let mut candidates = vec![config.runtime_package_dir.join("dist/build-manifest.json")];
+    if let Some(root) = find_runtime_workspace_root(&config.runtime_package_dir) {
+        candidates.push(root.join("packages/cli/dist/build-manifest.json"));
+    }
+    candidates
+}
+
+fn read_runtime_build_manifest(config: &Config) -> Option<(PathBuf, RuntimeBuildManifest)> {
+    for path in runtime_manifest_candidates(config) {
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(manifest) = serde_json::from_str::<RuntimeBuildManifest>(&raw) {
+            return Some((path, manifest));
+        }
+    }
+    None
+}
+
+fn runtime_package_version(config: &Config) -> Option<String> {
+    let raw = fs::read_to_string(config.runtime_package_dir.join("package.json")).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    value.get("version")?.as_str().map(str::to_string)
+}
+
+fn configured_runtime_artifact(config: &Config) -> RuntimeArtifactIdentity {
+    let workspace_root = find_runtime_workspace_root(&config.runtime_package_dir);
+    let uses_live_source = config.service_mode == "dev"
+        && config
+            .runtime_package_dir
+            .join("src/base-daemon.ts")
+            .exists();
+    if uses_live_source {
+        return RuntimeArtifactIdentity {
+            mode: "source".to_string(),
+            commit: workspace_root
+                .as_deref()
+                .and_then(|root| git_value(root, &["rev-parse", "HEAD"])),
+            version: runtime_package_version(config),
+            source_dirty: workspace_root.as_deref().and_then(git_dirty),
+            built_at: None,
+            manifest_path: None,
+        };
+    }
+
+    if let Some((path, manifest)) = read_runtime_build_manifest(config) {
+        return RuntimeArtifactIdentity {
+            mode: "bundle".to_string(),
+            commit: manifest.commit,
+            version: manifest.version,
+            source_dirty: manifest.source_dirty,
+            built_at: manifest.built_at,
+            manifest_path: Some(path.to_string_lossy().to_string()),
+        };
+    }
+
+    RuntimeArtifactIdentity {
+        mode: "bundle".to_string(),
+        commit: None,
+        version: runtime_package_version(config),
+        source_dirty: None,
+        built_at: None,
+        manifest_path: None,
+    }
+}
+
+fn running_runtime_artifact(raw_daemon_state: Option<&str>) -> Option<RuntimeArtifactIdentity> {
+    let value = serde_json::from_str::<serde_json::Value>(raw_daemon_state?).ok()?;
+    serde_json::from_value(value.get("runtimeBuild")?.clone()).ok()
+}
+
+fn commits_match(left: &str, right: &str) -> bool {
+    let left = left.trim();
+    let right = right.trim();
+    !left.is_empty()
+        && !right.is_empty()
+        && (left == right || left.starts_with(right) || right.starts_with(left))
+}
+
+fn inspect_runtime_freshness(config: &Config, raw_daemon_state: Option<&str>) -> RuntimeFreshness {
+    let configured = configured_runtime_artifact(config);
+    let running = running_runtime_artifact(raw_daemon_state);
+    let pin = env_nonempty("OPENSCOUT_RUNTIME_BUILD_PIN");
+    let pin_reason = env_nonempty("OPENSCOUT_RUNTIME_BUILD_PIN_REASON");
+    let expected_commit = pin.clone().or_else(|| configured.commit.clone());
+    let basis = if pin.is_some() {
+        "explicit_pin"
+    } else if configured.mode == "source" {
+        "workspace_head"
+    } else {
+        "installed_artifact"
+    };
+
+    let Some(actual) = running else {
+        return RuntimeFreshness {
+            state: "unverified".to_string(),
+            intentional: false,
+            basis: basis.to_string(),
+            artifact_commit: None,
+            expected_commit,
+            pin,
+            pin_reason,
+            manifest_path: configured.manifest_path,
+            version: configured.version,
+            built_at: configured.built_at,
+            source_dirty: configured.source_dirty,
+            detail: "No running runtime artifact identity is recorded; restart scoutd once to establish it.".to_string(),
+        };
+    };
+
+    let actual_commit = actual.commit.clone();
+    let matches_expected = actual_commit
+        .as_deref()
+        .zip(expected_commit.as_deref())
+        .map(|(actual, expected)| commits_match(actual, expected))
+        .unwrap_or(false);
+
+    let (state, intentional, detail) = if pin.is_some() && matches_expected {
+        (
+            "pinned",
+            true,
+            format!(
+                "Running the explicitly pinned runtime build{}.",
+                pin_reason
+                    .as_deref()
+                    .map(|reason| format!(" ({reason})"))
+                    .unwrap_or_default()
+            ),
+        )
+    } else if !matches_expected {
+        (
+            "stale",
+            false,
+            match (actual_commit.as_deref(), expected_commit.as_deref()) {
+                (Some(actual), Some(expected)) => format!(
+                    "Running runtime commit {actual} does not match expected commit {expected}. Rebuild/restart, or set OPENSCOUT_RUNTIME_BUILD_PIN={actual} with a reason to make the older build intentional."
+                ),
+                (None, _) => "The running runtime has no artifact commit. Rebuild the CLI/runtime bundle and restart scoutd.".to_string(),
+                (_, None) => "Scoutd cannot determine the expected runtime commit.".to_string(),
+            },
+        )
+    } else if actual.mode == "bundle"
+        && configured.built_at.is_some()
+        && actual.built_at != configured.built_at
+    {
+        (
+            "stale",
+            false,
+            "A newer bundle with the same source commit exists on disk; restart scoutd to run it."
+                .to_string(),
+        )
+    } else if actual.mode == "source" && actual.source_dirty == Some(true) {
+        (
+            "unverified",
+            false,
+            "The runtime started from a dirty source checkout; commit identity alone cannot prove that the currently loaded process includes every working-tree edit.".to_string(),
+        )
+    } else {
+        (
+            "current",
+            false,
+            "The running runtime identity matches the configured source/artifact.".to_string(),
+        )
+    };
+
+    RuntimeFreshness {
+        state: state.to_string(),
+        intentional,
+        basis: basis.to_string(),
+        artifact_commit: actual_commit,
+        expected_commit,
+        pin,
+        pin_reason,
+        manifest_path: actual.manifest_path.or(configured.manifest_path),
+        version: actual.version.or(configured.version),
+        built_at: actual.built_at,
+        source_dirty: actual.source_dirty,
+        detail,
+    }
+}
+
 fn path_str(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
@@ -2284,6 +2573,11 @@ fn print_status(status: &ServiceStatus, json: bool) {
             "web url: {}",
             status.effective_web_url.as_deref().unwrap_or("-")
         );
+        println!(
+            "runtime freshness: {} ({})",
+            status.runtime_freshness.state, status.runtime_freshness.basis,
+        );
+        println!("runtime detail: {}", status.runtime_freshness.detail);
         println!("reachable: {}", yes_no(status.health.reachable));
         println!(
             "health: {}",
@@ -2396,6 +2690,7 @@ fn status_json(status: &ServiceStatus) -> String {
 \"hostInfoPath\":{},\
 \"scoutdStatePath\":{},\
 \"scoutdState\":{},\
+\"runtimeFreshness\":{},\
 \"probes\":{}\
 }}",
         json_string(&status.config.label),
@@ -2429,6 +2724,7 @@ fn status_json(status: &ServiceStatus) -> String {
         json_string(&status.config.host_info_path.to_string_lossy()),
         json_string(&status.config.daemon_state_path.to_string_lossy()),
         status.daemon_state.as_deref().unwrap_or("null"),
+        serde_json::to_string(&status.runtime_freshness).unwrap_or_else(|_| "null".to_string()),
         serde_json::to_string(&status.probes).unwrap_or_else(|_| "null".to_string()),
     )
 }
@@ -2615,15 +2911,15 @@ fn xml_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
+        build_identity_json, build_identity_text, command_invokes_scoutd_daemon, commits_match,
         health_body_reports_ok, legacy_service_labels, legacy_service_targets,
         parse_daemon_state_telemetry, parse_health_response, parse_http_status_code,
         process_snapshot_filter, read_last_log_line_from, resolve_advertise_scope_value,
         resolve_broker_host_value, resolve_broker_url_value, restart_telemetry_warnings,
-        rotate_child_log_if_needed, rotated_child_log_path, scoutd_owned_child_log_path, Config,
-        BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST,
-        DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
-        REPO_WATCH_WARM_PATH,
+        rotate_child_log_if_needed, rotated_child_log_path, running_runtime_artifact,
+        scoutd_owned_child_log_path, Config, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
+        DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, LEGACY_DAEMON_NAME,
+        LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -2811,6 +3107,22 @@ mod tests {
         assert!(build_identity_text().starts_with(&format!("{DAEMON_NAME} {BUILD_VERSION}")));
         assert!(build_identity_json().contains(&format!(r#""version":"{BUILD_VERSION}""#)));
         assert!(build_identity_json().contains(r#""gitSha":"#));
+    }
+
+    #[test]
+    fn runtime_commit_comparison_accepts_full_and_short_git_ids() {
+        assert!(commits_match("abcdef1234567890", "abcdef1"));
+        assert!(commits_match("abcdef1", "abcdef1234567890"));
+        assert!(!commits_match("abcdef1", "1234567"));
+    }
+
+    #[test]
+    fn daemon_state_runtime_identity_round_trips() {
+        let state = r#"{"runtimeBuild":{"mode":"bundle","commit":"abcdef1","version":"0.2.73","sourceDirty":false,"builtAt":"2026-07-15T20:00:00.000Z","manifestPath":"/opt/openscout/dist/build-manifest.json"}}"#;
+        let identity = running_runtime_artifact(Some(state)).expect("runtime identity");
+        assert_eq!(identity.mode, "bundle");
+        assert_eq!(identity.commit.as_deref(), Some("abcdef1"));
+        assert_eq!(identity.source_dirty, Some(false));
     }
 
     #[test]

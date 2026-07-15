@@ -60,7 +60,13 @@ describe("broker daemon local agent routing", () => {
     const snapshot = await broker.getJson<{
       actors: Record<string, { kind: string; displayName?: string; handle?: string; metadata?: Record<string, unknown> }>;
       agents: Record<string, unknown>;
-      endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
+      endpoints: Record<string, {
+        agentId: string;
+        harness?: string;
+        transport?: string;
+        projectRoot?: string;
+        metadata?: Record<string, unknown>;
+      }>;
     }>(harness.baseUrl, "/v1/snapshot");
     expect(snapshot.actors[response.targetAgentId!]?.handle).toMatch(/^project-/);
     expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^implicit-project-/);
@@ -76,11 +82,64 @@ describe("broker daemon local agent routing", () => {
     expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         agentId: response.targetAgentId,
+        harness: "claude",
+        transport: "tmux",
         projectRoot,
         metadata: expect.objectContaining({
           cardless: true,
           pendingExternalSession: true,
         }),
+      }),
+    ]));
+  }, 15_000);
+
+  test("uses stream JSON only when the cardless Claude backup transport is explicit", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "stream-json-backup");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+        OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT: "claude_stream_json",
+      },
+    });
+
+    const response = await broker.postJson<{
+      accepted: boolean;
+      targetAgentId?: string;
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-stream-json-backup",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Use the explicitly configured backup transport.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.accepted).toBe(true);
+    const snapshot = await broker.getJson<{
+      endpoints: Record<string, { agentId: string; harness?: string; transport?: string }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        harness: "claude",
+        transport: "claude_stream_json",
       }),
     ]));
   }, 15_000);

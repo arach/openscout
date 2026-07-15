@@ -9,6 +9,7 @@ import {
   cardlessSessionsForProjectRoot,
   isCardlessSessionEndpoint,
   registerCardlessSession,
+  resolveCardlessSessionSpawnTarget,
 } from "./broker-cardless-session.js";
 import { resolveBrokerRouteTarget } from "./scout-dispatcher.js";
 
@@ -20,6 +21,18 @@ function newRuntime() {
 }
 
 describe("SCO-070 cardless sessions", () => {
+  test("maps cardless harnesses to their default and backup transports", () => {
+    expect(resolveCardlessSessionSpawnTarget(undefined)).toEqual({ harness: "claude", transport: "tmux" });
+    expect(resolveCardlessSessionSpawnTarget("claude")).toEqual({ harness: "claude", transport: "tmux" });
+    expect(resolveCardlessSessionSpawnTarget("claude", { claudeTransport: "stream-json" })).toEqual({
+      harness: "claude",
+      transport: "claude_stream_json",
+    });
+    expect(resolveCardlessSessionSpawnTarget("codex")).toEqual({ harness: "codex", transport: "codex_app_server" });
+    expect(resolveCardlessSessionSpawnTarget("grok")).toEqual({ harness: "grok-acp", transport: "grok_acp" });
+    expect(() => resolveCardlessSessionSpawnTarget("cursor")).toThrow("cannot auto-spawn");
+  });
+
   test("formats display names as {project}-{alias}", () => {
     expect(cardlessSessionDisplayName({ handle: "project-hooke", projectName: "scope" })).toBe("scope-hooke");
     expect(cardlessSessionDisplayName({ handle: "archimedes", projectName: "scope" })).toBe("scope-archimedes");

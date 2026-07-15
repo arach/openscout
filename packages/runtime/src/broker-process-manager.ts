@@ -95,6 +95,21 @@ export type BrokerHealthSnapshot = {
   error?: string;
 };
 
+export type BrokerRuntimeFreshness = {
+  state: "current" | "pinned" | "stale" | "unverified" | string;
+  intentional: boolean;
+  basis: string;
+  artifactCommit: string | null;
+  expectedCommit: string | null;
+  pin: string | null;
+  pinReason: string | null;
+  manifestPath: string | null;
+  version: string | null;
+  builtAt: string | null;
+  sourceDirty: boolean | null;
+  detail: string;
+};
+
 export type BrokerServiceStatus = {
   serviceAdapter?: RuntimeServiceAdapterKind;
   label: string;
@@ -116,6 +131,7 @@ export type BrokerServiceStatus = {
   usesLaunchAgent: boolean;
   reachable: boolean;
   health: BrokerHealthSnapshot;
+  runtimeFreshness?: BrokerRuntimeFreshness;
   lastLogLine: string | null;
 };
 
@@ -574,6 +590,28 @@ function readHealthTransport(value: unknown): BrokerHealthTransport | undefined 
   return value === "unix_socket" || value === "http" || value === "in_process" ? value : undefined;
 }
 
+function readRuntimeFreshness(value: unknown): BrokerRuntimeFreshness | undefined {
+  if (!isRecord(value)) return undefined;
+  const state = readString(value.state);
+  const basis = readString(value.basis);
+  const detail = readString(value.detail);
+  if (!state || !basis || !detail) return undefined;
+  return {
+    state,
+    intentional: readBoolean(value.intentional) ?? false,
+    basis,
+    artifactCommit: readString(value.artifactCommit) ?? null,
+    expectedCommit: readString(value.expectedCommit) ?? null,
+    pin: readString(value.pin) ?? null,
+    pinReason: readString(value.pinReason) ?? null,
+    manifestPath: readString(value.manifestPath) ?? null,
+    version: readString(value.version) ?? null,
+    builtAt: readString(value.builtAt) ?? null,
+    sourceDirty: readBoolean(value.sourceDirty) ?? null,
+    detail,
+  };
+}
+
 function normalizeNativeServiceStatus(input: NativeServiceStatus, config: BrokerServiceConfig): BrokerServiceStatus {
   const healthRecord = isRecord(input.health) ? input.health : {};
   const healthReachable = readBoolean(healthRecord.reachable) ?? readBoolean(input.reachable) ?? false;
@@ -596,6 +634,7 @@ function normalizeNativeServiceStatus(input: NativeServiceStatus, config: Broker
     ?? (healthReachable
       ? readLastLogLine([stdoutLogPath, stderrLogPath])
       : readLastLogLine([stderrLogPath, stdoutLogPath]));
+  const runtimeFreshness = readRuntimeFreshness(input.runtimeFreshness);
 
   return {
     label: readString(input.label) ?? config.label,
@@ -635,6 +674,9 @@ function normalizeNativeServiceStatus(input: NativeServiceStatus, config: Broker
         : {}),
       error: healthError,
     },
+    ...(runtimeFreshness
+      ? { runtimeFreshness }
+      : {}),
     lastLogLine,
   };
 }
@@ -1038,8 +1080,13 @@ function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
     `reachable: ${status.reachable ? "yes" : "no"}`,
     `health: ${status.health.ok ? "ok" : status.health.error ?? "unreachable"}`,
     `health transport: ${status.health.transport ?? "unknown"}`,
+    `runtime freshness: ${status.runtimeFreshness?.state ?? "unavailable"}`,
     `logs: ${status.stdoutLogPath}`,
   ];
+
+  if (status.runtimeFreshness) {
+    lines.push(`runtime freshness detail: ${status.runtimeFreshness.detail}`);
+  }
 
   if (status.health.socketFallbackError) {
     lines.push(`socket fallback: ${status.health.socketFallbackError}`);
