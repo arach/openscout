@@ -1,6 +1,6 @@
 # macOS App Agent Notes
 
-Verified: 2026-07-14
+Verified: 2026-06-10
 
 Source: `apps/macos/**`, `packages/scout-native-core/**`.
 
