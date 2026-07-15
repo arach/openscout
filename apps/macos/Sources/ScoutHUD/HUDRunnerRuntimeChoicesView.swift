@@ -7,7 +7,7 @@ struct HUDRunnerRuntimeChoices: View {
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 5) {
+            VStack(spacing: 8) {
                 HUDRunnerDisclosureHeader(
                     title: "RUNTIMES",
                     detail: "Recent and suggested",
@@ -28,23 +28,22 @@ struct HUDRunnerRuntimeChoices: View {
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
-                    .font(HUDType.body(10, weight: .semibold))
+                    .font(HUDType.body(12, weight: .medium))
                     .foregroundStyle(HUDChrome.inkMuted)
-                    .padding(.horizontal, 9)
-                    .frame(height: 24)
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(
                     HUDRunnerCardButtonStyle(
                         isSelected: false,
                         isFocused: focus.wrappedValue == .configureRuntime,
-                        cornerRadius: 7
+                        cornerRadius: 11
                     )
                 )
                 .focused(focus, equals: .configureRuntime)
                 .accessibilityHint("Opens harness, model, version, and effort controls")
             }
-            .padding(7)
         }
     }
 }
@@ -64,29 +63,48 @@ private struct HUDRunnerRuntimeOptionRow: View {
         return Button {
             runner.selectRuntimePreset(preset)
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "cpu")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(selected ? HUDChrome.accent : HUDChrome.inkFaint)
-                Text(presentation.title)
-                    .font(HUDType.body(10, weight: .semibold))
-                    .foregroundStyle(HUDChrome.ink)
-                    .lineLimit(1)
-                Spacer(minLength: 7)
-                Text(presentation.detail)
-                    .font(HUDType.mono(8))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .lineLimit(1)
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selected ? HUDChrome.accentWhisper : HUDChrome.canvasLift.opacity(0.24))
+                    .frame(width: 34, height: 34)
+                    .overlay(
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(selected ? HUDChrome.accent : HUDChrome.inkMuted)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(
+                                selected ? HUDChrome.accent.opacity(0.40) : HUDChrome.borderSoft,
+                                lineWidth: 0.75
+                            )
+                    )
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(presentation.title)
+                        .font(HUDType.body(13, weight: .semibold))
+                        .foregroundStyle(HUDChrome.ink)
+                        .lineLimit(1)
+                    Text(presentation.detail)
+                        .font(HUDType.mono(9))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(HUDChrome.accent)
+                }
             }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 27, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(
             HUDRunnerCardButtonStyle(
                 isSelected: selected,
                 isFocused: focus.wrappedValue == target,
-                cornerRadius: 7
+                cornerRadius: 11
             )
         )
         .focused(focus, equals: target)

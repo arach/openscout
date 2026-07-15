@@ -22,11 +22,11 @@ struct HUDRunnerCardButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDChrome.borderStrong
+                            ? HUDChrome.accent.opacity(0.56)
                             : (isSelected
-                                ? HUDChrome.accent.opacity(0.40)
-                                : HUDChrome.borderSoft),
-                        lineWidth: isFocused ? 1.25 : 0.75
+                                ? HUDChrome.accent.opacity(0.42)
+                                : HUDChrome.border.opacity(0.72)),
+                        lineWidth: isFocused ? 1 : 0.75
                     )
             )
     }
@@ -69,10 +69,10 @@ struct HUDRunnerSecondaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(HUDType.body(9, weight: .semibold))
+            .font(HUDType.body(11, weight: .semibold))
             .foregroundStyle(HUDChrome.inkMuted)
-            .padding(.horizontal, 8)
-            .frame(height: 24)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
             .background(HUDChrome.canvasLift.opacity(configuration.isPressed ? 0.46 : 0.25))
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -90,10 +90,10 @@ struct HUDRunnerPrimaryTextButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(HUDType.body(9, weight: .semibold))
+            .font(HUDType.body(11, weight: .semibold))
             .foregroundStyle(HUDChrome.canvas)
-            .padding(.horizontal, 10)
-            .frame(height: 24)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
             .background(HUDChrome.accent.opacity(configuration.isPressed ? 0.74 : 0.92))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay(
@@ -107,8 +107,6 @@ struct HUDRunnerPrimaryTextButtonStyle: ButtonStyle {
 }
 
 struct HUDRunnerSendButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
     var isFocused: Bool = false
     var cornerRadius: CGFloat = 9
 
@@ -126,7 +124,6 @@ struct HUDRunnerSendButtonStyle: ButtonStyle {
                         lineWidth: 1.25
                     )
             )
-            .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

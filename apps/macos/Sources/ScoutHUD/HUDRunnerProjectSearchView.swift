@@ -7,7 +7,7 @@ struct HUDRunnerProjectSearch: View {
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 5) {
+            VStack(spacing: 8) {
                 HUDRunnerDisclosureHeader(
                     title: "FIND A PROJECT",
                     detail: "Type to filter",
@@ -24,24 +24,24 @@ struct HUDRunnerProjectSearch: View {
         HStack(spacing: 6) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(HUDChrome.inkFaint)
                 TextField(
                     "Project name or path",
                     text: $runner.projectSearchQuery
                 )
                 .textFieldStyle(.plain)
-                .font(HUDType.body(11, weight: .semibold))
+                .font(HUDType.body(12, weight: .medium))
                 .foregroundStyle(HUDChrome.ink)
                 .onChange(of: runner.projectSearchQuery) { _, _ in
                     runner.projectCursorIndex = 0
                 }
             }
-            .padding(.horizontal, 9)
-            .frame(height: 31)
+            .padding(.horizontal, 12)
+            .frame(height: 42)
             .background(HUDChrome.canvasAlt.opacity(0.74))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .stroke(
                         focus.wrappedValue == .projectSearch
                             ? HUDChrome.borderStrong
@@ -49,14 +49,14 @@ struct HUDRunnerProjectSearch: View {
                         lineWidth: focus.wrappedValue == .projectSearch ? 1.25 : 0.75
                     )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             .focused(focus, equals: .projectSearch)
             .accessibilityLabel("Project search")
 
             Button(action: runner.browseForDirectory) {
                 Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 31, height: 31)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 42, height: 42)
             }
             .buttonStyle(
                 HUDRunnerToolbarButtonStyle(
@@ -78,11 +78,11 @@ struct HUDRunnerProjectSearch: View {
                 Image(systemName: "folder")
                 Text(runner.isLoading ? "Loading projects…" : "No matching projects")
             }
-            .font(HUDType.body(10))
+            .font(HUDType.body(12))
             .foregroundStyle(HUDChrome.inkFaint)
-            .frame(maxWidth: .infinity, minHeight: 67)
+            .frame(maxWidth: .infinity, minHeight: 160)
         } else {
-            VStack(spacing: 3) {
+            VStack(spacing: 8) {
                 ForEach(matches) { project in
                     HUDRunnerProjectOptionRow(
                         project: project,

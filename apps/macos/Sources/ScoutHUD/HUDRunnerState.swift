@@ -90,6 +90,7 @@ final class HUDRunnerState: ObservableObject {
     private let historyDefaults: UserDefaults?
 
     private static let historyDefaultsKey = "hud.runner.recent-history.v1"
+    private static let lastProjectDirectoryDefaultsKey = "hud.runner.last-project-directory.v1"
 
     private init(historyDefaults: UserDefaults? = HUDRunnerState.defaultHistoryDefaults) {
         self.historyDefaults = historyDefaults
@@ -185,7 +186,7 @@ final class HUDRunnerState: ObservableObject {
     private func resetDraft() {
         activeFileIntakeIDs.removeAll()
         isStagingFiles = false
-        directory = options?.defaults?.directory ?? ""
+        directory = preferredInitialDirectory
         projectQuery = ""
         projectSearchQuery = ""
         selectedProjectId = nil
@@ -244,6 +245,7 @@ final class HUDRunnerState: ObservableObject {
         projectQuery = project.title
         projectCursorIndex = 0
         directory = project.root
+        cacheProjectDirectory(project.root)
         if !runtimeSelectionIsExplicit,
            let defaultHarness = project.defaultHarness,
            !defaultHarness.isEmpty {
@@ -283,6 +285,7 @@ final class HUDRunnerState: ObservableObject {
         }
         if panel.runModal() == .OK, let url = panel.url {
             directory = url.path
+            cacheProjectDirectory(url.path)
             projectQuery = url.path
             projectSearchQuery = ""
             selectedProjectId = nil
@@ -442,7 +445,7 @@ final class HUDRunnerState: ObservableObject {
 
     func projectQuickChoices(limit: Int = 3) -> [HudRunnerProjectOption] {
         guard limit > 0 else { return [] }
-        let projects = options?.projects ?? []
+        let projects = projectOptions
         var ids: [String] = []
         if let selectedProjectId { ids.append(selectedProjectId) }
         ids += recentHistory.projectIDs
@@ -810,7 +813,7 @@ final class HUDRunnerState: ObservableObject {
 
     var selectedProject: HudRunnerProjectOption? {
         guard let selectedProjectId else { return nil }
-        return options?.projects.first { $0.id == selectedProjectId }
+        return projectOptions.first { $0.id == selectedProjectId }
     }
 
     var shouldShowProjectMatches: Bool {
@@ -858,7 +861,7 @@ final class HUDRunnerState: ObservableObject {
     }
 
     func projectMatches(limit: Int = 6) -> [HudRunnerProjectOption] {
-        let projects = options?.projects ?? []
+        let projects = projectOptions
         let query = normalizedSearch(projectSearchQuery)
         let selected = selectedProject
 
@@ -1207,8 +1210,9 @@ final class HUDRunnerState: ObservableObject {
     private func applyDefaultsIfNeeded(_ options: HudRunnerOptions) {
         guard !didApplyDefaults else { return }
         didApplyDefaults = true
-        let userStartedProject = selectedProjectId != nil
-            || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let userStartedProject = automaticSelectedProjectId == nil
+            && (selectedProjectId != nil
+                || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         if !userStartedProject,
            directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             directory = options.defaults?.directory ?? NSHomeDirectory()
@@ -1233,7 +1237,7 @@ final class HUDRunnerState: ObservableObject {
         }
         if !userStartedProject {
             inferProject(from: capturedFileURLs)
-            if selectedProject == nil, let project = projectForDirectory(directory) {
+            if let project = projectForDirectory(directory) {
                 selectProject(project, automatic: true)
             } else if selectedProject == nil,
                       projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1285,12 +1289,12 @@ final class HUDRunnerState: ObservableObject {
     private func projectForDirectory(_ value: String) -> HudRunnerProjectOption? {
         let normalized = standardizedPath(value)
         guard !normalized.isEmpty else { return nil }
-        return options?.projects.first { standardizedPath($0.root) == normalized }
+        return projectOptions.first { standardizedPath($0.root) == normalized }
     }
 
     private func inferProject(from urls: [URL]) {
         guard selectedProject == nil, !urls.isEmpty else { return }
-        let projects = options?.projects ?? []
+        let projects = projectOptions
         guard !projects.isEmpty else { return }
 
         let paths = urls.map { standardizedPath($0.path) }
@@ -1309,11 +1313,65 @@ final class HUDRunnerState: ObservableObject {
     private func exactProjectMatch(for value: String) -> HudRunnerProjectOption? {
         let query = normalizedSearch(value)
         guard !query.isEmpty else { return nil }
-        return options?.projects.first { project in
+        return projectOptions.first { project in
             normalizedSearch(project.title) == query
                 || normalizedSearch(URL(fileURLWithPath: project.root).lastPathComponent) == query
                 || standardizedPath(project.root) == standardizedPath(value)
         }
+    }
+
+    private var preferredInitialDirectory: String {
+        if let configured = options?.defaults?.directory?.trimmedNonEmpty {
+            return configured
+        }
+        if let cached = historyDefaults?.string(forKey: Self.lastProjectDirectoryDefaultsKey)?.trimmedNonEmpty {
+            return cached
+        }
+        return Self.developmentProjectRoot ?? ""
+    }
+
+    private var projectOptions: [HudRunnerProjectOption] {
+        var projects = options?.projects ?? []
+        let root = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !root.isEmpty else { return projects }
+        let normalized = standardizedPath(root)
+        guard !projects.contains(where: { standardizedPath($0.root) == normalized }) else {
+            return projects
+        }
+        let title = URL(fileURLWithPath: root).lastPathComponent.trimmedNonEmpty ?? root
+        projects.insert(
+            HudRunnerProjectOption(
+                id: "local:\(normalized)",
+                title: title,
+                root: root,
+                source: "local",
+                registrationKind: nil,
+                defaultHarness: nil
+            ),
+            at: 0
+        )
+        return projects
+    }
+
+    private func cacheProjectDirectory(_ value: String) {
+        let directory = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !directory.isEmpty else { return }
+        historyDefaults?.set(directory, forKey: Self.lastProjectDirectoryDefaultsKey)
+    }
+
+    private static var developmentProjectRoot: String? {
+        var cursor = Bundle.main.bundleURL.standardizedFileURL
+        guard cursor.path.contains("/apps/macos/dist/") else { return nil }
+        for _ in 0..<8 {
+            let gitMarker = cursor.appendingPathComponent(".git").path
+            if FileManager.default.fileExists(atPath: gitMarker) {
+                return cursor.path
+            }
+            let parent = cursor.deletingLastPathComponent()
+            guard parent.path != cursor.path else { break }
+            cursor = parent
+        }
+        return nil
     }
 
     private func preferredModel(for harness: String) -> String {

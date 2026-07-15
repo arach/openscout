@@ -256,13 +256,18 @@ public final class HUDController {
             .map { $0 || $1 }
             .removeDuplicates()
 
-        runnerGeometrySubscription = Publishers.CombineLatest3(
+        let projectOptionCount = runner.$options
+            .map { $0?.projects.count ?? 0 }
+            .removeDuplicates()
+
+        runnerGeometrySubscription = Publishers.CombineLatest4(
             runner.$isPresented.removeDuplicates(),
             runner.$disclosure.removeDuplicates(),
-            hasCaptures
+            hasCaptures,
+            projectOptionCount
         )
             .dropFirst()
-            .sink { [weak self] _, _, _ in
+            .sink { [weak self] _, _, _, _ in
                 Task { @MainActor [weak self] in
                     let runner = HUDRunnerState.shared
                     guard runner.isPresented || !runner.closesHUDOnDismiss else { return }
@@ -376,7 +381,9 @@ public final class HUDController {
         if runner.isPresented {
             return HUDRunnerLayout.contentSize(
                 disclosure: runner.disclosure,
-                hasCaptures: !runner.attachments.isEmpty || !runner.localReferences.isEmpty
+                hasCaptures: !runner.attachments.isEmpty || !runner.localReferences.isEmpty,
+                projectChoiceCount: runner.projectQuickChoices(limit: 3).count,
+                runtimeChoiceCount: runner.runtimeQuickChoices(limit: 3).count
             )
         }
         return size.contentSize(for: view, collapsed: tailCollapsed, on: screen)

@@ -4,22 +4,53 @@ import ScoutSharedUI
 import SwiftUI
 
 enum HUDRunnerLayout {
-    static let width: CGFloat = 560
-    static let collapsedHeight: CGFloat = 380
-    static let disclosureHeightDelta: CGFloat = 42
+    static let width: CGFloat = 640
+    static let collapsedHeight: CGFloat = 512
+    static let collapsedRoutingHeight: CGFloat = 184
     static let captureHeightDelta: CGFloat = 44
     static let editorHeight: CGFloat = 96
     static let toolbarHeight: CGFloat = 58
     static let captureStripHeight: CGFloat = 44
 
+    static func routingHeight(
+        for disclosure: HUDRunnerDisclosure,
+        projectChoiceCount: Int = 3,
+        runtimeChoiceCount: Int = 3
+    ) -> CGFloat {
+        switch disclosure {
+        case .none:
+            return collapsedRoutingHeight
+        case .projectChoices, .projectSearch:
+            return choiceRoutingHeight(count: projectChoiceCount)
+        case .runtimeChoices:
+            return choiceRoutingHeight(count: runtimeChoiceCount)
+        case .runtimeConfiguration, .route:
+            return 236
+        }
+    }
+
+    private static func choiceRoutingHeight(count: Int) -> CGFloat {
+        let visibleCount = min(max(count, 1), 3)
+        let rows = CGFloat(visibleCount) * 56
+        let rowGaps = CGFloat(max(visibleCount - 1, 0)) * 8
+        let content = 30 + 8 + rows + rowGaps + 8 + 42
+        return max(collapsedRoutingHeight, content)
+    }
+
     static func contentSize(
         disclosure: HUDRunnerDisclosure,
-        hasCaptures: Bool
+        hasCaptures: Bool,
+        projectChoiceCount: Int = 3,
+        runtimeChoiceCount: Int = 3
     ) -> NSSize {
         NSSize(
             width: width,
             height: collapsedHeight
-                + (disclosure.isExpanded ? disclosureHeightDelta : 0)
+                + routingHeight(
+                    for: disclosure,
+                    projectChoiceCount: projectChoiceCount,
+                    runtimeChoiceCount: runtimeChoiceCount
+                ) - collapsedRoutingHeight
                 + (hasCaptures ? captureHeightDelta : 0)
         )
     }
@@ -121,18 +152,25 @@ struct HUDRunnerOverlay: View {
         VStack(alignment: .leading, spacing: 0) {
             HUDRunnerHeader(focus: $focusedField)
             HUDHairline()
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 22) {
                 HUDRunnerRoutingSurface(focus: $focusedField)
                     .frame(
-                        height: runner.disclosure == .none ? 124 : 166,
+                        height: HUDRunnerLayout.routingHeight(
+                            for: runner.disclosure,
+                            projectChoiceCount: projectChoiceCount,
+                            runtimeChoiceCount: runtimeChoiceCount
+                        ),
                         alignment: .top
                     )
-                HUDRunnerComposer(
-                    focus: $focusedField,
-                    dropTargeted: dropTargeted
-                )
+                VStack(alignment: .leading, spacing: 10) {
+                    HUDRunnerSectionLabel("MESSAGE")
+                    HUDRunnerComposer(
+                        focus: $focusedField,
+                        dropTargeted: dropTargeted
+                    )
+                }
             }
-            .padding(14)
+            .padding(26)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .disabled(runner.isSubmitting)
         }
@@ -147,6 +185,19 @@ struct HUDRunnerOverlay: View {
                 endPoint: .bottom
             )
         )
+    }
+
+    private var projectChoiceCount: Int {
+        switch runner.disclosure {
+        case .projectChoices, .projectSearch:
+            runner.projectQuickChoices(limit: 3).count
+        default:
+            3
+        }
+    }
+
+    private var runtimeChoiceCount: Int {
+        runner.runtimeQuickChoices(limit: 3).count
     }
 
     private func focus(_ target: HUDRunnerFocusTarget) {
@@ -182,5 +233,20 @@ struct HUDRunnerOverlay: View {
             ?? (direction < 0 ? 0 : order.count - 1)
         let next = (current + (direction < 0 ? -1 : 1) + order.count) % order.count
         focusedField = order[next]
+    }
+}
+
+struct HUDRunnerSectionLabel: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(HUDType.mono(9, weight: .semibold))
+            .tracking(HUDType.eyebrowTracking)
+            .foregroundStyle(HUDChrome.inkFaint)
     }
 }

@@ -28,19 +28,26 @@ import Testing
 @Test func runnerLayoutStepsOnlyForExpandedControlsAndCaptures() {
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: false)
-            == NSSize(width: 560, height: 380)
+            == NSSize(width: 640, height: 512)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .runtimeConfiguration, hasCaptures: false)
-            == NSSize(width: 560, height: 422)
+            == NSSize(width: 640, height: 564)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: true)
-            == NSSize(width: 560, height: 424)
+            == NSSize(width: 640, height: 556)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .route, hasCaptures: true)
-            == NSSize(width: 560, height: 466)
+            == NSSize(width: 640, height: 608)
+    )
+    #expect(
+        HUDRunnerLayout.contentSize(
+            disclosure: .projectChoices,
+            hasCaptures: false,
+            projectChoiceCount: 1
+        ) == NSSize(width: 640, height: 512)
     )
 }
 

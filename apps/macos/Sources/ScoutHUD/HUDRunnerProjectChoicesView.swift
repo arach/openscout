@@ -7,7 +7,7 @@ struct HUDRunnerProjectChoices: View {
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 5) {
+            VStack(spacing: 8) {
                 HUDRunnerDisclosureHeader(
                     title: "PROJECTS",
                     detail: "Recent and known",
@@ -28,23 +28,22 @@ struct HUDRunnerProjectChoices: View {
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
-                    .font(HUDType.body(10, weight: .semibold))
+                    .font(HUDType.body(12, weight: .medium))
                     .foregroundStyle(HUDChrome.inkMuted)
-                    .padding(.horizontal, 9)
-                    .frame(height: 24)
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(
                     HUDRunnerCardButtonStyle(
                         isSelected: false,
                         isFocused: focus.wrappedValue == .projectSearch,
-                        cornerRadius: 7
+                        cornerRadius: 11
                     )
                 )
                 .focused(focus, equals: .projectSearch)
                 .accessibilityHint("Opens project search")
             }
-            .padding(7)
         }
     }
 }

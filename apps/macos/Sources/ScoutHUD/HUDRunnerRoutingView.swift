@@ -8,17 +8,17 @@ struct HUDRunnerHeader: View {
     let focus: HUDRunnerFocusBinding
 
     var body: some View {
-        HStack(spacing: 11) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .fill(HUDChrome.canvasAlt.opacity(0.82))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .stroke(HUDChrome.borderStrong.opacity(0.46), lineWidth: 0.75)
                 )
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 40)
                 .overlay(
                     Image(systemName: "plus.bubble")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(HUDChrome.accent)
                 )
 
@@ -28,7 +28,7 @@ struct HUDRunnerHeader: View {
                     .tracking(HUDType.eyebrowTracking)
                     .foregroundStyle(HUDChrome.inkFaint)
                 Text("Send work to an agent")
-                    .font(HUDType.body(17, weight: .semibold))
+                    .font(HUDType.body(19, weight: .semibold))
                     .foregroundStyle(HUDChrome.ink)
             }
 
@@ -78,8 +78,8 @@ struct HUDRunnerHeader: View {
                 runner.disclosure == .none ? "Close task composer" : "Back"
             )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 17)
     }
 }
 
@@ -115,35 +115,44 @@ private struct HUDRunnerSummaryCards: View {
             runner.currentRuntimePreset,
             runner: runner
         )
-        return VStack(spacing: 8) {
-            HUDRunnerSummaryCard(
-                icon: "folder.fill",
-                eyebrow: "PROJECT",
-                title: projectTitle,
-                detail: projectDetail,
-                shortcut: "⌘L",
-                accessibilityLabel: "Project",
-                accessibilityValue: "\(projectTitle), \(projectDetail)",
-                accessibilityHint: "Shows project choices",
-                target: .projectSummary,
-                focus: focus,
-                action: runner.toggleProjectChoices
-            )
+        return VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 9) {
+                HUDRunnerSectionLabel("PROJECT")
+                HUDRunnerSummaryCard(
+                    icon: "folder",
+                    title: projectTitle,
+                    detail: projectDetail,
+                    isResolved: projectIsResolved,
+                    accessibilityLabel: "Project",
+                    accessibilityValue: "\(projectTitle), \(projectDetail)",
+                    accessibilityHint: "Shows project choices",
+                    target: .projectSummary,
+                    focus: focus,
+                    action: runner.toggleProjectChoices
+                )
+            }
 
-            HUDRunnerSummaryCard(
-                icon: "cpu",
-                eyebrow: "RUNTIME",
-                title: runtime.title,
-                detail: "\(runtime.detail) · \(runner.routingLabel)",
-                shortcut: "⌘R",
-                accessibilityLabel: "Runtime",
-                accessibilityValue: "\(runtime.title), \(runtime.detail)",
-                accessibilityHint: "Shows runtime presets",
-                target: .runtimeSummary,
-                focus: focus,
-                action: runner.toggleRuntimeChoices
-            )
+            VStack(alignment: .leading, spacing: 9) {
+                HUDRunnerSectionLabel("RUNTIME")
+                HUDRunnerSummaryCard(
+                    icon: "chevron.left.forwardslash.chevron.right",
+                    title: runtime.title,
+                    detail: runtime.detail,
+                    isResolved: true,
+                    accessibilityLabel: "Runtime",
+                    accessibilityValue: "\(runtime.title), \(runtime.detail)",
+                    accessibilityHint: "Shows runtime presets",
+                    target: .runtimeSummary,
+                    focus: focus,
+                    action: runner.toggleRuntimeChoices
+                )
+            }
         }
+    }
+
+    private var projectIsResolved: Bool {
+        runner.selectedProject != nil
+            || !runner.directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var projectTitle: String {
@@ -167,10 +176,9 @@ private struct HUDRunnerSummaryCards: View {
 
 private struct HUDRunnerSummaryCard: View {
     let icon: String
-    let eyebrow: String
     let title: String
     let detail: String
-    let shortcut: String
+    let isResolved: Bool
     let accessibilityLabel: String
     let accessibilityValue: String
     let accessibilityHint: String
@@ -180,28 +188,26 @@ private struct HUDRunnerSummaryCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(HUDChrome.canvasLift.opacity(0.26))
-                    .frame(width: 34, height: 34)
+            HStack(spacing: 13) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isResolved ? HUDChrome.accentWhisper : HUDChrome.canvasLift.opacity(0.24))
+                    .frame(width: 38, height: 38)
                     .overlay(
                         Image(systemName: icon)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(HUDChrome.inkMuted)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(isResolved ? HUDChrome.accent : HUDChrome.inkMuted)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .stroke(
+                                isResolved ? HUDChrome.accent.opacity(0.40) : HUDChrome.borderSoft,
+                                lineWidth: 0.75
+                            )
                     )
 
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(eyebrow)
-                            .font(HUDType.mono(8, weight: .semibold))
-                            .tracking(HUDType.eyebrowMicro)
-                            .foregroundStyle(HUDChrome.inkFaint)
-                        Text(shortcut)
-                            .font(HUDType.mono(8, weight: .semibold))
-                            .foregroundStyle(HUDChrome.inkDeep)
-                    }
+                VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(HUDType.body(13, weight: .semibold))
+                        .font(HUDType.body(14, weight: .semibold))
                         .foregroundStyle(HUDChrome.ink)
                         .lineLimit(1)
                     Text(detail)
@@ -214,17 +220,20 @@ private struct HUDRunnerSummaryCard: View {
                 Spacer(minLength: 6)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
+                    .symbolVariant(.none)
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(HUDChrome.inkFaint)
+                    .rotationEffect(.degrees(90))
             }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(
             HUDRunnerCardButtonStyle(
                 isSelected: false,
-                isFocused: focus.wrappedValue == target
+                isFocused: focus.wrappedValue == target,
+                cornerRadius: 12
             )
         )
         .focused(focus, equals: target)
@@ -240,12 +249,6 @@ struct HUDRunnerDisclosurePanel<Content: View>: View {
     var body: some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(HUDChrome.canvas.opacity(0.72))
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(HUDChrome.borderSoft, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
 
@@ -256,11 +259,11 @@ struct HUDRunnerDisclosureHeader: View {
     let focus: HUDRunnerFocusBinding
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 9) {
             Button(action: runner.stepBackDisclosure) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 21, height: 21)
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(
                 HUDRunnerToolbarButtonStyle(
@@ -275,11 +278,8 @@ struct HUDRunnerDisclosureHeader: View {
                 .font(HUDType.mono(9, weight: .semibold))
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkMuted)
-            Text(detail)
-                .font(HUDType.body(9))
-                .foregroundStyle(HUDChrome.inkFaint)
             Spacer()
         }
-        .frame(height: 21)
+        .frame(height: 30)
     }
 }

@@ -32,40 +32,38 @@ struct HUDRunnerComposer: View {
                 .stroke(
                     dropTargeted
                         ? HUDChrome.accent
-                        : (focus.wrappedValue == .instructions
-                            ? HUDChrome.borderStrong
-                            : HUDChrome.borderSoft),
+                        : HUDChrome.borderSoft,
                     lineWidth: dropTargeted ? 1.5 : 1
                 )
-        )
-        .shadow(
-            color: focus.wrappedValue == .instructions
-                ? HUDChrome.ink.opacity(0.055)
-                : .clear,
-            radius: 3
         )
     }
 
     private var editor: some View {
-        TextField(
-            "",
-            text: $runner.instructions,
-            prompt: Text("Describe the task — what should the agent build, fix, or investigate?")
-                .foregroundStyle(HUDChrome.inkFaint),
-            axis: .vertical
-        )
-        .textFieldStyle(.plain)
-        .font(HUDType.body(15))
-        .foregroundStyle(HUDChrome.ink)
-        .tint(HUDChrome.accent)
-        .lineSpacing(3)
-        .lineLimit(1...3)
-        .focused(focus, equals: .instructions)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityLabel("Task instructions")
+        ZStack(alignment: .topLeading) {
+            if runner.instructions.isEmpty {
+                Text("Describe the task — what should the agent build, fix, or investigate?")
+                    .font(HUDType.body(15))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+
+            TextField("", text: $runner.instructions, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(HUDType.body(15))
+                .foregroundStyle(HUDChrome.ink)
+                .tint(HUDChrome.accent)
+                .lineSpacing(3)
+                .lineLimit(1...3)
+                .focused(focus, equals: .instructions)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .accessibilityLabel("Task instructions")
+        }
     }
 
     private var toolbar: some View {
@@ -85,8 +83,6 @@ struct HUDRunnerComposer: View {
             .focused(focus, equals: .attach)
             .help("Add files or folders (⌘O)")
             .accessibilityLabel("Attach files or folders")
-
-            HUDRunnerInlineStatus()
 
             Spacer(minLength: 8)
 
@@ -203,51 +199,6 @@ struct HUDRunnerComposer: View {
         if voice.state.isCaptureActive { return "Stop voice dictation" }
         if voice.state.isProcessing { return "Transcribing voice" }
         return "Start voice dictation"
-    }
-}
-
-private struct HUDRunnerInlineStatus: View {
-    @ObservedObject private var runner = HUDRunnerState.shared
-    @ObservedObject private var voice = HudVoiceService.shared
-
-    var body: some View {
-        if let status = activeStatus {
-            HStack(spacing: 6) {
-                Image(systemName: status.symbol)
-                    .font(.system(size: 9, weight: .semibold))
-                Text(status.text)
-                    .font(status.isError ? HUDType.body(11) : HUDType.mono(10))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .foregroundStyle(status.isError ? HUDChrome.inkMuted : HUDChrome.inkFaint)
-            .frame(maxWidth: 270, alignment: .leading)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(status.text)
-        }
-    }
-
-    private var activeStatus: (
-        symbol: String,
-        text: String,
-        isError: Bool
-    )? {
-        if let error = runner.lastError {
-            return ("exclamationmark.triangle", error, true)
-        }
-        if runner.isStagingFiles {
-            return ("arrow.down.doc", "Staging dropped files…", false)
-        }
-        if runner.isPreparingVoice {
-            return ("waveform", "Preparing voice dictation…", false)
-        }
-        if runner.isLoading {
-            return ("arrow.triangle.2.circlepath", "Loading runner inputs…", false)
-        }
-        if voice.state == .processing {
-            return ("waveform", "Transcribing voice…", false)
-        }
-        return nil
     }
 }
 

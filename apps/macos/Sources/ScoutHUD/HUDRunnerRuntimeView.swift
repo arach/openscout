@@ -26,7 +26,7 @@ struct HUDRunnerRuntimeConfiguration: View {
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 6) {
+            VStack(spacing: 10) {
                 HUDRunnerDisclosureHeader(
                     title: "CONFIGURE RUNTIME",
                     detail: "Applied together",
@@ -35,11 +35,11 @@ struct HUDRunnerRuntimeConfiguration: View {
 
                 LazyVGrid(
                     columns: [
-                        GridItem(.flexible(), spacing: 7),
-                        GridItem(.flexible(), spacing: 7),
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
                     ],
                     alignment: .leading,
-                    spacing: 5
+                    spacing: 10
                 ) {
                     harnessMenu
                     modelMenu
@@ -47,7 +47,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                     effortMenu
                 }
 
-                HStack(spacing: 7) {
+                HStack(spacing: 10) {
                     Button(action: runner.openRouteConfiguration) {
                         HStack(spacing: 6) {
                             Image(systemName: "point.3.connected.trianglepath.dotted")
@@ -73,14 +73,16 @@ struct HUDRunnerRuntimeConfiguration: View {
                         )
                         .focused(focus, equals: .applyRuntime)
                 }
-                .frame(height: 25)
+                .frame(height: 38)
             }
-            .padding(7)
         }
     }
 
     private var harnessMenu: some View {
-        HUDRunnerRuntimeMenuControl(title: "HARNESS") {
+        HUDRunnerRuntimeMenuControl(
+            title: "HARNESS",
+            isFocused: focus.wrappedValue == .harness
+        ) {
             Menu {
                 ForEach(HUDRunnerRuntimeFormatter.harnesses(runner)) { harness in
                     Button {
@@ -100,8 +102,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                     HUDRunnerRuntimeFormatter.harnessLabel(
                         editorHarness,
                         runner: runner
-                    ),
-                    target: .harness
+                    )
                 )
             }
             .menuStyle(.borderlessButton)
@@ -114,7 +115,10 @@ struct HUDRunnerRuntimeConfiguration: View {
     }
 
     private var modelMenu: some View {
-        HUDRunnerRuntimeMenuControl(title: "MODEL") {
+        HUDRunnerRuntimeMenuControl(
+            title: "MODEL",
+            isFocused: focus.wrappedValue == .model
+        ) {
             Menu {
                 ForEach(editorFamilies) { family in
                     Button {
@@ -129,7 +133,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                     }
                 }
             } label: {
-                menuLabel(selectedFamily?.label ?? "Default", target: .model)
+                menuLabel(selectedFamily?.label ?? "Default")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -139,7 +143,10 @@ struct HUDRunnerRuntimeConfiguration: View {
     }
 
     private var versionMenu: some View {
-        HUDRunnerRuntimeMenuControl(title: "VERSION") {
+        HUDRunnerRuntimeMenuControl(
+            title: "VERSION",
+            isFocused: focus.wrappedValue == .version
+        ) {
             Menu {
                 ForEach(selectedFamily?.models ?? []) { model in
                     Button {
@@ -154,10 +161,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                     }
                 }
             } label: {
-                menuLabel(
-                    selectedDescriptor?.versionLabel ?? "Default",
-                    target: .version
-                )
+                menuLabel(selectedDescriptor?.versionLabel ?? "Default")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -169,7 +173,10 @@ struct HUDRunnerRuntimeConfiguration: View {
     }
 
     private var effortMenu: some View {
-        HUDRunnerRuntimeMenuControl(title: "EFFORT") {
+        HUDRunnerRuntimeMenuControl(
+            title: "EFFORT",
+            isFocused: focus.wrappedValue == .effort
+        ) {
             Menu {
                 ForEach(runner.runtimeDraftEfforts) { effort in
                     Button {
@@ -189,8 +196,7 @@ struct HUDRunnerRuntimeConfiguration: View {
                         editorEffort,
                         harness: editorHarness,
                         runner: runner
-                    ),
-                    target: .effort
+                    )
                 )
             }
             .menuStyle(.borderlessButton)
@@ -202,13 +208,10 @@ struct HUDRunnerRuntimeConfiguration: View {
         }
     }
 
-    private func menuLabel(
-        _ value: String,
-        target: HUDRunnerFocusTarget
-    ) -> some View {
+    private func menuLabel(_ value: String) -> some View {
         HStack(spacing: 5) {
             Text(value)
-                .font(HUDType.body(10, weight: .semibold))
+                .font(HUDType.body(12, weight: .medium))
                 .foregroundStyle(HUDChrome.ink)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -217,21 +220,10 @@ struct HUDRunnerRuntimeConfiguration: View {
                 .font(.system(size: 7, weight: .bold))
                 .foregroundStyle(HUDChrome.inkFaint)
         }
-        .padding(.horizontal, 7)
-        .frame(height: 25)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HUDChrome.canvasAlt.opacity(0.72))
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(
-                    focus.wrappedValue == target
-                        ? HUDChrome.borderStrong
-                        : HUDChrome.borderSoft,
-                    lineWidth: focus.wrappedValue == target ? 1.25 : 0.75
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .padding(.horizontal, 11)
+        .frame(height: 38)
+        .frame(minWidth: 250, maxWidth: .infinity, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var editorHarness: String {
@@ -284,17 +276,31 @@ struct HUDRunnerRuntimeConfiguration: View {
 
 private struct HUDRunnerRuntimeMenuControl<Content: View>: View {
     let title: String
+    let isFocused: Bool
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(HUDType.mono(7, weight: .semibold))
                 .tracking(HUDType.eyebrowMicro)
                 .foregroundStyle(HUDChrome.inkFaint)
             content()
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(HUDChrome.canvasAlt.opacity(0.72))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            isFocused
+                                ? HUDChrome.accent.opacity(0.56)
+                                : HUDChrome.border.opacity(0.72),
+                            lineWidth: isFocused ? 1 : 0.75
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 57, alignment: .leading)
     }
 }
 
@@ -304,14 +310,14 @@ struct HUDRunnerRouteConfiguration: View {
 
     var body: some View {
         HUDRunnerDisclosurePanel {
-            VStack(spacing: 7) {
+            VStack(spacing: 10) {
                 HUDRunnerDisclosureHeader(
                     title: "AGENT ROUTE",
                     detail: "Persistence and identity",
                     focus: focus
                 )
 
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Picker(
                         "",
                         selection: Binding(
@@ -336,7 +342,7 @@ struct HUDRunnerRouteConfiguration: View {
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     routeTextField(
                         "Agent name (optional)",
                         text: $runner.agentName,
@@ -360,9 +366,8 @@ struct HUDRunnerRouteConfiguration: View {
                         )
                         .focused(focus, equals: .disclosureDone)
                 }
-                .frame(height: 24)
+                .frame(height: 36)
             }
-            .padding(7)
         }
     }
 
@@ -374,13 +379,13 @@ struct HUDRunnerRouteConfiguration: View {
     ) -> some View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
-            .font(mono ? HUDType.mono(10) : HUDType.body(10))
+            .font(mono ? HUDType.mono(11) : HUDType.body(11))
             .foregroundStyle(HUDChrome.ink)
             .padding(.horizontal, 8)
-            .frame(height: 29)
+            .frame(height: 38)
             .background(HUDChrome.canvasAlt.opacity(0.72))
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(
                         focus.wrappedValue == target
                             ? HUDChrome.borderStrong
@@ -388,7 +393,7 @@ struct HUDRunnerRouteConfiguration: View {
                         lineWidth: focus.wrappedValue == target ? 1.25 : 0.75
                     )
             )
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .focused(focus, equals: target)
             .accessibilityLabel(placeholder)
     }
