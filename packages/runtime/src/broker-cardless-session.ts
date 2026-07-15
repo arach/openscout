@@ -24,12 +24,47 @@ import { expandHomePath } from "./tool-resolution.js";
 
 export const CARDLESS_SESSION_SOURCE = "scout-cardless-session";
 
+export type CardlessSessionSpawnTransport =
+  | "claude_stream_json"
+  | "codex_app_server"
+  | "grok_acp"
+  | "tmux";
+
+/** Harness/transport policy for broker-created sessions that have no agent card. */
+export function resolveCardlessSessionSpawnTarget(
+  requestedHarness: string | undefined,
+  options: { claudeTransport?: string } = {},
+): { harness: AgentHarness; transport: CardlessSessionSpawnTransport } {
+  switch (requestedHarness ?? "claude") {
+    case "codex":
+      return { harness: "codex", transport: "codex_app_server" };
+    case "grok":
+    case "grok-acp":
+      return { harness: "grok-acp", transport: "grok_acp" };
+    case "claude": {
+      const configured = options.claudeTransport?.trim().toLowerCase();
+      const transport = configured === "claude_stream_json"
+        || configured === "stream-json"
+        || configured === "stream_json"
+        ? "claude_stream_json"
+        : "tmux";
+      return { harness: "claude", transport };
+    }
+    default:
+      throw new Error(
+        `cannot auto-spawn a session for harness "${requestedHarness}"; `
+        + `supported: claude, codex, grok (runs over ACP). `
+        + `Bring a worker online first (scout up) to use other harnesses.`,
+      );
+  }
+}
+
 export interface CardlessSessionInput {
   /** Scout's broker-local session marker. Provider ids are attached later. */
   sessionId: string;
   /** Human-addressable handle for this session actor. */
   handle?: string;
-  transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp";
+  transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp" | "tmux";
   harness: AgentHarness;
   cwd: string;
   projectRoot?: string;
@@ -178,8 +213,8 @@ export interface CardlessSessionRegistry {
 /**
  * Seam 1: register a cardless session against the control plane — upsert the
  * session-kind actor and its endpoint, no card, no relay override. Callers feed
- * the harness session id returned by `ensureClaudeStreamJsonAgentOnline` /
- * `ensureCodexAppServerAgentOnline`.
+ * the broker-selected transport. Direct managed transports attach their
+ * provider session id after launch; tmux starts as a pending external session.
  */
 export async function registerCardlessSession(
   registry: CardlessSessionRegistry,

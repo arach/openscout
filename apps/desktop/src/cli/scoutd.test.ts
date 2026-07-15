@@ -22,6 +22,12 @@ describe("native scoutd doctor helpers", () => {
             transport: "unix_socket",
             error: "connection refused",
           },
+          runtimeFreshness: {
+            state: "stale",
+            intentional: false,
+            basis: "workspace_head",
+            detail: "Running runtime commit old does not match expected commit new.",
+          },
         },
         warnings: [
           "broker socket exists but health is unreachable",
@@ -48,6 +54,7 @@ describe("native scoutd doctor helpers", () => {
     const rendered = renderNativeScoutdDoctorSection(report);
     expect(rendered).toContain("Native daemon:");
     expect(rendered).toContain("multiple scout-broker processes found");
+    expect(rendered).toContain("Runtime freshness: stale");
     expect(rendered).toContain("pid 42 ppid 1");
   });
 

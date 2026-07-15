@@ -77,6 +77,7 @@ Operator path: `scout` CLI → shells out to `scoutd` for service commands when 
 | `restartCount` | base restart tally |
 | `restartBackoffMs` | current bounded restart delay, 1000→30000 ms |
 | `lastChildExit` | last base exit `{ atMs, code, signal, description }` or null |
+| `runtimeBuild` | source/bundle identity captured when the supervised base process starts |
 
 Written every ~2s while child alive; updated on exit/restart/shutdown.
 
@@ -131,6 +132,15 @@ Doctor merges:
 - restart telemetry from `scoutd-state.json` (`restartCount`, backoff, last child exit)
 - broker HTTP or unix socket `/health` (or equivalent)
 - stale orphans: legacy `openscout-supervisor supervise`, duplicate brokers, zombie base
+- running runtime identity vs the current source/bundle build manifest
+
+Runtime freshness states are `current`, `pinned`, `stale`, and `unverified`.
+CLI builds write `dist/build-manifest.json`; scoutd records the identity that it
+actually launched in `scoutd-state.json` and compares it with the currently
+configured source or artifact. An older build is intentional only when
+`OPENSCOUT_RUNTIME_BUILD_PIN=<commit>` is set. Set
+`OPENSCOUT_RUNTIME_BUILD_PIN_REASON` as well so status/doctor explains why the
+pin exists. A pin mismatch is still stale; a missing identity is unverified.
 
 Output schema: `scout.doctor.v1` phases (CLI wraps same config).
 
