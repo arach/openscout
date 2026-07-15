@@ -8,6 +8,7 @@ import type {
 
 import type { ManagedLocalSessionTransport } from "./broker-managed-session-helpers.js";
 import { isStaleLocalEndpoint } from "./broker-endpoint-selection.js";
+import { resolveHarnessSessionDefaults } from "./harness-catalog.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import { expandHomePath } from "./tool-resolution.js";
 
@@ -35,28 +36,27 @@ export function resolveCardlessSessionSpawnTarget(
   requestedHarness: string | undefined,
   options: { claudeTransport?: string } = {},
 ): { harness: AgentHarness; transport: CardlessSessionSpawnTransport } {
-  switch (requestedHarness ?? "claude") {
-    case "codex":
-      return { harness: "codex", transport: "codex_app_server" };
-    case "grok":
-    case "grok-acp":
-      return { harness: "grok-acp", transport: "grok_acp" };
-    case "claude": {
-      const configured = options.claudeTransport?.trim().toLowerCase();
-      const transport = configured === "claude_stream_json"
-        || configured === "stream-json"
-        || configured === "stream_json"
-        ? "claude_stream_json"
-        : "tmux";
-      return { harness: "claude", transport };
-    }
-    default:
-      throw new Error(
-        `cannot auto-spawn a session for harness "${requestedHarness}"; `
-        + `supported: claude, codex, grok (runs over ACP). `
-        + `Bring a worker online first (scout up) to use other harnesses.`,
-      );
+  const defaults = resolveHarnessSessionDefaults(requestedHarness ?? "claude", {
+    transportOverride: options.claudeTransport,
+  });
+  if (defaults && isCardlessSessionSpawnTransport(defaults.transport)) {
+    return {
+      harness: defaults.harness as AgentHarness,
+      transport: defaults.transport,
+    };
   }
+  throw new Error(
+    `cannot auto-spawn a session for harness "${requestedHarness}"; `
+    + `the harness catalog has no supported session defaults. `
+    + `Bring a worker online first (scout up) to use other harnesses.`,
+  );
+}
+
+function isCardlessSessionSpawnTransport(value: string): value is CardlessSessionSpawnTransport {
+  return value === "claude_stream_json"
+    || value === "codex_app_server"
+    || value === "grok_acp"
+    || value === "tmux";
 }
 
 export interface CardlessSessionInput {
