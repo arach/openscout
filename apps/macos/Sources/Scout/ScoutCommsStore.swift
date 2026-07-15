@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class ScoutCommsStore: ObservableObject {
+    private static let log = ScoutLog.logger(category: "comms.store")
     @Published private(set) var channels: [ScoutChannel] = []
     @Published private(set) var messages: [ScoutMessage] = []
     @Published private(set) var agents: [ScoutAgent] = []
@@ -71,6 +72,7 @@ final class ScoutCommsStore: ObservableObject {
     private var readCursorsTask: Task<Void, Never>?
     private var activeTurnTask: Task<Void, Never>?
     private var activeTurnRequestId: UUID?
+    private var activeTurnRequestCId: String?
     private var activeTurnPollTask: Task<Void, Never>?
     private var activeTurnPollCId: String?
     private var healthProbeTask: Task<Void, Never>?
@@ -176,6 +178,7 @@ final class ScoutCommsStore: ObservableObject {
         readCursorsTask = nil
         activeTurnTask = nil
         activeTurnRequestId = nil
+        activeTurnRequestCId = nil
         activeTurnPollTask = nil
         activeTurnPollCId = nil
         healthProbeTask = nil
@@ -657,15 +660,24 @@ final class ScoutCommsStore: ObservableObject {
     }
 
     private func loadActiveTurn(cId: String) {
-        activeTurnTask?.cancel()
+        if let activeTurnTask {
+            guard activeTurnRequestCId != cId else {
+                Self.log.debug("active turn fetch coalesced cId=\(cId, privacy: .public)")
+                return
+            }
+            Self.log.debug("active turn fetch cancelled for conversation change from=\(self.activeTurnRequestCId ?? "unknown", privacy: .public) to=\(cId, privacy: .public)")
+            activeTurnTask.cancel()
+        }
         let requestId = UUID()
         activeTurnRequestId = requestId
+        activeTurnRequestCId = cId
         let agentId = selectedAgentId
         let flightId = selectedFlightIdHint
         let agentName = selectedAgent?.displayName
             ?? selectedChannel?.agentName?.nilIfEmpty
             ?? selectedAgentNameHint
             ?? "agent"
+        Self.log.debug("active turn fetch started cId=\(cId, privacy: .public) requestId=\(requestId.uuidString, privacy: .public)")
         activeTurnTask = Task { [weak self] in
             await self?.fetchActiveTurn(cId: cId, requestId: requestId, flightId: flightId, agentId: agentId, agentName: agentName)
         }
@@ -683,6 +695,8 @@ final class ScoutCommsStore: ObservableObject {
         defer {
             if activeTurnRequestId == requestId {
                 activeTurnTask = nil
+                activeTurnRequestCId = nil
+                Self.log.debug("active turn fetch finished cId=\(cId, privacy: .public) requestId=\(requestId.uuidString, privacy: .public)")
             }
         }
         let base = ScoutWeb.baseURL()

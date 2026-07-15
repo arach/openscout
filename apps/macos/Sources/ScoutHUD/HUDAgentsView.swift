@@ -286,6 +286,52 @@ private struct AgentLoadMoreRow: View {
     }
 }
 
+private struct AgentLoadMoreRow: View {
+    let count: Int?
+    let isLoading: Bool
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.72)
+                        .frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                Text(label)
+                    .font(HUDType.mono(9, weight: .semibold))
+                    .tracking(HUDType.eyebrowMicro)
+            }
+            .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .onHover { hovered = $0 }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
+                .padding(.horizontal, 16)
+        }
+    }
+
+    private var label: String {
+        if isLoading { return "LOADING RECENT AGENTS" }
+        if let count { return "LOAD \(count) MORE" }
+        return "LOAD MORE"
+    }
+}
+
 // MARK: - Section header
 
 private struct HUDAgentsHeader: View {
