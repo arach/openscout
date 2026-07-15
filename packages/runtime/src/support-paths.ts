@@ -27,6 +27,22 @@ export type OpenScoutSupportPaths = {
 
 const OPENSCOUT_RPC_CUTOVER_MARKER = "rpc-runtime-cutover-v1";
 
+/**
+ * Tests must never touch real user data. Every writer of OpenScout user state
+ * calls this first: under a test runner (bun test sets NODE_ENV=test) the
+ * write is refused unless the isolation env var redirects it to a temp
+ * directory. This exists because an unisolated test once persisted its fake
+ * temp-home workspaceRoots into the operator's real settings.json.
+ */
+export function assertTestIsolatedUserData(operation: string, isolationEnvKey: string): void {
+  if (process.env.NODE_ENV !== "test") return;
+  if (process.env[isolationEnvKey]?.trim()) return;
+  throw new Error(
+    `Refusing to ${operation} while NODE_ENV=test without ${isolationEnvKey} set. `
+      + "Tests must isolate OpenScout user data in a temp directory (see prepareHome in onboarding.test.ts).",
+  );
+}
+
 export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
   const home = homedir();
   const supportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY
@@ -80,6 +96,7 @@ export function relayAgentLogsDirectory(agentId: string): string {
 }
 
 export function ensureOpenScoutCleanSlateSync(): void {
+  assertTestIsolatedUserData("reset the OpenScout support directory", "OPENSCOUT_SUPPORT_DIRECTORY");
   const paths = resolveOpenScoutSupportPaths();
   if (existsSync(paths.cutoverMarkerPath)) {
     return;

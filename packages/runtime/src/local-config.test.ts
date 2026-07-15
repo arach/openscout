@@ -18,12 +18,18 @@ import {
 } from "./local-config.ts";
 
 const originalHome = process.env.HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalBrokerPort = process.env.OPENSCOUT_BROKER_PORT;
 const originalBrokerInternalUrl = process.env.OPENSCOUT_BROKER_INTERNAL_URL;
 const tempHomes = new Set<string>();
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalBrokerPort === undefined) {
     delete process.env.OPENSCOUT_BROKER_PORT;
   } else {
@@ -44,6 +50,7 @@ function useIsolatedConfigHome(): string {
   const home = mkdtempSync(join(tmpdir(), "openscout-local-config-"));
   tempHomes.add(home);
   process.env.HOME = home;
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   return home;
 }
 

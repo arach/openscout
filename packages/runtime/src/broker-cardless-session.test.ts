@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { isolateOpenScoutUserDataForTests } from "./test-user-data-isolation.ts";
+
+isolateOpenScoutUserDataForTests();
+
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
