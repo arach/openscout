@@ -724,7 +724,10 @@ struct ScoutRootView: View {
     /// capturing text input — otherwise they'd be stolen from typing. (Modal
     /// overlays are already excluded by `modalPresented`.)
     private var bareKeysAvailable: Bool {
-        !composerFocused && !searchFocused && !repoAskFocused
+        !composerFocused
+            && !searchFocused
+            && !repoAskFocused
+            && !HUDController.shared.isTaskComposerPresented
     }
 
     /// Step the active page's selection: conversations in Comms, agent cards in
