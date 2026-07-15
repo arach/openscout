@@ -48,6 +48,23 @@ enum ScoutExternalCommand {
             pendingChannelId = nil
         }
     }
+
+    static let openCodeLinkNotificationName = Notification.Name("app.openscout.scout.open-code-link")
+    private static var pendingCodeLinkURL: URL?
+
+    static func openCodeLink(_ url: URL) {
+        pendingCodeLinkURL = url
+        NotificationCenter.default.post(
+            name: openCodeLinkNotificationName,
+            object: nil,
+            userInfo: ["url": url]
+        )
+    }
+
+    static func takePendingCodeLinkURL() -> URL? {
+        defer { pendingCodeLinkURL = nil }
+        return pendingCodeLinkURL
+    }
 }
 
 @main
@@ -169,6 +186,11 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if handleOpenScoutNetworkAuth(url) {
+            return
+        }
+        if url.host?.lowercased() == "code" {
+            ScoutExternalCommand.openCodeLink(url)
+            showMainWindows()
             return
         }
         if url.host?.lowercased() == "services" {

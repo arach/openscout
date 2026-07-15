@@ -5,6 +5,7 @@ import SwiftUI
 enum ScoutEmbedSurfaceId: String, CaseIterable, Identifiable, Sendable {
     case dispatch
     case lanes
+    case code
 
     var id: String { rawValue }
 }
@@ -52,6 +53,15 @@ enum ScoutEmbedSurfaceRegistry {
             profile: "macos.lanes",
             systemImage: "rectangle.split.3x1",
             section: .lanes
+        ),
+        ScoutEmbedSurface(
+            id: .code,
+            label: "Code",
+            shellPath: "/code",
+            embedPath: "/embed/code",
+            profile: "macos.code",
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            section: .code
         ),
     ]
 
