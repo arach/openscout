@@ -117,6 +117,13 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
         hideInLean: true,
       },
       {
+        id: "code",
+        label: "Code",
+        route: { view: "code" },
+        active: (route) => route.view === "code",
+        hideInLean: true,
+      },
+      {
         id: "harnesses",
         label: "Providers",
         route: { view: "harnesses" },
