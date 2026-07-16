@@ -277,7 +277,7 @@ const NOTES: { title: string; body: React.ReactNode }[] = [
 const LEDGER: { take: string; verdict: string }[] = [
   { take: "A · Grid", verdict: "Control. Re-lists the rail in flatter form, three layout buttons per card, marketing copy on chrome, and it ignores the rail’s own filter route state. The 2×2 live panel is the one idea worth keeping in a drawer." },
   { take: "B · Jump board", verdict: "Recommended. Shortcuts + unread + a few recents; the rail keeps the tree. Matches the shipped projects landing, so the two surfaces teach one habit." },
-  { take: "C · Editorial", verdict: "Quietest — same content, text-led, previews ride the title line. Pick it if the projects landing ever goes editorial; the two landings should speak the same dialect." },
+  { take: "C · Editorial", verdict: "Shipped. Ported to MessagesScreen.tsx (shortcuts + disjoint unread/recent, one-address routing incl. the rail fix, s-conv-board-* styles, grid + 1/2/4 + localStorage deleted). Quietest — same content, text-led, previews ride the title line." },
 ];
 
 /* ── page ─────────────────────────────────────────────────────────────────── */

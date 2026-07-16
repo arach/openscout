@@ -433,7 +433,7 @@ export const STUDIO_PAGES: StudioPage[] = [
     label: "Chat · Landing",
     bucket: "studies",
     surface: "web",
-    status: "concept",
+    status: "shipped",
     source: [
       "design/studio/views/chat-landing.tsx",
       "packages/web/client/screens/chat/MessagesScreen.tsx",
