@@ -46,9 +46,13 @@ import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
   getScoutMobileActivity,
+  getScoutMobileAgents,
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
+  getScoutMobileHome,
+  getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
+  getScoutMobileWorkspaces,
   markScoutMobileConversationRead,
   sendScoutMobileComms,
   sendScoutMobileMessage,
@@ -61,9 +65,6 @@ import {
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
   queryMobileAgentDetail,
-  queryMobileAgents,
-  queryMobileSessions,
-  queryMobileWorkspaces,
 } from "../../../../db-queries.ts";
 import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
 import {
@@ -812,23 +813,13 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      const workspaceLimit = input?.workspaceLimit ?? 6;
-      const agentLimit = input?.agentLimit ?? 6;
-      const sessionLimit = input?.sessionLimit ?? 6;
-      const workspaces = queryMobileWorkspaces(workspaceLimit);
-      const agents = queryMobileAgents(agentLimit);
-      const sessions = queryMobileSessions(sessionLimit);
-      return {
-        workspaces,
-        agents,
-        sessions,
-        totals: {
-          workspaces: workspaces.length,
-          agents: agents.length,
-          sessions: sessions.length,
-        },
-      };
+    .query(async ({ input }) => {
+      return getScoutMobileHome({
+        currentDirectory: resolveMobileCurrentDirectory(),
+        workspaceLimit: input?.workspaceLimit,
+        agentLimit: input?.agentLimit,
+        sessionLimit: input?.sessionLimit,
+      });
     }),
 
   workspaces: procedure
@@ -840,15 +831,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileWorkspaces(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((w) =>
-          w.title.toLowerCase().includes(q) || w.root.toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileWorkspaces(input, resolveMobileCurrentDirectory());
     }),
 
   agents: procedure
@@ -860,17 +844,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileAgents(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((a) =>
-          a.title.toLowerCase().includes(q)
-          || a.id.toLowerCase().includes(q)
-          || (a.workspaceRoot ?? "").toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileAgents(input, resolveMobileCurrentDirectory());
     }),
 
   sessions: procedure
@@ -882,17 +857,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileSessions(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((s) =>
-          s.title.toLowerCase().includes(q)
-          || (s.agentName ?? "").toLowerCase().includes(q)
-          || (s.preview ?? "").toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileSessions(input, resolveMobileCurrentDirectory());
     }),
 
   sessionSnapshot: procedure

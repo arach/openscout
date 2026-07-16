@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
@@ -132,6 +134,28 @@ function metadataContainsDeliveryWorkItemValues(
   return true;
 }
 
+function deliveryWorkItemFingerprint(record: CollaborationRecord): string {
+  const metadata = { ...(record.metadata ?? {}) };
+  delete metadata.deliveryWorkItemFingerprint;
+  const identity = normalizeComparableDeliveryValue({
+    title: record.title,
+    summary: record.summary,
+    acceptanceState: record.acceptanceState,
+    createdById: record.createdById,
+    ownerId: record.ownerId,
+    nextMoveOwnerId: record.nextMoveOwnerId,
+    conversationId: record.conversationId,
+    parentId: record.parentId,
+    priority: record.priority,
+    labels: record.labels,
+    requestedById: record.kind === "work_item" ? record.requestedById : undefined,
+    metadata,
+  });
+  return createHash("sha256")
+    .update(JSON.stringify(identity))
+    .digest("hex");
+}
+
 function existingDeliveryWorkItemMatches(
   existing: CollaborationRecord,
   proposed: CollaborationRecord,
@@ -140,12 +164,17 @@ function existingDeliveryWorkItemMatches(
     return false;
   }
 
+  const existingFingerprint = metadataStringValue(
+    existing.metadata,
+    "deliveryWorkItemFingerprint",
+  );
+  if (existingFingerprint) {
+    return existingFingerprint === deliveryWorkItemFingerprint(proposed);
+  }
+
   return existing.title === proposed.title
     && (existing.summary ?? "") === (proposed.summary ?? "")
-    && existing.acceptanceState === proposed.acceptanceState
     && existing.createdById === proposed.createdById
-    && existing.ownerId === proposed.ownerId
-    && existing.nextMoveOwnerId === proposed.nextMoveOwnerId
     && existing.conversationId === proposed.conversationId
     && existing.parentId === proposed.parentId
     && existing.priority === proposed.priority
@@ -251,16 +280,23 @@ export class BrokerWorkItemStore {
     }
 
     const now = flight.completedAt ?? Date.now();
+    const requiresReview = flight.state === "completed"
+      && record.acceptanceState !== "none";
     const nextState = flight.state === "completed"
-      ? "done"
+      ? requiresReview ? "review" : "done"
       : flight.state === "cancelled"
       ? "cancelled"
       : "waiting";
     const nextEventKind = flight.state === "completed"
-      ? "done"
+      ? requiresReview ? "review_requested" : "done"
       : flight.state === "cancelled"
       ? "cancelled"
       : "waiting";
+    const nextMoveOwnerId = requiresReview
+      ? record.requestedById ?? record.createdById
+      : flight.state === "failed"
+      ? record.requestedById ?? record.ownerId
+      : record.nextMoveOwnerId;
     const summary = compactWorkSummary(output)
       ?? compactWorkSummary(flight.output)
       ?? compactWorkSummary(flight.error)
@@ -269,6 +305,8 @@ export class BrokerWorkItemStore {
     const nextRecord: CollaborationRecord = {
       ...record,
       state: nextState,
+      acceptanceState: requiresReview ? "pending" : record.acceptanceState,
+      nextMoveOwnerId,
       summary: record.summary ?? summary,
       updatedAt: now,
       progress: {
@@ -277,7 +315,23 @@ export class BrokerWorkItemStore {
         completedSteps: flight.state === "completed" ? 1 : record.progress?.completedSteps,
         totalSteps: flight.state === "completed" ? 1 : record.progress?.totalSteps,
       },
-      ...(flight.state === "completed" ? { completedAt: record.completedAt ?? now } : {}),
+      reviewRequestedAt: requiresReview ? now : record.reviewRequestedAt,
+      completedAt: nextState === "done" || nextState === "cancelled"
+        ? record.completedAt ?? now
+        : undefined,
+      ...(flight.state === "failed"
+        ? {
+            waitingOn: {
+              kind: "actor" as const,
+              label: "Decide whether to retry the failed execution",
+              ...(nextMoveOwnerId ? { targetId: nextMoveOwnerId } : {}),
+              metadata: {
+                invocationId: invocation.id,
+                flightId: flight.id,
+              },
+            },
+          }
+        : { waitingOn: undefined }),
       metadata: {
         ...(record.metadata ?? {}),
         lastInvocationId: invocation.id,
@@ -339,7 +393,7 @@ export class BrokerWorkItemStore {
       || input.payload.collaborationRecordId?.trim()
       || this.options.createId("work");
     const labels = mergeScoutLabels(input.payload.labels, workItem.labels);
-    return {
+    const record: CollaborationRecord = {
       id: recordId,
       kind: "work_item",
       state: "working",
@@ -363,6 +417,11 @@ export class BrokerWorkItemStore {
         deliveryRequestId: input.requestId,
       },
     };
+    record.metadata = {
+      ...(record.metadata ?? {}),
+      deliveryWorkItemFingerprint: deliveryWorkItemFingerprint(record),
+    };
+    return record;
   }
 
   private buildDeliveryWorkItemCreatedEvent(

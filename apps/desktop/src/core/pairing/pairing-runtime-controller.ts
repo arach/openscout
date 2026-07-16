@@ -24,18 +24,22 @@ import {
 } from "./runtime/security.ts";
 import {
   startPairingRuntime,
+  type PairingRuntimeRelayEndpoint,
   type StartedPairingRuntime,
 } from "./runtime/runtime.ts";
 
 const SCOUT_PAIR_REFRESH_LEEWAY_MS = 30_000;
 const SCOUT_PAIR_RESTART_DELAY_MS = 2_000;
+const SCOUT_PAIR_PARENT_WATCH_INTERVAL_MS = 5_000;
 const BONJOUR_SERVICE_TYPE = "_oscout-pair._tcp";
 
 type PairingRuntimeControllerState = {
   current: PairingRuntimeSnapshot;
   restartTimer: ReturnType<typeof setTimeout> | null;
   refreshTimer: ReturnType<typeof setTimeout> | null;
+  parentWatchTimer: ReturnType<typeof setInterval> | null;
   intentionalStop: boolean;
+  shuttingDown: boolean;
   runtime: StartedPairingRuntime | null;
   relay: StartedManagedRelay | null;
   bonjour: BonjourAdvertisement | null;
@@ -70,15 +74,22 @@ export async function runPairingRuntimeController(): Promise<void> {
     )),
     restartTimer: null,
     refreshTimer: null,
+    parentWatchTimer: null,
     intentionalStop: false,
+    shuttingDown: false,
     runtime: null,
     relay: null,
     bonjour: null,
   };
 
   const shutdown = async () => {
+    if (state.shuttingDown) {
+      return;
+    }
+    state.shuttingDown = true;
     state.intentionalStop = true;
     clearRuntimeControllerTimers(state);
+    clearParentWatchTimer(state);
     await stopControlledPairingRuntime(state);
     writeCurrent(state, {
       status: "stopped",
@@ -95,6 +106,8 @@ export async function runPairingRuntimeController(): Promise<void> {
 
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
+
+  startParentProcessWatch(state, () => void shutdown());
 
   await startControlledPairingRuntime(state);
 }
@@ -122,11 +135,39 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
   const emitStatus = createStatusWriter(state);
 
   try {
-    const managedRelay = resolvedRelayUrl ? null : await startManagedRelay(relayPort);
+    let managedRelay: StartedManagedRelay | null = null;
+    try {
+      managedRelay = await startManagedRelay(relayPort);
+    } catch (error) {
+      if (!resolvedRelayUrl) {
+        throw error;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[pairing] managed relay unavailable; continuing with configured relay: ${detail}`);
+    }
     state.relay = managedRelay;
-    const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
-    const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
-    if (!activeRelayUrl || !connectRelayUrl) {
+
+    const relayEndpoints: PairingRuntimeRelayEndpoint[] = [
+      ...(resolvedRelayUrl
+        ? [{
+          relayUrl: resolvedRelayUrl,
+          advertisedRelayUrl: resolvedRelayUrl,
+        }]
+        : []),
+      ...(managedRelay
+        ? [{
+          relayUrl: managedRelay.connectUrl ?? managedRelay.relayUrl,
+          advertisedRelayUrl: managedRelay.relayUrl,
+          fallbackRelayUrls: managedRelay.fallbackRelayUrls,
+        }]
+        : []),
+    ];
+    const advertisedRelayUrls = dedupeRelayUrls(relayEndpoints.flatMap((endpoint) => [
+      endpoint.advertisedRelayUrl ?? endpoint.relayUrl,
+      ...(endpoint.fallbackRelayUrls ?? []),
+    ]));
+    const activeRelayUrl = advertisedRelayUrls[0] ?? null;
+    if (!activeRelayUrl || relayEndpoints.length === 0) {
       throw new Error("Scout pairing relay URL is not configured.");
     }
 
@@ -134,8 +175,8 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
     bonjour = managedRelay
       ? startBonjourRelayAdvertisement({
           port: relayPort,
-          relayUrl: activeRelayUrl,
-          fallbackRelayUrls: managedRelay.fallbackRelayUrls,
+          relayUrl: managedRelay.relayUrl,
+          fallbackRelayUrls: advertisedRelayUrls.filter((relayUrl) => relayUrl !== managedRelay.relayUrl),
           publicKeyHex,
           onUnavailable: () => {
             if (state.bonjour === bonjour) {
@@ -148,12 +189,10 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
     state.bonjour = bonjour;
 
     state.runtime = await startPairingRuntime({
-      relayUrl: connectRelayUrl,
-      advertisedRelayUrl: activeRelayUrl,
-      fallbackRelayUrls: managedRelay?.fallbackRelayUrls,
+      relayEndpoints,
       relayEvents: {
-        onConnecting() {
-          emitStatus("connecting", `Connecting to ${activeRelayUrl}`);
+        onConnecting(detail) {
+          emitStatus("connecting", `Connecting to ${detail?.relayUrl ?? activeRelayUrl}`);
         },
         onConnected({ room }) {
           emitStatus("connected", `Relay room ${room} is ready`);
@@ -297,6 +336,41 @@ function clearRuntimeControllerTimers(state: PairingRuntimeControllerState): voi
   clearRefreshTimer(state);
 }
 
+function startParentProcessWatch(state: PairingRuntimeControllerState, onMissingParent: () => void): void {
+  const parentPid = readParentProcessId();
+  if (parentPid === null) {
+    return;
+  }
+
+  clearParentWatchTimer(state);
+  state.parentWatchTimer = setInterval(() => {
+    if (isProcessRunning(parentPid)) {
+      return;
+    }
+    console.error(`[pairing-runtime-controller] parent ${parentPid} is gone; exiting`);
+    onMissingParent();
+  }, SCOUT_PAIR_PARENT_WATCH_INTERVAL_MS);
+}
+
+function readParentProcessId(): number | null {
+  const rawParentPid = process.env.OPENSCOUT_PARENT_PID;
+  if (!rawParentPid) {
+    return null;
+  }
+
+  const parentPid = Number.parseInt(rawParentPid, 10);
+  return Number.isInteger(parentPid) && parentPid > 0 && parentPid !== process.pid
+    ? parentPid
+    : null;
+}
+
+function clearParentWatchTimer(state: PairingRuntimeControllerState): void {
+  if (state.parentWatchTimer) {
+    clearInterval(state.parentWatchTimer);
+    state.parentWatchTimer = null;
+  }
+}
+
 function clearRestartTimer(state: PairingRuntimeControllerState): void {
   if (state.restartTimer) {
     clearTimeout(state.restartTimer);
@@ -415,6 +489,10 @@ function normalizedBonjourFallbackRelayUrls(relayUrls: string[] | null | undefin
   }
 
   return result;
+}
+
+function dedupeRelayUrls(relayUrls: string[]): string[] {
+  return normalizedBonjourFallbackRelayUrls(relayUrls);
 }
 
 function relayScheme(relayUrl: string): "ws" | "wss" {

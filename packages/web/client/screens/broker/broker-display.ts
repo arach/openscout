@@ -72,7 +72,7 @@ export function brokerAttemptErrorSummary(attempt: BrokerRouteAttempt): string |
   if (reason && reason !== attempt.detail.trim()) parts.push(reason);
   if (requestedLabel && !attempt.detail.includes(requestedLabel)) parts.push(`asked ${requestedLabel}`);
 
-  return parts.length > 0 ? parts.join(" · ") : null;
+  return parts.length > 0 ? [...new Set(parts)].join(" · ") : null;
 }
 
 export function formatMetadataScalar(value: unknown): string {

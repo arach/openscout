@@ -5,8 +5,8 @@
    attribution — like a sender on an email. Agents are collapsed per
    (project · name) so the ~149 ID-proliferation records never masquerade as a
    fleet; the recognizable agent leads, phantom mirrors fold away. Attention is
-   the only sort: needs-you › working › recent › dormant. Counts are truthful —
-   we surface "3 moving · 1 needs you", never "149 agents".
+   the only sort: your-turn › working › recent › dormant. Counts are truthful —
+   we surface "3 moving · 1 waiting on you", never "149 agents".
 
    Pure + dependency-light so the whole thing stays unit-testable. All live
    fetching + sharing lives in useProjectsInbox.ts. */
@@ -139,6 +139,47 @@ function asksByAgentId(fleet: FleetState | null): Map<string, FleetAsk[]> {
   return map;
 }
 
+type InboxAttention = {
+  title: string;
+  summary: string | null;
+  conversationId: string | null;
+  updatedAt: number;
+};
+
+function attentionByAgentId(fleet: FleetState | null): Map<string, InboxAttention[]> {
+  const map = new Map<string, InboxAttention[]>();
+  const add = (agentId: string | null, attention: InboxAttention) => {
+    if (!agentId) return;
+    const list = map.get(agentId) ?? [];
+    list.push(attention);
+    map.set(agentId, list);
+  };
+
+  for (const item of fleet?.needsAttention ?? []) {
+    add(item.agentId, {
+      title: item.title,
+      summary: item.summary,
+      conversationId: item.conversationId,
+      updatedAt: item.updatedAt,
+    });
+  }
+
+  // Older fleet projections included this state in activeAsks. Keep accepting
+  // it without confusing ordinary queued/working asks with human attention.
+  for (const ask of fleet?.activeAsks ?? []) {
+    if (ask.status !== "needs_attention") continue;
+    add(ask.agentId, {
+      title: ask.task,
+      summary: ask.summary,
+      conversationId: ask.conversationId,
+      updatedAt: ask.updatedAt,
+    });
+  }
+
+  for (const list of map.values()) list.sort((left, right) => right.updatedAt - left.updatedAt);
+  return map;
+}
+
 function titleCaseHarness(harness: string): string {
   return harness ? harness.charAt(0).toUpperCase() + harness.slice(1) : "Harness";
 }
@@ -152,16 +193,20 @@ function branchLabel(branches: string[]): string | null {
 function agentThread(
   entry: RegistryAgentEntry,
   conversationByAgentId: Map<string, string>,
+  attentionByAgent: Map<string, InboxAttention[]>,
   nowMs: number,
 ): InboxThread {
   const group = entry.group;
-  const needs = group.needs;
+  const attention = group.nodes
+    .flatMap((node) => attentionByAgent.get(node.row.agent.id) ?? [])
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+  const needs = Boolean(attention);
   const working = !needs && group.nodes.some((node) => isAgentRowWorking(node.row));
   const recent = isGroupLive(group, nowMs);
   const bucket: ThreadGroup = needs ? "needs" : working ? "working" : "recent";
   const tone = needs ? "needs" : working || recent ? "live" : "idle";
   const lead = entry.leadAgent;
-  const conversationId = conversationByAgentId.get(lead.id) ?? lead.conversationId ?? null;
+  const conversationId = attention?.conversationId ?? conversationByAgentId.get(lead.id) ?? lead.conversationId ?? null;
 
   return {
     id: `${entry.projectSlug}:agent:${lead.id}`,
@@ -173,7 +218,7 @@ function agentThread(
     agentName: group.name,
     harness: harnessOf(group.harness),
     branch: branchLabel(group.branches),
-    work: registryWorkLine(entry, tone),
+    work: attention?.summary?.trim() || attention?.title.trim() || registryWorkLine(entry, tone),
     group: bucket,
     needs,
     working,
@@ -314,6 +359,7 @@ export function buildProjectsInboxModel(input: BuildInboxInput): ProjectsInboxMo
   const { nowMs, showEphemeral } = input;
   const agents = filterAgentsByMachineScope(input.agents, input.machineId);
   const asks = asksByAgentId(input.fleet);
+  const attention = attentionByAgentId(input.fleet);
   const { conversationByAgentId, sessionByAgentId } = directSessionMaps(input.sessions);
 
   const rows = agents.map((agent) =>
@@ -324,7 +370,7 @@ export function buildProjectsInboxModel(input: BuildInboxInput): ProjectsInboxMo
   const registryAgents = buildRegistryAgents(dirProjects, showEphemeral);
 
   const threads: InboxThread[] = registryAgents.map((entry) =>
-    agentThread(entry, conversationByAgentId, nowMs),
+    agentThread(entry, conversationByAgentId, attention, nowMs),
   );
 
   // Fold in native transcripts that are live *now* and unattributed — a real
@@ -435,7 +481,7 @@ export function sessionsForProject(sessions: InboxSession[], slug: string): Inbo
 
 const GROUP_ORDER: ThreadGroup[] = ["needs", "working", "recent"];
 const GROUP_LABEL: Record<ThreadGroup, string> = {
-  needs: "Needs you",
+  needs: "Your turn",
   working: "In flight",
   recent: "Recent",
 };

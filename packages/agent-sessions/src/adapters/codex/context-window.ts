@@ -13,13 +13,13 @@
  * Effective context window Codex exposes for the GPT-5.x family. This is NOT the
  * model's marketing total (~400k) — it's the usable input budget Codex reports
  * as `model_context_window` and uses for its own "% context left" readout.
- * Verified empirically: every observed Codex rollout (gpt-5.5, gpt-5.4,
- * gpt-5.4-mini, gpt-5.3-codex, gpt-5.2-codex) logs exactly this value, so using
- * it as the fallback keeps our percentage in agreement with Codex's own.
+ * Verified empirically across observed GPT-5.x Codex rollouts (gpt-5.5, gpt-5.4,
+ * gpt-5.4-mini, gpt-5.3-codex, gpt-5.2-codex). Newer GPT-5.x ids use
+ * the same fallback until Codex logs a different value.
  */
 export const CODEX_GPT5_CONTEXT_WINDOW_TOKENS = 258_400;
 
-/** True for the GPT-5.x model family ("gpt-5", "gpt-5.5", "gpt-5.3-codex", …). */
+/** True for the GPT-5.x model family ("gpt-5", "gpt-5.6-sol", "gpt-5.3-codex", …). */
 export function isGpt5Family(model: string | null | undefined): boolean {
   return /^gpt-5(?:$|[.-])/u.test(normalizeCodexModel(model));
 }

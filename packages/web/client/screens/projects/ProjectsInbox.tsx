@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, FolderPlus, Search } from "lucide-react";
+import { ArrowRight, ChevronRight, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
@@ -56,6 +56,7 @@ function ThreadRow({
   onSelect,
   onOpen,
   rowRef,
+  workLabel,
 }: {
   thread: InboxThread | InboxSession;
   crossProject: boolean;
@@ -65,6 +66,7 @@ function ThreadRow({
   onSelect: () => void;
   onOpen: () => void;
   rowRef: (el: HTMLButtonElement | null) => void;
+  workLabel?: string;
 }) {
   return (
     <button
@@ -81,7 +83,7 @@ function ThreadRow({
       <span className="pi-rowDot" aria-hidden />
       <span className="pi-rowBody">
         <span className="pi-rowWork" title={thread.work}>
-          {thread.work}
+          {workLabel ?? thread.work}
         </span>
         <span className="pi-rowAttr">
           <span className="pi-rowAvatar">
@@ -114,12 +116,16 @@ function ThreadRow({
       </span>
       <span className="pi-rowVitals">
         {thread.needs ? (
-          <span className="pi-rowNeedsTag">needs you</span>
+          <span className="pi-rowNeedsTag">your turn</span>
         ) : thread.working ? (
           <span className="pi-rowLiveTag">live</span>
         ) : null}
         <span className="pi-rowAgo">{thread.lastActivityAt ? timeAgo(thread.lastActivityAt, nowMs) : "—"}</span>
         {thread.contextPct != null ? <span className="pi-rowCtx">{thread.contextPct}%</span> : null}
+      </span>
+      <span className="pi-rowOpen" aria-hidden>
+        <span>Open</span>
+        <ChevronRight size={14} strokeWidth={1.8} />
       </span>
     </button>
   );
@@ -189,24 +195,17 @@ function ProjectScopeHeader({
   const showAgentFacet = (project?.agentCount ?? agentThreads.length) > 1;
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
   const baseRoute = { view: "agents-v2" as const, projectSlug: slug, ...machineScope };
-
   const digest = digestLine(project?.needs ?? 0, project?.working ?? 0, projectThreads.length);
 
   return (
     <header className="pi-projectHead">
       <div className="pi-projectHeadTop">
-        <AgentAvatar name={title} placement="row" size={40} presence={false} />
         <div className="pi-projectIdent">
-          <div className="pi-projectTitleRow">
-            <span className="pi-projectKind">Project</span>
-            <h1 className="pi-projectTitle">/{title}</h1>
+          <h1 className="pi-projectTitle">{title}</h1>
+          <div className="pi-projectMeta">
+            {root ? <span title={root}>{shortHomePath(root)}</span> : null}
+            <span className="pi-projectDigest">{digest}</span>
           </div>
-          {root ? (
-            <div className="pi-projectRoot" title={root}>
-              {shortHomePath(root)}
-            </div>
-          ) : null}
-          <div className="pi-projectDigest">{digest}</div>
         </div>
       </div>
 
@@ -239,27 +238,7 @@ function ProjectScopeHeader({
             <b>{project?.agentCount ?? agentThreads.length}</b>
           </button>
         ) : null}
-        <button type="button" className="pi-projectFacet" onClick={() => navigate({ view: "repos", ...machineScope })}>
-          <span>Worktrees</span>
-          <b>{project?.worktreeCount ?? 0}</b>
-        </button>
-        <span className="pi-projectFacet pi-projectFacet--static">
-          <span>Rules</span>
-          <b>{root ? "set" : "—"}</b>
-        </span>
       </div>
-
-      {project ? (
-        <div className="pi-projectGlance">
-          <span>{project.liveSessionCount} live session{project.liveSessionCount === 1 ? "" : "s"}</span>
-          <span>{project.worktreeCount} worktree{project.worktreeCount === 1 ? "" : "s"}</span>
-          {project.branches.length > 0 ? (
-            <span title={project.branches.join(", ")}>{project.branches.length} branch{project.branches.length === 1 ? "" : "es"}</span>
-          ) : (
-            <span>mainline</span>
-          )}
-        </div>
-      ) : null}
     </header>
   );
 }
@@ -275,7 +254,7 @@ function digestLine(needs: number, working: number, total: number): ReactNode {
   if (total === 0) return <span>No conversations yet.</span>;
   const parts: ReactNode[] = [];
   if (working > 0) parts.push(<b key="w">{working} moving</b>);
-  if (needs > 0) parts.push(<b key="n">{needs} needs you</b>);
+  if (needs > 0) parts.push(<b key="n">{needs} waiting on you</b>);
   parts.push(<span key="t">{total} conversation{total === 1 ? "" : "s"}</span>);
   return parts.reduce<ReactNode[]>((acc, node, index) => {
     if (index > 0) acc.push(<span key={`sep${index}`}> · </span>);
@@ -915,10 +894,6 @@ function topologyLine(data: ObserveData | null): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-function sessionRouteKey(session: InboxSession): string {
-  return session.sessionId ?? session.conversationId ?? session.id;
-}
-
 function sessionFileSignals(files: ObserveData["files"]): SessionFileSignal[] {
   return [...files]
     .sort((left, right) => {
@@ -1280,273 +1255,67 @@ function SessionSignalPanel({
   );
 }
 
-function ProjectOverviewEmpty({ label }: { label: string }) {
-  return <div className="pi-projectOverviewEmpty">{label}</div>;
-}
-
-type ProjectSessionSort = "status" | "agent" | "work" | "branch" | "last";
-
-type ProjectOverviewWorktree = {
-  key: string;
-  root: string | null;
-  branch: string | null;
-  sessions: number;
-  work: number;
-  moving: number;
-  lastActivityAt: number;
-};
-
-function sortSessionsForOverview(sessions: InboxSession[], sort: ProjectSessionSort): InboxSession[] {
-  return [...sessions].sort((left, right) => {
-    switch (sort) {
-      case "status":
-        return Number(right.working) - Number(left.working)
-          || right.lastActivityAt - left.lastActivityAt
-          || left.agentName.localeCompare(right.agentName);
-      case "agent":
-        return left.agentName.localeCompare(right.agentName)
-          || right.lastActivityAt - left.lastActivityAt;
-      case "work":
-        return sessionHeadline(left.work, left.agentName, sessionRouteKey(left)).localeCompare(
-          sessionHeadline(right.work, right.agentName, sessionRouteKey(right)),
-        ) || right.lastActivityAt - left.lastActivityAt;
-      case "branch":
-        return (left.branch ?? "").localeCompare(right.branch ?? "")
-          || right.lastActivityAt - left.lastActivityAt;
-      case "last":
-      default:
-        return Number(right.working) - Number(left.working)
-          || right.lastActivityAt - left.lastActivityAt
-          || left.agentName.localeCompare(right.agentName);
-    }
-  });
-}
-
-function cleanBranch(value: string | null): string | null {
-  if (!value || value === "—") return null;
-  if (/^\d+\s+branches$/iu.test(value)) return null;
-  return value;
-}
-
-function projectWorktrees(
-  root: string | null,
-  sessions: InboxSession[],
-  threads: InboxThread[],
-): ProjectOverviewWorktree[] {
-  const map = new Map<string, ProjectOverviewWorktree>();
-  const ensure = (entryRoot: string | null, branch: string | null): ProjectOverviewWorktree => {
-    const normalizedRoot = entryRoot ?? root;
-    const normalizedBranch = cleanBranch(branch);
-    const key = `${normalizedRoot ?? "project"}:${normalizedBranch ?? "main"}`;
-    const existing = map.get(key);
-    if (existing) return existing;
-    const next = {
-      key,
-      root: normalizedRoot,
-      branch: normalizedBranch,
-      sessions: 0,
-      work: 0,
-      moving: 0,
-      lastActivityAt: 0,
-    };
-    map.set(key, next);
-    return next;
-  };
-  for (const session of sessions) {
-    const entry = ensure(session.projectRoot, session.branch);
-    entry.sessions += 1;
-    if (session.working) entry.moving += 1;
-    entry.lastActivityAt = Math.max(entry.lastActivityAt, session.lastActivityAt);
-  }
-  for (const thread of threads) {
-    const entry = ensure(thread.projectRoot, thread.branch);
-    entry.work += 1;
-    if (thread.working) entry.moving += 1;
-    entry.lastActivityAt = Math.max(entry.lastActivityAt, thread.lastActivityAt);
-  }
-  if (map.size === 0) ensure(root, null);
-  return [...map.values()].sort((left, right) =>
-    right.moving - left.moving
-    || right.lastActivityAt - left.lastActivityAt
-    || (left.root ?? "").localeCompare(right.root ?? ""),
-  );
-}
-
-function ProjectOverviewSortButton({
-  label,
-  sort,
-  active,
-  onSort,
-}: {
-  label: string;
-  sort: ProjectSessionSort;
-  active: ProjectSessionSort;
-  onSort: (sort: ProjectSessionSort) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="pi-projectTableSort"
-      data-active={active === sort || undefined}
-      onClick={() => onSort(sort)}
-    >
-      {label}
-    </button>
-  );
-}
-
 function ProjectOverviewMain({
-  project,
-  threads,
   sessions,
   route,
   navigate,
   nowMs,
 }: {
-  project: InboxProject | null;
-  threads: InboxThread[];
   sessions: InboxSession[];
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
   nowMs: number;
 }) {
-  const [sessionSort, setSessionSort] = useState<ProjectSessionSort>("last");
-  const root = project?.root ?? sessions[0]?.projectRoot ?? threads[0]?.projectRoot ?? null;
-  const workCount = threads.length;
-  const sessionCount = project?.sessionCount ?? sessions.length;
-  const liveSessionCount = project?.liveSessionCount ?? sessions.filter((session) => session.working).length;
-  const needs = project?.needs ?? threads.filter((thread) => thread.needs).length;
-  const moving = project?.working ?? threads.filter((thread) => thread.working).length;
-  const lastActivityAt = Math.max(
-    project?.lastActivityAt ?? 0,
-    sessions[0]?.lastActivityAt ?? 0,
-    threads[0]?.lastActivityAt ?? 0,
-  );
-  const branches = project?.branches.length
-    ? project.branches
-    : [
-        ...new Set(
-          [...sessions.map((session) => session.branch), ...threads.map((thread) => thread.branch)]
-            .filter((branch): branch is string => Boolean(branch) && branch !== "—" && branch !== "main"),
-        ),
-      ];
-  const sortedSessions = sortSessionsForOverview(sessions, sessionSort);
-  const worktrees = projectWorktrees(root, sessions, threads);
-  const currentBranch = worktrees.find((entry) => entry.moving > 0 && entry.branch)?.branch
-    ?? worktrees.find((entry) => entry.branch)?.branch
-    ?? branches[0]
-    ?? "main";
-  const statusLabel = needs > 0 ? `${needs} needs you` : moving > 0 || liveSessionCount > 0 ? `${moving || liveSessionCount} moving` : "quiet";
+  const recentSessions = [...sessions]
+    .sort((left, right) => Number(right.working) - Number(left.working) || right.lastActivityAt - left.lastActivityAt)
+    .slice(0, 12);
+  const machineScope = route.machineId ? { machineId: route.machineId } : {};
 
   return (
     <main className="pi-projectOverview" aria-label="Project overview">
-      <section className="pi-projectSnapshot" aria-label="Project snapshot">
-        <div className="pi-projectSnapshotMain">
-          <span className="pi-projectSnapshotLabel">Current</span>
-          <b title={root ?? undefined}>{root ? shortHomePath(root) : route.projectSlug ?? "project"}</b>
-          <div className="pi-projectSnapshotLine">
-            <span title={currentBranch}>branch {currentBranch}</span>
-            <span>{statusLabel}</span>
-            <span>{lastActivityAt ? timeAgo(lastActivityAt, nowMs) : "no activity"}</span>
-          </div>
+      <section className="pi-projectRecent" aria-label="Recent sessions">
+        <div className="pi-projectRecentHead">
+          <span>Recent sessions</span>
+          <b>{compactNumber(sessions.length)}</b>
         </div>
-
-        <div className="pi-projectSnapshotStats">
-          <GlanceField label="Sessions" value={compactNumber(sessionCount)} />
-          <GlanceField label="Work" value={compactNumber(workCount)} />
-          <GlanceField label="Moving" value={compactNumber(moving || liveSessionCount)} />
-          <GlanceField label="Worktrees" value={compactNumber(worktrees.length)} />
-        </div>
-
-        <div className="pi-projectWorktrees">
-          <div className="pi-projectWorktreesHead">
-            <span>Worktrees</span>
-            <b>{compactNumber(worktrees.length)}</b>
-          </div>
-          <div className="pi-projectWorktreeList">
-            {worktrees.slice(0, 4).map((entry) => (
-              <span key={entry.key} className="pi-projectWorktree" data-active={entry.moving > 0 || undefined}>
-                <b title={entry.root ?? undefined}>{entry.root ? shortHomePath(entry.root) : "workspace"}</b>
-                <em title={entry.branch ?? "main"}>{entry.branch ?? "main"}</em>
-                <small>{entry.moving > 0 ? `${entry.moving} moving` : entry.lastActivityAt ? timeAgo(entry.lastActivityAt, nowMs) : "idle"}</small>
-              </span>
+        {recentSessions.length > 0 ? (
+          <div className="pi-projectRecentList">
+            {recentSessions.map((session) => (
+              <ThreadRow
+                key={session.id}
+                thread={session}
+                crossProject={false}
+                selected={false}
+                cursor={false}
+                nowMs={nowMs}
+                onSelect={() => navigate(sessionSelectRoute(session, route))}
+                onOpen={() => navigate(sessionOpenRoute(session, route))}
+                rowRef={() => {}}
+                workLabel={sessionHeadline(
+                  session.work,
+                  session.agentName,
+                  session.sessionId ?? session.conversationId ?? session.id,
+                )}
+              />
             ))}
           </div>
-          {branches.length > 0 ? (
-            <div className="pi-projectBranchChips">
-              {branches.slice(0, 8).map((branch) => (
-                <span key={branch} title={branch}>{branch}</span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="pi-projectTablePanel" aria-label="Project sessions">
-        <div className="pi-projectTableToolbar">
-          <span>Sessions</span>
-          <b>{compactNumber(sessionCount)}</b>
-        </div>
-        {sortedSessions.length > 0 ? (
-          <div className="pi-projectTableScroller">
-            <table className="pi-projectTable">
-              <thead>
-                <tr>
-                  <th><ProjectOverviewSortButton label="Status" sort="status" active={sessionSort} onSort={setSessionSort} /></th>
-                  <th><ProjectOverviewSortButton label="Agent" sort="agent" active={sessionSort} onSort={setSessionSort} /></th>
-                  <th><ProjectOverviewSortButton label="Session" sort="work" active={sessionSort} onSort={setSessionSort} /></th>
-                  <th><ProjectOverviewSortButton label="Branch" sort="branch" active={sessionSort} onSort={setSessionSort} /></th>
-                  <th><ProjectOverviewSortButton label="Last" sort="last" active={sessionSort} onSort={setSessionSort} /></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedSessions.slice(0, 80).map((session) => {
-                  const title = sessionHeadline(session.work, session.agentName, sessionRouteKey(session));
-                  return (
-                    <tr
-                      key={session.id}
-                      data-state={session.working ? "working" : session.group}
-                      onClick={() => navigate(sessionSelectRoute(session, route))}
-                      onDoubleClick={() => navigate(sessionOpenRoute(session, route))}
-                    >
-                      <td>
-                        <span className="pi-projectTableStatus" data-live={session.working || undefined}>
-                          {session.working ? "active" : "idle"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="pi-projectTableAgent">
-                          <AgentAvatar
-                            agent={{
-                              name: session.agentName,
-                              harness: session.harness,
-                              state: session.working ? "in_turn" : null,
-                            }}
-                            placement="row"
-                            size={20}
-                          />
-                          <span>{session.agentName}</span>
-                          <HarnessMark harness={session.harness} size={10} />
-                        </span>
-                      </td>
-                      <td>
-                        <span className="pi-projectTableWork" title={session.work}>{title}</span>
-                      </td>
-                      <td>
-                        <span className="pi-projectTableBranch" title={session.branch ?? undefined}>{session.branch ?? "main"}</span>
-                      </td>
-                      <td>
-                        <span className="pi-projectTableLast">{session.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—"}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         ) : (
-          <ProjectOverviewEmpty label="No sessions yet." />
+          <div className="pi-projectOverviewEmpty">No sessions yet.</div>
         )}
+        {sessions.length > recentSessions.length ? (
+          <button
+            type="button"
+            className="pi-projectRecentMore"
+            onClick={() => navigate({
+              view: "agents-v2",
+              projectSlug: route.projectSlug,
+              indexView: "sessions",
+              ...machineScope,
+            })}
+          >
+            View all sessions
+          </button>
+        ) : null}
       </section>
     </main>
   );
@@ -1564,6 +1333,12 @@ export function ProjectsInbox({
   const { model, nowMs, loading, error } = useProjectsInbox(route);
   const [view] = useProjectsInboxView();
   const scoped = Boolean(route.projectSlug);
+  const selectedSessionRef =
+    scoped && !isSyntheticProcessSessionRef(route.sessionId) ? route.sessionId ?? null : null;
+  const selectedSession = useMemo(
+    () => selectedSessionRef ? findSelectedSession(model.sessions, route) : null,
+    [model.sessions, route, selectedSessionRef],
+  );
   const mode: ProjectMode = !scoped
     ? "overview"
     : route.indexView === "agents"
@@ -1575,6 +1350,7 @@ export function ProjectsInbox({
   const items = useMemo<Array<InboxThread | InboxSession>>(
     () => {
       if (zeroPreview) return [];
+      if (selectedSessionRef) return [];
       if (!scoped) return filterThreadsForView(model.threads, view, nowMs);
       const slug = route.projectSlug!;
       const projectThreads = threadsForProject(model.threads, slug);
@@ -1584,12 +1360,13 @@ export function ProjectsInbox({
       if (projectSessions.length > 0) return projectSessions;
       return projectThreads;
     },
-    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, view, zeroPreview],
+    [model.sessions, model.threads, mode, nowMs, route.projectSlug, scoped, selectedSessionRef, view, zeroPreview],
   );
   const sections = useMemo(() => groupItems(items), [items]);
   const flat = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const hasModelData = model.projects.length > 0 || model.threads.length > 0 || model.sessions.length > 0;
   const initialLoading = loading && !hasModelData;
+  const resolvingSelectedSession = Boolean(selectedSessionRef && !selectedSession && loading);
   const displayCounts = zeroPreview ? ZERO_COUNTS : model.counts;
   const waiting = loading && !zeroPreview;
   const showProjectZeroState =
@@ -1664,10 +1441,27 @@ export function ProjectsInbox({
         </div>
       )}
 
-      {scoped && mode === "overview" ? (
+      {selectedSessionRef ? (
+        resolvingSelectedSession ? (
+          <main className="pi-sessionDetail" aria-label="Selected session">
+            <ProjectSurfaceState
+              tone="loading"
+              title="Resolving session"
+              detail="Looking for a live trace or readable session archive."
+            />
+          </main>
+        ) : (
+          <SelectedSessionMain
+            session={selectedSession}
+            sessionRef={selectedSessionRef}
+            threads={threadsForProject(model.threads, route.projectSlug ?? selectedSession?.projectSlug ?? "")}
+            route={route}
+            navigate={navigate}
+            nowMs={nowMs}
+          />
+        )
+      ) : scoped && mode === "overview" ? (
         <ProjectOverviewMain
-          project={model.projects.find((project) => project.slug === route.projectSlug) ?? null}
-          threads={threadsForProject(model.threads, route.projectSlug!)}
           sessions={sessionsForProject(model.sessions, route.projectSlug!)}
           route={route}
           navigate={navigate}
@@ -1699,7 +1493,12 @@ export function ProjectsInbox({
                       selected={thread.kind === "session" ? isSessionSelected(thread, route) : isThreadSelected(thread, route)}
                       cursor={cursor === index}
                       nowMs={nowMs}
-                      onSelect={() => navigate(thread.kind === "session" ? sessionSelectRoute(thread, route) : threadSelectRoute(thread, route))}
+                      onSelect={() => {
+                        const destination = thread.kind === "session"
+                          ? sessionSelectRoute(thread, route)
+                          : threadSelectRoute(thread, route);
+                        navigate(destination);
+                      }}
                       onOpen={() => navigate(thread.kind === "session" ? sessionOpenRoute(thread, route) : threadOpenRoute(thread, route))}
                       rowRef={(el) => {
                         if (el) rowRefs.current.set(thread.id, el);
@@ -1737,7 +1536,7 @@ export function ProjectsInbox({
 function emptyLabel(scoped: boolean, mode: ProjectMode, view: string): string {
   if (scoped && mode === "agents") return "No visible agents in this project.";
   if (scoped) return "No sessions in this project yet.";
-  if (view === "needs") return "Nothing needs you.";
+  if (view === "needs") return "Nothing is waiting on you.";
   if (view === "working") return "Nothing is moving right now.";
   if (view === "recent") return "No recent activity.";
   return "No conversations yet.";

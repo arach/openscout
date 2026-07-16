@@ -199,7 +199,7 @@ describe("BrokerWorkItemStore", () => {
     expect(runtime.collaborationRecord("work-1")).toEqual(existing);
   });
 
-  test("promotes terminal invocation flights onto linked work items", async () => {
+  test("moves requested work to review when its invocation completes", async () => {
     const { runtime, appended, projected, store } = createStore();
     await store.recordDeliveryWorkItemIfNeeded({
       payload: testPayload(),
@@ -219,8 +219,10 @@ describe("BrokerWorkItemStore", () => {
     const updated = runtime.collaborationRecord("work-1");
     expect(updated).toEqual(expect.objectContaining({
       id: "work-1",
-      state: "done",
-      completedAt: 200,
+      state: "review",
+      acceptanceState: "pending",
+      nextMoveOwnerId: "operator",
+      reviewRequestedAt: 200,
       progress: expect.objectContaining({
         summary: "All broker tests stayed green.",
         completedSteps: 1,
@@ -239,11 +241,94 @@ describe("BrokerWorkItemStore", () => {
     expect(appended[1]?.[1]).toEqual(expect.objectContaining({
       kind: "collaboration.event.record",
       event: expect.objectContaining({
-        kind: "done",
+        kind: "review_requested",
         actorId: "agent-1",
         summary: "All broker tests stayed green.",
       }),
     }));
     expect(projected[1]).toEqual(appended[1]);
+  });
+
+  test("completes self-driven work that does not require acceptance", async () => {
+    const { runtime, store } = createStore();
+    await store.recordDeliveryWorkItemIfNeeded({
+      payload: testPayload({
+        workItem: {
+          id: "work-1",
+          title: "Run routine maintenance",
+          acceptanceState: "none",
+        },
+      }),
+      requestId: "deliver-1",
+      requesterId: "agent-1",
+      targetAgentId: "agent-1",
+      conversationId: "conversation-1",
+      createdAt: 100,
+    });
+
+    await store.promoteInvocationFlightToWork(
+      testInvocation({ requesterId: "agent-1" }),
+      testFlight({ requesterId: "agent-1" }),
+      "Maintenance complete.",
+    );
+
+    expect(runtime.collaborationRecord("work-1")).toEqual(expect.objectContaining({
+      state: "done",
+      acceptanceState: "none",
+      completedAt: 200,
+    }));
+  });
+
+  test("moves failed work to an explicit requester-owned waiting state", async () => {
+    const { runtime, store } = createStore();
+    await store.recordDeliveryWorkItemIfNeeded({
+      payload: testPayload(),
+      requestId: "deliver-1",
+      requesterId: "operator",
+      targetAgentId: "agent-1",
+      conversationId: "conversation-1",
+      createdAt: 100,
+    });
+
+    await store.promoteInvocationFlightToWork(
+      testInvocation(),
+      testFlight({ state: "failed", output: undefined, error: "Sandbox stopped." }),
+      "Sandbox stopped.",
+    );
+
+    expect(runtime.collaborationRecord("work-1")).toEqual(expect.objectContaining({
+      state: "waiting",
+      completedAt: undefined,
+      nextMoveOwnerId: "operator",
+      waitingOn: expect.objectContaining({
+        kind: "actor",
+        targetId: "operator",
+        label: "Decide whether to retry the failed execution",
+      }),
+    }));
+  });
+
+  test("records cancellation as a terminal work-item transition", async () => {
+    const { runtime, store } = createStore();
+    await store.recordDeliveryWorkItemIfNeeded({
+      payload: testPayload(),
+      requestId: "deliver-1",
+      requesterId: "operator",
+      targetAgentId: "agent-1",
+      conversationId: "conversation-1",
+      createdAt: 100,
+    });
+
+    await store.promoteInvocationFlightToWork(
+      testInvocation(),
+      testFlight({ state: "cancelled" }),
+      "Cancelled by operator.",
+    );
+
+    expect(runtime.collaborationRecord("work-1")).toEqual(expect.objectContaining({
+      state: "cancelled",
+      completedAt: 200,
+      waitingOn: undefined,
+    }));
   });
 });

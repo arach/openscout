@@ -652,13 +652,18 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
-  // The agents directory has nothing "in context" until an agent is engaged, so
-  // the Context inspector loads minimized there and opens itself when you tap an
-  // agent into context. This only overrides the rendered collapse — the stored
-  // `rightCollapsed` preference is untouched, so engaged views keep their state.
+  // The agents directory has nothing "in context" until an agent is engaged.
+  // Selecting a project row opens its inspector; the user can still collapse it
+  // afterward because this effect only runs when the selected row changes.
   const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
   const agentsV2Route = route.view === "agents-v2";
   const agentsV2Registry = route.view === "agents-v2" && !route.agentId;
+  const projectsPeekKey = agentsV2Registry
+    ? route.selectedAgentId ?? route.sessionId ?? null
+    : null;
+  useEffect(() => {
+    if (projectsPeekKey) setRightCollapsed(false);
+  }, [projectsPeekKey, setRightCollapsed]);
   const effectiveRightCollapsed = agentsV2Registry
     ? rightCollapsed
     : rightCollapsed || inspectorHasNothingInContext;

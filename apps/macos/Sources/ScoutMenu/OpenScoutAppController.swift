@@ -722,7 +722,7 @@ final class OpenScoutAppController: ObservableObject {
             do {
                 try enableOpenScoutNetworkSettings()
 
-                guard OpenScoutNetworkSessionStore.loadSessionToken() != nil else {
+                guard OpenScoutNetworkSessionStore.loadSessionToken(allowAuthenticationUI: true) != nil else {
                     if openSignInIfNeeded {
                         appendActionLog(.info, "Opening OpenScout Network sign-in...")
                         signInOpenScoutNetwork()
