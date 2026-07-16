@@ -271,6 +271,14 @@ export function observeKindFromTailEvent(event: TailEvent): ObserveEvent["kind"]
     }
   }
 
+  if (
+    event.source === "kimi"
+    && event.kind === "system"
+    && event.summary.trim().startsWith("[thinking] ")
+  ) {
+    return "think";
+  }
+
   switch (event.kind) {
     case "assistant":
       return "message";
@@ -313,6 +321,11 @@ export function observeTextFromTailEvent(
     }
   }
 
+  if (event.source === "kimi" && event.kind === "system") {
+    const thinking = event.summary.trim().match(/^\[thinking\]\s+([\s\S]+)$/u);
+    if (thinking?.[1]) return thinking[1];
+  }
+
   return event.summary;
 }
 
@@ -323,8 +336,22 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
   const summary = event.summary.trim();
   if (!summary) return {};
 
+  const cleanLogSource = event.source === "claude" || event.source === "kimi";
   const combined = parseToolCombinedResult(summary);
   if (combined) {
+    if (cleanLogSource) {
+      const call = combined.command.match(CLAUDE_TOOL_CALL);
+      if (call && isClaudeToolName(call[1])) {
+        const fields: TailObserveToolFields = {
+          tool: call[1],
+          result: { outcome: toolResultOutcome(combined.preview) },
+          stream: [combined.preview],
+        };
+        const arg = call[2]?.trim();
+        if (arg) fields.arg = arg;
+        return fields;
+      }
+    }
     return bashToolFields(combined.command, combined.preview);
   }
 
@@ -358,12 +385,12 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
     }
   }
 
-  // Claude's `formatToolCall`/`formatToolResult` (runtime tool-format.ts) emit a
+  // Claude and Kimi's `formatToolCall`/`formatToolResult` (runtime tool-format.ts) emit a
   // clean shell-log line — `Read views/scout-tail.tsx`, a bare command for shell
   // execs, and `res: <preview>` for results — rather than codex's `Tool(args)`.
   // Re-extract the tool + salient arg so lane/mission rows show the snippet, not
   // just the bare tool name.
-  if (event.source === "claude") {
+  if (cleanLogSource) {
     const result = summary.match(CLAUDE_RESULT_PREFIX);
     if (result) {
       const preview = result[1].trim();
