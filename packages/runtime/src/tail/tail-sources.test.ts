@@ -8,6 +8,7 @@ import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
 import { isTailNoiseEvent } from "./display.js";
 import { GrokSource } from "./grok-source.js";
+import { KimiSource } from "./kimi-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
 import { PiSource } from "./pi-source.js";
 import type { DiscoveredProcess, DiscoveredTranscript, TailContext } from "./types.js";
@@ -16,6 +17,7 @@ const originalClaudeRoot = process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT;
 const originalCodexRoot = process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT;
 const originalCursorRoot = process.env.OPENSCOUT_TAIL_CURSOR_PROCESS_MONITOR_ROOT;
 const originalGrokRoot = process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT;
+const originalKimiRoot = process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT;
 const originalOpenCodeRoot = process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT;
 const originalOpenCodeMessages = process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION;
 const originalPiRoot = process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT;
@@ -33,6 +35,8 @@ function restoreEnv(): void {
   else process.env.OPENSCOUT_TAIL_CURSOR_PROCESS_MONITOR_ROOT = originalCursorRoot;
   if (originalGrokRoot === undefined) delete process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT;
   else process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT = originalGrokRoot;
+  if (originalKimiRoot === undefined) delete process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT;
+  else process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT = originalKimiRoot;
   if (originalOpenCodeRoot === undefined) delete process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT;
   else process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT = originalOpenCodeRoot;
   if (originalOpenCodeMessages === undefined) delete process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION;
@@ -73,6 +77,7 @@ beforeEach(() => {
   process.env.OPENSCOUT_TAIL_CODEX_SESSIONS_ROOT = join(tempRoot, "codex-sessions");
   process.env.OPENSCOUT_TAIL_CURSOR_PROCESS_MONITOR_ROOT = join(tempRoot, "cursor-process-monitor");
   process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT = join(tempRoot, "grok-sessions");
+  process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT = join(tempRoot, "kimi-sessions");
   process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT = join(tempRoot, "opencode-storage");
   process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION = "10";
   process.env.OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS = String(60 * 60 * 1000);
@@ -172,6 +177,144 @@ describe("tail transcript sources", () => {
     const transcripts = ClaudeSource.discoverTranscripts([]);
     expect(transcripts.map((transcript) => transcript.sessionId)).toEqual(["claude-session"]);
     expect(transcripts.some((transcript) => transcript.transcriptPath.endsWith("journal.jsonl"))).toBe(false);
+  });
+
+  test("discovers Kimi main and subagent wire logs and parses their activity", () => {
+    const sessionId = "session_c77b8954-a27a-46ff-8470-887dbb81066d";
+    const sessionDir = join(process.env.OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT!, "wd_openscout_bcafead09134", sessionId);
+    const mainDir = join(sessionDir, "agents", "main");
+    const subagentDir = join(sessionDir, "agents", "agent-0");
+    mkdirSync(mainDir, { recursive: true });
+    mkdirSync(subagentDir, { recursive: true });
+    writeFileSync(join(sessionDir, "state.json"), JSON.stringify({
+      workDir: "/Users/arach/dev/openscout",
+      title: "Review the project",
+      createdAt: "2026-07-16T12:00:00.000Z",
+      updatedAt: "2026-07-16T12:00:05.000Z",
+      agents: {
+        main: { type: "main", parentAgentId: null },
+        "agent-0": { type: "sub", parentAgentId: "main" },
+      },
+    }), "utf8");
+
+    const mainPath = join(mainDir, "wire.jsonl");
+    writeFileSync(mainPath, [
+      JSON.stringify({
+        type: "turn.prompt",
+        input: [{ type: "text", text: "Inspect the tail service" }],
+        origin: { kind: "user" },
+        time: 1_784_224_000_000,
+      }),
+      JSON.stringify({
+        type: "context.append_loop_event",
+        time: 1_784_224_000_100,
+        event: {
+          type: "content.part",
+          uuid: "thought-1",
+          part: { type: "think", think: "I should inspect the source registry." },
+        },
+      }),
+      JSON.stringify({
+        type: "context.append_loop_event",
+        time: 1_784_224_000_200,
+        event: {
+          type: "tool.call",
+          uuid: "tool-call-event-1",
+          toolCallId: "tool-1",
+          name: "Read",
+          args: { path: "/Users/arach/dev/openscout/packages/runtime/src/tail/service.ts" },
+        },
+      }),
+      JSON.stringify({
+        type: "context.append_loop_event",
+        time: 1_784_224_000_300,
+        event: {
+          type: "tool.result",
+          parentUuid: "tool-call-event-1",
+          toolCallId: "tool-1",
+          result: { output: "import { KimiSource } from './kimi-source.js';" },
+        },
+      }),
+      JSON.stringify({
+        type: "context.append_loop_event",
+        time: 1_784_224_000_400,
+        event: {
+          type: "content.part",
+          uuid: "answer-1",
+          part: { type: "text", text: "Kimi logs are now in the firehose." },
+        },
+      }),
+    ].join("\n") + "\n", "utf8");
+
+    const subagentPath = join(subagentDir, "wire.jsonl");
+    writeFileSync(subagentPath, JSON.stringify({
+      type: "turn.prompt",
+      input: [{ type: "text", text: "Inspect the parser" }],
+      origin: { kind: "user" },
+      time: 1_784_224_000_500,
+    }) + "\n", "utf8");
+
+    const transcripts = KimiSource.discoverTranscripts([]);
+    expect(transcripts).toHaveLength(2);
+    const main = transcripts.find((entry) => entry.transcriptPath === mainPath);
+    const subagent = transcripts.find((entry) => entry.transcriptPath === subagentPath);
+    expect(main).toEqual(expect.objectContaining({
+      source: "kimi",
+      sessionId,
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+    }));
+    expect(subagent?.sessionId).toBe(`${sessionId}:agent-0`);
+
+    const context = { ...makeContext("kimi", main!), state: {} as Record<string, unknown> };
+    const lines = readFileSync(mainPath, "utf8").trim().split("\n");
+    const events = lines.map((line, index) => KimiSource.parseLine(line, {
+      ...context,
+      lineOffset: index,
+    }));
+
+    expect(events.map((event) => event?.kind)).toEqual([
+      "user",
+      "system",
+      "tool",
+      "tool-result",
+      "assistant",
+    ]);
+    expect(events[0]?.summary).toBe("Inspect the tail service");
+    expect(events[1]?.summary).toBe("[thinking] I should inspect the source registry.");
+    expect(events[2]?.summary).toBe("Read tail/service.ts");
+    expect(events[3]?.summary).toBe("Read tail/service.ts -> res: import { KimiSource } from './kimi-source.js';");
+    expect(events[4]?.id).toBe(`kimi:${sessionId}:context.append_loop_event:answer-1`);
+    expect(events[4]?.summary).toBe("Kimi logs are now in the firehose.");
+  });
+
+  test("maps Kimi permission, plan, compaction, and cancellation records", () => {
+    const transcript: DiscoveredTranscript = {
+      source: "kimi",
+      transcriptPath: "/tmp/kimi/session_1/agents/main/wire.jsonl",
+      sessionId: "session_1",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed",
+      mtimeMs: Date.now(),
+      size: 100,
+    };
+    const records = [
+      { type: "permission.record_approval_result", toolName: "Bash", result: { decision: "approved" }, time: 1 },
+      { type: "plan_mode.enter", time: 2 },
+      { type: "context.apply_compaction", summary: "Earlier work was preserved.", time: 3 },
+      { type: "turn.cancel", time: 4 },
+    ];
+    const events = records.map((record, index) => KimiSource.parseLine(
+      JSON.stringify(record),
+      { ...makeContext("kimi", transcript), lineOffset: index },
+    ));
+    expect(events.map((event) => event?.summary)).toEqual([
+      "permission approved · Bash",
+      "plan mode entered",
+      "context compacted · Earlier work was preserved.",
+      "turn cancelled",
+    ]);
   });
 
   test("discovers and parses Codex rollout files without process discovery", () => {
