@@ -108,6 +108,10 @@ Kimi Code is a first-class cardless harness target: `--harness kimi` resolves
 through the catalog to the `kimi_acp` transport, which launches `kimi acp` and
 reuses the CLI's cached `kimi login` authentication state.
 
+Kimi's harness-owned session history is observed separately by
+`packages/runtime/src/tail/kimi-source.ts`; the ACP adapter does not import those
+wire logs into Scout session records.
+
 Managed-process direction (SCO-056): ACP stdio and similar executables map into same session/endpoint model via adapter boundary.
 
 ## Observed vs Owned
