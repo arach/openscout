@@ -2287,6 +2287,14 @@ struct ScoutRootView: View {
                         if store.isLoadingMessages, store.selectedChannel != nil {
                             ScoutThreadLoadingSkeleton()
                                 .transition(.opacity)
+                        } else if let activeTurn = store.activeTurn {
+                            // Organic harness turns can be live before Scout has
+                            // a visible transcript message. The rolling activity
+                            // summary is the conversation in that state; do not
+                            // replace it with a misleading empty-chat panel.
+                            ScoutInFlightTurnRow(turn: activeTurn)
+                                .id(Self.activeTurnAnchor)
+                                .transition(.opacity)
                         } else {
                             HudEmptyState(
                                 title: store.selectedChannel == nil ? "No channel selected" : "No messages yet",

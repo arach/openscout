@@ -30,8 +30,9 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var observeError: String?
     /// The selected conversation's current in-flight turn, if one is running.
     /// Drives the in-thread "agent is working" preview so a new or slow session
-    /// shows progress without opening Observe. Nil when the conversation is idle
-    /// (no non-terminal flight).
+    /// shows progress without opening Observe. A broker flight is preferred, but
+    /// a live observed harness session also keeps the row present for organic
+    /// work that was not started through a Scout ask.
     @Published private(set) var activeTurn: ScoutActiveTurn?
     /// Read cursors for the selected conversation, keyed by actor on the broker.
     /// The UI uses these as read receipts on the latest operator-authored turn
@@ -673,25 +674,40 @@ final class ScoutCommsStore: ObservableObject {
         activeTurnRequestCId = cId
         let agentId = selectedAgentId
         let flightId = selectedFlightIdHint
+        let sessionId = selectedChannel?.sessionId?.nilIfEmpty
         let agentName = selectedAgent?.displayName
             ?? selectedChannel?.agentName?.nilIfEmpty
             ?? selectedAgentNameHint
             ?? "agent"
         Self.log.debug("active turn fetch started cId=\(cId, privacy: .public) requestId=\(requestId.uuidString, privacy: .public)")
         activeTurnTask = Task { [weak self] in
-            await self?.fetchActiveTurn(cId: cId, requestId: requestId, flightId: flightId, agentId: agentId, agentName: agentName)
+            await self?.fetchActiveTurn(
+                cId: cId,
+                requestId: requestId,
+                flightId: flightId,
+                agentId: agentId,
+                sessionId: sessionId,
+                agentName: agentName
+            )
         }
     }
 
     /// Read the conversation's current flight (reusing `/api/flights` — the same
-    /// endpoint the pending-list rows already use) and, while a turn is live,
-    /// enrich it with the agent's latest observe event for the rolling detail
-    /// line. Self-contained: it never touches the Observe sidecar's single-slot
-    /// state, so the in-thread preview works without opening Observe. The observe
-    /// call only fires while a non-terminal flight exists, so an idle
-    /// conversation costs just the lightweight flights read. Failures are
-    /// swallowed — an absent in-flight turn is the common, non-error case.
-    private func fetchActiveTurn(cId: String, requestId: UUID, flightId: String?, agentId: String?, agentName: String) async {
+    /// endpoint the pending-list rows already use) and enrich it with the
+    /// selected harness session's recent observe events. Observe is also the
+    /// fallback authority when a live turn was started organically in the
+    /// harness and therefore has no Scout flight. Self-contained: it never
+    /// touches the Observe sidecar's single-slot state, so the in-thread preview
+    /// works without opening Observe. Failures are swallowed — an absent live
+    /// turn is the common, non-error case.
+    private func fetchActiveTurn(
+        cId: String,
+        requestId: UUID,
+        flightId: String?,
+        agentId: String?,
+        sessionId: String?,
+        agentName: String
+    ) async {
         defer {
             if activeTurnRequestId == requestId {
                 activeTurnTask = nil
@@ -713,12 +729,8 @@ final class ScoutCommsStore: ObservableObject {
             .appending(queryItems: queryItems)
         let flights = (try? await fetch([ScoutPendingFlightStatus].self, from: flightsURL)) ?? []
         guard selectedCId == cId, activeTurnRequestId == requestId else { return }
-        guard let live = flights.first(where: { !$0.isTerminal }) else {
-            setIfChanged(nil, to: \.activeTurn)
-            stopActiveTurnPolling()
-            return
-        }
-        if shouldHideActiveTurn(live, cId: cId) {
+        let live = flights.first(where: { !$0.isTerminal })
+        if let live, shouldHideActiveTurn(live, cId: cId) {
             setIfChanged(nil, to: \.activeTurn)
             stopActiveTurnPolling()
             return
@@ -726,11 +738,17 @@ final class ScoutCommsStore: ObservableObject {
 
         var detail: String?
         var activity: [ScoutTurnActivityItem] = []
-        let liveAgentId = live.agentId?.nilIfEmpty ?? agentId?.nilIfEmpty
+        var observedSessionIsLive = false
+        let liveAgentId = live?.agentId?.nilIfEmpty ?? agentId?.nilIfEmpty
         if let liveAgentId {
-            let observeURL = base.appending(path: "api/agents/\(liveAgentId)/observe")
+            var observeURL = base.appending(path: "api/agents/\(liveAgentId)/observe")
+            if let sessionId = sessionId?.nilIfEmpty {
+                observeURL = observeURL.appending(queryItems: [URLQueryItem(name: "sessionId", value: sessionId)])
+            }
             if let payload = try? await fetch(ScoutObservePayload.self, from: observeURL),
-               payload.data.live {
+               payload.data.live,
+               Self.observePayload(payload, matches: sessionId) {
+                observedSessionIsLive = true
                 detail = payload.data.events.last.flatMap(Self.activeTurnDetailLine)
                 activity = Array(payload.data.events
                     .compactMap(Self.activeTurnActivityItem)
@@ -739,17 +757,32 @@ final class ScoutCommsStore: ObservableObject {
             guard selectedCId == cId, activeTurnRequestId == requestId else { return }
         }
 
+        guard live != nil || observedSessionIsLive else {
+            setIfChanged(nil, to: \.activeTurn)
+            stopActiveTurnPolling()
+            return
+        }
+
         setIfChanged(
             ScoutActiveTurn(
-                agentName: live.agentName?.nilIfEmpty ?? agentName,
-                state: live.state,
-                summary: live.summary?.nilIfEmpty,
+                agentName: live?.agentName?.nilIfEmpty ?? agentName,
+                state: live?.state ?? "running",
+                summary: live?.summary?.nilIfEmpty,
                 detail: detail,
                 activity: activity
             ),
             to: \.activeTurn
         )
         ensureActiveTurnPolling(cId: cId)
+    }
+
+    /// The observe endpoint is asked for the selected harness session. Keep the
+    /// explicit check because older/local servers may ignore that query and
+    /// return the agent's newest *other* session instead; cross-session activity
+    /// is worse than a quiet row in the selected conversation.
+    private static func observePayload(_ payload: ScoutObservePayload, matches sessionId: String?) -> Bool {
+        guard let sessionId = sessionId?.nilIfEmpty else { return true }
+        return payload.sessionId?.nilIfEmpty == sessionId
     }
 
     private func shouldHideActiveTurn(_ flight: ScoutPendingFlightStatus, cId: String) -> Bool {

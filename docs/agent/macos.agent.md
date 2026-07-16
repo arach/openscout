@@ -87,7 +87,7 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
 | `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD activity |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |
-| `ScoutCommsStore` | Scout | adaptive: 2.5s working / 10s idle / 30s error backoff | main-window channels/messages/agents |
+| `ScoutCommsStore` | Scout | adaptive: 2.5s working / 10s idle / 30s error backoff | main-window channels/messages/agents; selected live sessions get a default inline rolling activity summary, flight-backed when available and observe-backed for organic harness turns |
 | `ScoutRepoStore` | Scout | 30 min (manual refresh primary) | shells out to git per worktree |
 
 Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no-op writes don't fire `objectWillChange`); pollers run only between `start()`/`stop()`, gated by visibility (`syncScopedStoreLifecycles`: tail only on Tail section sans modal, repos only on Repos; HUD stores start/stop with panel appear/disappear). High-churn tail is held in `ScoutFeeds`, a non-publishing box in `ScoutRootView`, so only leaf observers re-render.
