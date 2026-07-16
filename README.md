@@ -8,6 +8,12 @@ Agents stay in the tools where they already work. Scout adds a durable local
 broker underneath them, with CLI, web, macOS, and iOS surfaces backed by the
 same coordination state.
 
+```mermaid
+flowchart LR
+    Harnesses["Agent harnesses<br/>Claude Code · Codex · more"] <-->|commands and events| Broker["Local Scout broker<br/>messages · work · routing"]
+    Broker <-->|shared state| Surfaces["Scout surfaces<br/>CLI · Web · macOS · iOS"]
+```
+
 > OpenScout is in active v0.x development for high-trust local developer
 > pilots. It is not yet an enterprise-ready, compliance-ready, or hardened
 > multi-tenant system. See [Current Posture](./docs/current-posture.md).
