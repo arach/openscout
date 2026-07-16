@@ -178,7 +178,9 @@ export function ChatLeft() {
 
   const onSelect = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    if (isGroupConversation(s) && route.view === "channels") {
+    // One address per conversation: groups always open the channel view;
+    // DMs always open the messages thread. Destination never depends on tab.
+    if (isGroupConversation(s)) {
       navigate({ view: "channels", channelId: s.id });
       return;
     }

@@ -8,10 +8,6 @@ import {
 } from "../../lib/media-blobs.ts";
 import { resolveCaptureRouteContext } from "../../lib/media-route.ts";
 import {
-  composeCaptureMessage,
-  type CaptureContextItem,
-} from "../../lib/context-capture-message.ts";
-import {
   routeCaptureToAgent,
   startAgentSession,
   type CaptureDeliveryMode,
@@ -76,8 +72,6 @@ export function NewChatComposer({
   initialMessage,
   initialFiles,
   defaultMode,
-  contextItems = [],
-  embedded = false,
 }: {
   agents: Agent[];
   navigate: Navigate;
@@ -88,8 +82,6 @@ export function NewChatComposer({
   initialMessage?: string;
   initialFiles?: File[];
   defaultMode?: CaptureDeliveryMode;
-  contextItems?: CaptureContextItem[];
-  embedded?: boolean;
 }) {
   const routeContext = useMemo(() => resolveCaptureRouteContext(route, agents), [route, agents]);
   const sorted = useMemo(
@@ -118,7 +110,7 @@ export function NewChatComposer({
   const isStarting = state === "starting";
   const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
   const title = hasAttachments ? "Route capture" : "New chat";
-  const committedMessage = composeCaptureMessage(message, contextItems);
+  const committedMessage = message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
     : hasAttachments
@@ -136,7 +128,6 @@ export function NewChatComposer({
   }, [isStarting, onClose]);
 
   useEffect(() => {
-    if (embedded) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -145,7 +136,7 @@ export function NewChatComposer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [embedded, requestClose]);
+  }, [requestClose]);
 
   useEffect(() => {
     textRef.current?.focus();
@@ -211,12 +202,13 @@ export function NewChatComposer({
     }
   };
 
-  const panel = (
-    <div
+  return (
+    <div className="s-newchat-backdrop" onClick={requestClose} role="presentation">
+      <div
         ref={ref}
-        className={`s-newchat-panel${embedded ? " s-newchat-panel--embedded" : ""}${isStarting ? " s-newchat-panel--starting" : ""}`}
+        className={`s-newchat-panel${isStarting ? " s-newchat-panel--starting" : ""}`}
         role="dialog"
-        aria-modal={embedded ? undefined : true}
+        aria-modal="true"
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={onKeyDown}
@@ -224,17 +216,15 @@ export function NewChatComposer({
       >
         <header className="s-newchat-head">
           <span className="s-newchat-title">{title}</span>
-          {!embedded ? (
-            <button
-              type="button"
-              className="s-newchat-close"
-              onClick={requestClose}
-              disabled={isStarting}
-              aria-label="Close (Esc)"
-            >
-              ✕
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="s-newchat-close"
+            onClick={requestClose}
+            disabled={isStarting}
+            aria-label="Close (Esc)"
+          >
+            ✕
+          </button>
         </header>
 
         <div className="s-newchat-body">
@@ -266,20 +256,6 @@ export function NewChatComposer({
               {agent.model && <span className="s-newchat-chip">{agent.model}</span>}
             </div>
           )}
-
-          {contextItems.length > 0 ? (
-            <div className="s-newchat-context" aria-label="Attached context">
-              <span className="s-newchat-field-label">Context</span>
-              <div className="s-newchat-context-list">
-                {contextItems.map((item, index) => (
-                  <div className="s-newchat-context-item" key={`${item.label}:${index}`}>
-                    <span>{item.label}</span>
-                    <p>{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           {hasAttachments && canUseExistingChat ? (
             <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
@@ -387,13 +363,7 @@ export function NewChatComposer({
             </button>
           </div>
         </div>
-    </div>
-  );
-
-  if (embedded) return <div className="s-newchat-embed">{panel}</div>;
-  return (
-    <div className="s-newchat-backdrop" onClick={requestClose} role="presentation">
-      {panel}
+      </div>
     </div>
   );
 }
