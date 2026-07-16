@@ -82,6 +82,9 @@ struct NewSessionSurface: View {
             ]),
             HarnessOption(id: "codex", label: "Codex", models: [
                 .defaultOption,
+                ModelOption(id: "gpt-5.6-sol", label: "GPT-5.6 Sol", value: "gpt-5.6-sol"),
+                ModelOption(id: "gpt-5.6-terra", label: "GPT-5.6 Terra", value: "gpt-5.6-terra"),
+                ModelOption(id: "gpt-5.6-luna", label: "GPT-5.6 Luna", value: "gpt-5.6-luna"),
                 ModelOption(id: "gpt-5.5", label: "GPT-5.5", value: "gpt-5.5"),
                 ModelOption(id: "gpt-5.5-mini", label: "GPT-5.5 mini", value: "gpt-5.5-mini"),
             ]),

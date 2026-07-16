@@ -46,7 +46,10 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
             .init(harness: "claude", value: "claude-haiku-4-5", label: "Haiku 4.5", detail: "Claude API alias"),
         ]),
         .init(id: "codex", label: "Codex", models: [
-            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Recommended"),
+            .init(harness: "codex", value: "gpt-5.6-sol", label: "GPT-5.6 Sol", detail: "Latest frontier"),
+            .init(harness: "codex", value: "gpt-5.6-terra", label: "GPT-5.6 Terra", detail: "Frontier"),
+            .init(harness: "codex", value: "gpt-5.6-luna", label: "GPT-5.6 Luna", detail: "Efficient"),
+            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: nil),
             .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
     ]
@@ -66,6 +69,8 @@ private struct ScoutSessionEffortChoice: Identifiable, Equatable {
         .init(value: "medium", label: "Medium", detail: "Default"),
         .init(value: "high", label: "High", detail: "Deeper pass"),
         .init(value: "xhigh", label: "XHigh", detail: "Highest supported"),
+        .init(value: "max", label: "Max", detail: "Maximum reasoning depth"),
+        .init(value: "ultra", label: "Ultra", detail: "Maximum with delegation"),
     ]
 }
 

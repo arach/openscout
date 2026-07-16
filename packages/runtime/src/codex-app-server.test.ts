@@ -1257,10 +1257,15 @@ describe("ensureCodexAppServerAgentOnline", () => {
   });
 
   test("expands GPT model shorthand for app-server sessions", () => {
+    expect(normalizeCodexAppServerLaunchArgs(["--model", "5.6"])).toEqual([
+      "-c",
+      "model=\"gpt-5.6-sol\"",
+    ]);
     expect(normalizeCodexAppServerLaunchArgs(["--model", "5.5"])).toEqual([
       "-c",
       "model=\"gpt-5.5\"",
     ]);
+    expect(readCodexAppServerModelFromLaunchArgs(["--model", "gpt-5.6"])).toBe("gpt-5.6-sol");
     expect(readCodexAppServerModelFromLaunchArgs(["--model", "5.5"])).toBe("gpt-5.5");
     expect(readCodexAppServerModelFromLaunchArgs(["-c", "model=\"5.4-mini\""])).toBe("gpt-5.4-mini");
   });
