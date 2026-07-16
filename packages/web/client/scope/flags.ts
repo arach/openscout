@@ -64,7 +64,6 @@ export function scopeInstrumentBundleLayer(): FeatureFlagLayerInput<"everyone" |
   return {
     audience: "everyone",
     flags: {
-      "nav.clean": true,
       "ops.control": true,
       "ops.lanes": true,
       ...flagValues(OPS_FLAG_KEYS_EXCEPT_LANES, false),

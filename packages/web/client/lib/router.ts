@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
   parseScopeRouteFromUrl,
   preserveLocationSearch,
@@ -145,11 +144,11 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
-// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
-// of the lean core, so it stays reachable even when the broader Ops cluster
+// Tail (ops?mode=tail) is part of the core retrieval set (System dropdown,
+// `g,l` go-shortcut), so it stays reachable even when the broader Ops cluster
 // (ops.control) is gated off. Other Ops modes still follow the ops gate.
 function isTailCoreSurface(mode: string | undefined): boolean {
-  return mode === "tail" && isScoutFlagEnabled("nav.clean");
+  return mode === "tail";
 }
 
 // Lanes is shared with the native app and chrome-free embeds, so direct links are
