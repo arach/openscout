@@ -137,6 +137,6 @@
     "The default launch requires a locally installed kimi binary and cached login state created by kimi login.",
     "The shared ACP adapter covers Kimi's stable normal-agent flow but not Kimi's experimental unstable ACP methods.",
     "Tool calls are normalized as generic tool_call action blocks by the shared ACP adapter.",
-    "Historical Kimi Code transcript discovery is not implemented in this adapter."
+    "Historical Kimi Code logs are observed by the runtime tail source rather than imported by this ACP adapter."
   ]
 }

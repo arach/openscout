@@ -13,6 +13,10 @@ const GROK_TOOL_STARTED = /^([A-Za-z][\w-]*) started$/;
 const GROK_TOOL_COMPLETED = /^([A-Za-z][\w-]*) completed(?: · (.+))?$/;
 const GROK_TOOL_WITH_ARG = /^([A-Za-z][\w-]*) · (.+?)(?: · (success|error|failed))?$/;
 const CODEX_TOOL_CALL = /^([A-Za-z_][\w.-]*)\((.*)\)$/s;
+const CLEAN_TOOL_CALL = /^([A-Za-z][\w-]*)(?:\s+([\s\S]+))?$/;
+const CLEAN_RESULT_PREFIX = /^res:\s*([\s\S]*)$/;
+const CLEAN_COMBINED_RESULT = /^([\s\S]+?)\s+->\s+res:\s*([\s\S]+)$/;
+const CLEAN_RESULT_ERROR = /\b(?:failed|failure|exception|fatal|denied|traceback)\b|error:/i;
 
 const NATIVE_DISCOVERED_FRESH_MS = 5 * 60_000;
 
@@ -74,6 +78,40 @@ function observeToolFieldsFromTailEvent(event: TailEvent): {
   const summary = event.summary.trim();
   if (!summary) return {};
 
+  if (event.source === "claude" || event.source === "kimi") {
+    const combined = summary.match(CLEAN_COMBINED_RESULT);
+    if (combined?.[1] && combined[2]) {
+      const call = combined[1].trim().match(CLEAN_TOOL_CALL);
+      const preview = combined[2].trim();
+      if (call?.[1] && /^[A-Z]/u.test(call[1])) {
+        return {
+          tool: call[1],
+          arg: call[2]?.trim() || undefined,
+          result: { outcome: CLEAN_RESULT_ERROR.test(preview) ? "error" : "success" },
+        };
+      }
+      return {
+        tool: "bash",
+        arg: combined[1].trim(),
+        result: { outcome: CLEAN_RESULT_ERROR.test(preview) ? "error" : "success" },
+      };
+    }
+    const result = summary.match(CLEAN_RESULT_PREFIX);
+    if (result) {
+      const preview = result[1].trim();
+      return {
+        tool: "res",
+        arg: preview || undefined,
+        result: { outcome: CLEAN_RESULT_ERROR.test(preview) ? "error" : "success" },
+      };
+    }
+    const call = summary.match(CLEAN_TOOL_CALL);
+    if (call?.[1] && /^[A-Z]/u.test(call[1])) {
+      return { tool: call[1], arg: call[2]?.trim() || undefined };
+    }
+    return { tool: "bash", arg: summary };
+  }
+
   if (event.source === "grok") {
     const enriched = summary.match(GROK_TOOL_WITH_ARG);
     if (enriched?.[1] && enriched[2]) {
@@ -117,8 +155,15 @@ function observeToolFieldsFromTailEvent(event: TailEvent): {
   return {};
 }
 
-function tailEventKindToObserveKind(kind: TailEvent["kind"]): ObserveEvent["kind"] {
-  switch (kind) {
+function tailEventKindToObserveKind(event: TailEvent): ObserveEvent["kind"] {
+  if (
+    event.source === "kimi"
+    && event.kind === "system"
+    && event.summary.trim().startsWith("[thinking] ")
+  ) {
+    return "think";
+  }
+  switch (event.kind) {
     case "assistant":
       return "message";
     case "tool":
@@ -149,8 +194,10 @@ export function buildObserveDataFromTail(
       id: event.id,
       t: Math.max(0, Math.round((event.ts - sessionStart) / 1000)),
       at: event.ts,
-      kind: tailEventKindToObserveKind(event.kind),
-      text: event.summary,
+      kind: tailEventKindToObserveKind(event),
+      text: event.source === "kimi"
+        ? event.summary.replace(/^\[thinking\]\s+/u, "")
+        : event.summary,
       tool: toolFields.tool,
       arg: toolFields.arg,
       result: toolFields.result,
