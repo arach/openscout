@@ -161,20 +161,22 @@ function MessagesEmptyState({
           </button>
         </div>
 
-        <section className="s-conv-board-section" aria-label="Unread">
-          <div className="s-conv-board-section-head">
-            <span>Unread</span>
-            <span className="s-conv-board-count">{unreadConversations.length}</span>
-          </div>
-          {unreadConversations.map((conversation) => (
-            <EditorialRow
-              key={conversation.id}
-              conversation={conversation}
-              unread
-              onOpen={() => openConversation(conversation)}
-            />
-          ))}
-        </section>
+        {unreadConversations.length > 0 && (
+          <section className="s-conv-board-section" aria-label="Unread">
+            <div className="s-conv-board-section-head">
+              <span>Unread</span>
+              <span className="s-conv-board-count">{unreadConversations.length}</span>
+            </div>
+            {unreadConversations.map((conversation) => (
+              <EditorialRow
+                key={conversation.id}
+                conversation={conversation}
+                unread
+                onOpen={() => openConversation(conversation)}
+              />
+            ))}
+          </section>
+        )}
 
         <section className="s-conv-board-section" aria-label="Recent">
           <div className="s-conv-board-section-head">
@@ -217,7 +219,7 @@ function MessagesEmptyState({
           {apiOffline
             ? "Start or restart Scout services. Chats and context will appear when the server responds."
             : loading
-              ? "Fetching your recent conversation grid."
+              ? "Fetching your recent conversations."
               : error
                 ? error
                 : "Pick a conversation from the rail to follow the thread, or filter to find the one you want."}
