@@ -73,7 +73,10 @@ struct HomeSurface: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: layout.surfaceSectionSpacing) {
+            // Signal is intentionally a little denser than the app's editorial
+            // surfaces. The information architecture is unchanged; this tighter
+            // cadence makes Home read as one instrument instead of stacked cards.
+            VStack(alignment: .leading, spacing: HudSpacing.xl) {
                 if isLoading {
                     HudEmptyState(title: "Loading fleet", subtitle: "Reading agents from the broker.", icon: "antenna.radiowaves.left.and.right")
                 } else if isFleetEmpty {
@@ -160,7 +163,7 @@ struct HomeSurface: View {
         HStack(spacing: HudSpacing.md) {
             Text("MACHINES")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .tracking(0.8)
+                .tracking(1.4)
                 .foregroundStyle(ScoutInk.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: HudSpacing.sm) {
@@ -211,7 +214,8 @@ struct HomeSurface: View {
                 .foregroundStyle(ScoutInk.dim)
                 .frame(width: 8, height: 8)
                 Text("Add")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.4)
                     .foregroundStyle(ScoutInk.muted)
             }
             .padding(.horizontal, HudSpacing.sm)
@@ -252,13 +256,13 @@ struct HomeSurface: View {
             .sorted { ($0.agent.lastActiveAt ?? .distantPast) > ($1.agent.lastActiveAt ?? .distantPast) }
     }
 
-    /// Live agents as a horizontal strip of cards, each with a blinking cursor on
-    /// its current action — the "someone's at the keyboard right now" pulse.
+    /// Live agents as a horizontal strip of compact instrument frames. Their
+    /// current broker state supplies the signal; no decorative motion is added.
     private var currentlyWorkingSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            fleetHeader(title: "Currently working", detail: "\(liveAgents.count) live", accent: true)
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            fleetHeader(title: "Currently working", detail: "\(liveAgents.count) live", signal: HudPalette.accent)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: HudSpacing.md) {
+                HStack(spacing: HudSpacing.sm) {
                     ForEach(liveAgents) { agent in
                         WorkingCard(agent: agent.agent, onTap: { tap(agent)?() })
                     }
@@ -310,6 +314,15 @@ struct HomeSurface: View {
             }
     }
 
+    /// The Projects frame only carries a colored state when the rows justify it:
+    /// live wins green; an unknown broker state is amber; idle/offline remains the
+    /// neutral gray frame. No derived project-health score is invented here.
+    private var projectSectionSignal: Color? {
+        if projectGroups.contains(where: { $0.liveCount > 0 }) { return HudPalette.accent }
+        if projectGroups.contains(where: \.hasUnknownState) { return HudPalette.statusWarn }
+        return nil
+    }
+
     private func sortAgents(_ list: [HomeAgent]) -> [HomeAgent] {
         list.sorted { a, b in
             if a.agent.state != b.agent.state { return stateRank(a.agent.state) < stateRank(b.agent.state) }
@@ -341,9 +354,9 @@ struct HomeSurface: View {
     }
 
     private var projectsSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            fleetHeader(title: "Projects", accent: false, onAll: onSeeAllAgents)
-            listCard(accent: projectGroups.contains(where: { $0.liveCount > 0 }) ? HudPalette.accent : nil) {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            fleetHeader(title: "Projects", signal: projectSectionSignal, onAll: onSeeAllAgents)
+            listCard(accent: projectSectionSignal) {
                 ScrollView(.vertical, showsIndicators: projectGroups.count > Self.projectViewportRows) {
                     VStack(spacing: 0) {
                         ForEach(Array(projectGroups.enumerated()), id: \.element.id) { index, group in
@@ -384,13 +397,24 @@ struct HomeSurface: View {
 
     // MARK: - Shared chrome
 
-    private func fleetHeader(title: String, detail: String? = nil, accent: Bool, onAll: (() -> Void)? = nil) -> some View {
-        VStack(spacing: HudSpacing.sm) {
+    /// Section headings share one instrument rule: a state-colored datum, tracked
+    /// mono label, fixed trailing action column, and a neutral hairline. `signal`
+    /// always comes from current data; a nil signal intentionally stays gray.
+    private func fleetHeader(title: String, detail: String? = nil, signal: Color? = nil, onAll: (() -> Void)? = nil) -> some View {
+        VStack(spacing: HudSpacing.xs) {
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
-                if accent {
-                    HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
+                Rectangle()
+                    .fill(signal ?? ScoutSignalSurface.neutralSignal)
+                    .frame(width: 3, height: 10)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in dimensions.height - 1 }
+                HudSectionLabel(title, tint: ScoutInk.muted)
+                if let detail {
+                    Text(detail.uppercased())
+                        .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                        .tracking(0.8)
+                        .foregroundStyle(signal ?? ScoutInk.dim)
+                        .lineLimit(1)
                 }
-                HudSectionLabel(detail.map { "\(title) · \($0)" } ?? title)
                 Spacer(minLength: 0)
                 if let onAll {
                     // The "see everything" affordance is a compact trailing action,
@@ -404,8 +428,8 @@ struct HomeSurface: View {
                 }
             }
             Rectangle()
-                .fill(accent ? HudPalette.accent.opacity(0.42) : HudHairline.subtle)
-                .frame(height: 1)
+                .fill(ScoutSignalSurface.rule)
+                .frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -417,8 +441,8 @@ struct HomeSurface: View {
 
     private func rowSeparator(inset: Bool = false) -> some View {
         Rectangle()
-            .fill(HudHairline.subtle)
-            .frame(height: 1)
+            .fill(ScoutSignalSurface.rule)
+            .frame(height: HudStrokeWidth.thin)
             .padding(.leading, inset ? HudSpacing.xxl : HudSpacing.xl)
     }
 
@@ -450,14 +474,20 @@ struct HomeSurface: View {
 
     private var recentActivity: [HomeActivity] { Array(activity.prefix(Self.activityPreviewCap)) }
 
+    /// Latest Activity borrows the newest real event's existing semantic tint.
+    /// This keeps the frame responsive to data without manufacturing telemetry.
+    private var activitySectionSignal: Color? {
+        recentActivity.first.map { homeActivitySignalColor($0.event.kind) }
+    }
+
     private var activityListMaxHeight: CGFloat {
         CGFloat(Self.activityViewportRows) * Self.activityCollapsedRowHeight
     }
 
     private var activitySection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            fleetHeader(title: "Latest activity", accent: false, onAll: { showAllActivity = true })
-            listCard {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            fleetHeader(title: "Latest activity", signal: activitySectionSignal, onAll: { showAllActivity = true })
+            listCard(accent: activitySectionSignal) {
                 ScrollView(.vertical, showsIndicators: recentActivity.count > Self.activityViewportRows) {
                     VStack(spacing: 0) {
                         ForEach(Array(recentActivity.enumerated()), id: \.element.id) { index, row in
@@ -599,6 +629,12 @@ private struct ProjectGroup: Identifiable {
     let activityLastActiveAt: Date?
 
     var liveCount: Int { agents.filter { $0.agent.state == .live }.count }
+    var hasUnknownState: Bool { agents.contains { $0.agent.state == .unknown } }
+    var signalColor: Color {
+        if liveCount > 0 { return HudPalette.accent }
+        if hasUnknownState { return HudPalette.statusWarn }
+        return ScoutSignalSurface.neutralSignal
+    }
     var lastActiveAt: Date? {
         (agents.compactMap { $0.agent.lastActiveAt } + [activityLastActiveAt].compactMap { $0 }).max()
     }
@@ -606,31 +642,31 @@ private struct ProjectGroup: Identifiable {
 
 // MARK: - WorkingCard
 
-/// One live agent in the "Currently working" strip: name, its current action with
-/// a blinking terminal cursor (so it reads as actively typing), and a compact
-/// progress line — files touched, branch, time.
+/// One live agent in the "Currently working" strip: name, current action, and a
+/// compact progress line. Live state is carried by the real green signal and the
+/// section itself, not by decorative cursor animation.
 private struct WorkingCard: View {
     let agent: AgentSummary
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
                 HStack(spacing: HudSpacing.xs) {
-                    HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
+                    HudStatusDot(color: HudPalette.accent, size: 6, pulses: false)
                     Text(agent.title)
                         .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                         .foregroundStyle(HudPalette.ink)
                         .lineLimit(1)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text(actionText)
-                        .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(ScoutInk.muted)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                    BlinkingCursor()
-                }
+                Rectangle()
+                    .fill(ScoutSignalSurface.rule)
+                    .frame(height: HudStrokeWidth.thin)
+                Text(actionText)
+                    .font(HudFont.mono(HudTextSize.xs))
+                    .foregroundStyle(ScoutInk.muted)
+                    .lineLimit(1)
+                    .truncationMode(.head)
                 if let progress = progressLine {
                     Text(progress)
                         .font(HudFont.mono(HudTextSize.micro))
@@ -638,10 +674,10 @@ private struct WorkingCard: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: 188, alignment: .leading)
-            .padding(HudSpacing.md)
+            .frame(width: 190, alignment: .leading)
+            .padding(.horizontal, HudSpacing.lg)
+            .padding(.vertical, HudSpacing.md)
             .signalPanel(accent: HudPalette.accent, cut: 7)
-            .shadow(color: HudPalette.accent.opacity(0.14), radius: 10)
             .contentShape(SignalPanelShape(cut: 7))
         }
         .buttonStyle(.plain)
@@ -659,37 +695,6 @@ private struct WorkingCard: View {
         if let git = agent.git, git.dirty > 0 { parts.append("+\(git.dirty)") }
         if let branch = agent.branch { parts.append("\u{2387} \(branch)") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-}
-
-/// A blinking caret — the "agent is typing" tell, echoing the web view. A thin
-/// full-height bar (a line, not a block) that crosses the text baseline so it
-/// reads as an insertion point sitting on the action line.
-private struct BlinkingCursor: View {
-    @State private var visible = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var shouldAnimate: Bool {
-        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
-
-    var body: some View {
-        Rectangle()
-            .fill(HudPalette.accent)
-            .frame(width: 2, height: 13)
-            // Bar runs ascender→just-below-baseline: put the baseline ~2pt up from
-            // the bottom so the caret crosses the line instead of floating above it.
-            .alignmentGuide(.firstTextBaseline) { dimensions in dimensions.height - 2 }
-            .opacity(shouldAnimate ? (visible ? 1 : 0) : 1)
-            .onAppear {
-                guard shouldAnimate else {
-                    visible = true
-                    return
-                }
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                    visible = false
-                }
-            }
     }
 }
 
@@ -717,8 +722,11 @@ private struct ActivityRow: View {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: HudSpacing.md) {
-            HudStatusDot(color: kindColor, size: 6, pulses: false)
-                .padding(.top, 5)
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(kindColor)
+                .frame(width: 3, height: 18)
+                .padding(.top, 1)
+                .frame(width: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.summary)
                     .font(HudFont.ui(HudTextSize.sm))
@@ -729,6 +737,13 @@ private struct ActivityRow: View {
                     .font(HudFont.mono(HudTextSize.micro))
                     .foregroundStyle(ScoutInk.muted)
                     .lineLimit(1)
+            }
+            if let age = ageLabel {
+                Text(age)
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .foregroundStyle(ScoutInk.muted)
+                    .monospacedDigit()
+                    .frame(minWidth: 28, alignment: .trailing)
             }
             Glyphic.chevron(isExpanded ? .bottom : .trailing, size: 13)
                 .foregroundStyle(ScoutInk.dim)
@@ -771,19 +786,15 @@ private struct ActivityRow: View {
     }
 
     private var metaLine: String {
-        var parts = [event.source, event.kind.rawValue]
-        if let age = ScoutTimestamp.relativeAge(fromEpoch: TimeInterval(event.tsMs)) {
-            parts.append(age)
-        }
-        return parts.joined(separator: " · ")
+        [event.source, event.kind.rawValue].joined(separator: " · ")
     }
 
     private var expandedMetaLine: String {
-        var parts = [attributionLabel, event.kind.rawValue]
-        if let age = ScoutTimestamp.relativeAge(fromEpoch: TimeInterval(event.tsMs)) {
-            parts.append(age)
-        }
-        return parts.joined(separator: " · ")
+        [attributionLabel, event.kind.rawValue].joined(separator: " · ")
+    }
+
+    private var ageLabel: String? {
+        ScoutTimestamp.relativeAge(fromEpoch: TimeInterval(event.tsMs))
     }
 
     private var attributionLabel: String {
@@ -795,12 +806,19 @@ private struct ActivityRow: View {
     }
 
     private var kindColor: Color {
-        switch event.kind {
-        case .assistant: return HudPalette.accent
-        case .tool, .toolResult: return HudPalette.statusWarn
-        case .user: return ScoutInk.muted
-        case .system, .other: return ScoutInk.dim
-        }
+        homeActivitySignalColor(event.kind)
+    }
+}
+
+/// Existing Tail kinds already carry enough semantics for Home's restrained
+/// three-color signal vocabulary. Tool work is amber (in progress/attention),
+/// assistant output is green, and operator/system/unknown events stay gray.
+private func homeActivitySignalColor(_ kind: TailEvent.Kind) -> Color {
+    switch kind {
+    case .assistant: return HudPalette.accent
+    case .tool, .toolResult: return HudPalette.statusWarn
+    case .user: return ScoutInk.muted
+    case .system, .other: return ScoutSignalSurface.neutralSignal
     }
 }
 
@@ -821,7 +839,8 @@ private struct MachineChip: View {
             HStack(spacing: HudSpacing.xs) {
                 HudStatusDot(color: statusColor, size: 6, pulses: statusPulses)
                 Text(machine.name)
-                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.3)
                     .foregroundStyle(isSelected ? HudPalette.ink : (machine.isOnline ? HudPalette.ink.opacity(0.82) : ScoutInk.muted))
                     .lineLimit(1)
             }
@@ -829,7 +848,6 @@ private struct MachineChip: View {
             .padding(.vertical, HudSpacing.xs)
             .background(Capsule().fill(ScoutSurface.inset))
             .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
-            .shadow(color: machine.isOnline ? HudPalette.accent.opacity(0.12) : .clear, radius: 7)
             .opacity(machine.isOnline || isSelected ? 1 : 0.58)
             .contentShape(Capsule())
         }
@@ -849,7 +867,8 @@ private struct MachineChip: View {
     }
 
     private var statusPulses: Bool {
-        if case .connecting = machine.connectionState { return true }
+        // The color already communicates connecting; Home's first Signal pass
+        // deliberately avoids passive decorative motion.
         return false
     }
 
@@ -876,7 +895,8 @@ private struct AllMachinesChip: View {
             HStack(spacing: 3) {
                 MachineBracket(.leading).stroke(tint, lineWidth: 1.2).frame(width: 4, height: 11)
                 Text("All")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .tracking(0.4)
                     .foregroundStyle(isSelected ? HudPalette.ink : HudPalette.ink.opacity(0.82))
                     .lineLimit(1)
                 MachineBracket(.trailing).stroke(tint, lineWidth: 1.2).frame(width: 4, height: 11)
@@ -916,9 +936,11 @@ private struct MachineBracket: Shape {
     }
 }
 
-// MARK: - InlineRuntimePill
+// MARK: - InlineRuntimeTag
 
-private struct InlineRuntimePill: View {
+/// Runtime metadata is not a control, so it uses a tiny chamfered instrument tag
+/// rather than borrowing the rounded capsule language reserved for buttons.
+private struct InlineRuntimeTag: View {
     let text: String
 
     var body: some View {
@@ -928,8 +950,8 @@ private struct InlineRuntimePill: View {
             .lineLimit(1)
             .padding(.horizontal, 5)
             .padding(.vertical, 1.5)
-            .background(Capsule().fill(ScoutSurface.inset))
-            .overlay(Capsule().stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.thin))
+            .background(SignalPanelShape(cut: 2).fill(ScoutSignalSurface.bottom))
+            .overlay(SignalPanelShape(cut: 2).stroke(ScoutSignalSurface.rule, lineWidth: HudStrokeWidth.thin))
             .layoutPriority(0)
     }
 }
@@ -997,13 +1019,11 @@ private struct ProjectRow: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .leading) {
-            if group.liveCount > 0 {
-                Rectangle()
-                    .fill(HudPalette.accent)
-                    .frame(width: 2)
-                    .padding(.vertical, HudSpacing.sm)
-                    .shadow(color: HudPalette.accent.opacity(0.38), radius: 4)
-            }
+            Rectangle()
+                .fill(group.signalColor)
+                .frame(width: 2)
+                .padding(.vertical, HudSpacing.sm)
+                .opacity(group.liveCount > 0 || group.hasUnknownState ? 1 : 0.48)
         }
     }
 
@@ -1069,14 +1089,14 @@ private struct ProjectRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let runtime = runtimeLabel(agent), runtime != title {
-                InlineRuntimePill(text: runtime)
+                InlineRuntimeTag(text: runtime)
             }
         }
         .layoutPriority(0)
     }
 
     private var liveDot: some View {
-        HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
+        HudStatusDot(color: HudPalette.accent, size: 6, pulses: false)
     }
 
     private func compressedAgentTitle(_ agent: AgentSummary) -> String {
@@ -1145,7 +1165,7 @@ private struct AgentFleetRow: View {
                 Spacer().frame(width: 10)
             }
             Glyphic(kind: .agent, size: 13)
-                .foregroundStyle(agent.state == .live ? HudPalette.accent : ScoutInk.dim)
+                .foregroundStyle(agent.state == .unknown ? HudPalette.statusWarn : (agent.state == .live ? HudPalette.accent : ScoutInk.dim))
         }
         .frame(width: 25, alignment: .leading)
     }
@@ -1159,8 +1179,6 @@ private struct AgentFleetRow: View {
                 .lineLimit(1)
                 .truncationMode(leadingLeaf ? .middle : .tail)
                 .layoutPriority(1)
-            // Live agents get the "at the keyboard" caret, echoing the working card.
-            if agent.state == .live { BlinkingCursor() }
             if let runtime = runtimeLabel {
                 Text("·")
                     .font(HudFont.mono(HudTextSize.micro))
@@ -1176,7 +1194,15 @@ private struct AgentFleetRow: View {
                     .frame(minWidth: 22, alignment: .trailing)
                     .layoutPriority(2)
             } else if showsStateBadge {
-                HudBadge(stateLabel, tint: stateColor, dot: true)
+                HStack(spacing: HudSpacing.xxs) {
+                    Rectangle()
+                        .fill(stateColor)
+                        .frame(width: 4, height: 4)
+                    Text(stateLabel.uppercased())
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundStyle(stateColor)
+                }
             }
         }
     }
@@ -1188,9 +1214,10 @@ private struct AgentFleetRow: View {
         return leadingLeaf ? ScoutInk.muted : HudPalette.ink
     }
 
-    /// Only `live`/`offline` earn a badge; idle/unknown read via the relative age.
+    /// Live/unknown/offline can earn a badge when no useful recency is present;
+    /// idle continues to read through its relative age alone.
     private var showsStateBadge: Bool {
-        agent.state == .live || agent.state == .offline
+        agent.state == .live || agent.state == .unknown || agent.state == .offline
     }
 
     private var displayTitle: String {
@@ -1215,7 +1242,8 @@ private struct AgentFleetRow: View {
         switch agent.state {
         case .live: return HudPalette.accent
         case .idle: return ScoutInk.muted
-        case .offline, .unknown: return ScoutInk.dim
+        case .unknown: return HudPalette.statusWarn
+        case .offline: return ScoutInk.dim
         }
     }
 

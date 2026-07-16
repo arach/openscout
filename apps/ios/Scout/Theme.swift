@@ -224,14 +224,26 @@ private struct ScoutCardDepth: ViewModifier {
 
 // MARK: - Signal frame
 
-/// A restrained instrument-panel treatment for structural surfaces. The cut
-/// corners and registration ticks add a little Mission Control precision while
-/// the existing tone tokens keep it recognizably Scout. This is framing only:
-/// callers must supply real content and may tint the marks from real state.
+/// A restrained instrument-panel treatment for structural surfaces. Signal
+/// panels intentionally sit on a neutral graphite plane even when the surrounding
+/// Scout canvas is warm or cool: the content reads as instrumentation, not as a
+/// conventional raised card. The accent is supplied by real state and only
+/// reaches the registration marks / datum line; it never washes the whole panel.
 extension View {
     func signalPanel(accent: Color? = nil, cut: CGFloat = 6) -> some View {
         modifier(SignalPanelDepth(accent: accent, cut: cut))
     }
+}
+
+/// Home's Signal grammar is deliberately narrower than the general Scout tone
+/// system. These solid graphite tokens keep its structural hairlines crisp and
+/// prevent a warm canvas from turning operational panels brown.
+enum ScoutSignalSurface {
+    static let top = Color(red: 19.0/255, green: 21.0/255, blue: 22.0/255)
+    static let bottom = Color(red: 11.0/255, green: 13.0/255, blue: 14.0/255)
+    static let edge = Color(red: 58.0/255, green: 62.0/255, blue: 63.0/255)
+    static let rule = Color(red: 42.0/255, green: 46.0/255, blue: 47.0/255)
+    static let neutralSignal = Color(red: 118.0/255, green: 124.0/255, blue: 125.0/255)
 }
 
 struct SignalPanelShape: InsettableShape {
@@ -264,37 +276,36 @@ struct SignalPanelShape: InsettableShape {
 private struct SignalPanelDepth: ViewModifier {
     let accent: Color?
     let cut: CGFloat
-    @AppStorage(ScoutTone.storageKey) private var toneRaw = ScoutTone.default.rawValue
 
     func body(content: Content) -> some View {
-        let t = ScoutTone.resolve(toneRaw).tokens
         let shape = SignalPanelShape(cut: cut)
-        let markTint = accent ?? t.cardEdgeTop
+        let markTint = accent ?? ScoutSignalSurface.neutralSignal
         return content
             .background(
                 shape.fill(
                     LinearGradient(
-                        colors: [t.cardTop, t.cardBottom],
+                        colors: [ScoutSignalSurface.top, ScoutSignalSurface.bottom],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
             )
             .overlay(
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [t.cardEdgeTop, t.cardEdgeBottom],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                shape.strokeBorder(ScoutSignalSurface.edge, lineWidth: HudStrokeWidth.thin)
             )
             .overlay {
                 SignalRegistrationMarks(tint: markTint)
             }
+            .overlay(alignment: .topLeading) {
+                // One short datum is enough to carry state into the frame. The
+                // rest stays neutral so green / amber remain meaningful signals.
+                Rectangle()
+                    .fill(markTint)
+                    .frame(width: accent == nil ? 18 : 30, height: HudStrokeWidth.thin)
+                    .padding(.leading, 15)
+            }
             .clipShape(shape)
-            .shadow(color: Color.black.opacity(0.30), radius: 8, y: 3)
+            .shadow(color: Color.black.opacity(0.24), radius: 4, y: 2)
     }
 }
 
@@ -308,7 +319,7 @@ private struct SignalRegistrationMarks: View {
             SignalCornerMark(corner: .bottomLeading).stroke(tint, lineWidth: 1)
             SignalCornerMark(corner: .bottomTrailing).stroke(tint, lineWidth: 1)
         }
-        .opacity(0.72)
+        .opacity(0.82)
         .allowsHitTesting(false)
     }
 }
