@@ -34,6 +34,10 @@ const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const lanBeaconSuppressPredicates: Array<() => boolean | Promise<boolean>> = [];
 const testDirectories = new Set<string>();
 let scoutBrokerContextResult: unknown = null;
+let scoutBrokerMessagesResult: Array<Record<string, unknown>> | null = null;
+let scoutBrokerHomeResult: Record<string, unknown> | null = null;
+let scoutBrokerSnapshotResult: Record<string, unknown> | null = null;
+let scoutBrokerHealthResult: Record<string, unknown> = makeOfflineBrokerHealth();
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
 let queryAgentsResult: Array<Record<string, unknown>> = [];
@@ -215,15 +219,10 @@ mock.module("./core/broker/service.ts", () => ({
     return normalized?.length ? normalized : undefined;
   },
   registerScoutLocalAgentBinding: async () => null,
-  readScoutBrokerHealth: async () => ({
-    baseUrl: "http://broker.test",
-    reachable: false,
-    ok: false,
-    nodeId: null,
-    meshId: null,
-    counts: null,
-    error: "offline",
-  }),
+  readScoutBrokerHealth: async () => scoutBrokerHealthResult,
+  readScoutBrokerHome: async () => scoutBrokerHomeResult,
+  readScoutBrokerMessages: async () => scoutBrokerMessagesResult,
+  readScoutBrokerSnapshot: async () => scoutBrokerSnapshotResult,
   resolveScoutBrokerUrl: () => "http://broker.test",
   resolveScoutBrokerAdvertiseUrl: () => "http://broker.test",
   retireScoutLocalAgentBinding: async () => false,
@@ -423,6 +422,19 @@ function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<
     failedQueries: [],
     failedDeliveries: [],
     dialogue: [],
+    ...overrides,
+  };
+}
+
+function makeOfflineBrokerHealth(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    baseUrl: "http://broker.test",
+    reachable: false,
+    ok: false,
+    nodeId: null,
+    meshId: null,
+    counts: null,
+    error: "offline",
     ...overrides,
   };
 }
@@ -682,6 +694,10 @@ beforeEach(() => {
   querySessionByIdImpl = () => null;
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
+  scoutBrokerMessagesResult = null;
+  scoutBrokerHomeResult = null;
+  scoutBrokerSnapshotResult = null;
+  scoutBrokerHealthResult = makeOfflineBrokerHealth();
   agentObservePayloadResult = null;
   sessionRefObservePayloadResult = null;
   sendScoutMessageResult = {
@@ -854,11 +870,13 @@ describe("createOpenScoutWebServer", () => {
       staticRoot: makeStaticRoot(),
     });
 
-    const response = await server.app.request("http://localhost/broker");
+    for (const path of ["/dispatch", "/broker"]) {
+      const response = await server.app.request(`http://localhost${path}`);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    await expect(response.text()).resolves.toContain("<body>ok</body>");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      await expect(response.text()).resolves.toContain("<body>ok</body>");
+    }
   });
 
   test("does not fall back to app shell for missing static assets", async () => {
@@ -1273,7 +1291,6 @@ describe("createOpenScoutWebServer", () => {
         },
       },
     };
-
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
@@ -1858,6 +1875,10 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      source: {
+        mode: "sqlite_projection",
+        status: "degraded",
+      },
       totals: {
         successfulDispatches: 0,
         failedQueries: 0,
@@ -1868,6 +1889,214 @@ describe("createOpenScoutWebServer", () => {
       failedDeliveries: [],
       dialogue: [],
     });
+  });
+
+  test("serves current broker messages when the SQLite dispatch projection is stale", async () => {
+    const old = 1_700_000_000_000;
+    const current = old + 10_000;
+    const routedAttempt = (id: string, ts: number) => ({
+      id: `message:${id}`,
+      kind: "success",
+      status: "sent",
+      ts,
+      actorName: "Agent One",
+      target: "operator",
+      route: "dm",
+      detail: id,
+      conversationId: "conversation-1",
+      messageId: id,
+      deliveryId: null,
+      invocationId: null,
+      metadata: null,
+    });
+    brokerDiagnosticsResult = makeBrokerDiagnostics({
+      source: {
+        mode: "sqlite_projection",
+        status: "unknown",
+        latestMessageAt: old,
+        projectionLatestMessageAt: old,
+        liveMessageCount: null,
+        projectionMessageCount: 1,
+        detail: null,
+      },
+      attempts: [routedAttempt("message-old", old)],
+      dialogue: [{
+        id: "message-old",
+        ts: old,
+        actorName: "Agent One",
+        conversationId: "conversation-1",
+        body: "Old dispatch",
+        class: "agent",
+      }],
+    });
+    scoutBrokerContextResult = {
+      baseUrl: "http://127.0.0.1:43110",
+      node: { id: "node-1" },
+      snapshot: {
+        actors: {
+          "agent-1": { id: "agent-1", displayName: "Agent One" },
+        },
+        messages: {
+          "message-old": {
+            id: "message-old",
+            conversationId: "conversation-1",
+            actorId: "agent-1",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Old dispatch",
+            visibility: "private",
+            policy: "durable",
+            createdAt: old,
+            metadata: { source: "scout-cli", relayTarget: "operator", relayChannel: "dm" },
+          },
+          "message-current": {
+            id: "message-current",
+            conversationId: "conversation-1",
+            actorId: "agent-1",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Current dispatch",
+            visibility: "private",
+            policy: "durable",
+            createdAt: current,
+            metadata: { source: "scout-cli", relayTarget: "operator", relayChannel: "dm" },
+          },
+        },
+      },
+    };
+    scoutBrokerMessagesResult = Object.values((scoutBrokerContextResult as {
+      snapshot: { messages: Record<string, Record<string, unknown>> };
+    }).snapshot.messages);
+    scoutBrokerHomeResult = {
+      updatedAt: current,
+      agents: [{ id: "agent-1", title: "Agent One" }],
+      activity: [],
+    };
+    scoutBrokerHealthResult = makeOfflineBrokerHealth({
+      reachable: true,
+      ok: true,
+      counts: { messages: 2 },
+      error: null,
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      source: {
+        mode: "live_broker",
+        status: "degraded",
+        latestMessageAt: current,
+        projectionLatestMessageAt: old,
+      },
+      attempts: [
+        { id: "message:message-current", actorName: "Agent One" },
+        { id: "message:message-old" },
+      ],
+      dialogue: [
+        { id: "message-current", actorName: "Agent One" },
+        { id: "message-old" },
+      ],
+    });
+    scoutBrokerMessagesResult = [
+      ...(scoutBrokerMessagesResult ?? []),
+      {
+        id: "message-after-refresh",
+        conversationId: "conversation-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Arrived after the first Dispatch load",
+        visibility: "private",
+        policy: "durable",
+        createdAt: current + 1,
+        metadata: { source: "scout-cli", relayTarget: "operator", relayChannel: "dm" },
+      },
+    ];
+    scoutBrokerHealthResult = makeOfflineBrokerHealth({
+      reachable: true,
+      ok: true,
+      counts: { messages: 3 },
+      error: null,
+    });
+
+    const refreshedResponse = await server.app.request("http://localhost/api/broker");
+    expect(refreshedResponse.status).toBe(200);
+    const refreshedBody = await refreshedResponse.json() as {
+      dialogue: Array<{ id: string; actorName: string }>;
+    };
+    expect(refreshedBody.dialogue[0]).toMatchObject({
+      id: "message-after-refresh",
+      actorName: "Agent One",
+    });
+  });
+
+  test("fills a gap when the compact broker feed is capped before the SQLite watermark", async () => {
+    const now = Date.now();
+    const projectionAt = now - 3 * 86_400_000;
+    const bridgeAt = projectionAt + 1;
+    const latestMessage = {
+      id: "message-latest",
+      conversationId: "conversation-1",
+      actorId: "agent-1",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "Latest",
+      visibility: "private",
+      policy: "durable",
+      createdAt: now,
+      metadata: { source: "scout-cli", relayTarget: "operator", relayChannel: "dm" },
+    };
+    const bridgeMessage = {
+      ...latestMessage,
+      id: "message-bridge",
+      body: "Bridge",
+      createdAt: bridgeAt,
+    };
+    brokerDiagnosticsResult = makeBrokerDiagnostics({
+      source: {
+        mode: "sqlite_projection",
+        status: "unknown",
+        latestMessageAt: projectionAt,
+        projectionLatestMessageAt: projectionAt,
+        liveMessageCount: null,
+        projectionMessageCount: 1,
+        detail: null,
+      },
+    });
+    scoutBrokerMessagesResult = [latestMessage];
+    scoutBrokerHealthResult = makeOfflineBrokerHealth({
+      reachable: true,
+      ok: true,
+      counts: { messages: 501 },
+      error: null,
+    });
+    scoutBrokerSnapshotResult = {
+      actors: { "agent-1": { id: "agent-1", displayName: "Agent One" } },
+      messages: {
+        [latestMessage.id]: latestMessage,
+        [bridgeMessage.id]: bridgeMessage,
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { dialogue: Array<{ id: string }> };
+    expect(body.dialogue.map((item) => item.id)).toEqual([
+      "message-latest",
+      "message-bridge",
+    ]);
   });
 
   test("routes failed dispatch review to a project-scoped Codex ask", async () => {

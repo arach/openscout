@@ -337,9 +337,20 @@ export type BrokerDialogueItem = {
 
 export type BrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
 
+export type BrokerDiagnosticsSource = {
+  mode: "live_broker" | "sqlite_projection";
+  status: "current" | "degraded" | "unknown";
+  latestMessageAt: number | null;
+  projectionLatestMessageAt: number | null;
+  liveMessageCount: number | null;
+  projectionMessageCount: number | null;
+  detail: string | null;
+};
+
 export type BrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  source?: BrokerDiagnosticsSource;
   ledger: {
     mode: "latest";
     limit: number;

@@ -52,6 +52,64 @@ export function brokerAttemptIsFailure(attempt: BrokerRouteAttempt): boolean {
     || attempt.status === "error";
 }
 
+/**
+ * Turn the broker's attempt-oriented diagnostics into a message-oriented feed.
+ * A routed message is the primary row; a linked terminal delivery failure is
+ * folded into it so the operator sees the message once with its final outcome.
+ * Transport retries stay available in metadata/diagnostics instead of reading
+ * like additional messages on the Dispatch home surface.
+ */
+export function brokerMessageFeedRows(attempts: BrokerRouteAttempt[]): BrokerRouteAttempt[] {
+  const messagesById = new Map<string, BrokerRouteAttempt>();
+  const failuresByMessageId = new Map<string, BrokerRouteAttempt>();
+
+  for (const attempt of attempts) {
+    if (!attempt.messageId) continue;
+    if (attempt.kind === "success") {
+      if (!messagesById.has(attempt.messageId)) messagesById.set(attempt.messageId, attempt);
+    } else if (attempt.kind === "failed_delivery") {
+      const current = failuresByMessageId.get(attempt.messageId);
+      if (!current || attempt.ts > current.ts) failuresByMessageId.set(attempt.messageId, attempt);
+    }
+  }
+
+  const rows: BrokerRouteAttempt[] = [];
+  for (const attempt of attempts) {
+    if (attempt.kind === "delivery_attempt") continue;
+
+    if (attempt.kind === "failed_delivery" && attempt.messageId && messagesById.has(attempt.messageId)) {
+      continue;
+    }
+
+    if (attempt.kind === "success" && attempt.messageId) {
+      const failure = failuresByMessageId.get(attempt.messageId);
+      if (failure) {
+        rows.push({
+          ...failure,
+          id: attempt.id,
+          ts: attempt.ts,
+          actorName: attempt.actorName,
+          target: attempt.target ?? failure.target,
+          route: attempt.route ?? failure.route,
+          detail: attempt.detail,
+          conversationId: attempt.conversationId ?? failure.conversationId,
+          messageId: attempt.messageId,
+          invocationId: attempt.invocationId ?? failure.invocationId,
+          metadata: {
+            ...(failure.metadata ?? {}),
+            message: attempt.metadata ?? null,
+          },
+        });
+        continue;
+      }
+    }
+
+    rows.push(attempt);
+  }
+
+  return rows.sort((left, right) => right.ts - left.ts || left.id.localeCompare(right.id));
+}
+
 export function brokerAttemptDetailLimit(attempt: BrokerRouteAttempt): number {
   return brokerAttemptIsFailure(attempt) ? FAILURE_DETAIL_CHARS : SUCCESS_DETAIL_CHARS;
 }
@@ -60,7 +118,13 @@ export function brokerAttemptErrorSummary(attempt: BrokerRouteAttempt): string |
   if (!brokerAttemptIsFailure(attempt)) return null;
 
   const metadata = attempt.metadata ?? {};
-  const reason = readString(metadata.reason) ?? readString(metadata.error);
+  const transportReason = readString(metadata.reason);
+  const reason = readString(metadata.failureDetail)
+    ?? readString(metadata.failureReason)
+    ?? (attempt.kind === "failed_delivery" && ["direct_message", "mention"].includes(transportReason ?? "")
+      ? null
+      : transportReason)
+    ?? readString(metadata.error);
   const dispatchKind = readString(metadata.dispatchKind);
   const requestedLabel = readString(metadata.requestedLabel);
 

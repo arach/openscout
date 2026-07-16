@@ -511,7 +511,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
-  if (parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "dispatch" || parts[0] === "broker") return { view: "broker" };
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
     if (parts[1]) {
@@ -761,7 +761,7 @@ export function routePath(r: Route, pathname?: string): string {
     case "mesh":
       return pathWithMachineScope("/mesh", r);
     case "broker":
-      return "/broker";
+      return "/dispatch";
     case "code": {
       if (r.project) {
         const segments = [encodeURIComponent(r.project)];

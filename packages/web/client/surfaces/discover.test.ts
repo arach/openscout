@@ -10,7 +10,7 @@ const brokerSurface = defineSurface({
   id: "dispatch",
   label: "Dispatch",
   route: { view: "broker" },
-  webPath: "/broker",
+  webPath: "/dispatch",
   screen: "BrokerScreen",
   embed: {
     path: "/embed/dispatch",
@@ -46,6 +46,7 @@ describe("embeddable surface discovery", () => {
   test("discovers dispatch and lanes from screen modules", () => {
     const ids = surfaces.map((surface) => surface.id).sort();
     expect(ids).toEqual(["dispatch", "lanes"]);
+    expect(surfaces.find((surface) => surface.id === "dispatch")?.webPath).toBe("/dispatch");
   });
 
   test("embed paths and aliases are unique", () => {

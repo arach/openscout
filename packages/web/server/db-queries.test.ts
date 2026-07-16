@@ -725,7 +725,7 @@ describe("web db query broker diagnostics", () => {
         visibility: "private",
         policy: "durable",
         createdAt: now - 5_000,
-        metadata: { source: "scout-cli", relayTarget: "agent-1" },
+        metadata: { source: "scout-cli", relayTarget: "agent-1", relayChannel: "dm" },
       });
       store.recordMessage({
         id: "msg-failed-old",
@@ -776,6 +776,10 @@ describe("web db query broker diagnostics", () => {
 
       expect(diagnostics.failedDeliveries.map((attempt) => attempt.id))
         .toEqual(["delivery:delivery-failed-recent"]);
+      expect(diagnostics.failedDeliveries[0]).toMatchObject({
+        detail: "Recent failed dispatch.",
+        route: "dm",
+      });
       expect(diagnostics.attempts.map((attempt) => attempt.id))
         .not.toContain("delivery:delivery-failed-old");
       expect(diagnostics.failedDeliveries[0]?.metadata).toMatchObject({

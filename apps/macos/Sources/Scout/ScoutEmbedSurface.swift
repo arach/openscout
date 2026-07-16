@@ -39,7 +39,7 @@ enum ScoutEmbedSurfaceRegistry {
         ScoutEmbedSurface(
             id: .dispatch,
             label: "Dispatch",
-            shellPath: "/broker",
+            shellPath: "/dispatch",
             embedPath: "/embed/dispatch",
             profile: "macos.dispatch",
             systemImage: "paperplane",

@@ -17,9 +17,11 @@ afterEach(() => {
 
 function createProjectionOptions(overrides: {
   busyOnFirstOpen?: boolean;
+  failOnOpen?: Error;
   busyOnFirstEvent?: boolean;
   fatalOnFirstEvent?: boolean;
   busyOnFirstMessage?: boolean;
+  disabled?: boolean;
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-projection-"));
   tempRoots.add(root);
@@ -95,8 +97,12 @@ function createProjectionOptions(overrides: {
       join(root, "projection.sqlite"),
       journal,
       {
+        disabled: overrides.disabled,
         createStore: () => {
           stats.createStoreCalls += 1;
+          if (overrides.failOnOpen) {
+            throw overrides.failOnOpen;
+          }
           if (overrides.busyOnFirstOpen && stats.createStoreCalls === 1) {
             throw busyError;
           }
@@ -125,6 +131,46 @@ function sampleMessageEntry(): BrokerJournalEntry {
 }
 
 describe("RecoverableSQLiteProjection", () => {
+  test("reports ready after opening the projection store", async () => {
+    const { projection } = createProjectionOptions();
+
+    expect(projection.statusSnapshot()).toEqual({
+      state: "degraded",
+      detail: "SQLite projection is not ready.",
+    });
+
+    projection.warm();
+    await projection.flush();
+
+    expect(projection.statusSnapshot()).toEqual({ state: "ready", detail: null });
+  });
+
+  test("reports the projection failure when opening degrades", async () => {
+    const failure = new Error("schema v14 is newer than this build's v13");
+    const { projection } = createProjectionOptions({ failOnOpen: failure });
+
+    projection.warm();
+    await projection.flush();
+
+    expect(projection.statusSnapshot()).toEqual({
+      state: "degraded",
+      detail: failure.message,
+    });
+  });
+
+  test("reports disabled without opening the projection store", async () => {
+    const { projection, stats } = createProjectionOptions({ disabled: true });
+
+    projection.warm();
+    await projection.flush();
+
+    expect(projection.statusSnapshot()).toEqual({
+      state: "disabled",
+      detail: "SQLite projection is disabled by configuration.",
+    });
+    expect(stats.createStoreCalls).toBe(0);
+  });
+
   test("does not invalidate the store when opening the projection hits SQLITE_BUSY", async () => {
     const { projection, stats } = createProjectionOptions({ busyOnFirstOpen: true });
 
