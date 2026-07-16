@@ -356,6 +356,20 @@ describe("runScoutdServiceCommand shell-out", () => {
           },
         },
       },
+      runtimeFreshness: {
+        state: "pinned",
+        intentional: true,
+        basis: "explicit_pin",
+        artifactCommit: "abc123",
+        expectedCommit: "abc123",
+        pin: "abc123",
+        pinReason: "bisecting a regression",
+        manifestPath: "/opt/openscout/dist/build-manifest.json",
+        version: "0.test",
+        builtAt: "2026-07-15T20:00:00.000Z",
+        sourceDirty: false,
+        detail: "Running the explicitly pinned runtime build.",
+      },
     };
     const scoutd = writeExecutable(join(mkdtempSync(join(tmpdir(), "openscout-scoutd-json-")), "scoutd"));
     const result = await withEnv({
@@ -390,6 +404,7 @@ describe("runScoutdServiceCommand shell-out", () => {
     expect(result.health.counts?.collaborationRecords).toBe(7);
     expect(result.health.build?.version).toBe("0.test");
     expect(result.health.services?.web?.pid).toBe(111);
+    expect(result.runtimeFreshness).toEqual(status.runtimeFreshness);
   });
 
   test("rejects with a meaningful error on malformed JSON", async () => {

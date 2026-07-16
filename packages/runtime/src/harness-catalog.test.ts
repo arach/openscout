@@ -13,6 +13,7 @@ import {
   evaluateHarnessReadiness,
   loadHarnessCatalogSnapshot,
   mergeHarnessCatalogEntries,
+  resolveHarnessSessionDefaults,
   writeHarnessCatalogOverrides,
 } from "./harness-catalog.js";
 
@@ -23,10 +24,30 @@ describe("harness catalog", () => {
     expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "grok-acp", "cursor", "flue", "pi"]);
     expect(entries.find((entry) => entry.name === "claude")?.support.collaboration).toBe(true);
     expect(entries.find((entry) => entry.name === "codex")?.support.workspace).toBe(true);
+    expect(entries.find((entry) => entry.name === "claude")?.sessionDefaults).toEqual({
+      defaultTransport: "tmux",
+      fallbackTransports: ["claude_stream_json"],
+    });
     expect(entries.find((entry) => entry.name === "grok-acp")?.metadata?.adapterType).toBe("grok-acp");
     expect(entries.find((entry) => entry.name === "pi")?.install?.macos).toBe(
       "npm install -g @earendil-works/pi-coding-agent",
     );
+  });
+
+  test("declaratively resolves default harnesses and transports for new sessions", () => {
+    expect(resolveHarnessSessionDefaults("claude")).toEqual({
+      harness: "claude",
+      transport: "tmux",
+      fallbackTransports: ["claude_stream_json"],
+    });
+    expect(resolveHarnessSessionDefaults("claude", { transportOverride: "claude_stream_json" })?.transport)
+      .toBe("claude_stream_json");
+    expect(resolveHarnessSessionDefaults("grok")).toEqual({
+      harness: "grok-acp",
+      transport: "grok_acp",
+      fallbackTransports: [],
+    });
+    expect(resolveHarnessSessionDefaults("cursor")).toBeNull();
   });
 
   test("merge applies local overrides without discarding nested builtin fields", () => {
@@ -38,6 +59,9 @@ describe("harness catalog", () => {
         install: {
           verify: "claude --version >/dev/null 2>&1",
         },
+        sessionDefaults: {
+          fallbackTransports: ["claude_stream_json", "local_socket"],
+        },
       },
     });
 
@@ -45,6 +69,10 @@ describe("harness catalog", () => {
     expect(claude?.support.collaboration).toBe(true);
     expect(claude?.install?.binary).toBe("claude");
     expect(claude?.install?.verify).toBe("claude --version >/dev/null 2>&1");
+    expect(claude?.sessionDefaults).toEqual({
+      defaultTransport: "tmux",
+      fallbackTransports: ["claude_stream_json", "local_socket"],
+    });
   });
 
   test("readiness reports installed when binary exists but auth is still missing", () => {
