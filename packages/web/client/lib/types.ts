@@ -1298,7 +1298,10 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string; agentId?: string } & MachineScopedRoute)
-  | ({ view: "repos" } & MachineScopedRoute)
+  // `root` pre-selects a project by absolute root — used when drilling in from
+  // a project surface ("Worktrees" facet) so the repos view keeps the caller's
+  // scope. Deep-linkable as /repos?root=<abs>.
+  | ({ view: "repos"; root?: string } & MachineScopedRoute)
   | ({ view: "harnesses" } & MachineScopedRoute)
   // A diff path is absolute + machine-local, so this is intentionally not
   // machine-scoped. Reached by drilling in / "open as page" from the Repos

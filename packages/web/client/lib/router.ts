@@ -474,7 +474,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
     });
   }
-  if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "repos") {
+    const root = url.searchParams.get("root")?.trim() || undefined;
+    return scoped({ view: "repos", ...(root ? { root } : {}) });
+  }
   if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
@@ -737,8 +740,12 @@ export function routePath(r: Route, pathname?: string): string {
         : "/sessions";
       return `${path}${searchSuffix(params)}`;
     }
-    case "repos":
-      return pathWithMachineScope("/repos", r);
+    case "repos": {
+      const params = new URLSearchParams();
+      if (r.root) params.set("root", r.root);
+      appendMachineScope(params, r);
+      return `/repos${searchSuffix(params)}`;
+    }
     case "harnesses":
       return pathWithMachineScope("/harnesses", r);
     case "repo-diff": {

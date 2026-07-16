@@ -42,8 +42,6 @@ import {
 
 const DAY_MS = 24 * 60 * 60_000;
 
-export type SmartView = "needs" | "working" | "recent" | "everything";
-
 /** The three attention buckets the inbox groups by (plumbing like harness never groups). */
 export type ThreadGroup = "needs" | "working" | "recent";
 
@@ -54,6 +52,7 @@ export type InboxThread = {
   projectSlug: string;
   projectTitle: string;
   projectRoot: string | null;
+  workspaceRoot: string | null;
   // ── attribution ──
   agentId: string | null;
   agentName: string;
@@ -80,6 +79,7 @@ export type InboxSession = {
   projectSlug: string;
   projectTitle: string;
   projectRoot: string | null;
+  workspaceRoot: string | null;
   agentId: string | null;
   agentName: string;
   harness: string;
@@ -104,6 +104,7 @@ export type InboxProject = {
   sessionCount: number;
   liveSessionCount: number;
   worktreeCount: number;
+  worktrees: InboxProjectWorktree[];
   needs: number;
   working: number;
   threadCount: number;
@@ -112,11 +113,17 @@ export type InboxProject = {
   branches: string[];
 };
 
+export type InboxProjectWorktree = {
+  root: string;
+  branch: string | null;
+  working: boolean;
+  lastActivityAt: number;
+};
+
 export type ProjectsInboxModel = {
   projects: InboxProject[];
   threads: InboxThread[];
   sessions: InboxSession[];
-  counts: Record<SmartView, number>;
 };
 
 export type BuildInboxInput = {
@@ -169,6 +176,7 @@ function agentThread(
     projectSlug: entry.projectSlug,
     projectTitle: entry.projectTitle,
     projectRoot: entry.projectRoot,
+    workspaceRoot: lead.cwd ?? lead.projectRoot ?? entry.projectRoot,
     agentId: lead.id,
     agentName: group.name,
     harness: harnessOf(group.harness),
@@ -202,6 +210,7 @@ function nativeThread(
     projectSlug: project.slice.slug,
     projectTitle: project.slice.title,
     projectRoot: project.slice.root,
+    workspaceRoot: project.slice.root,
     agentId: null,
     agentName: `${titleCaseHarness(harness)} session`,
     harness,
@@ -251,6 +260,7 @@ function projectSession(
     projectSlug: project.slice.slug,
     projectTitle: project.slice.title,
     projectRoot: project.slice.root,
+    workspaceRoot: agent?.cwd ?? agent?.projectRoot ?? project.slice.root,
     agentId: agent?.id ?? null,
     agentName: agent?.name ?? `${titleCaseHarness(harness)} session`,
     harness,
@@ -291,16 +301,34 @@ function projectSessions(project: DirProject, nowMs: number): InboxSession[] {
   return sessions.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.agentName.localeCompare(b.agentName));
 }
 
-function projectWorktreeCount(project: DirProject): number {
-  const roots = new Set<string>();
+function projectWorktreeInventory(project: DirProject): InboxProjectWorktree[] {
+  const worktrees = new Map<string, InboxProjectWorktree>();
+  const ensure = (root: string, branch: string | null, working: boolean, lastActivityAt: number): void => {
+    const existing = worktrees.get(root);
+    if (!existing) {
+      worktrees.set(root, { root, branch, working, lastActivityAt });
+      return;
+    }
+    if ((working || !existing.branch) && branch) existing.branch = branch;
+    existing.working ||= working;
+    existing.lastActivityAt = Math.max(existing.lastActivityAt, lastActivityAt);
+  };
   for (const node of project.agents) {
     const root = node.row.agent.cwd ?? node.row.agent.projectRoot ?? project.slice.root;
-    if (root) roots.add(root);
+    if (!root) continue;
+    const branch = node.row.branch && node.row.branch !== "—" ? node.row.branch : null;
+    ensure(root, branch, isAgentRowWorking(node.row), node.row.lastActivityAt ?? 0);
   }
   for (const session of project.slice.nativeSessions) {
-    if (session.cwd) roots.add(session.cwd);
+    if (!session.cwd) continue;
+    ensure(session.cwd, null, session.status === "active", session.lastActivityAt ?? 0);
   }
-  return roots.size || (project.slice.root ? 1 : 0);
+  if (worktrees.size === 0 && project.slice.root) ensure(project.slice.root, null, false, project.lastActivityAt ?? 0);
+  return [...worktrees.values()].sort((left, right) =>
+    Number(right.working) - Number(left.working)
+    || right.lastActivityAt - left.lastActivityAt
+    || left.root.localeCompare(right.root),
+  );
 }
 
 function threadRank(thread: InboxThread, nowMs: number): number {
@@ -368,6 +396,7 @@ export function buildProjectsInboxModel(input: BuildInboxInput): ProjectsInboxMo
           .filter((branch): branch is string => Boolean(branch) && branch !== "—" && branch !== "main"),
       ),
     ];
+    const worktrees = projectWorktreeInventory(project);
     return {
       slug: project.slice.slug,
       title: project.slice.title,
@@ -375,7 +404,8 @@ export function buildProjectsInboxModel(input: BuildInboxInput): ProjectsInboxMo
       agentCount: agentCountBySlug.get(project.slice.slug) ?? 0,
       sessionCount: projectSessionList.length,
       liveSessionCount: projectSessionList.filter((session) => session.working).length,
-      worktreeCount: projectWorktreeCount(project),
+      worktreeCount: worktrees.length,
+      worktrees,
       needs: list.filter((thread) => thread.needs).length,
       working: list.filter((thread) => thread.working).length,
       threadCount: list.length,
@@ -387,14 +417,7 @@ export function buildProjectsInboxModel(input: BuildInboxInput): ProjectsInboxMo
     (a, b) => projectRank(b) - projectRank(a) || b.lastActivityAt - a.lastActivityAt || a.title.localeCompare(b.title),
   );
 
-  const counts: Record<SmartView, number> = {
-    needs: threads.filter((thread) => thread.needs).length,
-    working: threads.filter((thread) => thread.working).length,
-    recent: threads.filter((thread) => nowMs - thread.lastActivityAt < DAY_MS).length,
-    everything: threads.length,
-  };
-
-  return { projects, threads, sessions, counts };
+  return { projects, threads, sessions };
 }
 
 function projectRank(project: InboxProject): number {
@@ -410,19 +433,6 @@ export function isDormantProject(project: InboxProject, nowMs: number): boolean 
     project.working === 0 &&
     (project.threadCount === 0 || nowMs - project.lastActivityAt > DAY_MS)
   );
-}
-
-export function filterThreadsForView(threads: InboxThread[], view: SmartView, nowMs: number): InboxThread[] {
-  switch (view) {
-    case "needs":
-      return threads.filter((thread) => thread.needs);
-    case "working":
-      return threads.filter((thread) => thread.working);
-    case "recent":
-      return threads.filter((thread) => nowMs - thread.lastActivityAt < DAY_MS);
-    case "everything":
-      return threads;
-  }
 }
 
 export function threadsForProject(threads: InboxThread[], slug: string): InboxThread[] {
