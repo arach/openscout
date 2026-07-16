@@ -181,15 +181,15 @@ describe("buildProjectsInboxModel — collapse + truthful counts", () => {
     const helper = model.threads.find((thread) => thread.agentName === "Helper");
     expect(helper?.needs).toBe(true);
     expect(helper?.group).toBe("needs");
-    expect(helper?.work).toBe("Choose whether the migration is ready to merge");
+    expect(helper?.work).toBe("Review the migration diff");
   });
 
   test("working asks stay in working instead of being mislabeled as your turn", () => {
     const agent = mkAgent({ id: "worker.a", name: "Worker", state: "working" });
     const ask = { ...mkAsk(agent.id), status: "working" as const, statusLabel: "working" };
     const model = buildProjectsInboxModel(baseInput([agent], mkFleet([ask])));
-    expect(model.counts.needs).toBe(0);
-    expect(model.counts.working).toBe(1);
+    expect(model.threads.filter((thread) => thread.needs)).toHaveLength(0);
+    expect(model.threads.filter((thread) => thread.working)).toHaveLength(1);
     expect(model.threads[0]?.group).toBe("working");
   });
 });
