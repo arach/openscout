@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 
 import { api } from "../../lib/api.ts";
 import {
@@ -222,7 +223,7 @@ function MessagesEmptyState({
               ? "Fetching your recent conversations."
               : error
                 ? error
-                : "Pick a conversation from the rail to follow the thread, or filter to find the one you want."}
+                : "Start a chat by choosing an agent and sending the first message."}
         </p>
 
         {apiOffline || error ? (
@@ -240,16 +241,14 @@ function MessagesEmptyState({
             Retry connection
           </button>
         ) : (
-          <div className="s-conv-empty-hints">
-            <span className="s-conv-empty-hint">
-              <kbd className="s-conv-empty-kbd">/</kbd>
-              filter the rail
-            </span>
-            <span className="s-conv-empty-hint">
-              <kbd className="s-conv-empty-kbd">⌘K</kbd>
-              command palette
-            </span>
-          </div>
+          <button
+            type="button"
+            className="s-conv-empty-new"
+            onClick={() => openContextCapture()}
+          >
+            <Plus size={16} aria-hidden="true" />
+            New chat
+          </button>
         )}
 
         <div className="s-conv-empty-ambient">

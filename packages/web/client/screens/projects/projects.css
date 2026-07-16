@@ -1520,17 +1520,6 @@
   color: var(--av2-dim);
 }
 
-.av2-agentDetailNeeds {
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-family: var(--av2-mono);
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--av2-accent);
-  background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
-}
-
 .av2-agentDetailStatus {
   display: flex;
   align-items: center;

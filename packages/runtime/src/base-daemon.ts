@@ -30,6 +30,7 @@ const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
 const CHILD_SHUTDOWN_TIMEOUT_MS = 12_000;
+const WEB_START_RETRY_MS = 5_000;
 const MENU_BUNDLE_ID = "app.openscout.scout.menu";
 const MENU_PROCESS_NAME = "ScoutMenu";
 const PROCESS_NAME = "scout-base";
@@ -47,6 +48,8 @@ let brokerRestartDelayMs = RESTART_MIN_DELAY_MS;
 let edgeRestartDelayMs = RESTART_MIN_DELAY_MS;
 let supervisedWebPid: number | null = null;
 let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
+let webStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let webStartInFlight = false;
 
 const config = resolveBrokerServiceConfig();
 const brokerControlUrl = buildLocalBrokerControlUrl(config.brokerHost, config.brokerPort);
@@ -348,35 +351,57 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
   if (process.env.OPENSCOUT_BASE_START_WEB === "0") {
     return;
   }
-  if (!(await waitForBrokerHealth())) {
-    warn("broker did not become healthy before web startup timeout");
+  if (webStartInFlight) {
     return;
   }
-
+  webStartInFlight = true;
   try {
-    const edgeConfig = resolveEdgeConfig();
-    const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
-    const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "x-forwarded-host": edgeConfig.portalHost,
-        "x-forwarded-proto": scheme,
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    const body = await response.json() as { ok?: boolean; pid?: number | null; error?: string | null };
-    supervisedWebPid = typeof body.pid === "number"
-      ? body.pid
-      : resolvePortListenerPid(Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort());
-    if (!response.ok || body.ok !== true) {
-      warn("web server did not report healthy", body.error ?? response.statusText);
+    if (!(await waitForBrokerHealth())) {
+      warn("broker did not become healthy before web startup timeout");
+      scheduleWebStartRetry();
       return;
     }
-    log("web server ready", { pid: supervisedWebPid });
-  } catch (error) {
-    warn("web server startup failed", error instanceof Error ? error.message : String(error));
+
+    try {
+      const edgeConfig = resolveEdgeConfig();
+      const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
+      const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "x-forwarded-host": edgeConfig.portalHost,
+          "x-forwarded-proto": scheme,
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await response.json() as { ok?: boolean; pid?: number | null; error?: string | null };
+      supervisedWebPid = typeof body.pid === "number"
+        ? body.pid
+        : resolvePortListenerPid(Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort());
+      if (!response.ok || body.ok !== true) {
+        warn("web server did not report healthy", body.error ?? response.statusText);
+        scheduleWebStartRetry();
+        return;
+      }
+      log("web server ready", { pid: supervisedWebPid });
+    } catch (error) {
+      warn("web server startup failed", error instanceof Error ? error.message : String(error));
+      scheduleWebStartRetry();
+    }
+  } finally {
+    webStartInFlight = false;
   }
+}
+
+function scheduleWebStartRetry(): void {
+  if (shuttingDown || webStartRetryTimer || process.env.OPENSCOUT_BASE_START_WEB === "0") {
+    return;
+  }
+  webStartRetryTimer = setTimeout(() => {
+    webStartRetryTimer = null;
+    void startWebWhenBrokerIsReady();
+  }, WEB_START_RETRY_MS);
+  webStartRetryTimer.unref();
 }
 
 function resolvePortListenerPid(port: number): number | null {
@@ -496,6 +521,10 @@ async function shutdown(exitCode = 0): Promise<void> {
   if (baseKeepAlive) {
     clearInterval(baseKeepAlive);
     baseKeepAlive = null;
+  }
+  if (webStartRetryTimer) {
+    clearTimeout(webStartRetryTimer);
+    webStartRetryTimer = null;
   }
   stopSupervisedWeb();
   stopMenuBarApp();

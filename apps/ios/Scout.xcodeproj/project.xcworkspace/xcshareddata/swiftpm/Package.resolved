@@ -75,7 +75,7 @@
     {
       "identity" : "vox",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/arach/vox.git",
+      "location" : "git@github.com:arach/vox.git",
       "state" : {
         "branch" : "main",
         "revision" : "960a1df81f6f6c0b7c1a40bcea3137d4b506e7b1"

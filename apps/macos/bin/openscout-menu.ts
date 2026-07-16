@@ -308,19 +308,14 @@ function signBundle(options: CliOptions): void {
     console.log(`Signing with: ${identity.label}`);
     try {
       execSync(
-        `codesign --force --options runtime --timestamp --sign ${shellQuote(identity.signValue)}${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${
+        `codesign --force --deep --options runtime --timestamp --sign ${shellQuote(identity.signValue)}${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${
           shellQuote(bundlePath)
         }`,
         { stdio: "inherit" },
       );
     } catch {
-      if (options.requireSigningIdentity) {
-        throw new Error(`Signing with '${identity.label}' failed.`);
-      }
-      console.log(`Signing with '${identity.label}' failed. Falling back to ad-hoc.`);
-      execSync(
-        `codesign --force --sign -${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${shellQuote(bundlePath)}`,
-        { stdio: "inherit" },
+      throw new Error(
+        `Signing with '${identity.label}' failed. Refusing to replace the stable app identity with an ad-hoc signature.`,
       );
     }
   } else {
@@ -417,8 +412,11 @@ function build(options: CliOptions): void {
   const version = appVersion(options.version);
   mkdirSync(distDir, { recursive: true });
   writeBundle(version);
-  signBundle(options);
   execSync(`touch '${bundlePath}'`, { stdio: "pipe" });
+  // Signing must be the final bundle mutation. Keychain ACLs trust the stable
+  // Developer ID requirement; an ad-hoc post-build signature is CDHash-bound
+  // and makes every rebuild look like a different application.
+  signBundle(options);
   console.log(`Built ${bundlePath}`);
 }
 

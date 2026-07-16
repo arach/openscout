@@ -58,6 +58,7 @@ function ThreadRow({
   onSelect,
   onOpen,
   rowRef,
+  workLabel,
 }: {
   thread: InboxThread | InboxSession;
   crossProject: boolean;
@@ -67,6 +68,7 @@ function ThreadRow({
   onSelect: () => void;
   onOpen: () => void;
   rowRef: (el: HTMLButtonElement | null) => void;
+  workLabel?: string;
 }) {
   return (
     <button
@@ -82,7 +84,7 @@ function ThreadRow({
       <span className="pi-rowDot" aria-hidden />
       <span className="pi-rowBody">
         <span className="pi-rowWork" title={thread.work}>
-          {thread.work}
+          {workLabel ?? thread.work}
         </span>
         <span className="pi-rowAttr">
           <span className="pi-rowAvatar">
@@ -119,6 +121,10 @@ function ThreadRow({
         ) : null}
         <span className="pi-rowAgo">{thread.lastActivityAt ? timeAgo(thread.lastActivityAt, nowMs) : "—"}</span>
         {thread.contextPct != null ? <span className="pi-rowCtx">{thread.contextPct}%</span> : null}
+      </span>
+      <span className="pi-rowOpen" aria-hidden>
+        <span>Open</span>
+        <ChevronRight size={14} strokeWidth={1.8} />
       </span>
     </button>
   );
@@ -196,11 +202,11 @@ function ProjectScopeHeader({
   return (
     <header className="pi-projectHead">
       <div className="pi-projectHeadTop">
-        <AgentAvatar name={title} placement="row" size={40} presence={false} />
         <div className="pi-projectIdent">
-          <div className="pi-projectTitleRow">
-            <span className="pi-projectKind">Project</span>
-            <h1 className="pi-projectTitle">/{title}</h1>
+          <h1 className="pi-projectTitle">{title}</h1>
+          <div className="pi-projectMeta">
+            {root ? <span title={root}>{shortHomePath(root)}</span> : null}
+            <span className="pi-projectDigest">{digest}</span>
           </div>
           {root ? (
             <div className="pi-projectRoot" title={root}>
@@ -1871,8 +1877,6 @@ function ProjectOverviewWithRepository({
   navigate,
   nowMs,
 }: {
-  project: InboxProject | null;
-  threads: InboxThread[];
   sessions: InboxSession[];
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
@@ -1920,6 +1924,12 @@ export function ProjectsInbox({
 }) {
   const { model, nowMs, loading, error } = useProjectsInbox(route);
   const scoped = Boolean(route.projectSlug);
+  const selectedSessionRef =
+    scoped && !isSyntheticProcessSessionRef(route.sessionId) ? route.sessionId ?? null : null;
+  const selectedSession = useMemo(
+    () => selectedSessionRef ? findSelectedSession(model.sessions, route) : null,
+    [model.sessions, route, selectedSessionRef],
+  );
   const mode: ProjectMode = !scoped
     ? "overview"
     : route.indexView === "agents"
@@ -2060,7 +2070,12 @@ export function ProjectsInbox({
                       selected={thread.kind === "session" ? isSessionSelected(thread, route) : isThreadSelected(thread, route)}
                       cursor={cursor === index}
                       nowMs={nowMs}
-                      onSelect={() => navigate(thread.kind === "session" ? sessionSelectRoute(thread, route) : threadSelectRoute(thread, route))}
+                      onSelect={() => {
+                        const destination = thread.kind === "session"
+                          ? sessionSelectRoute(thread, route)
+                          : threadSelectRoute(thread, route);
+                        navigate(destination);
+                      }}
                       onOpen={() => navigate(thread.kind === "session" ? sessionOpenRoute(thread, route) : threadOpenRoute(thread, route))}
                       rowRef={(el) => {
                         if (el) rowRefs.current.set(thread.id, el);

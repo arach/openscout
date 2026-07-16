@@ -132,7 +132,6 @@ function AgentDetailPane({
             >
               {spec.headline}
             </span>
-            {entry.group.needs ? <span className="av2-agentDetailNeeds">needs you</span> : null}
           </div>
           <span className="av2-agentDetailStatus">
             <span className="av2-dot" data-tone={tone === "idle" ? undefined : tone} aria-hidden />

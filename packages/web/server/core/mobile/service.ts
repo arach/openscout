@@ -261,6 +261,10 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function metadataTimestampMs(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  return normalizeTimestampMs(metadata?.[key] as number | null | undefined);
+}
+
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
   return metadata?.[key] === true;
 }
@@ -408,6 +412,37 @@ function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): Agent
   )) ?? null;
 }
 
+function maxTimestampMs(values: Array<number | null | undefined>): number | null {
+  const timestamps = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
+function endpointActivityAt(endpoint: AgentEndpoint | null): number | null {
+  if (!endpoint) return null;
+  return maxTimestampMs([
+    metadataTimestampMs(endpoint.metadata, "lastSeenAt"),
+    metadataTimestampMs(endpoint.metadata, "lastEnsuredAt"),
+    metadataTimestampMs(endpoint.metadata, "lastStartedAt"),
+    metadataTimestampMs(endpoint.metadata, "lastCompletedAt"),
+    metadataTimestampMs(endpoint.metadata, "lastFailedAt"),
+    metadataTimestampMs(endpoint.metadata, "startedAt"),
+  ]);
+}
+
+function flightActivityAt(flight: FlightRecord): number | null {
+  return maxTimestampMs([
+    normalizeTimestampMs(flight.completedAt),
+    normalizeTimestampMs(flight.startedAt),
+  ]);
+}
+
+function isActiveMobileFlight(flight: FlightRecord): boolean {
+  return flight.state === "running"
+    || flight.state === "waiting"
+    || flight.state === "queued"
+    || flight.state === "waking";
+}
+
 /// The conversation id the phone should route an agent tap to. It is always an
 /// existing broker chat id. When no chat exists yet, callers get null and must
 /// create one explicitly.
@@ -421,19 +456,26 @@ function buildMobileAgentSummary(
 ): ScoutMobileAgentSummary {
   const endpoint = endpointForAgent(snapshot, agent.id);
   const flights = Object.values(snapshot.flights as Record<string, FlightRecord>).filter((flight) => flight.targetAgentId === agent.id);
-  const hasWorkingFlight = flights.some((flight) => flight.state === "running");
+  const hasActiveFlight = flights.some(isActiveMobileFlight);
   const lastAuthoredMessageAt = Object.values(snapshot.messages)
     .filter((message) => message.actorId === agent.id)
     .reduce<number | null>((latest, message) => {
       const createdAt = normalizeTimestampMs(message.createdAt);
       return typeof createdAt === "number" && (!latest || createdAt > latest) ? createdAt : latest;
     }, null);
+  const lastActiveAt = maxTimestampMs([
+    lastAuthoredMessageAt,
+    endpointActivityAt(endpoint),
+    ...flights.map(flightActivityAt),
+  ]);
 
-  const state = hasWorkingFlight
+  const state = hasActiveFlight
     ? "working"
     : endpoint && endpoint.state !== "offline"
       ? "available"
-      : "offline";
+      : agent.wakePolicy !== "manual"
+        ? "available"
+        : "offline";
 
   return {
     id: agent.id,
@@ -447,7 +489,7 @@ function buildMobileAgentSummary(
     statusLabel: state === "working" ? "Working" : state === "available" ? "Available" : "Offline",
     sessionId: endpoint?.sessionId ?? null,
     conversationId: mobileAgentConversationId(snapshot, agent.id),
-    lastActiveAt: lastAuthoredMessageAt,
+    lastActiveAt,
   };
 }
 

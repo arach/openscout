@@ -124,6 +124,10 @@ struct ConversationSurface: View {
     /// Broker invocation / delivery / flight lifecycle stream. This drives the
     /// visible "agent picked it up / working" status for a just-sent message.
     @State private var lifecycleTask: Task<Void, Never>?
+    /// Broker message invalidations are best-effort over the relay connection.
+    /// While a request is unsettled, periodically reconcile the authoritative
+    /// snapshot so a reconnect cannot leave a persisted agent reply invisible.
+    @State private var reconciliationTask: Task<Void, Never>?
     @Environment(HudDictation.self) private var voice
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var micPulse = false
@@ -169,6 +173,7 @@ struct ConversationSurface: View {
             runTask?.cancel()
             refreshTask?.cancel()
             lifecycleTask?.cancel()
+            reconciliationTask?.cancel()
             onStatusContextChange(nil)
         }
         .onChange(of: projection.state?.session) { _, _ in publishStatusContext() }
@@ -563,9 +568,11 @@ struct ConversationSurface: View {
         runTask?.cancel()
         refreshTask?.cancel()
         lifecycleTask?.cancel()
+        reconciliationTask?.cancel()
         runTask = Task { await run() }
         refreshTask = Task { await runRefreshes() }
         lifecycleTask = Task { await runLifecycleUpdates() }
+        reconciliationTask = Task { await runActiveReconciliation() }
     }
 
     private func run() async {
@@ -608,6 +615,22 @@ struct ConversationSurface: View {
             applyLifecycleUpdate(update)
             await refreshSnapshot()
         }
+    }
+
+    private func runActiveReconciliation() async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+            guard hasUnsettledWork else { continue }
+            await refreshSnapshot()
+        }
+    }
+
+    private var hasUnsettledWork: Bool {
+        projection.state?.currentTurnId != nil || sendPhases.values.contains(where: \.pulses)
     }
 
     private func refreshSnapshot() async {

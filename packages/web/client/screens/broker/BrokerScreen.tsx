@@ -549,10 +549,9 @@ function BrokerAttemptList({
   );
 }
 
-function brokerInspectorRows(attempt: BrokerRouteAttempt): Array<{ label: string; value: string | null }> {
+function brokerInspectorRows(attempt: BrokerRouteAttempt): Array<{ label: string; value: string }> {
   const reference = brokerAttemptReference(attempt);
   return [
-    { label: "Status", value: attempt.status },
     { label: "Kind", value: attemptKindLabel(attempt.kind) },
     { label: "Time", value: fullTimestamp(attempt.ts) },
     { label: "Actor", value: attempt.actorName },
@@ -563,10 +562,10 @@ function brokerInspectorRows(attempt: BrokerRouteAttempt): Array<{ label: string
     { label: "Message", value: attempt.messageId === reference ? null : attempt.messageId },
     { label: "Delivery", value: attempt.deliveryId === reference ? null : attempt.deliveryId },
     { label: "Invocation", value: attempt.invocationId === reference ? null : attempt.invocationId },
-  ].filter((row) => row.value);
+  ].filter((row): row is { label: string; value: string } => Boolean(row.value));
 }
 
-function MetadataCopyButton({ value }: { value: string }) {
+function CopyIconButton({ value, subject, className }: { value: string; subject: string; className?: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -580,7 +579,7 @@ function MetadataCopyButton({ value }: { value: string }) {
     };
   }, []);
 
-  const copyMetadata = useCallback(async () => {
+  const copyValue = useCallback(async () => {
     const copied = await copyTextToClipboard(value);
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     setStatus(copied ? "copied" : "failed");
@@ -596,10 +595,10 @@ function MetadataCopyButton({ value }: { value: string }) {
   return (
     <button
       type="button"
-      className={`sys-copy-btn sys-broker-metadata-copy${copied ? " sys-copy-btn--copied" : ""}${failed ? " sys-copy-btn--failed" : ""}`}
-      onClick={() => void copyMetadata()}
-      title={copied ? "Copied metadata" : failed ? "Copy failed" : "Copy metadata"}
-      aria-label={copied ? "Copied metadata" : failed ? "Copy metadata failed" : "Copy metadata"}
+      className={`sys-copy-btn${className ? ` ${className}` : ""}${copied ? " sys-copy-btn--copied" : ""}${failed ? " sys-copy-btn--failed" : ""}`}
+      onClick={() => void copyValue()}
+      title={copied ? `Copied ${subject}` : failed ? "Copy failed" : `Copy ${subject}`}
+      aria-label={copied ? `Copied ${subject}` : failed ? `Copy ${subject} failed` : `Copy ${subject}`}
     >
       {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
     </button>
@@ -676,81 +675,92 @@ export function BrokerAttemptInspector({
 
   return (
     <aside className="sys-panel sys-broker-inspector" aria-label="Dispatch route inspector">
-      <div className="sys-broker-inspector-head">
-        <div>
+      <header className="sys-broker-inspector-head">
+        <div className="sys-broker-inspector-topline">
           <div className="sys-kicker">Inspector</div>
-          <h3 className="sys-state-title">{attempt.detail}</h3>
-          {isFailure && (
-            <div className="sys-broker-inspector-error" role="status">
-              <span className="sys-broker-inspector-error-label">Error</span>
-              <p>{errorSummary ?? attempt.status}</p>
-            </div>
-          )}
-        </div>
-        <div className="sys-inline-actions">
-          {isFailure && (
-            <>
-              <button
-                type="button"
-                className="s-btn s-btn-sm s-btn-primary"
-                onClick={askScout}
-                title="Send this failed dispatch to Scout in the chat below"
-              >
-                <Sparkles size={12} aria-hidden="true" />
-                Ask Scout
-              </button>
-              <button
-                type="button"
-                className="s-btn s-btn-sm"
-                onClick={() => void copyEverything()}
-                title="Copy the full dispatch failure context"
-              >
-                {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-                {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy everything"}
-              </button>
-              <button
-                type="button"
-                className="s-btn s-btn-sm"
-                disabled={reviewStatus === "running"}
-                onClick={() => void invokeCodex()}
-                title="Ask an OpenScout Codex agent to review this failed dispatch"
-              >
-                <Bot size={12} aria-hidden="true" />
-                {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
-              </button>
-            </>
-          )}
-          {attempt.conversationId && (
-            <button
-              type="button"
-              className="s-btn s-btn-sm"
-              onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
-            >
-              Open thread
-            </button>
-          )}
-          <button type="button" className="s-btn s-btn-sm" onClick={onClose}>
-            Close
+          <StatusPill tone={brokerAttemptTone(attempt.kind, attempt.status)}>{attempt.status}</StatusPill>
+          <button
+            type="button"
+            className="sys-copy-btn sys-broker-inspector-close"
+            onClick={onClose}
+            title="Close inspector"
+            aria-label="Close inspector"
+          >
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
-      </div>
+        <h3 className="sys-broker-inspector-title">{attempt.detail}</h3>
+        {isFailure && errorSummary && (
+          <div className="sys-broker-inspector-error" role="status">
+            <span className="sys-broker-inspector-error-label">Error</span>
+            <p>{errorSummary}</p>
+          </div>
+        )}
+        {(isFailure || attempt.conversationId) && (
+          <div className="sys-broker-inspector-actions">
+            {isFailure && (
+              <>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm s-btn-primary"
+                  onClick={askScout}
+                  title="Send this failed dispatch to Scout in the chat below"
+                >
+                  <Sparkles size={12} aria-hidden="true" />
+                  Ask Scout
+                </button>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm"
+                  disabled={reviewStatus === "running"}
+                  onClick={() => void invokeCodex()}
+                  title="Ask an OpenScout Codex agent to review this failed dispatch"
+                >
+                  <Bot size={12} aria-hidden="true" />
+                  {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
+                </button>
+                <button
+                  type="button"
+                  className="s-btn s-btn-sm"
+                  onClick={() => void copyEverything()}
+                  title="Copy the full dispatch failure context"
+                >
+                  {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+                  {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy context"}
+                </button>
+              </>
+            )}
+            {attempt.conversationId && (
+              <button
+                type="button"
+                className="s-btn s-btn-sm"
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
+              >
+                <ExternalLink size={12} aria-hidden="true" />
+                Open thread
+              </button>
+            )}
+          </div>
+        )}
+      </header>
       {reviewMessage && (
         <div className={`sys-broker-review-status sys-broker-review-status--${reviewStatus}`} role="status">
           {reviewMessage}
         </div>
       )}
-      <div className="sys-detail-grid sys-broker-inspector-grid">
+      <div className="sys-broker-inspector-rows">
         {rows.map((row) => (
-          <div key={row.label} className="sys-detail-card">
+          <div key={row.label} className="sys-broker-inspector-row">
             <span className="sys-detail-label">{row.label}</span>
             <code className="sys-detail-value">{row.value}</code>
+            <CopyIconButton value={row.value} subject={row.label.toLowerCase()} />
           </div>
         ))}
       </div>
       <div className="sys-broker-metadata">
         <div className="sys-broker-metadata-head">
           <span className="sys-detail-label">Metadata</span>
-          <MetadataCopyButton value={metadata} />
+          <CopyIconButton value={metadata} subject="metadata" className="sys-broker-metadata-copy" />
         </div>
         <BrokerMetadataPanel metadata={attempt.metadata} rawJson={metadata} />
       </div>

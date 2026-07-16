@@ -2520,6 +2520,11 @@ button.s-thread-sidebar-participant:focus-visible {
   color: var(--ink);
 }
 
+.s-conv-empty-new {
+  align-self: center;
+  margin-top: var(--space-3xl);
+}
+
 .s-conv-empty-hint {
   display: inline-flex;
   align-items: center;

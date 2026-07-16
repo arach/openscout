@@ -882,8 +882,10 @@ async function startScoutPairingRuntime(): Promise<void> {
   const runtimeScriptPath = resolveScoutPairingRuntimeScriptPath();
   const child = spawn(bunExecutable, [runtimeScriptPath], {
     cwd: resolveScoutAppRoot(),
-    env: process.env,
-    detached: true,
+    env: {
+      ...process.env,
+      OPENSCOUT_PARENT_PID: String(process.pid),
+    },
     stdio: "ignore",
   });
 

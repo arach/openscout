@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Agent, FleetAsk, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
+import type { Agent, FleetAsk, FleetAttentionItem, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
 import {
   buildProjectsInboxModel,
   groupThreads,
@@ -79,13 +79,28 @@ function mkAsk(agentId: string): FleetAsk {
   };
 }
 
-function mkFleet(asks: FleetAsk[]): FleetState {
+function mkAttention(agentId: string): FleetAttentionItem {
+  return {
+    kind: "work_item",
+    recordId: `work-${agentId}`,
+    title: "Review the migration diff",
+    summary: "Choose whether the migration is ready to merge",
+    agentId,
+    agentName: agentId,
+    conversationId: null,
+    state: "review",
+    acceptanceState: "pending",
+    updatedAt: RECENT,
+  };
+}
+
+function mkFleet(asks: FleetAsk[], needsAttention: FleetAttentionItem[] = []): FleetState {
   return {
     generatedAt: NOW,
-    totals: { active: asks.length, recentCompleted: 0, needsAttention: asks.length, activity: 0 },
+    totals: { active: asks.length, recentCompleted: 0, needsAttention: needsAttention.length, activity: 0 },
     activeAsks: asks,
     recentCompleted: [],
-    needsAttention: [],
+    needsAttention,
     activity: [],
   };
 }
@@ -153,7 +168,7 @@ describe("buildProjectsInboxModel — collapse + truthful counts", () => {
     expect(shown.threads.length).toBe(2);
   });
 
-  test("needs count reflects active asks, never the raw agent count", () => {
+  test("your-turn count reflects human attention items, never active work or raw agent count", () => {
     const agents = [
       mkAgent({ id: "scout.a", name: "Scout" }),
       mkAgent({ id: "helper.a", name: "Helper", harness: "codex" }),
@@ -166,6 +181,16 @@ describe("buildProjectsInboxModel — collapse + truthful counts", () => {
     const helper = model.threads.find((thread) => thread.agentName === "Helper");
     expect(helper?.needs).toBe(true);
     expect(helper?.group).toBe("needs");
+    expect(helper?.work).toBe("Choose whether the migration is ready to merge");
+  });
+
+  test("working asks stay in working instead of being mislabeled as your turn", () => {
+    const agent = mkAgent({ id: "worker.a", name: "Worker", state: "working" });
+    const ask = { ...mkAsk(agent.id), status: "working" as const, statusLabel: "working" };
+    const model = buildProjectsInboxModel(baseInput([agent], mkFleet([ask])));
+    expect(model.counts.needs).toBe(0);
+    expect(model.counts.working).toBe(1);
+    expect(model.threads[0]?.group).toBe("working");
   });
 });
 
@@ -176,7 +201,7 @@ describe("attention ordering", () => {
       mkAgent({ id: "work.a", name: "Worker", state: "working" }),
       mkAgent({ id: "need.a", name: "Needer", harness: "codex" }),
     ];
-    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("need.a")])));
+    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([], [mkAttention("need.a")])));
     expect(model.threads.map((thread) => thread.agentName)).toEqual(["Needer", "Worker", "Idler"]);
   });
 
@@ -186,7 +211,7 @@ describe("attention ordering", () => {
       mkAgent({ id: "need.a", name: "Needer", harness: "codex" }),
       mkAgent({ id: "idle.a", name: "Idler" }),
     ];
-    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("need.a")])));
+    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([], [mkAttention("need.a")])));
     const groups = groupThreads(model.threads).map((section) => section.group);
     expect(groups).toEqual(["needs", "working", "recent"]);
   });

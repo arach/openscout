@@ -1,4 +1,6 @@
 import Foundation
+import LocalAuthentication
+import os
 import Security
 
 public enum OpenScoutNetworkSessionError: LocalizedError {
@@ -34,6 +36,10 @@ public enum OpenScoutNetworkSessionStore {
     private static let service = "net.oscout.session"
     private static let account = "session"
     private static let cache = SessionTokenCache()
+    private static let logger = Logger(
+        subsystem: "app.openscout.scout",
+        category: "network-keychain"
+    )
 
     public static func saveSession(from callbackURL: URL, now: Date = Date()) throws {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
@@ -70,34 +76,50 @@ public enum OpenScoutNetworkSessionStore {
         try saveSessionToken(session)
     }
 
-    public static func loadSessionToken() -> String? {
+    /// Loads the OSN session without allowing a background refresh to summon
+    /// Keychain UI. User-initiated setup can opt in to authentication UI.
+    public static func loadSessionToken(allowAuthenticationUI: Bool = false) -> String? {
         if let cached = cache.value() {
-            return cached
+            if cached != nil || !allowAuthenticationUI {
+                return cached
+            }
         }
 
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = !allowAuthenticationUI
+        query[kSecUseAuthenticationContext as String] = authenticationContext
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
             cache.store(nil)
+            logger.debug("OSN session is not present in Keychain")
+            return nil
+        }
+        if status == errSecInteractionNotAllowed {
+            logger.notice("OSN session needs Keychain authorization; background UI was suppressed")
+            cache.store(nil)
             return nil
         }
         guard status == errSecSuccess else {
             // A denied Keychain prompt should not recur on every status poll.
-            // A subsequent auth save updates the cache; restarting the helper
-            // also provides an explicit retry boundary.
+            // A user-initiated authenticated read can bypass a cached miss;
+            // a subsequent auth save also updates the cache.
+            logger.error("OSN session Keychain load failed with status \(status, privacy: .public)")
             cache.store(nil)
             return nil
         }
         guard let data = item as? Data else {
+            logger.error("OSN session Keychain result did not contain data")
             cache.store(nil)
             return nil
         }
         let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let result = token.isEmpty ? nil : token
+        logger.debug("OSN session loaded from Keychain")
         cache.store(result)
         return result
     }

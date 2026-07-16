@@ -16,9 +16,15 @@ import { type AdapterEntry, resolveConfig, type SessionEntry } from "./bridge/co
 import { startFileServer, type FileServer } from "./bridge/fileserver";
 import { connectToRelay, type RelayConnection, type RelayEventHandlers } from "./bridge/relay-client";
 import { startBridgeServerTRPC as startBridgeServer } from "./bridge/server-trpc";
-import { loadOrCreateIdentity, type KeyPair, type QRPayload } from "./security";
+import { createQRPayload, loadOrCreateIdentity, type KeyPair, type QRPayload } from "./security";
 
 export type PairingRuntimeEvents = RelayEventHandlers;
+
+export type PairingRuntimeRelayEndpoint = {
+  relayUrl: string;
+  advertisedRelayUrl?: string | null;
+  fallbackRelayUrls?: string[];
+};
 
 export type StartedPairingRuntime = {
   bridge: Bridge;
@@ -26,6 +32,7 @@ export type StartedPairingRuntime = {
   identity: KeyPair;
   config: ReturnType<typeof resolveConfig>;
   relayConnection: RelayConnection | null;
+  relayConnections: RelayConnection[];
   qrPayload: QRPayload | null;
   stop: () => Promise<void>;
 };
@@ -67,6 +74,7 @@ export async function startPairingRuntime(options?: {
   relayUrl?: string | null;
   advertisedRelayUrl?: string | null;
   fallbackRelayUrls?: string[];
+  relayEndpoints?: PairingRuntimeRelayEndpoint[];
   relayEvents?: PairingRuntimeEvents;
 }) : Promise<StartedPairingRuntime> {
   const config = resolveConfig();
@@ -85,19 +93,37 @@ export async function startPairingRuntime(options?: {
   });
   const fileServer = startFileServer({ port: config.port + 2, bridge });
 
-  const relayUrl = options?.relayUrl?.trim() || config.relay || null;
-  if (!relayUrl) {
+  const relayEndpoints = resolveRelayEndpoints(config, options);
+  const advertisedRelayUrls = dedupeRelayUrls(relayEndpoints.flatMap((endpoint) => [
+    advertisedRelayUrl(endpoint),
+    ...(endpoint.fallbackRelayUrls ?? []),
+  ]));
+  const primaryRelayUrl = advertisedRelayUrls[0] ?? null;
+  if (!primaryRelayUrl) {
     fileServer.stop();
     server.stop();
     throw new Error("Pairing relay URL is not configured.");
   }
 
-  const relayConnection = connectToRelay(relayUrl, identity, bridge, {
-    secure: true,
-    publicRelayUrl: options?.advertisedRelayUrl ?? undefined,
-    fallbackRelayUrls: options?.fallbackRelayUrls,
-    events: options?.relayEvents,
-  });
+  const qrPayload = createQRPayload(identity.publicKey, primaryRelayUrl, advertisedRelayUrls.slice(1));
+  let relayConnections: RelayConnection[] = [];
+  try {
+    relayConnections = relayEndpoints.map((endpoint) =>
+      connectToRelay(endpoint.relayUrl.trim(), identity, bridge, {
+        secure: true,
+        publicRelayUrl: advertisedRelayUrl(endpoint),
+        qrPayload,
+        events: options?.relayEvents,
+      })
+    );
+  } catch (error) {
+    for (const relayConnection of relayConnections) {
+      relayConnection.disconnect();
+    }
+    fileServer.stop();
+    server.stop();
+    throw error;
+  }
 
   await autoStartConfiguredSessions(bridge, config.sessions);
 
@@ -106,15 +132,85 @@ export async function startPairingRuntime(options?: {
     fileServer,
     identity,
     config,
-    relayConnection,
-    qrPayload: relayConnection.qrPayload,
+    relayConnection: relayConnections[0] ?? null,
+    relayConnections,
+    qrPayload,
     async stop() {
-      relayConnection.disconnect();
+      for (const relayConnection of relayConnections) {
+        relayConnection.disconnect();
+      }
       fileServer.stop();
       await bridge.shutdown();
       server.stop();
     },
   };
+}
+
+function resolveRelayEndpoints(
+  config: ReturnType<typeof resolveConfig>,
+  options: {
+    relayUrl?: string | null;
+    advertisedRelayUrl?: string | null;
+    fallbackRelayUrls?: string[];
+    relayEndpoints?: PairingRuntimeRelayEndpoint[];
+  } | undefined,
+): PairingRuntimeRelayEndpoint[] {
+  const explicit = options?.relayEndpoints
+    ?.map((endpoint) => ({
+      relayUrl: endpoint.relayUrl.trim(),
+      advertisedRelayUrl: endpoint.advertisedRelayUrl?.trim() || endpoint.relayUrl.trim(),
+      fallbackRelayUrls: endpoint.fallbackRelayUrls,
+    }))
+    .filter((endpoint) => endpoint.relayUrl.length > 0) ?? [];
+  if (explicit.length > 0) {
+    return dedupeRelayEndpoints(explicit);
+  }
+
+  const relayUrl = options?.relayUrl?.trim() || config.relay || null;
+  if (!relayUrl) {
+    return [];
+  }
+  return [{
+    relayUrl,
+    advertisedRelayUrl: options?.advertisedRelayUrl?.trim() || relayUrl,
+    fallbackRelayUrls: options?.fallbackRelayUrls,
+  }];
+}
+
+function advertisedRelayUrl(endpoint: PairingRuntimeRelayEndpoint): string {
+  return endpoint.advertisedRelayUrl?.trim() || endpoint.relayUrl.trim();
+}
+
+function dedupeRelayEndpoints(endpoints: PairingRuntimeRelayEndpoint[]): PairingRuntimeRelayEndpoint[] {
+  const seen = new Set<string>();
+  const out: PairingRuntimeRelayEndpoint[] = [];
+  for (const endpoint of endpoints) {
+    const relayUrl = endpoint.relayUrl.trim();
+    if (!relayUrl || seen.has(relayUrl)) {
+      continue;
+    }
+    seen.add(relayUrl);
+    out.push({
+      relayUrl,
+      advertisedRelayUrl: advertisedRelayUrl(endpoint),
+      fallbackRelayUrls: dedupeRelayUrls(endpoint.fallbackRelayUrls ?? []),
+    });
+  }
+  return out;
+}
+
+function dedupeRelayUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of urls) {
+    const trimmed = url.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 async function autoStartConfiguredSessions(bridge: Bridge, sessions: SessionEntry[] | undefined) {
