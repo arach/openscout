@@ -1039,10 +1039,10 @@ struct ScoutRootView: View {
     private func preferredFreshModel(harness: String?, model: String?) -> String? {
         guard let harness = harness?.nilIfEmpty else { return model?.nilIfEmpty }
         guard harness.lowercased() == "codex" else { return model?.nilIfEmpty }
-        guard let model = model?.nilIfEmpty else { return "gpt-5.6" }
+        guard let model = model?.nilIfEmpty else { return "gpt-5.6-sol" }
         let lower = model.lowercased()
-        if lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
-            return "gpt-5.6"
+        if lower == "gpt-5.6" || lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
+            return "gpt-5.6-sol"
         }
         return model
     }

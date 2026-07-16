@@ -18,7 +18,7 @@ describe("inferModelContextWindowTokens (dispatch)", () => {
 
   test("Codex GPT-5.x is capped at its real logged budget (258,400), not the model's raw window", () => {
     expect(CODEX_GPT5_CONTEXT_WINDOW_TOKENS).toBe(258_400);
-    for (const model of ["gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5"]) {
+    for (const model of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5"]) {
       expect(inferModelContextWindowTokens({ model })).toBe(258_400);
     }
     // even an unknown model arrives capped when the adapter is codex

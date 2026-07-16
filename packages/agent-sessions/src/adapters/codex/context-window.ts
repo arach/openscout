@@ -19,7 +19,7 @@
  */
 export const CODEX_GPT5_CONTEXT_WINDOW_TOKENS = 258_400;
 
-/** True for the GPT-5.x model family ("gpt-5", "gpt-5.6", "gpt-5.3-codex", …). */
+/** True for the GPT-5.x model family ("gpt-5", "gpt-5.6-sol", "gpt-5.3-codex", …). */
 export function isGpt5Family(model: string | null | undefined): boolean {
   return /^gpt-5(?:$|[.-])/u.test(normalizeCodexModel(model));
 }
