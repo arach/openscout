@@ -24,7 +24,15 @@ function isCodexChunkToolResult(summary: string): boolean {
     || /^->\s+Wall time:/u.test(trimmed);
 }
 
+function isCursorProcessSample(event: TailEvent): boolean {
+  if (event.source !== "cursor" || event.kind !== "system") return false;
+  const summary = event.summary.trim().toLowerCase();
+  return summary === "process sample" || summary.startsWith("process sample ·");
+}
+
 export function isTailNoiseEvent(event: TailEvent): boolean {
+  if (isCursorProcessSample(event)) return true;
+
   if (event.source === "grok") {
     const summary = event.summary.trim().toLowerCase();
     if (summary === "first token" || summary.startsWith("loop ")) {

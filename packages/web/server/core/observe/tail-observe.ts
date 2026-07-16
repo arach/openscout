@@ -43,6 +43,11 @@ function tailObserveEventDetail(
 }
 
 function isTailNoiseEvent(event: TailEvent): boolean {
+  if (event.source === "cursor") {
+    const summary = event.summary.trim().toLowerCase();
+    return event.kind === "system"
+      && (summary === "process sample" || summary.startsWith("process sample ·"));
+  }
   if (event.source !== "grok") return false;
 
   const summary = event.summary.trim().toLowerCase();

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { ClaudeSource } from "./claude-source.js";
 import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
+import { isTailNoiseEvent } from "./display.js";
 import { GrokSource } from "./grok-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
 import { PiSource } from "./pi-source.js";
@@ -805,6 +806,9 @@ describe("tail transcript sources", () => {
         {
           processName: "Cursor Helper (Plugin): extension-host (agent-exec) openscout [2-6]",
         },
+        {
+          processName: "Cursor Helper (Plugin): extension-host (always-local) vox [1-3]",
+        },
       ],
     });
     writeFileSync(transcriptPath, `${line}\n`, "utf8");
@@ -818,6 +822,14 @@ describe("tail transcript sources", () => {
     const event = CursorSource.parseLine(line, makeContext("cursor", transcripts[0]!));
     expect(event?.source).toBe("cursor");
     expect(event?.kind).toBe("system");
-    expect(event?.summary).toBe("process sample · openscout");
+    expect(event?.summary).toBe("process sample · openscout, vox");
+    expect(event?.raw).toEqual(expect.objectContaining({
+      sessionId: "cursor-session",
+      rows: expect.arrayContaining([
+        expect.objectContaining({ processName: expect.stringContaining("openscout") }),
+        expect.objectContaining({ processName: expect.stringContaining("vox") }),
+      ]),
+    }));
+    expect(isTailNoiseEvent(event!)).toBe(true);
   });
 });

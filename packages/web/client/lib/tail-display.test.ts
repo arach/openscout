@@ -43,6 +43,24 @@ describe("isTailNoiseEvent", () => {
     expect(isTailNoiseEvent(event({ summary: "permission allow · Read" }))).toBe(false);
   });
 
+  test("flags Cursor process samples without hiding other Cursor activity", () => {
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "process sample · openscout, vox",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "agent process exited",
+    }))).toBe(false);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "tool",
+      summary: "Process sample data",
+    }))).toBe(false);
+  });
+
   test("flags codex lifecycle and chunk noise", () => {
     expect(isTailNoiseEvent(event({
       source: "codex",

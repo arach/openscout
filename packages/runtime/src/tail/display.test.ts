@@ -34,9 +34,28 @@ describe("isTailNoiseEvent", () => {
     }))).toBe(false);
   });
 
+  test("filters only Cursor process-monitor samples", () => {
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "process sample · openscout, vox",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "agent process exited",
+    }))).toBe(false);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "tool",
+      summary: "Process sample data",
+    }))).toBe(false);
+  });
+
   test("filterTailEventsForDisplay drops noise only", () => {
     const events = [
       event({ id: "noise", summary: "phase · streaming_text" }),
+      event({ id: "cursor-sample", source: "cursor", summary: "process sample · openscout" }),
       event({ id: "work", kind: "tool", summary: "Grep · pattern" }),
     ];
     expect(filterTailEventsForDisplay(events).map((entry) => entry.id)).toEqual(["work"]);
