@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         captureHotZone.stop()
+        HotkeyManager.shared.unregister(id: 2)
+        HotkeyManager.shared.unregister(id: 3)
         HotkeyManager.shared.unregister(id: 4)
         DistributedNotificationCenter.default().removeObserver(
             self,

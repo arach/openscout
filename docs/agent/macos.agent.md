@@ -101,7 +101,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 | raw swift | `HUDSONKIT_WITH_TERMINAL=1 swift build` — enables the native Hudson/Termini terminal surface |
 | helper bundle | `bun apps/macos/bin/openscout-menu.ts build|launch|restart|status` |
 | HUD CLI | `bun apps/macos/bin/openscout-menu.ts hud state|show|hide|toggle|tail [s]|tab <t>|size <s>|task [corner]|capture|matrix` (actions target the helper bundle via `open -g -b app.openscout.scout.menu scout://hud/*`; queries use the state file; `capture` is the screenshot command) |
-| Tail CLI | `bun apps/macos/bin/openscout-menu.ts tail state|show|hide|toggle|attach|float|size <s>|collapse|expand|capture` (actions via `open -g scout://tail/*`, queries via state file) |
+| Tail CLI | `bun apps/macos/bin/openscout-menu.ts tail state|show|hide|toggle|attach|float|size <s>|collapse|expand|capture` (actions target the helper bundle; queries use the state file) |
 | installer | `apps/macos/scripts/build-dmg.sh` → Hudson `hkit` (`HUDSON_DIR`/`HKIT_BIN`), contract `hudson-package.json`, embeds ScoutMenu.app under LoginItems; `SKIP_NOTARIZE=1` for local |
 
 ## Invariants
@@ -141,8 +141,8 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 | Quick task + hot corner | `Sources/ScoutHUD/HUDRunner{State,View}.swift`, `HUDCaptureHotZone.swift`, `Sources/ScoutAppCore/ScoutCapturePayload.swift` |
 | Tail mode panel | `Sources/ScoutHUD/TailModeController.swift`, `HUDTailView.swift` |
 | HUD/Tail external API | `Sources/ScoutHUD/ScoutHUDRouter.swift`, `HUDStateFile.swift`, `TailModeStateFile.swift` |
-| Helper ingress + HMAC | `Sources/OpenScoutMenu/Services/HUDURLRouter.swift`, `ScoutAppBridge.swift` |
-| Helper supervision | `Sources/OpenScoutMenu/OpenScoutAppController.swift`, `Services/{Broker,Pairing,Tailscale}Service.swift`, `OpenScoutToolchain.swift` |
+| Helper ingress + HMAC | `Sources/ScoutMenu/Services/HUDURLRouter.swift`, `ScoutAppBridge.swift` |
+| Helper supervision | `Sources/ScoutMenu/OpenScoutAppController.swift`, `Services/{Broker,Pairing,Tailscale}Service.swift`, `OpenScoutToolchain.swift` |
 | Tooling | `bin/scout-app.ts`, `bin/openscout-menu.ts`, `scripts/build-dmg.sh`, `hudson-package.json` |
 
 ## Verification

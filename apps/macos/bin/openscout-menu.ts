@@ -563,7 +563,11 @@ function readTailState(): TailState {
 }
 
 function fireTailURL(path: string): void {
-  execSync(`open -g 'scout://tail/${path}'`, { stdio: "inherit" });
+  execFileSync(
+    "open",
+    ["-g", "-b", bundleIdentifier, `scout://tail/${path}`],
+    { stdio: "inherit" },
+  );
 }
 
 function captureHud(out: string): string {
