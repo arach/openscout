@@ -164,7 +164,7 @@ function readStoredLaneTechnicalRollup(laneId: string): boolean {
   } catch {
     // ignore storage failures
   }
-  return readStoredLegacyTechnicalRollup() ?? true;
+  return readStoredLegacyTechnicalRollup() ?? false;
 }
 
 function writeStoredLaneTechnicalRollup(laneId: string, enabled: boolean): void {

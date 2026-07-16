@@ -75,10 +75,14 @@ public struct ScoutLogStatusItem: View {
 
     public var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "tray.full")
-            Text(label)
-            if showCounts {
-                Text("\(warningCount)/\(errorCount)")
+            HStack(spacing: 5) {
+                Image(systemName: "tray.full")
+                Text(label)
+            }
+            .foregroundStyle(.secondary)
+
+            if showCounts, let countSummary {
+                Text(countSummary)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(errorCount > 0 ? .red : warningCount > 0 ? .orange : .secondary)
             }
@@ -91,6 +95,12 @@ public struct ScoutLogStatusItem: View {
 
     private var errorCount: Int {
         store.entries.filter { $0.level == .error || $0.level == .fault }.count
+    }
+
+    private var countSummary: String? {
+        if errorCount > 0 { return "\(errorCount)E" }
+        if warningCount > 0 { return "\(warningCount)W" }
+        return nil
     }
 }
 

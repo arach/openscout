@@ -656,7 +656,7 @@
   width: 100%;
   height: 100%;
   flex-direction: column;
-  gap: var(--space-2xl);
+  gap: var(--space-xl);
   overflow: auto;
   border: 0;
   border-radius: 0;
@@ -666,16 +666,37 @@
 
 .sys-broker-inspector-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2xl);
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.sys-broker-inspector-topline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.sys-broker-inspector-close {
+  margin-left: auto;
+}
+
+.sys-broker-inspector-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
 }
 
 .sys-broker-inspector-error {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-  margin-top: var(--space-sm);
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 .sys-broker-inspector-error-label {
@@ -694,9 +715,46 @@
   overflow-wrap: anywhere;
 }
 
-.sys-broker-inspector-grid {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-md);
+.sys-broker-inspector-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.sys-broker-inspector-rows {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: var(--space-xs) 0;
+  border-radius: var(--radius-lg);
+  background: var(--sys-well);
+}
+
+.sys-broker-inspector-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 110px) minmax(0, 1fr) 20px;
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-2xs) var(--space-sm) var(--space-2xs) var(--space-md);
+}
+
+.sys-broker-inspector-row .sys-detail-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.sys-broker-inspector-row .sys-copy-btn {
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+}
+
+.sys-broker-inspector-row:hover .sys-copy-btn,
+.sys-broker-inspector-row .sys-copy-btn:focus-visible,
+.sys-broker-inspector-row .sys-copy-btn--copied,
+.sys-broker-inspector-row .sys-copy-btn--failed {
+  opacity: 1;
 }
 
 .sys-broker-review-status {
@@ -761,10 +819,6 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-}
-
-.sys-broker-metadata-summary {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .sys-broker-metadata-tree,

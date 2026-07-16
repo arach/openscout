@@ -117,9 +117,9 @@ function MetadataTreeNode({
 function MetadataSummaryGrid({ entries }: { entries: BrokerMetadataSummaryEntry[] }) {
   if (entries.length === 0) return null;
   return (
-    <div className="sys-detail-grid sys-broker-metadata-summary">
+    <div className="sys-broker-inspector-rows">
       {entries.map((entry) => (
-        <div key={entry.key} className="sys-detail-card">
+        <div key={entry.key} className="sys-broker-inspector-row">
           <span className="sys-detail-label">{entry.key}</span>
           <code className="sys-detail-value">{entry.value}</code>
         </div>
