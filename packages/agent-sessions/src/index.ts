@@ -77,6 +77,7 @@ export type {
 } from "./adapters/codex/usage.js";
 export { createAdapter as createAcpAdapter } from "./adapters/acp/index.js";
 export { createAdapter as createGrokAcpAdapter } from "./adapters/grok-acp/index.js";
+export { createAdapter as createKimiAcpAdapter } from "./adapters/kimi-acp/index.js";
 export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat/index.js";
 export { createAdapter as createOpencodeAdapter } from "./adapters/opencode/index.js";
 export { createAdapter as createPiAdapter } from "./adapters/pi/index.js";

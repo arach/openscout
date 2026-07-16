@@ -29,6 +29,7 @@ export type CardlessSessionSpawnTransport =
   | "claude_stream_json"
   | "codex_app_server"
   | "grok_acp"
+  | "kimi_acp"
   | "tmux";
 
 /** Harness/transport policy for broker-created sessions that have no agent card. */
@@ -56,6 +57,7 @@ function isCardlessSessionSpawnTransport(value: string): value is CardlessSessio
   return value === "claude_stream_json"
     || value === "codex_app_server"
     || value === "grok_acp"
+    || value === "kimi_acp"
     || value === "tmux";
 }
 
@@ -64,7 +66,7 @@ export interface CardlessSessionInput {
   sessionId: string;
   /** Human-addressable handle for this session actor. */
   handle?: string;
-  transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp" | "tmux";
+  transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp" | "kimi_acp" | "tmux";
   harness: AgentHarness;
   cwd: string;
   projectRoot?: string;

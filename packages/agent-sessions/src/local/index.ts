@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { createAdapter as createGrokAcpAdapter } from "../adapters/grok-acp/index.js";
+import { createAdapter as createKimiAcpAdapter } from "../adapters/kimi-acp/index.js";
 import { createAdapter as createPiAdapter } from "../adapters/pi/index.js";
 import type { SequencedEvent } from "../buffer.js";
 import type { AdapterFactory, AgentSessionStreamEvent, Session } from "../protocol/index.js";
@@ -53,9 +54,9 @@ export type {
   CodexAppServerTurnResult,
 } from "./transports/codex-app-server.js";
 
-export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp";
-export type LocalAgentResolvedHarness = "codex" | "pi" | "grok";
-export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp";
+export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp" | "kimi";
+export type LocalAgentResolvedHarness = "codex" | "pi" | "grok" | "kimi";
+export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp";
 export type LocalAgentWarmth = "warm" | "lazy";
 
 export type LocalAgentUsage = {
@@ -155,7 +156,9 @@ function resolveLocalTransport(
     ? "codex_app_server"
     : harness === "pi"
       ? "pi_rpc"
-      : "grok_acp";
+      : harness === "grok"
+        ? "grok_acp"
+        : "kimi_acp";
   const transport = requested ?? defaultTransport;
 
   if (harness === "codex" && transport !== "codex_app_server") {
@@ -166,6 +169,9 @@ function resolveLocalTransport(
   }
   if (harness === "grok" && transport !== "grok_acp") {
     throw new Error(`Local harness grok does not support transport ${transport}.`);
+  }
+  if (harness === "kimi" && transport !== "kimi_acp") {
+    throw new Error(`Local harness kimi does not support transport ${transport}.`);
   }
 
   return transport;
@@ -186,6 +192,13 @@ function adapterSpecForTransport(transport: LocalAgentTransport): LocalAdapterSp
     };
   }
 
+  if (transport === "kimi_acp") {
+    return {
+      adapterType: "kimi-acp",
+      createAdapter: createKimiAcpAdapter,
+    };
+  }
+
   throw new Error(`Transport ${transport} is handled outside the adapter registry.`);
 }
 
@@ -193,7 +206,8 @@ function localSessionName(harness: LocalAgentResolvedHarness): string {
   if (harness === "codex") {
     return "Local Codex";
   }
-  return harness === "pi" ? "Local Pi" : "Local Grok ACP";
+  if (harness === "pi") return "Local Pi";
+  return harness === "grok" ? "Local Grok ACP" : "Local Kimi Code ACP";
 }
 
 function buildAdapterOptions(options: {

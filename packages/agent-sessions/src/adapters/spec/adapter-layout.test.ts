@@ -12,6 +12,7 @@ const RUNTIME_ADAPTERS = [
   "codex",
   "echo",
   "grok-acp",
+  "kimi-acp",
   "openai-compat",
   "opencode",
   "pi",

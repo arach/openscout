@@ -516,6 +516,9 @@ function pairingHarness(adapterType: string): AgentHarness {
   if (normalized === "grok-acp" || (normalized.includes("grok") && normalized.includes("acp"))) {
     return "grok-acp";
   }
+  if (normalized === "kimi-acp" || normalized.includes("kimi")) {
+    return "kimi";
+  }
   return "bridge";
 }
 

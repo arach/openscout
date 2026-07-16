@@ -319,6 +319,44 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     },
   },
   {
+    name: "kimi",
+    harness: "kimi",
+    label: "Kimi Code",
+    description: "Kimi Code CLI coding agent over ACP",
+    homepage: "https://www.kimi.com/code/docs/en/",
+    tags: ["coding", "cli", "kimi", "moonshot", "acp"],
+    featured: true,
+    order: 4,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "kimi",
+      requires: ["curl"],
+      macos: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+      linux: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+      windows: "irm https://code.kimi.com/kimi-code/install.ps1 | iex",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "file", path: "~/.kimi-code/credentials", label: "~/.kimi-code/credentials", fileType: "directory" },
+      ],
+      loginCommand: "kimi login",
+      notReadyMessage: "Kimi Code is installed but still needs a cached login from kimi login.",
+    },
+    sessionDefaults: {
+      defaultTransport: "kimi_acp",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+    metadata: {
+      adapterType: "kimi-acp",
+      transport: "acp_stdio",
+    },
+  },
+  {
     name: "cursor",
     harness: "cursor",
     label: "Cursor Agent SDK",
