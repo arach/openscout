@@ -35,6 +35,8 @@ export function ExpandableImage({
 }: ExpandableImageProps) {
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
 
   function openImage() {
     trackImageExpand({
@@ -57,6 +59,11 @@ export function ExpandableImage({
       if (event.key === "Escape") {
         setOpen(false);
       }
+      // The close button is the dialog's only control — keep Tab trapped on it.
+      if (event.key === "Tab") {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -67,10 +74,19 @@ export function ExpandableImage({
     };
   }, [open]);
 
+  // Restore focus to the trigger after the lightbox closes.
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      triggerRef.current?.focus();
+    }
+    wasOpenRef.current = open;
+  }, [open]);
+
   return (
     <>
       <div className={containerClassName}>
         <button
+          ref={triggerRef}
           type="button"
           onClick={openImage}
           className="group relative block w-full text-left"

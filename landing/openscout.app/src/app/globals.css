@@ -219,6 +219,20 @@ body {
   color: var(--site-ink);
 }
 
+/* One consistent, branded focus ring across the site instead of the
+   per-browser default. Elements with their own :focus-visible rule keep it. */
+.site-marketing :is(a, button):focus-visible,
+.site-docs :is(a, button):focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
+/* Kill the 300ms double-tap zoom delay on interactive elements. */
+a,
+button {
+  touch-action: manipulation;
+}
+
 /* ── entrance animations ── */
 
 @keyframes fade-up {
@@ -275,6 +289,9 @@ body {
 /* Reduced motion: no fade, no stagger, no entrance — content is just present,
    never held at opacity 0 waiting on the intersection observer. */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   .reveal {
     opacity: 1;
     transition: none;
@@ -403,6 +420,29 @@ html[data-site-theme="dark"] .dot-grid {
   text-decoration-color: currentColor;
 }
 
+/* Skip link — visually hidden until keyboard focus. */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 200;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--site-ink);
+  color: var(--site-ink-contrast);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  text-decoration: none;
+  transform: translateY(-300%);
+  transition: transform 0.15s ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
 /* ── status footer (Cursor-style IDE status bar) ── */
 
 .status-bar {
@@ -511,10 +551,9 @@ html[data-site-theme="dark"] .dot-grid {
      cap the editorial column so the headline stays a composed stack. */
   grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
   gap: 3.25rem;
-  /* The console is a tall artifact (540px); centering the editorial column
-     against it balances the fold instead of stranding the text at the top
-     with a void underneath. */
-  align-items: center;
+  /* Top-align the editorial stack with the console: the headline's first line
+     opens level with the demo's top edge instead of floating mid-column. */
+  align-items: start;
 }
 
 .hero-editorial {
@@ -629,40 +668,130 @@ html[data-site-theme="dark"] .dot-grid {
   margin-top: 0.65rem;
 }
 
+/* Install-method selector for the CLI row — curl / bun / npm as a compact
+   segmented control above the command box. The active method fills ink; the
+   command below swaps to match. */
+.install-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.install-picker__tabs {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--site-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--site-panel-muted);
+}
+
+.install-picker__tab {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--site-border);
+  padding: 0.3rem 0.72rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--site-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.install-picker__tab:first-child {
+  border-left: 0;
+}
+
+.install-picker__tab:hover {
+  color: var(--site-ink);
+}
+
+.install-picker__tab--active {
+  background: var(--site-ink);
+  color: var(--site-ink-contrast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-picker__tab {
+    transition: none;
+  }
+}
+
+/* Segmented install bar — command tokens on the left, copy action railed off
+   by a hairline on the right. Token colors: flags/pipe recede, the URL takes
+   the hero's second rationed red because it is the call to action. */
 .hero-install {
   display: inline-flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.6rem 0.9rem;
+  align-items: stretch;
+  max-width: 100%;
+  padding: 0;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--site-ink);
-  background: transparent;
-  border: 1px solid var(--site-ink);
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
   cursor: pointer;
-  transition: background-color 0.18s ease;
+  text-align: left;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
 .hero-install:hover {
-  background: var(--site-panel-muted);
+  background: var(--site-surface-strong);
+  border-color: var(--site-border-strong);
+}
+
+.hero-install__cmd {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.3rem;
+  padding: 0.55rem 0.75rem;
+  line-height: 1.6;
 }
 
 .hero-install__prompt {
   color: var(--site-muted);
+  margin-right: 0.15rem;
+}
+
+.hero-install__tok--cmd {
+  font-weight: 600;
+}
+
+.hero-install__tok--flag {
+  color: var(--site-muted);
+}
+
+.hero-install__tok--url {
+  color: var(--site-accent);
+}
+
+.hero-install__tok--op {
+  color: var(--site-muted-soft);
 }
 
 .hero-install__copy {
-  color: var(--site-muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-left: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.7rem;
   border-left: 1px solid var(--site-border);
-  padding-left: 0.65rem;
+  color: var(--site-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .hero-install:hover .hero-install__copy {
-  color: var(--site-copy);
+  color: var(--site-ink);
 }
 
 .hero-install--copied .hero-install__copy {
@@ -677,28 +806,72 @@ html[data-site-theme="dark"] .dot-grid {
   max-width: 50ch;
 }
 
-/* Quiet next-step hint directly under the install pill — mono, muted, calm.
-   Same prompt grammar as the pill ($), no border, no accent. */
-.hero-install-next {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 12px;
-  color: var(--site-muted);
-  margin: -0.05rem 0 0.1rem;
-  letter-spacing: 0.005em;
+/* Get-Scout spec sheet — label/content rows under the sub: how it runs, the
+   CLI install, and the Mac app CTA, divided by hairlines. */
+.hero-setup {
+  margin-top: 1.5rem;
+  max-width: 34rem;
+  border-top: 1px solid var(--site-border);
 }
 
-.hero-install-next__label {
+.hero-setup__row {
+  display: grid;
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--site-border);
+}
+
+/* Mac app is the last row — no trailing divider to close the block. */
+.hero-setup__row:last-child {
+  border-bottom: 0;
+}
+
+.hero-setup__label {
+  padding-top: 0.55rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  font-size: 10px;
-  color: var(--site-muted-soft);
+  color: var(--site-muted);
 }
 
-.hero-install-next__prompt {
-  color: var(--site-muted-soft);
+.hero-setup__row:first-child .hero-setup__label {
+  padding-top: 0.15rem;
+}
+
+.hero-setup__body {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--site-copy);
+}
+
+.hero-setup__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.hero-setup__note {
+  margin: 0;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--site-muted);
+}
+
+@media (max-width: 560px) {
+  .hero-setup__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.35rem;
+  }
+  .hero-setup__label {
+    padding-top: 0;
+  }
 }
 
 /* Quiet mono link row under the footnote — schema links for agents,
@@ -1390,34 +1563,71 @@ html[data-site-theme="dark"] .surface-phone__device {
    so neither column strands whitespace.                                   */
 
 .hiw-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
-  gap: 1.5rem 4rem;
-  align-items: end;
   margin-bottom: 2.75rem;
 }
 
-.hiw-head__title {
-  font-family: var(--font-spectral), ui-serif, Georgia, serif;
-  font-size: clamp(1.75rem, 3.2vw, 2.5rem);
-  font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: -0.02em;
-  color: var(--site-ink);
-  margin-top: 0.5rem;
-  max-width: 17ch;
-  text-wrap: balance;
+/* Split treatment: a full-width eyebrow over two seated columns — the pull-quote
+   statement left, the support line right. Both hang from a shared top edge under
+   the eyebrow (the statement's first line and the support's first line start
+   level); the statement is scaled up so its two lines roughly match the support
+   block's height, keeping the row balanced. */
+.hiw-head__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 0.9rem 3.5rem;
+  align-items: start;
 }
 
-/* The lead answers the title from the right column, set in the site's mono
-   lead voice; slight bottom pad seats it near the title's baseline. */
-.hiw-head__lead {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 13.5px;
-  line-height: 1.75;
+.hiw-head__main .section-eyebrow {
+  grid-column: 1 / -1;
+  margin-bottom: 0.35rem;
+}
+
+/* The Why Scout pull-quote — the section's opening statement, set large so it
+   carries the head, hung off a crisp pair of accent bars in the one rationed
+   red (a precise, geometric quote mark, not a font glyph). The support line to
+   its right answers with the positive promise: Scout sees every agent, no
+   workflow change, one pane of glass. */
+.hiw-statement {
+  position: relative;
+  max-width: 19ch;
+  margin: 0;
+  padding-left: 2.6rem;
+  font-size: clamp(1.9rem, 3.4vw, 3rem);
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.023em;
+  text-wrap: balance;
+  color: var(--site-ink);
+}
+
+/* Two slim, slightly-canted bars — the quote mark drawn, so weight and spacing
+   stay exact at any scale. */
+.hiw-statement::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.31em;
+  width: 20px;
+  height: 0.58em;
+  background-image:
+    linear-gradient(var(--site-accent), var(--site-accent)),
+    linear-gradient(var(--site-accent), var(--site-accent));
+  background-size: 6px 100%, 6px 100%;
+  background-position: 0 0, 12px 0;
+  background-repeat: no-repeat;
+  transform: skewX(-11deg);
+  transform-origin: bottom left;
+}
+
+.hiw-statement__support {
+  max-width: 52ch;
+  margin: 0;
+  padding-left: 0;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  text-wrap: pretty;
   color: var(--site-copy);
-  max-width: 44ch;
-  padding-bottom: 0.3rem;
 }
 
 .hiw-contrast {
@@ -1620,14 +1830,18 @@ html[data-site-theme="dark"] .surface-phone__device {
 
 @media (max-width: 900px) {
   .hiw-head {
-    grid-template-columns: 1fr;
-    align-items: start;
     margin-bottom: 2.25rem;
   }
 
-  .hiw-head__lead {
-    margin-top: 0.85rem;
-    padding-bottom: 0;
+  /* Below the split breakpoint the columns stack: statement, then support. */
+  .hiw-head__main {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+    align-items: start;
+  }
+
+  .hiw-statement {
+    max-width: 24ch;
   }
 
   .hiw-contrast {
@@ -2030,6 +2244,7 @@ html[data-site-theme="dark"] .surface-phone__device {
   gap: 0;
   padding: 0.6rem 0.95rem 0.6rem 0.8rem;
   border: 1px solid var(--site-ink);
+  border-radius: 10px;
   background: var(--site-ink);
   color: var(--site-ink-contrast);
   text-decoration: none;
@@ -2076,10 +2291,6 @@ html[data-site-theme="dark"] .surface-phone__device {
   font-weight: 500;
   letter-spacing: -0.01em;
   line-height: 1.2;
-}
-
-.hero-download {
-  margin-top: 0.55rem;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -3483,6 +3694,15 @@ html[data-site-theme="dark"] .scout-console {
 /* Once live, the field warms toward the green accent to invite a line. */
 .scout-console__cmdbar.is-live .scout-console__cmdbar-field {
   border-color: rgba(134, 188, 99, 0.32);
+}
+
+/* Focus replacement for the borderless inputs inside (outline: none) — the
+   ring lands on the visible container instead. */
+.scout-console__cmdbar-field:focus-within,
+.scout-console__input:focus-within,
+.scout-console__form:focus-within {
+  outline: 2px solid rgba(134, 188, 99, 0.65);
+  outline-offset: 1px;
 }
 
 /* Real input layered with a decorative "ghost" (caret + hint) shown only when
