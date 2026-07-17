@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
+import { SITE_THEME_INIT_SCRIPT } from "@/lib/site-theme";
 import "./globals.css";
 
 // Basel — one grotesque for prose, one monospace for machine text.
@@ -61,16 +62,26 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fcfcfc" },
+    { media: "(prefers-color-scheme: dark)", color: "#14151a" },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-site-theme="light">
+    <html lang="en" data-site-theme="light" suppressHydrationWarning>
       <body
         className={`${archivo.variable} ${ibmPlexMono.variable} antialiased bg-background text-foreground`}
       >
+        {/* Applies the saved/requested theme before first paint; must stay
+            inline and ahead of any themed content. */}
+        <script dangerouslySetInnerHTML={{ __html: SITE_THEME_INIT_SCRIPT }} />
         {children}
         <GoogleAnalyticsTag />
       </body>
