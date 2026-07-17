@@ -38,20 +38,15 @@ export const CHAT_SECONDARY_NAV: SecondaryNavGroup[] = [
   },
 ];
 
+/** Search is a single surface; /search/indexer keeps resolving to the same page. */
 export const SEARCH_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
       {
         id: "knowledge",
-        label: "Knowledge",
-        route: { view: "search", mode: "knowledge" },
-        active: (route) => route.view === "search" && (route.mode === undefined || route.mode === "knowledge"),
-      },
-      {
-        id: "indexer",
-        label: "Indexer",
-        route: { view: "search", mode: "indexer" },
-        active: (route) => route.view === "search" && route.mode === "indexer",
+        label: "Search",
+        route: { view: "search" },
+        active: (route) => route.view === "search",
       },
     ],
   },
@@ -68,7 +63,7 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
       },
       {
         id: "control",
-        label: "Control",
+        label: "Mission Control",
         route: { view: "ops", mode: "mission" },
         active: (route) =>
           route.view === "ops" &&
