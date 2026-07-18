@@ -355,10 +355,8 @@ struct HomeSurface: View {
 
     // MARK: - Activity
 
-    private static let activityPreviewCap = 12
-    private static let activityRetainedCap = 24
-    private static let activityViewportRows = 8
-    private static let activityRowHeight: CGFloat = 38
+    private static let activityPreviewCap = 48
+    private static let activityRetainedCap = 48
 
     private var recentActivity: [HomeActivity] { Array(activity.prefix(Self.activityPreviewCap)) }
 
@@ -367,14 +365,14 @@ struct HomeSurface: View {
         // so it feels like the surface's own log rather than another panel.
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             laneHeader("Activity", detail: activitySpanLabel, onAll: onSeeAllActivity)
-            ScrollView(.vertical, showsIndicators: recentActivity.count > Self.activityViewportRows) {
-                VStack(spacing: 0) {
-                    ForEach(recentActivity) { row in
-                        ActivityRow(event: row.event, onOpen: tapActivity(row))
-                    }
+            // Home already owns the vertical scroll. Let the timeline participate
+            // in it instead of trapping eight rows in a short nested viewport;
+            // the log can now continue through the available canvas and beyond.
+            LazyVStack(spacing: 0) {
+                ForEach(recentActivity) { row in
+                    ActivityRow(event: row.event, onOpen: tapActivity(row))
                 }
             }
-            .frame(maxHeight: CGFloat(Self.activityViewportRows) * Self.activityRowHeight)
         }
     }
 
@@ -495,7 +493,13 @@ struct HomeSurface: View {
     }
 
     private func sortedActivity(_ incoming: [HomeActivity]) -> [HomeActivity] {
-        Array(incoming.sorted { $0.event.tsMs > $1.event.tsMs }.prefix(Self.activityRetainedCap))
+        var seenEventIDs = Set<String>()
+        let newestFirst = incoming.sorted {
+            if $0.event.tsMs == $1.event.tsMs { return $0.id > $1.id }
+            return $0.event.tsMs > $1.event.tsMs
+        }
+        return Array(newestFirst.filter { seenEventIDs.insert($0.event.id).inserted }
+            .prefix(Self.activityRetainedCap))
     }
 
     // MARK: - Load

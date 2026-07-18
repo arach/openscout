@@ -98,9 +98,21 @@ export class BrokerHomeService {
     snapshot: RuntimeRegistrySnapshot,
     items: ActivityItem[],
   ): BrokerHomeActivity[] {
+    const seenMessageIds = new Set<string>();
     return items
       .filter((item) => !isReconciledStaleFlightActivityItem(item))
-      .filter((item) => Boolean(item.messageId))
+      // Home is a message ledger, not the lifecycle firehose. An ask records
+      // both its message and an invocation against the same message id; letting
+      // both through produces a second row whose entire detail is "consult".
+      .filter((item) => item.kind !== "invocation_recorded"
+        && item.kind !== "flight_updated"
+        && item.kind !== "collaboration_event")
+      .filter((item) => {
+        const messageId = item.messageId;
+        if (!messageId || seenMessageIds.has(messageId)) return false;
+        seenMessageIds.add(messageId);
+        return true;
+      })
       .slice(0, 24)
       .map((item) => {
         const actorId = item.actorId ?? this.#deps.operatorActorId;

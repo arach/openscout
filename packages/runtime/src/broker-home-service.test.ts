@@ -222,6 +222,16 @@ describe("broker home service", () => {
           messageId: undefined,
         }),
         activity({
+          id: "operator-invocation-row",
+          kind: "invocation_recorded",
+          messageId: "msg-operator",
+          actorId: undefined,
+          conversationId: "channel.docs",
+          title: "Manual update",
+          summary: "consult",
+          ts: 2_000,
+        }),
+        activity({
           id: "status-row",
           kind: "status_message",
           messageId: "msg-status",
