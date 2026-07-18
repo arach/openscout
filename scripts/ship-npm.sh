@@ -12,6 +12,8 @@ cd "$(dirname "$0")/.."
 
 export npm_config_cache="${npm_config_cache:-${TMPDIR:-/tmp}/openscout-npm-cache}"
 NPM_TAG="${NPM_TAG:-latest}"
+NPM_DIST_TAG_VERIFY_ATTEMPTS="${NPM_DIST_TAG_VERIFY_ATTEMPTS:-12}"
+NPM_DIST_TAG_VERIFY_DELAY_SECONDS="${NPM_DIST_TAG_VERIFY_DELAY_SECONDS:-5}"
 mkdir -p "$npm_config_cache"
 
 # Load .env files if present (kept for local overrides; primary store is the keychain)
@@ -66,7 +68,18 @@ publish() {
   if [[ "$published_tag" != "$version" ]]; then
     echo "  dist-tag ${NPM_TAG} points at ${published_tag:-nothing}; updating…"
     npm dist-tag add "${name}@${version}" "$NPM_TAG" "${NPM_ARGS[@]}"
-    published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
+
+    # Registry reads can briefly lag a successful publish/dist-tag write. Poll
+    # before failing the release so npm eventual consistency does not turn a
+    # completed publication into a false-negative workflow result.
+    for ((attempt = 1; attempt <= NPM_DIST_TAG_VERIFY_ATTEMPTS; attempt += 1)); do
+      published_tag=$(npm view "$name" "dist-tags.$NPM_TAG" "${NPM_ARGS[@]}" 2>/dev/null || true)
+      [[ "$published_tag" == "$version" ]] && break
+      if ((attempt < NPM_DIST_TAG_VERIFY_ATTEMPTS)); then
+        echo "  waiting for registry dist-tag propagation (${attempt}/${NPM_DIST_TAG_VERIFY_ATTEMPTS})…"
+        sleep "$NPM_DIST_TAG_VERIFY_DELAY_SECONDS"
+      fi
+    done
   fi
 
   [[ "$published_tag" == "$version" ]] || {
