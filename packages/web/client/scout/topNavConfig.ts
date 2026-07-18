@@ -3,15 +3,9 @@ import type { Route } from "../lib/types.ts";
 export type TopNavKey =
   | "home"
   | "agents"
-  | "terminals"
   | "chat"
-  | "search"
-  | "ops"
-  | "tail"
-  | "dispatch"
-  | "repos"
-  | "lanes"
-  | "sessions";
+  | "sessions"
+  | "system";
 
 export type TopNavItem = {
   key: TopNavKey;
@@ -19,30 +13,15 @@ export type TopNavItem = {
   route: Route;
 };
 
-// Full nav — today's default. Home · Projects · Terminals · Chat · Search · Ops, with the
-// Ops cluster (Control/Dispatch/Repos/Mesh/Tail/Runtime/Plans) one level down.
+// Single-personality nav (Model B · Work nouns): Home · Projects · Sessions ·
+// Chat. The ops/retrieval cluster (Search, Terminals, Tail, Dispatch, and the
+// ops surfaces) lives one level down in the System dropdown
+// (nav-system-menu.tsx). There is no lean/full switch — `nav.clean` is gone.
 export const TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Projects", route: { view: "agents-v2" } },
-  { key: "terminals", label: "Terminals", route: { view: "terminal" } },
-  { key: "chat", label: "Chat", route: { view: "messages" } },
-  { key: "search", label: "Search", route: { view: "search" } },
-  { key: "ops", label: "Ops", route: { view: "ops" } },
-];
-
-// Clean / lean launch nav — the three retrieval jobs (agent/session/terminal)
-// plus Home, Tail, and Dispatch. Home · Projects · Sessions · Terminals · Chat ·
-// Tail · Dispatch. Sessions holds a primary slot because find-my-session is a
-// core job; Repos drops off the bar (⌘K palette + jump dock) along with Search
-// and the rest of Ops (Control/Mesh/Runtime/Plans). Gated by the `nav.clean` flag.
-export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
-  { key: "home", label: "Home", route: { view: "inbox" } },
-  { key: "agents", label: "Projects", route: { view: "agents-v2" } },
   { key: "sessions", label: "Sessions", route: { view: "sessions" } },
-  { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
-  { key: "tail", label: "Tail", route: { view: "ops", mode: "tail" } },
-  { key: "dispatch", label: "Dispatch", route: { view: "broker" } },
 ];
 
 export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
@@ -65,21 +44,34 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   broker: "Dispatch",
   settings: "Settings",
   work: "Work",
-  ops: "Ops",
+  ops: "System",
 };
 
-export function topNavItems(opsEnabled: boolean, cleanNav = false): TopNavItem[] {
-  if (cleanNav) return CLEAN_TOP_NAV_ITEMS;
-  return opsEnabled
-    ? TOP_NAV_ITEMS
-    : TOP_NAV_ITEMS.filter((item) => item.key !== "ops");
+const SYSTEM_VIEWS = new Set<Route["view"]>([
+  "ops",
+  "broker",
+  "repos",
+  "harnesses",
+  "mesh",
+  "terminal",
+  "search",
+  "code",
+  "work",
+  "follow",
+  "settings",
+]);
+
+/** True for the chrome/ops surfaces that live under the System dropdown. */
+export function isSystemRoute(route: Route): boolean {
+  if (route.view === "settings" && route.section === "agents") return false;
+  return SYSTEM_VIEWS.has(route.view);
 }
 
-export function topNavKeyForRoute(
-  route: Route,
-  opsEnabled: boolean,
-  cleanNav = false,
-): TopNavKey {
+export function topNavItems(): TopNavItem[] {
+  return TOP_NAV_ITEMS;
+}
+
+export function topNavKeyForRoute(route: Route): TopNavKey {
   if (route.view === "settings" && route.section === "agents") {
     return "agents";
   }
@@ -89,34 +81,28 @@ export function topNavKeyForRoute(
     case "agent-info":
       return "agents";
     case "sessions":
-      // Sessions is a primary tab in the lean nav; in the full nav it lives
-      // under the Agents subnav.
-      return cleanNav ? "sessions" : "agents";
-    case "terminal":
-      return "terminals";
+      return "sessions";
     case "conversation":
     case "conversations":
     case "messages":
     case "channels":
       return "chat";
-    case "search":
-      return cleanNav ? "home" : "search";
-    case "broker":
-      return cleanNav ? "dispatch" : opsEnabled ? "ops" : "home";
-    case "repos":
-      return cleanNav ? "home" : opsEnabled ? "ops" : "home";
-    case "harnesses":
-      return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "ops":
-      if (cleanNav) return route.mode === "tail" ? "tail" : "home";
-      return opsEnabled ? "ops" : "home";
+    case "broker":
+    case "repos":
+    case "harnesses":
     case "mesh":
+    case "terminal":
+    case "search":
+    case "code":
     case "work":
     case "follow":
-      return cleanNav ? "home" : opsEnabled ? "ops" : "home";
+    case "settings":
+      return "system";
     case "inbox":
     case "fleet":
     case "activity":
+    case "briefings":
     default:
       return "home";
   }
@@ -129,7 +115,6 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
   switch (route.view) {
     case "conversation":
     case "agent-info":
-    case "sessions":
     case "repos":
     case "harnesses":
     case "channels":

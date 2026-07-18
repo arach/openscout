@@ -401,6 +401,48 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
   },
   {
+    href: "/studies/projects-landing",
+    label: "Projects · Landing",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/projects-landing.tsx",
+      "packages/web/client/screens/projects/ProjectsInbox.tsx",
+      "packages/web/client/screens/projects/ProjectsRail.tsx",
+    ],
+    blurb:
+      "The unscoped /projects center — shortcuts · recent projects · active diffs — in three switchable takes: Rows (what shipped), Ledger (dense aligned columns), Editorial (quietest, text-led, recommended). Hard rules baked in: nothing pill-shaped (filters that aren't), no raw .jsonl paths as titles, one emerald accent reserved for needs-you/live, and the center never re-lists all projects — the rail owns navigation.",
+  },
+  {
+    href: "/studies/app-nav",
+    label: "App nav · Structural models",
+    bucket: "studies",
+    surface: "shell",
+    status: "concept",
+    source: [
+      "design/studio/views/app-nav.tsx",
+      "packages/web/client/scout/topNavConfig.ts",
+      "packages/web/client/scout/secondaryNavConfig.ts",
+    ],
+    blurb:
+      "Framed by the posture: Scout is an overview-first platform, not an IDE or ADE replacement — every deep surface is a preview with a handoff, never a workbench. Three switchable shell models — A · Status quo (control, problem-flagged: two inboxes, sessions ×3, 10-item Ops drawer, deprecated directory, nav.clean fork), B · Work nouns (CHOSEN: Home · Projects · Sessions · Chat + ⌘K + one System drawer), C · Project-first (SHELVED: the rail-as-nav premise makes you pick a scope before showing agents, but the product is all-agents-in-view across projects) — with the full 24-route inventory mapped onto each.",
+  },
+  {
+    href: "/studies/chat-landing",
+    label: "Chat · Landing",
+    bucket: "studies",
+    surface: "web",
+    status: "shipped",
+    source: [
+      "design/studio/views/chat-landing.tsx",
+      "packages/web/client/screens/chat/MessagesScreen.tsx",
+      "packages/web/client/screens/chat/left.tsx",
+    ],
+    blurb:
+      "The unscoped /chat center (messages route, nothing selected) — today a card grid that re-lists the rail, with per-card 1/2/4 layout chrome, marketing copy, and filter route state the grid ignores. Three switchable takes: A · Grid (control, problem-flagged), B · Jump board (recommended: shortcuts + unread + a few recents — the rail owns the tree), C · Editorial (quietest, text-led). Principles: the rail navigates, unread is chat's attention (ask-states belong to the rail and Home), no layout chrome on rows, one address per conversation, filters own the rail only.",
+  },
+  {
     href: "/studies/agents-directory",
     label: "Agents · Directory",
     bucket: "studies",

@@ -7,6 +7,7 @@ import {
   brokerAttemptDedupeFingerprint,
   brokerAttemptErrorSummary,
   brokerAttemptIsFailure,
+  brokerMessageFeedRows,
   brokerAttemptRootCauseFingerprint,
   brokerMetadataPayload,
   brokerMetadataSummary,
@@ -36,6 +37,55 @@ describe("broker dispatch display", () => {
     expect(brokerAttemptIsFailure(attempt())).toBe(false);
   });
 
+  test("presents one message row with its linked delivery failure folded in", () => {
+    const message = attempt({
+      id: "message:message-1",
+      kind: "success",
+      status: "sent",
+      ts: 100,
+      actorName: "Arach",
+      target: "agent-1",
+      route: "dm",
+      detail: "Please review this.",
+      messageId: "message-1",
+      metadata: { source: "messages" },
+    });
+    const failure = attempt({
+      id: "delivery:delivery-1",
+      kind: "failed_delivery",
+      status: "failed",
+      ts: 110,
+      actorName: "Agent One",
+      target: "agent-1",
+      route: "local_socket",
+      detail: "direct_message",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      metadata: { failureReason: "agent_unreachable" },
+    });
+    const retry = attempt({
+      id: "attempt:attempt-1",
+      kind: "delivery_attempt",
+      status: "failed",
+      ts: 105,
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+    });
+
+    expect(brokerMessageFeedRows([failure, retry, message])).toEqual([{
+      ...failure,
+      id: message.id,
+      ts: message.ts,
+      actorName: "Arach",
+      route: "dm",
+      detail: "Please review this.",
+      metadata: {
+        failureReason: "agent_unreachable",
+        message: { source: "messages" },
+      },
+    }]);
+  });
+
   test("summarizes dispatch metadata for failed queries", () => {
     const summary = brokerAttemptErrorSummary(attempt({
       kind: "failed_query",
@@ -48,6 +98,30 @@ describe("broker dispatch display", () => {
     }));
     expect(summary).toContain("ask");
     expect(summary).toContain("no_agent_match");
+  });
+
+  test("prefers actionable delivery failure detail over its transport reason", () => {
+    const summary = brokerAttemptErrorSummary(attempt({
+      kind: "failed_delivery",
+      status: "failed",
+      detail: "Please review this.",
+      metadata: {
+        reason: "direct_message",
+        failureReason: "local_socket_unreachable",
+        failureDetail: "connect ENOENT /tmp/agent.sock",
+      },
+    }));
+    expect(summary).toContain("connect ENOENT /tmp/agent.sock");
+    expect(summary).not.toContain("direct_message");
+  });
+
+  test("does not present a generic delivery reason as an error", () => {
+    expect(brokerAttemptErrorSummary(attempt({
+      kind: "failed_delivery",
+      status: "failed",
+      detail: "Please review this.",
+      metadata: { reason: "direct_message" },
+    }))).toBeNull();
   });
 
   test("splits metadata into summary scalars and structured payload", () => {

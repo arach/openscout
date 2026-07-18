@@ -33,6 +33,8 @@ struct GlyphShape: Shape {
         case tail          // live event waveform
         case terminal      // window + prompt
         case plus          // rounded square + plus (new)
+        case lanes         // parallel mission-control lanes
+        case dispatch      // routed send / dispatch
         case chevron       // canonical ›  (rotate for ‹ ˄ ˅)
         case arrow         // canonical →  (rotate for ← ↑ ↓)
         case gear          // settings
@@ -106,6 +108,19 @@ struct GlyphShape: Shape {
             p.addRoundedRect(in: box(4, 4, 20, 20, r), cornerSize: .init(width: r * s, height: r * s))
             p.move(to: P(12, 9)); p.addLine(to: P(12, 15))
             p.move(to: P(9, 12)); p.addLine(to: P(15, 12))
+
+        case .lanes:
+            // Three parallel tracks with live nodes — a compact lane deck.
+            for y in [CGFloat(6), 12, 18] {
+                p.move(to: P(4, y)); p.addLine(to: P(20, y))
+                p.addEllipse(in: box(y == 12 ? 13 : 7, y - 2, y == 12 ? 17 : 11, y + 2, 0))
+            }
+
+        case .dispatch:
+            // Routed send mark: a paper-plane silhouette with an interior route.
+            p.move(to: P(3.5, 5)); p.addLine(to: P(21, 12)); p.addLine(to: P(3.5, 19));
+            p.addLine(to: P(7, 12)); p.closeSubpath()
+            p.move(to: P(7, 12)); p.addLine(to: P(16.5, 12))
 
         case .chevron:
             p.move(to: P(9.5, 6)); p.addLine(to: P(15.5, 12)); p.addLine(to: P(9.5, 18))

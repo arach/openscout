@@ -98,6 +98,12 @@
       "import": "./dist/adapters/grok-acp/index.js",
       "default": "./dist/adapters/grok-acp/index.js"
     },
+    "./adapters/kimi-acp": {
+      "bun": "./src/adapters/kimi-acp/index.ts",
+      "types": "./dist/adapters/kimi-acp/index.d.ts",
+      "import": "./dist/adapters/kimi-acp/index.js",
+      "default": "./dist/adapters/kimi-acp/index.js"
+    },
     "./adapters/openai-compat": {
       "bun": "./src/adapters/openai-compat/index.ts",
       "types": "./dist/adapters/openai-compat/index.d.ts",

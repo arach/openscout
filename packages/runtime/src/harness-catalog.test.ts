@@ -21,7 +21,7 @@ describe("harness catalog", () => {
   test("built-in catalog contains the current supported external harnesses", () => {
     const entries = createBuiltInHarnessCatalog();
 
-    expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "grok-acp", "cursor", "flue", "pi"]);
+    expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "grok-acp", "kimi", "cursor", "flue", "pi"]);
     expect(entries.find((entry) => entry.name === "claude")?.support.collaboration).toBe(true);
     expect(entries.find((entry) => entry.name === "codex")?.support.workspace).toBe(true);
     expect(entries.find((entry) => entry.name === "claude")?.sessionDefaults).toEqual({
@@ -29,6 +29,7 @@ describe("harness catalog", () => {
       fallbackTransports: ["claude_stream_json"],
     });
     expect(entries.find((entry) => entry.name === "grok-acp")?.metadata?.adapterType).toBe("grok-acp");
+    expect(entries.find((entry) => entry.name === "kimi")?.metadata?.adapterType).toBe("kimi-acp");
     expect(entries.find((entry) => entry.name === "pi")?.install?.macos).toBe(
       "npm install -g @earendil-works/pi-coding-agent",
     );
@@ -45,6 +46,11 @@ describe("harness catalog", () => {
     expect(resolveHarnessSessionDefaults("grok")).toEqual({
       harness: "grok-acp",
       transport: "grok_acp",
+      fallbackTransports: [],
+    });
+    expect(resolveHarnessSessionDefaults("kimi")).toEqual({
+      harness: "kimi",
+      transport: "kimi_acp",
       fallbackTransports: [],
     });
     expect(resolveHarnessSessionDefaults("cursor")).toBeNull();
@@ -159,6 +165,23 @@ describe("harness catalog", () => {
     expect(report.installed).toBe(true);
     expect(report.configured).toBe(true);
     expect(report.ready).toBe(true);
+  });
+
+  test("readiness reports Kimi Code ready with cached login credentials", () => {
+    const kimi = createBuiltInHarnessCatalog().find((entry) => entry.name === "kimi");
+    expect(kimi).toBeTruthy();
+
+    const report = evaluateHarnessReadiness(kimi!, {
+      env: {},
+      whichBinary: () => "/Users/me/.local/bin/kimi",
+      requirementExists: (requirement) => requirement.path === "~/.kimi-code/credentials",
+    });
+
+    expect(report.state).toBe("ready");
+    expect(report.installed).toBe(true);
+    expect(report.configured).toBe(true);
+    expect(report.ready).toBe(true);
+    expect(report.loginCommand).toBe("kimi login");
   });
 
   test("builds current shell-safe resume commands", () => {

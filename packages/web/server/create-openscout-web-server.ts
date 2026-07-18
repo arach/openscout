@@ -81,6 +81,11 @@ import {
   type WebAgent,
   type WebFlight,
 } from "./db-queries.ts";
+import {
+  brokerDiagnosticsNeedsFullSnapshot,
+  markBrokerDiagnosticsLiveUnavailable,
+  mergeBrokerDiagnosticsWithLiveSnapshot,
+} from "./db/broker-live.ts";
 import { queryAgentIdsByEndpointSessionId } from "./db/agents.ts";
 import { queryOperatorAttentionRows } from "./db/fleet.ts";
 import {
@@ -108,6 +113,10 @@ import {
   loadScoutReadCursors,
   markScoutConversationRead,
   openScoutDirectSession,
+  readScoutBrokerHome,
+  readScoutBrokerHealth,
+  readScoutBrokerMessages,
+  readScoutBrokerSnapshot,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
   type ScoutBrokerContext,
@@ -2114,8 +2123,9 @@ let agentAttentionInFlight: {
  * Needs-attention index for /api/agents, cached briefly and coalesced: the
  * endpoint is polled every ~2.5s per client and the pairing-snapshot read
  * opens a bridge socket per call, so concurrent post-TTL polls must share one
- * rebuild. Failures cache an empty index so a broken source cannot take
- * /api/agents down with it.
+ * rebuild. Failures yield an empty index so a broken source cannot take
+ * /api/agents down with it. The sourcing lives in `core/attention` so the
+ * mobile agents RPC can build the identical index.
  */
 function queryAgentAttentionIndex(
   broker: ScoutBrokerContext | null,
@@ -4207,6 +4217,31 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const dispatchBrokerSnapshotCache = createCachedSnapshot(async () => {
+    const baseUrl = resolveScoutBrokerUrl();
+    const signal = AbortSignal.timeout(2_000);
+    const [messages, health, home] = await Promise.all([
+      readScoutBrokerMessages({ baseUrl, limit: 500, signal }),
+      readScoutBrokerHealth(baseUrl, { signal }),
+      readScoutBrokerHome(baseUrl, { signal }),
+    ]);
+    if (!messages) return null;
+    return {
+      actors: Object.fromEntries(
+        (home?.agents ?? []).map((agent) => [agent.id, { displayName: agent.title }]),
+      ),
+      messages: Object.fromEntries(messages.map((message) => [message.id, message])),
+      totalMessageCount: health.counts?.messages ?? null,
+      projectionStatus: health.projection?.state ?? null,
+    };
+  }, 0);
+  const dispatchFullBrokerSnapshotCache = createCachedSnapshot(
+    () => readScoutBrokerSnapshot(
+      resolveScoutBrokerUrl(),
+      { signal: AbortSignal.timeout(5_000) },
+    ),
+    0,
+  );
   const tailRuntime: WebTailRuntime = {
     getTailDiscovery,
     refreshTailDiscovery,
@@ -5373,17 +5408,34 @@ export async function createOpenScoutWebServer(
     if (localSnapshot) return c.json(localSnapshot);
     return c.json({ error: "broker topology unavailable" }, 502);
   });
-  app.get("/api/broker", (c) =>
-    c.json(
-      queryBrokerDiagnostics({
-        limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
-        windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
-        cursor: c.req.query("cursor") ?? null,
-        scopeRowsToWindow: c.req.query("scopeRowsToWindow") === "1"
-          || c.req.query("scopeRowsToWindow") === "true",
-      }),
-    ),
-  );
+  app.get("/api/broker", async (c) => {
+    const cursor = c.req.query("cursor") ?? null;
+    const diagnostics = queryBrokerDiagnostics({
+      limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
+      windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
+      cursor,
+      scopeRowsToWindow: c.req.query("scopeRowsToWindow") === "1"
+        || c.req.query("scopeRowsToWindow") === "true",
+    });
+    let broker = await dispatchBrokerSnapshotCache.get().catch(() => null);
+    if (broker && brokerDiagnosticsNeedsFullSnapshot(diagnostics, broker)) {
+      const completeSnapshot = await dispatchFullBrokerSnapshotCache.get().catch(() => null);
+      broker = completeSnapshot
+        ? {
+            actors: completeSnapshot.actors,
+            messages: completeSnapshot.messages,
+            totalMessageCount: broker.totalMessageCount,
+            projectionStatus: broker.projectionStatus,
+            messageCoverageIncomplete: false,
+          }
+        : { ...broker, messageCoverageIncomplete: true };
+    }
+    return c.json(
+      broker
+        ? mergeBrokerDiagnosticsWithLiveSnapshot(diagnostics, broker, cursor)
+        : markBrokerDiagnosticsLiveUnavailable(diagnostics),
+    );
+  });
   app.post("/api/broker/dispatch-review", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       attemptId?: string;

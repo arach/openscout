@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
   parseScopeRouteFromUrl,
   preserveLocationSearch,
@@ -145,11 +144,11 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
-// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
-// of the lean core, so it stays reachable even when the broader Ops cluster
+// Tail (ops?mode=tail) is part of the core retrieval set (System dropdown,
+// `g,l` go-shortcut), so it stays reachable even when the broader Ops cluster
 // (ops.control) is gated off. Other Ops modes still follow the ops gate.
 function isTailCoreSurface(mode: string | undefined): boolean {
-  return mode === "tail" && isScoutFlagEnabled("nav.clean");
+  return mode === "tail";
 }
 
 // Lanes is shared with the native app and chrome-free embeds, so direct links are
@@ -472,7 +471,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
     });
   }
-  if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "repos") {
+    const root = url.searchParams.get("root")?.trim() || undefined;
+    return scoped({ view: "repos", ...(root ? { root } : {}) });
+  }
   if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
@@ -508,7 +510,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
-  if (parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "dispatch" || parts[0] === "broker") return { view: "broker" };
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
     if (parts[1]) {
@@ -732,8 +734,12 @@ export function routePath(r: Route, pathname?: string): string {
         : "/sessions";
       return `${path}${searchSuffix(params)}`;
     }
-    case "repos":
-      return pathWithMachineScope("/repos", r);
+    case "repos": {
+      const params = new URLSearchParams();
+      if (r.root) params.set("root", r.root);
+      appendMachineScope(params, r);
+      return `/repos${searchSuffix(params)}`;
+    }
     case "harnesses":
       return pathWithMachineScope("/harnesses", r);
     case "repo-diff": {
@@ -755,7 +761,7 @@ export function routePath(r: Route, pathname?: string): string {
     case "mesh":
       return pathWithMachineScope("/mesh", r);
     case "broker":
-      return "/broker";
+      return "/dispatch";
     case "code": {
       if (r.project) {
         const segments = [encodeURIComponent(r.project)];

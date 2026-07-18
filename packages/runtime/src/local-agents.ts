@@ -28,6 +28,7 @@ import {
   readTmuxSessionExistsSnapshot,
 } from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
+import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -447,6 +448,7 @@ export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "grok-acp",
+  "kimi",
   "flue",
 ];
 
@@ -2604,7 +2606,7 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
-  if (endpoint.transport === "grok_acp") {
+  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp") {
     return endpoint.state !== "offline";
   }
 
@@ -3897,14 +3899,18 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     }, null, 2) + "\n",
   );
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
-      break;
+  // Liveness must be an awaited fresh read: the sync snapshot read above can
+  // serve the pre-spawn session list while the post-invalidation probe refresh
+  // is still in flight, which used to fail healthy sessions within ~2s.
+  let sessionOnline = false;
+  for (let attempt = 0; attempt < 20 && !sessionOnline; attempt += 1) {
+    sessionOnline = await isLocalAgentSessionAliveAsync(normalizedRecord.tmuxSession);
+    if (!sessionOnline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  if (!isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
+  if (!sessionOnline) {
     const stderrTail = existsSync(stderrLogFile)
       ? readFileSync(stderrLogFile, "utf8").trim().split(/\r?\n/).slice(-10).join("\n").trim()
       : "";
@@ -5018,6 +5024,24 @@ export async function invokeLocalAgentEndpoint(
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "kimi_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const result = await invokeKimiAcpAgent({
+      sessionId,
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
       timeoutMs: invocation.timeoutMs,
     });
 

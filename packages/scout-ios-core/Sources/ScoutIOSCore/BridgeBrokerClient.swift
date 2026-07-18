@@ -30,6 +30,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     /// The host we're connected through — the Mac's own advertised name.
     public var currentHost: String? { connection.currentHost }
 
+    /// Direct paired-host coordinates for web-backed mission-control surfaces.
+    public var webAccessHost: String? { connection.webAccessHost }
+    public var webAccessPort: Int? { connection.webAccessPort }
+
     /// Stored route inventory for the active trusted bridge, filtered by current
     /// route preferences. This is a settings/status summary, not a reachability probe.
     public var savedRouteSummary: BridgeRouteSummary { connection.savedRouteSummary() }
@@ -165,6 +169,24 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         let params = MobileListParams(query: query, limit: limit)
         let wire: [MobileWorkspaceSummary] = try await connection.rpc("mobile/workspaces", params: params)
         return wire.map { $0.toSummary() }
+    }
+
+    /// Operator usage-quota gauges (Claude / Codex / GitHub) with their spent
+    /// windows, for the Home strip. Empty when the paired Mac can't report them
+    /// (older bridge without the `mobile/service-budgets` procedure).
+    public func serviceBudgets() async throws -> [ServiceBudget] {
+        // Param-less query (the procedure's input is optional) — pass nil, the
+        // same shape as `mobile/endpoints` / `mobile/mesh/status`.
+        let result: MobileServiceBudgetsResult = try await connection.rpc("mobile/service-budgets", params: nil)
+        return result.budgets
+    }
+
+    /// Recent terminal (harness) sessions from the registry — cwd, resume command,
+    /// harness, and whether a surface is live — for the Home Terminals shelf.
+    /// Empty when the paired Mac has no registry / an older bridge.
+    public func terminalSessions() async throws -> [MobileTerminal] {
+        let result: MobileTerminalsResult = try await connection.rpc("mobile/terminal-sessions", params: nil)
+        return result.terminals
     }
 
     // MARK: - ConversationCapability
@@ -305,8 +327,53 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     /// Home renders; the raw lifecycle firehose stays on the Tail tab.
     public func recentActivity(limit: Int) async throws -> [TailEvent] {
         let params = MobileActivityParams(limit: limit)
-        let wire: [MobileActivityItem] = try await connection.rpc("mobile/activity", params: params)
-        return wire.map { $0.toTailEvent() }
+        do {
+            let wire: [MobileActivityItem] = try await connection.rpc("mobile/activity", params: params)
+            return wire.map { $0.toTailEvent() }
+        } catch {
+            // Compatibility with paired Macs still running the older activity
+            // projection. That route returned the raw Tail wire shape, which we
+            // deliberately refuse to put back on Home. Reconstruct a small recent
+            // exchange window through the already-supported Comms endpoints until
+            // the Mac restarts onto the broker-ledger implementation.
+            return try await recentCommsActivityFallback(limit: limit)
+        }
+    }
+
+    private func recentCommsActivityFallback(limit: Int) async throws -> [TailEvent] {
+        let boundedLimit = max(1, limit)
+        let conversationLimit = min(12, boundedLimit)
+        let messagesPerConversation = max(1, Int(ceil(Double(boundedLimit) / Double(conversationLimit))))
+        let conversations = try await listConversations(kind: nil, limit: conversationLimit)
+        var events: [TailEvent] = []
+
+        for conversation in conversations {
+            guard let messages = try? await conversationMessages(
+                conversationId: conversation.id,
+                limit: messagesPerConversation
+            ) else { continue }
+            events.append(contentsOf: messages.map { message in
+                let kind: TailEvent.Kind
+                if message.isOperator {
+                    kind = .user
+                } else if message.authorKind == .system {
+                    kind = .system
+                } else {
+                    kind = .assistant
+                }
+                return TailEvent(
+                    id: message.id,
+                    tsMs: Int64(message.createdAt.timeIntervalSince1970 * 1_000),
+                    source: message.authorLabel,
+                    harness: .unattributed,
+                    kind: kind,
+                    summary: message.body.trimmingCharacters(in: .whitespacesAndNewlines),
+                    conversationId: message.conversationId
+                )
+            })
+        }
+
+        return Array(events.sorted { $0.tsMs > $1.tsMs }.prefix(boundedLimit))
     }
 
     /// Recent harness-firehose snapshot for the Tail surface, polled while the
@@ -578,7 +645,7 @@ struct MobileActivityItem: Codable, Sendable {
             source: actorName,
             harness: .unattributed,         // curated activity carries no harness attribution
             kind: mappedKind,
-            summary: title,
+            summary: detail?.trimmedNonEmpty ?? title,
             conversationId: conversationId?.trimmedNonEmpty
         )
     }
@@ -673,7 +740,27 @@ struct MobileSessionSummary: Codable, Sendable {
     }
 }
 
+/// Structured pending-ask, decoded from the wire when the broker sends an object
+/// under `pendingAsk`. Every field is optional so a partial object never fails
+/// the batch. TODAY the server emits a FLAT string for `pendingAsk` (see
+/// `MobileAgentSummary` below); this shape is forward scaffolding for when the
+/// broker is taught to carry the structured ask.
+struct MobileAgentPendingAsk: Codable, Sendable {
+    let kind: String?
+    let prompt: String?
+    let options: [String]?
+}
+
 /// Donor `MobileAgentSummary` (RPC.swift). Mapped into `AgentSummary`.
+///
+/// Attention groundwork (ADDITIVE / OPTIONAL): `needsAttention` and `pendingAsk`
+/// are decoded IF PRESENT. The paired Mac does NOT emit them yet — the server's
+/// `ScoutMobileAgentSummary` (packages/web/server/core/mobile/service.ts:71) has
+/// no attention overlay, and the attention index (agent-attention.ts) is applied
+/// only to the WEB `/api/agents` shape, not the mobile projection. So these keys
+/// are defensive: they light up the moment the broker mirrors attention onto
+/// `mobile/agents` (see the FINAL REPORT for the exact server change). Tolerant
+/// keys mean older/partial payloads decode cleanly to no-attention.
 struct MobileAgentSummary: Codable, Sendable {
     let id: String
     let title: String
@@ -689,10 +776,64 @@ struct MobileAgentSummary: Codable, Sendable {
     let sessionId: String?
     let conversationId: String?
     let lastActiveAt: Int?
+    /// Explicit attention flag, if the broker sends one. When absent, attention is
+    /// inferred from a `state == "needs_attention"` (matching the web shape) or a
+    /// non-empty `pendingAsk`.
+    let needsAttention: Bool?
+    /// Flat ask line. The server's attention index (agent-attention.ts:116) sets
+    /// `pendingAsk: string | null` today, so decode a bare string first.
+    let pendingAsk: String?
+    /// Structured ask, decoded when a future broker sends an object instead of a
+    /// bare string under a distinct key. Kept separate so both wire shapes coexist.
+    let pendingAskDetail: MobileAgentPendingAsk?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, selector, defaultSelector, nodeId, nodeName
+        case workspaceRoot, harness, transport, state, statusLabel
+        case sessionId, conversationId, lastActiveAt
+        case needsAttention
+        case pendingAsk
+        case pendingAskDetail
+    }
+
+    /// Custom decode so `pendingAsk` tolerates EITHER a bare string (today's wire)
+    /// or an object (future structured wire), and every attention key is optional.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        selector = try c.decodeIfPresent(String.self, forKey: .selector)
+        defaultSelector = try c.decodeIfPresent(String.self, forKey: .defaultSelector)
+        nodeId = try c.decodeIfPresent(String.self, forKey: .nodeId)
+        nodeName = try c.decodeIfPresent(String.self, forKey: .nodeName)
+        workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot)
+        harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        state = try c.decode(String.self, forKey: .state)
+        statusLabel = try c.decodeIfPresent(String.self, forKey: .statusLabel)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        lastActiveAt = try c.decodeIfPresent(Int.self, forKey: .lastActiveAt)
+        needsAttention = try c.decodeIfPresent(Bool.self, forKey: .needsAttention)
+
+        // `pendingAsk` may be a string (today), an object (future), or absent.
+        var flatAsk: String? = nil
+        var structuredAsk: MobileAgentPendingAsk? = nil
+        if let s = try? c.decodeIfPresent(String.self, forKey: .pendingAsk) {
+            flatAsk = s
+        } else if let obj = try? c.decodeIfPresent(MobileAgentPendingAsk.self, forKey: .pendingAsk) {
+            structuredAsk = obj
+        }
+        pendingAsk = flatAsk
+        // A dedicated structured key wins over one squeezed into `pendingAsk`.
+        pendingAskDetail = (try? c.decodeIfPresent(MobileAgentPendingAsk.self, forKey: .pendingAskDetail)) ?? structuredAsk
+    }
 
     func toSummary() -> AgentSummary {
         // The broker's mobile agent vocab is offline | available | working
-        // (broker-daemon.ts). Older aliases kept as a safety net.
+        // (broker-daemon.ts). Older aliases kept as a safety net. The web shape
+        // additionally uses "needs_attention" as a state — accept it here so a
+        // future mobile mirror of that shape maps cleanly.
         let mappedState: AgentSummary.State
         switch state.lowercased() {
         case "working", "live", "active", "online": mappedState = .live
@@ -701,6 +842,15 @@ struct MobileAgentSummary: Codable, Sendable {
         default: mappedState = .unknown
         }
         let projectName = workspaceRoot?.trimmedNonEmpty.map { URL(fileURLWithPath: $0).lastPathComponent }
+
+        // Resolve the structured ask from whichever wire shape arrived.
+        let resolvedAsk = resolvedPendingAsk()
+        // Attention is: an explicit flag, OR the web-parity "needs_attention"
+        // state, OR the mere presence of an ask.
+        let attention = (needsAttention ?? false)
+            || state.lowercased() == "needs_attention"
+            || resolvedAsk != nil
+
         return AgentSummary(
             id: id,
             title: title,
@@ -710,8 +860,27 @@ struct MobileAgentSummary: Codable, Sendable {
             state: mappedState,
             sessionId: sessionId,
             conversationId: conversationId,
-            lastActiveAt: lastActiveAt.map { Date(timeIntervalSince1970: Double(scoutEpochMilliseconds($0)) / 1000.0) }
+            lastActiveAt: lastActiveAt.map { Date(timeIntervalSince1970: Double(scoutEpochMilliseconds($0)) / 1000.0) },
+            needsAttention: attention,
+            pendingAsk: resolvedAsk
         )
+    }
+
+    /// Fold the flat + structured wire shapes into the contract `PendingAsk`.
+    /// Returns nil when there's no usable ask text.
+    private func resolvedPendingAsk() -> PendingAsk? {
+        if let detail = pendingAskDetail {
+            let prompt = detail.prompt?.trimmedNonEmpty ?? pendingAsk?.trimmedNonEmpty
+            guard let prompt else { return nil }
+            let kind = detail.kind.flatMap { PendingAsk.Kind(rawValue: $0) } ?? .question
+            return PendingAsk(kind: kind, prompt: prompt, options: detail.options ?? [])
+        }
+        if let flat = pendingAsk?.trimmedNonEmpty {
+            // No kind on the flat wire — default to `.question`. The band can
+            // still render the ask; refine once the broker sends a kind.
+            return PendingAsk(kind: .question, prompt: flat)
+        }
+        return nil
     }
 }
 
@@ -884,5 +1053,119 @@ struct MobileCommsMessage: Codable, Sendable {
             attachments: attachments ?? [],
             clientMessageId: clientMessageId
         )
+    }
+}
+
+// MARK: - Service budgets (usage quota)
+
+/// A subscription's usage quota for the Home strip — one provider (Claude /
+/// Codex / GitHub) with its spent windows (e.g. a short 5h cap + a weekly cap).
+public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
+    /// One spent window: a short label, how much of it is used (0–100), and a
+    /// terse reset hint. `usedPercent` decodes leniently from int or double.
+    public struct Window: Codable, Sendable, Equatable {
+        public let label: String
+        public let usedPercent: Double
+        public let reset: String
+
+        enum CodingKeys: String, CodingKey { case label, usedPercent, reset }
+
+        public init(label: String, usedPercent: Double, reset: String) {
+            self.label = label
+            self.usedPercent = usedPercent
+            self.reset = reset
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.label = (try? c.decode(String.self, forKey: .label)) ?? ""
+            self.usedPercent = (try? c.decode(Double.self, forKey: .usedPercent)) ?? 0
+            self.reset = (try? c.decode(String.self, forKey: .reset)) ?? ""
+        }
+    }
+
+    public let provider: String
+    public let label: String
+    public let plan: String
+    public let windows: [Window]
+
+    public var id: String { provider }
+
+    enum CodingKeys: String, CodingKey { case provider, label, plan, windows }
+
+    public init(provider: String, label: String, plan: String, windows: [Window]) {
+        self.provider = provider
+        self.label = label
+        self.plan = plan
+        self.windows = windows
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.provider = (try? c.decode(String.self, forKey: .provider)) ?? ""
+        self.label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        self.plan = (try? c.decode(String.self, forKey: .plan)) ?? ""
+        self.windows = (try? c.decode([Window].self, forKey: .windows)) ?? []
+    }
+}
+
+struct MobileServiceBudgetsResult: Codable, Sendable {
+    let budgets: [ServiceBudget]
+
+    enum CodingKeys: String, CodingKey { case budgets }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.budgets = (try? c.decode([ServiceBudget].self, forKey: .budgets)) ?? []
+    }
+}
+
+/// A recent terminal (harness) session for the Home Terminals shelf. `updatedAt`
+/// decodes from a ms-epoch number; all fields tolerate absence.
+public struct MobileTerminal: Codable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let sessionId: String
+    public let cwd: String
+    public let command: String
+    public let harness: String
+    public let running: Bool
+    public let updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey { case id, sessionId, cwd, command, harness, running, updatedAt }
+
+    public init(id: String, sessionId: String, cwd: String, command: String, harness: String, running: Bool, updatedAt: Date?) {
+        self.id = id
+        self.sessionId = sessionId
+        self.cwd = cwd
+        self.command = command
+        self.harness = harness
+        self.running = running
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? c.decode(String.self, forKey: .id)) ?? ""
+        self.sessionId = (try? c.decode(String.self, forKey: .sessionId)) ?? ""
+        self.cwd = (try? c.decode(String.self, forKey: .cwd)) ?? ""
+        self.command = (try? c.decode(String.self, forKey: .command)) ?? ""
+        self.harness = (try? c.decode(String.self, forKey: .harness)) ?? ""
+        self.running = (try? c.decode(Bool.self, forKey: .running)) ?? false
+        if let ms = try? c.decode(Double.self, forKey: .updatedAt), ms > 0 {
+            self.updatedAt = Date(timeIntervalSince1970: ms / 1000)
+        } else {
+            self.updatedAt = nil
+        }
+    }
+}
+
+struct MobileTerminalsResult: Codable, Sendable {
+    let terminals: [MobileTerminal]
+
+    enum CodingKeys: String, CodingKey { case terminals }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.terminals = (try? c.decode([MobileTerminal].self, forKey: .terminals)) ?? []
     }
 }

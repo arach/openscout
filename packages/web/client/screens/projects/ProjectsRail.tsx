@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronRight, Folder, FolderPlus, Pin, Search, X } from "lucide-react";
-import { api } from "../../lib/api.ts";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { pathLeaf } from "../agents/model.ts";
+import { AddProjectForm } from "./AddProjectForm.tsx";
 import { shortHomePath } from "./project-overview-helpers.ts";
-import { useProjectsInbox, useProjectsInboxView } from "./useProjectsInbox.ts";
+import { useProjectsInbox } from "./useProjectsInbox.ts";
 import {
   isDormantProject,
   isSessionSelected,
@@ -14,19 +14,11 @@ import {
   sessionsForProject,
   type InboxProject,
   type InboxSession,
-  type SmartView,
 } from "./projects-inbox-model.ts";
 import "./projects-inbox.css";
 
 type Navigate = (route: Route) => void;
 type ProjectSort = "recent" | "name" | "sessions";
-
-const SMART_VIEWS: Array<{ id: SmartView; label: string }> = [
-  { id: "needs", label: "Your turn" },
-  { id: "working", label: "Working" },
-  { id: "recent", label: "Recent" },
-  { id: "everything", label: "Everything" },
-];
 
 const PROJECT_SESSION_PREVIEW_LIMIT = 4;
 const PINNED_SESSIONS_STORAGE_KEY = "openscout.projects.pinnedSessions";
@@ -48,34 +40,6 @@ function projectState(project: InboxProject): "needs" | "working" | "idle" {
   if (project.needs > 0) return "needs";
   if (project.working > 0 || project.liveSessionCount > 0) return "working";
   return "idle";
-}
-
-function SmartViewRow({
-  label,
-  selected,
-  state,
-  count,
-  countTone,
-  onSelect,
-}: {
-  label: string;
-  selected: boolean;
-  state: "needs" | "working" | "idle";
-  count?: number;
-  countTone?: "accent" | "dim";
-  onSelect: () => void;
-}) {
-  return (
-    <button type="button" className="pi-fold" data-selected={selected || undefined} data-state={state} onClick={onSelect}>
-      <span className="pi-foldPip" aria-hidden />
-      <span className="pi-foldName">{label}</span>
-      {count && count > 0 ? (
-        <span className="pi-foldCount" data-tone={countTone === "dim" ? "dim" : undefined}>
-          {count}
-        </span>
-      ) : null}
-    </button>
-  );
 }
 
 function RailLoadingRows({ rows = 6 }: { rows?: number }) {
@@ -109,7 +73,6 @@ export function ProjectsRail({
   zeroPreview?: boolean;
 }) {
   const { model, nowMs, loading, error } = useProjectsInbox(route);
-  const [view, setView] = useProjectsInboxView();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ProjectSort>("recent");
   const [showDormant, setShowDormant] = useState(false);
@@ -120,7 +83,6 @@ export function ProjectsRail({
   const [previewSession, setPreviewSession] = useState<SessionPreviewState | null>(null);
   const [addingProject, setAddingProject] = useState(false);
 
-  const scoped = Boolean(route.projectSlug);
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
   const ephemeralScope = route.showEphemeral ? { showEphemeral: true } : {};
   const initialLoading = loading && model.projects.length === 0 && model.sessions.length === 0;
@@ -155,11 +117,6 @@ export function ProjectsRail({
           ),
     [projectSessions, pinnedSessions, query, zeroPreview],
   );
-
-  const selectSmartView = (id: SmartView) => {
-    setView(id);
-    navigate({ view: "agents-v2", ...machineScope, ...ephemeralScope });
-  };
 
   const openProject = (slug: string) => {
     setCollapsedProjects((current) => withoutValue(current, slug));
@@ -250,26 +207,6 @@ export function ProjectsRail({
       </div>
 
       <div className="pi-railBody">
-        <div className="pi-railGroup">
-          <div className="pi-railLabel">Views</div>
-          {SMART_VIEWS.map((smart) => {
-            const count = zeroPreview ? 0 : model.counts[smart.id];
-            if (smart.id !== "everything" && count === 0) return null;
-            const state = smart.id === "needs" && count > 0 ? "needs" : smart.id === "working" && count > 0 ? "working" : "idle";
-            return (
-              <SmartViewRow
-                key={smart.id}
-                label={smart.label}
-                selected={!scoped && view === smart.id}
-                state={state}
-                count={count}
-                countTone={smart.id === "everything" ? "dim" : "accent"}
-                onSelect={() => selectSmartView(smart.id)}
-              />
-            );
-          })}
-        </div>
-
         <div className="pi-railGroup pi-railGroup--projects">
           <div className="pi-railProjectTools">
             <div className="pi-railLabel">Projects</div>
@@ -403,81 +340,6 @@ export function ProjectsRail({
       </div>
       {previewSession ? <ProjectSessionHoverCard preview={previewSession} nowMs={nowMs} /> : null}
     </nav>
-  );
-}
-
-type AddProjectResponse = {
-  ok: true;
-  root: string;
-  alreadyRegistered: boolean;
-  projects: Array<{ id: string; title: string; root: string }>;
-};
-
-function AddProjectForm({ onClose }: { onClose: () => void }) {
-  const [value, setValue] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
-
-  const submit = async () => {
-    const root = value.trim();
-    if (!root || busy) return;
-    setBusy(true);
-    setNote(null);
-    try {
-      const result = await api<AddProjectResponse>("/api/projects/add", {
-        method: "POST",
-        body: JSON.stringify({ root }),
-      });
-      const registered = result.projects[0]?.title ?? null;
-      if (result.alreadyRegistered) {
-        setNote({ text: registered ? `/${registered} is already registered` : "Already registered", tone: "ok" });
-      } else if (registered) {
-        setNote({ text: `Registered /${registered}`, tone: "ok" });
-        setValue("");
-      } else {
-        setNote({ text: "Root added, but no project found there yet", tone: "error" });
-      }
-    } catch (error) {
-      setNote({ text: error instanceof Error ? error.message : String(error), tone: "error" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="pi-addProject">
-      <div className="pi-addProjectBox" data-busy={busy || undefined}>
-        <FolderPlus size={13} strokeWidth={1.8} aria-hidden />
-        <input
-          className="pi-addProjectInput"
-          type="text"
-          value={value}
-          placeholder="~/dev/my-project"
-          aria-label="Project folder path"
-          autoFocus
-          disabled={busy}
-          spellCheck={false}
-          onChange={(event) => setValue(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void submit();
-            if (event.key === "Escape") onClose();
-          }}
-        />
-        <button
-          type="button"
-          className="pi-addProjectSubmit"
-          disabled={busy || !value.trim()}
-          onClick={() => void submit()}
-        >
-          {busy ? "Adding..." : "Add"}
-        </button>
-      </div>
-      {note ? (
-        <div className="pi-addProjectNote" data-tone={note.tone} role="status">
-          {note.text}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

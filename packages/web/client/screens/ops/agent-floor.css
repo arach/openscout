@@ -365,7 +365,7 @@
 
 .agent-floor__lane-strip {
   position: absolute;
-  inset: 6px 0;
+  inset: 14px 0;
   display: block;
   box-shadow:
     inset 0 1px 0 var(--floor-line-soft),
@@ -625,6 +625,29 @@
 
 .agent-floor__flag .agent-floor__card-dot {
   margin-left: 2px;
+}
+
+/* The flag's main line carries the live action inline with the name. */
+.agent-floor__flag-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 190px;
+  padding-left: 7px;
+  border-left: 1px solid var(--floor-line-soft);
+}
+
+.agent-floor__flag-action .agent-floor__card-tool,
+.agent-floor__flag-action .agent-floor__card-idle {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-floor__flag-action .agent-floor__card-ago {
+  font-size: 9px;
 }
 
 .agent-floor__flag.is-focus {

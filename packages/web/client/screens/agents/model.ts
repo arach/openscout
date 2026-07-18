@@ -348,7 +348,7 @@ export function buildNativeSessionRows(
       ?? normalizeSessionRef(transcript.transcriptPath);
     if (!refId) continue;
 
-    const lastActivityAt = transcript.mtimeMs || null;
+    const lastActivityAt = (transcript.lastEventAt ?? transcript.mtimeMs) || null;
     rows.push({
       key: `transcript:${transcript.transcriptPath}`,
       refId,

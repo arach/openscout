@@ -150,9 +150,20 @@ export type WebBrokerDialogueItem = {
 
 export type WebBrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
 
+export type WebBrokerDiagnosticsSource = {
+  mode: "live_broker" | "sqlite_projection";
+  status: "current" | "degraded" | "unknown";
+  latestMessageAt: number | null;
+  projectionLatestMessageAt: number | null;
+  liveMessageCount: number | null;
+  projectionMessageCount: number | null;
+  detail: string | null;
+};
+
 export type WebBrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  source?: WebBrokerDiagnosticsSource;
   ledger: {
     mode: "latest";
     limit: number;

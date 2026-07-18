@@ -179,6 +179,23 @@ orphaned Scout processes already reported by doctor.
 | TS service config | `packages/runtime/src/broker-process-manager.ts` |
 | Bun base composer | `packages/runtime/src/base-daemon.ts` |
 | Runtime entry | `packages/runtime/bin/openscout-runtime.mjs` |
+| Transcript discovery/firehose | `packages/runtime/src/tail/**` |
+
+## Transcript Firehose Boundary
+
+`scoutd` does not parse harness transcripts. The supervised Bun broker owns the
+single runtime tail service, discovers harness-owned logs, and publishes bounded
+`TailEvent` observations through broker HTTP reads and the `tail.events` tRPC
+subscription. This keeps transcript parsing out of the Rust service kernel and
+keeps harness logs as observed source material rather than Scout-owned records.
+
+Kimi Code discovery lives in `packages/runtime/src/tail/kimi-source.ts`. It reads
+`~/.kimi-code/sessions/**/agents/*/wire.jsonl` by default (or
+`$KIMI_CODE_HOME/sessions`; tests and operators may use
+`OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT`). A Kimi session's `agents/main/wire.jsonl`
+uses the parent `session_<uuid>` ID. Spawned agent logs use
+`session_<uuid>:agent-N`, so every wire file has an independent watcher and
+cursor while retaining its parent session identity.
 
 ## Verification
 

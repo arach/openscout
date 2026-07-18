@@ -16,6 +16,7 @@ import {
   topNavKeyForRoute,
 } from "./topNavConfig.ts";
 import { renderNavCenter } from "./nav-center.tsx";
+import { SystemMenu } from "./nav-system-menu.tsx";
 
 export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
@@ -301,12 +302,10 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
-  const opsEnabled = useOptionalFlag("ops.control", true);
-  const cleanNav = useOptionalFlag("nav.clean", false);
 
   return renderNavCenter({
-    items: topNavItems(opsEnabled, cleanNav),
-    activeKey: topNavKeyForRoute(route, opsEnabled, cleanNav),
+    items: topNavItems(),
+    activeKey: topNavKeyForRoute(route),
     breadcrumb: topNavBreadcrumbForRoute(route),
     navigate,
   });
@@ -315,9 +314,9 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
-  const cleanNav = useOptionalFlag("nav.clean", false);
   return createElement("div", { className: "scout-nav-actions" },
-    !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),
+    createElement(SystemMenu),
+    createElement(MachineScopeControl, { variant: "nav" }),
     createElement(
       "button",
       {

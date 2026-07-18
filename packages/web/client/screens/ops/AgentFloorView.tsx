@@ -1,6 +1,6 @@
 import "./agent-floor.css";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { agentSpriteProps, SpriteAvatar } from "../../components/SpriteAvatar.tsx";
@@ -55,7 +55,7 @@ const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
 const STRIP_BLOCKS = 10;
 
-const LANE_PITCH = 132;
+const LANE_PITCH = 164;
 const STACK_SIZE = 56;
 const STACK_STEP = 14;
 const BLOCK_H = 12;
@@ -481,8 +481,11 @@ function FloorLaneStrip({ series, index, planeW, flip, periodStart, now, focused
         } as CSSProperties}
       >
         <span className={`agent-floor__flag${focused ? " is-focus" : ""}${pinned ? " is-pinned" : ""}`}>
-          <SpriteAvatar name={agent.name} size={14} tile hue={sprite.hue} tone={sprite.tone} />
+          <SpriteAvatar name={agent.name} size={15} tile hue={sprite.hue} tone={sprite.tone} />
           <span className="agent-floor__flag-name">{name}</span>
+          <span className="agent-floor__flag-action">
+            <LaneActionLine series={series} now={now} />
+          </span>
           <span className={`agent-floor__card-dot${live ? " is-live" : ""}`} />
         </span>
       </span>
@@ -608,7 +611,25 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [peek, setPeek] = useState<{ laneId: string; slot: number } | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState<{ w: number; h: number } | null>(null);
   const flip = orientation === "past-right";
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      setViewportSize((current) => (
+        current && Math.abs(current.w - rect.width) < 2 && Math.abs(current.h - rect.height) < 2
+          ? current
+          : { w: rect.width, h: rect.height }
+      ));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const flipOrientation = useCallback(() => {
     setOrientation((current) => {
       const next: FloorOrientation = current === "past-left" ? "past-right" : "past-left";
@@ -725,6 +746,18 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
     : planeW - FRONT_APRON - slotIndex * BUCKET_DEPTH);
   const ticksY = lanesStartY + series.length * LANE_PITCH + 26;
 
+  // Fill whatever screen we're given: scale the whole scene so the projected
+  // isometric footprint uses the viewport, growing on large displays and
+  // shrinking instead of clipping on small ones.
+  const stageScale = useMemo(() => {
+    if (!viewportSize) return 1;
+    const span = planeW + planeD;
+    const projectedW = 0.708 * span + 60;
+    const projectedH = 0.386 * span + 250;
+    const fit = Math.min(viewportSize.w / projectedW, viewportSize.h / projectedH);
+    return Math.round(Math.min(1.6, Math.max(0.7, fit)) * 100) / 100;
+  }, [viewportSize, planeW, planeD]);
+
   return (
     <div className="agent-floor" data-live-count={liveCount} data-floor-orient={orientation}>
       <div className="agent-floor__body">
@@ -776,8 +809,11 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
           </aside>
         )}
 
-        <div className="agent-floor__viewport">
-          <div className="agent-floor__stage">
+        <div className="agent-floor__viewport" ref={viewportRef}>
+          <div
+            className="agent-floor__stage"
+            style={{ transform: `scale(${stageScale}) rotateX(57deg) rotateZ(45deg)` }}
+          >
             <div
               className="agent-floor__field"
               style={{

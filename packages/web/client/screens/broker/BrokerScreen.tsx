@@ -1,4 +1,4 @@
-import { Bot, Check, Copy, ExternalLink, Hash, Megaphone, MessageCircle, Sparkles, X } from "lucide-react";
+import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, LoaderCircle, Sparkles, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
@@ -6,8 +6,8 @@ import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { brokerAttemptTone } from "../../lib/status-tone.ts";
-import { fullTimestamp, timeAgo } from "../../lib/time.ts";
-import type { BrokerDiagnostics, BrokerDialogueItem, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../../lib/types.ts";
+import { fullTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
+import type { BrokerDiagnostics, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { OpsSubnav } from "../ops/OpsSubnav.tsx";
@@ -16,6 +16,7 @@ import {
   brokerAttemptErrorSummary,
   brokerAttemptIsFailure,
   brokerAttemptContextText,
+  brokerMessageFeedRows,
   brokerMetadataJson,
   clippedText,
 } from "./broker-display.ts";
@@ -25,41 +26,34 @@ import { useBrokerLedgerKeyboard } from "./useBrokerLedgerKeyboard.ts";
 import { defineSurface } from "../../surfaces/types.ts";
 import "../system-surfaces-redesign.css";
 
-type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
+type BrokerTab = "all" | "successful" | "failed";
 
-const BROKER_TABS: BrokerTab[] = ["attempts", "dialogue", "failed_queries", "failed_deliveries"];
+const BROKER_TABS: BrokerTab[] = ["all", "successful", "failed"];
 
 const TAB_LABELS: Record<BrokerTab, string> = {
-  attempts: "Dispatch",
-  dialogue: "Dialogue",
-  failed_queries: "Failed queries",
-  failed_deliveries: "Failed deliveries",
+  all: "All",
+  successful: "Successful",
+  failed: "Failed",
 };
-
-const TAB_HISTORY_KEY: Record<BrokerTab, BrokerHistoryKey> = {
-  attempts: "attempts",
-  dialogue: "dialogue",
-  failed_queries: "failedQueries",
-  failed_deliveries: "failedDeliveries",
-};
-
-function shortId(value: string | null): string {
-  if (!value) return "none";
-  if (value.length <= 18) return value;
-  return `${value.slice(0, 10)}...${value.slice(-5)}`;
-}
 
 function attemptKindLabel(kind: BrokerRouteAttempt["kind"]): string {
   switch (kind) {
     case "success":
-      return "sent";
+      return "Success";
     case "failed_query":
-      return "query";
+      return "Query failure";
     case "failed_delivery":
-      return "delivery";
+      return "Delivery failure";
     default:
-      return "attempt";
+      return "Delivery attempt";
   }
+}
+
+function attemptOutcomeLabel(attempt: BrokerRouteAttempt): string {
+  if (attempt.kind === "success") return attempt.status || "sent";
+  if (attempt.kind === "failed_delivery" && attempt.status === "cancelled") return "cancelled";
+  if (brokerAttemptIsFailure(attempt)) return "failed";
+  return attempt.status || "unknown";
 }
 
 function brokerAttemptReference(attempt: BrokerRouteAttempt): string {
@@ -81,34 +75,27 @@ function routeKindLabel(route: string | null): string {
   }
 }
 
-function RouteGlyph({ route }: { route: string | null }) {
-  const label = routeKindLabel(route);
-  if (route === "dm") {
-    return (
-      <span className="sys-route-glyph sys-route-glyph-dm" title={label} aria-label={label}>
-        <MessageCircle size={13} aria-hidden="true" />
-      </span>
-    );
-  }
-  if (route === "channel") {
-    return (
-      <span className="sys-route-glyph sys-route-glyph-channel" title={label} aria-label={label}>
-        <Hash size={13} aria-hidden="true" />
-      </span>
-    );
-  }
-  if (route === "broadcast") {
-    return (
-      <span className="sys-route-glyph sys-route-glyph-broadcast" title={label} aria-label={label}>
-        <Megaphone size={13} aria-hidden="true" />
-      </span>
-    );
-  }
-  return (
-    <span className="sys-route-glyph sys-route-glyph-none" title={label} aria-label={label}>
-      {route ?? "none"}
-    </span>
-  );
+function dispatchDayKey(ts: number): string {
+  const timestamp = normalizeTimestampMs(ts) ?? 0;
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function dispatchDayLabel(ts: number, nowMs = Date.now()): string {
+  const timestamp = normalizeTimestampMs(ts) ?? 0;
+  const date = new Date(timestamp);
+  const today = new Date(nowMs);
+  const yesterday = new Date(nowMs);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (dispatchDayKey(ts) === dispatchDayKey(today.getTime())) return "Today";
+  if (dispatchDayKey(ts) === dispatchDayKey(yesterday.getTime())) return "Yesterday";
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
 }
 
 function mergeBrokerPage(
@@ -118,6 +105,7 @@ function mergeBrokerPage(
 ): BrokerDiagnostics {
   return {
     ...next,
+    source: current.source,
     attempts: key === "attempts" ? [...current.attempts, ...next.attempts] : current.attempts,
     failedQueries: key === "failedQueries" ? [...current.failedQueries, ...next.failedQueries] : current.failedQueries,
     failedDeliveries: key === "failedDeliveries" ? [...current.failedDeliveries, ...next.failedDeliveries] : current.failedDeliveries,
@@ -145,7 +133,7 @@ export function BrokerScreen({
 }) {
   const { selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
-  const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
+  const [activeTab, setActiveTab] = useState<BrokerTab>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -183,7 +171,7 @@ export function BrokerScreen({
   const loadOlder = useCallback(async () => {
     const current = brokerRef.current;
     if (!current || loadingOlder) return;
-    const key = TAB_HISTORY_KEY[activeTab];
+    const key: BrokerHistoryKey = "attempts";
     const cursor = current.ledger.cursors[key];
     if (!cursor || !current.ledger.hasMore[key]) return;
 
@@ -206,7 +194,7 @@ export function BrokerScreen({
         setLoadingOlder(false);
       }
     }
-  }, [activeTab, loadingOlder]);
+  }, [loadingOlder]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) return;
@@ -235,29 +223,36 @@ export function BrokerScreen({
     }
   });
 
-  const activeRows = useMemo(() => {
+  const feedRows = useMemo(() => {
     if (!broker) return [];
+    return brokerMessageFeedRows(broker.attempts);
+  }, [broker]);
+
+  const activeRows = useMemo(() => {
     switch (activeTab) {
-      case "failed_queries":
-        return broker.failedQueries;
-      case "failed_deliveries":
-        return broker.failedDeliveries;
-      case "dialogue":
-        return broker.dialogue;
+      case "successful":
+        return feedRows.filter((attempt) => !brokerAttemptIsFailure(attempt));
+      case "failed":
+        return feedRows.filter(brokerAttemptIsFailure);
       default:
-        return broker.attempts;
+        return feedRows;
     }
-  }, [activeTab, broker]);
-  const activeHistoryKey = TAB_HISTORY_KEY[activeTab];
-  const activeHasMore = broker?.ledger.hasMore[activeHistoryKey] ?? false;
+  }, [activeTab, feedRows]);
+  const activeHasMore = broker?.ledger.hasMore.attempts ?? false;
+  const tabCounts = useMemo<Record<BrokerTab, number>>(() => ({
+    all: feedRows.length,
+    successful: feedRows.filter((attempt) => !brokerAttemptIsFailure(attempt)).length,
+    failed: feedRows.filter(brokerAttemptIsFailure).length,
+  }), [feedRows]);
 
   const selectedAttempt = useMemo(() => {
     if (!broker || !selectedBrokerAttempt) return null;
-    return broker.attempts.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+    return feedRows.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+      ?? broker.attempts.find((attempt) => attempt.id === selectedBrokerAttempt.id)
       ?? broker.failedQueries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
       ?? broker.failedDeliveries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
       ?? null;
-  }, [broker, selectedBrokerAttempt]);
+  }, [broker, feedRows, selectedBrokerAttempt]);
 
   useEffect(() => {
     if (selectedAttempt && selectedAttempt !== selectedBrokerAttempt) {
@@ -266,19 +261,13 @@ export function BrokerScreen({
   }, [inspectBrokerAttempt, selectedAttempt, selectedBrokerAttempt]);
 
   const activateLedgerRow = useCallback((index: number) => {
-    const row = activeRows[index];
-    if (!row) return;
-    if (activeTab === "dialogue") {
-      const item = row as BrokerDialogueItem;
-      openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: { view: "broker" } });
-      return;
-    }
-    const attempt = row as BrokerRouteAttempt;
+    const attempt = activeRows[index];
+    if (!attempt) return;
     inspectBrokerAttempt(attempt);
     window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
       detail: { width: 420 },
     }));
-  }, [activeRows, activeTab, inspectBrokerAttempt, navigate]);
+  }, [activeRows, inspectBrokerAttempt]);
 
   const { getRowFocusProps, setFocusedIndex } = useBrokerLedgerKeyboard({
     enabled: Boolean(broker) && activeRows.length > 0,
@@ -288,8 +277,8 @@ export function BrokerScreen({
   });
 
   useEffect(() => {
-    if (!selectedBrokerAttempt || activeTab === "dialogue") return;
-    const index = (activeRows as BrokerRouteAttempt[]).findIndex((row) => row.id === selectedBrokerAttempt.id);
+    if (!selectedBrokerAttempt) return;
+    const index = activeRows.findIndex((row) => row.id === selectedBrokerAttempt.id);
     if (index >= 0) setFocusedIndex(index);
   }, [activeRows, activeTab, selectedBrokerAttempt, setFocusedIndex]);
 
@@ -314,7 +303,7 @@ export function BrokerScreen({
               <div
                 className="sys-tab-row sys-tab-row--toolbar"
                 role="tablist"
-                aria-label="Dispatch diagnostics"
+                aria-label="Dispatch message filters"
                 onKeyDown={(event) => {
                   if (event.key === "ArrowRight") {
                     event.preventDefault();
@@ -334,7 +323,8 @@ export function BrokerScreen({
                     className={`sys-tab${activeTab === tab ? " sys-tab-active" : ""}`}
                     onClick={() => setActiveTab(tab)}
                   >
-                    {TAB_LABELS[tab]}
+                    <span>{TAB_LABELS[tab]}</span>
+                    <span className="sys-tab-count">{tabCounts[tab]}</span>
                   </button>
                 ))}
               </div>
@@ -346,7 +336,7 @@ export function BrokerScreen({
                 {loading
                   ? "Loading dispatch ledger..."
                   : broker
-                    ? `Updated ${timeAgo(broker.generatedAt)}`
+                    ? `Updated ${timeAgo(broker.generatedAt)}${broker.source?.latestMessageAt ? ` · latest message ${timeAgo(broker.source.latestMessageAt)}` : ""}`
                     : "Waiting for dispatch data"}
               </div>
               <button
@@ -367,6 +357,33 @@ export function BrokerScreen({
             </div>
           )}
 
+          {refreshing && broker && (
+            <div
+              className="sys-broker-source-note"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle className="sys-broker-source-spinner" size={12} aria-hidden="true" />
+              <strong>Updating dispatches…</strong>
+            </div>
+          )}
+
+          {!refreshing
+            && broker?.source?.mode === "sqlite_projection"
+            && broker.source.status === "degraded"
+            && broker.source.detail && (
+            <div
+              className="sys-broker-source-note sys-broker-source-note--warning"
+              role="status"
+              aria-label={broker.source.detail}
+              title={broker.source.detail}
+            >
+              <span className="sys-broker-source-dot" aria-hidden="true" />
+              <strong>Dispatch may be out of date</strong>
+              <span>Live broker unavailable; showing saved dispatch history.</span>
+            </div>
+          )}
+
           {loading && !broker && (
             <EmptyState
               title="Loading dispatch"
@@ -383,21 +400,13 @@ export function BrokerScreen({
 
           {broker && (
             <>
-              {activeTab === "dialogue" ? (
-                <BrokerDialogueList
-                  items={activeRows as BrokerDialogueItem[]}
-                  navigate={navigate}
-                  getRowFocusProps={getRowFocusProps}
-                />
-              ) : (
-                <BrokerAttemptList
-                  attempts={activeRows as BrokerRouteAttempt[]}
-                  navigate={navigate}
-                  selectedAttemptId={selectedBrokerAttempt?.id ?? null}
-                  onInspect={inspectBrokerAttempt}
-                  getRowFocusProps={getRowFocusProps}
-                />
-              )}
+              <BrokerAttemptList
+                attempts={activeRows}
+                navigate={navigate}
+                selectedAttemptId={selectedBrokerAttempt?.id ?? null}
+                onInspect={inspectBrokerAttempt}
+                getRowFocusProps={getRowFocusProps}
+              />
               {activeRows.length > 0 && activeHasMore && (
                 <div className="sys-ledger-footer">
                   <button
@@ -443,84 +452,105 @@ function BrokerAttemptList({
     );
   }
 
+  const groups = attempts.reduce<Array<{
+    key: string;
+    label: string;
+    attempts: Array<{ attempt: BrokerRouteAttempt; index: number }>;
+  }>>((result, attempt, index) => {
+    const key = dispatchDayKey(attempt.ts);
+    const current = result[result.length - 1];
+    if (current?.key === key) {
+      current.attempts.push({ attempt, index });
+    } else {
+      result.push({ key, label: dispatchDayLabel(attempt.ts), attempts: [{ attempt, index }] });
+    }
+    return result;
+  }, []);
+
   return (
-    <div className="sys-broker-table" role="table" aria-label="Dispatch ledger">
-      <div className="sys-broker-table-head" role="row">
-        <span role="columnheader">State</span>
-        <span role="columnheader">Age</span>
-        <span role="columnheader">Detail</span>
-        <span role="columnheader">From</span>
-        <span role="columnheader">To</span>
-        <span role="columnheader">Route</span>
-        <span role="columnheader">Action</span>
-      </div>
-      <div className="sys-broker-table-body" role="rowgroup">
-        {attempts.map((attempt, index) => {
-          const tone = brokerAttemptTone(attempt.kind, attempt.status);
-          const kindLabel = attemptKindLabel(attempt.kind);
-          const isFailure = brokerAttemptIsFailure(attempt);
-          const errorSummary = brokerAttemptErrorSummary(attempt);
-          const detailSnippet = clippedText(attempt.detail, brokerAttemptDetailLimit(attempt));
-          const inspect = () => {
-            onInspect(attempt);
-            window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
-              detail: { width: 420 },
-            }));
-          };
-          return (
-            <article
-              key={attempt.id}
-              role="row"
-              className={`sys-broker-row sys-broker-row--ledger${isFailure ? " sys-broker-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
-              aria-label={`Inspect ${attempt.detail}`}
-              onClick={inspect}
-              {...getRowFocusProps(index)}
-            >
-              <div className="sys-broker-cell sys-broker-cell-state" role="cell">
-                <StatusPill tone={tone}>{kindLabel}</StatusPill>
-                {(isFailure || attempt.status !== kindLabel) && (
-                  <span className={`sys-broker-status${isFailure ? " sys-broker-status--error" : ""}`}>
-                    {attempt.status}
-                  </span>
-                )}
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-time" role="cell">
-                <span title={fullTimestamp(attempt.ts)}>{timeAgo(attempt.ts)}</span>
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-detail" role="cell">
-                <h3 className="sys-broker-title" title={attempt.detail}>{detailSnippet}</h3>
-                {errorSummary && (
-                  <p className="sys-broker-error-detail" title={errorSummary}>{errorSummary}</p>
-                )}
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-party" role="cell">
-                <span title={attempt.actorName ?? "unknown"}>{attempt.actorName ?? "unknown"}</span>
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-party" role="cell">
-                <span title={attempt.target ?? "none"}>{attempt.target ?? "none"}</span>
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-route" role="cell">
-                <RouteGlyph route={attempt.route} />
-              </div>
-              <div className="sys-broker-cell sys-broker-cell-action" role="cell">
-                {attempt.conversationId && (
-                  <button
-                    type="button"
-                    className="s-btn s-btn-sm sys-broker-thread-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route });
-                    }}
-                  >
-                    <ExternalLink size={12} aria-hidden="true" />
-                    Thread
-                  </button>
-                )}
-              </div>
-            </article>
-          );
-        })}
-      </div>
+    <div className="sys-broker-table" aria-label="Dispatch ledger">
+      {groups.map((group) => (
+        <section className="sys-broker-day" key={group.key} aria-labelledby={`dispatch-day-${group.key}`}>
+          <header className="sys-broker-day-head">
+            <h2 id={`dispatch-day-${group.key}`}>{group.label}</h2>
+            <span>{group.attempts.length} {group.attempts.length === 1 ? "dispatch" : "dispatches"}</span>
+          </header>
+          <div className="sys-broker-table-body" role="list">
+            {group.attempts.map(({ attempt, index }) => {
+              const tone = brokerAttemptTone(attempt.kind, attempt.status);
+              const outcomeLabel = attemptOutcomeLabel(attempt);
+              const isFailure = brokerAttemptIsFailure(attempt);
+              const errorSummary = brokerAttemptErrorSummary(attempt);
+              const detailSnippet = clippedText(attempt.detail, brokerAttemptDetailLimit(attempt));
+              const inspect = () => {
+                onInspect(attempt);
+                window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
+                  detail: { width: 420 },
+                }));
+              };
+              return (
+                <article
+                  key={attempt.id}
+                  role="listitem"
+                  className={`sys-broker-row sys-broker-row--ledger${isFailure ? " sys-broker-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
+                  aria-label={`Inspect ${attempt.detail}`}
+                  onClick={inspect}
+                  {...getRowFocusProps(index)}
+                >
+                  <div className="sys-broker-event-rail" aria-hidden="true">
+                    <span className="sys-broker-event-icon">
+                      {isFailure ? <TriangleAlert size={15} /> : <CheckCircle2 size={15} />}
+                    </span>
+                  </div>
+                  <div className="sys-broker-cell sys-broker-cell-detail">
+                    <div className="sys-broker-route-line">
+                      <div className="sys-broker-route-parties">
+                        <span className="sys-broker-actor" title={attempt.actorName ?? "unknown"}>
+                          {attempt.actorName ?? "Unknown sender"}
+                        </span>
+                        <ArrowRight size={13} aria-hidden="true" />
+                        <span className="sys-broker-target" title={attempt.target ?? "none"}>
+                          {attempt.target ?? "No target"}
+                        </span>
+                      </div>
+                      <time title={fullTimestamp(attempt.ts)}>{timeAgo(attempt.ts)}</time>
+                    </div>
+                    <h3 className="sys-broker-title" title={attempt.detail}>{detailSnippet}</h3>
+                    {errorSummary && (
+                      <p className="sys-broker-error-detail" title={errorSummary}>{errorSummary}</p>
+                    )}
+                    <div className="sys-broker-dispatch-footer">
+                      <StatusPill tone={tone} className="sys-broker-outcome">{outcomeLabel}</StatusPill>
+                      <span className="sys-broker-route-kind">{routeKindLabel(attempt.route)}</span>
+                      {attempt.status !== outcomeLabel && (
+                        <span className={`sys-broker-status${isFailure ? " sys-broker-status--error" : ""}`}>
+                          {attempt.status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="sys-broker-cell sys-broker-cell-action">
+                    {attempt.conversationId && (
+                      <button
+                        type="button"
+                        className="sys-broker-thread-button"
+                        title="Open thread"
+                        aria-label="Open thread"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route });
+                        }}
+                      >
+                        <ExternalLink size={14} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -744,71 +774,11 @@ export function BrokerAttemptInspector({
   );
 }
 
-function BrokerDialogueList({
-  items,
-  navigate,
-  getRowFocusProps,
-}: {
-  items: BrokerDialogueItem[];
-  navigate: (r: Route) => void;
-  getRowFocusProps: BrokerRowFocusProps;
-}) {
-  const { route } = useScout();
-  if (items.length === 0) {
-    return (
-      <EmptyState
-        title="No dialogue"
-        body="No dialogue messages are available in broker history."
-      />
-    );
-  }
-
-  return (
-    <div className="sys-audit-list">
-      {items.map((item, index) => (
-        <article
-          key={item.id}
-          className="sys-broker-row"
-          role="button"
-          aria-label={`Open dialogue thread for ${item.actorName ?? "unknown"}`}
-          onClick={() => openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route })}
-          {...getRowFocusProps(index)}
-        >
-          <div className="sys-broker-row-main">
-            <div className="sys-broker-row-head">
-              <StatusPill tone="neutral">{item.class}</StatusPill>
-              <span className="sys-broker-status">{item.actorName ?? "unknown"}</span>
-              <span className="sys-broker-time">{fullTimestamp(item.ts)}</span>
-            </div>
-            <h3 className="sys-broker-title">{item.body}</h3>
-            <div className="sys-broker-meta">
-              <span>thread {shortId(item.conversationId)}</span>
-            </div>
-          </div>
-          <div className="sys-broker-row-side">
-            <code>{shortId(item.id)}</code>
-            <button
-              type="button"
-              className="s-btn s-btn-sm"
-              onClick={(event) => {
-                event.stopPropagation();
-                openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
-              }}
-            >
-              Open thread
-            </button>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
 export const scoutSurface = defineSurface({
   id: "dispatch",
   label: "Dispatch",
   route: { view: "broker" },
-  webPath: "/broker",
+  webPath: "/dispatch",
   screen: "BrokerScreen",
   embed: {
     path: "/embed/dispatch",

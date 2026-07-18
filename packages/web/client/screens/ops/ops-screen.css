@@ -22,8 +22,8 @@
     color-mix(in srgb, var(--bg) 94%, black);
 }
 
-/* Lean view: OpsSubnav renders nothing (every item is hideInLean), leaving the
-   header an empty shell — collapse it so no ghost bar or accent line remains. */
+/* When a screen renders no subnav the header is an empty shell — collapse it
+   so no ghost bar or accent line remains. */
 .s-ops-header:empty {
   display: none;
 }

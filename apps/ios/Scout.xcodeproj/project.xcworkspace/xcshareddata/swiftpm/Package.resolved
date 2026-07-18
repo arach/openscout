@@ -73,17 +73,9 @@
       }
     },
     {
-      "identity" : "termini",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/arach/Termini.git",
-      "state" : {
-        "revision" : "1509fdc6d8093b2e41064fbb273c56e630491afa"
-      }
-    },
-    {
       "identity" : "vox",
       "kind" : "remoteSourceControl",
-      "location" : "git@github.com:arach/vox.git",
+      "location" : "https://github.com/arach/vox.git",
       "state" : {
         "branch" : "main",
         "revision" : "960a1df81f6f6c0b7c1a40bcea3137d4b506e7b1"

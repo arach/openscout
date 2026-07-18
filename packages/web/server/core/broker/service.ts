@@ -52,6 +52,7 @@ import {
   type ScoutBrokerBuildIdentity,
   type ScoutBrokerChildServiceSnapshots,
   type ScoutBrokerHealthPayload,
+  type ScoutBrokerProjectionStatus,
 } from "@openscout/runtime/broker-api";
 import {
   resolveBrokerServiceConfig,
@@ -102,6 +103,7 @@ export type ScoutBrokerHealthState = {
   meshId: string | null;
   build: ScoutBrokerBuildIdentity | null;
   services: ScoutBrokerChildServiceSnapshots | null;
+  projection: ScoutBrokerProjectionStatus | null;
   counts: {
     nodes: number;
     actors: number;
@@ -846,6 +848,7 @@ export async function readScoutBrokerHealth(
       meshId: health.meshId ?? null,
       build: health.build ?? null,
       services: health.services ?? null,
+      projection: health.projection ?? null,
       counts: health.counts
         ? {
             nodes: health.counts.nodes ?? 0,
@@ -879,15 +882,19 @@ export async function readScoutBrokerHealth(
       meshId: null,
       build: null,
       services: null,
+      projection: null,
       counts: null,
       error: error instanceof Error ? error.message : null,
     };
   }
 }
 
-export async function readScoutBrokerHome(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerHomePayload | null> {
+export async function readScoutBrokerHome(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerHomePayload | null> {
   try {
-    return await brokerReadJson<ScoutBrokerHomePayload>(baseUrl, scoutBrokerPaths.v1.home);
+    return await brokerReadJson<ScoutBrokerHomePayload>(baseUrl, scoutBrokerPaths.v1.home, options);
   } catch {
     return null;
   }
@@ -952,9 +959,41 @@ export async function readScoutBrokerTailRecent(
   }
 }
 
-export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerSnapshot | null> {
+export async function readScoutBrokerSnapshot(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerSnapshot | null> {
   try {
-    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot);
+    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot, options);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the broker's compact, canonical message feed without loading the full
+ * registry snapshot. Dispatch only needs recent messages, and the full
+ * snapshot can be tens of megabytes on a long-running broker.
+ */
+export async function readScoutBrokerMessages(options: {
+  baseUrl?: string;
+  since?: number;
+  limit?: number;
+  signal?: AbortSignal;
+} = {}): Promise<ScoutBrokerMessageRecord[] | null> {
+  const search = new URLSearchParams();
+  if (typeof options.since === "number" && Number.isFinite(options.since) && options.since > 0) {
+    search.set("since", String(Math.trunc(options.since)));
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit) && options.limit > 0) {
+    search.set("limit", String(Math.trunc(options.limit)));
+  }
+  try {
+    return await brokerReadJson<ScoutBrokerMessageRecord[]>(
+      options.baseUrl ?? resolveScoutBrokerUrl(),
+      scoutBrokerMessagesListPath(search),
+      { signal: options.signal },
+    );
   } catch {
     return null;
   }

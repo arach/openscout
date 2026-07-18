@@ -50,8 +50,10 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
+  getScoutMobileTerminals,
   getScoutMobileWorkspaces,
   markScoutMobileConversationRead,
   sendScoutMobileComms,
@@ -1030,6 +1032,22 @@ const mobileRouter = t.router({
     )
     .query(async ({ input }) => {
       return getScoutMobileActivity(input);
+    }),
+
+  // Usage-quota readout (Claude / Codex / GitHub). No params; the phone just
+  // asks for the current budgets and gets one flat row per known provider.
+  serviceBudgets: procedure
+    .input(z.object({}).optional())
+    .query(async () => {
+      return getScoutMobileServiceBudgets();
+    }),
+
+  // Recent terminal sessions. No params; the phone just asks for the recent
+  // sessions and gets one flat row per registry record (most recent first).
+  terminalSessions: procedure
+    .input(z.object({}).optional())
+    .query(async () => {
+      return getScoutMobileTerminals();
     }),
 
   // Mobile Tail is a polled snapshot, not a live firehose: the phone fetches a

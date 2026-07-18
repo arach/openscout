@@ -230,6 +230,11 @@ function normalizeCodexModelValue(value: string | null | undefined): string | nu
     return null;
   }
 
+  const lower = trimmed.toLowerCase();
+  if (lower === "5.6" || lower === "gpt-5.6") {
+    return "gpt-5.6-sol";
+  }
+
   // Scout route labels document shorthand such as `@agent#codex?5.5`.
   // Codex app-server expects the full model id, e.g. `gpt-5.5`.
   if (/^\d+(?:\.\d+)*(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$/.test(trimmed)) {

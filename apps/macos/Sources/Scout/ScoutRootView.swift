@@ -1041,7 +1041,7 @@ struct ScoutRootView: View {
         guard harness.lowercased() == "codex" else { return model?.nilIfEmpty }
         guard let model = model?.nilIfEmpty else { return "gpt-5.6-sol" }
         let lower = model.lowercased()
-        if lower == "gpt-5.6" || lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
+        if lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
             return "gpt-5.6-sol"
         }
         return model
@@ -1435,7 +1435,7 @@ struct ScoutRootView: View {
     private var sidebarEntries: [HudSidebarEntry<ScoutSection>] {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
-            .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
+            .item(HudSidebarItem(id: .agents, title: "Projects", icon: "folder", selectedIcon: "folder.fill")),
             .item(HudSidebarItem(id: .terminals, title: "Terminals", icon: "terminal", selectedIcon: "terminal")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
             .item(HudSidebarItem(id: .dispatch, title: "Dispatch", icon: "paperplane", selectedIcon: "paperplane.fill")),
@@ -1462,7 +1462,7 @@ struct ScoutRootView: View {
                 }
             }
         ]
-        if section != .settings && section != .terminals {
+        if section != .settings && section != .terminals && section != .agents {
             actions.append(HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
@@ -1495,7 +1495,7 @@ struct ScoutRootView: View {
         case .comms:
             commsContent(layout: layout)
         case .agents:
-            agentsContent
+            projectsContent
         case .terminals:
             terminalContent
         case .repos:
@@ -1515,6 +1515,10 @@ struct ScoutRootView: View {
 
     private var settingsContent: some View {
         ScoutSettingsView(appearance: appearance)
+    }
+
+    private var projectsContent: some View {
+        ScoutWebEmbedContent(surface: .projects, showsHeader: false)
     }
 
     private var terminalContent: some View {
@@ -2286,6 +2290,14 @@ struct ScoutRootView: View {
                         // as the thread filling in, not a bounce through zero.
                         if store.isLoadingMessages, store.selectedChannel != nil {
                             ScoutThreadLoadingSkeleton()
+                                .transition(.opacity)
+                        } else if let activeTurn = store.activeTurn {
+                            // Organic harness turns can be live before Scout has
+                            // a visible transcript message. The rolling activity
+                            // summary is the conversation in that state; do not
+                            // replace it with a misleading empty-chat panel.
+                            ScoutInFlightTurnRow(turn: activeTurn)
+                                .id(Self.activeTurnAnchor)
                                 .transition(.opacity)
                         } else {
                             HudEmptyState(
@@ -3484,7 +3496,7 @@ struct ScoutRootView: View {
     }
 
     private func showsDefaultInspector(layout: ScoutShellLayout) -> Bool {
-        guard section != .terminals else { return false }
+        guard section != .terminals && section != .agents else { return false }
         guard !inspectorCollapsed else { return false }
         return !layout.autoHidesInspector || compactInspectorPresented
     }

@@ -89,6 +89,7 @@ const ADOPTED_SCOUT_PREFIXES: ReadonlyArray<{ path: string; view: Route["view"] 
   { path: "repos", view: "repos" },
   { path: "harnesses", view: "harnesses" },
   { path: "mesh", view: "mesh" },
+  { path: "dispatch", view: "broker" },
   { path: "broker", view: "broker" },
   { path: "activity", view: "activity" },
   { path: "search", view: "search" },

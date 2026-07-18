@@ -1,5 +1,10 @@
 name: Scout
 packages:
+  Termini:
+    # Local checkout pinned to the same commit as the old github revision
+    # (5f337c1). Shared with hudson's `../Termini` so SwiftPM resolves ONE
+    # Termini node with HudsonTerminal's local-path dependency.
+    path: ../../../Termini
   Hudson:
     path: ../../../hudson           # local SPM package; products HudsonShell, HudsonUI
   ScoutNativeCore:
@@ -35,11 +40,17 @@ targets:
       - package: Hudson
         product: HudsonUI
       - package: Hudson
+        product: HudsonUIWeb       # Embedded Lanes + Dispatch mission-control surfaces
+      - package: Hudson
         product: HudsonUICapture   # QR scanner (split out by the optional-iOS-features refactor)
       - package: Hudson
         product: HudsonVoice       # Embedded VoxEngine/Parakeet dictation; no Vox service runtime
       - package: Hudson
-        product: HudsonTerminal    # SSH session, renderer, and hosted terminal keyboard
+        product: HudsonTerminal    # Termini SSH/PTY surface — requires HUDSONKIT_WITH_TERMINAL=1 at SwiftPM eval
+      - package: Hudson
+        product: HudsonUIKeyboard  # HudHostedKeyboard — in-app terminal keyboard
+      - package: Termini
+        product: TerminiSSH        # TerminiConnectionConfig / TerminiSSHWorkspace for the live Terminal tab
       - package: ScoutNativeCore
         product: ScoutCapabilities
       - package: ScoutIOSCore

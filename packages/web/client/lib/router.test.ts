@@ -420,12 +420,14 @@ describe("agents route parsing", () => {
       "repos",
       "harnesses",
       "mesh",
-      "broker",
       "activity",
     ] as const) {
       expect(routeFromUrl(`http://127.0.0.1:43120/${view}`)).toEqual({ view });
       expect(routePath({ view })).toBe(`/${view}`);
     }
+    expect(routeFromUrl("http://127.0.0.1:43120/dispatch")).toEqual({ view: "broker" });
+    expect(routeFromUrl("http://127.0.0.1:43120/broker")).toEqual({ view: "broker" });
+    expect(routePath({ view: "broker" })).toBe("/dispatch");
     expect(routeFromUrl("http://127.0.0.1:43120/channels/chan-1")).toEqual({
       view: "channels",
       channelId: "chan-1",

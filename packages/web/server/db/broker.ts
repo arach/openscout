@@ -56,6 +56,10 @@ type DeliveryRow = {
   sort_id: string;
   ts: number;
   message_id: string | null;
+  message_actor_id: string | null;
+  message_actor_name: string | null;
+  message_body: string | null;
+  message_metadata_json: string | null;
   invocation_id: string | null;
   target_id: string;
   transport: string;
@@ -179,6 +183,20 @@ function whereClause(parts: string[]): string {
 function countSql(sql: string, ...params: SQLQueryBindings[]): number {
   const row = db().prepare(sql).get(...params) as { count: number } | undefined;
   return row?.count ?? 0;
+}
+
+function queryMessageProjectionWatermark(): { count: number; latestAt: number | null } {
+  const createdAtExpression = sqlTimestampMsExpression("m.created_at");
+  const row = db()
+    .prepare(
+      `SELECT COUNT(*) AS count, MAX(${createdAtExpression}) AS latest_at
+       FROM messages m`,
+    )
+    .get() as { count: number; latest_at: number | null } | undefined;
+  return {
+    count: row?.count ?? 0,
+    latestAt: normalizeTimestampMs(row?.latest_at) ?? null,
+  };
 }
 
 function compareHistoryRows(left: { ts: number; id: string }, right: { ts: number; id: string }): number {
@@ -423,6 +441,10 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          ${sortIdExpression} AS sort_id,
          ${tsExpression} AS ts,
          d.message_id,
+         m.actor_id AS message_actor_id,
+         sender.display_name AS message_actor_name,
+         m.body AS message_body,
+         m.metadata_json AS message_metadata_json,
          d.invocation_id,
          d.target_id,
          d.transport,
@@ -434,6 +456,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          ac.display_name AS actor_name
        FROM deliveries d
        LEFT JOIN messages m ON m.id = d.message_id
+       LEFT JOIN actors sender ON sender.id = m.actor_id
        LEFT JOIN actors ac ON ac.id = d.target_id
        ${whereClause(predicates)}
        ORDER BY ts DESC, sort_id ASC
@@ -444,6 +467,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
 
 function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
   const deliveryMetadata = parseJson<Record<string, unknown> | null>(row.metadata_json, null);
+  const messageMetadata = parseJson<Record<string, unknown> | null>(row.message_metadata_json, null);
   const failureReason = metadataString(deliveryMetadata, "failureReason");
   const failureDetail = metadataString(deliveryMetadata, "failureDetail");
   const reconciledReason = metadataString(deliveryMetadata, "reconciledReason");
@@ -453,10 +477,10 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
     kind: "failed_delivery",
     status: row.status,
     ts: normalizeTimestampMs(row.ts) ?? row.ts,
-    actorName: row.actor_name,
+    actorName: row.message_actor_name ?? row.message_actor_id ?? row.actor_name,
     target: row.target_id,
-    route: row.transport,
-    detail: row.reason,
+    route: metadataRoute(messageMetadata) ?? row.transport,
+    detail: row.message_body ? shortBrokerBody(row.message_body) : row.reason,
     conversationId: row.conversation_id,
     messageId: row.message_id,
     deliveryId: row.id,
@@ -477,6 +501,7 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
       ...(failureDetail ? { failureDetail } : {}),
       ...(reconciledReason ? { reconciledReason } : {}),
       raw: {
+        message: messageMetadata,
         delivery: {
           id: row.id,
           messageId: row.message_id,
@@ -580,6 +605,7 @@ export function queryBrokerDiagnostics(opts?: {
   const dispatchAtExpression = sqlTimestampMsExpression("sd.dispatched_at");
   const deliveryCreatedAtExpression = sqlTimestampMsExpression("d.created_at");
   const attemptCreatedAtExpression = sqlTimestampMsExpression("da.created_at");
+  const projectionMessages = queryMessageProjectionWatermark();
 
   const dialoguePage = paginateHistory(
     queryMessageRows({
@@ -661,6 +687,15 @@ export function queryBrokerDiagnostics(opts?: {
   return {
     generatedAt: now,
     windowMs,
+    source: {
+      mode: "sqlite_projection",
+      status: "unknown",
+      latestMessageAt: projectionMessages.latestAt,
+      projectionLatestMessageAt: projectionMessages.latestAt,
+      liveMessageCount: null,
+      projectionMessageCount: projectionMessages.count,
+      detail: null,
+    },
     ledger: {
       mode: "latest",
       limit,

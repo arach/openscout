@@ -8,8 +8,8 @@ import UIKit
 
 /// Top-level navigation for Scout. Wraps the active surface in the
 /// `HudPhoneAppShell` (which supplies the NavigationStack + dark Hudson
-/// background) and switches between Home, Agents, Tail, Comms, Terminal, and New
-/// via the docked tab bar.
+/// background) and switches between the native phone surfaces plus iPad-only
+/// Lanes and Dispatch mission control via the docked tab bar.
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var showConnection = false
@@ -33,6 +33,8 @@ struct RootView: View {
         case agents = "Agents"
         case tail = "Tail"
         case comms = "Comms"
+        case lanes = "Lanes"
+        case dispatch = "Dispatch"
         case terminal = "Terminal"
         case new = "New"
 
@@ -48,6 +50,8 @@ struct RootView: View {
             case .agents: return .agent
             case .tail: return .tail
             case .comms: return .comms
+            case .lanes: return .lanes
+            case .dispatch: return .dispatch
             case .terminal: return .terminal
             case .new: return .plus
             }
@@ -102,6 +106,16 @@ struct RootView: View {
                                             surface = .agents
                                         }
                                     },
+                                    onSeeAllActivity: {
+                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                            surface = .comms
+                                        }
+                                    },
+                                    onCompose: {
+                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                            surface = .new
+                                        }
+                                    },
                                     reloadToken: model.fleetDataReadyToken
                                 )
                             case .agents:
@@ -112,6 +126,8 @@ struct RootView: View {
                             case .tail:
                                 TailSurface(model: model, reloadToken: model.fleetDataReadyToken)
                             case .comms:    CommsSurface(model: model, reloadToken: model.fleetDataReadyToken)
+                            case .lanes:    MissionControlSurface(model: model, kind: .lanes)
+                            case .dispatch: MissionControlSurface(model: model, kind: .dispatch)
                             case .terminal: TerminalSurface(
                                 client: client,
                                 diagnostics: terminalDiagnostics,
@@ -124,8 +140,8 @@ struct RootView: View {
                             )
                             case .new:
                                 NewSessionSurface(
+                                    model: model,
                                     client: client,
-                                    targetMachineName: activeMachineName,
                                     reloadToken: model.dataReadyToken,
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
@@ -218,6 +234,8 @@ struct RootView: View {
         case .agents: .agents
         case .tail: .tail
         case .comms: .comms
+        case .lanes: .lanes
+        case .dispatch: .dispatch
         case .terminal: .terminal
         case .new: .new
         }
@@ -229,17 +247,27 @@ struct RootView: View {
     /// set, which the shared `HudLiquidBarTabRow` can't (it takes SF Symbol
     /// strings only). Selection chrome mirrors the shared component exactly.
     private func dockedTabBar(_ layout: ScoutLayoutMetrics) -> some View {
-        HStack(spacing: HudSpacing.sm) {
-            ForEach(Surface.allCases) { tabButton($0, layout: layout) }
+        // Give every tab an EXPLICIT equal width derived from the design width, so
+        // the label shrinks (via minimumScaleFactor) to fit its column instead of
+        // holding its intrinsic width. `maxWidth: .infinity` alone let the long
+        // labels ("Terminal") keep their ideal size, so six columns overflowed
+        // 393pt and the trailing "New" tab clipped off the right edge.
+        let tabs = visibleSurfaces(layout)
+        let hPad = layout.tabBarHorizontalPadding
+        let tabWidth = max(0, (layout.designWidth - hPad * 2) / CGFloat(max(1, tabs.count)))
+        return HStack(spacing: 0) {
+            ForEach(tabs) { tabButton($0, layout: layout, width: tabWidth) }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, layout.tabBarTopPadding)
-        .padding(.horizontal, layout.tabBarHorizontalPadding)
+        .padding(.horizontal, hPad)
         .background(alignment: .top) {
             Rectangle()
-                // Light, glassy translucency — frosted blur that lets the
-                // content scroll through softly underneath.
-                .fill(.ultraThinMaterial)
+                // Solid near-black chrome, the studio way — an opaque bar, not a
+                // frosted-glass wash (the translucency read as a flat grey slab
+                // over the dark canvas). Separation comes from the lit lip +
+                // upward shadow, not translucency.
+                .fill(HudPalette.bg)
                 // Lift the studio way (cf. `scoutCard`): a SOLID lifted-tone top
                 // edge (`cardEdgeTop`), never a glossy white sheen. Crisp 1.5pt
                 // lit lip — a sharp raised edge, not a soft bevel.
@@ -254,6 +282,13 @@ struct RootView: View {
                 .shadow(color: Color.black.opacity(0.6), radius: 11, y: -6)
         }
         .environment(\.colorScheme, .dark)
+    }
+
+    /// Preserve the six-tab phone layout; mission control earns dedicated tabs
+    /// only at iPad width, where its dense web canvases are actually useful.
+    private func visibleSurfaces(_ layout: ScoutLayoutMetrics) -> [Surface] {
+        if layout.physicalWidth >= 700 { return Surface.allCases }
+        return Surface.allCases.filter { $0 != .lanes && $0 != .dispatch }
     }
 
     /// Leading run of the bottom status bar: how and where we're connected — the
@@ -344,7 +379,7 @@ struct RootView: View {
     }
 
     @ViewBuilder
-    private func tabButton(_ s: Surface, layout: ScoutLayoutMetrics) -> some View {
+    private func tabButton(_ s: Surface, layout: ScoutLayoutMetrics, width: CGFloat) -> some View {
         let isSelected = surface == s
         Button {
             guard surface != s else { return }
@@ -358,11 +393,17 @@ struct RootView: View {
                 Text(s.rawValue)
                     .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
                     .lineLimit(1)
+                    // Shrink a hair rather than clip: guarantees the longest labels
+                    // ("Terminal"/"Agents") still fit six-across at native width.
+                    .minimumScaleFactor(0.75)
             }
+            .padding(.horizontal, 1)
             // Active state is carried entirely by the accent glyph + label — no
             // indicator bar.
             .foregroundStyle(isSelected ? HudPalette.accent : ScoutInk.muted)
-            .frame(maxWidth: .infinity)
+            // Explicit equal column width (not maxWidth) so labels shrink to fit
+            // rather than overflowing the bar.
+            .frame(width: width)
             .frame(height: layout.tabButtonHeight)
             .contentShape(Rectangle())
         }
@@ -372,16 +413,17 @@ struct RootView: View {
     }
 
     private func titleBar(_ layout: ScoutLayoutMetrics) -> some View {
-        // Center-aligned so the trailing complications (status pill + gear button)
-        // sit on one axis with the Scout wordmark.
-        // Editorial: the wordmark row over a refined neutral hairline, so the
-        // header reads as a deliberate masthead rather than floating chrome.
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            HStack(spacing: HudSpacing.md) {
-                Text("Scout")
-                    .font(HudFont.ui(layout.wordmarkSize, weight: .semibold))
+        // A quiet masthead, lifted from the studio: a thin all-caps SCOUT
+        // wordmark paired with two small circular complications (compose · gear)
+        // over a refined hairline — no logo tile, no heavy weight.
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            HStack(spacing: HudSpacing.sm) {
+                Text("SCOUT")
+                    .font(HudFont.ui(layout.wordmarkSize, weight: .light))
+                    .tracking(3)
                     .foregroundStyle(HudPalette.ink)
-                Spacer()
+                machineArea
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 settingsButton
             }
             Rectangle()
@@ -394,13 +436,73 @@ struct RootView: View {
         .padding(.bottom, layout.titleBottomPadding)
     }
 
+    /// Host area next to the wordmark — which connected Mac you're looking at.
+    /// One paired Mac → a single compact host chip (an indicator, not a filter).
+    /// More than one → a horizontally-scrollable filter: "All" plus each Mac,
+    /// the active one lit. Nothing until at least one Mac is paired.
+    @ViewBuilder
+    private var machineArea: some View {
+        let machines = model.pairedMachines
+        if machines.count == 1 {
+            hostChip(name: machines[0].name, online: machines[0].isOnline, selected: false, action: nil)
+        } else if machines.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: HudSpacing.xs) {
+                    hostChip(
+                        name: "All",
+                        online: machines.contains(where: \.isOnline),
+                        selected: model.machineFilter == .all
+                    ) { Task { await model.selectMachineFilter(.all) } }
+                    ForEach(machines) { machine in
+                        hostChip(
+                            name: machine.name,
+                            online: machine.isOnline,
+                            selected: model.machineFilter == .machine(machine.id)
+                        ) { Task { await model.selectMachineFilter(.machine(machine.id)) } }
+                    }
+                }
+                .padding(.trailing, HudSpacing.sm)
+            }
+        }
+    }
+
+    /// One host chip: an online dot + name in a capsule. `selected` signals the
+    /// active filter through contrast (lifted fill, ink text, brighter edge) — no
+    /// accent, so the row stays calm. Tappable only when an action is supplied.
+    @ViewBuilder
+    private func hostChip(name: String, online: Bool, selected: Bool, action: (() -> Void)?) -> some View {
+        let chip = HStack(spacing: HudSpacing.xs) {
+            Circle()
+                .fill(online ? HudPalette.accent : ScoutInk.dim)
+                .frame(width: 5, height: 5)
+            Text(name)
+                .font(HudFont.mono(10.5, weight: .medium))
+                .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 92, alignment: .leading)
+        }
+        .padding(.horizontal, HudSpacing.sm)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
+        .overlay(Capsule().stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+
+        if let action {
+            Button(action: action) { chip }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Filter host \(name)")
+        } else {
+            chip.accessibilityLabel("Host \(name)")
+        }
+    }
+
     /// Settings as a contained icon complication — an inset circular button so it
-    /// reads as a control paired with the status pill, not a stray glyph.
+    /// reads as a control paired with the host area, not a stray glyph.
     private var settingsButton: some View {
         Button { showSettings = true } label: {
-            Glyphic(kind: .gear, size: 21)
+            Glyphic(kind: .gear, size: 16)
                 .foregroundStyle(ScoutInk.muted)
-                .frame(width: 38, height: 38)
+                .frame(width: 30, height: 30)
                 .background(Circle().fill(ScoutSurface.inset))
                 .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
         }

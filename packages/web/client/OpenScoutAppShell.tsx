@@ -652,21 +652,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
-  // The agents directory has nothing "in context" until an agent is engaged.
-  // Selecting a project row opens its inspector; the user can still collapse it
-  // afterward because this effect only runs when the selected row changes.
+  // Directory surfaces have nothing "in context" until a row is engaged, so
+  // the inspector loads minimized there and opens itself when a concrete agent,
+  // thread, or session enters context. This only overrides the rendered collapse
+  // — the stored preference is untouched, so engaged views keep their state.
   const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
+  const projectsHaveNothingInContext = route.view === "agents-v2"
+    && !route.agentId
+    && !route.selectedAgentId
+    && !route.sessionId;
   const agentsV2Route = route.view === "agents-v2";
-  const agentsV2Registry = route.view === "agents-v2" && !route.agentId;
-  const projectsPeekKey = agentsV2Registry
-    ? route.selectedAgentId ?? route.sessionId ?? null
-    : null;
-  useEffect(() => {
-    if (projectsPeekKey) setRightCollapsed(false);
-  }, [projectsPeekKey, setRightCollapsed]);
-  const effectiveRightCollapsed = agentsV2Registry
-    ? rightCollapsed
-    : rightCollapsed || inspectorHasNothingInContext;
+  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext || projectsHaveNothingInContext;
 
   const leftPushInset = leftCollapsed ? 0 : leftWidth;
   const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
@@ -761,9 +757,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 icon={app.rightPanel?.icon}
                 isCollapsed={effectiveRightCollapsed}
                 onToggleCollapse={() => {
-                  // Nothing to inspect on the agents directory, so the expand
+                  // Nothing to inspect on an unselected directory, so the expand
                   // affordance is inert there — don't flip the stored preference.
-                  if (inspectorHasNothingInContext) return;
+                  if (inspectorHasNothingInContext || projectsHaveNothingInContext) return;
                   setRightCollapsed(!rightCollapsed);
                 }}
                 width={rightWidth}

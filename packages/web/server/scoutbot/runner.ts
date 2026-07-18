@@ -954,6 +954,8 @@ const SCOUTBOT_REASONING_EFFORTS = new Set<ScoutbotReasoningEffort>([
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ]);
 
 function metadataReasoningEffort(metadata: Record<string, unknown> | undefined): ScoutbotReasoningEffort | undefined {

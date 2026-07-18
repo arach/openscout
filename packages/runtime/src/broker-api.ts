@@ -66,12 +66,18 @@ export type ScoutBrokerChildServiceSnapshots = {
   [name: string]: ScoutBrokerChildServiceSnapshot | undefined;
 };
 
+export type ScoutBrokerProjectionStatus = {
+  state: "ready" | "degraded" | "disabled";
+  detail: string | null;
+};
+
 export type ScoutBrokerHealthPayload = {
   ok: boolean;
   nodeId: string | null;
   meshId: string | null;
   build?: ScoutBrokerBuildIdentity;
   services?: ScoutBrokerChildServiceSnapshots;
+  projection?: ScoutBrokerProjectionStatus;
   counts: {
     nodes: number;
     actors: number;

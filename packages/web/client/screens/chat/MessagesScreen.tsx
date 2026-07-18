@@ -11,6 +11,12 @@ import {
   machineScopedAgentIds,
 } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
+import {
+  isUnread,
+  loadLastViewedMap,
+  saveLastViewed,
+  type LastViewedMap,
+} from "../../lib/sessionRead.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Route, SessionEntry } from "../../lib/types.ts";
@@ -19,44 +25,7 @@ import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
 
-type ConversationGridCardSize = "compact" | "medium" | "chat";
-
-const CONVERSATION_GRID_SIZE_STORAGE_KEY = "openscout:conversation-grid-card-sizes:v1";
-const CONVERSATION_GRID_SIZE_OPTIONS: Array<{
-  value: ConversationGridCardSize;
-  label: string;
-  title: string;
-}> = [
-  { value: "compact", label: "1", title: "Compact card" },
-  { value: "medium", label: "2", title: "Medium card" },
-  { value: "chat", label: "4", title: "2×2 chat panel" },
-];
-
-function loadConversationGridCardSizes(): Record<string, ConversationGridCardSize> {
-  if (typeof window === "undefined") return {};
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(CONVERSATION_GRID_SIZE_STORAGE_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object") return {};
-    const next: Record<string, ConversationGridCardSize> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (value === "compact" || value === "medium" || value === "chat") {
-        next[key] = value;
-      }
-    }
-    return next;
-  } catch {
-    return {};
-  }
-}
-
-function saveConversationGridCardSizes(sizes: Record<string, ConversationGridCardSize>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(CONVERSATION_GRID_SIZE_STORAGE_KEY, JSON.stringify(sizes));
-  } catch {
-    // Best-effort layout persistence.
-  }
-}
+const RECENT_LIMIT = 6;
 
 export function MessagesScreen({
   conversationId,
@@ -93,9 +62,7 @@ function MessagesEmptyState({
 }) {
   const { onlineCount, apiConnection, reload, route, agents, openContextCapture } = useScout();
   const [conversations, setConversations] = useState<SessionEntry[]>([]);
-  const [cardSizes, setCardSizes] = useState<Record<string, ConversationGridCardSize>>(() =>
-    loadConversationGridCardSizes()
-  );
+  const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const apiOffline = apiConnection.status === "offline";
@@ -131,66 +98,104 @@ function MessagesEmptyState({
     }
   });
 
-  const recentConversations = useMemo(() => {
+  const scopedConversations = useMemo(() => {
     return [...filterSessionsByMachineScope(conversations, scopedAgentIds, machineId)]
       .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
   }, [conversations, scopedAgentIds, machineId]);
 
-  const openConversation = (conversationId: string) => {
+  const { unreadConversations, recentConversations } = useMemo(() => {
+    const unread = scopedConversations.filter((s) =>
+      isUnread(s.lastMessageAt, s.id, lastViewed),
+    );
+    const unreadIds = new Set(unread.map((s) => s.id));
+    const recent = scopedConversations
+      .filter((s) => !unreadIds.has(s.id))
+      .slice(0, RECENT_LIMIT);
+    return { unreadConversations: unread, recentConversations: recent };
+  }, [scopedConversations, lastViewed]);
+
+  const openConversation = (conversation: SessionEntry) => {
+    setLastViewed(saveLastViewed(conversation.id));
+    if (isGroupConversation(conversation)) {
+      navigate({ view: "channels", channelId: conversation.id });
+      return;
+    }
     navigate({
       view: "messages",
-      conversationId,
+      conversationId: conversation.id,
       ...(route.view === "messages" && route.filter ? { filter: route.filter } : {}),
       ...(route.view === "messages" && route.sort ? { sort: route.sort } : {}),
     });
   };
 
-  const setConversationCardSize = useCallback((conversationId: string, size: ConversationGridCardSize) => {
-    setCardSizes((current) => {
-      const next = { ...current };
-      if (size === "compact") delete next[conversationId];
-      else next[conversationId] = size;
-      saveConversationGridCardSizes(next);
-      return next;
-    });
-  }, []);
+  const focusRailFilter = () => {
+    const input = document.querySelector<HTMLInputElement>(".ctx-panel-search-input");
+    if (!input) return;
+    input.focus();
+    input.select();
+  };
 
-  if (!apiOffline && !error && recentConversations.length > 0) {
+  if (!apiOffline && !error && scopedConversations.length > 0) {
     return (
-      <div className="s-conv-grid-shell">
-        <div className="s-conv-grid-head">
-          <div>
-            <div className="s-conv-grid-eyebrow">Conversations</div>
-            <h1>Recent chats</h1>
-            <p>All chats sorted by latest message. Promote any card into a medium tile or a 2×2 live chat panel.</p>
-          </div>
-          <div className="s-conv-grid-actions">
-            <button
-              type="button"
-              className="s-conv-grid-new"
-              onClick={() => openContextCapture()}
-            >
-              <Plus size={16} aria-hidden="true" />
-              New chat
-            </button>
-            <div className="s-conv-grid-count">
-              <strong>{recentConversations.length}</strong>
-              <span>{recentConversations.length === 1 ? "chat" : "chats"}</span>
-            </div>
-          </div>
+      <div className="s-conv-board">
+        <div className="s-conv-board-shortcuts">
+          <button
+            type="button"
+            className="s-conv-board-shortcut"
+            onClick={() => openContextCapture()}
+          >
+            ＋ new chat
+          </button>
+          <button
+            type="button"
+            className="s-conv-board-shortcut"
+            onClick={focusRailFilter}
+          >
+            ⌕ search conversations
+          </button>
+          <button
+            type="button"
+            className="s-conv-board-shortcut"
+            onClick={() => navigate({ view: "channels" })}
+          >
+            ＃ browse channels
+          </button>
         </div>
-        <div className="s-conv-grid" aria-label="Recent conversations">
+
+        {unreadConversations.length > 0 && (
+          <section className="s-conv-board-section" aria-label="Unread">
+            <div className="s-conv-board-section-head">
+              <span>Unread</span>
+              <span className="s-conv-board-count">{unreadConversations.length}</span>
+            </div>
+            {unreadConversations.map((conversation) => (
+              <EditorialRow
+                key={conversation.id}
+                conversation={conversation}
+                unread
+                onOpen={() => openConversation(conversation)}
+              />
+            ))}
+          </section>
+        )}
+
+        <section className="s-conv-board-section" aria-label="Recent">
+          <div className="s-conv-board-section-head">
+            <span>Recent</span>
+            <span className="s-conv-board-count">{recentConversations.length}</span>
+          </div>
           {recentConversations.map((conversation) => (
-            <ConversationGridCard
+            <EditorialRow
               key={conversation.id}
               conversation={conversation}
-              navigate={navigate}
-              size={cardSizes[conversation.id] ?? "compact"}
-              onOpen={() => openConversation(conversation.id)}
-              onSizeChange={(size) => setConversationCardSize(conversation.id, size)}
+              onOpen={() => openConversation(conversation)}
             />
           ))}
-        </div>
+        </section>
+
+        <p className="s-conv-board-note">
+          the rail owns the full list — filters and grouping live there
+        </p>
       </div>
     );
   }
@@ -215,7 +220,7 @@ function MessagesEmptyState({
           {apiOffline
             ? "Start or restart Scout services. Chats and context will appear when the server responds."
             : loading
-              ? "Fetching your recent conversation grid."
+              ? "Fetching your recent conversations."
               : error
                 ? error
                 : "Start a chat by choosing an agent and sending the first message."}
@@ -257,91 +262,32 @@ function MessagesEmptyState({
   );
 }
 
-function ConversationGridCard({
+function EditorialRow({
   conversation,
-  navigate,
-  size,
+  unread,
   onOpen,
-  onSizeChange,
 }: {
   conversation: SessionEntry;
-  navigate: (route: Route) => void;
-  size: ConversationGridCardSize;
+  unread?: boolean;
   onOpen: () => void;
-  onSizeChange: (size: ConversationGridCardSize) => void;
 }) {
   const title = conversationDisplayTitle(conversation);
-  const kind = conversation.kind.replace(/_/g, " ");
-  const subline = conversationGridSubline(conversation);
-  const lastMessage = conversation.lastMessageAt ? timeAgo(conversation.lastMessageAt) : "No messages";
-  const preview = conversation.preview?.trim() || "No preview yet";
-  const isChatPanel = size === "chat";
+  const preview = conversation.preview?.trim() || "";
+  const ago = conversation.lastMessageAt ? timeAgo(conversation.lastMessageAt) : "";
 
   return (
-    <article
-      className={`s-conv-grid-card s-conv-grid-card--${conversation.kind.replace(/_/g, "-")} s-conv-grid-card--size-${size}`}
-    >
-      <div className="s-conv-grid-card-top">
-        <span className="s-conv-grid-card-kind">{kind}</span>
-        <span className="s-conv-grid-card-time">{lastMessage}</span>
-      </div>
-      <div className="s-conv-grid-card-heading">
-        <button
-          type="button"
-          className="s-conv-grid-card-title"
-          title={title}
-          onClick={onOpen}
-        >
-          {title}
-        </button>
-        <div className="s-conv-grid-size-controls" aria-label={`Tile size for ${title}`}>
-          {CONVERSATION_GRID_SIZE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`s-conv-grid-size-option${size === option.value ? " s-conv-grid-size-option--active" : ""}`}
-              title={option.title}
-              aria-pressed={size === option.value}
-              onClick={() => onSizeChange(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {isChatPanel ? (
-        <div className="s-conv-grid-card-chat">
-          <ConversationScreen
-            conversationId={conversation.id}
-            navigate={navigate}
-            embedded
-            showBackNav={false}
-          />
-        </div>
-      ) : (
-        <>
-          <span className="s-conv-grid-card-sub" title={subline}>{subline}</span>
-          <span className="s-conv-grid-card-preview">{preview}</span>
-          <span className="s-conv-grid-card-foot">
-            <span>{conversation.messageCount} {conversation.messageCount === 1 ? "msg" : "msgs"}</span>
-            {isGroupConversation(conversation) ? (
-              <span>{conversation.participantIds.length} participants</span>
-            ) : null}
-          </span>
-        </>
-      )}
-    </article>
+    <button type="button" className="s-conv-board-row" onClick={onOpen}>
+      <span className="s-conv-board-row-main">
+        <span className="s-conv-board-row-title">{title}</span>
+        {preview ? <span className="s-conv-board-preview">{preview}</span> : null}
+      </span>
+      <span className="s-conv-board-meta">
+        {unread ? <em className="s-conv-board-new">new</em> : null}
+        {ago ? <time>{ago}</time> : null}
+        {!unread ? <span className="s-conv-board-arrow" aria-hidden="true">↗</span> : null}
+      </span>
+    </button>
   );
-}
-
-function conversationGridSubline(conversation: SessionEntry): string {
-  const bits = [
-    conversation.agentName,
-    conversation.currentBranch,
-    conversation.workspaceRoot,
-  ].filter((value): value is string => Boolean(value));
-  if (bits.length > 0) return bits.join(" · ");
-  return `${conversation.participantIds.length} participant${conversation.participantIds.length === 1 ? "" : "s"}`;
 }
 
 /** Quiet constellation echo of the brand mesh motif — six nodes, thin links,

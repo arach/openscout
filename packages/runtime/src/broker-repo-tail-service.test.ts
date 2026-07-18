@@ -244,4 +244,33 @@ describe("BrokerRepoTailService", () => {
       ],
     });
   });
+
+  test("keeps Cursor process samples out of the presented tail only", async () => {
+    const harness = createHarness({
+      liveEvents: [
+        tailEvent({
+          id: "cursor-sample",
+          ts: 10,
+          source: "cursor",
+          kind: "system",
+          summary: "process sample · openscout, vox",
+          raw: { rows: [{ processName: "Cursor Helper openscout" }] },
+        }),
+        tailEvent({
+          id: "cursor-activity",
+          ts: 20,
+          source: "cursor",
+          kind: "system",
+          summary: "agent process exited",
+        }),
+      ],
+      now: 42_000,
+    });
+
+    const payload = await harness.service.readTailRecentPayload(
+      new URL("http://test/v1/tail/recent?limit=50"),
+    );
+
+    expect(payload.events.map((event) => event.id)).toEqual(["cursor-activity"]);
+  });
 });

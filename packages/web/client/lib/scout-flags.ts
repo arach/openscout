@@ -2,23 +2,21 @@
 // (`hudsonkit/flags`). This is the single source of truth for which web
 // surfaces are gated and how.
 //
-// Three families, per docs/eng/web-launch-surface-triage.md:
-//   • nav.*      tier "everyone", default OFF — the launch LAYOUT switch.
-//                `nav.clean` swaps the full nav for the lean macOS-mirroring
-//                core (Home · Agents · Chat · Tail · Dispatch · Repos). One flip
-//                ships the whole lean reorg; flip it on per-deploy/per-user.
-//   • surface.*  tier "everyone", default OFF — pure declutter for the lean
-//                launch. Flipped on per-deploy/per-user as a surface matures.
+// Two families, per docs/eng/web-launch-surface-triage.md:
+//   • surface.*  tier "everyone", default OFF — pure declutter. Flipped on
+//                per-deploy/per-user as a surface matures.
 //   • ops.*      tier "power", default ON but audience-gated — the ops /
 //                observability cluster. Visible to power audiences, hidden for
 //                a clean public launch. "Gated by who you are", not a URL flag.
 // Core surfaces (Agents · Chat · Tail · Dispatch · Repos + Home/Settings) carry
 // no flag — they always render.
 //
-// `ops.control` gates the Ops top-level entry (replacing the old `isOpsEnabled()`
-// URL boolean); `nav.clean` swaps the primary nav layout. The remaining
-// surface.*/ops.* keys are declared so the dev panel + registry are complete;
-// the per-surface gating that makes each one bite is follow-up work.
+// The nav is single-personality (Home · Projects · Sessions · Chat + System
+// dropdown); the old `nav.clean` layout switch is gone. `ops.control` gates
+// the ops section of that dropdown (replacing the old `isOpsEnabled()` URL
+// boolean). The remaining surface.*/ops.* keys are declared so the dev panel +
+// registry are complete; the per-surface gating that makes each one bite is
+// follow-up work.
 
 import {
   createFlagRegistry,
@@ -82,17 +80,6 @@ const SURFACE_FLAG_KEYS = [
 ] as const;
 
 export const scoutFlags = createFlagRegistry({
-  // ── nav.* — primary navigation layout ─────────────────────────────────
-  "nav.clean": {
-    label: "Nav · Clean",
-    description:
-      "Lean launch nav — Home · Agents · Chat · Tail · Dispatch · Repos (mirrors the macOS core). Promotes Tail/Dispatch/Repos to top level; drops Search + the rest of Ops off the primary bar (still reachable via the Ops subnav + command palette).",
-    defaultEnabled: false,
-    tier: "everyone",
-    owner: "scout-web",
-    tags: ["nav", "launch"],
-  },
-
   // ── ops.* — power surfaces, audience-gated ────────────────────────────
   "ops.control": {
     label: "Ops · Control",
@@ -265,7 +252,6 @@ export function scoutFlagBundleLayer(bundle: ScoutFlagBundle): FeatureFlagLayerI
       return {
         audience: "everyone",
         flags: {
-          "nav.clean": true,
           ...flagValues(OPS_FLAG_KEYS, false),
           ...flagValues(SURFACE_FLAG_KEYS, false),
         },
@@ -274,7 +260,6 @@ export function scoutFlagBundleLayer(bundle: ScoutFlagBundle): FeatureFlagLayerI
       return {
         audience: "power",
         flags: {
-          "nav.clean": false,
           ...flagValues(OPS_FLAG_KEYS, true),
           ...flagValues(SURFACE_FLAG_KEYS, true),
         },
@@ -359,7 +344,7 @@ function scoutStoredBundleLayer(): FeatureFlagLayerInput<ScoutAudienceTier> {
 }
 
 // The out-of-the-box experience. With nothing else set we serve the lean
-// `light-prod` bundle (clean nav, ops/surface extras off) as the baseline; the
+// `light-prod` bundle (ops/surface extras off) as the baseline; the
 // full experience is opt-in via `?ffBundle=max-pro` (one load), `?ffGlobal=max-pro`
 // (pinned for the browser), or the dev panel. `OPENSCOUT_WEB_FLAG_BUNDLE` on the
 // server still wins over this default. This is the lowest-priority layer —

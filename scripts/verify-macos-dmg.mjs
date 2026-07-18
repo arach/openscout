@@ -73,6 +73,63 @@ function codesignIdentifier(bundlePath) {
   return match[1].trim();
 }
 
+function codesignTeamIdentifier(codePath) {
+  const output = run('codesign', ['-dvv', codePath]);
+  const match = output.match(/^TeamIdentifier=(.+)$/m);
+  if (!match) {
+    throw new Error(`Could not read codesign team identifier for ${codePath}`);
+  }
+  return match[1].trim();
+}
+
+function executableRpaths(executablePath) {
+  const output = run('otool', ['-l', executablePath]);
+  return Array.from(output.matchAll(/^\s*path (.+) \(offset \d+\)$/gm), match => match[1]);
+}
+
+function resolveExecutablePath(value, executablePath) {
+  const executableDir = path.dirname(executablePath);
+  return value
+    .replace(/^@executable_path(?=\/|$)/, executableDir)
+    .replace(/^@loader_path(?=\/|$)/, executableDir);
+}
+
+function verifyRpathFramework(bundlePath, frameworkName, { skipCodesign }) {
+  const plistPath = path.join(bundlePath, 'Contents', 'Info.plist');
+  const executableName = plistValue(plistPath, 'CFBundleExecutable');
+  const executablePath = path.join(bundlePath, 'Contents', 'MacOS', executableName);
+  if (!existsSync(executablePath)) {
+    throw new Error(`${path.basename(bundlePath)} is missing executable ${executableName}`);
+  }
+
+  const dependencyPrefix = `@rpath/${frameworkName}/`;
+  const dependency = run('otool', ['-L', executablePath])
+    .split('\n')
+    .map(line => line.trim().split(' (compatibility version', 1)[0])
+    .find(value => value.startsWith(dependencyPrefix));
+  if (!dependency) {
+    throw new Error(`${path.basename(bundlePath)} does not link ${frameworkName} through @rpath`);
+  }
+
+  const relativeDependency = dependency.slice('@rpath/'.length);
+  const resolvedDependency = executableRpaths(executablePath)
+    .map(rpath => path.join(resolveExecutablePath(rpath, executablePath), relativeDependency))
+    .find(candidate => existsSync(candidate));
+  if (!resolvedDependency) {
+    throw new Error(`${path.basename(bundlePath)} cannot resolve ${dependency}; embed ${frameworkName} under Contents/Frameworks and add @executable_path/../Frameworks to LC_RPATH`);
+  }
+
+  if (!skipCodesign) {
+    const executableTeam = codesignTeamIdentifier(executablePath);
+    const frameworkTeam = codesignTeamIdentifier(resolvedDependency);
+    if (frameworkTeam !== executableTeam) {
+      throw new Error(`${frameworkName} team identifier is ${frameworkTeam}; expected ${executableTeam} to satisfy hardened runtime library validation`);
+    }
+  }
+
+  console.log(`OK ${frameworkName} ${path.relative(bundlePath, resolvedDependency)}`);
+}
+
 function verifyBundle(bundlePath, expectedIdentifier, { skipCodesign }) {
   const plistPath = path.join(bundlePath, "Contents", "Info.plist");
   if (!existsSync(plistPath)) {
@@ -140,6 +197,7 @@ function main() {
 
     verifyBundle(appPath, "app.openscout.scout", options);
     verifyBundle(helperPath, "app.openscout.scout.menu", options);
+    verifyRpathFramework(appPath, "Sparkle.framework", options);
   } finally {
     if (attached) {
       run("hdiutil", ["detach", mountDir, "-quiet"]);

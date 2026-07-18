@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
-import { api } from "../../lib/api.ts";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import type {
   RepoWatchSnapshot,
   RepoWatchWorktree,
   RepoWatchProject,
 } from "../../scout/repo-watch/types.ts";
+import {
+  fetchRepoPullRequests,
+  fetchRepoWatchSnapshot,
+  type RepoPullRequestItem,
+  type RepoPullRequestSnapshot,
+  type RepoWatchScanDepth,
+} from "../../scout/repo-watch/api.ts";
 import RepoWatchTable from "../../scout/repo-watch/RepoWatchTable.tsx";
 import RepoWatchDrift from "../../scout/repo-watch/RepoWatchDrift.tsx";
 import {
@@ -41,44 +47,7 @@ const TONES: readonly Tone[] = ["warm", "cool", "mono"];
 type ReposView = "table" | "drift";
 const VIEW_KEY = "openscout.repos.view";
 const VIEWS: readonly ReposView[] = ["table", "drift"];
-type RepoWatchScanDepth = "standard" | "expanded";
 const DIFF_WARMUP_LIMIT = 12;
-
-function repoWatchUrl(depth: RepoWatchScanDepth, force: boolean): string {
-  const params = new URLSearchParams({
-    includeDiff: "1",
-    // The browser surface favors the TypeScript scanner: it returns partial
-    // repo inventories quickly, while the native repo-service can block long
-    // enough to make manual refresh/Scan more feel broken.
-    native: "0",
-  });
-  if (depth === "standard") {
-    params.set("includeLastCommit", "1");
-  }
-  if (force) params.set("force", "1");
-  if (depth === "expanded") {
-    params.set("maxRoots", "32");
-    params.set("maxWorktrees", "12");
-    params.set("scanBudgetMs", "30000");
-  }
-  return `/api/repo-watch?${params.toString()}`;
-}
-
-async function fetchRepoWatchSnapshot(
-  depth: RepoWatchScanDepth,
-  force: boolean,
-  timeoutMs: number,
-): Promise<RepoWatchSnapshot> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await api<RepoWatchSnapshot>(repoWatchUrl(depth, force), {
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
 
 function isBudgetLimitedSnapshot(snapshot: RepoWatchSnapshot): boolean {
   return snapshot.warnings.some((warning) =>
@@ -140,11 +109,11 @@ function usePersistedState<T extends string>(
 /* The default selection — the most-relevant worktree so the context pane isn't
  * empty on load: worst attention first, then live-agent count, then churn. */
 function pickDefaultWorktree(
-  snapshot: RepoWatchSnapshot,
+  projects: readonly RepoWatchProject[],
 ): RepoWatchWorktree | null {
   let best: RepoWatchWorktree | null = null;
   let bestScore = -Infinity;
-  for (const project of snapshot.projects) {
+  for (const project of projects) {
     for (const wt of project.worktrees) {
       const liveAgents = wt.agents.filter(
         (a) => (a.state ?? "").toLowerCase() === "active",
@@ -181,29 +150,6 @@ function shortstatFiles(shortstat: string | null): number {
   return match ? Number(match[1]) : 0;
 }
 
-type RepoPullRequestItem = {
-  id: string;
-  repo: string;
-  path: string;
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  author: string | null;
-  updatedAt: string | null;
-};
-
-type RepoPullRequestSnapshot = {
-  generatedAt: number;
-  source: "gh";
-  paths: string[];
-  pullRequests: RepoPullRequestItem[];
-  warnings: string[];
-};
-
 function repoPrPaths(snapshot: RepoWatchSnapshot): string[] {
   const seen = new Set<string>();
   const paths: string[] = [];
@@ -214,16 +160,6 @@ function repoPrPaths(snapshot: RepoWatchSnapshot): string[] {
     paths.push(path);
   }
   return paths;
-}
-
-function repoPrUrl(paths: readonly string[]): string {
-  const params = new URLSearchParams({ limit: "8" });
-  for (const path of paths.slice(0, 12)) params.append("path", path);
-  return `/api/repo-prs?${params.toString()}`;
-}
-
-async function fetchRepoPullRequests(paths: readonly string[]): Promise<RepoPullRequestSnapshot> {
-  return api<RepoPullRequestSnapshot>(repoPrUrl(paths));
 }
 
 function prUpdatedAgo(updatedAt: string | null, generatedAt: number): string {
@@ -455,7 +391,14 @@ function ReposOpenPullRequests({
   );
 }
 
-export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
+export function ReposScreen({
+  navigate,
+  focusRoot = null,
+}: {
+  navigate: (route: Route) => void;
+  /** Absolute project root to pre-select (deep link from a project surface). */
+  focusRoot?: string | null;
+}) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -575,16 +518,32 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
   }, [load]);
 
   // Seed the selection once a snapshot lands (or if the selected worktree
-  // vanished from a later scan) so the context pane is never blank.
+  // vanished from a later scan) so the context pane is never blank. A deep
+  // link's focusRoot wins once per value — then the operator is free to
+  // click around without the effect yanking the selection back.
+  const appliedFocusRoot = useRef<string | null>(null);
   useEffect(() => {
     if (!snapshot) return;
+    if (focusRoot && appliedFocusRoot.current !== focusRoot) {
+      const focusProject = snapshot.projects.find(
+        (p) => p.root === focusRoot || p.worktrees.some((w) => w.path === focusRoot),
+      );
+      // Snapshot may predate the project appearing in a scan — retry on the
+      // next one instead of marking the root consumed.
+      if (!focusProject) return;
+      appliedFocusRoot.current = focusRoot;
+      if (!focusProject.worktrees.some((w) => w.id === selectedId)) {
+        setSelectedId(pickDefaultWorktree([focusProject])?.id ?? null);
+        return;
+      }
+    }
     const stillThere = snapshot.projects.some((p) =>
       p.worktrees.some((w) => w.id === selectedId),
     );
     if (!stillThere) {
-      setSelectedId(pickDefaultWorktree(snapshot)?.id ?? null);
+      setSelectedId(pickDefaultWorktree(snapshot.projects)?.id ?? null);
     }
-  }, [snapshot, selectedId]);
+  }, [snapshot, selectedId, focusRoot]);
 
   useEffect(() => {
     if (!snapshot || snapshot.projects.length === 0) return;

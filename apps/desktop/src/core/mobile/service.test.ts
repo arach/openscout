@@ -7,8 +7,12 @@ import {
 
 import {
   getScoutMobileAgents,
+  getScoutMobileActivity,
   getScoutMobileConversations,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessionSnapshot,
+  getScoutMobileTerminals,
+  rehomeScoutMobileWorkspacePath,
 } from "./service.ts";
 
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
@@ -21,7 +25,19 @@ afterEach(() => {
   registerActiveScoutBrokerService(null);
 });
 
+test("transitional mobile gauges keep stable empty compatibility shapes", async () => {
+  expect(await getScoutMobileServiceBudgets()).toEqual({ budgets: [] });
+  expect(await getScoutMobileTerminals()).toEqual({ terminals: [] });
+});
+
 describe("getScoutMobileSessionSnapshot", () => {
+  test("rebases stale macOS account paths onto the current Scout home", () => {
+    expect(rehomeScoutMobileWorkspacePath("/Users/arach/dev/dewey", "/Users/art"))
+      .toBe("/Users/art/dev/dewey");
+    expect(rehomeScoutMobileWorkspacePath("/opt/projects/dewey", "/Users/art"))
+      .toBe(null);
+  });
+
   test("does not render queued delivery flights as assistant thinking turns", async () => {
     installBrokerSnapshot(
       brokerSnapshotWithFlight({
@@ -117,6 +133,36 @@ describe("getScoutMobileSessionSnapshot", () => {
     expect(conversations.find((conversation) => conversation.id === "dm.operator.scoutbot")?.title).toBe("Scout");
   });
 
+  test("builds Home activity from broker-mediated conversation messages", async () => {
+    const brokerSnapshot = brokerSnapshotWithFlight({
+      id: "flight-running",
+      state: "running",
+      summary: "Working on it.",
+    });
+    (brokerSnapshot.messages as Record<string, unknown>)["msg-agent"] = {
+      id: "msg-agent",
+      conversationId: "dm.operator.scoutbot",
+      actorId: "scoutbot",
+      class: "agent",
+      body: "Finished the requested change.",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 2_000,
+    };
+    installBrokerSnapshot(brokerSnapshot);
+
+    const activity = await getScoutMobileActivity({ limit: 2 });
+
+    expect(activity.map((row) => row.id)).toEqual(["msg-agent", "msg-user"]);
+    expect(activity[0]).toMatchObject({
+      kind: "message",
+      actorId: "scoutbot",
+      actorName: "Scout",
+      detail: "Finished the requested change.",
+      conversationId: "dm.operator.scoutbot",
+    });
+  });
+
   test("orders agents by endpoint freshness and keeps wakeable cold agents available", async () => {
     const brokerSnapshot = brokerSnapshotWithFlight({
       id: "flight-queued",
@@ -168,6 +214,42 @@ describe("getScoutMobileSessionSnapshot", () => {
     expect(agents.map((agent) => agent.id)).toEqual(["scoutbot", "old"]);
     expect(agents[0]?.state).toBe("available");
     expect(agents[0]?.lastActiveAt).toBe(10_000_000);
+  });
+
+  test("uses the live endpoint and newest activity when an agent has stale registrations", async () => {
+    const brokerSnapshot = brokerSnapshotWithFlight({
+      id: "flight-queued",
+      state: "queued",
+      summary: "Queued",
+    }) as ReturnType<typeof brokerSnapshotWithFlight> & {
+      endpoints: Record<string, Record<string, unknown>>;
+      flights: Record<string, Record<string, unknown>>;
+    };
+    brokerSnapshot.flights = {};
+    brokerSnapshot.endpoints["endpoint-scoutbot"] = {
+      ...brokerSnapshot.endpoints["endpoint-scoutbot"],
+      harness: "codex",
+      state: "idle",
+      metadata: { source: "scoutbot", lastSeenAt: 1_000 } as { source: string } & Record<string, unknown>,
+    };
+    brokerSnapshot.endpoints["endpoint-scoutbot-live"] = {
+      id: "endpoint-scoutbot-live",
+      agentId: "scoutbot",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "claude_session",
+      state: "active",
+      projectRoot: "/Users/art/dev/openscout",
+      metadata: { lastSeenAt: 20_000 },
+    };
+    installBrokerSnapshot(brokerSnapshot);
+
+    const [agent] = await getScoutMobileAgents({ limit: 1 });
+
+    expect(agent?.harness).toBe("claude");
+    expect(agent?.workspaceRoot).toBe("/Users/art/dev/openscout");
+    expect(agent?.state).toBe("available");
+    expect(agent?.lastActiveAt).toBe(20_000_000);
   });
 });
 

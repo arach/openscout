@@ -65,6 +65,66 @@ public struct GitState: Codable, Sendable, Equatable {
     public var isClean: Bool { ahead == 0 && behind == 0 && dirty == 0 }
 }
 
+/// A pending "the operator's move" ask carried on an agent that `needsAttention`.
+/// Mirrors the server-side attention index (packages/web/server/core/attention/
+/// agent-attention.ts): the broker currently emits a single flattened `ask`
+/// string plus the blocking `kind`, so `prompt` is that clamped ask line and
+/// `options` is present only when the harness question offered explicit choices.
+///
+/// Fully OPTIONAL end to end — `AgentSummary.pendingAsk` is nil unless the wire
+/// carries it, and every field here decodes tolerantly so a partial/absent
+/// payload never fails the whole agent-list decode.
+public struct PendingAsk: Codable, Sendable, Equatable {
+    /// The category of ask, so the UI can phrase the affordance ("Approve?",
+    /// "Answer", "Unblock"). Maps from the broker's session-attention kind vocab
+    /// (question / approval / native_attention) with a permissive `.other` bucket.
+    public enum Kind: String, Codable, Sendable {
+        case permission     // approval / tool-permission gate
+        case decision       // a choose-between ask
+        case confirm        // a yes/no confirmation
+        case blocked        // agent is blocked and needs an unblock
+        case question       // a free-form question to the operator
+        case other          // unknown / future kind — never fails decode
+
+        /// Lenient decode: an unrecognized wire value maps to `.other` instead of
+        /// throwing, so a new broker kind never blanks the attention band.
+        public init(from decoder: Decoder) throws {
+            let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? ""
+            self = Kind(rawValue: raw) ?? .other
+        }
+    }
+
+    /// The category of ask. Defaults to `.question` when the wire omits it.
+    public var kind: Kind
+    /// The single-line ask text shown in the attention band (broker-clamped to
+    /// ~200 chars server-side). Never nil once a `PendingAsk` exists.
+    public var prompt: String
+    /// Explicit choices for a decision/question, when the harness offered them.
+    /// Empty for permission/confirm/blocked asks that are answered inline.
+    public var options: [String]
+
+    public init(kind: Kind = .question, prompt: String, options: [String] = []) {
+        self.kind = kind
+        self.prompt = prompt
+        self.options = options
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case prompt
+        case options
+    }
+
+    /// Tolerant decode: `kind` defaults to `.question`, `options` to `[]`, and a
+    /// missing/empty `prompt` yields nil at the call site (see AgentSummary).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(Kind.self, forKey: .kind) ?? .question
+        self.prompt = (try container.decodeIfPresent(String.self, forKey: .prompt)) ?? ""
+        self.options = try container.decodeIfPresent([String].self, forKey: .options) ?? []
+    }
+}
+
 public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public enum State: String, Codable, Sendable { case live, idle, offline, unknown }
 
@@ -90,6 +150,15 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     /// what the conversation surface loads / sends / streams against.
     public var conversationId: String?
     public var lastActiveAt: Date?
+    /// True when this agent is waiting on the operator (a pending question /
+    /// approval / handoff). Attention outranks working/idle from the operator's
+    /// seat — an agent that `needsAttention` "needs you" even while its flight
+    /// is still moving. Defaults to false; only set when the broker says so.
+    public var needsAttention: Bool
+    /// The pending "your move" ask backing `needsAttention`, when the broker
+    /// carries the text. Nil for an attention flag with no ask line (or when the
+    /// wire predates attention). See `PendingAsk`.
+    public var pendingAsk: PendingAsk?
 
     public init(
         id: String,
@@ -103,7 +172,9 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         state: State = .unknown,
         sessionId: String? = nil,
         conversationId: String? = nil,
-        lastActiveAt: Date? = nil
+        lastActiveAt: Date? = nil,
+        needsAttention: Bool = false,
+        pendingAsk: PendingAsk? = nil
     ) {
         self.id = id
         self.title = title
@@ -117,6 +188,35 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.sessionId = sessionId
         self.conversationId = conversationId
         self.lastActiveAt = lastActiveAt
+        self.needsAttention = needsAttention
+        self.pendingAsk = pendingAsk
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, harness, projectName, branch, git, model
+        case statusLabel, state, sessionId, conversationId, lastActiveAt
+        case needsAttention, pendingAsk
+    }
+
+    /// Tolerant decode so the two attention fields are fully additive: an older
+    /// payload without them decodes to `needsAttention == false` / `pendingAsk == nil`
+    /// rather than throwing. All other fields keep their prior optional semantics.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.harness = try container.decodeIfPresent(String.self, forKey: .harness)
+        self.projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+        self.branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        self.git = try container.decodeIfPresent(GitState.self, forKey: .git)
+        self.model = try container.decodeIfPresent(String.self, forKey: .model)
+        self.statusLabel = try container.decodeIfPresent(String.self, forKey: .statusLabel)
+        self.state = try container.decodeIfPresent(State.self, forKey: .state) ?? .unknown
+        self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self.conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        self.lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
+        self.needsAttention = try container.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false
+        self.pendingAsk = try container.decodeIfPresent(PendingAsk.self, forKey: .pendingAsk)
     }
 }
 

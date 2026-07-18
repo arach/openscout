@@ -46,11 +46,11 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
             .init(harness: "claude", value: "claude-haiku-4-5", label: "Haiku 4.5", detail: "Claude API alias"),
         ]),
         .init(id: "codex", label: "Codex", models: [
-            .init(harness: "codex", value: "gpt-5.6-sol", label: "GPT-5.6 Sol", detail: "Recommended"),
-            .init(harness: "codex", value: "gpt-5.6-terra", label: "GPT-5.6 Terra", detail: "Balanced"),
-            .init(harness: "codex", value: "gpt-5.6-luna", label: "GPT-5.6 Luna", detail: "Fast"),
-            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Previous"),
-            .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Previous fast"),
+            .init(harness: "codex", value: "gpt-5.6-sol", label: "GPT-5.6 Sol", detail: "Latest frontier"),
+            .init(harness: "codex", value: "gpt-5.6-terra", label: "GPT-5.6 Terra", detail: "Frontier"),
+            .init(harness: "codex", value: "gpt-5.6-luna", label: "GPT-5.6 Luna", detail: "Efficient"),
+            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: nil),
+            .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
     ]
 }
@@ -69,6 +69,8 @@ private struct ScoutSessionEffortChoice: Identifiable, Equatable {
         .init(value: "medium", label: "Medium", detail: "Default"),
         .init(value: "high", label: "High", detail: "Deeper pass"),
         .init(value: "xhigh", label: "XHigh", detail: "Highest supported"),
+        .init(value: "max", label: "Max", detail: "Maximum reasoning depth"),
+        .init(value: "ultra", label: "Ultra", detail: "Maximum with delegation"),
     ]
 }
 
@@ -134,6 +136,13 @@ struct ScoutSessionComposer: View {
         .onExitCommand { if !isSubmitting { onClose() } }
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .onAppear { instructionsFocused = true }
+        .background(
+            ScoutSessionSubmitShortcutMonitor(isActive: true) {
+                submit()
+            }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
         .onChange(of: draft.harness) { _, _ in persistLastRuntimeChoices() }
         .onChange(of: draft.model) { _, _ in persistLastRuntimeChoices() }
         .onChange(of: draft.reasoningEffort) { _, _ in persistLastRuntimeChoices() }
@@ -1309,3 +1318,79 @@ struct ScoutSessionComposer: View {
         }
     }
 }
+
+
+#if os(macOS)
+private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
+    var isActive: Bool
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isActive: isActive, onSubmit: onSubmit)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+        context.coordinator.onSubmit = onSubmit
+        context.coordinator.install()
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var isActive: Bool
+        var onSubmit: () -> Void
+        private var monitor: Any?
+
+        init(isActive: Bool, onSubmit: @escaping () -> Void) {
+            self.isActive = isActive
+            self.onSubmit = onSubmit
+        }
+
+        deinit {
+            uninstall()
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.isActive else { return event }
+                guard Self.isSubmitShortcut(event) else { return event }
+                self.onSubmit()
+                return nil
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        private static func isSubmitShortcut(_ event: NSEvent) -> Bool {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.contains(.command) || flags.contains(.control) else { return false }
+            guard !flags.contains(.option) else { return false }
+            return event.keyCode == 36 || event.keyCode == 76
+        }
+    }
+}
+#else
+private struct ScoutSessionSubmitShortcutMonitor: View {
+    var isActive: Bool
+    var onSubmit: () -> Void
+
+    var body: some View {
+        EmptyView()
+    }
+}
+#endif
