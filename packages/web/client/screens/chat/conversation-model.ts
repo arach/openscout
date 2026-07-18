@@ -112,6 +112,16 @@ export type SendResult = {
 
 export type ComposeAction = "message" | "invoke" | "steer";
 
+export function hasOutstandingConversationReply(input: {
+  sending: boolean;
+  awaitingResponse: boolean;
+  currentFlight: Pick<Flight, "state"> | null;
+}): boolean {
+  return input.sending
+    || input.awaitingResponse
+    || isActiveConversationFlight(input.currentFlight);
+}
+
 export function resolveComposeAction(input: {
   isDm: boolean;
   hasOutstandingReply: boolean;

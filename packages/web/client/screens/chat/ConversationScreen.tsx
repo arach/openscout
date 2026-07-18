@@ -74,6 +74,7 @@ import {
   describePresence,
   displayNameForActor,
   emptyFleetState,
+  hasOutstandingConversationReply,
   isOperatorMessage,
   keepPreviousIfJsonEqual,
   latestAgentMessageAt,
@@ -517,8 +518,6 @@ export function ConversationScreen({
   const workingTurnHasNoRecentUpdate = showWorkingTurn && currentFlightHasNoRecentUpdate;
   const currentFlightQueuedUntilOnline =
     showWorkingTurn && isQueuedUntilOnlineConversationFlight(currentFlight);
-  const awaitingActiveResponse =
-    awaitingResponseSince !== null && !currentFlightQueuedUntilOnline;
   const workingTurnIsGone =
     workingTurnHasNoRecentUpdate &&
     !isAgentOnline(agent?.state ?? null);
@@ -526,9 +525,11 @@ export function ConversationScreen({
     isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =
     isDm &&
-    (sending ||
-      awaitingActiveResponse ||
-      (showWorkingTurn && !workingTurnHasNoRecentUpdate && !currentFlightQueuedUntilOnline));
+    hasOutstandingConversationReply({
+      sending,
+      awaitingResponse: awaitingResponseSince !== null,
+      currentFlight,
+    });
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -909,7 +910,8 @@ export function ConversationScreen({
   ) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    const action = options?.forceAction ?? resolveComposeAction({
+    const forceAction = options?.forceAction;
+    const action = forceAction ?? resolveComposeAction({
       isDm,
       hasOutstandingReply,
     });
@@ -938,7 +940,7 @@ export function ConversationScreen({
         body: JSON.stringify({
           body: trimmed,
           chatId: conversationId,
-          intent: action,
+          ...(forceAction ? { intent: forceAction } : {}),
         }),
       });
       const routedConversationId = result.chatId?.trim() ?? result.conversationId?.trim();

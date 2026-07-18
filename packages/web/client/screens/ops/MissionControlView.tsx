@@ -465,7 +465,6 @@ async function sendToFocusedAgentSession(agent: Agent, body: string): Promise<vo
     body: JSON.stringify({
       body,
       chatId: conversationId,
-      intent: isAgentBusy(agent.state) ? "steer" : "invoke",
       execution: {
         ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
         ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),

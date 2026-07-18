@@ -791,6 +791,12 @@ describe("sendScoutConversationSteer", () => {
       conversationId: "c.hudson-narrative",
       senderId: "operator",
       body: "Who has next?",
+      steerContextByTargetAgentId: {
+        "hudson.main.mini": {
+          runId: "run:flight:flt-hudson-active",
+          flightId: "flt-hudson-active",
+        },
+      },
       currentDirectory: home,
       source: "scout-web",
     });
@@ -837,6 +843,8 @@ describe("sendScoutConversationSteer", () => {
           intent: "steer",
           relayTarget: "hudson.main.mini",
           relayMessageId: messagePost.id,
+          parentRunId: "run:flight:flt-hudson-active",
+          steeredFlightId: "flt-hudson-active",
         }),
       }),
       expect.objectContaining({

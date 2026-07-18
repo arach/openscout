@@ -1329,7 +1329,6 @@ function QuietStartPanel({
         body: JSON.stringify({
           body: trimmed,
           chatId: conversationId,
-          intent: isAgentBusy(selectedAgent.state) ? "steer" : "invoke",
           execution: {
             harness: harness || undefined,
             model: model || undefined,

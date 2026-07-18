@@ -56,9 +56,13 @@ The Chat concept is healthy when these rules hold:
 - A selected Chat id is authoritative for message sends.
 - Sending a passive comment does not create a task, invocation, flight, or new
   harness session.
-- When the operator speaks inside a live agent-to-agent DM, group direct, or
-  channel, the default product intent is steering the current non-human
-  participants in that Chat.
+- Send is the sole product action; Scout derives its internal intent from the
+  selected Chat, explicit target, and scoped active Run.
+- In a direct agent Chat, Send creates requested work while idle and steers the
+  scoped Run while active.
+- In a shared Chat, an untargeted Send is a passive message. A Send that
+  explicitly targets an agent creates requested work while that target is idle
+  and steers that target's scoped Run while active.
 - A Chat can contain messages from humans, agents, and system actors.
 - A Chat can reference active or historical tasks, runs, endpoints, and sessions
   without becoming any of those objects.
@@ -115,9 +119,9 @@ The write intent should be explicit before routing starts.
 
 | Intent | Product action | Internal records |
 | --- | --- | --- |
-| Comment | Send in a shared Chat without an invoked target | Message in that Chat |
-| Requested work | Send in a direct agent Chat or explicitly target an agent | Message + invocation + flight |
-| Steering | Send while a scoped Run is active | Message in the same Chat + wake invocations for scoped participants |
+| Comment | Send in a shared Chat without an explicit target | Message in that Chat |
+| Requested work | Send in an idle direct agent Chat, or explicitly target an idle agent from a shared Chat | Message + invocation + flight |
+| Steering | Send in a direct agent Chat with a scoped active Run, or explicitly target an agent with a scoped active Run from a shared Chat | Message in the same Chat + steering delivery linked to the scoped Run |
 | Reply | Reply to a message | Message in same Chat with `replyToMessageId` |
 | Channel post | Send in a named channel Chat | Message in that channel Chat |
 | Open companion | Open agent from a path/card | Resolve path-backed agent context, then find or create opaque direct Chat |
@@ -206,12 +210,14 @@ Later:
 At minimum, the suite should prove:
 
 - Sending in a selected direct Chat preserves that exact Chat.
-- Operator sends in selected agent/group/channel Chats steer current scoped
-  participants by default.
-- Passive comments in selected Chats append without creating invocations.
+- A Send in an idle direct agent Chat creates invocation/Run lifecycle.
+- A Send in a direct agent Chat with a scoped active Run steers that Run.
+- An untargeted Send in a shared Chat appends a passive message without creating
+  invocation/Run lifecycle.
+- A Send that explicitly targets an idle agent from a shared Chat creates
+  invocation/Run lifecycle; when that target has a scoped active Run, it steers
+  that Run instead.
 - Target-only direct send can still open or create a direct Chat.
-- A direct agent Send or explicitly targeted Task creates invocation/Run
-  lifecycle; passive shared-Chat messages do not.
 - Active-run steering remains in the same Chat and links to the active run.
 - Same-agent multiple Chats render distinguishable labels.
 - Session changes do not change Chat identity.

@@ -128,10 +128,11 @@ not grow a quiet variant because it creates ownership and lifecycle state.
 
 `ask` remains the compatibility name for the explicit invocation API used by
 CLI and agent integrations. Product composers should expose one **Send** action:
-in a direct agent Chat, Send creates an invocation; while a Run is active it
-steers that Run; in a shared Chat it posts a message unless an agent is
-explicitly targeted. The invocation and flight records remain separate from
-the Chat and Message that originated them.
+in an idle direct agent Chat, Send creates an invocation; while a scoped Run is
+active it steers that Run. In a shared Chat, an untargeted Send posts a passive
+message. An explicitly targeted Send creates requested work while that agent is
+idle or steers that agent's scoped active Run. The invocation and flight
+records remain separate from the Chat and Message that originated them.
 
 Use the ask path when the caller expects work, investigation, review, or an
 answer.

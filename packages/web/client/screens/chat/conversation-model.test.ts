@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   SLASH_COMMANDS,
+  hasOutstandingConversationReply,
   resolveComposeAction,
 } from "./conversation-model.ts";
 
@@ -18,5 +19,21 @@ describe("conversation composer product model", () => {
       .toBe("invoke");
     expect(resolveComposeAction({ isDm: true, hasOutstandingReply: true }))
       .toBe("steer");
+  });
+
+  test("keeps active Runs routable when their visual presence is suppressed", () => {
+    for (const state of ["queued", "waking", "waiting", "running"]) {
+      expect(hasOutstandingConversationReply({
+        sending: false,
+        awaitingResponse: false,
+        currentFlight: { state },
+      })).toBe(true);
+    }
+
+    expect(hasOutstandingConversationReply({
+      sending: false,
+      awaitingResponse: false,
+      currentFlight: { state: "completed" },
+    })).toBe(false);
   });
 });

@@ -11,7 +11,9 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  extractAgentSelectors,
   isOpaqueChannelId,
+  resolveAgentIdentity,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -2490,12 +2492,57 @@ function sessionIncludesOperatorParticipant(session: { participantIds: string[] 
   return session.participantIds.some((participantId) => operatorIds.has(participantId));
 }
 
-function defaultSendModeForConversationSession(
-  session: { kind: string; participantIds: string[] } | null,
-): "invoke" | "message" {
-  return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
-    ? "invoke"
-    : "message";
+function defaultSendModeForConversationSession(input: {
+  session: { kind: string; participantIds: string[] } | null;
+  hasExplicitTarget: boolean;
+  hasActiveRun: boolean;
+}): "invoke" | "steer" | "message" {
+  const isOperatorDirect =
+    input.session?.kind === "direct" && sessionIncludesOperatorParticipant(input.session);
+  if (!isOperatorDirect && !input.hasExplicitTarget) {
+    return "message";
+  }
+  return input.hasActiveRun ? "steer" : "invoke";
+}
+
+function steerContextByTargetAgentId(
+  runs: ReturnType<typeof queryRuns>,
+): Record<string, { runId: string; flightId?: string }> | undefined {
+  const entries = new Map<string, { runId: string; flightId?: string }>();
+  for (const run of runs) {
+    if (entries.has(run.agentId)) continue;
+    const flightId = run.flightIds?.[0];
+    entries.set(run.agentId, {
+      runId: run.id,
+      ...(flightId ? { flightId } : {}),
+    });
+  }
+  return entries.size > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function resolveSendSelectorTargetAgentIds(
+  selectors: ReturnType<typeof extractAgentSelectors>,
+  participantIds: string[],
+): string[] {
+  if (selectors.length === 0) return [];
+  const participantIdSet = new Set(participantIds);
+  const candidates = queryAgents()
+    .filter((agent) => participantIdSet.has(agent.id))
+    .map((agent) => ({
+      agentId: agent.id,
+      definitionId: agent.definitionId,
+      nodeQualifier: agent.nodeQualifier ?? undefined,
+      workspaceQualifier: agent.workspaceQualifier ?? undefined,
+      harness: agent.harness ?? undefined,
+      model: agent.model ?? undefined,
+      aliases: [agent.selector, agent.defaultSelector, agent.handle, agent.name]
+        .filter((alias): alias is string => Boolean(alias?.trim())),
+    }));
+  return [...new Set(
+    selectors
+      .map((selector) => resolveAgentIdentity(selector, candidates)?.agentId)
+      .filter((agentId): agentId is string => Boolean(agentId)),
+  )];
 }
 
 function anchoredThreadNaturalKey(parentConversationId: string, anchorMessageId: string): string {
@@ -6438,11 +6485,51 @@ export async function createOpenScoutWebServer(
     }
 
     if (routedConversationId) {
-      const sendMode = (optionalString(intent)?.trim()
-        || optionalString(mode)?.trim()
-        || defaultSendModeForConversationSession(routeSession)).toLowerCase();
       const isOperatorDirectConversation =
         routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
+      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
+        ? [...new Set(
+            targetParticipantIds
+              .filter((targetId): targetId is string => typeof targetId === "string")
+              .map((targetId) => targetId.trim())
+              .filter(Boolean),
+          )]
+        : undefined;
+      const requestedSendMode = optionalString(intent)?.trim()
+        || optionalString(mode)?.trim();
+      const selectors = extractAgentSelectors(messageBody);
+      const selectorTargetAgentIds = resolveSendSelectorTargetAgentIds(
+        selectors,
+        routeSession?.participantIds ?? [],
+      );
+      const hasExplicitTarget =
+        Boolean(scopedTargetParticipantIds?.length)
+        || selectors.length > 0;
+      const shouldInspectActiveRuns =
+        requestedSendMode?.toLowerCase() === "steer"
+        || (!requestedSendMode && (isOperatorDirectConversation || hasExplicitTarget));
+      const activeRuns = shouldInspectActiveRuns
+        ? queryRuns({
+            conversationId: routedConversationId,
+            active: true,
+            limit: 100,
+          })
+        : [];
+      const resolvedTargetIds = new Set([
+        ...(scopedTargetParticipantIds ?? []),
+        ...selectorTargetAgentIds,
+      ]);
+      const matchedActiveRuns = hasExplicitTarget
+        ? activeRuns.filter((run) => resolvedTargetIds.has(run.agentId))
+        : activeRuns;
+      const hasActiveRun = matchedActiveRuns.length > 0;
+      const steerContext = steerContextByTargetAgentId(matchedActiveRuns);
+      const sendMode = (requestedSendMode
+        || defaultSendModeForConversationSession({
+          session: routeSession,
+          hasExplicitTarget,
+          hasActiveRun,
+        })).toLowerCase();
       const shouldCommentOnly =
         sendMode === "comment"
         || sendMode === "message"
@@ -6454,9 +6541,6 @@ export async function createOpenScoutWebServer(
             ...(executionHarness ? { harness: executionHarness } : {}),
             ...(executionModel ? { model: executionModel } : {}),
           }
-        : undefined;
-      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
-        ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
         : undefined;
       const result = shouldCommentOnly
         ? await sendScoutConversationMessage({
@@ -6480,6 +6564,9 @@ export async function createOpenScoutWebServer(
               : sendMode === "invoke"
                 ? "invoke"
                 : "steer",
+            ...(sendMode === "steer" && steerContext
+              ? { steerContextByTargetAgentId: steerContext }
+              : {}),
             ...(requestedExecution ? { execution: requestedExecution } : {}),
             currentDirectory,
             source: "scout-web",
@@ -6494,7 +6581,8 @@ export async function createOpenScoutWebServer(
           : [];
       return c.json({
         ...result,
-        chatId: result.conversationId,
+        conversationId: routedConversationId,
+        chatId: routedConversationId,
         runIds: flights.map((flight) => `run:flight:${flight.id}`),
       });
     }

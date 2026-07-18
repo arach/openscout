@@ -2235,6 +2235,7 @@ export async function sendScoutConversationSteer(input: {
   attachments?: OutgoingAttachmentInput[];
   replyToMessageId?: string | null;
   targetParticipantIds?: string[];
+  steerContextByTargetAgentId?: Record<string, { runId: string; flightId?: string }>;
   intent?: "invoke" | "steer" | "tell";
   execution?: InvocationRequest["execution"];
   createdAtMs?: number;
@@ -2396,6 +2397,9 @@ export async function sendScoutConversationSteer(input: {
   const flights: ScoutFlightRecord[] = [];
   for (const targetActorId of targetIds) {
     const target = invocationTargetRoute(broker.snapshot, targetActorId);
+    const steerContext = intent === "steer"
+      ? input.steerContextByTargetAgentId?.[targetActorId]
+      : undefined;
     const response = await brokerPostJson<ScoutInvocationPostResponse>(
       broker.baseUrl,
       scoutBrokerPaths.v1.invocations,
@@ -2426,6 +2430,12 @@ export async function sendScoutConversationSteer(input: {
           relayTarget: targetActorId,
           relayTargetIds: targetIds,
           relayMessageId: messageId,
+          ...(steerContext
+            ? {
+                parentRunId: steerContext.runId,
+                ...(steerContext.flightId ? { steeredFlightId: steerContext.flightId } : {}),
+              }
+            : {}),
           returnAddress,
         },
       },
