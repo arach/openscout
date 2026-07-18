@@ -10,6 +10,7 @@ import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import { NEW_CHAT_SHORTCUT_LABEL } from "../lib/new-chat-shortcut.ts";
+import { SCOUTBOT_SUBMIT_EVENT } from "../lib/scoutbot.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -41,7 +42,7 @@ export function useScoutCommands(): CommandOption[] {
 
   const askScoutbotForState = useCallback(() => {
     applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
-    window.dispatchEvent(new CustomEvent("scout:scoutbot-submit", {
+    window.dispatchEvent(new CustomEvent(SCOUTBOT_SUBMIT_EVENT, {
       detail: {
         body: "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.",
       },

@@ -16,6 +16,7 @@ import {
   brokerAttemptErrorSummary,
   brokerAttemptIsFailure,
   brokerAttemptContextText,
+  brokerScoutbotTriageRequest,
   brokerMessageFeedRows,
   brokerMetadataJson,
   clippedText,
@@ -653,13 +654,12 @@ export function BrokerAttemptInspector({
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   }, [contextText]);
 
-  const askScout = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("scout:scoutbot-compose", {
-      detail: {
-        body: `Look into this failed dispatch — what went wrong and how do I fix it?\n\n${contextText}`,
-      },
+  const sendToScout = useCallback(() => {
+    const request = brokerScoutbotTriageRequest(attempt);
+    window.dispatchEvent(new CustomEvent(request.eventName, {
+      detail: { body: request.body },
     }));
-  }, [contextText]);
+  }, [attempt]);
 
   const invokeCodex = useCallback(async () => {
     setReviewStatus("running");
@@ -709,8 +709,8 @@ export function BrokerAttemptInspector({
                 <button
                   type="button"
                   className="s-btn s-btn-sm s-btn-primary"
-                  onClick={askScout}
-                  title="Send this failed dispatch to Scout in the chat below"
+                  onClick={sendToScout}
+                  title="Send this failed dispatch to Scout for triage"
                 >
                   <Sparkles size={12} aria-hidden="true" />
                   Send to Scout
