@@ -74,6 +74,7 @@ import {
   describePresence,
   displayNameForActor,
   emptyFleetState,
+  hasOutstandingConversationReply,
   isOperatorMessage,
   keepPreviousIfJsonEqual,
   latestAgentMessageAt,
@@ -85,6 +86,7 @@ import {
   pathLeaf,
   readScoutDispatch,
   resolveAgentByIdentity,
+  resolveComposeAction,
   resolveAskReplyContext,
   resolveMessageAgent,
   selectCurrentFlight,
@@ -93,7 +95,6 @@ import {
   selectTurnAsk,
   sortMessages,
   type ComposeAction,
-  type ComposeMode,
   type ConversationPresence,
   type EventFlightRecord,
   type EventInvocationRecord,
@@ -120,14 +121,12 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 export function ConversationScreen({
   conversationId,
-  initialComposeMode,
   initialDraft,
   navigate,
   embedded,
   showBackNav = true,
 }: {
   conversationId: string;
-  initialComposeMode?: ComposeMode;
   initialDraft?: string;
   navigate: (r: Route) => void;
   embedded?: boolean;
@@ -202,7 +201,6 @@ export function ConversationScreen({
         navigate({
           view: "conversation",
           conversationId: canonicalConversationId,
-          ...(initialComposeMode ? { composeMode: initialComposeMode } : {}),
         });
         return;
       }
@@ -278,7 +276,7 @@ export function ConversationScreen({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [conversationId, initialComposeMode, navigate]);
+  }, [conversationId, navigate]);
 
   useEffect(() => {
     void load();
@@ -319,17 +317,10 @@ export function ConversationScreen({
   const [awaitingResponseSince, setAwaitingResponseSince] = useState<
     number | null
   >(null);
-  const [composeMode, setComposeMode] = useState<ComposeMode>(
-    initialComposeMode === "ask" ? "ask" : "tell",
-  );
   const [addParticipantOpen, setAddParticipantOpen] = useState(false);
   const [addParticipantId, setAddParticipantId] = useState("");
   const [addParticipantError, setAddParticipantError] = useState<string | null>(null);
   const [addingParticipant, setAddingParticipant] = useState(false);
-
-  useEffect(() => {
-    setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
-  }, [conversationId, initialComposeMode, isDm]);
 
   useEffect(() => {
     setAddParticipantOpen(false);
@@ -527,8 +518,6 @@ export function ConversationScreen({
   const workingTurnHasNoRecentUpdate = showWorkingTurn && currentFlightHasNoRecentUpdate;
   const currentFlightQueuedUntilOnline =
     showWorkingTurn && isQueuedUntilOnlineConversationFlight(currentFlight);
-  const awaitingActiveResponse =
-    awaitingResponseSince !== null && !currentFlightQueuedUntilOnline;
   const workingTurnIsGone =
     workingTurnHasNoRecentUpdate &&
     !isAgentOnline(agent?.state ?? null);
@@ -536,9 +525,11 @@ export function ConversationScreen({
     isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =
     isDm &&
-    (sending ||
-      awaitingActiveResponse ||
-      (showWorkingTurn && !workingTurnHasNoRecentUpdate && !currentFlightQueuedUntilOnline));
+    hasOutstandingConversationReply({
+      sending,
+      awaitingResponse: awaitingResponseSince !== null,
+      currentFlight,
+    });
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -915,16 +906,15 @@ export function ConversationScreen({
 
   const sendText = async (
     text: string,
-    options?: { forceMode?: ComposeMode },
+    options?: { forceAction?: ComposeAction },
   ) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    const effectiveMode = options?.forceMode ?? composeMode;
-    const action: ComposeAction = isDm
-      ? hasOutstandingReply
-        ? "steer"
-        : effectiveMode
-      : "tell";
+    const forceAction = options?.forceAction;
+    const action = forceAction ?? resolveComposeAction({
+      isDm,
+      hasOutstandingReply,
+    });
 
     const optimisticCreatedAt = Date.now();
     const optimisticMessage: Message = {
@@ -938,32 +928,26 @@ export function ConversationScreen({
     };
 
     setSending(true);
-    if (isDm && action !== "tell") {
+    if (action !== "message") {
       setAwaitingResponseSince(optimisticCreatedAt);
     }
     setError(null);
     setMessages((previous) => sortMessages([...previous, optimisticMessage]));
 
     try {
-      const result = await api<SendResult>(
-        action === "ask" ? "/api/ask" : "/api/send",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            body: trimmed,
-            conversationId,
-            ...(action !== "ask" ? { intent: action } : {}),
-          }),
-        },
-      );
-      const routedConversationId = result.conversationId?.trim();
+      const result = await api<SendResult>("/api/send", {
+        method: "POST",
+        body: JSON.stringify({
+          body: trimmed,
+          chatId: conversationId,
+          ...(forceAction ? { intent: forceAction } : {}),
+        }),
+      });
+      const routedConversationId = result.chatId?.trim() ?? result.conversationId?.trim();
       if (routedConversationId && routedConversationId !== conversationId) {
-        setMessages((previous) =>
-          previous.filter((message) => message.id !== optimisticMessage.id),
+        throw new Error(
+          `Send returned a different Chat (${routedConversationId}) instead of appending to ${conversationId}.`,
         );
-        setAwaitingResponseSince(null);
-        navigate({ view: "conversation", conversationId: routedConversationId });
-        return;
       }
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
@@ -972,7 +956,7 @@ export function ConversationScreen({
         );
         setTurnActivity([]);
         setTurnAsk(null);
-      } else if (action !== "tell") {
+      } else if (action !== "message") {
         setAwaitingResponseSince(null);
       }
     } catch (cause) {
@@ -1007,24 +991,12 @@ export function ConversationScreen({
 
   const isAgentBusy =
     presence.tone === "working" || presence.tone === "pending";
-  const composeAction: ComposeAction = isDm
-    ? hasOutstandingReply
-      ? "steer"
-      : composeMode
-    : "tell";
+  const composeAction = resolveComposeAction({ isDm, hasOutstandingReply });
   const composePlaceholder = isDm
-    ? `Reply — or type / to route, @ to mention an agent, ? to ask a question`
+    ? `Message ${agentName} — type / to route or @ to mention an agent`
     : sessionMeta?.kind === "channel"
       ? `Message #${conversationShortLabel(sessionMeta)}...`
       : `Message ${threadTitle}...`;
-  const composeModeDetail =
-    composeAction === "ask"
-      ? "Ask creates owned work in this private conversation and expects a reply here."
-      : composeAction === "steer"
-        ? "Follow-up stays in this private conversation while the current turn is active."
-        : isDm
-          ? "Tell is for heads-up, replies, and status in this private conversation."
-          : "Shared conversations are for group coordination and shared updates.";
   const isStopMode = !draft.trim() && isAgentBusy;
 
   const showContextMenu = useContextMenu();
@@ -1080,7 +1052,7 @@ export function ConversationScreen({
     const leftover = draft.trim();
     if (leftover) {
       setDraft("");
-      await sendText(`${prefix}${leftover}`, { forceMode: "tell" });
+      await sendText(`${prefix}${leftover}`, { forceAction: "invoke" });
       return;
     }
     setDraft(prefix);
@@ -1238,7 +1210,7 @@ export function ConversationScreen({
                 <p>{threadTitle}</p>
                 <p>
                   {isDm
-                    ? "No messages yet. Use Tell for quick updates or Ask to create owned work with a reply."
+                    ? "No messages yet. Send a message to start working with this agent."
                     : "No messages yet. Start the conversation below."}
                 </p>
                 {(workspaceName || sessionMeta?.currentBranch) && (
@@ -1443,7 +1415,7 @@ export function ConversationScreen({
                           <button
                             type="button"
                             className="s-thread-reply-ctx"
-                            title={`Open the originating ask${
+                            title={`Open the originating request${
                               replyContext.flightId
                                 ? ` · ${replyContext.flightId}`
                                 : ""
@@ -1641,7 +1613,6 @@ export function ConversationScreen({
           isStopMode={isStopMode}
           sending={sending}
           composeAction={composeAction}
-          isDm={isDm}
           onSend={() => void send()}
           onInterrupt={() => void interrupt()}
         />

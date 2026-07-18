@@ -17,7 +17,7 @@ The core separation is:
 - Chat is communication continuity.
 - Workspace or folder path is agent context continuity.
 - Session is harness runtime continuity.
-- Task or Ask is requested work.
+- Invocation or Task is requested work.
 - Run or Flight is work lifecycle.
 
 Those axes often point at one another, but they must not collapse into one
@@ -37,9 +37,10 @@ still too close together:
 3. `ScoutChannel` is an overloaded native model name. It currently represents
    direct messages, group direct conversations, named channels, and threads.
    Channel should mean a named shared room, not every Chat row.
-4. Passive comment, steering, and requested work are not the same intent. A
-   comment only appends a message. Steering appends a message and wakes the
-   scoped participants. Ask or Task creates owned invocation and run lifecycle.
+4. Passive comment, steering, and requested work are not the same internal
+   intent. The product exposes one Send action; Scout resolves whether that Send
+   only appends a message, steers active work, or creates invocation and Run
+   lifecycle from the selected Chat and target context.
 5. Thread is already overloaded by provider `threadId` values and broker
    `kind: "thread"`. Use Thread only for nested reply threads or provider
    metadata unless the repo does a deliberate rename.
@@ -55,9 +56,13 @@ The Chat concept is healthy when these rules hold:
 - A selected Chat id is authoritative for message sends.
 - Sending a passive comment does not create a task, invocation, flight, or new
   harness session.
-- When the operator speaks inside a live agent-to-agent DM, group direct, or
-  channel, the default product intent is steering the current non-human
-  participants in that Chat.
+- Send is the sole product action; Scout derives its internal intent from the
+  selected Chat, explicit target, and scoped active Run.
+- In a direct agent Chat, Send creates requested work while idle and steers the
+  scoped Run while active.
+- In a shared Chat, an untargeted Send is a passive message. A Send that
+  explicitly targets an agent creates requested work while that target is idle
+  and steers that target's scoped Run while active.
 - A Chat can contain messages from humans, agents, and system actors.
 - A Chat can reference active or historical tasks, runs, endpoints, and sessions
   without becoming any of those objects.
@@ -97,8 +102,8 @@ Message
   -> may mention/notify participants
   -> may carry intent metadata such as steering
 
-Task / Ask / Invocation
-  -> is created intentionally from a command or composer action
+Task / Invocation
+  -> is created when a Send targets an agent for requested work
   -> belongs to a Chat
   -> targets an agent, project, capability, or exact session
   -> has one or more Runs / Flights
@@ -114,9 +119,9 @@ The write intent should be explicit before routing starts.
 
 | Intent | Product action | Internal records |
 | --- | --- | --- |
-| Comment | Passive note in an open Chat | Message in that Chat |
-| Ask / task | Explicit ask/task action | Message + invocation + flight |
-| Steering | Operator speaks in an agent space, or explicitly selects steer | Message in the same Chat + wake invocations for scoped participants |
+| Comment | Send in a shared Chat without an explicit target | Message in that Chat |
+| Requested work | Send in an idle direct agent Chat, or explicitly target an idle agent from a shared Chat | Message + invocation + flight |
+| Steering | Send in a direct agent Chat with a scoped active Run, or explicitly target an agent with a scoped active Run from a shared Chat | Message in the same Chat + steering delivery linked to the scoped Run |
 | Reply | Reply to a message | Message in same Chat with `replyToMessageId` |
 | Channel post | Send in a named channel Chat | Message in that channel Chat |
 | Open companion | Open agent from a path/card | Resolve path-backed agent context, then find or create opaque direct Chat |
@@ -159,7 +164,7 @@ Use publicly:
 - Chat ID: opaque id for the broker Conversation row.
 - Path or Workspace: deterministic local context for an agent companion.
 - Session: concrete harness runtime context.
-- Task or Ask: explicit requested work.
+- Task: explicit requested work.
 - Run: user-facing lifecycle of a task.
 - Needs attention: human or system unblock state.
 
@@ -182,13 +187,15 @@ Immediate:
 - Reject structural Chat IDs in product routes.
 - Route "open companion" through path-backed agent context plus selector hints.
 - Show Chat language in user-facing surfaces.
-- Keep Send and Ask behavior separate in tests.
+- Keep message-only, invoke, and steering behavior separate in tests while the
+  product presents one Send action.
 
 Near term:
 
 - Rename native UI models from `ScoutChannel` toward `ScoutChat`.
 - Add duplicate-aware Chat titles for same-agent contexts.
-- Split composer actions visibly: Send message vs Ask/Task.
+- Remove Ask/Tell mode selection from composers and resolve Send behavior from
+  Chat, target, and active-Run context.
 - Add message intent metadata for steering and active-run steering.
 
 Later:
@@ -203,11 +210,14 @@ Later:
 At minimum, the suite should prove:
 
 - Sending in a selected direct Chat preserves that exact Chat.
-- Operator sends in selected agent/group/channel Chats steer current scoped
-  participants by default.
-- Passive comments in selected Chats append without creating invocations.
+- A Send in an idle direct agent Chat creates invocation/Run lifecycle.
+- A Send in a direct agent Chat with a scoped active Run steers that Run.
+- An untargeted Send in a shared Chat appends a passive message without creating
+  invocation/Run lifecycle.
+- A Send that explicitly targets an idle agent from a shared Chat creates
+  invocation/Run lifecycle; when that target has a scoped active Run, it steers
+  that Run instead.
 - Target-only direct send can still open or create a direct Chat.
-- Ask or Task creates invocation/run lifecycle; passive comments do not.
 - Active-run steering remains in the same Chat and links to the active run.
 - Same-agent multiple Chats render distinguishable labels.
 - Session changes do not change Chat identity.

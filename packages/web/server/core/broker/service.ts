@@ -2235,7 +2235,9 @@ export async function sendScoutConversationSteer(input: {
   attachments?: OutgoingAttachmentInput[];
   replyToMessageId?: string | null;
   targetParticipantIds?: string[];
-  intent?: "steer" | "tell";
+  steerContextByTargetAgentId?: Record<string, { runId: string; flightId?: string }>;
+  intent?: "invoke" | "steer" | "tell";
+  execution?: InvocationRequest["execution"];
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -2252,7 +2254,11 @@ export async function sendScoutConversationSteer(input: {
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const createdAtMs = input.createdAtMs ?? Date.now();
-  const intent = input.intent === "tell" ? "tell" : "steer";
+  const intent = input.intent === "tell"
+    ? "tell"
+    : input.intent === "invoke"
+      ? "invoke"
+      : "steer";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2391,6 +2397,9 @@ export async function sendScoutConversationSteer(input: {
   const flights: ScoutFlightRecord[] = [];
   for (const targetActorId of targetIds) {
     const target = invocationTargetRoute(broker.snapshot, targetActorId);
+    const steerContext = intent === "steer"
+      ? input.steerContextByTargetAgentId?.[targetActorId]
+      : undefined;
     const response = await brokerPostJson<ScoutInvocationPostResponse>(
       broker.baseUrl,
       scoutBrokerPaths.v1.invocations,
@@ -2400,11 +2409,14 @@ export async function sendScoutConversationSteer(input: {
         requesterNodeId: broker.node.id,
         targetAgentId: targetActorId,
         ...(target ? { target } : {}),
-        action: "wake",
-        task: input.body,
+        action: intent === "invoke" ? "consult" : "wake",
+        task: input.body.trim() || "Review the attached message.",
         conversationId: conversation.id,
         messageId,
-        execution: invocationExecutionForSteer(broker.snapshot, targetActorId),
+        execution: {
+          ...invocationExecutionForSteer(broker.snapshot, targetActorId),
+          ...(intent === "invoke" && input.execution ? input.execution : {}),
+        },
         ensureAwake: true,
         stream: false,
         labels: [intent],
@@ -2418,6 +2430,12 @@ export async function sendScoutConversationSteer(input: {
           relayTarget: targetActorId,
           relayTargetIds: targetIds,
           relayMessageId: messageId,
+          ...(steerContext
+            ? {
+                parentRunId: steerContext.runId,
+                ...(steerContext.flightId ? { steeredFlightId: steerContext.flightId } : {}),
+              }
+            : {}),
           returnAddress,
         },
       },

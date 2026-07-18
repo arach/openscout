@@ -27,7 +27,7 @@ const KIND_LABELS: Record<string, string> = {
   "message.received": "received message",
   "collaboration.ask": "asked a question",
   "collaboration.answer": "answered",
-  ask_sent: "asked",
+  ask_sent: "sent a request",
   ask_replied: "replied",
   ask_working: "working",
   flight_created: "started task",

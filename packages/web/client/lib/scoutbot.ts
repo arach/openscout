@@ -348,7 +348,6 @@ function normalizeRoute(raw: unknown): Route | null {
         ? {
             view: "conversation",
             conversationId: record.conversationId,
-            ...(record.composeMode === "ask" || record.composeMode === "tell" ? { composeMode: record.composeMode } : {}),
           }
         : null;
     case "ops": {

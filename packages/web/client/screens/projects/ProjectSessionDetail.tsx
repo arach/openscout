@@ -402,7 +402,7 @@ export function ProjectSessionDetail({
 
             <section className="av2-sheet-actions">
               <Ghost primary onClick={active ? onContinue : onResume}>
-                {active ? "Steer session" : "Resume session"}
+                {active ? "Send to session" : "Resume session"}
               </Ghost>
               {active ? (
                 <>
