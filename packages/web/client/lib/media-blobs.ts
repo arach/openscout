@@ -39,17 +39,39 @@ export function resolvedUploadMediaType(file: Pick<File, "type" | "name">): stri
   return resolvedCaptureUploadMediaType(file);
 }
 
-export function readRoutableFiles(dataTransfer: DataTransfer | null | undefined): File[] {
+/**
+ * During dragenter/dragover browsers commonly protect the payload and expose no
+ * File objects yet. The `Files` type and file item kinds are still available,
+ * so use those to decide whether the page should opt in to the eventual drop.
+ */
+export function dataTransferMayContainFiles(
+  dataTransfer: DataTransfer | null | undefined,
+): boolean {
+  if (!dataTransfer) return false;
+  if (dataTransfer.files.length > 0) return true;
+  if ([...dataTransfer.types].some((type) => type.toLowerCase() === "files")) {
+    return true;
+  }
+  return [...dataTransfer.items].some((item) => item.kind === "file");
+}
+
+export function readTransferredFiles(
+  dataTransfer: DataTransfer | null | undefined,
+): File[] {
   if (!dataTransfer) return [];
-  const files = [...dataTransfer.files].filter(isRoutableMediaFile);
+  const files = [...dataTransfer.files];
   if (files.length > 0) return files;
   const fromItems: File[] = [];
   for (const item of dataTransfer.items) {
     if (item.kind !== "file") continue;
     const file = item.getAsFile();
-    if (file && isRoutableMediaFile(file)) fromItems.push(file);
+    if (file) fromItems.push(file);
   }
   return fromItems;
+}
+
+export function readRoutableFiles(dataTransfer: DataTransfer | null | undefined): File[] {
+  return readTransferredFiles(dataTransfer).filter(isRoutableMediaFile);
 }
 
 export function readClipboardMediaFiles(clipboard: DataTransfer | null | undefined): File[] {
