@@ -373,47 +373,51 @@ struct ScoutRootView: View {
             .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
     }
 
-    private func rootShell(layout: ScoutShellLayout) -> some View {
-        HudChromeShell(titlebarStyle: .floating, titlebarActions: chromeTitlebarActions(layout: layout)) {
-            HudResizableNavigationSidebar(
-                selection: Binding(
-                    get: { section },
-                    set: { next in
-                        if let next {
-                            section = next
-                        }
-                    }
-                ),
-                entries: sidebarEntries,
-                isCompact: navigationCompactBinding(layout: layout),
-                labelWidth: navigationSidebarLabelWidthBinding,
-                accent: manifest.accent,
-                minLabelWidth: 76,
-                maxLabelWidth: 260,
-                collapseLabelWidth: 44,
-                railHeader: {
-                    // Full-height window: the traffic lights float over this
-                    // corner, so the identity mark steps down below them.
-                    ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
-                        .padding(.top, 26)
-                },
-                labelHeader: {
-                    Text("Scout")
-                        .font(HudFont.ui(HudTextSize.base, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.ink)
-                        .lineLimit(1)
-                        .padding(.top, 26)
-                },
-                footer: {
-                    ScoutSidebarSettingsButton(
-                        isCompact: effectiveRailCompact(layout: layout),
-                        labelWidth: CGFloat(navigationSidebarLabelWidth),
-                        isSelected: section == .settings
-                    ) {
-                        section = .settings
+    private func navigationSidebar(layout: ScoutShellLayout) -> some View {
+        HudResizableNavigationSidebar(
+            selection: Binding(
+                get: { section },
+                set: { next in
+                    if let next {
+                        section = next
                     }
                 }
-            )
+            ),
+            entries: sidebarEntries,
+            isCompact: navigationCompactBinding(layout: layout),
+            labelWidth: navigationSidebarLabelWidthBinding,
+            accent: manifest.accent,
+            minLabelWidth: 76,
+            maxLabelWidth: 260,
+            collapseLabelWidth: 44,
+            railHeader: {
+                // Full-height window: the traffic lights float over this
+                // corner, so the identity mark steps down below them.
+                ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
+                    .padding(.top, 26)
+            },
+            labelHeader: {
+                Text("Scout")
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                    .padding(.top, 26)
+            },
+            footer: {
+                ScoutSidebarSettingsButton(
+                    isCompact: effectiveRailCompact(layout: layout),
+                    labelWidth: CGFloat(navigationSidebarLabelWidth),
+                    isSelected: section == .settings
+                ) {
+                    section = .settings
+                }
+            }
+        )
+    }
+
+    private func rootChrome(layout: ScoutShellLayout) -> some View {
+        HudChromeShell(titlebarStyle: .contentBar, titlebarActions: chromeTitlebarActions(layout: layout)) {
+            navigationSidebar(layout: layout)
         } trailing: {
             trailingPanel(layout: layout)
         } content: {
@@ -421,6 +425,10 @@ struct ScoutRootView: View {
         } statusBar: {
             statusBar
         }
+    }
+
+    private func rootShell(layout: ScoutShellLayout) -> some View {
+        rootChrome(layout: layout)
         .hudsonAppManifest(manifest)
         .environment(\.hudTheme, ScoutDesign.theme)
         // Opaque chrome rail (not behind-window vibrancy): the `.liquidGlass`

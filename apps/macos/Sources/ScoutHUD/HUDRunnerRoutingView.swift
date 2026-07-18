@@ -9,49 +9,6 @@ struct HUDRunnerHeader: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(HUDChrome.canvasAlt.opacity(0.82))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(HUDChrome.borderStrong.opacity(0.46), lineWidth: 0.75)
-                )
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Image(systemName: "plus.bubble")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(HUDChrome.accent)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("NEW TASK")
-                    .font(HUDType.mono(9, weight: .semibold))
-                    .tracking(HUDType.eyebrowTracking)
-                    .foregroundStyle(HUDChrome.inkFaint)
-                Text("Send work to an agent")
-                    .font(HUDType.body(19, weight: .semibold))
-                    .foregroundStyle(HUDChrome.ink)
-            }
-
-            Spacer()
-
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(HUDChrome.accent)
-                    .frame(width: 6, height: 6)
-                Text("SCOUT")
-                    .font(HUDType.mono(9, weight: .bold))
-                    .tracking(HUDType.eyebrowMicro)
-            }
-            .foregroundStyle(HUDChrome.accent)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(HUDChrome.accent.opacity(0.30), lineWidth: 0.75)
-            )
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Scout is ready")
-
             Button {
                 runner.escapePressed()
             } label: {
@@ -77,6 +34,50 @@ struct HUDRunnerHeader: View {
             .accessibilityLabel(
                 runner.disclosure == .none ? "Close task composer" : "Back"
             )
+
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(HUDChrome.canvasAlt.opacity(0.82))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(HUDChrome.borderStrong.opacity(0.46), lineWidth: 0.75)
+                )
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Image(systemName: "plus.bubble")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(HUDChrome.accent)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("NEW TASK")
+                    .font(HUDType.mono(9, weight: .semibold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(HUDChrome.inkFaint)
+                Text("Send work to an agent")
+                    .font(HUDType.body(17, weight: .semibold))
+                    .foregroundStyle(HUDChrome.ink)
+            }
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(HUDChrome.accent)
+                    .frame(width: 6, height: 6)
+                Text("SCOUT")
+                    .font(HUDType.mono(9, weight: .bold))
+                    .tracking(HUDType.eyebrowMicro)
+            }
+            .foregroundStyle(HUDChrome.accent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(HUDChrome.accent.opacity(0.30), lineWidth: 0.75)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Scout is ready")
+
         }
         .padding(.horizontal, 26)
         .padding(.vertical, 17)
