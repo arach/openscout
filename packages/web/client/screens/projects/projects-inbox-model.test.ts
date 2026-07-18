@@ -305,6 +305,41 @@ describe("project aggregation + dormancy", () => {
     expect(openscout?.sessionCount).toBe(0);
     expect(openscout?.liveSessionCount).toBe(0);
   });
+
+  test("uses transcript event time instead of a freshly touched file for project recency", () => {
+    const discovery: TailDiscoverySnapshot = {
+      generatedAt: NOW,
+      processes: [],
+      transcripts: [
+        {
+          source: "claude",
+          transcriptPath: "/Users/test/.claude/projects/-Users-test-dev-arc/session.jsonl",
+          sessionId: "claude-arc-session",
+          cwd: "/Users/test/dev/arc",
+          project: "arc",
+          harness: "unattributed",
+          lastEventAt: STALE,
+          mtimeMs: RECENT,
+          size: 42_000,
+        },
+      ],
+      issues: [],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const model = buildProjectsInboxModel(baseInput([], null, false, [], discovery));
+    const arc = model.projects.find((project) => project.slug === "arc");
+
+    expect(model.threads).toHaveLength(0);
+    expect(arc?.lastActivityAt).toBe(STALE);
+    expect(arc && isDormantProject(arc, NOW)).toBe(true);
+  });
 });
 
 describe("filters + routing", () => {

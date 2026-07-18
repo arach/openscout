@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, LoaderCircle, Sparkles, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
@@ -357,24 +357,30 @@ export function BrokerScreen({
             </div>
           )}
 
-          {broker?.source?.status === "degraded" && broker.source.detail && (
+          {refreshing && broker && (
             <div
               className="sys-broker-source-note"
+              role="status"
+              aria-live="polite"
+            >
+              <LoaderCircle className="sys-broker-source-spinner" size={12} aria-hidden="true" />
+              <strong>Updating dispatches…</strong>
+            </div>
+          )}
+
+          {!refreshing
+            && broker?.source?.mode === "sqlite_projection"
+            && broker.source.status === "degraded"
+            && broker.source.detail && (
+            <div
+              className="sys-broker-source-note sys-broker-source-note--warning"
               role="status"
               aria-label={broker.source.detail}
               title={broker.source.detail}
             >
               <span className="sys-broker-source-dot" aria-hidden="true" />
-              <strong>
-                {broker.source.mode === "live_broker"
-                  ? "Failure history is catching up"
-                  : "Live message feed unavailable"}
-              </strong>
-              <span>
-                {broker.source.mode === "live_broker"
-                  ? "Live dispatches are current."
-                  : broker.source.detail}
-              </span>
+              <strong>Dispatch may be out of date</strong>
+              <span>Live broker unavailable; showing saved dispatch history.</span>
             </div>
           )}
 

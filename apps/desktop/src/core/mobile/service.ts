@@ -1,4 +1,5 @@
 import { basename, resolve } from "node:path";
+import { statSync } from "node:fs";
 
 import type {
   AgentDefinition,
@@ -7,7 +8,7 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
-import { epochMs } from "@openscout/protocol";
+import { channelNaturalKeyFromMetadata, epochMs } from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -250,6 +251,10 @@ function normalizeTimestampMs(value: number | null | undefined): number | null {
   return epochMs(value);
 }
 
+function requireTimestampMs(value: number | null | undefined): number {
+  return normalizeTimestampMs(value) ?? 0;
+}
+
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -357,6 +362,47 @@ async function loadMobileWorkspaceInventory(currentDirectory?: string): Promise<
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath) || left.title.localeCompare(right.title));
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Rebase a legacy macOS user-home path onto the account running Scout. */
+export function rehomeScoutMobileWorkspacePath(requestedPath: string, currentHome: string): string | null {
+  const requested = resolve(requestedPath);
+  const home = resolve(currentHome);
+  const requestedMatch = requested.match(/^\/Users\/[^/]+(\/.*)?$/);
+  if (!requestedMatch || !/^\/Users\/[^/]+$/.test(home)) return null;
+  const suffix = requestedMatch[1] ?? "";
+  return resolve(home, `.${suffix || "/"}`);
+}
+
+async function resolveMobileWorkspaceRoot(rawWorkspaceId: string, currentDirectory?: string): Promise<string> {
+  const requested = resolve(rawWorkspaceId);
+  if (isDirectory(requested)) return requested;
+
+  const currentHome = process.env.HOME?.trim();
+  const rehomed = currentHome ? rehomeScoutMobileWorkspacePath(requested, currentHome) : null;
+  if (rehomed && isDirectory(rehomed)) return rehomed;
+
+  // Last-resort identity lookup for stale session-history paths. Only accept a
+  // unique current workspace with the same leaf/name; ambiguity is safer as a
+  // clear error than silently launching in the wrong repository.
+  const requestedName = basename(requested).toLowerCase();
+  const inventory = await loadMobileWorkspaceInventory(currentDirectory);
+  const matches = inventory.filter((workspace) => (
+    isDirectory(workspace.root)
+    && [basename(workspace.root), workspace.projectName, workspace.title]
+      .some((value) => value.toLowerCase() === requestedName)
+  ));
+  if (matches.length === 1) return resolve(matches[0]!.root);
+
+  throw new Error(`Workspace is not available on this Mac: ${rawWorkspaceId}. Choose a project from the current workspace list.`);
+}
+
 function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string, MessageRecord[]> {
   const buckets = new Map<string, MessageRecord[]>();
   for (const message of Object.values(snapshot.messages)) {
@@ -413,10 +459,28 @@ function mobileConversationTitle(
     : title;
 }
 
+function endpointsForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint[] {
+  const stateRank = (state: AgentEndpoint["state"]): number => {
+    switch (state) {
+      case "active": return 0;
+      case "idle": return 1;
+      case "waiting": return 2;
+      case "offline": return 4;
+      default: return 3;
+    }
+  };
+  return Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint))
+    .sort((left, right) => (
+      Number(right.preferred === true) - Number(left.preferred === true)
+      || stateRank(left.state) - stateRank(right.state)
+      || (endpointActivityAt(right) ?? 0) - (endpointActivityAt(left) ?? 0)
+      || left.id.localeCompare(right.id)
+    ));
+}
+
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
-  return Object.values(snapshot.endpoints).find((endpoint) => (
-    endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
-  )) ?? null;
+  return endpointsForAgent(snapshot, agentId)[0] ?? null;
 }
 
 function maxTimestampMs(values: Array<number | null | undefined>): number | null {
@@ -454,7 +518,8 @@ function buildMobileAgentSummary(
   snapshot: ScoutBrokerSnapshot,
   agent: AgentDefinition,
 ): ScoutMobileAgentSummary {
-  const endpoint = endpointForAgent(snapshot, agent.id);
+  const endpoints = endpointsForAgent(snapshot, agent.id);
+  const endpoint = endpoints[0] ?? null;
   const flights = Object.values(snapshot.flights as Record<string, FlightRecord>).filter((flight) => flight.targetAgentId === agent.id);
   const hasActiveFlight = flights.some(isActiveMobileFlight);
   const lastAuthoredMessageAt = Object.values(snapshot.messages)
@@ -465,13 +530,13 @@ function buildMobileAgentSummary(
     }, null);
   const lastActiveAt = maxTimestampMs([
     lastAuthoredMessageAt,
-    endpointActivityAt(endpoint),
+    ...endpoints.map(endpointActivityAt),
     ...flights.map(flightActivityAt),
   ]);
 
   const state = hasActiveFlight
     ? "working"
-    : endpoint && endpoint.state !== "offline"
+    : endpoints.some((candidate) => candidate.state !== "offline")
       ? "available"
       : agent.wakePolicy !== "manual"
         ? "available"
@@ -959,16 +1024,14 @@ export async function createScoutSession(
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
-  // The mobile client passes a projectRoot path as workspaceId (see
-  // queryMobileWorkspaces in db-queries.ts). We skip the 4s filesystem inventory
-  // walk here and build a minimal workspace summary directly — createSession is
-  // a hot RPC on every mobile session creation and the downstream code only
-  // needs `root`, `projectName`, and the passthrough fields.
+  // The mobile client passes a projectRoot path as workspaceId. Valid current
+  // directories stay on the hot path; missing/legacy paths take the guarded
+  // inventory fallback before we construct the minimal downstream summary.
   const rawWorkspaceId = input.workspaceId?.trim();
   if (!rawWorkspaceId) {
     throw new Error(`Invalid workspaceId.`);
   }
-  const workspaceRoot = resolve(rawWorkspaceId);
+  const workspaceRoot = await resolveMobileWorkspaceRoot(rawWorkspaceId, currentDirectory);
   const projectName = basename(workspaceRoot) || workspaceRoot;
   const workspace: ScoutMobileWorkspaceSummary = {
     id: workspaceRoot,
@@ -1277,12 +1340,50 @@ export type ScoutMobileActivityFilters = {
 export async function getScoutMobileActivity(
   filters: ScoutMobileActivityFilters = {},
 ): Promise<ScoutBrokerHomeActivityRecord[]> {
-  // Home is an orientation surface, so it reads the broker's *curated* home
-  // activity — one row per message, named actors, always thread-linked — not the
-  // raw `/v1/activity` lifecycle firehose (ask_opened / flight_updated / …),
-  // which is an ops feed and stays on the Tail tab. See project_home_purpose.
-  const home = await readScoutBrokerHome();
-  return (home?.activity ?? []).slice(0, filters.limit ?? 100);
+  // Home is an orientation surface: show the actual recent exchanges Scout
+  // mediated, not the raw `/v1/activity` lifecycle firehose. Reading the broker
+  // message ledger directly also avoids depending on the optional home activity
+  // projection, which may legitimately be empty after a broker restart.
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    const home = await readScoutBrokerHome();
+    return (home?.activity ?? []).slice(0, filters.limit ?? 100);
+  }
+
+  const { snapshot } = broker;
+  const selfIds = operatorActorIds();
+  const mediatedKinds = new Set(["channel", "direct", "group_direct", "thread"]);
+  const rows = Object.values(snapshot.messages ?? {})
+    .filter((message) => {
+      const conversation = snapshot.conversations?.[message.conversationId];
+      if (!conversation || !mediatedKinds.has(conversation.kind)) return false;
+      if (filters.agentId && message.actorId !== filters.agentId) return false;
+      if (filters.actorId && message.actorId !== filters.actorId) return false;
+      if (filters.conversationId && message.conversationId !== filters.conversationId) return false;
+      return true;
+    })
+    .sort((left, right) => requireTimestampMs(right.createdAt) - requireTimestampMs(left.createdAt))
+    .map((message): ScoutBrokerHomeActivityRecord => {
+      const conversation = snapshot.conversations[message.conversationId]!;
+      const actorName = commsActorLabel(snapshot, message.actorId, selfIds);
+      const channel = conversation.kind === "channel"
+        ? channelNaturalKeyFromMetadata(conversation.metadata) ?? conversation.title ?? null
+        : null;
+      return {
+        id: message.id,
+        kind: message.class === "status" || message.actorId === "system" ? "system" : "message",
+        actorId: message.actorId,
+        actorName,
+        title: actorName,
+        detail: message.body,
+        conversationId: message.conversationId,
+        channel,
+        timestamp: requireTimestampMs(message.createdAt),
+      };
+    });
+
+  const limit = filters.limit && filters.limit > 0 ? Math.floor(filters.limit) : 100;
+  return rows.slice(0, limit);
 }
 
 // -- Comms (channels + DMs) ----------------------------------------------

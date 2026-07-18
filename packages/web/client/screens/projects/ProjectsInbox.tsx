@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, ArrowUpRight, Folder, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
@@ -196,6 +196,7 @@ function ProjectScopeHeader({
   const showAgentFacet = (project?.agentCount ?? agentThreads.length) > 1;
   const machineScope = route.machineId ? { machineId: route.machineId } : {};
   const baseRoute = { view: "agents-v2" as const, projectSlug: slug, ...machineScope };
+  const digest = digestLine(project?.needs ?? 0, project?.working ?? 0, projectThreads.length);
 
   const worktreeCount = repoProject?.worktrees.length ?? project?.worktreeCount ?? 0;
 
@@ -208,11 +209,6 @@ function ProjectScopeHeader({
             {root ? <span title={root}>{shortHomePath(root)}</span> : null}
             <span className="pi-projectDigest">{digest}</span>
           </div>
-          {root ? (
-            <div className="pi-projectRoot" title={root}>
-              {shortHomePath(root)}
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -269,6 +265,19 @@ function ProjectScopeHeader({
       </div>
     </header>
   );
+}
+
+function digestLine(needs: number, working: number, total: number): ReactNode {
+  if (total === 0) return <span>No conversations yet.</span>;
+  const parts: ReactNode[] = [];
+  if (working > 0) parts.push(<b key="w">{working} moving</b>);
+  if (needs > 0) parts.push(<b key="n">{needs} needs you</b>);
+  parts.push(<span key="t">{total} conversation{total === 1 ? "" : "s"}</span>);
+  return parts.reduce<ReactNode[]>((result, node, index) => {
+    if (index > 0) result.push(<span key={`sep${index}`}> · </span>);
+    result.push(node);
+    return result;
+  }, []);
 }
 
 function shortSessionRef(value: string): string {

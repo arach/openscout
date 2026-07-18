@@ -117,6 +117,8 @@ describe("tail transcript sources", () => {
     expect(transcripts).toHaveLength(1);
     expect(transcripts[0]?.cwd).toBe("/Users/arach/dev/openscout");
     expect(transcripts[0]?.sessionId).toBe("claude-session");
+    expect(transcripts[0]?.lastEventAt).toBe(Date.parse("2026-04-27T15:00:01.000Z"));
+    expect(transcripts[0]?.mtimeMs).toBeGreaterThan(transcripts[0]?.lastEventAt ?? 0);
 
     const event = ClaudeSource.parseLine(
       JSON.stringify({

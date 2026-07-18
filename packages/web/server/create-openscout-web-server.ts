@@ -79,18 +79,16 @@ import {
   type WebAgent,
   type WebFlight,
 } from "./db-queries.ts";
-import { queryAgentIdsByEndpointSessionId } from "./db/agents.ts";
 import {
   brokerDiagnosticsNeedsFullSnapshot,
   markBrokerDiagnosticsLiveUnavailable,
   mergeBrokerDiagnosticsWithLiveSnapshot,
 } from "./db/broker-live.ts";
-import { queryOperatorAttentionRows } from "./db/fleet.ts";
 import {
   applyAgentAttention,
-  buildAgentAttentionIndex,
   type AgentAttentionEntry,
 } from "./core/attention/agent-attention.ts";
+import { createAgentAttentionIndexReader } from "./core/attention/build-agent-attention-index.ts";
 import {
   configuredOperatorActorIds,
 } from "./db/internal/conversation-ids.ts";
@@ -2096,62 +2094,15 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
-const AGENT_ATTENTION_TTL_MS = 2_000;
-let agentAttentionCache: { at: number; index: Map<string, AgentAttentionEntry> } | null = null;
-let agentAttentionInFlight: Promise<Map<string, AgentAttentionEntry>> | null = null;
-
 /**
  * Needs-attention index for /api/agents, cached briefly and coalesced: the
  * endpoint is polled every ~2.5s per client and the pairing-snapshot read
  * opens a bridge socket per call, so concurrent post-TTL polls must share one
- * rebuild. Failures cache an empty index so a broken source cannot take
- * /api/agents down with it.
+ * rebuild. Failures yield an empty index so a broken source cannot take
+ * /api/agents down with it. The sourcing lives in `core/attention` so the
+ * mobile agents RPC can build the identical index.
  */
-function queryAgentAttentionIndex(
-  broker: ScoutBrokerContext | null,
-): Promise<Map<string, AgentAttentionEntry>> {
-  const cached = agentAttentionCache;
-  if (cached && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
-    return Promise.resolve(cached.index);
-  }
-  if (agentAttentionInFlight) {
-    return agentAttentionInFlight;
-  }
-  agentAttentionInFlight = buildAgentAttentionIndexSnapshot(broker).finally(() => {
-    agentAttentionInFlight = null;
-  });
-  return agentAttentionInFlight;
-}
-
-async function buildAgentAttentionIndexSnapshot(
-  broker: ScoutBrokerContext | null,
-): Promise<Map<string, AgentAttentionEntry>> {
-  let index = new Map<string, AgentAttentionEntry>();
-  try {
-    const snapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
-    const sessionItems = snapshots.length > 0 ? projectSessionsAttention(snapshots) : [];
-    const agentIdBySessionId = queryAgentIdsByEndpointSessionId();
-    // The broker snapshot is the live authority on which agent currently
-    // holds a session — it overrides any stale endpoint row in the db.
-    for (const agent of Object.values(broker?.snapshot.agents ?? {})) {
-      const sessionId = broker
-        ? activeEndpointForAgent(broker.snapshot, agent.id)?.sessionId?.trim()
-        : null;
-      if (sessionId) {
-        agentIdBySessionId.set(sessionId, agent.id);
-      }
-    }
-    index = buildAgentAttentionIndex({
-      sessionItems,
-      agentIdBySessionId,
-      collaborationRows: queryOperatorAttentionRows(),
-    });
-  } catch {
-    // Attention is a decoration on the agent list, never a reason to 500 it.
-  }
-  agentAttentionCache = { at: Date.now(), index };
-  return index;
-}
+const queryAgentAttentionIndex = createAgentAttentionIndexReader();
 
 function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
   if (limit === undefined) return agents;

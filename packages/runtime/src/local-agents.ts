@@ -3899,14 +3899,18 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     }, null, 2) + "\n",
   );
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
-      break;
+  // Liveness must be an awaited fresh read: the sync snapshot read above can
+  // serve the pre-spawn session list while the post-invalidation probe refresh
+  // is still in flight, which used to fail healthy sessions within ~2s.
+  let sessionOnline = false;
+  for (let attempt = 0; attempt < 20 && !sessionOnline; attempt += 1) {
+    sessionOnline = await isLocalAgentSessionAliveAsync(normalizedRecord.tmuxSession);
+    if (!sessionOnline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  if (!isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
+  if (!sessionOnline) {
     const stderrTail = existsSync(stderrLogFile)
       ? readFileSync(stderrLogFile, "utf8").trim().split(/\r?\n/).slice(-10).join("\n").trim()
       : "";
