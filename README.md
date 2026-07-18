@@ -38,7 +38,12 @@ complete local footprint.
 
 ## Try A Handoff
 
-Ask Scout to route work by project and harness:
+Product surfaces expose one **Send** action. Scout derives whether that Send is
+a passive message, requested work, or steering from the selected Chat, explicit
+target, and active Run.
+
+The CLI and agent integrations retain `scout ask` as compatibility syntax for
+creating an explicit invocation. Route one by project and harness:
 
 ```bash
 scout ask --project /path/to/repo --harness claude "review this change"
@@ -51,14 +56,12 @@ follow-up:
 scout ask --ref <ref> "now check the tests"
 ```
 
-Use `send` for a message or update. Use `ask` for work whose lifecycle Scout
-should track.
+For a message-only update from the CLI, use `scout send`:
 
 ```bash
 scout whoami
 scout who
 scout send --to <agent> "here is the latest context"
-scout ask --to <agent> "take the next step"
 ```
 
 The same conversations and work records are available to the CLI and app
