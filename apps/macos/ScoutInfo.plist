@@ -32,7 +32,7 @@
     <key>SUFeedURL</key>
     <string>https://raw.githubusercontent.com/arach/openscout/main/apps/macos/appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>REPLACE-WITH-GENERATED-ED-KEY</string>
+    <string>iTKYmLILQkkeyAazKSWGx+18chlhAG5mhcZmIJ77gdg=</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>ATSApplicationFontsPath</key>

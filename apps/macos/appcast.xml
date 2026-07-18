@@ -5,5 +5,13 @@
     <link>https://raw.githubusercontent.com/arach/openscout/main/apps/macos/appcast.xml</link>
     <description>Automatic updates for the OpenScout macOS app.</description>
     <language>en</language>
+    <item>
+      <title>OpenScout 0.2.74</title>
+      <pubDate>Sat, 18 Jul 2026 18:08:52 GMT</pubDate>
+      <sparkle:version>0.2.74</sparkle:version>
+      <sparkle:shortVersionString>0.2.74</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/arach/openscout/releases/download/v0.2.74/OpenScout-0.2.74.dmg" sparkle:version="0.2.74" sparkle:shortVersionString="0.2.74" sparkle:edSignature="4ISWqDMreKr0ONNm3EFeptLtyroCDB3DoONlU+8k28ST7Sqj1h9TVqaoKyJwHEzGUfwMVGKHk1Za7wB6E8dsAQ==" length="25639603" type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
