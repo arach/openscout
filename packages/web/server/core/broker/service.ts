@@ -195,6 +195,7 @@ export type ScoutMessagePostResult = {
   flight?: ScoutFlightRecord;
   flights?: ScoutFlightRecord[];
   invokedTargets: string[];
+  notifiedTargets?: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
 };
@@ -2141,6 +2142,8 @@ export async function sendScoutConversationMessage(input: {
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
+  /** A shared Chat post reaches its agent participants without requesting work. */
+  notifyParticipantAgents?: boolean;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -2166,28 +2169,44 @@ export async function sendScoutConversationMessage(input: {
     input.body,
     currentDirectory,
   );
+  const mentionedTargetIds = new Set(mentionResolution.resolved.map((target) => target.agentId));
+  const participantTargetIds = input.notifyParticipantAgents
+    && (
+      conversation.kind === "channel"
+      || conversation.kind === "group_direct"
+      || conversation.kind === "thread"
+    )
+    ? conversation.participantIds.filter((participantId) =>
+        isSteerableParticipant(broker.snapshot, participantId, senderId)
+      )
+    : [];
+  const candidateTargetIds = [...new Set([
+    ...mentionedTargetIds,
+    ...participantTargetIds,
+  ])];
 
   const availableTargets = (
     await Promise.all(
-      mentionResolution.resolved.map(async (target) => (
+      candidateTargetIds.map(async (agentId) => (
         await ensureTargetRelayAgentRegistered(
           broker.baseUrl,
           broker.snapshot,
           broker.node.id,
-          target.agentId,
+          agentId,
           currentDirectory,
         )
-          ? target
+          ? agentId
           : null
       )),
     )
-  ).filter((target): target is ScoutMentionTarget => Boolean(target));
+  ).filter((agentId): agentId is string => Boolean(agentId));
 
   const validTargets = [...new Set(
     availableTargets
-      .map((target) => target.agentId)
       .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
   )].sort();
+  const mentionedValidTargets = validTargets.filter((targetId) => mentionedTargetIds.has(targetId));
+  const participantValidTargets = validTargets.filter((targetId) => participantTargetIds.includes(targetId));
   const unresolvedTargets = mentionResolution.resolved
     .filter((target) => !validTargets.includes(target.agentId))
     .map((target) => target.label)
@@ -2208,10 +2227,14 @@ export async function sendScoutConversationMessage(input: {
     body: input.body,
     ...(input.replyToMessageId?.trim() ? { replyToMessageId: input.replyToMessageId.trim() } : {}),
     mentions: mentionResolution.resolved
-      .filter((target) => validTargets.includes(target.agentId))
+      .filter((target) => mentionedValidTargets.includes(target.agentId))
       .map((target) => ({ actorId: target.agentId, label: target.label })),
     attachments: normalizeOutgoingAttachments(input.attachments),
-    audience: validTargets.length > 0 ? { notify: validTargets, reason: "mention" } : undefined,
+    audience: participantValidTargets.length > 0
+      ? { notify: participantValidTargets, reason: "conversation_visibility" }
+      : mentionedValidTargets.length > 0
+        ? { notify: mentionedValidTargets, reason: "mention" }
+        : undefined,
     visibility: conversation.visibility,
     policy: "durable",
     createdAt: createdAtMs,
@@ -2220,12 +2243,25 @@ export async function sendScoutConversationMessage(input: {
       destinationKind: "conversation",
       destinationId: conversation.id,
       relayMessageId: messageId,
+      ...(participantValidTargets.length
+        ? {
+            deliveryIntent: "group_message",
+            relayTargetIds: participantValidTargets,
+          }
+        : {}),
       ...clientMessageMetadata(input.clientMessageId),
       returnAddress,
     },
   });
 
-  return { usedBroker: true, conversationId: conversation.id, messageId, invokedTargets: validTargets, unresolvedTargets };
+  return {
+    usedBroker: true,
+    conversationId: conversation.id,
+    messageId,
+    invokedTargets: mentionedValidTargets,
+    ...(participantValidTargets.length ? { notifiedTargets: participantValidTargets } : {}),
+    unresolvedTargets,
+  };
 }
 
 export async function sendScoutConversationSteer(input: {
