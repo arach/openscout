@@ -197,7 +197,7 @@ export function FocusOverlay({
   agent: Agent;
   observe: SessionObserveData | null;
   onClose: () => void;
-  onSend: (body: string, mode: "tell" | "ask") => Promise<void>;
+  onSend: (body: string) => Promise<void>;
   onOpenConversation: () => void;
   onTail: () => void;
   onProfile: () => void;
@@ -413,7 +413,7 @@ function eventSummary(event: ObserveEvent): string {
     return event.arg ? `${head} · ${event.arg}` : head;
   }
   if (event.kind === "ask") {
-    return event.text || "asked something";
+    return event.text || "request received";
   }
   return event.text || event.detail || KIND_LABEL[event.kind] || event.kind;
 }
@@ -570,12 +570,12 @@ function FocusMessageTab({
   onOpenConversation,
 }: {
   agent: Agent;
-  onSend: (body: string, mode: "tell" | "ask") => Promise<void>;
+  onSend: (body: string) => Promise<void>;
   onOpenConversation: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState<"tell" | "ask" | null>(null);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -583,16 +583,16 @@ function FocusMessageTab({
     textareaRef.current?.focus();
   }, []);
 
-  const send = async (mode: "tell" | "ask") => {
+  const send = async () => {
     const body = draft.trim();
     if (!body || sending) return;
     setSending(true);
     setError(null);
     try {
-      await onSend(body, mode);
+      await onSend(body);
       setDraft("");
-      setSent(mode);
-      setTimeout(() => setSent(null), 1800);
+      setSent(true);
+      setTimeout(() => setSent(false), 1800);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -603,8 +603,7 @@ function FocusMessageTab({
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (e.shiftKey) void send("ask");
-      else void send("tell");
+      void send();
     }
   };
 
@@ -621,7 +620,7 @@ function FocusMessageTab({
           id="s-focus-compose-input"
           ref={textareaRef}
           className="s-focus-compose-input"
-          placeholder={`Steer @${name}…   (⌘↩ to Steer · ⌘⇧↩ to Ask)`}
+          placeholder={`Message @${name}…   (⌘↩ to Send)`}
           rows={6}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -632,14 +631,10 @@ function FocusMessageTab({
           <div className="s-focus-compose-hint">
             {error ? (
               <span className="s-focus-compose-error">Send failed: {error}</span>
-            ) : sent === "tell" ? (
-              <span className="s-focus-compose-ok">Steered ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open thread</button></span>
-            ) : sent === "ask" ? (
-              <span className="s-focus-compose-ok">Asked ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open thread</button></span>
+            ) : sent ? (
+              <span className="s-focus-compose-ok">Sent ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open Chat</button></span>
             ) : (
-              <>
-                <strong>Steer</strong> redirects what they're doing. <strong>Ask</strong> waits for a structured answer.
-              </>
+              <>Send starts a Run, or steers the active Run when this agent is already working.</>
             )}
           </div>
           <div className="s-focus-compose-actions">
@@ -650,19 +645,11 @@ function FocusMessageTab({
             />
             <button
               type="button"
-              className="s-ops-btn"
-              onClick={() => void send("ask")}
-              disabled={!canSend}
-            >
-              Ask
-            </button>
-            <button
-              type="button"
               className="s-ops-btn s-ops-btn--primary"
-              onClick={() => void send("tell")}
+              onClick={() => void send()}
               disabled={!canSend}
             >
-              Steer
+              Send
             </button>
           </div>
         </div>

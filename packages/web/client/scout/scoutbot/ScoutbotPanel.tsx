@@ -273,7 +273,7 @@ export function ScoutbotPanel({
     const mention = promptAgent ? `@${agentPromptHandle(promptAgent)}` : "@agent";
     return [
       "Let me know when this turn finishes.",
-      `Ask ${mention} what needs me next.`,
+      `Message ${mention} to find out what needs me next.`,
       "Summarize these lanes and call out blockers.",
     ];
   }, [agents]);
@@ -526,7 +526,7 @@ export function ScoutbotPanel({
     setLastReply(replyText);
     for (const action of extractScoutbotUiActions(body)) {
       if (action.type === "ask-agent") {
-        setAskStatus(`Asking ${action.targetLabel}`);
+        setAskStatus(`Sending to ${action.targetLabel}`);
         void api<ScoutbotAskAgentResult>("/api/scoutbot/actions/ask", {
           method: "POST",
           body: JSON.stringify({
@@ -538,12 +538,12 @@ export function ScoutbotPanel({
         }).then((result) => {
           setAskStatus(
             result.flightId
-              ? `Asked ${result.targetAgentId ?? result.targetLabel} · flight ${result.flightId}`
-              : `Asked ${result.targetAgentId ?? result.targetLabel}`,
+              ? `Sent to ${result.targetAgentId ?? result.targetLabel} · run ${result.flightId}`
+              : `Sent to ${result.targetAgentId ?? result.targetLabel}`,
           );
         }).catch((err) => {
           setAskStatus(null);
-          setError(err instanceof Error ? err.message : "Could not ask agent.");
+          setError(err instanceof Error ? err.message : "Could not send to agent.");
         });
       } else if (action.type === "reminder") {
         void createScoutbotReminder({
@@ -1281,9 +1281,9 @@ export function ScoutbotPanel({
             </span>
             <button
               type="button"
-              title="Ask about this"
-              aria-label="Ask about this"
-              onClick={() => void askScoutbot(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
+              title="Message Scout about this"
+              aria-label="Message Scout about this"
+              onClick={() => void askScoutbot(`Explain this broadcast: ${promotedBroadcast.text}`)}
               disabled={sending || briefing}
               className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
             >

@@ -17,7 +17,8 @@ import {
 } from "../../lib/time.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
+import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
@@ -122,7 +123,7 @@ function activityVerb(kind: string): string {
     handoff_sent: "handed off",
     handoff_received: "received handoff",
     flight_updated: "replied",
-    ask_sent: "asked",
+    ask_sent: "sent a request",
     ask_replied: "answered",
     message_sent: "said",
     message_received: "received",
@@ -1253,7 +1254,7 @@ function LiveActivityEmpty({
   );
 }
 
-type QuietAskResult = {
+type QuietSendResult = {
   conversationId?: string;
   flight?: {
     targetAgentId?: string | null;
@@ -1303,7 +1304,7 @@ function QuietStartPanel({
   const [harness, setHarness] = useState(selectedAgent?.harness?.trim() ?? "");
   const [model, setModel] = useState(selectedAgent?.model?.trim() ?? "");
   const [submitting, setSubmitting] = useState(false);
-  const [askError, setAskError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     if (catchupAgents.some((agent) => agent.id === agentId)) return;
@@ -1315,31 +1316,30 @@ function QuietStartPanel({
     setModel(selectedAgent?.model?.trim() ?? "");
   }, [selectedAgent?.id]);
 
-  const submitAsk = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submitMessage = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = prompt.trim();
     if (!selectedAgent || !trimmed) return;
     setSubmitting(true);
-    setAskError(null);
+    setSendError(null);
     try {
-      const result = await api<QuietAskResult>("/api/ask", {
+      const conversationId = await ensureAgentChat(selectedAgent);
+      const result = await api<QuietSendResult>("/api/send", {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
-          targetAgentId: selectedAgent.id,
-          targetLabel: selectedAgent.name,
+          chatId: conversationId,
+          intent: isAgentBusy(selectedAgent.state) ? "steer" : "invoke",
           execution: {
             harness: harness || undefined,
             model: model || undefined,
           },
         }),
       });
-      const conversationId = result.conversationId ?? selectedAgent.conversationId;
-      navigate(conversationId
-        ? { view: "conversation", conversationId }
-        : { view: "agents-v2", agentId: selectedAgent.id, tab: "message" });
+      const routedChatId = result.conversationId ?? conversationId;
+      navigate({ view: "conversation", conversationId: routedChatId });
     } catch (submitError) {
-      setAskError(submitError instanceof Error ? submitError.message : String(submitError));
+      setSendError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -1365,17 +1365,17 @@ function QuietStartPanel({
         </div>
       </div>
 
-      <form className="s-quiet-panel s-quiet-panel--ask" onSubmit={submitAsk}>
+      <form className="s-quiet-panel s-quiet-panel--ask" onSubmit={submitMessage}>
         <div className="s-quiet-panel-head">
-          <span className="s-eyebrow">Ask</span>
+          <span className="s-eyebrow">Message</span>
           <button
             type="submit"
             className="s-icon-btn s-icon-btn--primary"
-            title="Ask selected agent"
+            title="Send to selected agent"
             disabled={submitting || !selectedAgent || !prompt.trim()}
           >
             <Send size={14} aria-hidden="true" />
-            <span>{submitting ? "Asking" : "Ask"}</span>
+            <span>{submitting ? "Sending" : "Send"}</span>
           </button>
         </div>
         <div className="s-quiet-target-row">
@@ -1433,7 +1433,7 @@ function QuietStartPanel({
             ))}
           </select>
         </div>
-        {askError && <div className="s-quiet-error">{askError}</div>}
+        {sendError && <div className="s-quiet-error">{sendError}</div>}
       </form>
     </div>
   );

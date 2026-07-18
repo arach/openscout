@@ -2492,10 +2492,10 @@ function sessionIncludesOperatorParticipant(session: { participantIds: string[] 
 
 function defaultSendModeForConversationSession(
   session: { kind: string; participantIds: string[] } | null,
-): "tell" | "steer" {
+): "invoke" | "message" {
   return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
-    ? "tell"
-    : "steer";
+    ? "invoke"
+    : "message";
 }
 
 function anchoredThreadNaturalKey(parentConversationId: string, anchorMessageId: string): string {
@@ -6347,7 +6347,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/send", async (c) => {
-    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId } = (await c.req.json()) as {
+    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId, execution } = (await c.req.json()) as {
       body: string;
       chatId?: string;
       cId?: string;
@@ -6358,6 +6358,10 @@ export async function createOpenScoutWebServer(
       mode?: string;
       targetParticipantIds?: string[];
       replyToMessageId?: unknown;
+      execution?: {
+        harness?: unknown;
+        model?: unknown;
+      };
     };
     const messageBody = body?.trim() ?? "";
     if (!messageBody && !attachments?.length) {
@@ -6426,7 +6430,11 @@ export async function createOpenScoutWebServer(
         currentDirectory,
         source: "scout-web",
       });
-      return c.json(result);
+      return c.json({
+        ...result,
+        chatId: result.conversationId,
+        runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+      });
     }
 
     if (routedConversationId) {
@@ -6437,8 +6445,16 @@ export async function createOpenScoutWebServer(
         routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
       const shouldCommentOnly =
         sendMode === "comment"
-        || !messageBody
+        || sendMode === "message"
         || (sendMode === "tell" && !isOperatorDirectConversation);
+      const executionHarness = coerceAgentHarness(execution?.harness);
+      const executionModel = optionalString(execution?.model)?.trim();
+      const requestedExecution = executionHarness || executionModel
+        ? {
+            ...(executionHarness ? { harness: executionHarness } : {}),
+            ...(executionModel ? { model: executionModel } : {}),
+          }
+        : undefined;
       const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
         ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
         : undefined;
@@ -6459,14 +6475,28 @@ export async function createOpenScoutWebServer(
             attachments,
             replyToMessageId: routedReplyToMessageId,
             ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
-            intent: sendMode === "tell" ? "tell" : "steer",
+            intent: sendMode === "tell"
+              ? "tell"
+              : sendMode === "invoke"
+                ? "invoke"
+                : "steer",
+            ...(requestedExecution ? { execution: requestedExecution } : {}),
             currentDirectory,
             source: "scout-web",
           });
       if (!result.usedBroker) {
         return c.json({ error: "broker unreachable" }, 502);
       }
-      return c.json(result);
+      const flights = result.flights?.length
+        ? result.flights
+        : result.flight
+          ? [result.flight]
+          : [];
+      return c.json({
+        ...result,
+        chatId: result.conversationId,
+        runIds: flights.map((flight) => `run:flight:${flight.id}`),
+      });
     }
 
     const result = await sendScoutMessage({
@@ -6481,7 +6511,11 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "broker unreachable" }, 502);
     }
 
-    return c.json(result);
+    return c.json({
+      ...result,
+      ...(result.conversationId ? { chatId: result.conversationId } : {}),
+      runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+    });
   });
 
   app.post("/api/ask", async (c) => {

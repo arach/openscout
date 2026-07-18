@@ -1569,7 +1569,7 @@ private struct AgentExpandedPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if let ask = agent.pendingAsk {
-                detailBlock(label: "PENDING ASK", body: ask, isAccent: true)
+                detailBlock(label: "PENDING QUESTION", body: ask, isAccent: true)
             }
             detailBlock(label: "LAST TURN", body: agent.lastTurn, isAccent: false)
 

@@ -195,7 +195,7 @@ export const scoutFlags = createFlagRegistry({
   "surface.scoutbot": {
     label: "Surface · Scoutbot",
     description:
-      "Scoutbot assistant — the inspector panel, the status-bar broadcast chip, and the Ask-Scout command-palette actions.",
+      "Scoutbot assistant — the inspector panel, the status-bar broadcast chip, and the Message-Scout command-palette actions.",
     // Default ON: this is a kill-switch / lean-launch toggle for an
     // always-present feature, not a default-off reveal like its surface.*
     // siblings. Not in a bundle yet — toggle via the panel or ?ff.surface.scoutbot.

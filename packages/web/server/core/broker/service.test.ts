@@ -916,6 +916,66 @@ describe("sendScoutConversationSteer", () => {
           relayMessageId: tellMessagePost.id,
         }),
       });
+
+    requests.length = 0;
+    const invokeResult = await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "Review the current implementation.",
+      targetParticipantIds: ["hudson.main.mini"],
+      intent: "invoke",
+      execution: { harness: "claude", model: "opus-test" },
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(invokeResult).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.hudson-narrative",
+      invokedTargets: ["hudson.main.mini"],
+    });
+    const invokeMessagePost = requests.find((request) => request.path === "/v1/messages")?.body;
+    expect(invokeMessagePost).toMatchObject({
+      conversationId: "c.hudson-narrative",
+      metadata: expect.objectContaining({
+        intent: "invoke",
+      }),
+    });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({
+        targetAgentId: "hudson.main.mini",
+        action: "consult",
+        conversationId: "c.hudson-narrative",
+        messageId: invokeMessagePost.id,
+        execution: {
+          session: "existing",
+          targetSessionId: "relay-hudson-claude",
+          harness: "claude",
+          model: "opus-test",
+        },
+        labels: ["invoke"],
+        metadata: expect.objectContaining({
+          intent: "invoke",
+          relayMessageId: invokeMessagePost.id,
+        }),
+      });
+
+    requests.length = 0;
+    await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "",
+      attachments: [{ id: "att-only", mediaType: "image/png", data: "aW1hZ2U=" }],
+      targetParticipantIds: ["hudson.main.mini"],
+      intent: "invoke",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({
+        task: "Review the attached message.",
+        conversationId: "c.hudson-narrative",
+      });
   }, 15000);
 
   test("does not steer an offline cardless session participant", async () => {

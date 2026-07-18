@@ -13,7 +13,6 @@ export function ChatContent({ route, navigate }: { route: Route; navigate: Navig
       return (
         <ConversationScreen
           conversationId={route.conversationId}
-          initialComposeMode={route.composeMode}
           initialDraft={route.composeDraft}
           navigate={navigate}
         />

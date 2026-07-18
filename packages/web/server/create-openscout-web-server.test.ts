@@ -2319,7 +2319,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("wakes direct DM sends in an existing chatId as tells by default", async () => {
+  test("invokes direct DM sends in the selected Chat by default", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
       agentId: "agent-1",
@@ -2362,7 +2362,7 @@ describe("createOpenScoutWebServer", () => {
             url: "http://127.0.0.1:3200/api/blobs/blob-1",
           },
         ],
-        intent: "tell",
+        intent: "invoke",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -2370,6 +2370,47 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationMessageCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("invokes attachment-only direct DM sends in the selected Chat", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "agent-1",
+      participantIds: ["operator", "agent-1"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "",
+        chatId: "c.agent-1",
+        attachments: [
+          {
+            id: "att-only",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-only",
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationSteerCalls).toEqual([
+      expect.objectContaining({
+        conversationId: "c.agent-1",
+        body: "",
+        attachments: [expect.objectContaining({ id: "att-only" })],
+        intent: "invoke",
+      }),
+    ]);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
   });
 
   test("honors explicit steer mode in direct DMs", async () => {
@@ -2412,7 +2453,63 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
-  test("wakes configured-operator direct DM sends in an existing conversationId by default", async () => {
+  test("creates a linked Run through Send without changing the selected Chat", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "agent-1",
+      participantIds: ["operator", "agent-1"],
+    });
+    sendScoutMessageResult = {
+      usedBroker: true,
+      conversationId: "c.agent-1",
+      messageId: "msg-send-1",
+      flight: {
+        id: "flt-send-1",
+        invocationId: "inv-send-1",
+        targetAgentId: "agent-1",
+        state: "queued",
+      },
+      invokedTargets: ["agent-1"],
+      unresolvedTargets: [],
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Review this and report back",
+        chatId: "c.agent-1",
+        intent: "invoke",
+        execution: { harness: "codex", model: "gpt-test" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationSteerCalls).toEqual([
+      {
+        conversationId: "c.agent-1",
+        senderId: "operator",
+        body: "Review this and report back",
+        intent: "invoke",
+        execution: { harness: "codex", model: "gpt-test" },
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      conversationId: "c.agent-1",
+      chatId: "c.agent-1",
+      runIds: ["run:flight:flt-send-1"],
+    });
+    expect(askScoutQuestionCalls).toHaveLength(0);
+  });
+
+  test("invokes configured-operator direct DM sends in the selected Chat by default", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "arach";
     querySessionByIdImpl = () => ({
       kind: "direct",
@@ -2440,7 +2537,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.arach-agent-1",
         senderId: expect.any(String),
         body: "Status update",
-        intent: "tell",
+        intent: "invoke",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -2450,7 +2547,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
-  test("steers all participants in observed agent-to-agent conversations", async () => {
+  test("posts without invoking in observed agent-to-agent conversations by default", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
       agentId: "hudson.main.mini",
@@ -2472,17 +2569,16 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
+    expect(sendScoutConversationMessageCalls).toEqual([
       {
         conversationId: "c.hudson-narrative",
         senderId: "operator",
         body: "@hudson hi",
-        intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
     ]);
-    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
@@ -3291,7 +3387,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("steers channel participants in an existing opaque chat", async () => {
+  test("posts an untargeted message in an existing channel Chat", async () => {
     querySessionByIdImpl = () => ({
       kind: "channel",
       agentId: null,
@@ -3313,17 +3409,16 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
+    expect(sendScoutConversationMessageCalls).toEqual([
       {
         conversationId: "c.ops",
         senderId: "operator",
         body: "Team update",
-        intent: "steer",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
     ]);
-    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });

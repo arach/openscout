@@ -153,7 +153,7 @@ export default function RepoWatchContext({
           method: "POST",
           body: JSON.stringify({ body }),
         });
-        setAskStatus("Asked Scout");
+        setAskStatus("Sent to Scout");
       } else {
         const agentId = askTarget.replace(/^agent:/, "");
         await api("/api/ask", {
@@ -170,7 +170,7 @@ export default function RepoWatchContext({
             },
           }),
         });
-        setAskStatus(`Asked ${activeTargetLabel}`);
+        setAskStatus(`Sent to ${activeTargetLabel}`);
       }
       setAskDraft("");
     } catch (error) {
@@ -443,7 +443,7 @@ export default function RepoWatchContext({
           }}
           disabled={askPending}
           rows={3}
-          placeholder={askTarget === "scout" ? "Ask Scout about this worktree" : "Ask this agent about the worktree"}
+          placeholder={askTarget === "scout" ? "Message Scout about this worktree" : "Message this agent about the worktree"}
         />
         <div className="ctx-ask-bar">
           <select
@@ -451,7 +451,7 @@ export default function RepoWatchContext({
             onChange={(event) => setAskTarget(event.currentTarget.value)}
             onKeyDown={(event) => event.stopPropagation()}
             disabled={askPending}
-            aria-label="Ask target"
+            aria-label="Message target"
           >
             <option value="scout">Scout</option>
             {agentTargets.map((agent) => (

@@ -40,9 +40,6 @@ export type SlashCommand = {
 };
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { command: "/ask", label: "/ask", description: "Ask the agent owned work with a reply", insert: "/ask " },
-  { command: "/tell", label: "/tell", description: "Send a heads-up or quick message", insert: "/tell " },
-  { command: "/steer", label: "/steer", description: "Steer the active turn mid-flight", insert: "/steer " },
   { command: "/route", label: "/route", description: "Route this to another agent", insert: "/route @" },
   { command: "/inbox", label: "/inbox", description: "Go to the inbox", insert: "/inbox" },
   { command: "/agents", label: "/agents", description: "Open the agents list", insert: "/agents" },
@@ -106,13 +103,22 @@ export type EventInvocationRecord = {
 };
 
 export type SendResult = {
+  chatId?: string;
   conversationId?: string;
   messageId?: string;
+  runIds?: string[];
   flight?: EventFlightRecord | null;
 };
 
-export type ComposeMode = "tell" | "ask";
-export type ComposeAction = "tell" | "ask" | "steer";
+export type ComposeAction = "message" | "invoke" | "steer";
+
+export function resolveComposeAction(input: {
+  isDm: boolean;
+  hasOutstandingReply: boolean;
+}): ComposeAction {
+  if (!input.isDm) return "message";
+  return input.hasOutstandingReply ? "steer" : "invoke";
+}
 
 export type ConversationPresence = {
   label: string;

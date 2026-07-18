@@ -1033,7 +1033,7 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
           <div className="s-observe-ask-answer-text">{ask.answer.text}</div>
         </div>
       )}
-      {!laneMode && <CopyButton text={ask.copyText} label="Copy ask" />}
+      {!laneMode && <CopyButton text={ask.copyText} label="Copy request" />}
     </div>
   );
 }
@@ -2531,7 +2531,7 @@ export function SessionObserveContextRail({
           />
           <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
           <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
-          <StatCard label="Asks" value={fmtCompactNumber(askCount)} />
+          <StatCard label="Requests" value={fmtCompactNumber(askCount)} />
           <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
           <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
           <StatCard label="Files" value={fmtCompactNumber(files.length)} />

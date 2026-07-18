@@ -29,7 +29,6 @@ export function ConversationComposer({
   isStopMode,
   sending,
   composeAction,
-  isDm,
   onSend,
   onInterrupt,
 }: {
@@ -50,7 +49,6 @@ export function ConversationComposer({
   isStopMode: boolean;
   sending: boolean;
   composeAction: ComposeAction;
-  isDm: boolean;
   onSend: () => void;
   onInterrupt: () => void;
 }) {
@@ -271,13 +269,9 @@ export function ConversationComposer({
               disabled={sending || !draft.trim()}
               title="Send (Cmd+Enter)"
               aria-label={
-                composeAction === "ask"
-                  ? "Ask agent (Cmd+Enter)"
-                  : composeAction === "steer"
-                    ? "Steer agent (Cmd+Enter)"
-                    : isDm
-                      ? "Tell agent (Cmd+Enter)"
-                      : "Send message (Cmd+Enter)"
+                composeAction === "steer"
+                  ? "Send follow-up (Cmd+Enter)"
+                  : "Send message (Cmd+Enter)"
               }
             >
               <SendIcon />
