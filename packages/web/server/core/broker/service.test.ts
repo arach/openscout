@@ -590,6 +590,100 @@ describe("sendScoutMessage", () => {
 });
 
 describe("sendScoutConversationMessage", () => {
+  test("fans a group Chat post out to its agent participants without creating invocations", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: { operator: { id: "operator", kind: "person", displayName: "Operator" } },
+          agents: {
+            fable: { id: "fable", kind: "agent", displayName: "Fable" },
+            talkie: { id: "talkie", kind: "agent", displayName: "Talkie" },
+          },
+          endpoints: {},
+          conversations: {
+            "chn-iris": {
+              id: "chn-iris",
+              kind: "channel",
+              title: "iris-architecture",
+              visibility: "workspace",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "fable", "talkie"],
+            },
+            "chn-iris-thread": {
+              id: "chn-iris-thread",
+              kind: "thread",
+              title: "Thread · iris-architecture",
+              visibility: "workspace",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "fable", "talkie"],
+              parentConversationId: "chn-iris",
+              messageId: "msg-anchor",
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationMessage({
+      conversationId: "chn-iris",
+      senderId: "operator",
+      body: "Keep the first slice simple.",
+      notifyParticipantAgents: true,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    const messagePost = requests.find((request) => request.path === "/v1/messages");
+
+    expect(result.invokedTargets).toEqual([]);
+    expect(result.notifiedTargets).toEqual(["fable", "talkie"]);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+    expect(messagePost?.body).toMatchObject({
+      audience: { notify: ["fable", "talkie"], reason: "conversation_visibility" },
+      metadata: {
+        deliveryIntent: "group_message",
+        relayTargetIds: ["fable", "talkie"],
+      },
+    });
+
+    requests.length = 0;
+    const threadResult = await sendScoutConversationMessage({
+      conversationId: "chn-iris-thread",
+      senderId: "operator",
+      body: "Keep this in the child thread.",
+      notifyParticipantAgents: true,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    const threadMessagePost = requests.find((request) => request.path === "/v1/messages");
+
+    expect(threadResult.invokedTargets).toEqual([]);
+    expect(threadResult.notifiedTargets).toEqual(["fable", "talkie"]);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+    expect(threadMessagePost?.body).toMatchObject({
+      conversationId: "chn-iris-thread",
+      audience: { notify: ["fable", "talkie"], reason: "conversation_visibility" },
+    });
+  }, 15000);
+
   test("appends operator contributions to the existing conversation", async () => {
     const home = useIsolatedOpenScoutHome();
     const requests: Array<{ method: string; path: string; body?: any }> = [];

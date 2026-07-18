@@ -2573,6 +2573,15 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
 }
 
+// A single broker can receive several deliveries for an on-demand agent before
+// its first tmux session is visible. Coalesce those starts so they share one
+// `tmux new-session` call instead of racing to create the same named session.
+const localAgentOnlineFlights = new Map<string, Promise<LocalAgentRecord>>();
+
+function localAgentOnlineFlightKey(agentName: string, record: LocalAgentRecord): string {
+  return [agentName, record.transport, record.tmuxSession].join("\u0000");
+}
+
 export function isLocalAgentSessionAlive(sessionName: string): boolean {
   return readTmuxSessionExistsSnapshot(sessionName);
 }
@@ -3738,6 +3747,25 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
 }
 
 async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
+  const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
+  const flightKey = localAgentOnlineFlightKey(agentName, normalizedRecord);
+  const existingFlight = localAgentOnlineFlights.get(flightKey);
+  if (existingFlight) {
+    return await existingFlight;
+  }
+
+  const flight = ensureLocalAgentOnlineOnce(agentName, normalizedRecord);
+  localAgentOnlineFlights.set(flightKey, flight);
+  try {
+    return await flight;
+  } finally {
+    if (localAgentOnlineFlights.get(flightKey) === flight) {
+      localAgentOnlineFlights.delete(flightKey);
+    }
+  }
+}
+
+async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (isLocalAgentRecordOnline(agentName, normalizedRecord)) {
     return normalizedRecord;

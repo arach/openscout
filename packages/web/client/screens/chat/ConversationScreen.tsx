@@ -18,7 +18,6 @@ import {
   timeAgo,
 } from "../../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
-import { actorColor } from "../../lib/colors.ts";
 import { isAgentOnline } from "../../lib/agent-state.ts";
 import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
@@ -44,6 +43,7 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { MessageEmbeds } from "../../components/MessageEmbeds.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import type {
   Agent,
   Flight,
@@ -935,14 +935,15 @@ export function ConversationScreen({
     setMessages((previous) => sortMessages([...previous, optimisticMessage]));
 
     try {
-      const result = await api<SendResult>("/api/send", {
+      const result = await api<SendResult>(
+        `/api/chats/${encodeURIComponent(conversationId)}/messages`,
+        {
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
-          chatId: conversationId,
-          ...(forceAction ? { intent: forceAction } : {}),
         }),
-      });
+        },
+      );
       const routedConversationId = result.chatId?.trim() ?? result.conversationId?.trim();
       if (routedConversationId && routedConversationId !== conversationId) {
         throw new Error(
@@ -1310,31 +1311,30 @@ export function ConversationScreen({
                                       { returnTo: route },
                                     )
                                 : null;
-                              const avatarLabel = (isYou
-                                ? operatorName[0]
-                                : message.actorName?.[0] ?? "?"
-                              ).toUpperCase();
-                              const avatarStyle = {
-                                "--size": "24px",
-                                background: actorColor(
-                                  isYou ? operatorName : (message.actorName ?? "?"),
-                                ),
-                              } as React.CSSProperties;
+                              const avatarName = isYou
+                                ? operatorName
+                                : message.actorName ?? "?";
+                              const avatar = (
+                                <AgentAvatar
+                                  agent={messageAgent ?? undefined}
+                                  name={avatarName}
+                                  placement="turn"
+                                  className="s-thread-msg-avatar"
+                                  title={avatarName}
+                                />
+                              );
                               return profileNav ? (
                                 <button
                                   type="button"
-                                  className="s-ops-avatar s-thread-msg-avatar s-thread-msg-avatar--nav"
-                                  style={avatarStyle}
+                                  className="s-thread-msg-avatar--nav"
                                   onClick={profileNav}
                                   aria-label={`View profile for ${message.actorName ?? "agent"}`}
                                   title={`View profile for ${message.actorName ?? "agent"}`}
                                 >
-                                  {avatarLabel}
+                                  {avatar}
                                 </button>
                               ) : (
-                                <div className="s-ops-avatar s-thread-msg-avatar" style={avatarStyle}>
-                                  {avatarLabel}
-                                </div>
+                                avatar
                               );
                             })()}
                             {!isYou && messageAgent ? (
@@ -1488,15 +1488,13 @@ export function ConversationScreen({
             <div className="s-thread-feed-block">
               <div className="s-thread-msg" aria-live="polite">
                 <div className={workingTurnCardClassName}>
-                  <div
-                    className="s-ops-avatar s-thread-msg-avatar"
-                    style={{
-                      "--size": "28px",
-                      background: actorColor(agentName),
-                    } as React.CSSProperties}
-                  >
-                    {agentName[0]?.toUpperCase() ?? "?"}
-                  </div>
+                  <AgentAvatar
+                    agent={agent ?? undefined}
+                    name={agentName}
+                    placement="turn"
+                    className="s-thread-msg-avatar s-thread-msg-avatar--working"
+                    title={agentName}
+                  />
                   <div className="s-thread-msg-card-content">
                     <div className="s-thread-msg-header">
                       <div className="s-thread-msg-meta">
@@ -1578,15 +1576,13 @@ export function ConversationScreen({
         {presence.showTyping && (
           <div className={presenceLineClassName}>
             <div className="s-thread-presence-line-avatars">
-              <div
-                className="s-ops-avatar"
-                style={{
-                  "--size": "20px",
-                  background: actorColor(agentName),
-                } as React.CSSProperties}
-              >
-                {agentName[0]?.toUpperCase() ?? "?"}
-              </div>
+              <AgentAvatar
+                agent={agent ?? undefined}
+                name={agentName}
+                placement="turn"
+                className="s-thread-presence-line-avatar"
+                title={agentName}
+              />
             </div>
             <span className="s-thread-presence-line-label">
               {presenceLineLabel}
