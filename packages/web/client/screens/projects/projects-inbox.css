@@ -118,6 +118,24 @@
   background: color-mix(in srgb, var(--hud-surface) 22%, transparent);
 }
 
+.s-projects-embed,
+.pi-projectsEmbedShell {
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+}
+
+.pi-projectsEmbedShell {
+  display: grid;
+  grid-template-columns: clamp(224px, 26vw, 292px) minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--hud-bg);
+}
+
+.pi-projectsEmbedShell > .s-av2 {
+  min-width: 0;
+}
+
 .pi-railFind {
   flex: none;
   display: flex;
@@ -2494,6 +2512,10 @@
 }
 
 @media (max-width: 860px) {
+  .pi-projectsEmbedShell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pi-shell {
     grid-template-columns: minmax(0, 1fr);
   }

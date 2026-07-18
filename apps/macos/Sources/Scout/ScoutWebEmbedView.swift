@@ -63,6 +63,7 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
     var subtitle: String?
     var extraQueryItems: [URLQueryItem] = []
     var loadingLaneSize: ScoutAgentLaneSize?
+    var showsHeader: Bool
     @ViewBuilder var additionalTrailing: () -> AdditionalTrailing
 
     @Environment(\.colorScheme) private var colorScheme
@@ -73,12 +74,14 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
         subtitle: String? = nil,
         extraQueryItems: [URLQueryItem] = [],
         loadingLaneSize: ScoutAgentLaneSize? = nil,
+        showsHeader: Bool = true,
         @ViewBuilder additionalTrailing: @escaping () -> AdditionalTrailing = { EmptyView() }
     ) {
         self.surface = surface
         self.subtitle = subtitle
         self.extraQueryItems = extraQueryItems
         self.loadingLaneSize = loadingLaneSize
+        self.showsHeader = showsHeader
         self.additionalTrailing = additionalTrailing
     }
 
@@ -93,7 +96,9 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if showsHeader {
+                header
+            }
             ScoutWebEmbedHost(
                 surface: surface,
                 url: url,
@@ -390,6 +395,19 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
 
         private static func renderProbeScript(for surface: ScoutEmbedSurfaceId) -> String {
             switch surface {
+            case .projects:
+                return """
+                (() => {
+                  const root = document.querySelector('[data-scout-surface="projects"]');
+                  const shell = document.querySelector('.pi-projectsEmbedShell');
+                  const bodyText = document.body?.innerText || '';
+                  const viteUnavailable = bodyText.includes('Vite dev server unavailable');
+                  return {
+                    ready: Boolean(root) && Boolean(shell) && bodyText.trim().length > 8,
+                    viteUnavailable
+                  };
+                })()
+                """
             case .lanes:
                 return """
                 (() => {

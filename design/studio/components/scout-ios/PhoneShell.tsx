@@ -15,7 +15,7 @@ import { Seg } from "./primitives";
 import { SCOUT_IOS_CSS, TABS, type Surface, type Variant } from "./theme";
 
 /** Treatment hooks flipped onto the `.scoutios` wrapper (see theme.ts). */
-export interface TreatmentMods { density?: "compact"; layout?: "hairline"; tone?: "kind"; }
+export interface TreatmentMods { density?: "compact"; layout?: "hairline"; tone?: "kind"; lang?: "crisp"; }
 
 /** Surfaces where the persistent compose "+" appears (always the same masthead
  *  spot, but only where starting a new conversation/session is meaningful). Ops,
@@ -32,6 +32,12 @@ export interface Treatment {
   body: ReactNode;
   /** Data-attribute deltas (density / layout) applied to the frame. */
   mods?: TreatmentMods;
+  /** Responsive exhibit: the same surface rendered in a wide (iPad) frame
+   *  below the phone stage, so a container-query treatment shows both formats. */
+  wide?: ReactNode;
+  /** Palette this treatment is designed against — selecting the treatment
+   *  flips the lab's palette to it (the toggle stays live for comparison). */
+  defaultVariant?: Variant;
 }
 
 /** Inject the scoped CSS once. Safe to mount more than once (identical text). */
@@ -53,7 +59,7 @@ export function PhoneShell({
   children: ReactNode;
 }) {
   return (
-    <div className="scoutios" data-v={variant} data-density={mods?.density} data-layout={mods?.layout} data-tone={mods?.tone}>
+    <div className="scoutios" data-v={variant} data-density={mods?.density} data-layout={mods?.layout} data-tone={mods?.tone} data-lang={mods?.lang}>
       <div className="iPhone">
         <div className="iScreen">
           <div className="iNotch" />
@@ -119,6 +125,37 @@ export function PhoneShell({
               </div>
             </>
           )}
+          <div className="iHomeBar" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A landscape tablet frame for wide/responsive exhibits of the same surface.
+ *  Minimal chrome — status bar + masthead; no tab bar (the exhibit is about
+ *  the body's layout, not iPad navigation). */
+export function TabletShell({ variant, mods, children }: { variant: Variant; mods?: TreatmentMods; children: ReactNode }) {
+  return (
+    <div className="scoutios" data-v={variant} data-density={mods?.density} data-layout={mods?.layout} data-tone={mods?.tone} data-lang={mods?.lang}>
+      <div className="iPad">
+        <div className="iPadScreen">
+          <div className="iStatus">
+            <span>9:41</span>
+            <div className="iStatusGlyphs">
+              <div className="iBars"><i style={{ height: 4 }} /><i style={{ height: 6 }} /><i style={{ height: 8 }} /><i style={{ height: 11 }} /></div>
+              <div className="iBatt"><div className="iBattFill" /></div>
+            </div>
+          </div>
+          <div className="iHead" style={{ padding: "4px 20px 6px" }}>
+            <div className="iMast">
+              <span className="iWordmark">Scout</span>
+              <span className="iCompose"><Glyph kind="plus" size={18} /></span>
+              <span className="iGear"><Glyph kind="gear" size={20} /></span>
+            </div>
+            <div className="iMastRule" />
+          </div>
+          {children}
           <div className="iHomeBar" />
         </div>
       </div>
@@ -209,9 +246,24 @@ export function SurfaceLab({
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
 }) {
-  const [variant, setVariant] = useState<Variant>("shipped");
-  const [tid, setTid] = useState(treatments[0]?.id ?? "");
+  // Deep-linkable initial state: ?t=<treatment id> and ?v=<palette>. Without
+  // ?v, a deep-linked treatment opens on its declared home palette.
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const qt = params?.get("t");
+  const initialTid = qt && treatments.some((x) => x.id === qt) ? qt : (treatments[0]?.id ?? "");
+  const qv = params?.get("v");
+  const initialVariant: Variant = qv === "shipped" || qv === "hc" || qv === "paper"
+    ? qv
+    : (treatments.find((x) => x.id === initialTid)?.defaultVariant ?? "shipped");
+  const [variant, setVariant] = useState<Variant>(initialVariant);
+  const [tid, setTid] = useState(initialTid);
   const current = treatments.find((t) => t.id === tid) ?? treatments[0];
+  /** Switch treatment; adopt its home palette when it declares one. */
+  const selectTreatment = (id: string) => {
+    setTid(id);
+    const dv = treatments.find((t) => t.id === id)?.defaultVariant;
+    if (dv) setVariant(dv);
+  };
 
   return (
     <div style={{ minHeight: "100%", background: "#0b0c0e", color: "#e7e9ee", padding: "28px 32px 64px" }}>
@@ -231,9 +283,9 @@ export function SurfaceLab({
       {/* controls */}
       <div style={{ maxWidth: 980, margin: "0 auto 20px", display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
         <Seg label="Palette" value={variant} onChange={(v) => setVariant(v as Variant)}
-          options={[{ id: "shipped", label: "Shipped" }, { id: "hc", label: "Higher-contrast" }]} />
+          options={[{ id: "shipped", label: "Shipped" }, { id: "hc", label: "Higher-contrast" }, { id: "paper", label: "Paper" }]} />
         {treatments.length > 1 && (
-          <Seg label="Treatment" value={current?.id ?? ""} onChange={setTid}
+          <Seg label="Treatment" value={current?.id ?? ""} onChange={selectTreatment}
             options={treatments.map((t) => ({ id: t.id, label: t.label }))} />
         )}
         {controls}
@@ -259,7 +311,7 @@ export function SurfaceLab({
             <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px", display: "grid", gap: 6 }}>
               {treatments.map((t) => (
                 <li key={t.id}>
-                  <button onClick={() => setTid(t.id)}
+                  <button onClick={() => selectTreatment(t.id)}
                     style={{
                       display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left",
                       background: "transparent", border: "none", cursor: "pointer", padding: "2px 0",
@@ -282,6 +334,16 @@ export function SurfaceLab({
           )}
         </div>
       </div>
+
+      {/* responsive wide exhibit — the same surface in an iPad frame */}
+      {current?.wide && (
+        <div style={{ maxWidth: 1060, margin: "36px auto 0" }}>
+          <div style={{ fontFamily: "var(--i-mono,monospace)", fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#7a7f88", marginBottom: 10 }}>
+            Same surface · wide (iPad) — the container query opens the layout
+          </div>
+          <TabletShell variant={variant} mods={current.mods}>{current.wide}</TabletShell>
+        </div>
+      )}
     </div>
   );
 }

@@ -199,6 +199,10 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
+    /// Operator usage-quota gauges (Claude / Codex / GitHub) for the Home strip.
+    /// Empty until a connected bridge reports them (older bridges omit the RPC).
+    var serviceBudgets: [ServiceBudget] = []
+    var recentTerminals: [MobileTerminal] = []
 
     /// Wall-clock time of the most recent successfully decoded broker query. The
     /// transport owns this measurement, so every surface contributes without UI
@@ -1559,6 +1563,12 @@ final class AppModel {
     /// The client every surface consumes.
     var client: any ScoutBrokerClient { fleet.focusedClient }
 
+    /// The live client for a specific paired Mac, when it's connected — for
+    /// surfaces (e.g. the New composer's machine picker) that target a chosen Mac.
+    func client(forMachineId id: String) -> (any ScoutBrokerClient)? {
+        fleet.connectedClient(machineId: id)
+    }
+
     /// Refresh the fleet rollup shown in the status bar. Reads every connected
     /// Mac, so the status bar answers "the fleet" instead of "the focused link."
     func refreshFleetStats() async {
@@ -1576,6 +1586,22 @@ final class AppModel {
         }
         guard sawSuccessfulRead else { return }
         updateFleetStats(from: agents)
+        // Usage-quota gauges for the Home strip — read once from any connected
+        // bridge (they report the operator's local subscriptions, machine-wide).
+        for client in clients {
+            if let budgets = try? await client.serviceBudgets(), !budgets.isEmpty {
+                serviceBudgets = budgets
+                break
+            }
+        }
+        // Recent terminal sessions for the Home Terminals shelf — first successful
+        // read wins (an empty list is valid: no sessions registered).
+        for client in clients {
+            if let terminals = try? await client.terminalSessions() {
+                recentTerminals = terminals
+                break
+            }
+        }
     }
 
     /// Apply a successful fleet read to the shell counters. Home already fetches
@@ -1625,6 +1651,28 @@ final class AppModel {
         case .lan, .tailnet, .loopback: return fleet.focusedClient.currentHost
         case .oscout, .remote, .none: return nil
         }
+    }
+
+    /// Resolve one of Scout Web's purpose-built embed routes against the focused
+    /// paired Mac. Web surfaces stay on a trusted LAN/Tailnet host even when the
+    /// bridge itself happened to connect through OSN.
+    func missionControlURL(path: String) -> URL? {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["SCOUT_WEB_BASE_URL"],
+           let origin = URL(string: override),
+           var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) {
+            components.path = path.hasPrefix("/") ? path : "/\(path)"
+            return components.url
+        }
+        #endif
+        guard let host = fleet.focusedClient.webAccessHost else { return nil }
+        let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = host
+        components.port = fleet.focusedClient.webAccessPort ?? Self.defaultScoutWebPort
+        components.path = normalizedPath
+        return components.url
     }
 
     /// True once at least one bridge has been paired (keychain-backed).

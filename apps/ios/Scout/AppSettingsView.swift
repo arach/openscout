@@ -20,6 +20,8 @@ enum AppSettingsContext: String, Equatable {
     case comms = "COMMS"
     case terminal = "TERMINAL"
     case new = "NEW"
+    case lanes = "LANES"
+    case dispatch = "DISPATCH"
 
     var tabID: String { rawValue }
 }
@@ -213,6 +215,14 @@ struct AppSettingsView: View {
                 title: "New",
                 rows: [
                     ("Target", "Focused Mac", "new session routing"),
+                    ("Connection", statusShort, routeLabel)
+                ]
+            )
+        case .lanes, .dispatch:
+            surfaceContextPanel(
+                title: context == .lanes ? "Lanes" : "Dispatch",
+                rows: [
+                    ("Source", "Scout Web", "paired Mac embed"),
                     ("Connection", statusShort, routeLabel)
                 ]
             )

@@ -31,6 +31,18 @@ const lanesSurface = defineSurface({
   },
 });
 
+const projectsSurface = defineSurface({
+  id: "projects",
+  label: "Projects",
+  route: { view: "agents-v2" },
+  webPath: "/projects",
+  screen: "ProjectsEmbedScreen",
+  embed: {
+    path: "/embed/projects",
+    profile: "macos.projects",
+  },
+});
+
 describe("embeddable surface discovery", () => {
   const { surfaces, embedByPath } = buildSurfaceRegistry({
     "../screens/broker/BrokerScreen.tsx": {
@@ -41,11 +53,15 @@ describe("embeddable surface discovery", () => {
       scoutSurface: lanesSurface,
       AgentLanesView: mockScreen,
     },
+    "../screens/projects/ProjectsScreen.tsx": {
+      scoutSurface: projectsSurface,
+      ProjectsEmbedScreen: mockScreen,
+    },
   });
 
-  test("discovers dispatch and lanes from screen modules", () => {
+  test("discovers dispatch, lanes, and projects from screen modules", () => {
     const ids = surfaces.map((surface) => surface.id).sort();
-    expect(ids).toEqual(["dispatch", "lanes"]);
+    expect(ids).toEqual(["dispatch", "lanes", "projects"]);
     expect(surfaces.find((surface) => surface.id === "dispatch")?.webPath).toBe("/dispatch");
   });
 
@@ -58,5 +74,6 @@ describe("embeddable surface discovery", () => {
     expect(embedByPath.get("/embed/dispatch")?.id).toBe("dispatch");
     expect(embedByPath.get("/embed/agent-lanes")?.id).toBe("lanes");
     expect(embedByPath.get("/ops/lanes/embed")?.id).toBe("lanes");
+    expect(embedByPath.get("/embed/projects")?.id).toBe("projects");
   });
 });

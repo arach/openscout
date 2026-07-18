@@ -108,6 +108,10 @@ struct ScoutToneTokens {
 enum ScoutSurface {
     static var inset: Color { ScoutTone.stored.tokens.inset }
     static var raised: Color { ScoutTone.stored.tokens.raised }
+    /// A lifted card fill — the tone's lightest step, so stat bars, the ask dock,
+    /// and the horizontal cards read as raised panels off the canvas (an off-white
+    /// in light mode) rather than dissolving into it.
+    static var card: Color { ScoutTone.stored.tokens.cardTop }
 }
 
 struct ScoutCanvas: View {
@@ -178,6 +182,32 @@ enum ScoutInk {
     /// Tertiary text / faint labels. ↑ from hudson `dim` #737373 (115) — the real
     /// offender; this clears WCAG AA against the canvas.
     static let dim   = Color(red: 150.0/255, green: 150.0/255, blue: 150.0/255)
+}
+
+// MARK: - Canvas vibe (Scout Mobile)
+
+/// The brighter "Scout Mobile" canvas accents used by the Home fleet dashboard —
+/// a lime signal and more luminous status hues that pop against the dark canvas,
+/// for a higher-contrast, more energetic read than the app's default emerald set.
+enum ScoutVibe {
+    /// Lime accent (#9ce86b) — the canvas signature, brighter than emerald.
+    static let accent = Color(red: 156.0/255, green: 232.0/255, blue: 107.0/255)
+    /// Warm amber (#f2b34d) — permission / confirm.
+    static let amber  = Color(red: 242.0/255, green: 179.0/255, blue: 77.0/255)
+    /// Coral red (#f2725b) — blocked / Claude runtime.
+    static let red    = Color(red: 242.0/255, green: 114.0/255, blue: 91.0/255)
+    /// Sky blue (#7cc4f2) — decision / Gemini runtime.
+    static let blue   = Color(red: 124.0/255, green: 196.0/255, blue: 242.0/255)
+    /// Bright primary ink (#eef0f2) for card titles — a touch brighter than the
+    /// app default for extra contrast on the dark surfaces.
+    static let ink    = Color(red: 238.0/255, green: 240.0/255, blue: 242.0/255)
+    /// A crisper hairline than the neutral default, so cards read as defined
+    /// panels against the (warm) canvas rather than dissolving into it.
+    static let hairline = Color(red: 58.0/255, green: 58.0/255, blue: 62.0/255)
+    /// A lifted card fill that is deliberately NEUTRAL grey (a hair cool), not
+    /// warmed by the canvas tone — the tone's `cardTop` reads brownish on the
+    /// dashboard, so Home's cards use this clean grey instead.
+    static let card = Color(red: 34.0/255, green: 34.0/255, blue: 37.0/255)
 }
 
 // MARK: - Card depth

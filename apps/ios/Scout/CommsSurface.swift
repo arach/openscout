@@ -62,9 +62,12 @@ struct CommsSurface: View {
                 // One list: channels and DMs interleave by recency. The `#`
                 // glyph is the only thing that says "channel" — no section split.
                 LazyVStack(spacing: 0) {
-                    HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
+                    brokerCommsHeader
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.lg)
+                    HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
+                        .padding(.horizontal, HudSpacing.xxl)
+                        .padding(.top, HudSpacing.md)
                         .padding(.bottom, HudSpacing.lg)
                     ForEach(Array(filtered.enumerated()), id: \.element.id) { index, row in
                         CommsRow(
@@ -107,6 +110,22 @@ struct CommsSurface: View {
     }
 
     // MARK: - Filtering
+
+    /// A compact provenance label, not explanatory copy: it makes the transport
+    /// boundary visible while keeping channels and agent DMs in one recent list.
+    private var brokerCommsHeader: some View {
+        let channels = conversations.filter { $0.conversation.kind == .channel || $0.conversation.kind == .system }.count
+        let directs = conversations.filter { $0.conversation.kind == .direct }.count
+        return HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+            HudSectionLabel("Scout broker", tint: ScoutInk.muted)
+            Spacer(minLength: HudSpacing.md)
+            Text("\(channels) CH · \(directs) DM")
+                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .tracking(0.6)
+                .foregroundStyle(ScoutInk.dim)
+                .monospacedDigit()
+        }
+    }
 
     private var filtered: [MachineCommsConversation] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

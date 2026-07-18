@@ -1,7 +1,7 @@
 "use client";
 
 /* ───────────────────────────────────────────────────────────────────────────
-   App nav · three structural models
+   App nav · four structural models
 
    The /projects work exposed IA problems that live one level up: two inboxes
    (home route = `inbox`, projects center = ProjectsInbox), sessions reachable
@@ -14,29 +14,30 @@
    the editor, the terminal, and the agentic harness. Every deep surface is a
    preview with a handoff, never a workbench.
 
-   Decision: B · Work nouns is chosen. C · Project-first is shelved — people
-   work in an IDE/ADE and open Scout to keep ALL agents in view; the axis is
-   agents across projects, and a project-first spine makes you pick a scope
-   before showing you anything (it also kills the global Sessions page, the
-   very surface that does that job).
+   B · Work nouns shipped, but its peer split does not survive contact with
+   ordinary language: projects contain sessions, sessions often look like
+   chats, and Chat names both an object and an action. D · Human jobs is the
+   proposed correction: Home · Work · Messages + Ops.
 
-   Three models, switchable in place, with the full route inventory (24
+   Four models, switchable in place, with the full route inventory (24
    routes + 7 ops modes, from packages/web/client/lib/types.ts) mapped onto
    each:
      A · Status quo     — control, annotated with the problems
-     B · Work nouns     — CHOSEN: Home · Projects · Sessions · Chat + ⌘K + System
+     B · Work nouns     — SHIPPED: Home · Projects · Sessions · Chat + ⌘K + System
      C · Project-first  — SHELVED: the project rail as the nav
+     D · Human jobs     — PROPOSED: Home · Work · Messages + ⌘K + Ops
    ─────────────────────────────────────────────────────────────────────────── */
 
 import { useState } from "react";
 import styles from "./app-nav.module.css";
 
-type Model = "quo" | "nouns" | "first";
+type Model = "quo" | "nouns" | "first" | "jobs";
 
 const MODELS: { id: Model; label: string; note: string }[] = [
   { id: "quo", label: "A · Status quo", note: "control — 6 tabs, 14 subnav items, flagged" },
-  { id: "nouns", label: "B · Work nouns", note: "chosen — 4 tabs + ⌘K + system drawer" },
+  { id: "nouns", label: "B · Work nouns", note: "shipped — 4 overlapping nouns + system drawer" },
   { id: "first", label: "C · Project-first", note: "shelved — the axis is agents across projects" },
+  { id: "jobs", label: "D · Human jobs", note: "proposed — Home · Work · Messages + Ops" },
 ];
 
 /* ── shared bits ──────────────────────────────────────────────────────────── */
@@ -190,6 +191,97 @@ function NounsFrame() {
   );
 }
 
+/* ── model D · human jobs ───────────────────────────────────────────────── */
+
+function JobsFrame() {
+  return (
+    <div className={styles.frame}>
+      <nav className={styles.nav}>
+        <Brand />
+        <div className={styles.navTabs}>
+          <span className={styles.navTab}>home</span>
+          <span className={styles.navTabActive}>work</span>
+          <span className={styles.navTab}>messages</span>
+        </div>
+        <div className={styles.navUtils}>
+          <span className={styles.navUtil}>⌘K</span>
+          <span className={`${styles.navUtil} ${styles.navUtilOn}`}>ops ▾</span>
+          <span className={styles.navUtil}>⚙</span>
+        </div>
+      </nav>
+      <div className={styles.systemDrawer}>
+        <span className={styles.systemLabel}>ops</span>
+        <span className={styles.subTab}>mission control</span>
+        <span className={styles.subTab}>tail</span>
+        <span className={styles.subTab}>dispatch</span>
+        <span className={styles.subTab}>terminals</span>
+        <span className={styles.subTab}>lanes</span>
+        <span className={styles.subTab}>mesh</span>
+        <span className={styles.subTab}>runtime</span>
+        <span className={styles.subTab}>providers</span>
+      </div>
+      <div className={styles.body}>
+        <aside className={styles.rail}>
+          <div className={styles.railFind}>⌕ find work or a message</div>
+          <div className={styles.railHead}>work</div>
+          <div className={`${styles.railRow} ${styles.railRowOn}`}>
+            <span className={`${styles.dot} ${styles.dotLive}`} />
+            <span className={styles.railName}>All work</span>
+          </div>
+          <div className={styles.railRow}>
+            <span className={`${styles.dot} ${styles.dotNeeds}`} />
+            <span className={styles.railName}>Needs me</span>
+          </div>
+          <div className={styles.railRow}>
+            <span className={styles.dot} />
+            <span className={styles.railName}>Recent</span>
+          </div>
+          <div className={styles.railFacets}>
+            <div className={styles.railHead}>projects</div>
+            {RAIL_PROJECTS.slice(0, 5).map((p) => (
+              <div key={p.name} className={styles.railRow}>
+                <span className={dotClass(p)} />
+                <span className={styles.railName}>{"/"}{p.name}</span>
+              </div>
+            ))}
+          </div>
+        </aside>
+        <div className={styles.center}>
+          <div className={styles.centerHead}>
+            <span className={styles.centerTitle}>Work</span>
+            <span className={styles.centerDigest}>all agents · all projects</span>
+          </div>
+          <div className={styles.stubRow}>
+            <span>fix broker retry loop</span>
+            <span className={styles.stubMeta}>openscout · claude · live</span>
+          </div>
+          <div className={styles.stubRow}>
+            <span>navigation cleanup</span>
+            <span className={styles.stubMetaNeeds}>openscout · needs review</span>
+          </div>
+          <div className={styles.stubRow}>
+            <span>landing copy pass</span>
+            <span className={styles.stubMeta}>blink · codex · 12m</span>
+          </div>
+          <div className={styles.stubRow}>
+            <span>push relay audit</span>
+            <span className={styles.stubMeta}>talkie · paused · 1h</span>
+          </div>
+          <div className={styles.stubNote}>
+            projects group the work; agents and sessions explain it — none competes for a top-level tab
+          </div>
+        </div>
+      </div>
+      <div className={styles.legend}>
+        <span><b>home</b> what needs attention — one cross-project summary</span>
+        <span><b>work</b> what agents are doing — grouped by project, with session history inside</span>
+        <span><b>messages</b> what people and agents said — DMs and channels in ordinary language</span>
+        <span><b>ops</b> how the system is behaving — Mission Control and diagnostics, never primary work</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── model C · project-first (shelved) ────────────────────────────────────── */
 
 function FirstFrame() {
@@ -249,49 +341,49 @@ function FirstFrame() {
 
 /* ── route inventory ──────────────────────────────────────────────────────── */
 
-type Placement = { route: string; a: string; b: string; c: string };
+type Placement = { route: string; a: string; b: string; c: string; d: string };
 
 const INVENTORY: { cluster: string; rows: Placement[] }[] = [
   {
     cluster: "attention",
     rows: [
-      { route: "inbox", a: "top · Home", b: "top · Home", c: "top · Home" },
-      { route: "fleet", a: "legacy home", b: "merged → Home", c: "merged → Home" },
-      { route: "activity", a: "go-shortcut only", b: "Home section", c: "Home section" },
-      { route: "briefings", a: "orphaned route", b: "Home section", c: "Home section" },
+      { route: "inbox", a: "top · Home", b: "top · Home", c: "top · Home", d: "top · Home" },
+      { route: "fleet", a: "legacy home", b: "merged → Home", c: "merged → Home", d: "merged → Home" },
+      { route: "activity", a: "go-shortcut only", b: "Home section", c: "Home section", d: "Home section" },
+      { route: "briefings", a: "orphaned route", b: "Home section", c: "Home section", d: "Home section" },
     ],
   },
   {
     cluster: "projects & code",
     rows: [
-      { route: "agents-v2", a: "top · Projects", b: "top · Projects", c: "the rail is the nav" },
-      { route: "agents", a: "subnav · .deprecated", b: "killed", c: "killed" },
-      { route: "agent-info", a: "drill-in", b: "drill-in", c: "drill-in" },
-      { route: "sessions", a: "Agents subnav", b: "top · Sessions", c: "facet + ⌘K" },
-      { route: "code", a: "Ops subnav", b: "project facet · preview → IDE", c: "project facet · preview" },
-      { route: "repos", a: "Ops subnav", b: "project facet · diff preview", c: "project facet · preview" },
-      { route: "repo-diff", a: "drill-in", b: "drill-in", c: "drill-in" },
+      { route: "agents-v2", a: "top · Projects", b: "top · Projects", c: "the rail is the nav", d: "Work · project grouping" },
+      { route: "agents", a: "subnav · .deprecated", b: "killed", c: "killed", d: "killed" },
+      { route: "agent-info", a: "drill-in", b: "drill-in", c: "drill-in", d: "Work · agent detail" },
+      { route: "sessions", a: "Agents subnav", b: "top · Sessions", c: "facet + ⌘K", d: "Work · session history" },
+      { route: "code", a: "Ops subnav", b: "project facet · preview → IDE", c: "project facet · preview", d: "Work · project detail" },
+      { route: "repos", a: "Ops subnav", b: "project facet · diff preview", c: "project facet · preview", d: "Work · project detail" },
+      { route: "repo-diff", a: "drill-in", b: "drill-in", c: "drill-in", d: "Work · drill-in" },
     ],
   },
   {
     cluster: "coordination",
     rows: [
-      { route: "messages · conversations", a: "top · Chat", b: "top · Chat", c: "docked drawer" },
-      { route: "channels", a: "Chat subnav", b: "Chat subnav", c: "drawer section" },
-      { route: "work", a: "drill-in", b: "drill-in", c: "drill-in" },
-      { route: "follow", a: "drill-in", b: "drill-in", c: "drill-in" },
+      { route: "messages · conversations", a: "top · Chat", b: "top · Chat", c: "docked drawer", d: "top · Messages" },
+      { route: "channels", a: "Chat subnav", b: "Chat subnav", c: "drawer section", d: "Messages · shared" },
+      { route: "work", a: "drill-in", b: "drill-in", c: "drill-in", d: "Work · drill-in" },
+      { route: "follow", a: "drill-in", b: "drill-in", c: "drill-in", d: "contextual return" },
     ],
   },
   {
     cluster: "system & diagnostics",
     rows: [
-      { route: "terminal", a: "top · Terminals", b: "System · observe + handoff", c: "session mode + System" },
-      { route: "broker", a: "Ops · Dispatch", b: "System drawer", c: "⌘K + System" },
-      { route: "harnesses", a: "Ops · Providers", b: "System drawer", c: "System" },
-      { route: "mesh", a: "Ops subnav", b: "System drawer", c: "System" },
-      { route: "ops ×7 modes", a: "Ops subnav", b: "System drawer", c: "System" },
-      { route: "search", a: "top · Search", b: "⌘K", c: "⌘K" },
-      { route: "settings", a: "gear", b: "gear", c: "gear" },
+      { route: "terminal", a: "top · Terminals", b: "System · observe + handoff", c: "session mode + System", d: "Ops · terminal" },
+      { route: "broker", a: "Ops · Dispatch", b: "System drawer", c: "⌘K + System", d: "Ops · dispatch" },
+      { route: "harnesses", a: "Ops · Providers", b: "System drawer", c: "System", d: "Ops · providers" },
+      { route: "mesh", a: "Ops subnav", b: "System drawer", c: "System", d: "Ops · mesh" },
+      { route: "ops ×7 modes", a: "Ops subnav", b: "System drawer", c: "System", d: "Ops · Mission Control + diagnostics" },
+      { route: "search", a: "top · Search", b: "⌘K", c: "⌘K", d: "⌘K" },
+      { route: "settings", a: "gear", b: "gear", c: "gear", d: "gear" },
     ],
   },
 ];
@@ -303,21 +395,22 @@ const NOTES: { title: string; body: React.ReactNode }[] = [
   { title: "The axis is agents across projects", body: <>People work in an IDE or ADE; they open Scout to keep <b>all agents in view at once</b>. The project is a lens applied to that picture, not a place you go. Any nav that makes you pick a scope before showing agents hides the product.</> },
   { title: "One inbox", body: <>Home is the only <b>what needs me</b> surface. The projects landing is a jump board into scopes — the moment it grows needs-you sections it becomes a second, worse Home (we tried).</> },
   { title: "Canonical addresses", body: <>Every entity has exactly one home; everywhere else links out (↗). Facets <b>preview</b>, they never re-list. Sessions get one canonical answer to “where do I find that run.”</> },
-  { title: "Nouns of work up top", body: <>The bar holds the objects you think in — projects, sessions, chat. Tail, runtime, mesh, atop are operator diagnostics: palette or System drawer, never primary chrome.</> },
+  { title: "Human jobs up top", body: <>The bar answers three ordinary questions: what needs me, what is being worked on, and what was said. Projects, agents, and sessions are structure inside Work; they are not competing destinations.</> },
   { title: "One personality", body: <><code>nav.clean</code> dies. Two navs means the app doesn’t know what it is — and in lean mode the highlight already lies (repos and search light up Home).</> },
   { title: "Dead routes die", body: <>Directory .deprecated, fleet, orphaned briefings — merged or removed, not flagged. A nav that ships its own apologies teaches users to ignore it.</> },
 ];
 
 const LEDGER: { take: string; verdict: string }[] = [
   { take: "A · Status quo", verdict: "Control. 6 tabs + 14 subnav items, two inboxes, sessions reachable 3+ ways, Ops a junk drawer, and a feature flag admitting it. Every /projects symptom traced back here." },
-  { take: "B · Work nouns", verdict: "Chosen. Matches the posture: operators live in an IDE/ADE and open Scout to keep all agents in view — so the tabs are lenses over that picture, Home is the cross-project center of gravity, and depth is preview + handoff. Migration is mostly re-labeling and moving Ops behind one drawer." },
+  { take: "B · Work nouns", verdict: "Shipped, then challenged. It fixed the oversized nav but left three overlapping data-model nouns as peers: projects contain sessions, sessions look conversational, and Chat names an action rather than a durable place." },
   { take: "C · Project-first", verdict: "Shelved. Its premise cuts against the posture: making the project the spine means picking a scope before you see your agents — but the product’s job is all agents in view across projects, and killing the global Sessions page removes the very surface that does that. Chat-as-dock and palette-first retrieval survive as ideas." },
+  { take: "D · Human jobs", verdict: "Proposed. Home owns attention; Work owns agent work and its project/session structure; Messages owns communication; Ops owns Mission Control and system diagnostics. The primary bar speaks ordinary product language without flattening the underlying model." },
 ];
 
 /* ── page ─────────────────────────────────────────────────────────────────── */
 
 export default function AppNavStudy() {
-  const [model, setModel] = useState<Model>("nouns");
+  const [model, setModel] = useState<Model>("jobs");
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
@@ -326,14 +419,14 @@ export default function AppNavStudy() {
           · studies · shell · app-nav
         </div>
         <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          App nav · three structural models
+          App nav · four structural models
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Scout is an overview-first platform — not an IDE or ADE replacement. It watches,
           summarizes, and coordinates; the doing happens in the editor, the terminal, and the agent
-          harness. So the nav is organized around lenses, not workbenches: three models of the whole
-          shell, switched in place, with every route in packages/web mapped onto each. B is chosen;
-          C is shelved — the axis is agents across projects, not the project scope.
+          harness. So the nav is organized around user jobs, not implementation records: four models
+          of the whole shell, switched in place, with every route in packages/web mapped onto each.
+          B shipped; D is the proposed correction to its overlapping Projects / Sessions / Chat split.
         </p>
       </header>
 
@@ -352,7 +445,13 @@ export default function AppNavStudy() {
       </div>
 
       <div className={styles.wrap}>
-        {model === "quo" ? <QuoFrame /> : model === "nouns" ? <NounsFrame /> : <FirstFrame />}
+        {model === "quo"
+          ? <QuoFrame />
+          : model === "nouns"
+            ? <NounsFrame />
+            : model === "first"
+              ? <FirstFrame />
+              : <JobsFrame />}
 
         <section>
           <div className={styles.noteHead}>Route inventory · every view, every model</div>
@@ -362,6 +461,7 @@ export default function AppNavStudy() {
               <span>A · status quo</span>
               <span>B · work nouns</span>
               <span>C · project-first</span>
+              <span>D · human jobs</span>
             </div>
             {INVENTORY.map((group) => (
               <div key={group.cluster} className={styles.invGroup}>
@@ -372,6 +472,7 @@ export default function AppNavStudy() {
                     <span className={model === "quo" ? styles.invCellOn : styles.invCell}>{row.a}</span>
                     <span className={model === "nouns" ? styles.invCellOn : styles.invCell}>{row.b}</span>
                     <span className={model === "first" ? styles.invCellOn : styles.invCell}>{row.c}</span>
+                    <span className={model === "jobs" ? styles.invCellOn : styles.invCell}>{row.d}</span>
                   </div>
                 ))}
               </div>

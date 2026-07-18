@@ -407,8 +407,22 @@
 }
 
 .sys-broker-source-note strong {
-  color: color-mix(in srgb, var(--amber) 84%, var(--ink));
+  color: var(--muted);
   font-weight: 600;
+}
+
+.sys-broker-source-note--warning strong {
+  color: color-mix(in srgb, var(--amber) 84%, var(--ink));
+}
+
+.sys-broker-source-spinner {
+  flex: 0 0 auto;
+  color: var(--muted);
+  animation: sys-broker-source-spin 800ms linear infinite;
+}
+
+@keyframes sys-broker-source-spin {
+  to { transform: rotate(360deg); }
 }
 
 .sys-broker-source-dot {
