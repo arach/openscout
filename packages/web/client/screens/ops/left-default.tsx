@@ -131,7 +131,7 @@ export function OpsDefaultLeft() {
           {active.length > 0 && <span className="ctx-panel-count">{active.length}</span>}
         </div>
         {active.length === 0 ? (
-          <div className="ctx-panel-empty">No active asks</div>
+          <div className="ctx-panel-empty">No active requests</div>
         ) : (
           active.slice(0, 10).map((ask) => (
             <RailRow

@@ -447,30 +447,11 @@ function nativeSessionInstructionsPayload(agent: Agent, instructions: string) {
   };
 }
 
-async function sendToFocusedAgentSession(agent: Agent, body: string, mode: "tell" | "ask"): Promise<void> {
+async function sendToFocusedAgentSession(agent: Agent, body: string): Promise<void> {
   if (isNativeSessionAgent(agent)) {
     await api<unknown>("/api/sessions", {
       method: "POST",
       body: JSON.stringify(nativeSessionInstructionsPayload(agent, body)),
-    });
-    return;
-  }
-
-  if (mode === "ask") {
-    await api<unknown>("/api/ask", {
-      method: "POST",
-      body: JSON.stringify({
-        body,
-        targetAgentId: agent.id,
-        targetLabel: agent.name,
-        execution: {
-          ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
-          ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
-          ...(agent.harnessSessionId?.trim()
-            ? { session: "existing", targetSessionId: agent.harnessSessionId.trim() }
-            : {}),
-        },
-      }),
     });
     return;
   }
@@ -481,6 +462,10 @@ async function sendToFocusedAgentSession(agent: Agent, body: string, mode: "tell
     body: JSON.stringify({
       body,
       chatId: conversationId,
+      execution: {
+        ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
+        ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
+      },
     }),
   });
 }
@@ -1205,7 +1190,7 @@ export function MissionControlView({
           agent={focusedAgent}
           observe={focusedObserve}
           onClose={() => setFocusedId(null)}
-          onSend={(body, mode) => sendToFocusedAgentSession(focusedAgent, body, mode)}
+          onSend={(body) => sendToFocusedAgentSession(focusedAgent, body)}
           onOpenConversation={() => {
             setFocusedId(null);
             if (isNativeSessionAgent(focusedAgent) && focusedAgent.harnessSessionId) {

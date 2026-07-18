@@ -164,8 +164,8 @@ function compactParagraph(value: string): string {
 function targetLabel(event: Pick<ObserveEvent, "to">): string {
   const to = event.to?.trim();
   if (!to) return "User request";
-  if (to === "human") return "Asked operator";
-  return `Asked ${to}`;
+  if (to === "human") return "To operator";
+  return `To ${to}`;
 }
 
 function answerDelayLabel(event: Pick<ObserveEvent, "t" | "answerT">): string | null {
@@ -183,12 +183,12 @@ export function buildLaneAskDisplay(event: Pick<ObserveEvent, "text" | "to" | "a
   const requestText = requestSection(strippedText)
     ?? requestSection(fullText)
     ?? strippedText;
-  const compactRequest = compactParagraph(requestText) || fullText || "Ask";
+  const compactRequest = compactParagraph(requestText) || fullText || "Request";
   const title = labeledRequest(requestText)
     ?? labeledRequest(fullText)
     ?? firstMeaningfulLine(requestText)
     ?? firstMeaningfulLine(fullText)
-    ?? "Ask";
+    ?? "Request";
   const label = targetLabel(event);
   const fields: LaneAskDisplayField[] = [{ label: "route", value: label }];
   const delay = answerDelayLabel(event);

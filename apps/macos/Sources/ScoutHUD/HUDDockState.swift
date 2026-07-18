@@ -511,12 +511,6 @@ private extension HUDDockState {
             action: nil
         ),
         HUDDockCommandCandidate(
-            command: "/steer",
-            detail: "Target this thread at a session",
-            replacement: "/steer session:",
-            action: nil
-        ),
-        HUDDockCommandCandidate(
             command: "/spin",
             detail: "Open the agent runner",
             replacement: "",

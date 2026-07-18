@@ -354,7 +354,7 @@ export function ChatInput({
         onSubmit={() => {
           if (draft.trim() && !sending) onSubmit();
         }}
-        placeholder={prominent ? "Ask Scout to watch, route, or coordinate with @agents…" : "Ask Scout…"}
+        placeholder={prominent ? "Message Scout to watch, route, or coordinate with @agents…" : "Message Scout…"}
         rows={prominent ? 4 : 2}
         disabled={sending}
         submitOnEnter

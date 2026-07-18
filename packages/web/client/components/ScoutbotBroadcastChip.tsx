@@ -149,7 +149,7 @@ export function ScoutbotBroadcastChip() {
   const openQuickMenu = (event: ReactMouseEvent) => {
     const items: MenuItem[] = [
       { kind: "action", label: "Brief me now", onSelect: () => actions.triggerBrief() },
-      { kind: "action", label: "Ask state", onSelect: () => actions.triggerAskState() },
+      { kind: "action", label: "Run state", onSelect: () => actions.triggerAskState() },
       { kind: "action", label: "New chat", onSelect: () => actions.startNewChat() },
       { kind: "separator" },
       { kind: "action", label: "Open chat", onSelect: () => actions.focusScoutbot() },

@@ -138,7 +138,6 @@ public enum MessageSuggestionEngine {
         MessageCommandCandidate(command: "/recent", detail: "Show recent messages from an agent", replacement: "/recent "),
         MessageCommandCandidate(command: "/doing", detail: "Show active work for an agent", replacement: "/doing "),
         MessageCommandCandidate(command: "/flight", detail: "Inspect a flight by id", replacement: "/flight "),
-        MessageCommandCandidate(command: "/steer", detail: "Target this thread at a session", replacement: "/steer session:"),
         MessageCommandCandidate(command: "/spin", detail: "Open the agent runner", replacement: "", action: .openRunner),
     ]
 

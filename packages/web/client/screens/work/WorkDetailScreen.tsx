@@ -159,10 +159,10 @@ function WorkActionButton({
 
 function askSourceLabel(source: string | null | undefined): string {
   const normalized = source?.toLowerCase() ?? "";
-  if (normalized.includes("mcp")) return "MCP ask";
-  if (normalized.includes("cli")) return "CLI ask";
-  if (normalized) return `${source} ask`;
-  return "Scout ask";
+  if (normalized.includes("mcp")) return "MCP request";
+  if (normalized.includes("cli")) return "CLI request";
+  if (normalized) return `${source} request`;
+  return "Scout request";
 }
 
 function askLifecycleLabel(detail: WorkDetail): string {
@@ -171,21 +171,21 @@ function askLifecycleLabel(detail: WorkDetail): string {
   const state = ask?.state ?? detail.activeFlights[0]?.state ?? detail.state;
   switch (state) {
     case "running":
-      return `${agent} is running in background. Synchronous wait may have expired, but the ask is still active.`;
+      return `${agent} is running in background. Synchronous wait may have expired, but the Run is still active.`;
     case "waking":
-      return `${agent} is waking up for this ask.`;
+      return `${agent} is waking up for this Run.`;
     case "queued":
-      return `${agent} has the ask queued.`;
+      return `${agent} has the Run queued.`;
     case "waiting":
     case "review":
       return `${agent} paused and is waiting for the next move.`;
     case "completed":
     case "done":
-      return `${agent} completed this ask.`;
+      return `${agent} completed this Run.`;
     case "failed":
-      return `${agent} reported a failure for this ask.`;
+      return `${agent} reported a failure for this Run.`;
     case "cancelled":
-      return "This ask was cancelled.";
+      return "This Run was cancelled.";
     default:
       return `${agent} is attached to this work item.`;
   }
@@ -266,11 +266,11 @@ function WorkAskOverview({
       <div className="s-work-ask-head">
         <div>
           <div className="s-work-ask-badges">
-            <span className="s-work-ask-badge s-work-ask-badge-primary">ASK created</span>
+            <span className="s-work-ask-badge s-work-ask-badge-primary">RUN created</span>
             <span className="s-work-ask-badge">{sourceLabel}</span>
             {ask?.state && <span className="s-work-ask-badge">{ask.state}</span>}
           </div>
-          <h2 className="s-agent-section-title s-work-ask-title">Ask / work source of truth</h2>
+          <h2 className="s-agent-section-title s-work-ask-title">Message / work source of truth</h2>
           <p className="s-work-ask-lifecycle">{askLifecycleLabel(detail)}</p>
         </div>
       </div>
@@ -431,7 +431,7 @@ function WorkMaterials({
             <div>
               <div className="s-work-material-kicker">{hasPlanMaterials ? "Plans & specs" : "Brief"}</div>
               <div className="s-work-material-title">
-                {hasPlanMaterials ? `${planMaterials.length} surfaced` : briefSummary ? "Original ask" : "No plan file yet"}
+                {hasPlanMaterials ? `${planMaterials.length} surfaced` : briefSummary ? "Original request" : "No plan file yet"}
               </div>
             </div>
           </div>
@@ -450,7 +450,7 @@ function WorkMaterials({
                 onClick={openBrief}
               >
                 <FileText aria-hidden="true" size={13} strokeWidth={1.8} />
-                View ask
+                View request
               </button>
             )}
             {planMaterials.length > 3 && (
@@ -584,10 +584,10 @@ function WorkBriefViewer({
 
   const document = createTextDocument({
     id: `${detail.id}:brief`,
-    title: "Original ask",
+    title: "Original request",
     uri: `scout://work/${detail.id}/brief`,
     mediaType: "text/markdown",
-    value: `# Original ask\n\n${summary}`,
+    value: `# Original request\n\n${summary}`,
     readOnly: true,
   });
 
@@ -595,10 +595,10 @@ function WorkBriefViewer({
     <DocumentFocusViewer
       kind="ask"
       document={document}
-      title="Original ask"
+      title="Original request"
       eyebrow="Brief"
       subtitle={detail.title}
-      meta={["ask", hasThread ? "thread linked" : "threadless"]}
+      meta={["request", hasThread ? "thread linked" : "threadless"]}
       mode="preview"
       actions={hasThread && detail.conversationId
         ? [{
@@ -868,7 +868,7 @@ function timelineKindLabel(item: WorkDetail["timeline"][number]): string {
   }
   if (item.kind === "flight_started") return "agent output";
   if (item.kind === "flight_completed") return item.detailKind === "completed" ? "reply" : item.detailKind ?? "flight";
-  if (item.detailKind === "created") return "ASK created";
+  if (item.detailKind === "created") return "request created";
   return item.title ?? item.kind.replace(/_/g, " ");
 }
 
@@ -880,7 +880,7 @@ function WorkTimelinePanel({ detail }: { detail: WorkDetail }) {
       <div className="s-agent-section-heading">
         <div>
           <h2 className="s-agent-section-title">Timeline</h2>
-          <p className="s-work-section-note">Ask lifecycle, follow-up requirements, flight state, and replies attached to this work item.</p>
+          <p className="s-work-section-note">Run lifecycle, follow-up requirements, flight state, and replies attached to this work item.</p>
         </div>
       </div>
       <div className="s-work-timeline-list">

@@ -3,7 +3,7 @@ import { normalizeAgentState } from "./agent-state.ts";
 /* ── Kind labels and color helpers ── */
 
 const KIND_LABELS: Record<string, string> = {
-  ask_sent: "asked",
+  ask_sent: "sent a request",
   ask_replied: "replied",
   ask_failed: "failed",
   ask_working: "working",
