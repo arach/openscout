@@ -107,7 +107,7 @@ private struct HUDRunnerSummaryCard: View {
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isResolved ? HUDRunnerPalette.accent : HUDChrome.inkMuted)
+                    .foregroundStyle(isResolved ? HUDChrome.composerAction : HUDChrome.inkMuted)
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 3) {

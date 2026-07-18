@@ -276,7 +276,7 @@ struct HUDStatusView: View {
                 RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
                     .strokeBorder(
                         runner.isPresented
-                            ? HUDRunnerPalette.borderStrong
+                            ? HUDChrome.composerBorderStrong
                             : HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
                         lineWidth: isTailOverlay ? 0.5 : 1
                     )

@@ -25,14 +25,14 @@ struct HUDRunnerComposer: View {
                 .frame(height: HUDRunnerLayout.toolbarHeight)
                 .padding(.horizontal, 10)
         }
-        .background(HUDRunnerPalette.field)
+        .background(HUDChrome.composerField)
         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(
                     dropTargeted
-                        ? HUDRunnerPalette.accent
-                        : HUDRunnerPalette.border,
+                        ? HUDChrome.composerAction
+                        : HUDChrome.composerBorder,
                     lineWidth: dropTargeted ? 1.5 : 1
                 )
         )
@@ -54,7 +54,7 @@ struct HUDRunnerComposer: View {
                 .textFieldStyle(.plain)
                 .font(HUDType.body(14))
                 .foregroundStyle(HUDChrome.ink)
-                .tint(HUDRunnerPalette.accent)
+                .tint(HUDChrome.composerAction)
                 .lineSpacing(3)
                 .lineLimit(1...3)
                 .focused(focus, equals: .instructions)
@@ -174,7 +174,7 @@ struct HUDRunnerComposer: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(
                         focus.wrappedValue == .runtimeSummary
-                            ? HUDRunnerPalette.fieldLift.opacity(0.58)
+                            ? HUDChrome.composerFieldLift.opacity(0.58)
                             : .clear
                     )
             )
@@ -182,7 +182,7 @@ struct HUDRunnerComposer: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(
                         focus.wrappedValue == .runtimeSummary
-                            ? HUDRunnerPalette.borderStrong
+                            ? HUDChrome.composerBorderStrong
                             : .clear,
                         lineWidth: 1
                     )
@@ -216,7 +216,7 @@ struct HUDRunnerComposer: View {
             if voice.state.isProcessing || runner.isPreparingVoice {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(HUDRunnerPalette.accent)
+                    .tint(HUDChrome.composerAction)
                 Text("Transcribing…")
                     .font(HUDType.mono(9, weight: .medium))
                     .foregroundStyle(HUDChrome.inkFaint)
@@ -233,10 +233,10 @@ struct HUDRunnerComposer: View {
             minHeight: 40,
             maxHeight: 40
         )
-        .background(Capsule().fill(HUDRunnerPalette.accentWhisper))
+        .background(Capsule().fill(HUDChrome.composerActionWhisper))
         .overlay(
             Capsule()
-                .stroke(HUDRunnerPalette.accent.opacity(0.58), lineWidth: 0.8)
+                .stroke(HUDChrome.composerAction.opacity(0.58), lineWidth: 0.8)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(voice.state.isProcessing ? "Transcribing voice" : "Recording voice")
@@ -315,7 +315,7 @@ private struct HUDRunnerVoiceWaveform: View {
         HStack(alignment: .center, spacing: 2) {
             ForEach(low.indices, id: \.self) { index in
                 Capsule(style: .continuous)
-                    .fill(HUDRunnerPalette.accent.opacity(0.90))
+                    .fill(HUDChrome.composerAction.opacity(0.90))
                     .frame(
                         width: 1.5,
                         height: animate ? high[index] : low[index]
@@ -330,7 +330,7 @@ private struct HUDRunnerVoiceWaveform: View {
         .frame(maxWidth: .infinity, minHeight: 24)
         .overlay {
             Rectangle()
-                .fill(HUDRunnerPalette.accent.opacity(0.42))
+                .fill(HUDChrome.composerAction.opacity(0.42))
                 .frame(height: 0.75)
                 .zIndex(-1)
         }

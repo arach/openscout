@@ -135,7 +135,7 @@ struct HUDRunnerOverlay: View {
     private var geometryLayer: some View {
         GeometryReader { proxy in
             ZStack {
-                HUDRunnerPalette.panel
+                HUDChrome.composerPanel
                     .ignoresSafeArea()
                     .onTapGesture {}
 
@@ -154,7 +154,7 @@ struct HUDRunnerOverlay: View {
         VStack(alignment: .leading, spacing: 0) {
             HUDRunnerHeader()
             Rectangle()
-                .fill(HUDRunnerPalette.border)
+                .fill(HUDChrome.composerBorder)
                 .frame(height: 1)
             VStack(alignment: .leading, spacing: 22) {
                 HUDRunnerRoutingSurface(focus: $focusedField)
@@ -179,7 +179,7 @@ struct HUDRunnerOverlay: View {
             .disabled(runner.isSubmitting)
         }
         .frame(width: size.width, height: size.height)
-        .background(HUDRunnerPalette.panel)
+        .background(HUDChrome.composerPanel)
     }
 
     private var projectChoiceCount: Int {

@@ -2,19 +2,6 @@ import SwiftUI
 
 typealias HUDRunnerFocusBinding = FocusState<HUDRunnerFocusTarget?>.Binding
 
-/// The hot-zone composer deliberately follows the quieter mint/graphite
-/// treatment used by the task-capture reference. Keep it local to the runner:
-/// the rest of the HUD still uses Scout's lime identity accent.
-enum HUDRunnerPalette {
-    static let panel = Color(red: 0.055, green: 0.058, blue: 0.057)
-    static let field = Color(red: 0.032, green: 0.035, blue: 0.034)
-    static let fieldLift = Color(red: 0.072, green: 0.078, blue: 0.076)
-    static let border = Color(red: 0.175, green: 0.190, blue: 0.186)
-    static let borderStrong = Color(red: 0.285, green: 0.305, blue: 0.300)
-    static let accent = Color(red: 0.420, green: 0.730, blue: 0.640)
-    static let accentWhisper = accent.opacity(0.07)
-}
-
 struct HUDRunnerCardButtonStyle: ButtonStyle {
     var isSelected: Bool
     var isFocused: Bool
@@ -27,18 +14,18 @@ struct HUDRunnerCardButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isSelected
-                            ? HUDRunnerPalette.accentWhisper
-                            : HUDRunnerPalette.field.opacity(configuration.isPressed ? 0.92 : 0.74)
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerField.opacity(configuration.isPressed ? 0.92 : 0.74)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDRunnerPalette.accent.opacity(0.56)
+                            ? HUDChrome.composerAction.opacity(0.56)
                             : (isSelected
-                                ? HUDRunnerPalette.accent.opacity(0.42)
-                                : HUDRunnerPalette.border),
+                                ? HUDChrome.composerAction.opacity(0.42)
+                                : HUDChrome.composerBorder),
                         lineWidth: isFocused ? 1 : 0.75
                     )
             )
@@ -53,24 +40,24 @@ struct HUDRunnerToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(HUDType.body(10, weight: .semibold))
-            .foregroundStyle(isActive ? HUDRunnerPalette.accent : HUDChrome.inkMuted)
+            .foregroundStyle(isActive ? HUDChrome.composerAction : HUDChrome.inkMuted)
             .opacity(configuration.isPressed ? 0.72 : 1)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isActive
-                            ? HUDRunnerPalette.accentWhisper
-                            : HUDRunnerPalette.fieldLift.opacity(configuration.isPressed ? 0.72 : 0.28)
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerFieldLift.opacity(configuration.isPressed ? 0.72 : 0.28)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDRunnerPalette.borderStrong
+                            ? HUDChrome.composerBorderStrong
                             : (isActive
-                                ? HUDRunnerPalette.accent.opacity(0.42)
-                                : HUDRunnerPalette.border),
+                                ? HUDChrome.composerAction.opacity(0.42)
+                                : HUDChrome.composerBorder),
                         lineWidth: isFocused ? 1.25 : 0.75
                     )
             )
@@ -83,24 +70,24 @@ struct HUDRunnerCircleButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isActive ? HUDRunnerPalette.accent : HUDChrome.inkMuted)
+            .foregroundStyle(isActive ? HUDChrome.composerAction : HUDChrome.inkMuted)
             .opacity(configuration.isPressed ? 0.70 : 1)
             .background(
                 Circle()
                     .fill(
                         isActive
-                            ? HUDRunnerPalette.accentWhisper
-                            : HUDRunnerPalette.fieldLift.opacity(configuration.isPressed ? 0.82 : 0.32)
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerFieldLift.opacity(configuration.isPressed ? 0.82 : 0.32)
                     )
             )
             .overlay(
                 Circle()
                     .stroke(
                         isFocused
-                            ? HUDRunnerPalette.borderStrong
+                            ? HUDChrome.composerBorderStrong
                             : (isActive
-                                ? HUDRunnerPalette.accent.opacity(0.58)
-                                : HUDRunnerPalette.border),
+                                ? HUDChrome.composerAction.opacity(0.58)
+                                : HUDChrome.composerBorder),
                         lineWidth: isFocused ? 1.25 : 0.8
                     )
             )
@@ -154,15 +141,15 @@ struct HUDRunnerSendButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(HUDRunnerPalette.field)
+            .foregroundStyle(HUDChrome.composerField)
             .background(
                 Circle()
-                    .fill(HUDRunnerPalette.accent.opacity(configuration.isPressed ? 0.74 : 0.96))
+                    .fill(HUDChrome.composerAction.opacity(configuration.isPressed ? 0.74 : 0.96))
             )
             .overlay(
                 Circle()
                     .stroke(
-                        isFocused ? HUDRunnerPalette.borderStrong : .clear,
+                        isFocused ? HUDChrome.composerBorderStrong : .clear,
                         lineWidth: 1.25
                     )
             )
