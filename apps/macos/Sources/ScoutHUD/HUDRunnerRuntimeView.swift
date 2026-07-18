@@ -508,7 +508,7 @@ enum HUDRunnerRuntimeFormatter {
         let model = version == "Latest"
             ? descriptor.familyLabel
             : "\(descriptor.familyLabel) \(version)"
-        return "\(model) · \(effort)"
+        return "\(model) \(effort)"
     }
 
     static func descriptors(

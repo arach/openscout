@@ -28,26 +28,26 @@ import Testing
 @Test func runnerLayoutStepsOnlyForExpandedControlsAndCaptures() {
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: false)
-            == NSSize(width: 640, height: 406)
+            == NSSize(width: 600, height: 412)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .runtimeConfiguration, hasCaptures: false)
-            == NSSize(width: 640, height: 464)
+            == NSSize(width: 600, height: 470)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .none, hasCaptures: true)
-            == NSSize(width: 640, height: 450)
+            == NSSize(width: 600, height: 456)
     )
     #expect(
         HUDRunnerLayout.contentSize(disclosure: .route, hasCaptures: true)
-            == NSSize(width: 640, height: 608)
+            == NSSize(width: 600, height: 614)
     )
     #expect(
         HUDRunnerLayout.contentSize(
             disclosure: .projectChoices,
             hasCaptures: false,
             projectChoiceCount: 1
-        ) == NSSize(width: 640, height: 472)
+        ) == NSSize(width: 600, height: 478)
     )
 }
 
@@ -153,7 +153,6 @@ import Testing
         .attach,
         .voice,
         .create,
-        .dismiss,
     ]
     func order(_ disclosure: HUDRunnerDisclosure) -> [HUDRunnerFocusTarget] {
         HUDRunnerFocusTarget.visibleOrder(
@@ -165,7 +164,16 @@ import Testing
         )
     }
 
-    #expect(order(.none) == [.projectSummary, .runtimeSummary] + common)
+    #expect(order(.none) == [
+        .projectSummary,
+        .instructions,
+        .attachment(attachmentID),
+        .reference("/repo/README.md"),
+        .attach,
+        .voice,
+        .runtimeSummary,
+        .create,
+    ])
     #expect(order(.projectChoices) == [
         .disclosureBack,
         .projectChoice("project-a"),

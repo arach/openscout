@@ -8,7 +8,6 @@ struct HUDRunnerComposer: View {
     @ObservedObject private var voice = HudVoiceService.shared
     let focus: HUDRunnerFocusBinding
     let dropTargeted: Bool
-    @State private var voiceStartedAt: Date?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,31 +25,24 @@ struct HUDRunnerComposer: View {
                 .frame(height: HUDRunnerLayout.toolbarHeight)
                 .padding(.horizontal, 10)
         }
-        .background(HUDChrome.canvasAlt.opacity(0.52))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(HUDRunnerPalette.field)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(
                     dropTargeted
-                        ? HUDChrome.accent
-                        : HUDChrome.borderSoft,
+                        ? HUDRunnerPalette.accent
+                        : HUDRunnerPalette.border,
                     lineWidth: dropTargeted ? 1.5 : 1
                 )
         )
-        .onChange(of: voice.state.isCaptureActive, initial: true) { _, active in
-            if active, voiceStartedAt == nil {
-                voiceStartedAt = Date()
-            } else if !active, !voice.state.isProcessing {
-                voiceStartedAt = nil
-            }
-        }
     }
 
     private var editor: some View {
         ZStack(alignment: .topLeading) {
             if runner.instructions.isEmpty {
                 Text("Describe the task — what should the agent build, fix, or investigate?")
-                    .font(HUDType.body(15))
+                    .font(HUDType.body(14))
                     .foregroundStyle(HUDChrome.inkFaint)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
@@ -60,9 +52,9 @@ struct HUDRunnerComposer: View {
 
             TextField("", text: $runner.instructions, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(HUDType.body(15))
+                .font(HUDType.body(14))
                 .foregroundStyle(HUDChrome.ink)
-                .tint(HUDChrome.accent)
+                .tint(HUDRunnerPalette.accent)
                 .lineSpacing(3)
                 .lineLimit(1...3)
                 .focused(focus, equals: .instructions)
@@ -79,48 +71,27 @@ struct HUDRunnerComposer: View {
             Button(action: runner.browseForAttachments) {
                 Image(systemName: "plus")
                     .font(.system(size: 15, weight: .medium))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 40, height: 40)
             }
             .buttonStyle(
-                HUDRunnerToolbarButtonStyle(
+                HUDRunnerCircleButtonStyle(
                     isActive: false,
-                    isFocused: focus.wrappedValue == .attach,
-                    cornerRadius: 10
+                    isFocused: focus.wrappedValue == .attach
                 )
             )
             .focused(focus, equals: .attach)
             .help("Add files or folders (⌘O)")
             .accessibilityLabel("Attach files or folders")
 
-            if voice.state.isCaptureActive || voice.state.isProcessing {
+            if voice.state.isCaptureActive || voice.state.isProcessing || runner.isPreparingVoice {
                 voiceActivity
+                Spacer(minLength: 0)
             } else {
+                voiceButton(size: 40)
                 Spacer(minLength: 8)
-                runtimeButton
             }
 
-            Button {
-                Task { await runner.toggleDictation() }
-            } label: {
-                Image(systemName: voiceSymbol)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(
-                HUDRunnerToolbarButtonStyle(
-                    isActive: voice.state.isCaptureActive,
-                    isFocused: focus.wrappedValue == .voice,
-                    cornerRadius: 10
-                )
-            )
-            .disabled(
-                runner.isPreparingVoice
-                    || voice.state == .probing
-                    || voice.state.isProcessing
-            )
-            .focused(focus, equals: .voice)
-            .help(voiceHelp)
-            .accessibilityLabel(voiceLabel)
+            runtimeButton
 
             Button(action: runner.beginSubmit) {
                 Group {
@@ -133,12 +104,11 @@ struct HUDRunnerComposer: View {
                             .font(.system(size: 16, weight: .bold))
                     }
                 }
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
             }
             .buttonStyle(
                 HUDRunnerSendButtonStyle(
-                    isFocused: focus.wrappedValue == .create,
-                    cornerRadius: 11
+                    isFocused: focus.wrappedValue == .create
                 )
             )
             .disabled(submitDisabled)
@@ -151,6 +121,32 @@ struct HUDRunnerComposer: View {
             )
             .accessibilityLabel(runner.isSubmitting ? "Creating task" : "Create task")
         }
+        .animation(.easeInOut(duration: 0.18), value: voice.state.isCaptureActive)
+        .animation(.easeInOut(duration: 0.18), value: voice.state.isProcessing)
+    }
+
+    private func voiceButton(size: CGFloat) -> some View {
+        Button {
+            Task { await runner.toggleDictation() }
+        } label: {
+            Image(systemName: voiceSymbol)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: size, height: size)
+        }
+        .buttonStyle(
+            HUDRunnerCircleButtonStyle(
+                isActive: voice.state.isCaptureActive,
+                isFocused: focus.wrappedValue == .voice
+            )
+        )
+        .disabled(
+            runner.isPreparingVoice
+                || voice.state == .probing
+                || voice.state.isProcessing
+        )
+        .focused(focus, equals: .voice)
+        .help(voiceHelp)
+        .accessibilityLabel(voiceLabel)
     }
 
     private var runtimeButton: some View {
@@ -173,20 +169,20 @@ struct HUDRunnerComposer: View {
             .font(HUDType.body(10, weight: .medium))
             .foregroundStyle(HUDChrome.inkMuted)
             .padding(.horizontal, 8)
-            .frame(height: 38)
+            .frame(height: 40)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(
                         focus.wrappedValue == .runtimeSummary
-                            ? HUDChrome.canvasLift.opacity(0.36)
+                            ? HUDRunnerPalette.fieldLift.opacity(0.58)
                             : .clear
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(
                         focus.wrappedValue == .runtimeSummary
-                            ? HUDChrome.borderStrong
+                            ? HUDRunnerPalette.borderStrong
                             : .clear,
                         lineWidth: 1
                     )
@@ -215,38 +211,36 @@ struct HUDRunnerComposer: View {
 
     @ViewBuilder
     private var voiceActivity: some View {
-        if voice.state.isProcessing {
-            HStack(spacing: 8) {
+        HStack(spacing: 7) {
+            voiceButton(size: 32)
+            if voice.state.isProcessing || runner.isPreparingVoice {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(HUDChrome.inkMuted)
+                    .tint(HUDRunnerPalette.accent)
                 Text("Transcribing…")
                     .font(HUDType.mono(9, weight: .medium))
                     .foregroundStyle(HUDChrome.inkFaint)
                 Spacer(minLength: 0)
+            } else {
+                HUDRunnerVoiceWaveform()
             }
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Transcribing voice")
-        } else {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(spacing: 10) {
-                    HUDRunnerVoiceWaveform()
-                    Text(elapsedVoiceLabel(at: context.date))
-                        .font(HUDType.mono(9, weight: .medium))
-                        .foregroundStyle(HUDChrome.inkFaint)
-                        .monospacedDigit()
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Recording voice")
         }
-    }
-
-    private func elapsedVoiceLabel(at date: Date) -> String {
-        let elapsed = max(0, Int(date.timeIntervalSince(voiceStartedAt ?? date)))
-        return String(format: "%d:%02d", elapsed / 60, elapsed % 60)
+        .padding(.horizontal, 4)
+        .frame(
+            minWidth: 160,
+            idealWidth: 250,
+            maxWidth: 280,
+            minHeight: 40,
+            maxHeight: 40
+        )
+        .background(Capsule().fill(HUDRunnerPalette.accentWhisper))
+        .overlay(
+            Capsule()
+                .stroke(HUDRunnerPalette.accent.opacity(0.58), lineWidth: 0.8)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(voice.state.isProcessing ? "Transcribing voice" : "Recording voice")
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
     }
 
     private var captureStrip: some View {
@@ -295,7 +289,7 @@ struct HUDRunnerComposer: View {
     private var voiceSymbol: String {
         if runner.isPreparingVoice { return "waveform" }
         switch voice.state {
-        case .starting, .recording: return "stop.fill"
+        case .starting, .recording: return "mic.fill"
         case .probing, .processing: return "waveform"
         case .unavailable: return "mic.badge.xmark"
         case .idle: return "mic.fill"
@@ -321,7 +315,7 @@ private struct HUDRunnerVoiceWaveform: View {
         HStack(alignment: .center, spacing: 2) {
             ForEach(low.indices, id: \.self) { index in
                 Capsule(style: .continuous)
-                    .fill(HUDChrome.inkMuted.opacity(0.86))
+                    .fill(HUDRunnerPalette.accent.opacity(0.90))
                     .frame(
                         width: 1.5,
                         height: animate ? high[index] : low[index]
@@ -333,10 +327,10 @@ private struct HUDRunnerVoiceWaveform: View {
                     )
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 26)
+        .frame(maxWidth: .infinity, minHeight: 24)
         .overlay {
             Rectangle()
-                .fill(HUDChrome.borderSoft.opacity(0.72))
+                .fill(HUDRunnerPalette.accent.opacity(0.42))
                 .frame(height: 0.75)
                 .zIndex(-1)
         }

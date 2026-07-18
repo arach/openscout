@@ -42,7 +42,6 @@ enum HUDRunnerFocusTarget: Hashable {
     case attach
     case voice
     case create
-    case dismiss
 
     static func visibleOrder(
         disclosure: HUDRunnerDisclosure,
@@ -90,9 +89,9 @@ enum HUDRunnerFocusTarget: Hashable {
         result += attachmentIDs.map(Self.attachment)
         result += referenceIDs.map(Self.reference)
         if disclosure == .none {
-            result += [.attach, .runtimeSummary, .voice, .create, .dismiss]
+            result += [.attach, .voice, .runtimeSummary, .create]
         } else {
-            result += [.attach, .voice, .create, .dismiss]
+            result += [.attach, .voice, .create]
         }
         return result
     }

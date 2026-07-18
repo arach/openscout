@@ -275,7 +275,9 @@ struct HUDStatusView: View {
             if !isTailFullHeight && !isTailCollapsing {
                 RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
                     .strokeBorder(
-                        HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
+                        runner.isPresented
+                            ? HUDRunnerPalette.borderStrong
+                            : HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
                         lineWidth: isTailOverlay ? 0.5 : 1
                     )
             }

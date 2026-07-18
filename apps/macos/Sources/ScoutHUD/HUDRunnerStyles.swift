@@ -2,6 +2,19 @@ import SwiftUI
 
 typealias HUDRunnerFocusBinding = FocusState<HUDRunnerFocusTarget?>.Binding
 
+/// The hot-zone composer deliberately follows the quieter mint/graphite
+/// treatment used by the task-capture reference. Keep it local to the runner:
+/// the rest of the HUD still uses Scout's lime identity accent.
+enum HUDRunnerPalette {
+    static let panel = Color(red: 0.055, green: 0.058, blue: 0.057)
+    static let field = Color(red: 0.032, green: 0.035, blue: 0.034)
+    static let fieldLift = Color(red: 0.072, green: 0.078, blue: 0.076)
+    static let border = Color(red: 0.175, green: 0.190, blue: 0.186)
+    static let borderStrong = Color(red: 0.285, green: 0.305, blue: 0.300)
+    static let accent = Color(red: 0.420, green: 0.730, blue: 0.640)
+    static let accentWhisper = accent.opacity(0.07)
+}
+
 struct HUDRunnerCardButtonStyle: ButtonStyle {
     var isSelected: Bool
     var isFocused: Bool
@@ -14,18 +27,18 @@ struct HUDRunnerCardButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isSelected
-                            ? HUDChrome.accentWhisper
-                            : HUDChrome.canvasAlt.opacity(configuration.isPressed ? 0.70 : 0.52)
+                            ? HUDRunnerPalette.accentWhisper
+                            : HUDRunnerPalette.field.opacity(configuration.isPressed ? 0.92 : 0.74)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDChrome.accent.opacity(0.56)
+                            ? HUDRunnerPalette.accent.opacity(0.56)
                             : (isSelected
-                                ? HUDChrome.accent.opacity(0.42)
-                                : HUDChrome.border.opacity(0.72)),
+                                ? HUDRunnerPalette.accent.opacity(0.42)
+                                : HUDRunnerPalette.border),
                         lineWidth: isFocused ? 1 : 0.75
                     )
             )
@@ -40,25 +53,55 @@ struct HUDRunnerToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(HUDType.body(10, weight: .semibold))
-            .foregroundStyle(isActive ? HUDChrome.accent : HUDChrome.inkMuted)
+            .foregroundStyle(isActive ? HUDRunnerPalette.accent : HUDChrome.inkMuted)
             .opacity(configuration.isPressed ? 0.72 : 1)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isActive
-                            ? HUDChrome.accentWhisper
-                            : HUDChrome.canvasLift.opacity(configuration.isPressed ? 0.44 : 0.24)
+                            ? HUDRunnerPalette.accentWhisper
+                            : HUDRunnerPalette.fieldLift.opacity(configuration.isPressed ? 0.72 : 0.28)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDChrome.borderStrong
+                            ? HUDRunnerPalette.borderStrong
                             : (isActive
-                                ? HUDChrome.accent.opacity(0.34)
-                                : HUDChrome.borderSoft),
+                                ? HUDRunnerPalette.accent.opacity(0.42)
+                                : HUDRunnerPalette.border),
                         lineWidth: isFocused ? 1.25 : 0.75
+                    )
+            )
+    }
+}
+
+struct HUDRunnerCircleButtonStyle: ButtonStyle {
+    var isActive: Bool
+    var isFocused: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isActive ? HUDRunnerPalette.accent : HUDChrome.inkMuted)
+            .opacity(configuration.isPressed ? 0.70 : 1)
+            .background(
+                Circle()
+                    .fill(
+                        isActive
+                            ? HUDRunnerPalette.accentWhisper
+                            : HUDRunnerPalette.fieldLift.opacity(configuration.isPressed ? 0.82 : 0.32)
+                    )
+            )
+            .overlay(
+                Circle()
+                    .stroke(
+                        isFocused
+                            ? HUDRunnerPalette.borderStrong
+                            : (isActive
+                                ? HUDRunnerPalette.accent.opacity(0.58)
+                                : HUDRunnerPalette.border),
+                        lineWidth: isFocused ? 1.25 : 0.8
                     )
             )
     }
@@ -108,19 +151,18 @@ struct HUDRunnerPrimaryTextButtonStyle: ButtonStyle {
 
 struct HUDRunnerSendButtonStyle: ButtonStyle {
     var isFocused: Bool = false
-    var cornerRadius: CGFloat = 9
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(HUDChrome.canvas)
+            .foregroundStyle(HUDRunnerPalette.field)
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(HUDChrome.accent.opacity(configuration.isPressed ? 0.72 : 0.94))
+                Circle()
+                    .fill(HUDRunnerPalette.accent.opacity(configuration.isPressed ? 0.74 : 0.96))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                Circle()
                     .stroke(
-                        isFocused ? HUDChrome.borderStrong : .clear,
+                        isFocused ? HUDRunnerPalette.borderStrong : .clear,
                         lineWidth: 1.25
                     )
             )
