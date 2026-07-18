@@ -2841,8 +2841,8 @@ struct ScoutRootView: View {
         if store.selectedChannel?.isObserverThread == true {
             return "Jump in…"
         }
-        if let steerLabel = composerSteerLabel {
-            return steerLabel
+        if let targetLabel = composerTargetLabel {
+            return targetLabel
         }
         if let title = store.selectedChannel?.displayHandle, !title.isEmpty {
             return "Message \(title)"
@@ -2853,7 +2853,7 @@ struct ScoutRootView: View {
         return "Message"
     }
 
-    private var composerSteerLabel: String? {
+    private var composerTargetLabel: String? {
         guard let channel = store.selectedChannel else { return nil }
         let targets = channel.participants
             .filter { participant in
@@ -2866,12 +2866,12 @@ struct ScoutRootView: View {
             .map { $0.label }
         guard !targets.isEmpty else { return nil }
         if targets.count == 1, let target = targets.first {
-            return "Steer \(target)"
+            return "Message \(target)"
         }
         if targets.count == 2 {
-            return "Steer \(targets[0]) and \(targets[1])"
+            return "Message \(targets[0]) and \(targets[1])"
         }
-        return "Steer \(targets.count) agents"
+        return "Message \(targets.count) agents"
     }
 
     private var composerCanSend: Bool {
@@ -5087,7 +5087,7 @@ private struct ScoutThreadLoadingSkeleton: View {
 /// The pinned-ask that rides under the conversation header — re-crafted to the
 /// Proposal as a recessed "screen": an inset plane with a hairline, inset from
 /// the edges (not a full-bleed band). Neutral when answered (the resolved state
-/// needs no attention, so no accent or amber); amber appears only while the ask
+/// needs no attention, so no accent or amber); amber appears only while the question
 /// is still pending. The accent stays a whisper — it is not used here.
 private struct ScoutPinnedAskBand: View {
     let ask: ScoutChannelAsk
@@ -5101,7 +5101,7 @@ private struct ScoutPinnedAskBand: View {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(tint)
-                Text("PINNED ASK")
+                Text("PINNED QUESTION")
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                     .tracking(1.2)
                     .foregroundStyle(tint)
@@ -6722,7 +6722,7 @@ private extension ScoutObserveEventKind {
         switch self {
         case .think: return "THINK"
         case .tool: return "TOOL"
-        case .ask: return "ASK"
+        case .ask: return "REQ"
         case .message: return "MSG"
         case .note: return "NOTE"
         case .system: return "SYS"
@@ -7479,7 +7479,7 @@ private struct ScoutAgentAbility {
         case "chat":
             return "Can exchange Scout messages with the operator."
         case "invoke":
-            return "Can accept owned asks and run delegated work."
+            return "Can accept work requests and run delegated work."
         case "deliver":
             return "Can report completion, status, or artifacts back."
         case "observe":
@@ -7714,7 +7714,7 @@ private struct ScoutChannelInspector: View {
     @ViewBuilder
     private func askScreen(_ ask: ScoutChannelAsk) -> some View {
         let pending = ask.state == .pending
-        section("Ask") {
+        section("Question") {
             VStack(alignment: .leading, spacing: HudSpacing.xs) {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: "pin.fill")

@@ -11,7 +11,9 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  extractAgentSelectors,
   isOpaqueChannelId,
+  resolveAgentIdentity,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -84,11 +86,17 @@ import {
   markBrokerDiagnosticsLiveUnavailable,
   mergeBrokerDiagnosticsWithLiveSnapshot,
 } from "./db/broker-live.ts";
+import { queryAgentIdsByEndpointSessionId } from "./db/agents.ts";
+import { queryOperatorAttentionRows } from "./db/fleet.ts";
 import {
   applyAgentAttention,
+  buildAgentAttentionIndex,
   type AgentAttentionEntry,
 } from "./core/attention/agent-attention.ts";
-import { createAgentAttentionIndexReader } from "./core/attention/build-agent-attention-index.ts";
+import {
+  collectTmuxHostAttention,
+  type TmuxHostAttentionItem,
+} from "./core/attention/tmux-host-attention.ts";
 import {
   configuredOperatorActorIds,
 } from "./db/internal/conversation-ids.ts";
@@ -2094,6 +2102,23 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
+const AGENT_ATTENTION_TTL_MS = 2_000;
+type TmuxPaneCapture = NonNullable<CreateOpenScoutWebServerOptions["captureTmuxPane"]>;
+type AgentAttentionSnapshot = {
+  index: Map<string, AgentAttentionEntry>;
+  hostItems: TmuxHostAttentionItem[];
+};
+
+let agentAttentionCache: {
+  at: number;
+  capture: TmuxPaneCapture;
+  snapshot: AgentAttentionSnapshot;
+} | null = null;
+let agentAttentionInFlight: {
+  capture: TmuxPaneCapture;
+  promise: Promise<AgentAttentionSnapshot>;
+} | null = null;
+
 /**
  * Needs-attention index for /api/agents, cached briefly and coalesced: the
  * endpoint is polled every ~2.5s per client and the pairing-snapshot read
@@ -2102,7 +2127,106 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
  * /api/agents down with it. The sourcing lives in `core/attention` so the
  * mobile agents RPC can build the identical index.
  */
-const queryAgentAttentionIndex = createAgentAttentionIndexReader();
+function queryAgentAttentionIndex(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<Map<string, AgentAttentionEntry>> {
+  return queryAgentAttentionSnapshot(broker, capture).then((snapshot) => snapshot.index);
+}
+
+function queryAgentAttentionSnapshot(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<AgentAttentionSnapshot> {
+  const cached = agentAttentionCache;
+  if (cached && cached.capture === capture && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+    return Promise.resolve(cached.snapshot);
+  }
+  if (agentAttentionInFlight?.capture === capture) {
+    return agentAttentionInFlight.promise;
+  }
+  const promise = buildAgentAttentionIndexSnapshot(broker, capture).finally(() => {
+    if (agentAttentionInFlight?.promise === promise) {
+      agentAttentionInFlight = null;
+    }
+  });
+  agentAttentionInFlight = { capture, promise };
+  return promise;
+}
+
+async function buildAgentAttentionIndexSnapshot(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture,
+): Promise<AgentAttentionSnapshot> {
+  let snapshot: AgentAttentionSnapshot = {
+    index: new Map<string, AgentAttentionEntry>(),
+    hostItems: [],
+  };
+  try {
+    const pairingSnapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
+    const sessionItems = pairingSnapshots.length > 0 ? projectSessionsAttention(pairingSnapshots) : [];
+    let agentIdBySessionId = new Map<string, string>();
+    try {
+      agentIdBySessionId = queryAgentIdsByEndpointSessionId();
+    } catch {
+      // A direct host-attention row already owns its agent id; a temporarily
+      // unavailable read model must not suppress that independent signal.
+    }
+    // The broker snapshot is the live authority on which agent currently
+    // holds a session — it overrides any stale endpoint row in the db.
+    for (const agent of Object.values(broker?.snapshot.agents ?? {})) {
+      const sessionId = broker
+        ? activeEndpointForAgent(broker.snapshot, agent.id)?.sessionId?.trim()
+        : null;
+      if (sessionId) {
+        agentIdBySessionId.set(sessionId, agent.id);
+      }
+    }
+
+    const databaseAgents = queryAgents().map(withResolvedHarnessSessionIdentity);
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker).map(withResolvedHarnessSessionIdentity) : [];
+    const candidatesById = new Map(databaseAgents.map((agent) => [agent.id, agent]));
+    for (const agent of brokerAgents) {
+      candidatesById.set(agent.id, mergeBrokerAgentProjection(candidatesById.get(agent.id) ?? agent, agent));
+    }
+    const hostItems = await collectTmuxHostAttention(
+      [...candidatesById.values()],
+      async (agent, paneTarget) => {
+        const terminal = agent.terminalSurface;
+        if (!terminal) return null;
+        const result = await capture({
+          agentId: agent.id,
+          sessionId: terminal.sessionName,
+          paneTarget,
+          cwd: agent.cwd ?? agent.projectRoot,
+          lines: 80,
+          columns: 240,
+        });
+        return result?.body ?? null;
+      },
+    );
+    snapshot = {
+      hostItems,
+      index: buildAgentAttentionIndex({
+        sessionItems,
+        agentIdBySessionId,
+        collaborationRows: (() => {
+          try {
+            return queryOperatorAttentionRows();
+          } catch {
+            return [];
+          }
+        })(),
+        hostRows: hostItems,
+      }),
+    };
+  } catch (error) {
+    // Attention is a decoration on the agent list, never a reason to 500 it.
+    console.warn("[openscout-web] attention snapshot failed", error);
+  }
+  agentAttentionCache = { at: Date.now(), capture, snapshot };
+  return snapshot;
+}
 
 function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
   if (limit === undefined) return agents;
@@ -2144,6 +2268,7 @@ function agentListSummary(agent: WebAgent) {
 async function queryAgentsIncludingBrokerCards(
   limit?: number,
   includeAttention = true,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
 ): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -2159,7 +2284,7 @@ async function queryAgentsIncludingBrokerCards(
   // index opens the pairing bridge and can take seconds on a busy machine, so
   // only rich callers pay that cost.
   const attention = includeAttention
-    ? await queryAgentAttentionIndex(broker)
+    ? await queryAgentAttentionIndex(broker, capture)
     : new Map<string, AgentAttentionEntry>();
   if (!broker) {
     return mostRecentAgents(applyAgentAttention(agents, attention), limit);
@@ -2196,11 +2321,14 @@ function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefine
   };
 }
 
-async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+async function queryAgentIncludingBrokerCard(
+  agentId: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<WebAgent | null> {
   const broker = await loadScoutBrokerContext().catch(() => null);
   const agent = queryAgentById(agentId);
   if (agent) {
-    const attention = await queryAgentAttentionIndex(broker);
+    const attention = await queryAgentAttentionIndex(broker, capture);
     const brokerAgents = broker ? brokerCardAgentsForWeb(broker) : [];
     const canonical = agent.definitionId === "scoutbot"
       ? brokerAgents.find((candidate) => candidate.id === "scoutbot")
@@ -2219,7 +2347,7 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   if (!brokerWebAgent) {
     return null;
   }
-  const attention = await queryAgentAttentionIndex(broker);
+  const attention = await queryAgentAttentionIndex(broker, capture);
   return applyAgentAttention([withResolvedHarnessSessionIdentity(brokerWebAgent)], attention)[0] ?? null;
 }
 
@@ -2450,12 +2578,57 @@ function sessionIncludesOperatorParticipant(session: { participantIds: string[] 
   return session.participantIds.some((participantId) => operatorIds.has(participantId));
 }
 
-function defaultSendModeForConversationSession(
-  session: { kind: string; participantIds: string[] } | null,
-): "tell" | "steer" {
-  return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
-    ? "tell"
-    : "steer";
+function defaultSendModeForConversationSession(input: {
+  session: { kind: string; participantIds: string[] } | null;
+  hasExplicitTarget: boolean;
+  hasActiveRun: boolean;
+}): "invoke" | "steer" | "message" {
+  const isOperatorDirect =
+    input.session?.kind === "direct" && sessionIncludesOperatorParticipant(input.session);
+  if (!isOperatorDirect && !input.hasExplicitTarget) {
+    return "message";
+  }
+  return input.hasActiveRun ? "steer" : "invoke";
+}
+
+function steerContextByTargetAgentId(
+  runs: ReturnType<typeof queryRuns>,
+): Record<string, { runId: string; flightId?: string }> | undefined {
+  const entries = new Map<string, { runId: string; flightId?: string }>();
+  for (const run of runs) {
+    if (entries.has(run.agentId)) continue;
+    const flightId = run.flightIds?.[0];
+    entries.set(run.agentId, {
+      runId: run.id,
+      ...(flightId ? { flightId } : {}),
+    });
+  }
+  return entries.size > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function resolveSendSelectorTargetAgentIds(
+  selectors: ReturnType<typeof extractAgentSelectors>,
+  participantIds: string[],
+): string[] {
+  if (selectors.length === 0) return [];
+  const participantIdSet = new Set(participantIds);
+  const candidates = queryAgents()
+    .filter((agent) => participantIdSet.has(agent.id))
+    .map((agent) => ({
+      agentId: agent.id,
+      definitionId: agent.definitionId,
+      nodeQualifier: agent.nodeQualifier ?? undefined,
+      workspaceQualifier: agent.workspaceQualifier ?? undefined,
+      harness: agent.harness ?? undefined,
+      model: agent.model ?? undefined,
+      aliases: [agent.selector, agent.defaultSelector, agent.handle, agent.name]
+        .filter((alias): alias is string => Boolean(alias?.trim())),
+    }));
+  return [...new Set(
+    selectors
+      .map((selector) => resolveAgentIdentity(selector, candidates)?.agentId)
+      .filter((agentId): agentId is string => Boolean(agentId)),
+  )];
 }
 
 function anchoredThreadNaturalKey(parentConversationId: string, anchorMessageId: string): string {
@@ -3249,13 +3422,18 @@ function operatorAttentionFromSessionItem(item: SessionAttentionItem): OperatorA
   };
 }
 
-async function buildOperatorAttentionState(currentDirectory: string) {
-  const [pairing, pairingSnapshots, fleet, broker] = await Promise.all([
+async function buildOperatorAttentionState(
+  currentDirectory: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+) {
+  const [pairing, pairingSnapshots, fleet, brokerDiagnostics, scoutBroker] = await Promise.all([
     loadPairingState(currentDirectory, false).catch(() => null),
     getScoutWebPairingSessionSnapshots().catch(() => []),
     Promise.resolve(queryFleet({ limit: 24, activityLimit: 120 })),
     Promise.resolve(queryBrokerDiagnostics({ limit: 160, windowMs: 24 * 60 * 60_000 })),
+    loadScoutBrokerContext().catch(() => null),
   ]);
+  const hostAttention = await queryAgentAttentionSnapshot(scoutBroker, capture);
 
   const items: OperatorAttentionItem[] = [];
   const pendingApprovalIds = new Set<string>();
@@ -3299,6 +3477,31 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 
   for (const sessionItem of projectSessionsAttention(pairingSnapshots, { pendingApprovalIds })) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
+  }
+
+  for (const hostItem of hostAttention.hostItems) {
+    items.push({
+      id: hostItem.id,
+      kind: "session",
+      title: hostItem.title,
+      summary: hostItem.summary,
+      detail: hostItem.detail,
+      agentId: hostItem.agentId,
+      agentName: hostItem.agentName,
+      conversationId: null,
+      updatedAt: hostItem.updatedAt,
+      severity: "warning",
+      sourceLabel: hostItem.sourceLabel,
+      actions: [{
+        kind: "open",
+        label: "Open terminal",
+        route: {
+          view: "terminal",
+          agentId: hostItem.agentId,
+          mode: "takeover",
+        },
+      }],
+    });
   }
 
   for (const work of fleet.needsAttention) {
@@ -3352,7 +3555,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const failure of [...broker.failedDeliveries, ...broker.failedQueries]) {
+  for (const failure of [...brokerDiagnostics.failedDeliveries, ...brokerDiagnostics.failedQueries]) {
     const hint = permissionSetupHint(failure.detail);
     if (!hint) {
       continue;
@@ -3376,7 +3579,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const message of broker.dialogue) {
+  for (const message of brokerDiagnostics.dialogue) {
     if (message.actorName !== "Openscout") {
       continue;
     }
@@ -4049,7 +4252,10 @@ export async function createOpenScoutWebServer(
   const scoutbot = await createScoutbotWebServices({
     currentDirectory,
     tailRuntime,
-    loadOperatorAttention: buildOperatorAttentionState,
+    loadOperatorAttention: (directory) => buildOperatorAttentionState(
+      directory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ),
     loadBuildInfo: loadOpenScoutBuildInfo,
     invokeCodex: options.scoutbotAssistant?.invokeCodex,
     scoutbot: options.scoutbot,
@@ -4552,7 +4758,10 @@ export async function createOpenScoutWebServer(
     return c.json({ request: req });
   });
   app.get("/api/operator-attention", async (c) =>
-    c.json(await buildOperatorAttentionState(currentDirectory)),
+    c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    )),
   );
   app.post("/api/operator-attention/approvals/decide", async (c) => {
     const body = (await c.req.json()) as {
@@ -4581,7 +4790,10 @@ export async function createOpenScoutWebServer(
       currentDirectory,
     );
     shellStateCache.invalidate();
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/operator-attention/dismiss", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -4606,7 +4818,10 @@ export async function createOpenScoutWebServer(
     } else if (recordKind && recordId) {
       await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });
     }
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/pairing/control", async (c) => {
     const { action } = (await c.req.json()) as {
@@ -4643,7 +4858,11 @@ export async function createOpenScoutWebServer(
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
     const summary = c.req.query("detail") === "summary";
-    const agents = await queryAgentsIncludingBrokerCards(limit, !summary);
+    const agents = await queryAgentsIncludingBrokerCards(
+      limit,
+      !summary,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });
   app.get("/api/terminal-sessions", async (c) => {
@@ -4738,11 +4957,17 @@ export async function createOpenScoutWebServer(
     });
   });
   app.get("/api/agents/:id", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   app.get("/api/agents/:id/definitions", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     if (!agent) {
       return c.json({ error: "agent not found" }, 404);
     }
@@ -6349,7 +6574,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.post("/api/send", async (c) => {
-    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId } = (await c.req.json()) as {
+    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId, execution } = (await c.req.json()) as {
       body: string;
       chatId?: string;
       cId?: string;
@@ -6360,6 +6585,10 @@ export async function createOpenScoutWebServer(
       mode?: string;
       targetParticipantIds?: string[];
       replyToMessageId?: unknown;
+      execution?: {
+        harness?: unknown;
+        model?: unknown;
+      };
     };
     const messageBody = body?.trim() ?? "";
     if (!messageBody && !attachments?.length) {
@@ -6428,21 +6657,70 @@ export async function createOpenScoutWebServer(
         currentDirectory,
         source: "scout-web",
       });
-      return c.json(result);
+      return c.json({
+        ...result,
+        chatId: result.conversationId,
+        runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+      });
     }
 
     if (routedConversationId) {
-      const sendMode = (optionalString(intent)?.trim()
-        || optionalString(mode)?.trim()
-        || defaultSendModeForConversationSession(routeSession)).toLowerCase();
       const isOperatorDirectConversation =
         routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
+      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
+        ? [...new Set(
+            targetParticipantIds
+              .filter((targetId): targetId is string => typeof targetId === "string")
+              .map((targetId) => targetId.trim())
+              .filter(Boolean),
+          )]
+        : undefined;
+      const requestedSendMode = optionalString(intent)?.trim()
+        || optionalString(mode)?.trim();
+      const selectors = extractAgentSelectors(messageBody);
+      const selectorTargetAgentIds = resolveSendSelectorTargetAgentIds(
+        selectors,
+        routeSession?.participantIds ?? [],
+      );
+      const hasExplicitTarget =
+        Boolean(scopedTargetParticipantIds?.length)
+        || selectors.length > 0;
+      const shouldInspectActiveRuns =
+        requestedSendMode?.toLowerCase() === "steer"
+        || (!requestedSendMode && (isOperatorDirectConversation || hasExplicitTarget));
+      const activeRuns = shouldInspectActiveRuns
+        ? queryRuns({
+            conversationId: routedConversationId,
+            active: true,
+            limit: 100,
+          })
+        : [];
+      const resolvedTargetIds = new Set([
+        ...(scopedTargetParticipantIds ?? []),
+        ...selectorTargetAgentIds,
+      ]);
+      const matchedActiveRuns = hasExplicitTarget
+        ? activeRuns.filter((run) => resolvedTargetIds.has(run.agentId))
+        : activeRuns;
+      const hasActiveRun = matchedActiveRuns.length > 0;
+      const steerContext = steerContextByTargetAgentId(matchedActiveRuns);
+      const sendMode = (requestedSendMode
+        || defaultSendModeForConversationSession({
+          session: routeSession,
+          hasExplicitTarget,
+          hasActiveRun,
+        })).toLowerCase();
       const shouldCommentOnly =
         sendMode === "comment"
-        || !messageBody
+        || sendMode === "message"
         || (sendMode === "tell" && !isOperatorDirectConversation);
-      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
-        ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
+      const executionHarness = coerceAgentHarness(execution?.harness);
+      const executionModel = optionalString(execution?.model)?.trim();
+      const requestedExecution = executionHarness || executionModel
+        ? {
+            ...(executionHarness ? { harness: executionHarness } : {}),
+            ...(executionModel ? { model: executionModel } : {}),
+          }
         : undefined;
       const result = shouldCommentOnly
         ? await sendScoutConversationMessage({
@@ -6461,14 +6739,32 @@ export async function createOpenScoutWebServer(
             attachments,
             replyToMessageId: routedReplyToMessageId,
             ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
-            intent: sendMode === "tell" ? "tell" : "steer",
+            intent: sendMode === "tell"
+              ? "tell"
+              : sendMode === "invoke"
+                ? "invoke"
+                : "steer",
+            ...(sendMode === "steer" && steerContext
+              ? { steerContextByTargetAgentId: steerContext }
+              : {}),
+            ...(requestedExecution ? { execution: requestedExecution } : {}),
             currentDirectory,
             source: "scout-web",
           });
       if (!result.usedBroker) {
         return c.json({ error: "broker unreachable" }, 502);
       }
-      return c.json(result);
+      const flights = result.flights?.length
+        ? result.flights
+        : result.flight
+          ? [result.flight]
+          : [];
+      return c.json({
+        ...result,
+        conversationId: routedConversationId,
+        chatId: routedConversationId,
+        runIds: flights.map((flight) => `run:flight:${flight.id}`),
+      });
     }
 
     const result = await sendScoutMessage({
@@ -6483,7 +6779,11 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "broker unreachable" }, 502);
     }
 
-    return c.json(result);
+    return c.json({
+      ...result,
+      ...(result.conversationId ? { chatId: result.conversationId } : {}),
+      runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+    });
   });
 
   app.post("/api/ask", async (c) => {

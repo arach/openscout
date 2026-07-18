@@ -115,12 +115,12 @@ export function NewChatComposer({
     ? "Uploading capture"
     : hasAttachments
       ? "Routing capture"
-      : "Sending ask";
+      : "Sending message";
   const progressDetail = hasAttachments
     ? "Submitted. Opening the chat when the broker returns it."
     : committedMessage
       ? "Submitting your first message to Scout."
-      : "Starting a new ask with Scout.";
+      : "Starting a new chat with Scout.";
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
@@ -182,7 +182,7 @@ export function NewChatComposer({
       const result = await startAgentSession(agent, committedMessage ? { instructions: committedMessage } : undefined);
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
-        throw new Error("Ask submitted, but no conversation was returned.");
+        throw new Error("Message sent, but no Chat was returned.");
       }
       navigate({
         view: "conversation",
@@ -195,7 +195,7 @@ export function NewChatComposer({
           ? caught.message
           : hasAttachments
             ? "Could not route capture."
-            : "Could not send ask.",
+            : "Could not send message.",
       );
       setState("idle");
       setPhase("idle");

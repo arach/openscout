@@ -1261,7 +1261,6 @@ export type Route =
   | ({
       view: "conversation";
       conversationId: string;
-      composeMode?: "tell" | "ask";
       composeDraft?: string;
     } & MachineScopedRoute)
   | { view: "agent-info"; conversationId: string }

@@ -271,9 +271,13 @@ async function startManagedWeb(status, options) {
     signal: AbortSignal.timeout(15_000),
   });
   const body = await response.json();
-  if (!response.ok || body?.ok !== true) {
+  if (!response.ok) {
     const detail = body?.error ?? response.statusText;
     throw new Error(`Broker-managed web app did not start: ${detail}`);
+  }
+  if (body?.ok !== true) {
+    const detail = body?.error ?? "startup is still pending";
+    console.warn(`web start accepted; waiting for /api/health (${detail})`);
   }
   return {
     url: typeof body.webUrl === "string" && body.webUrl.trim().length > 0

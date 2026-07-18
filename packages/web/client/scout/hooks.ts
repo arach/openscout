@@ -160,7 +160,7 @@ export function useScoutCommands(): CommandOption[] {
         action: () => applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" }),
       }, {
         id: "scoutbot:state",
-        label: "Ask Scout for State",
+        label: "Message Scout for State",
         action: () => askScoutbotForState(),
       }, {
         id: "scoutbot:ops-tail",

@@ -519,7 +519,7 @@ private struct AgentDetailInline: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if let ask = agent.pendingAsk {
-                detailBlock(label: "PENDING ASK", body: ask, accent: true)
+                detailBlock(label: "PENDING QUESTION", body: ask, accent: true)
             }
             detailBlock(label: "LAST TURN", body: agent.lastTurn, accent: false)
 

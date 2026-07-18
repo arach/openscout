@@ -3,7 +3,7 @@ import { normalizeAgentState } from "./agent-state.ts";
 /* ── Kind labels and color helpers ── */
 
 const KIND_LABELS: Record<string, string> = {
-  ask_sent: "asked",
+  ask_sent: "sent a request",
   ask_replied: "replied",
   ask_failed: "failed",
   ask_working: "working",
@@ -45,6 +45,8 @@ export function stateColor(state: string | null): string {
       return "var(--green)";
     case "in_flight":
       return "var(--accent)";
+    case "needs_attention":
+      return "var(--amber)";
     case "callable":
       return "color-mix(in srgb, var(--accent) 65%, var(--dim))";
     case "blocked":

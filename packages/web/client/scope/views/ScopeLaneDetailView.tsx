@@ -13,7 +13,7 @@ import { buildScopeLaneHeader } from "./lane-present.ts";
 const EVENT_KIND_LABEL: Record<string, string> = {
   think: "Thought",
   tool: "Tool",
-  ask: "Ask",
+  ask: "Request",
   message: "Message",
   note: "Note",
   system: "System",

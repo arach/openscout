@@ -173,10 +173,9 @@ describe("agents route parsing", () => {
     expect(conversationRoute).toEqual({
       view: "conversation",
       conversationId: "c.hudson-chat",
-      composeMode: "ask",
       machineId: "node-b",
     });
-    expect(routePath(conversationRoute)).toBe("/c/c.hudson-chat?compose=ask&machineId=node-b");
+    expect(routePath(conversationRoute)).toBe("/c/c.hudson-chat?machineId=node-b");
 
     const messagesRoute = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread&machineId=node-b",

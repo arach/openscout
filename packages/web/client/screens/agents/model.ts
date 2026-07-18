@@ -203,16 +203,18 @@ export type SessionInitiationResult = {
 };
 
 export const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
-  in_turn: 0,
-  in_flight: 1,
-  callable: 2,
-  blocked: 3,
+  needs_attention: 0,
+  in_turn: 1,
+  in_flight: 2,
+  callable: 3,
+  blocked: 4,
 };
 
 export function agentInventoryStatusClass(status: AgentInventoryStatus): string {
   switch (status) {
     case "in_turn":
     case "in_flight":
+    case "needs_attention":
       return "working";
     case "callable":
       return "available";
@@ -227,6 +229,8 @@ export function agentInventoryStatusLabel(status: AgentInventoryStatus): string 
       return "in turn";
     case "in_flight":
       return "in flight";
+    case "needs_attention":
+      return "needs attention";
     case "callable":
       return "callable";
     case "blocked":

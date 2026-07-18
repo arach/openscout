@@ -1,3 +1,5 @@
+import { stateColor } from "../../lib/colors.ts";
+
 export const TILE_W = 420;
 export const TILE_H = 320;
 export const TILE_GAP = 20;
@@ -38,9 +40,5 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 export function stateChipColor(state: string): string {
-  switch (state) {
-    case "working": return "var(--green)";
-    case "ready": return "var(--accent)";
-    default: return "var(--dim)";
-  }
+  return stateColor(state);
 }

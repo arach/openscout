@@ -584,7 +584,7 @@ private extension ScoutObserveEventKind {
         switch self {
         case .think: return "Think"
         case .tool: return "Tool"
-        case .ask: return "Ask"
+        case .ask: return "Request"
         case .message: return "Message"
         case .note: return "Note"
         case .system: return "System"

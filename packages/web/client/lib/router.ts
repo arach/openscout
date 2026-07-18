@@ -249,8 +249,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const scoped = <T extends Route>(route: T): T => withMachineScope(route, machineId);
   const scopeRoute = parseScopeRouteFromUrl(parts, url, scoped);
   if (scopeRoute) return scopeRoute;
-  const composeMode =
-    url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const messageHashId = hashMessageId(url.hash);
   const agentTab = parseAgentTab(url.searchParams.get("tab"))
     ?? (messageHashId ? "message" : undefined);
@@ -446,7 +444,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped({
       view: "conversation",
       conversationId: decodeURIComponent(parts[1]),
-      ...(composeMode ? { composeMode } : {}),
     });
   }
   if (parts[0] === "sessions" && parts[1]) {
@@ -649,9 +646,6 @@ export function routePath(r: Route, pathname?: string): string {
       return pathWithMachineScope("/", r);
     case "conversation": {
       const params = new URLSearchParams();
-      if (r.composeMode === "ask") {
-        params.set("compose", "ask");
-      }
       appendMachineScope(params, r);
       return `/c/${encodeURIComponent(r.conversationId)}${searchSuffix(params)}`;
     }

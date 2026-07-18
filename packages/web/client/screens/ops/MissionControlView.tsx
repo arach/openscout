@@ -21,7 +21,7 @@ import {
   type MissionActivityState,
   type MissionGroupMode,
 } from "../../lib/mission-control-store.ts";
-import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
+import { agentStateRank, normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import {
   useObservePolling,
   type ObserveCacheEntry,
@@ -277,7 +277,6 @@ function agentSubject(
   activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
   now: number,
 ): CanvasSubject {
-  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
   const state = normalizeAgentState(agent.state);
   const lastActiveAt = activity?.lastActiveAt ?? agent.updatedAt ?? 0;
   const band = activityBand(Boolean(activity?.current), lastActiveAt, now);
@@ -285,7 +284,7 @@ function agentSubject(
     id: agent.id,
     name: agent.name,
     group: agent.project ?? "unassigned",
-    stateRank: stateOrder[state] ?? 1,
+    stateRank: agentStateRank(state),
     activity: band.activity,
     bandLabel: band.label,
     bandRank: band.rank,
@@ -383,9 +382,7 @@ function compareAgentsByActivity(
 ): number {
   const activity = compareActivity(activityByAgent.get(a.id), activityByAgent.get(b.id));
   if (activity !== 0) return activity;
-  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
-  const state = (stateOrder[normalizeAgentState(a.state)] ?? 1)
-    - (stateOrder[normalizeAgentState(b.state)] ?? 1);
+  const state = agentStateRank(a.state) - agentStateRank(b.state);
   if (state !== 0) return state;
   return a.name.localeCompare(b.name);
 }
@@ -450,30 +447,11 @@ function nativeSessionInstructionsPayload(agent: Agent, instructions: string) {
   };
 }
 
-async function sendToFocusedAgentSession(agent: Agent, body: string, mode: "tell" | "ask"): Promise<void> {
+async function sendToFocusedAgentSession(agent: Agent, body: string): Promise<void> {
   if (isNativeSessionAgent(agent)) {
     await api<unknown>("/api/sessions", {
       method: "POST",
       body: JSON.stringify(nativeSessionInstructionsPayload(agent, body)),
-    });
-    return;
-  }
-
-  if (mode === "ask") {
-    await api<unknown>("/api/ask", {
-      method: "POST",
-      body: JSON.stringify({
-        body,
-        targetAgentId: agent.id,
-        targetLabel: agent.name,
-        execution: {
-          ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
-          ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
-          ...(agent.harnessSessionId?.trim()
-            ? { session: "existing", targetSessionId: agent.harnessSessionId.trim() }
-            : {}),
-        },
-      }),
     });
     return;
   }
@@ -484,6 +462,10 @@ async function sendToFocusedAgentSession(agent: Agent, body: string, mode: "tell
     body: JSON.stringify({
       body,
       chatId: conversationId,
+      execution: {
+        ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
+        ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
+      },
     }),
   });
 }
@@ -1208,7 +1190,7 @@ export function MissionControlView({
           agent={focusedAgent}
           observe={focusedObserve}
           onClose={() => setFocusedId(null)}
-          onSend={(body, mode) => sendToFocusedAgentSession(focusedAgent, body, mode)}
+          onSend={(body) => sendToFocusedAgentSession(focusedAgent, body)}
           onOpenConversation={() => {
             setFocusedId(null);
             if (isNativeSessionAgent(focusedAgent) && focusedAgent.harnessSessionId) {

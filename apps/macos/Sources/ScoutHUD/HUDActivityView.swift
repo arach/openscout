@@ -38,7 +38,7 @@ private enum ActivityKindLabel: String, Sendable {
         switch self {
         case .turn: return "TURN"
         case .wire: return "WIRE"
-        case .ask: return "ASK"
+        case .ask: return "REQUEST"
         case .start: return "START"
         case .fail: return "FAIL"
         case .system: return "SYSTEM"

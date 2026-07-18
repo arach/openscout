@@ -713,14 +713,14 @@ export function BrokerAttemptInspector({
                   title="Send this failed dispatch to Scout in the chat below"
                 >
                   <Sparkles size={12} aria-hidden="true" />
-                  Ask Scout
+                  Send to Scout
                 </button>
                 <button
                   type="button"
                   className="s-btn s-btn-sm"
                   disabled={reviewStatus === "running"}
                   onClick={() => void invokeCodex()}
-                  title="Ask an OpenScout Codex agent to review this failed dispatch"
+                  title="Send this failed dispatch to an OpenScout Codex agent for review"
                 >
                   <Bot size={12} aria-hidden="true" />
                   {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
