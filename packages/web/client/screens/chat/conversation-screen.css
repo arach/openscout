@@ -270,9 +270,7 @@ button.s-thread-participant-pill:hover {
   height: 22px;
   flex: 0 0 auto;
   border-radius: var(--radius-pill);
-  color: var(--scout-chrome-avatar-ink);
-  font-size: var(--text-xs);
-  font-weight: 700;
+  overflow: visible;
 }
 
 .s-thread-participant-identity {
@@ -730,12 +728,27 @@ button.s-thread-identity-chip:hover {
 
 .s-thread-msg-avatar {
   --size: 24px;
+  display: inline-flex;
+  width: var(--size);
+  height: var(--size);
   flex-shrink: 0;
   margin-top: 0;
 }
 
+.s-thread-msg-avatar--working {
+  --size: 28px;
+}
+
 .s-thread-msg-avatar--nav {
+  --size: 24px;
+  display: inline-flex;
+  width: var(--size);
+  height: var(--size);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   border: none;
+  background: transparent;
   padding: 0;
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.15s ease;
@@ -991,6 +1004,12 @@ button.s-thread-msg-actor:focus-visible {
   --size: 18px;
   margin-top: 1px;
   opacity: 0.55;
+}
+
+.s-thread-presence-line-avatar {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
 }
 
 .s-thread-msg[data-class="system"] .s-thread-msg-actor,

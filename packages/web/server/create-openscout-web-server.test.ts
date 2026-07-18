@@ -3798,6 +3798,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "c.ops",
         senderId: "operator",
         body: "Team update",
+        notifyParticipantAgents: true,
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -3805,6 +3806,137 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("derives a canonical group Chat send without accepting client routing policy", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "channel",
+      agentId: null,
+      participantIds: ["operator", "agent-1", "agent-2"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/chats/c.ops/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Team update",
+        // Product callers cannot override the context-derived group semantics.
+        intent: "invoke",
+        targetParticipantIds: ["agent-1"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls).toEqual([{
+      conversationId: "c.ops",
+      senderId: "operator",
+      body: "Team update",
+      notifyParticipantAgents: true,
+      currentDirectory: "/tmp/openscout",
+      source: "scout-web",
+    }]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    await expect(response.json()).resolves.toMatchObject({
+      chatId: "c.ops",
+      conversationId: "c.ops",
+      placement: { kind: "root" },
+    });
+  });
+
+  test("returns canonical inline-reply placement from the Chat message endpoint", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "channel",
+      agentId: null,
+      participantIds: ["operator", "agent-1", "agent-2"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/chats/c.ops/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "One detail",
+        replyToMessageId: "msg-root",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls[0]).toMatchObject({
+      conversationId: "c.ops",
+      replyToMessageId: "msg-root",
+      notifyParticipantAgents: true,
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      placement: {
+        kind: "inline_reply",
+        replyToMessageId: "msg-root",
+      },
+    });
+  });
+
+  test("inherits group delivery semantics and placement for an anchored child thread", async () => {
+    querySessionByIdImpl = (conversationId) => conversationId === "c.parent"
+      ? {
+          kind: "channel",
+          agentId: null,
+          participantIds: ["operator", "agent-1", "agent-2"],
+        }
+      : {
+          kind: "thread",
+          agentId: null,
+          participantIds: ["operator", "agent-1", "agent-2"],
+        };
+    queryConversationDefinitionByIdImpl = (conversationId) => conversationId === "c.thread"
+      ? {
+          id: "c.thread",
+          kind: "thread",
+          title: "Thread",
+          visibility: "workspace",
+          shareMode: "local",
+          authorityNodeId: "node-1",
+          topic: null,
+          parentConversationId: "c.parent",
+          messageId: "msg-anchor",
+          metadata: {},
+          participantIds: ["operator", "agent-1", "agent-2"],
+        }
+      : null;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/chats/c.thread/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Thread update" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls[0]).toMatchObject({
+      conversationId: "c.thread",
+      body: "Thread update",
+      notifyParticipantAgents: true,
+    });
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    await expect(response.json()).resolves.toMatchObject({
+      chatId: "c.thread",
+      placement: {
+        kind: "thread_reply",
+        parentConversationId: "c.parent",
+        anchorMessageId: "msg-anchor",
+      },
+    });
   });
 
   test("invokes an explicitly targeted Send in an existing channel Chat", async () => {
@@ -3970,6 +4102,7 @@ describe("createOpenScoutWebServer", () => {
         senderId: "operator",
         body: "Transcript note",
         replyToMessageId: "msg-parent",
+        notifyParticipantAgents: true,
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },

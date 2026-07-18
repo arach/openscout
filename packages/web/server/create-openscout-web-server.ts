@@ -2591,6 +2591,47 @@ function defaultSendModeForConversationSession(input: {
   return input.hasActiveRun ? "steer" : "invoke";
 }
 
+type ChatMessagePlacement =
+  | { kind: "root" }
+  | { kind: "inline_reply"; replyToMessageId: string }
+  | {
+      kind: "thread_reply";
+      parentConversationId: string;
+      anchorMessageId: string;
+      replyToMessageId?: string;
+    };
+
+function resolveChatMessagePlacement(
+  chatId: string,
+  replyToMessageId?: string,
+): ChatMessagePlacement {
+  const conversation = queryConversationDefinitionById(chatId);
+  if (conversation?.parentConversationId && conversation.messageId) {
+    return {
+      kind: "thread_reply",
+      parentConversationId: conversation.parentConversationId,
+      anchorMessageId: conversation.messageId,
+      ...(replyToMessageId ? { replyToMessageId } : {}),
+    };
+  }
+  return replyToMessageId
+    ? { kind: "inline_reply", replyToMessageId }
+    : { kind: "root" };
+}
+
+function semanticSessionForChat(
+  chatId: string,
+  session: NonNullable<ReturnType<typeof querySessionById>>,
+): NonNullable<ReturnType<typeof querySessionById>> {
+  // A direct Chat may be visually anchored beneath another message while
+  // retaining its own direct-work semantics. Only a generic thread Chat needs
+  // to inherit the parent Chat's delivery mode.
+  if (session.kind !== "thread") return session;
+  const definition = queryConversationDefinitionById(chatId);
+  if (!definition?.parentConversationId) return session;
+  return querySessionById(definition.parentConversationId) ?? session;
+}
+
 function steerContextByTargetAgentId(
   runs: ReturnType<typeof queryRuns>,
 ): Record<string, { runId: string; flightId?: string }> | undefined {
@@ -6573,6 +6614,200 @@ export async function createOpenScoutWebServer(
     return new Response(Bun.file(entry.path), { headers });
   });
 
+  type ChatMessageDispatchInput = {
+    chatId: string;
+    body: string;
+    attachments?: OutgoingAttachmentInput[];
+    replyToMessageId?: string;
+    /** Compatibility-only overrides accepted by the transitional /api/send route. */
+    requestedSendMode?: string;
+    targetParticipantIds?: string[];
+    execution?: {
+      harness?: unknown;
+      model?: unknown;
+    };
+  };
+  type ChatMessageDispatchOutcome =
+    | { ok: true; result: Record<string, unknown> }
+    | { ok: false; status: 404 | 502; error: string };
+
+  const dispatchOperatorChatMessage = async (
+    input: ChatMessageDispatchInput,
+  ): Promise<ChatMessageDispatchOutcome> => {
+    const routeSession = querySessionById(input.chatId);
+    if (!routeSession) {
+      return { ok: false, status: 404, error: "chat not found" };
+    }
+
+    const semanticSession = semanticSessionForChat(input.chatId, routeSession);
+    const { conversationId: routedConversationId, senderId } =
+      resolveConversationRouting(input.chatId);
+    if (!routedConversationId) {
+      return { ok: false, status: 404, error: "chat not found" };
+    }
+
+    const isOperatorDirectConversation =
+      semanticSession.kind === "direct" && sessionIncludesOperatorParticipant(semanticSession);
+    const isSharedChat =
+      routeSession.kind === "channel"
+      || routeSession.kind === "group_direct"
+      || (routeSession.kind === "thread" && !isOperatorDirectConversation);
+    const scopedTargetParticipantIds = Array.isArray(input.targetParticipantIds)
+      ? [...new Set(
+          input.targetParticipantIds
+            .filter((targetId): targetId is string => typeof targetId === "string")
+            .map((targetId) => targetId.trim())
+            .filter(Boolean),
+        )]
+      : undefined;
+    const requestedSendMode = input.requestedSendMode?.trim();
+    const selectors = extractAgentSelectors(input.body);
+    const selectorTargetAgentIds = resolveSendSelectorTargetAgentIds(
+      selectors,
+      routeSession.participantIds,
+    );
+    const hasExplicitTarget =
+      Boolean(scopedTargetParticipantIds?.length)
+      || selectors.length > 0;
+    const shouldInspectActiveRuns =
+      requestedSendMode?.toLowerCase() === "steer"
+      || (!requestedSendMode && (isOperatorDirectConversation || hasExplicitTarget));
+    const activeRuns = shouldInspectActiveRuns
+      ? queryRuns({
+          conversationId: routedConversationId,
+          active: true,
+          limit: 100,
+        })
+      : [];
+    const resolvedTargetIds = new Set([
+      ...(scopedTargetParticipantIds ?? []),
+      ...selectorTargetAgentIds,
+    ]);
+    const matchedActiveRuns = hasExplicitTarget
+      ? activeRuns.filter((run) => resolvedTargetIds.has(run.agentId))
+      : activeRuns;
+    const hasActiveRun = matchedActiveRuns.length > 0;
+    const steerContext = steerContextByTargetAgentId(matchedActiveRuns);
+    const sendMode = (requestedSendMode
+      || defaultSendModeForConversationSession({
+        session: semanticSession,
+        hasExplicitTarget,
+        hasActiveRun,
+      })).toLowerCase();
+    const shouldCommentOnly =
+      sendMode === "comment"
+      || sendMode === "message"
+      || (sendMode === "tell" && !isOperatorDirectConversation);
+    const executionHarness = coerceAgentHarness(input.execution?.harness);
+    const executionModel = optionalString(input.execution?.model)?.trim();
+    const requestedExecution = executionHarness || executionModel
+      ? {
+          ...(executionHarness ? { harness: executionHarness } : {}),
+          ...(executionModel ? { model: executionModel } : {}),
+        }
+      : undefined;
+    const result = shouldCommentOnly
+      ? await sendScoutConversationMessage({
+          conversationId: routedConversationId,
+          senderId,
+          body: input.body,
+          attachments: input.attachments,
+          replyToMessageId: input.replyToMessageId,
+          // Shared Chat membership is broker-owned. A passive post creates
+          // durable visibility deliveries without creating requested work.
+          notifyParticipantAgents: isSharedChat,
+          currentDirectory,
+          source: "scout-web",
+        })
+      : await sendScoutConversationSteer({
+          conversationId: routedConversationId,
+          senderId,
+          body: input.body,
+          attachments: input.attachments,
+          replyToMessageId: input.replyToMessageId,
+          ...(scopedTargetParticipantIds?.length
+            ? { targetParticipantIds: scopedTargetParticipantIds }
+            : {}),
+          intent: sendMode === "tell"
+            ? "tell"
+            : sendMode === "invoke"
+              ? "invoke"
+              : "steer",
+          ...(sendMode === "steer" && steerContext
+            ? { steerContextByTargetAgentId: steerContext }
+            : {}),
+          ...(requestedExecution ? { execution: requestedExecution } : {}),
+          currentDirectory,
+          source: "scout-web",
+        });
+    if (!result.usedBroker) {
+      return { ok: false, status: 502, error: "broker unreachable" };
+    }
+    const flights = result.flights?.length
+      ? result.flights
+      : result.flight
+        ? [result.flight]
+        : [];
+    return {
+      ok: true,
+      result: {
+        ...result,
+        conversationId: routedConversationId,
+        chatId: routedConversationId,
+        runIds: flights.map((flight) => `run:flight:${flight.id}`),
+      },
+    };
+  };
+
+  // The web composer speaks in Chat terms only.  Delivery policy, requested
+  // work, and thread placement are server-owned consequences of that Chat and
+  // an optional reply anchor; callers do not send routing modes or recipient
+  // lists.  `/api/send` remains below as the compatibility surface for older
+  // clients and automation.
+  app.post("/api/chats/:chatId/messages", async (c) => {
+    const chatId = c.req.param("chatId");
+    if (!isOpaqueChannelId(chatId)) {
+      return c.json({ error: "chatId must be an opaque chat id" }, 400);
+    }
+
+    const requestBody = (await c.req.json().catch(() => ({}))) as {
+      body?: unknown;
+      attachments?: unknown;
+      replyToMessageId?: unknown;
+    };
+    const body = optionalString(requestBody.body) ?? "";
+    if (requestBody.attachments !== undefined && !Array.isArray(requestBody.attachments)) {
+      return c.json({ error: "attachments must be an array" }, 400);
+    }
+    const attachments = requestBody.attachments as OutgoingAttachmentInput[] | undefined;
+    if (!body.trim() && !attachments?.length) {
+      return c.json({ error: "body or attachments are required" }, 400);
+    }
+    const hasReplyAnchor = requestBody.replyToMessageId !== undefined
+      && requestBody.replyToMessageId !== null;
+    const replyToMessageId = hasReplyAnchor
+      ? optionalString(requestBody.replyToMessageId)?.trim()
+      : undefined;
+    if (hasReplyAnchor && !replyToMessageId) {
+      return c.json({ error: "replyToMessageId must be a non-empty string" }, 400);
+    }
+
+    const outcome = await dispatchOperatorChatMessage({
+      chatId,
+      body: body.trim(),
+      ...(attachments?.length ? { attachments } : {}),
+      ...(replyToMessageId ? { replyToMessageId } : {}),
+    });
+    if (!outcome.ok) {
+      return c.json({ error: outcome.error }, outcome.status);
+    }
+
+    return c.json({
+      ...outcome.result,
+      placement: resolveChatMessagePlacement(chatId, replyToMessageId),
+    });
+  });
+
   app.post("/api/send", async (c) => {
     const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId, execution } = (await c.req.json()) as {
       body: string;
@@ -6604,12 +6839,23 @@ export async function createOpenScoutWebServer(
     if (routeCId && !isOpaqueChannelId(routeCId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const routeSession = routeCId ? querySessionById(routeCId) : null;
-    if (routeCId && !routeSession) {
-      return c.json({ error: "chat not found" }, 404);
+    if (routeCId) {
+      const outcome = await dispatchOperatorChatMessage({
+        chatId: routeCId,
+        body: messageBody,
+        attachments,
+        replyToMessageId: routedReplyToMessageId,
+        requestedSendMode: optionalString(intent)?.trim() || optionalString(mode)?.trim(),
+        targetParticipantIds,
+        execution,
+      });
+      if (!outcome.ok) {
+        return c.json({ error: outcome.error }, outcome.status);
+      }
+      return c.json(outcome.result);
     }
 
-    if (!routeCId && scoutbotRunner) {
+    if (scoutbotRunner) {
       try {
         const result = await scoutbotRunner.postOperatorMessage({
           body: messageBody,
@@ -6627,8 +6873,7 @@ export async function createOpenScoutWebServer(
       }
     }
 
-    const { directAgentId, channel, conversationId: routedConversationId, senderId } =
-      resolveConversationRouting(routeCId);
+    const { directAgentId, channel, senderId } = resolveConversationRouting(undefined);
 
     if (directAgentId) {
       if (directAgentId === SCOUTBOT_AGENT_ID && scoutbotRunner) {
@@ -6661,109 +6906,6 @@ export async function createOpenScoutWebServer(
         ...result,
         chatId: result.conversationId,
         runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
-      });
-    }
-
-    if (routedConversationId) {
-      const isOperatorDirectConversation =
-        routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
-      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
-        ? [...new Set(
-            targetParticipantIds
-              .filter((targetId): targetId is string => typeof targetId === "string")
-              .map((targetId) => targetId.trim())
-              .filter(Boolean),
-          )]
-        : undefined;
-      const requestedSendMode = optionalString(intent)?.trim()
-        || optionalString(mode)?.trim();
-      const selectors = extractAgentSelectors(messageBody);
-      const selectorTargetAgentIds = resolveSendSelectorTargetAgentIds(
-        selectors,
-        routeSession?.participantIds ?? [],
-      );
-      const hasExplicitTarget =
-        Boolean(scopedTargetParticipantIds?.length)
-        || selectors.length > 0;
-      const shouldInspectActiveRuns =
-        requestedSendMode?.toLowerCase() === "steer"
-        || (!requestedSendMode && (isOperatorDirectConversation || hasExplicitTarget));
-      const activeRuns = shouldInspectActiveRuns
-        ? queryRuns({
-            conversationId: routedConversationId,
-            active: true,
-            limit: 100,
-          })
-        : [];
-      const resolvedTargetIds = new Set([
-        ...(scopedTargetParticipantIds ?? []),
-        ...selectorTargetAgentIds,
-      ]);
-      const matchedActiveRuns = hasExplicitTarget
-        ? activeRuns.filter((run) => resolvedTargetIds.has(run.agentId))
-        : activeRuns;
-      const hasActiveRun = matchedActiveRuns.length > 0;
-      const steerContext = steerContextByTargetAgentId(matchedActiveRuns);
-      const sendMode = (requestedSendMode
-        || defaultSendModeForConversationSession({
-          session: routeSession,
-          hasExplicitTarget,
-          hasActiveRun,
-        })).toLowerCase();
-      const shouldCommentOnly =
-        sendMode === "comment"
-        || sendMode === "message"
-        || (sendMode === "tell" && !isOperatorDirectConversation);
-      const executionHarness = coerceAgentHarness(execution?.harness);
-      const executionModel = optionalString(execution?.model)?.trim();
-      const requestedExecution = executionHarness || executionModel
-        ? {
-            ...(executionHarness ? { harness: executionHarness } : {}),
-            ...(executionModel ? { model: executionModel } : {}),
-          }
-        : undefined;
-      const result = shouldCommentOnly
-        ? await sendScoutConversationMessage({
-            conversationId: routedConversationId,
-            senderId,
-            body: messageBody,
-            attachments,
-            replyToMessageId: routedReplyToMessageId,
-            currentDirectory,
-            source: "scout-web",
-          })
-        : await sendScoutConversationSteer({
-            conversationId: routedConversationId,
-            senderId,
-            body: messageBody,
-            attachments,
-            replyToMessageId: routedReplyToMessageId,
-            ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
-            intent: sendMode === "tell"
-              ? "tell"
-              : sendMode === "invoke"
-                ? "invoke"
-                : "steer",
-            ...(sendMode === "steer" && steerContext
-              ? { steerContextByTargetAgentId: steerContext }
-              : {}),
-            ...(requestedExecution ? { execution: requestedExecution } : {}),
-            currentDirectory,
-            source: "scout-web",
-          });
-      if (!result.usedBroker) {
-        return c.json({ error: "broker unreachable" }, 502);
-      }
-      const flights = result.flights?.length
-        ? result.flights
-        : result.flight
-          ? [result.flight]
-          : [];
-      return c.json({
-        ...result,
-        conversationId: routedConversationId,
-        chatId: routedConversationId,
-        runIds: flights.map((flight) => `run:flight:${flight.id}`),
       });
     }
 
