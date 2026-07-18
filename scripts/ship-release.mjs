@@ -254,7 +254,7 @@ function printPlan(version, options) {
   }
   if (!options.skipDmg) {
     run("bash", ["apps/macos/scripts/build-dmg.sh", version], { execute: false });
-    run("node", ["scripts/update-appcast.mjs", version, dmgPath, "--skip-if-placeholder"], { execute: false });
+    run("node", ["scripts/update-appcast.mjs", version, dmgPath], { execute: false });
   }
   if (options.commit) {
     run("git", ["add", ...VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`), "apps/macos/appcast.xml"], { execute: false });
@@ -367,7 +367,7 @@ function main() {
   }
   if (!options.skipDmg) {
     run("bash", ["apps/macos/scripts/build-dmg.sh", nextVersion], { execute: true });
-    run("node", ["scripts/update-appcast.mjs", nextVersion, macosDmgPath(nextVersion), "--skip-if-placeholder"], { execute: true });
+    run("node", ["scripts/update-appcast.mjs", nextVersion, macosDmgPath(nextVersion)], { execute: true });
   }
 
   if (options.commit) {

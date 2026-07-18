@@ -56,6 +56,38 @@ certificate used by the macOS release lane. Configure
 `MACOS_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, and
 `MACOS_RELEASE_KEYCHAIN_PASSWORD` in the Production environment.
 
+## Sparkle update signing
+
+The macOS app uses a separate Sparkle Ed25519 key to authenticate automatic
+updates. The public key is committed as `SUPublicEDKey` in
+`apps/macos/ScoutInfo.plist`; the private key must never be committed.
+
+OpenScout uses the organization-specific Sparkle Keychain account `openscout`.
+On the release Mac, Sparkle's `generate_keys` and `sign_update` tools live under
+`apps/macos/.build/artifacts/sparkle/Sparkle/bin` after resolving or building the
+macOS package. The one-time setup is:
+
+```bash
+generate_keys --account openscout
+generate_keys --account openscout -x /secure/temporary/private-key
+```
+
+Keep the generated key in the login Keychain. Store the exported value in the
+GitHub Production secret `OPENSCOUT_SPARKLE_PRIVATE_KEY`, then securely delete
+the temporary export. The corresponding Production variables are
+`OPENSCOUT_SPARKLE_ACCOUNT=openscout` and `OPENSCOUT_SPARKLE_PUBLIC_KEY=<the
+committed SUPublicEDKey>`.
+
+`scripts/update-appcast.mjs` verifies that the configured signer matches the
+public key embedded in the app before it signs a DMG. Local releases read the
+private key from the `openscout` Keychain account. CI can provide
+`OPENSCOUT_SPARKLE_PRIVATE_KEY` and `OPENSCOUT_SPARKLE_PUBLIC_KEY`; the private
+key is passed to Sparkle over standard input.
+
+The first release containing a real `SUPublicEDKey` bootstraps automatic
+updates. Builds released before that key was embedded cannot discover it and
+must be upgraded manually once; subsequent releases can update through Sparkle.
+
 The script refuses to execute from a dirty worktree unless `--allow-dirty` is
 passed. Prefer a clean release branch so the `Release v<version>` commit and tag
 represent exactly what was shipped.
