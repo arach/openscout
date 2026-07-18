@@ -21,6 +21,7 @@ const CLAUDE_CONFIRMATION_FOOTER = /\bEsc to cancel\b.*\bTab to amend\b/i;
 const CLAUDE_PERMISSION_RULE = /\bPermission rule\s+(.+?)\s+requires confirmation for this command\./i;
 const CLAUDE_PROCEED_QUESTION = /\bDo you want to proceed\?/i;
 const CLAUDE_POST_PROMPT_ACTIVITY = /(?:^|\n)\s*(?:⏺|●)\s+(?:Bash|Edit|Glob|Grep|Read|Search|Task|Update|WebFetch|WebSearch|Write)\b/imu;
+const CLAUDE_READY_COMPOSER = /^\s*(?:[❯›]\s*|[│┃]\s*[>❯]\s*)/mu;
 const ANSI_CSI = /\x1B\[[0-?]*[ -/]*[@-~]/gu;
 const ANSI_OSC = /\x1B\][^\x07]*(?:\x07|\x1B\\)/gu;
 const MAX_SUMMARY_LENGTH = 200;
@@ -47,7 +48,10 @@ export function detectClaudeTmuxHostAttention(
     return null;
   }
   const contentAfterFooter = lines.slice(footerIndex + 1, lastContentIndex + 1).join("\n");
-  if (CLAUDE_POST_PROMPT_ACTIVITY.test(contentAfterFooter)) {
+  if (
+    CLAUDE_POST_PROMPT_ACTIVITY.test(contentAfterFooter)
+    || CLAUDE_READY_COMPOSER.test(contentAfterFooter)
+  ) {
     return null;
   }
 

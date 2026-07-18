@@ -106,6 +106,17 @@ describe("Claude tmux host attention", () => {
     })).toBeNull();
   });
 
+  test.each([
+    ["inline", "❯ "],
+    ["boxed", "│ > "],
+  ])("clears a resolved prompt when Claude returns to its %s composer", (_kind, composer) => {
+    expect(detectClaudeTmuxHostAttention(`${livePermissionPrompt}\n${composer}`, {
+      agentId: "agent-1",
+      agentName: "Paper Screen Fable",
+      sessionId: SESSION_ID,
+    })).toBeNull();
+  });
+
   test("scans live Claude tmux panes even when broker state is available", async () => {
     const captures: string[] = [];
     const items = await collectTmuxHostAttention([
