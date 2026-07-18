@@ -60,11 +60,15 @@ Implemented now:
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.
+- Active managed Claude tmux sessions project a currently visible permission
+  confirmation from the pane into web agent and operator attention. This is a
+  live host projection, not a durable broker record.
 
 Not done yet:
 
 - Answering `question` items from the iOS Inbox.
-- Host-level capture for Claude, Codex, and MCP permission prompts.
+- Host-level capture beyond the managed Claude tmux permission-confirmation
+  path, including Codex, non-tmux Claude, and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
 

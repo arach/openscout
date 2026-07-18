@@ -61,7 +61,8 @@ export function ObserveTile({
   const events = observe?.events ?? [];
   const tail = events.slice(-8);
   const isLive = observe?.live === true;
-  const hasAsk = events.some((e) => e.kind === "ask" && !e.answer);
+  const hasAsk = Boolean(agent.pendingAsk)
+    || events.some((e) => e.kind === "ask" && !e.answer);
 
   const ctxUsage = observe?.contextUsage;
   const ctxPct = ctxUsage && ctxUsage.length > 0

@@ -2084,6 +2084,102 @@ describe("createOpenScoutWebServer", () => {
       ]);
   });
 
+  test("projects active Claude tmux permission prompts into agent and operator attention", async () => {
+    useIsolatedOpenScoutHome();
+    const agentId = "paper-screen-fable.work-hud-013-voice-settings.arachs-mac-mini-local";
+    const sessionId = "relay-paper-screen-fable-work-hud-013-voice-settings-arachs-mac-mini-local-claude";
+    queryAgentsResult = [{
+      id: agentId,
+      definitionId: "paper-screen-fable",
+      name: "Paper Screen Fable",
+      handle: "paper-screen-fable",
+      agentClass: "general",
+      harness: "claude",
+      state: "working",
+      projectRoot: "/Users/arach/dev/hudson",
+      cwd: "/Users/arach/dev/hudson",
+      updatedAt: 1_700_000_000_000,
+      createdAt: 1_700_000_000_000,
+      transport: "tmux",
+      selector: "@paper-screen-fable",
+      defaultSelector: "@paper-screen-fable",
+      nodeQualifier: "arachs-mac-mini-local",
+      workspaceQualifier: "work-hud-013-voice-settings",
+      wakePolicy: "on_demand",
+      capabilities: ["chat", "invoke", "deliver"],
+      project: "Hudson",
+      branch: "work/hud-013-voice-settings",
+      role: "Agent",
+      model: "fable",
+      harnessSessionId: null,
+      terminalSurface: {
+        backend: "tmux",
+        sessionName: sessionId,
+        paneId: sessionId,
+        socketDir: null,
+      },
+      harnessLogPath: null,
+      conversationId: null,
+      authorityNodeId: null,
+      authorityNodeName: null,
+      homeNodeId: null,
+      homeNodeName: null,
+      ownerId: null,
+      ownerName: null,
+      ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
+    }];
+    const captureTmuxPane = () => ({
+      body: `
+ Bash command
+
+   curl -s http://127.0.0.1:29980/api/files
+
+ Permission rule Bash(curl:*) requires confirmation for this command.
+ /permissions to update rules
+
+ Do you want to proceed?
+   1. Yes
+ ❯ 2. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain
+`,
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      captureTmuxPane,
+    });
+
+    const agentResponse = await server.app.request("http://localhost/api/agents");
+    const agents = await agentResponse.json() as Array<{ id: string; state: string; pendingAsk?: string }>;
+    expect(agents.find((agent) => agent.id === agentId)).toMatchObject({
+      state: "needs_attention",
+      pendingAsk: "Permission rule Bash(curl:*) requires confirmation.",
+    });
+
+    const attentionResponse = await server.app.request("http://localhost/api/operator-attention");
+    const attention = await attentionResponse.json() as {
+      items: Array<{
+        id: string;
+        agentId: string | null;
+        title: string;
+        actions: Array<{ kind: string; route?: Record<string, string> }>;
+      }>;
+    };
+    expect(attention.items.find((item) => item.agentId === agentId)).toMatchObject({
+      id: `tmux-host-permission:${agentId}:${sessionId}`,
+      title: "Claude needs permission",
+      actions: [{
+        kind: "open",
+        route: { view: "terminal", agentId, mode: "takeover" },
+      }],
+    });
+  });
+
   test("renders Claude Scout permission hints without a settings detour", async () => {
     const createdAt = 1_700_000_000_000;
     brokerDiagnosticsResult = makeBrokerDiagnostics({

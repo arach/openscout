@@ -30,6 +30,12 @@ export type AgentAttentionCollaborationRow = {
   updatedAt: number;
 };
 
+export type AgentAttentionHostRow = {
+  agentId: string;
+  summary: string;
+  updatedAt: number;
+};
+
 /** Kinds that mean "blocked on the operator" — failed turns/actions and
  *  session errors are diagnostics, not requests, and must not flip agents
  *  into needs_attention on every transient failure. */
@@ -63,6 +69,7 @@ export function buildAgentAttentionIndex(input: {
   sessionItems: readonly SessionAttentionItem[];
   agentIdBySessionId: ReadonlyMap<string, string>;
   collaborationRows: readonly AgentAttentionCollaborationRow[];
+  hostRows?: readonly AgentAttentionHostRow[];
 }): Map<string, AgentAttentionEntry> {
   const index = new Map<string, AgentAttentionEntry>();
   const consider = (agentId: string | null | undefined, entry: AgentAttentionEntry) => {
@@ -88,6 +95,13 @@ export function buildAgentAttentionIndex(input: {
   for (const row of input.collaborationRows) {
     consider(row.agentId, {
       ask: clampAsk(row.summary?.trim() || row.title.trim() || null),
+      updatedAt: row.updatedAt,
+    });
+  }
+
+  for (const row of input.hostRows ?? []) {
+    consider(row.agentId, {
+      ask: clampAsk(row.summary.trim() || null),
       updatedAt: row.updatedAt,
     });
   }

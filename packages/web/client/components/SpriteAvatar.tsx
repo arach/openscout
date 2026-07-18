@@ -177,6 +177,7 @@ const HARNESS_HUE: Record<string, number> = {
 const STATE_TONE: Record<AgentDisplayState, Tone> = {
   in_turn: { l: 0.75, c: 0.16 },
   in_flight: { l: 0.72, c: 0.14 },
+  needs_attention: { l: 0.78, c: 0.16 },
   callable: { l: 0.73, c: 0.13 },
   blocked: { l: 0.5, c: 0.02 },
 };

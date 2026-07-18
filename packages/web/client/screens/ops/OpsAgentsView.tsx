@@ -67,7 +67,13 @@ type AgentOpsColumnKey =
   | "errors"
   | "lastActive";
 
-const STATE_RANK: Record<AgentOpsRow["state"], number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
+const STATE_RANK: Record<AgentOpsRow["state"], number> = {
+  needs_attention: 0,
+  in_turn: 1,
+  in_flight: 2,
+  callable: 3,
+  blocked: 4,
+};
 
 const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
   {

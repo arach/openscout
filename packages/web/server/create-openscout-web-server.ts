@@ -89,6 +89,10 @@ import {
   type AgentAttentionEntry,
 } from "./core/attention/agent-attention.ts";
 import {
+  collectTmuxHostAttention,
+  type TmuxHostAttentionItem,
+} from "./core/attention/tmux-host-attention.ts";
+import {
   configuredOperatorActorIds,
 } from "./db/internal/conversation-ids.ts";
 import {
@@ -2090,8 +2094,21 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
 }
 
 const AGENT_ATTENTION_TTL_MS = 2_000;
-let agentAttentionCache: { at: number; index: Map<string, AgentAttentionEntry> } | null = null;
-let agentAttentionInFlight: Promise<Map<string, AgentAttentionEntry>> | null = null;
+type TmuxPaneCapture = NonNullable<CreateOpenScoutWebServerOptions["captureTmuxPane"]>;
+type AgentAttentionSnapshot = {
+  index: Map<string, AgentAttentionEntry>;
+  hostItems: TmuxHostAttentionItem[];
+};
+
+let agentAttentionCache: {
+  at: number;
+  capture: TmuxPaneCapture;
+  snapshot: AgentAttentionSnapshot;
+} | null = null;
+let agentAttentionInFlight: {
+  capture: TmuxPaneCapture;
+  promise: Promise<AgentAttentionSnapshot>;
+} | null = null;
 
 /**
  * Needs-attention index for /api/agents, cached briefly and coalesced: the
@@ -2102,28 +2119,49 @@ let agentAttentionInFlight: Promise<Map<string, AgentAttentionEntry>> | null = n
  */
 function queryAgentAttentionIndex(
   broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
 ): Promise<Map<string, AgentAttentionEntry>> {
+  return queryAgentAttentionSnapshot(broker, capture).then((snapshot) => snapshot.index);
+}
+
+function queryAgentAttentionSnapshot(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<AgentAttentionSnapshot> {
   const cached = agentAttentionCache;
-  if (cached && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
-    return Promise.resolve(cached.index);
+  if (cached && cached.capture === capture && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+    return Promise.resolve(cached.snapshot);
   }
-  if (agentAttentionInFlight) {
-    return agentAttentionInFlight;
+  if (agentAttentionInFlight?.capture === capture) {
+    return agentAttentionInFlight.promise;
   }
-  agentAttentionInFlight = buildAgentAttentionIndexSnapshot(broker).finally(() => {
-    agentAttentionInFlight = null;
+  const promise = buildAgentAttentionIndexSnapshot(broker, capture).finally(() => {
+    if (agentAttentionInFlight?.promise === promise) {
+      agentAttentionInFlight = null;
+    }
   });
-  return agentAttentionInFlight;
+  agentAttentionInFlight = { capture, promise };
+  return promise;
 }
 
 async function buildAgentAttentionIndexSnapshot(
   broker: ScoutBrokerContext | null,
-): Promise<Map<string, AgentAttentionEntry>> {
-  let index = new Map<string, AgentAttentionEntry>();
+  capture: TmuxPaneCapture,
+): Promise<AgentAttentionSnapshot> {
+  let snapshot: AgentAttentionSnapshot = {
+    index: new Map<string, AgentAttentionEntry>(),
+    hostItems: [],
+  };
   try {
-    const snapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
-    const sessionItems = snapshots.length > 0 ? projectSessionsAttention(snapshots) : [];
-    const agentIdBySessionId = queryAgentIdsByEndpointSessionId();
+    const pairingSnapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
+    const sessionItems = pairingSnapshots.length > 0 ? projectSessionsAttention(pairingSnapshots) : [];
+    let agentIdBySessionId = new Map<string, string>();
+    try {
+      agentIdBySessionId = queryAgentIdsByEndpointSessionId();
+    } catch {
+      // A direct host-attention row already owns its agent id; a temporarily
+      // unavailable read model must not suppress that independent signal.
+    }
     // The broker snapshot is the live authority on which agent currently
     // holds a session — it overrides any stale endpoint row in the db.
     for (const agent of Object.values(broker?.snapshot.agents ?? {})) {
@@ -2134,16 +2172,50 @@ async function buildAgentAttentionIndexSnapshot(
         agentIdBySessionId.set(sessionId, agent.id);
       }
     }
-    index = buildAgentAttentionIndex({
-      sessionItems,
-      agentIdBySessionId,
-      collaborationRows: queryOperatorAttentionRows(),
-    });
-  } catch {
+
+    const databaseAgents = queryAgents().map(withResolvedHarnessSessionIdentity);
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker).map(withResolvedHarnessSessionIdentity) : [];
+    const candidatesById = new Map(databaseAgents.map((agent) => [agent.id, agent]));
+    for (const agent of brokerAgents) {
+      candidatesById.set(agent.id, mergeBrokerAgentProjection(candidatesById.get(agent.id) ?? agent, agent));
+    }
+    const hostItems = await collectTmuxHostAttention(
+      [...candidatesById.values()],
+      async (agent, paneTarget) => {
+        const terminal = agent.terminalSurface;
+        if (!terminal) return null;
+        const result = await capture({
+          agentId: agent.id,
+          sessionId: terminal.sessionName,
+          paneTarget,
+          cwd: agent.cwd ?? agent.projectRoot,
+          lines: 80,
+          columns: 240,
+        });
+        return result?.body ?? null;
+      },
+    );
+    snapshot = {
+      hostItems,
+      index: buildAgentAttentionIndex({
+        sessionItems,
+        agentIdBySessionId,
+        collaborationRows: (() => {
+          try {
+            return queryOperatorAttentionRows();
+          } catch {
+            return [];
+          }
+        })(),
+        hostRows: hostItems,
+      }),
+    };
+  } catch (error) {
     // Attention is a decoration on the agent list, never a reason to 500 it.
+    console.warn("[openscout-web] attention snapshot failed", error);
   }
-  agentAttentionCache = { at: Date.now(), index };
-  return index;
+  agentAttentionCache = { at: Date.now(), capture, snapshot };
+  return snapshot;
 }
 
 function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
@@ -2186,6 +2258,7 @@ function agentListSummary(agent: WebAgent) {
 async function queryAgentsIncludingBrokerCards(
   limit?: number,
   includeAttention = true,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
 ): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -2201,7 +2274,7 @@ async function queryAgentsIncludingBrokerCards(
   // index opens the pairing bridge and can take seconds on a busy machine, so
   // only rich callers pay that cost.
   const attention = includeAttention
-    ? await queryAgentAttentionIndex(broker)
+    ? await queryAgentAttentionIndex(broker, capture)
     : new Map<string, AgentAttentionEntry>();
   if (!broker) {
     return mostRecentAgents(applyAgentAttention(agents, attention), limit);
@@ -2238,11 +2311,14 @@ function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefine
   };
 }
 
-async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+async function queryAgentIncludingBrokerCard(
+  agentId: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<WebAgent | null> {
   const broker = await loadScoutBrokerContext().catch(() => null);
   const agent = queryAgentById(agentId);
   if (agent) {
-    const attention = await queryAgentAttentionIndex(broker);
+    const attention = await queryAgentAttentionIndex(broker, capture);
     const brokerAgents = broker ? brokerCardAgentsForWeb(broker) : [];
     const canonical = agent.definitionId === "scoutbot"
       ? brokerAgents.find((candidate) => candidate.id === "scoutbot")
@@ -2261,7 +2337,7 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   if (!brokerWebAgent) {
     return null;
   }
-  const attention = await queryAgentAttentionIndex(broker);
+  const attention = await queryAgentAttentionIndex(broker, capture);
   return applyAgentAttention([withResolvedHarnessSessionIdentity(brokerWebAgent)], attention)[0] ?? null;
 }
 
@@ -3336,13 +3412,18 @@ function operatorAttentionFromSessionItem(item: SessionAttentionItem): OperatorA
   };
 }
 
-async function buildOperatorAttentionState(currentDirectory: string) {
-  const [pairing, pairingSnapshots, fleet, broker] = await Promise.all([
+async function buildOperatorAttentionState(
+  currentDirectory: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+) {
+  const [pairing, pairingSnapshots, fleet, brokerDiagnostics, scoutBroker] = await Promise.all([
     loadPairingState(currentDirectory, false).catch(() => null),
     getScoutWebPairingSessionSnapshots().catch(() => []),
     Promise.resolve(queryFleet({ limit: 24, activityLimit: 120 })),
     Promise.resolve(queryBrokerDiagnostics({ limit: 160, windowMs: 24 * 60 * 60_000 })),
+    loadScoutBrokerContext().catch(() => null),
   ]);
+  const hostAttention = await queryAgentAttentionSnapshot(scoutBroker, capture);
 
   const items: OperatorAttentionItem[] = [];
   const pendingApprovalIds = new Set<string>();
@@ -3386,6 +3467,31 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 
   for (const sessionItem of projectSessionsAttention(pairingSnapshots, { pendingApprovalIds })) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
+  }
+
+  for (const hostItem of hostAttention.hostItems) {
+    items.push({
+      id: hostItem.id,
+      kind: "session",
+      title: hostItem.title,
+      summary: hostItem.summary,
+      detail: hostItem.detail,
+      agentId: hostItem.agentId,
+      agentName: hostItem.agentName,
+      conversationId: null,
+      updatedAt: hostItem.updatedAt,
+      severity: "warning",
+      sourceLabel: hostItem.sourceLabel,
+      actions: [{
+        kind: "open",
+        label: "Open terminal",
+        route: {
+          view: "terminal",
+          agentId: hostItem.agentId,
+          mode: "takeover",
+        },
+      }],
+    });
   }
 
   for (const work of fleet.needsAttention) {
@@ -3439,7 +3545,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const failure of [...broker.failedDeliveries, ...broker.failedQueries]) {
+  for (const failure of [...brokerDiagnostics.failedDeliveries, ...brokerDiagnostics.failedQueries]) {
     const hint = permissionSetupHint(failure.detail);
     if (!hint) {
       continue;
@@ -3463,7 +3569,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const message of broker.dialogue) {
+  for (const message of brokerDiagnostics.dialogue) {
     if (message.actorName !== "Openscout") {
       continue;
     }
@@ -4111,7 +4217,10 @@ export async function createOpenScoutWebServer(
   const scoutbot = await createScoutbotWebServices({
     currentDirectory,
     tailRuntime,
-    loadOperatorAttention: buildOperatorAttentionState,
+    loadOperatorAttention: (directory) => buildOperatorAttentionState(
+      directory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ),
     loadBuildInfo: loadOpenScoutBuildInfo,
     invokeCodex: options.scoutbotAssistant?.invokeCodex,
     scoutbot: options.scoutbot,
@@ -4614,7 +4723,10 @@ export async function createOpenScoutWebServer(
     return c.json({ request: req });
   });
   app.get("/api/operator-attention", async (c) =>
-    c.json(await buildOperatorAttentionState(currentDirectory)),
+    c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    )),
   );
   app.post("/api/operator-attention/approvals/decide", async (c) => {
     const body = (await c.req.json()) as {
@@ -4643,7 +4755,10 @@ export async function createOpenScoutWebServer(
       currentDirectory,
     );
     shellStateCache.invalidate();
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/operator-attention/dismiss", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -4668,7 +4783,10 @@ export async function createOpenScoutWebServer(
     } else if (recordKind && recordId) {
       await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });
     }
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/pairing/control", async (c) => {
     const { action } = (await c.req.json()) as {
@@ -4705,7 +4823,11 @@ export async function createOpenScoutWebServer(
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
     const summary = c.req.query("detail") === "summary";
-    const agents = await queryAgentsIncludingBrokerCards(limit, !summary);
+    const agents = await queryAgentsIncludingBrokerCards(
+      limit,
+      !summary,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });
   app.get("/api/terminal-sessions", async (c) => {
@@ -4800,11 +4922,17 @@ export async function createOpenScoutWebServer(
     });
   });
   app.get("/api/agents/:id", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   app.get("/api/agents/:id/definitions", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     if (!agent) {
       return c.json({ error: "agent not found" }, 404);
     }
