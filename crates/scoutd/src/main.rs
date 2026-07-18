@@ -21,7 +21,10 @@ const DEFAULT_BROKER_HOST_MESH: &str = "0.0.0.0";
 const DEFAULT_BROKER_PORT: u16 = 43_110;
 const RESTART_MIN_DELAY: Duration = Duration::from_secs(1);
 const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
-const START_TIMEOUT: Duration = Duration::from_secs(15);
+// Existing control-plane datasets can take well over 15 seconds to open before
+// the broker binds its health socket. Keep service start/restart bounded, but
+// allow the same readiness window used by the full restart orchestrator.
+const START_TIMEOUT: Duration = Duration::from_secs(60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);

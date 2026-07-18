@@ -1,12 +1,13 @@
 import "./fleet-shared.css";
 
-export type FleetStateToken = "in_turn" | "in_flight" | "callable" | "blocked";
+export type FleetStateToken = "in_turn" | "in_flight" | "needs_attention" | "callable" | "blocked";
 
-const STATE_TOKENS: readonly FleetStateToken[] = ["in_turn", "in_flight", "callable", "blocked"];
+const STATE_TOKENS: readonly FleetStateToken[] = ["needs_attention", "in_turn", "in_flight", "callable", "blocked"];
 
 const STATE_LABELS: Record<FleetStateToken, string> = {
   in_turn: "in turn",
   in_flight: "in flight",
+  needs_attention: "needs attention",
   callable: "callable",
   blocked: "blocked",
 };
@@ -14,6 +15,7 @@ const STATE_LABELS: Record<FleetStateToken, string> = {
 const STATE_CLASS_TOKENS: Record<FleetStateToken, string> = {
   in_turn: "working",
   in_flight: "working",
+  needs_attention: "working",
   callable: "available",
   blocked: "offline",
 };

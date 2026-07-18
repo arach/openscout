@@ -128,6 +128,24 @@ describe("buildAgentAttentionIndex", () => {
     });
     expect(index.get("agent-1")?.ask).toBe("Review the migration plan");
   });
+
+  test("host prompts index directly by owning agent", () => {
+    const index = buildAgentAttentionIndex({
+      sessionItems: [],
+      agentIdBySessionId: new Map(),
+      collaborationRows: [],
+      hostRows: [{
+        agentId: "agent-1",
+        summary: "Permission rule Bash(curl:*) requires confirmation.",
+        updatedAt: 3_000,
+      }],
+    });
+
+    expect(index.get("agent-1")).toEqual({
+      ask: "Permission rule Bash(curl:*) requires confirmation.",
+      updatedAt: 3_000,
+    });
+  });
 });
 
 describe("applyAgentAttention", () => {

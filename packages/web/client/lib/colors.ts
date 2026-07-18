@@ -45,6 +45,8 @@ export function stateColor(state: string | null): string {
       return "var(--green)";
     case "in_flight":
       return "var(--accent)";
+    case "needs_attention":
+      return "var(--amber)";
     case "callable":
       return "color-mix(in srgb, var(--accent) 65%, var(--dim))";
     case "blocked":

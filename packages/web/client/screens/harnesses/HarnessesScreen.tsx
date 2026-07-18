@@ -211,7 +211,7 @@ function buildHarnessRows(
         acc[normalizeAgentState(agent.state)] += 1;
         return acc;
       },
-      { in_turn: 0, in_flight: 0, callable: 0, blocked: 0 },
+      { in_turn: 0, in_flight: 0, needs_attention: 0, callable: 0, blocked: 0 },
     );
     const latestAgentAt = rowAgents.reduce<number | null>(
       (latest, agent) => Math.max(
@@ -238,7 +238,7 @@ function buildHarnessRows(
       projects: uniqueValues(rowAgents.map((agent) => pathLeaf(agent.projectRoot) ?? agent.project ?? pathLeaf(agent.cwd))),
       working: stateCounts.in_turn + stateCounts.in_flight,
       ready: stateCounts.callable,
-      notReady: stateCounts.blocked,
+      notReady: stateCounts.blocked + stateCounts.needs_attention,
       latestSeen: Math.max(latestAgentAt ?? 0, latestObservationAt ?? 0, latestBudgetAt ?? 0) || null,
     };
   }).sort((left, right) => {
