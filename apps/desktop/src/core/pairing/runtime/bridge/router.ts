@@ -39,8 +39,10 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
+  getScoutMobileTerminals,
   getScoutMobileWorkspaces,
   sendScoutMobileComms,
   sendScoutMobileMessage,
@@ -940,6 +942,14 @@ const mobileRouter = t.router({
     .query(async ({ input }) => {
       return getScoutMobileActivity(input);
     }),
+
+  serviceBudgets: procedure
+    .input(z.object({}).optional())
+    .query(async () => getScoutMobileServiceBudgets()),
+
+  terminalSessions: procedure
+    .input(z.object({}).optional())
+    .query(async () => getScoutMobileTerminals()),
 
   agentDetail: procedure
     .input(z.object({ agentId: z.string() }))

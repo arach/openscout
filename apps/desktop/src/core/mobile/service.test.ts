@@ -9,7 +9,9 @@ import {
   getScoutMobileAgents,
   getScoutMobileActivity,
   getScoutMobileConversations,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessionSnapshot,
+  getScoutMobileTerminals,
   rehomeScoutMobileWorkspacePath,
 } from "./service.ts";
 
@@ -21,6 +23,11 @@ afterEach(() => {
     process.env.OPENSCOUT_BROKER_URL = originalBrokerUrl;
   }
   registerActiveScoutBrokerService(null);
+});
+
+test("transitional mobile gauges keep stable empty compatibility shapes", async () => {
+  expect(await getScoutMobileServiceBudgets()).toEqual({ budgets: [] });
+  expect(await getScoutMobileTerminals()).toEqual({ terminals: [] });
 });
 
 describe("getScoutMobileSessionSnapshot", () => {

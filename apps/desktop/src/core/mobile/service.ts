@@ -1386,6 +1386,17 @@ export async function getScoutMobileActivity(
   return rows.slice(0, limit);
 }
 
+// The transitional desktop bridge does not own the web server's service-budget
+// and terminal-session read models. Keep its wire surface compatible while the
+// canonical packages/web server supplies the live records.
+export async function getScoutMobileServiceBudgets(): Promise<{ budgets: never[] }> {
+  return { budgets: [] };
+}
+
+export async function getScoutMobileTerminals(): Promise<{ terminals: never[] }> {
+  return { terminals: [] };
+}
+
 // -- Comms (channels + DMs) ----------------------------------------------
 //
 // The phone's mesh-comms surface. Reads channels/DMs straight from the broker
