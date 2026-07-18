@@ -1,4 +1,5 @@
 import { brokerAttemptTone } from "../../lib/status-tone.ts";
+import { SCOUTBOT_SUBMIT_EVENT } from "../../lib/scoutbot.ts";
 import type { BrokerRouteAttempt } from "../../lib/types.ts";
 
 const FAILURE_DETAIL_CHARS = 220;
@@ -271,6 +272,22 @@ export function brokerAttemptContextText(attempt: BrokerRouteAttempt): string {
     JSON.stringify(context, null, 2),
   ];
   return lines.join("\n");
+}
+
+export function brokerScoutbotTriageRequest(attempt: BrokerRouteAttempt): {
+  eventName: typeof SCOUTBOT_SUBMIT_EVENT;
+  body: string;
+} {
+  return {
+    eventName: SCOUTBOT_SUBMIT_EVENT,
+    body: [
+      "Review and triage this failed dispatch.",
+      "Determine the likely root cause, decide whether it needs action or can be dismissed as transient, and report your verdict and recommended next step.",
+      "Use the context below; if the evidence is incomplete, state what remains uncertain.",
+      "",
+      brokerAttemptContextText(attempt),
+    ].join("\n"),
+  };
 }
 
 export function brokerMetadataPayload(

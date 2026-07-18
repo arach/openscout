@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { SCOUTBOT_SUBMIT_EVENT } from "../../lib/scoutbot.ts";
 import type { BrokerRouteAttempt } from "../../lib/types.ts";
 import {
   brokerAttemptContextJson,
@@ -9,6 +10,7 @@ import {
   brokerAttemptIsFailure,
   brokerMessageFeedRows,
   brokerAttemptRootCauseFingerprint,
+  brokerScoutbotTriageRequest,
   brokerMetadataPayload,
   brokerMetadataSummary,
 } from "./broker-display.ts";
@@ -180,5 +182,23 @@ describe("broker dispatch display", () => {
     });
     expect(brokerAttemptContextText(failed)).toContain("Full JSON:");
     expect(brokerAttemptContextText(failed)).toContain("deliveryId: delivery-1");
+  });
+
+  test("builds an explicit Scout submission for failed-dispatch triage", () => {
+    const failed = attempt({
+      kind: "failed_delivery",
+      status: "failed",
+      detail: "connect ENOENT /tmp/talkie.sock",
+      deliveryId: "delivery-1",
+    });
+
+    const request = brokerScoutbotTriageRequest(failed);
+
+    expect(request.eventName).toBe(SCOUTBOT_SUBMIT_EVENT);
+    expect(request.eventName).toBe("scout:scoutbot-submit");
+    expect(request.body).toContain("Review and triage this failed dispatch.");
+    expect(request.body).toContain("report your verdict and recommended next step");
+    expect(request.body).toContain("deliveryId: delivery-1");
+    expect(request.body).toContain("connect ENOENT /tmp/talkie.sock");
   });
 });

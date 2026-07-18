@@ -14,7 +14,12 @@ import {
   selectActiveBroadcast,
   useScoutbotBroadcastStore,
 } from "../../lib/scoutbot-broadcast-store.ts";
-import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
+import {
+  extractScoutbotUiActions,
+  normalizeScoutbotUiAction,
+  SCOUTBOT_SUBMIT_EVENT,
+  stripScoutbotUiFences,
+} from "../../lib/scoutbot.ts";
 import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import {
@@ -1021,8 +1026,8 @@ export function ScoutbotPanel({
         void askScoutbot(body);
       }
     };
-    window.addEventListener("scout:scoutbot-submit", submitHandler);
-    return () => window.removeEventListener("scout:scoutbot-submit", submitHandler);
+    window.addEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
+    return () => window.removeEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
   }, [askScoutbot, setCollapsed]);
 
   useEffect(() => {
