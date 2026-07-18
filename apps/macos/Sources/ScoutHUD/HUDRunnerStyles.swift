@@ -14,18 +14,18 @@ struct HUDRunnerCardButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isSelected
-                            ? HUDChrome.accentWhisper
-                            : HUDChrome.canvasAlt.opacity(configuration.isPressed ? 0.70 : 0.52)
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerField.opacity(configuration.isPressed ? 0.92 : 0.74)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDChrome.accent.opacity(0.56)
+                            ? HUDChrome.composerAction.opacity(0.56)
                             : (isSelected
-                                ? HUDChrome.accent.opacity(0.42)
-                                : HUDChrome.border.opacity(0.72)),
+                                ? HUDChrome.composerAction.opacity(0.42)
+                                : HUDChrome.composerBorder),
                         lineWidth: isFocused ? 1 : 0.75
                     )
             )
@@ -40,25 +40,55 @@ struct HUDRunnerToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(HUDType.body(10, weight: .semibold))
-            .foregroundStyle(isActive ? HUDChrome.accent : HUDChrome.inkMuted)
+            .foregroundStyle(isActive ? HUDChrome.composerAction : HUDChrome.inkMuted)
             .opacity(configuration.isPressed ? 0.72 : 1)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(
                         isActive
-                            ? HUDChrome.accentWhisper
-                            : HUDChrome.canvasLift.opacity(configuration.isPressed ? 0.44 : 0.24)
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerFieldLift.opacity(configuration.isPressed ? 0.72 : 0.28)
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(
                         isFocused
-                            ? HUDChrome.borderStrong
+                            ? HUDChrome.composerBorderStrong
                             : (isActive
-                                ? HUDChrome.accent.opacity(0.34)
-                                : HUDChrome.borderSoft),
+                                ? HUDChrome.composerAction.opacity(0.42)
+                                : HUDChrome.composerBorder),
                         lineWidth: isFocused ? 1.25 : 0.75
+                    )
+            )
+    }
+}
+
+struct HUDRunnerCircleButtonStyle: ButtonStyle {
+    var isActive: Bool
+    var isFocused: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isActive ? HUDChrome.composerAction : HUDChrome.inkMuted)
+            .opacity(configuration.isPressed ? 0.70 : 1)
+            .background(
+                Circle()
+                    .fill(
+                        isActive
+                            ? HUDChrome.composerActionWhisper
+                            : HUDChrome.composerFieldLift.opacity(configuration.isPressed ? 0.82 : 0.32)
+                    )
+            )
+            .overlay(
+                Circle()
+                    .stroke(
+                        isFocused
+                            ? HUDChrome.composerBorderStrong
+                            : (isActive
+                                ? HUDChrome.composerAction.opacity(0.58)
+                                : HUDChrome.composerBorder),
+                        lineWidth: isFocused ? 1.25 : 0.8
                     )
             )
     }
@@ -108,19 +138,18 @@ struct HUDRunnerPrimaryTextButtonStyle: ButtonStyle {
 
 struct HUDRunnerSendButtonStyle: ButtonStyle {
     var isFocused: Bool = false
-    var cornerRadius: CGFloat = 9
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(HUDChrome.canvas)
+            .foregroundStyle(HUDChrome.composerField)
             .background(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(HUDChrome.accent.opacity(configuration.isPressed ? 0.72 : 0.94))
+                Circle()
+                    .fill(HUDChrome.composerAction.opacity(configuration.isPressed ? 0.74 : 0.96))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                Circle()
                     .stroke(
-                        isFocused ? HUDChrome.borderStrong : .clear,
+                        isFocused ? HUDChrome.composerBorderStrong : .clear,
                         lineWidth: 1.25
                     )
             )

@@ -4,11 +4,11 @@ import ScoutSharedUI
 import SwiftUI
 
 enum HUDRunnerLayout {
-    static let width: CGFloat = 640
-    static let collapsedHeight: CGFloat = 406
+    static let width: CGFloat = 600
+    static let collapsedHeight: CGFloat = 412
     static let collapsedRoutingHeight: CGFloat = 78
     static let captureHeightDelta: CGFloat = 44
-    static let editorHeight: CGFloat = 96
+    static let editorHeight: CGFloat = 126
     static let toolbarHeight: CGFloat = 58
     static let captureStripHeight: CGFloat = 44
 
@@ -135,7 +135,7 @@ struct HUDRunnerOverlay: View {
     private var geometryLayer: some View {
         GeometryReader { proxy in
             ZStack {
-                HUDChrome.canvas
+                HUDChrome.composerPanel
                     .ignoresSafeArea()
                     .onTapGesture {}
 
@@ -152,8 +152,10 @@ struct HUDRunnerOverlay: View {
 
     private func modal(size: CGSize) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HUDRunnerHeader(focus: $focusedField)
-            HUDHairline()
+            HUDRunnerHeader()
+            Rectangle()
+                .fill(HUDChrome.composerBorder)
+                .frame(height: 1)
             VStack(alignment: .leading, spacing: 22) {
                 HUDRunnerRoutingSurface(focus: $focusedField)
                     .frame(
@@ -164,7 +166,7 @@ struct HUDRunnerOverlay: View {
                         ),
                         alignment: .top
                     )
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     HUDRunnerSectionLabel("MESSAGE")
                     HUDRunnerComposer(
                         focus: $focusedField,
@@ -172,21 +174,12 @@ struct HUDRunnerOverlay: View {
                     )
                 }
             }
-            .padding(26)
+            .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .disabled(runner.isSubmitting)
         }
         .frame(width: size.width, height: size.height)
-        .background(
-            LinearGradient(
-                colors: [
-                    HUDChrome.canvasAlt.opacity(0.38),
-                    HUDChrome.canvas,
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(HUDChrome.composerPanel)
     }
 
     private var projectChoiceCount: Int {

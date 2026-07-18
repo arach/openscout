@@ -62,6 +62,18 @@ public enum HUDChrome {
     public static let accentSoft  = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.14)
     public static let accentWhisper = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.06)
 
+    // ── Composer semantics ────────────────────────────────────────────
+    // Shared by task, message, and session composers. These describe UI
+    // roles rather than the current graphite/mint treatment, so composer
+    // surfaces can stay coherent when the broader Scout palette evolves.
+    public static let composerPanel = Color(red: 0.055, green: 0.058, blue: 0.057)
+    public static let composerField = Color(red: 0.032, green: 0.035, blue: 0.034)
+    public static let composerFieldLift = Color(red: 0.072, green: 0.078, blue: 0.076)
+    public static let composerBorder = Color(red: 0.175, green: 0.190, blue: 0.186)
+    public static let composerBorderStrong = Color(red: 0.285, green: 0.305, blue: 0.300)
+    public static let composerAction = Color(red: 0.420, green: 0.730, blue: 0.640)
+    public static let composerActionWhisper = composerAction.opacity(0.07)
+
     // ── Per-agent hue helper ───────────────────────────────────────────
     //
     // Studio convention is oklch(0.72 0.14 H). The HSB approximation lands
@@ -584,4 +596,3 @@ struct HUDEyebrow: View {
             .fixedSize(horizontal: true, vertical: false)
     }
 }
-
