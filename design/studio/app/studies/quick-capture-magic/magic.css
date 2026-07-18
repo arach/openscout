@@ -1,0 +1,1115 @@
+/* ── Quick Capture · Magic Motion ─────────────────────────────────────
+ * Scoped stage skin for the quick-create motion lab. The stage is a
+ * simulated macOS desktop, so it deliberately does NOT follow the
+ * studio theme — the HUD is always dark (HUDChrome broadsheet palette,
+ * hardcoded here the way rw-table scopes its console look).
+ *
+ * All durations multiply `--spd` (1 = real time, 4 = slow-mo) so the
+ * speed control slows every moment uniformly. Spring feels use
+ * `linear()` easings with a cubic-bezier fallback declared first.
+ * ──────────────────────────────────────────────────────────────────── */
+
+.qcm-stage {
+  --spd: 1;
+
+  /* HUDChrome broadsheet palette (sRGB of the Swift constants) */
+  --hud-canvas: #0c0a09;
+  --hud-canvas-alt: #141210;
+  --hud-lift: #282420;
+  --hud-ink: #e7e3dc;
+  --hud-ink-muted: #b3ada5;
+  --hud-ink-faint: #807c74;
+  --hud-border: #413d37;
+  --hud-border-soft: #32302a;
+  --hud-accent: #94e36b;
+  --hud-accent-soft: rgba(148, 227, 107, 0.14);
+  --hud-amber: #f5a83d;
+
+  /* motion vocabulary — the proposed HUDMotion tokens */
+  --ease-settle: cubic-bezier(0.22, 0.9, 0.28, 1.02);
+  --ease-settle: linear(0, 0.38 16%, 0.74 32%, 0.93 48%, 1.016 66%, 1.004 82%, 1);
+  --ease-boing: cubic-bezier(0.34, 1.42, 0.44, 1);
+  --ease-boing: linear(0, 0.34 14%, 0.78 28%, 1.07 44%, 1.11 54%, 1.03 68%, 0.985 82%, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 0.8, 0.4);
+
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 95% at 72% 8%, #201c17 0%, #14110e 52%, #0b0a08 100%);
+  border: 1px solid var(--studio-edge);
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: "Inter Tight", Inter, system-ui, sans-serif;
+  touch-action: none;
+}
+
+.qcm-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ── menu bar ─────────────────────────────────────────────────────── */
+
+.qcm-menubar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(20, 18, 16, 0.74);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--hud-ink-muted);
+  z-index: 5;
+}
+
+.qcm-menubar > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.qcm-glyph {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid var(--hud-ink-muted);
+  display: grid;
+  place-items: center;
+}
+
+.qcm-glyph::after {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--hud-ink-muted);
+}
+
+.qcm-glyph.pulse {
+  animation: qcm-glyph-pulse calc(var(--spd) * 620ms) var(--ease-boing);
+  border-color: var(--hud-accent);
+}
+
+.qcm-glyph.pulse::after {
+  background: var(--hud-accent);
+}
+
+@keyframes qcm-glyph-pulse {
+  0% { transform: scale(1); }
+  38% { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+
+/* ── hot corner ───────────────────────────────────────────────────── */
+
+.qcm-corner-mark {
+  position: absolute;
+  left: -20px;
+  bottom: -20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px dashed rgba(231, 227, 220, 0.16);
+  z-index: 2;
+}
+
+/* Receiver — shared box, two dialects. */
+.qcm-receiver {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 140px;
+  height: 100px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.qcm-recv-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+}
+
+/* CURRENT — faithful to HUDCaptureReceiverView: pops with no
+ * animation, near-black fill, white hairline, amber when targeted,
+ * text only. */
+.qcm-receiver.cur {
+  visibility: hidden;
+  background: rgba(19, 19, 19, 0.96);
+  border: 1px solid rgba(224, 224, 224, 0.42);
+  color: #e0e0e0;
+}
+
+.qcm-receiver.cur.on {
+  visibility: visible;
+}
+
+.qcm-receiver.cur.targeted {
+  border: 2px solid var(--hud-amber);
+}
+
+/* PROPOSED — springs out of the corner, lime vocabulary, icon,
+ * breathing border when targeted. */
+.qcm-receiver.pro {
+  opacity: 0;
+  transform: scale(0.55);
+  transform-origin: 18% 96%;
+  background: rgba(12, 10, 9, 0.94);
+  border: 1px solid var(--hud-border);
+  color: var(--hud-ink-muted);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transition:
+    transform calc(var(--spd) * 220ms) var(--ease-settle),
+    opacity calc(var(--spd) * 150ms) ease-out,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.qcm-receiver.pro.on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.qcm-receiver.pro.on.targeted {
+  transform: scale(1.05);
+  border-color: var(--hud-accent);
+  color: var(--hud-ink);
+}
+
+.qcm-receiver.pro.on.targeted::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 12px;
+  border: 1.5px solid var(--hud-accent);
+  animation: qcm-breathe calc(var(--spd) * 1200ms) ease-in-out infinite;
+  pointer-events: none;
+}
+
+.qcm-receiver.pro .qcm-recv-icon {
+  color: inherit;
+}
+
+.qcm-receiver.pro.on.targeted .qcm-recv-icon {
+  color: var(--hud-accent);
+}
+
+@keyframes qcm-breathe {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.95; }
+}
+
+/* ── draggable screenshot ─────────────────────────────────────────── */
+
+.qcm-shot {
+  position: absolute;
+  width: 118px;
+  z-index: 4;
+  cursor: grab;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  background: #191d22;
+}
+
+.qcm-shot.dragging {
+  cursor: grabbing;
+  z-index: 9;
+}
+
+.qcm-shot.snapback {
+  transition: transform calc(var(--spd) * 260ms) var(--ease-settle);
+}
+
+.qcm-shot.dim {
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.qcm-shot-thumb {
+  height: 70px;
+  position: relative;
+  background:
+    linear-gradient(135deg, #33443c 0%, #23313d 55%, #1a2029 100%);
+}
+
+.qcm-shot-thumb::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  right: 8px;
+  height: 26px;
+  border-radius: 4px;
+  background: rgba(231, 227, 220, 0.12);
+}
+
+.qcm-shot-thumb::after {
+  content: "";
+  position: absolute;
+  top: 40px;
+  left: 8px;
+  width: 56%;
+  height: 5px;
+  border-radius: 2px;
+  background: rgba(231, 227, 220, 0.18);
+  box-shadow: 0 10px 0 -1px rgba(231, 227, 220, 0.1);
+}
+
+.qcm-shot-name {
+  display: block;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 500;
+  color: var(--hud-ink-muted);
+  padding: 4px 7px 5px;
+  background: rgba(12, 10, 9, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── flying ghost (drop continuity) ──────────────────────────────── */
+
+.qcm-ghost {
+  position: absolute;
+  z-index: 12;
+  border-radius: 7px;
+  overflow: hidden;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  background: linear-gradient(135deg, #33443c 0%, #23313d 55%, #1a2029 100%);
+  transition:
+    left calc(var(--spd) * 300ms) var(--ease-settle),
+    top calc(var(--spd) * 300ms) var(--ease-settle),
+    width calc(var(--spd) * 300ms) var(--ease-settle),
+    height calc(var(--spd) * 300ms) var(--ease-settle),
+    border-radius calc(var(--spd) * 300ms) var(--ease-settle);
+}
+
+/* ── the composer panel ──────────────────────────────────────────── */
+
+.qcm-panel {
+  position: absolute;
+  width: 480px;
+  max-width: 60%;
+  z-index: 10;
+  border-radius: 14px;
+  background: rgba(13, 11, 10, 0.97);
+  border: 1px solid var(--hud-border);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  color: var(--hud-ink);
+}
+
+.qcm-panel.center {
+  left: 50%;
+  top: 44%;
+  translate: -50% -50%;
+}
+
+.qcm-panel.corner {
+  left: 22px;
+  bottom: 126px;
+}
+
+/* Arrivals */
+.qcm-panel.arrive-cur {
+  animation: qcm-fade calc(var(--spd) * 100ms) ease-out backwards;
+  animation-delay: calc(var(--spd) * 45ms);
+}
+
+.qcm-panel.arrive-pro-center {
+  animation: qcm-arrive calc(var(--spd) * 300ms) var(--ease-settle) backwards;
+}
+
+.qcm-panel.arrive-pro-corner {
+  transform-origin: 56px calc(100% + 90px);
+  animation: qcm-grow calc(var(--spd) * 340ms) var(--ease-settle) backwards;
+}
+
+@keyframes qcm-fade {
+  from { opacity: 0; }
+}
+
+@keyframes qcm-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@keyframes qcm-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
+
+/* Exits */
+.qcm-panel.exit-cur {
+  animation: qcm-fade-out calc(var(--spd) * 140ms) ease-in forwards;
+}
+
+.qcm-panel.exit-pro {
+  animation: qcm-exit calc(var(--spd) * 170ms) ease-in forwards;
+}
+
+@keyframes qcm-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes qcm-exit {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* Departure — panel travels to the menu-bar glyph and shrinks into it. */
+.qcm-panel.depart {
+  animation: qcm-depart calc(var(--spd) * 430ms) var(--ease-exit) forwards;
+}
+
+@keyframes qcm-depart {
+  25% { opacity: 0.95; }
+  to {
+    transform: translate(var(--dep-x, 300px), var(--dep-y, -200px)) scale(0.1);
+    opacity: 0;
+  }
+}
+
+/* ── panel anatomy (HUD broadsheet skin, scaled to the stage) ─────── */
+
+.qcm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px 11px;
+}
+
+.qcm-head-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--hud-accent-soft);
+  color: var(--hud-accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.qcm-eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--hud-ink);
+  margin-top: 1px;
+  line-height: 1.15;
+}
+
+.qcm-head-spacer { flex: 1; }
+
+.qcm-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--hud-border-soft);
+  color: var(--hud-ink-faint);
+}
+
+.qcm-tag.accent { color: var(--hud-accent); }
+
+.qcm-tag .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.qcm-hairline {
+  height: 1px;
+  background: var(--hud-border-soft);
+  margin: 0 16px;
+}
+
+.qcm-route-cards {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+
+.qcm-route-card {
+  flex: 1;
+  border: 1px solid var(--hud-border-soft);
+  background: rgba(22, 20, 17, 0.6);
+  border-radius: 9px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.qcm-route-k {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--hud-ink-faint);
+  margin-bottom: 3px;
+}
+
+.qcm-route-v {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--hud-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qcm-route-v span { color: var(--hud-ink-faint); font-weight: 400; }
+
+.qcm-route-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 16px 0;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-route-line .arrow-glyph { color: var(--hud-accent); }
+.qcm-route-line .val { color: var(--hud-ink-muted); }
+.qcm-route-line .hint { margin-left: auto; font-size: 8px; letter-spacing: 0.06em; }
+
+.qcm-msg-label {
+  padding: 12px 16px 6px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-composer {
+  margin: 0 16px 10px;
+  border: 1px solid var(--hud-border-soft);
+  border-radius: 11px;
+  background: rgba(22, 20, 17, 0.52);
+  overflow: hidden;
+}
+
+.qcm-composer.roomy { margin-top: 12px; }
+
+.qcm-input {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  resize: none;
+  padding: 11px 12px 4px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--hud-ink);
+  min-height: 58px;
+}
+
+.qcm-input::placeholder { color: var(--hud-ink-faint); }
+
+.qcm-strip {
+  display: flex;
+  gap: 6px;
+  padding: 4px 10px 2px;
+  min-height: 38px;
+  align-items: center;
+}
+
+.qcm-chip-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 186px;
+  padding: 4px 8px;
+  border: 1px solid var(--hud-border-soft);
+  border-radius: 7px;
+  background: rgba(12, 10, 9, 0.6);
+}
+
+.qcm-chip-file.incoming { opacity: 0; }
+
+.qcm-chip-file.land {
+  animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
+}
+
+@keyframes qcm-boing {
+  from {
+    opacity: 0;
+    transform: translateY(9px) scale(0.9);
+  }
+}
+
+.qcm-chip-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  flex: none;
+  background: linear-gradient(135deg, #33443c 0%, #23313d 55%, #1a2029 100%);
+}
+
+.qcm-chip-meta { min-width: 0; }
+
+.qcm-chip-name {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--hud-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qcm-chip-size {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 7.5px;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-chip-x {
+  margin-left: auto;
+  color: var(--hud-ink-faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.qcm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.qcm-tool {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--hud-border-soft);
+  background: transparent;
+  color: var(--hud-ink-muted);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.qcm-runtime {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--hud-border-soft);
+  border-radius: 9px;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--hud-ink-muted);
+  white-space: nowrap;
+}
+
+.qcm-send {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--hud-accent);
+  color: #131a0a;
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  border: 0;
+  flex: none;
+}
+
+.qcm-send:disabled { cursor: default; }
+
+.qcm-send.launch .qcm-send-arrow {
+  animation: qcm-launch calc(var(--spd) * 180ms) ease-in forwards;
+}
+
+@keyframes qcm-launch {
+  to {
+    transform: translateY(-22px);
+    opacity: 0;
+  }
+}
+
+.qcm-spinner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.qcm-spinner::after {
+  content: "";
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(19, 26, 10, 0.25);
+  border-top-color: #131a0a;
+  animation: qcm-spin 0.8s linear infinite;
+}
+
+@keyframes qcm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.qcm-flash {
+  margin: 0 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hud-border-soft);
+  background: var(--hud-accent-soft);
+  color: var(--hud-accent);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
+}
+
+.qcm-hintline {
+  padding: 0 16px 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--hud-ink-faint);
+}
+
+/* ── toast (post-departure confirmation) ─────────────────────────── */
+
+.qcm-toast {
+  position: absolute;
+  top: 33px;
+  right: 12px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(13, 11, 10, 0.95);
+  border: 1px solid var(--hud-border);
+  color: var(--hud-accent);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  animation:
+    qcm-toast-in calc(var(--spd) * 260ms) var(--ease-settle) backwards,
+    qcm-fade-out calc(var(--spd) * 220ms) ease-in calc(var(--spd) * 1900ms) forwards;
+}
+
+@keyframes qcm-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+
+.qcm-toast .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── stage hint ──────────────────────────────────────────────────── */
+
+.qcm-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: rgba(231, 227, 220, 0.32);
+  z-index: 3;
+  white-space: nowrap;
+}
+
+/* ── project picker popover (minimal-first: routing is one click) ── */
+
+.qcm-pop {
+  position: absolute;
+  z-index: 30;
+  min-width: 252px;
+  background: rgba(16, 14, 12, 0.98);
+  border: 1px solid var(--hud-border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  animation: qcm-arrive calc(var(--spd) * 180ms) var(--ease-settle) backwards;
+}
+
+.qcm-pop-label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 6.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--hud-ink-faint);
+  padding: 6px 8px 4px;
+}
+
+.qcm-pop-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--hud-ink-muted);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.qcm-pop-item:hover {
+  background: var(--hud-lift);
+  color: var(--hud-ink);
+}
+
+.qcm-pop-item.sel {
+  color: var(--hud-accent);
+}
+
+.qcm-pop-item .path {
+  color: var(--hud-ink-faint);
+  font-size: 8px;
+  font-weight: 400;
+}
+
+.qcm-route-proj {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--hud-ink);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  padding: 1px 5px;
+  margin: -1px 0;
+  border-radius: 5px;
+}
+
+.qcm-route-proj:hover {
+  background: var(--hud-lift);
+  color: var(--hud-accent);
+}
+
+.qcm-route-card.click {
+  cursor: pointer;
+}
+
+.qcm-route-card.click:hover {
+  border-color: var(--hud-border);
+  background: rgba(28, 25, 21, 0.7);
+}
+
+/* ── side-by-side compare rig ─────────────────────────────────────
+ * Twin panes play the same moment simultaneously off one clock —
+ * sequential toggle-and-remember hides motion deltas; synchronized
+ * playback is the honest comparison. */
+
+.qcm-pane {
+  aspect-ratio: 16 / 9;
+}
+
+.qcm-pane-tag {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 20;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-pane-tag.accent {
+  color: var(--hud-accent);
+}
+
+.qcm-pane-glyph {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 20;
+}
+
+.qcm-pane .qcm-receiver {
+  width: 112px;
+  height: 82px;
+}
+
+/* Simplified panel for the moment demos */
+.qcm-mini {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  width: 66%;
+  border-radius: 10px;
+  background: rgba(13, 11, 10, 0.97);
+  border: 1px solid var(--hud-border);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+  padding: 10px 12px;
+}
+
+.qcm-mini.corner {
+  left: 12px;
+  bottom: 14px;
+  top: auto;
+  translate: none;
+  width: 72%;
+  transform-origin: 44px calc(100% + 70px);
+}
+
+.qcm-mini-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qcm-mini-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--hud-accent-soft);
+  color: var(--hud-accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.qcm-mini-eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 6.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--hud-ink-faint);
+}
+
+.qcm-mini-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--hud-ink);
+}
+
+.qcm-mini-well {
+  margin-top: 8px;
+  border: 1px solid var(--hud-border-soft);
+  border-radius: 8px;
+  background: rgba(22, 20, 17, 0.52);
+  padding: 7px 9px;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--hud-ink-muted);
+  min-height: 34px;
+}
+
+.qcm-mini-strip {
+  display: flex;
+  margin-top: 6px;
+  min-height: 28px;
+  align-items: center;
+}
+
+.qcm-mini-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--hud-border-soft);
+  border-radius: 6px;
+  background: rgba(12, 10, 9, 0.6);
+  font-size: 7.5px;
+  font-weight: 600;
+  color: var(--hud-ink-muted);
+}
+
+.qcm-mini-chip .qcm-chip-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.qcm-mini-chip.incoming {
+  opacity: 0;
+}
+
+.qcm-mini-chip.land {
+  animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
+}
+
+.qcm-mini-bar {
+  display: flex;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.qcm-mini-send {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--hud-accent);
+  color: #131a0a;
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  border: 0;
+}
+
+.qcm-mini-send.launch .qcm-send-arrow {
+  animation: qcm-launch calc(var(--spd) * 180ms) ease-in forwards;
+}
+
+.qcm-mini-flash {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--hud-border-soft);
+  background: var(--hud-accent-soft);
+  color: var(--hud-accent);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  animation: qcm-boing calc(var(--spd) * 340ms) var(--ease-boing) backwards;
+}
+
+.qcm-mini-toast {
+  position: absolute;
+  top: 30px;
+  right: 10px;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: rgba(13, 11, 10, 0.95);
+  border: 1px solid var(--hud-border);
+  color: var(--hud-accent);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 600;
+  animation: qcm-toast-in calc(var(--spd) * 260ms) var(--ease-settle) backwards;
+}
+
+/* Generic animation classes for the demo minis */
+.qcm-anim-arrive-cur {
+  animation: qcm-fade calc(var(--spd) * 100ms) ease-out backwards;
+  animation-delay: calc(var(--spd) * 45ms);
+}
+
+.qcm-anim-arrive-pro {
+  animation: qcm-arrive calc(var(--spd) * 300ms) var(--ease-settle) backwards;
+}
+
+.qcm-anim-grow {
+  animation: qcm-grow calc(var(--spd) * 340ms) var(--ease-settle) backwards;
+}
+
+.qcm-anim-depart {
+  animation: qcm-depart calc(var(--spd) * 430ms) var(--ease-exit) forwards;
+}
+
+.qcm-anim-fadeout {
+  animation: qcm-fade-out calc(var(--spd) * 140ms) ease-in forwards;
+}
+
+/* Automated file card for the receiver/drop demos */
+.qcm-demo-file {
+  position: absolute;
+  width: 76px;
+  z-index: 8;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  background: #191d22;
+  transition:
+    left calc(var(--spd) * 900ms) cubic-bezier(0.4, 0.1, 0.3, 1),
+    top calc(var(--spd) * 900ms) cubic-bezier(0.4, 0.1, 0.3, 1),
+    opacity 120ms ease;
+}
+
+.qcm-demo-file .qcm-shot-thumb {
+  height: 46px;
+}
+
+/* ── reduce motion: every choreography collapses to a fast fade ───── */
+
+@media (prefers-reduced-motion: reduce) {
+  .qcm-stage *,
+  .qcm-stage *::before,
+  .qcm-stage *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

@@ -840,6 +840,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     ],
     blurb: "The native New-conversation modal rebuilt in the shell token language — refined header, a compact Project / Agent target (inline harness · model + target token, not stacked 48pt fields), a focus-bordered message well (no left bar, ~2.5 lines), a quiet Options disclosure, and a harmonized Cancel / Start footer.",
   },
+  {
+    href: "/studies/quick-capture-magic",
+    label: "Quick Capture · Magic Motion",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/quick-capture-magic/page.tsx",
+      "apps/macos/Sources/ScoutHUD/HUDCaptureHotZone.swift",
+      "apps/macos/Sources/ScoutHUD/HUDController.swift",
+      "apps/macos/Sources/ScoutHUD/HUDRunnerComposerView.swift",
+    ],
+    blurb:
+      "Interactive motion lab for the two quick-create entries — the Hyper+A hotkey and the hot-corner image drop. A simulated desktop plays the whole choreography (arrival spring · receiver entrance · drop-continuity flying thumbnail · departure to the menu-bar glyph) switchable Current ⇄ Proposed with ¼× slow-mo, plus a moment ledger mapping each spec to its Swift call site and a proposed HUDMotion token vocabulary. Thesis: object permanence and a little physics, not more chrome.",
+  },
 
   // ── Studies · Web ───────────────────────────────────────────────
   {
