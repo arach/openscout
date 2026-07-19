@@ -6,6 +6,14 @@
     <description>Automatic updates for the OpenScout macOS app.</description>
     <language>en</language>
     <item>
+      <title>OpenScout 0.2.76</title>
+      <pubDate>Sun, 19 Jul 2026 00:59:06 GMT</pubDate>
+      <sparkle:version>0.2.76</sparkle:version>
+      <sparkle:shortVersionString>0.2.76</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/arach/openscout/releases/download/v0.2.76/OpenScout-0.2.76.dmg" sparkle:version="0.2.76" sparkle:shortVersionString="0.2.76" sparkle:edSignature="v83r9sHGKEcQ2ub+m2leMtHxA8WGg96ipHqSqpPjZe4VfPmyAdyeXPDQIHo5TnLBoSw3p0DiBIRtLSI6y1e9CQ==" length="25616505" type="application/octet-stream" />
+    </item>
+    <item>
       <title>OpenScout 0.2.75</title>
       <pubDate>Sat, 18 Jul 2026 18:29:35 GMT</pubDate>
       <sparkle:version>0.2.75</sparkle:version>
