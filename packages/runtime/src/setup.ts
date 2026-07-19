@@ -35,7 +35,7 @@ import {
   normalizeOpenScoutNetworkSettings,
   type OpenScoutNetworkRuntimeSettings,
 } from "./open-scout-network.js";
-import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { assertTestIsolatedUserData, ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
@@ -1834,6 +1834,7 @@ export function resolveOpenScoutSetupContextRoot(options: {
 }
 
 export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsInput, options: { currentDirectory?: string } = {}): Promise<OpenScoutSettings> {
+  assertTestIsolatedUserData("write OpenScout settings", "OPENSCOUT_SUPPORT_DIRECTORY");
   ensureOpenScoutCleanSlateSync();
   const current = await readOpenScoutSettings(options);
   const merged = {

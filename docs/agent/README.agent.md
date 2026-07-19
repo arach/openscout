@@ -93,8 +93,10 @@ Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for ag
 Do not use placeholder names like `agent` or generic guesses like `claude.main`
 as literal targets. For fresh capability work, pass `projectPath` / `--project`
 and optional `harness` / `--harness`; for continuity, use the returned `ref`,
-flight, conversation, work, or session handle. Copy a selector from `scout who`
-only when you mean one specific known target.
+flight, conversation, work, session handle, or a saved situated target such as
+`target:mw-talkie`. Agent prompts and compact UI may render that same target as
+`⌖mw-talkie`. Copy a selector from `scout who` only when you mean one specific
+known target.
 
 ## Non-Negotiable Rules
 

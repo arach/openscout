@@ -138,9 +138,11 @@ owned by the host UI:
 ```
 
 The route operator is composer syntax, not message payload. The protocol package
-exports `parseScoutComposerRoute` and `SCOUT_COMPOSER_ROUTE_OPERATOR` so clients
-can translate `>> hudson`, `>> ref:8kj4pd`, `>> channel:ops`, or `>> broadcast`
-into structured `ScoutRouteTarget` metadata before submitting to the broker.
+exports `parseScoutComposerRoute`, `SCOUT_COMPOSER_ROUTE_OPERATOR`, and
+`SCOUT_TARGET_HANDLE_SHORTHAND` so clients can translate `>> hudson`,
+`>> target:mw-talkie`, `>> ⌖mw-talkie`, `>> ref:8kj4pd`, `>> channel:ops`,
+or `>> broadcast` into structured `ScoutRouteTarget` metadata before
+submitting to the broker.
 
 ## Core Design Rules
 

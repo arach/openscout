@@ -45,4 +45,20 @@ describe("sessionRegistryKey", () => {
 
     expect(sessionRegistryKey(claude)).toBe("claude:019edd8c-7042-7451-a4bb-c54c6344927f");
   });
+
+  test("keeps Kimi main and subagent wire logs on distinct session keys", () => {
+    const main = transcript({
+      source: "kimi",
+      sessionId: "session_123",
+      transcriptPath: "/Users/art/.kimi-code/sessions/wd_project/session_123/agents/main/wire.jsonl",
+    });
+    const subagent = transcript({
+      source: "kimi",
+      sessionId: "session_123:agent-0",
+      transcriptPath: "/Users/art/.kimi-code/sessions/wd_project/session_123/agents/agent-0/wire.jsonl",
+    });
+
+    expect(sessionRegistryKey(main)).toBe("kimi:session_123");
+    expect(sessionRegistryKey(subagent)).toBe("kimi:session_123:agent-0");
+  });
 });

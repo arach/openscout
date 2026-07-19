@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
-import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
   parseScopeRouteFromUrl,
   preserveLocationSearch,
@@ -145,11 +144,11 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
-// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
-// of the lean core, so it stays reachable even when the broader Ops cluster
+// Tail (ops?mode=tail) is part of the core retrieval set (System dropdown,
+// `g,l` go-shortcut), so it stays reachable even when the broader Ops cluster
 // (ops.control) is gated off. Other Ops modes still follow the ops gate.
 function isTailCoreSurface(mode: string | undefined): boolean {
-  return mode === "tail" && isScoutFlagEnabled("nav.clean");
+  return mode === "tail";
 }
 
 // Lanes is shared with the native app and chrome-free embeds, so direct links are
@@ -250,8 +249,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const scoped = <T extends Route>(route: T): T => withMachineScope(route, machineId);
   const scopeRoute = parseScopeRouteFromUrl(parts, url, scoped);
   if (scopeRoute) return scopeRoute;
-  const composeMode =
-    url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const messageHashId = hashMessageId(url.hash);
   const agentTab = parseAgentTab(url.searchParams.get("tab"))
     ?? (messageHashId ? "message" : undefined);
@@ -447,7 +444,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped({
       view: "conversation",
       conversationId: decodeURIComponent(parts[1]),
-      ...(composeMode ? { composeMode } : {}),
     });
   }
   if (parts[0] === "sessions" && parts[1]) {
@@ -475,7 +471,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
     });
   }
-  if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "repos") {
+    const root = url.searchParams.get("root")?.trim() || undefined;
+    return scoped({ view: "repos", ...(root ? { root } : {}) });
+  }
   if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
@@ -511,7 +510,18 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
-  if (parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "dispatch" || parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "code") {
+    const wt = url.searchParams.get("wt")?.trim() || undefined;
+    if (parts[1]) {
+      const project = decodeURIComponent(parts[1]);
+      const path = parts.length > 2 ? parts.slice(2).map(decodeURIComponent).join("/") : undefined;
+      return { view: "code", project, ...(path ? { path } : {}), ...(wt ? { wt } : {}) };
+    }
+    const root = url.searchParams.get("root")?.trim() || undefined;
+    const file = url.searchParams.get("file")?.trim() || undefined;
+    return { view: "code", ...(root ? { root } : {}), ...(file ? { file } : {}), ...(wt ? { wt } : {}) };
+  }
   if (parts[0] === "briefings" && parts[1]) {
     return { view: "briefings", briefingId: decodeURIComponent(parts[1]) };
   }
@@ -636,9 +646,6 @@ export function routePath(r: Route, pathname?: string): string {
       return pathWithMachineScope("/", r);
     case "conversation": {
       const params = new URLSearchParams();
-      if (r.composeMode === "ask") {
-        params.set("compose", "ask");
-      }
       appendMachineScope(params, r);
       return `/c/${encodeURIComponent(r.conversationId)}${searchSuffix(params)}`;
     }
@@ -727,8 +734,12 @@ export function routePath(r: Route, pathname?: string): string {
         : "/sessions";
       return `${path}${searchSuffix(params)}`;
     }
-    case "repos":
-      return pathWithMachineScope("/repos", r);
+    case "repos": {
+      const params = new URLSearchParams();
+      if (r.root) params.set("root", r.root);
+      appendMachineScope(params, r);
+      return `/repos${searchSuffix(params)}`;
+    }
     case "harnesses":
       return pathWithMachineScope("/harnesses", r);
     case "repo-diff": {
@@ -750,7 +761,21 @@ export function routePath(r: Route, pathname?: string): string {
     case "mesh":
       return pathWithMachineScope("/mesh", r);
     case "broker":
-      return "/broker";
+      return "/dispatch";
+    case "code": {
+      if (r.project) {
+        const segments = [encodeURIComponent(r.project)];
+        if (r.path) segments.push(...r.path.split("/").map(encodeURIComponent));
+        const base = `/code/${segments.join("/")}`;
+        return r.wt ? `${base}?wt=${encodeURIComponent(r.wt)}` : base;
+      }
+      const params = new URLSearchParams();
+      if (r.root) params.set("root", r.root);
+      if (r.file) params.set("file", r.file);
+      if (r.wt) params.set("wt", r.wt);
+      const search = params.toString();
+      return search ? `/code?${search}` : "/code";
+    }
     case "briefings":
       return r.briefingId
         ? `/briefings/${encodeURIComponent(r.briefingId)}`

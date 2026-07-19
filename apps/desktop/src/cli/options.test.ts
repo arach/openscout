@@ -73,6 +73,16 @@ describe("parseSendCommandOptions", () => {
     expect(options.message).toBe("status is green");
   });
 
+  test("accepts a composer route target handle", () => {
+    const options = parseSendCommandOptions(
+      [">>", "⌖mw-talkie", "status", "is", "green"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("target:mw-talkie");
+    expect(options.message).toBe("status is green");
+  });
+
   test("accepts a composer route channel", () => {
     const options = parseSendCommandOptions(
       [">>", "channel:ops", "status", "is", "green"],
@@ -306,6 +316,16 @@ describe("parseImplicitAskCommandOptions", () => {
 
     expect(options.targetLabel).toBe("dewey");
     expect(options.message).toBe("hey can you review our docs?");
+  });
+
+  test("extracts a target handle from the composer route operator", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["please", ">>", "⌖mw-talkie", "continue", "there"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("target:mw-talkie");
+    expect(options.message).toBe("please continue there");
   });
 
   test("preserves harness-qualified session targets in implicit route operators", () => {

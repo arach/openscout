@@ -76,7 +76,7 @@ Ship the message-card design pass.`);
       answerT: 75,
     }));
 
-    expect(model.label).toBe("Asked operator");
+    expect(model.label).toBe("To operator");
     expect(model.fields).toContainEqual({ label: "answer", value: "1m 5s" });
     expect(model.answer).toEqual({ label: "answered after 1m 5s", text: "Yes" });
   });

@@ -1,3 +1,7 @@
+use scoutd::native_read_service::{
+    NativeReadMode, NativeReadRequest, NativeReadService,
+    REQUEST_SCHEMA as NATIVE_READ_REQUEST_SCHEMA,
+};
 use scoutd::repo_service;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -5,6 +9,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -70,6 +75,8 @@ const DEFAULT_EXEC_JOB_QUEUE: usize = 32;
 const DEFAULT_CONNECTION_WORKERS: usize = 32;
 const DEFAULT_CONNECTION_QUEUE: usize = 64;
 const DEFAULT_CONNECTION_IO_TIMEOUT: Duration = Duration::from_millis(5_000);
+const NATIVE_READ_PEER_CHECK_INTERVAL: Duration = Duration::from_millis(250);
+const NATIVE_READ_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const REQUEST_READ_CAP_BYTES: u64 = 8 * 1024 * 1024;
 const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(test)]
@@ -116,10 +123,20 @@ pub struct ProbeServerOptions {
     pub connection_workers: usize,
     pub connection_queue: usize,
     pub connection_io_timeout: Duration,
+    pub native_read_enabled: bool,
+    pub native_read_journal_path: PathBuf,
+    pub native_read_cache_path: PathBuf,
+    pub native_read_poll_interval: Duration,
 }
 
 impl ProbeServerOptions {
     pub fn from_env(socket_path: PathBuf) -> Self {
+        let control_home = env_nonempty("OPENSCOUT_CONTROL_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env_nonempty("HOME").unwrap_or_else(|| ".".to_string()))
+                    .join(".openscout/control-plane")
+            });
         Self {
             socket_path,
             tailscale_bin: env_nonempty("OPENSCOUT_TAILSCALE_BIN")
@@ -171,6 +188,14 @@ impl ProbeServerOptions {
                 .unwrap_or(DEFAULT_CONNECTION_QUEUE),
             connection_io_timeout: env_duration_ms("OPENSCOUT_PROBE_CONNECTION_IO_TIMEOUT_MS")
                 .unwrap_or(DEFAULT_CONNECTION_IO_TIMEOUT),
+            native_read_enabled: env_nonempty("OPENSCOUT_NATIVE_READ_DISABLED").as_deref()
+                != Some("1"),
+            native_read_journal_path: control_home.join("broker-journal.jsonl"),
+            native_read_cache_path: env_nonempty("OPENSCOUT_NATIVE_READ_CACHE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| control_home.join("native-read-agents-v1.json")),
+            native_read_poll_interval: env_duration_ms("OPENSCOUT_NATIVE_READ_POLL_MS")
+                .unwrap_or(Duration::from_millis(250)),
         }
     }
 }
@@ -531,6 +556,7 @@ struct ProbeEngine {
     state: Arc<(Mutex<ProbeEngineState>, Condvar)>,
     repo_jobs: JobLimiter,
     exec_jobs: JobLimiter,
+    native_reads: Option<NativeReadService>,
 }
 
 impl ProbeEngine {
@@ -539,11 +565,19 @@ impl ProbeEngine {
             JobLimiter::new("repo job", options.repo_job_workers, options.repo_job_queue);
         let exec_jobs =
             JobLimiter::new("exec job", options.exec_job_workers, options.exec_job_queue);
+        let native_reads = options.native_read_enabled.then(|| {
+            NativeReadService::start(
+                options.native_read_journal_path.clone(),
+                options.native_read_cache_path.clone(),
+                options.native_read_poll_interval,
+            )
+        });
         Self {
             options,
             state: Arc::new((Mutex::new(ProbeEngineState::default()), Condvar::new())),
             repo_jobs,
             exec_jobs,
+            native_reads,
         }
     }
 
@@ -1764,6 +1798,9 @@ fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), 
                     }
                 }
             }
+            Ok(ParsedRequest::NativeRead(request)) => {
+                return handle_native_read_connection(&mut stream, &engine, request);
+            }
             Err(error) => error_response(&error.code, &error.message),
         }
     };
@@ -1774,6 +1811,107 @@ fn handle_connection(mut stream: UnixStream, engine: ProbeEngine) -> Result<(), 
         .map_err(|error| error.to_string())?;
     stream.write_all(b"\n").map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn handle_native_read_connection(
+    stream: &mut UnixStream,
+    engine: &ProbeEngine,
+    request: NativeReadRequest,
+) -> Result<(), String> {
+    if request.resource != "agents" {
+        return write_json_line(
+            stream,
+            &error_response(
+                "unsupported_resource",
+                &format!("unsupported native read resource: {}", request.resource),
+            ),
+            engine.options.repo_job_response_cap_bytes,
+        );
+    }
+    let Some(service) = engine.native_reads.as_ref() else {
+        return write_json_line(
+            stream,
+            &error_response(
+                "native_read_unavailable",
+                "native read projection is disabled",
+            ),
+            engine.options.repo_job_response_cap_bytes,
+        );
+    };
+
+    let initial = service.snapshot(&request);
+    write_json_line(
+        stream,
+        &serde_json::to_value(&initial).map_err(|error| error.to_string())?,
+        engine.options.repo_job_response_cap_bytes,
+    )?;
+    if request.mode != NativeReadMode::Subscribe {
+        return Ok(());
+    }
+
+    // The first frame is always a complete bounded snapshot, so it resets the
+    // subscriber cursor even if the daemon restarted with a lower sequence.
+    let mut sequence = initial.sequence;
+    let mut last_heartbeat = Instant::now();
+    loop {
+        if native_read_peer_closed(stream)? {
+            return Ok(());
+        }
+        if let Some(snapshot) =
+            service.wait_for_change(&request, sequence, NATIVE_READ_PEER_CHECK_INTERVAL)
+        {
+            sequence = snapshot.sequence;
+            write_json_line(
+                stream,
+                &serde_json::to_value(snapshot).map_err(|error| error.to_string())?,
+                engine.options.repo_job_response_cap_bytes,
+            )?;
+        } else if last_heartbeat.elapsed() >= NATIVE_READ_HEARTBEAT_INTERVAL {
+            write_json_line(
+                stream,
+                &serde_json::to_value(service.heartbeat(&request))
+                    .map_err(|error| error.to_string())?,
+                engine.options.repo_job_response_cap_bytes,
+            )?;
+            last_heartbeat = Instant::now();
+        }
+    }
+}
+
+fn native_read_peer_closed(stream: &UnixStream) -> Result<bool, String> {
+    let mut byte = [0_u8; 1];
+    let received = unsafe {
+        libc::recv(
+            stream.as_raw_fd(),
+            byte.as_mut_ptr().cast(),
+            byte.len(),
+            libc::MSG_PEEK | libc::MSG_DONTWAIT,
+        )
+    };
+    if received == 0 {
+        return Ok(true);
+    }
+    if received > 0 {
+        return Ok(false);
+    }
+    let error = std::io::Error::last_os_error();
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        Ok(false)
+    } else {
+        Err(error.to_string())
+    }
+}
+
+fn write_json_line(
+    stream: &mut UnixStream,
+    value: &Value,
+    response_cap_bytes: usize,
+) -> Result<(), String> {
+    let payload = serialize_response_with_cap(value.clone(), response_cap_bytes)?;
+    stream
+        .write_all(&payload)
+        .map_err(|error| error.to_string())?;
+    stream.write_all(b"\n").map_err(|error| error.to_string())
 }
 
 fn read_one_request(stream: &mut UnixStream) -> Result<Vec<u8>, String> {
@@ -1804,6 +1942,7 @@ enum ParsedRequest {
     Probe(ProbeRequest),
     Repo(RepoJobRequest),
     Exec(ExecRequest),
+    NativeRead(NativeReadRequest),
 }
 
 #[derive(Debug)]
@@ -1879,6 +2018,22 @@ fn parse_request(bytes: &[u8]) -> Result<ParsedRequest, ProbeFailure> {
                 });
             }
             Ok(ParsedRequest::Exec(request))
+        }
+        NATIVE_READ_REQUEST_SCHEMA => {
+            let request: NativeReadRequest =
+                serde_json::from_value(value).map_err(|error| ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: format!("invalid native read request: {error}"),
+                    timed_out: false,
+                })?;
+            if request.resource.trim().is_empty() {
+                return Err(ProbeFailure {
+                    code: "invalid_request".to_string(),
+                    message: "native read request missing resource".to_string(),
+                    timed_out: false,
+                });
+            }
+            Ok(ParsedRequest::NativeRead(request))
         }
         other => Err(ProbeFailure {
             code: "unsupported_schema".to_string(),
@@ -3704,8 +3859,8 @@ mod tests {
     use scoutd::repo_service;
     use serde_json::json;
     use serde_json::Value;
-    use std::fs;
-    use std::io::{Read, Write};
+    use std::fs::{self, OpenOptions};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixStream;
     use std::path::{Path, PathBuf};
@@ -3781,6 +3936,10 @@ mod tests {
             connection_workers: 32,
             connection_queue: 64,
             connection_io_timeout: Duration::from_millis(5_000),
+            native_read_enabled: false,
+            native_read_journal_path: PathBuf::from("/nonexistent/broker-journal.jsonl"),
+            native_read_cache_path: PathBuf::from("/nonexistent/native-read-agents-v1.json"),
+            native_read_poll_interval: Duration::from_millis(50),
         }
     }
 
@@ -3970,6 +4129,114 @@ mod tests {
         assert_eq!(
             unknown.pointer("/error/code").and_then(Value::as_str),
             Some("unknown_probe")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn native_read_subscription_streams_bounded_journal_projection() {
+        let dir = unique_temp_dir("scoutd-native-read-stream");
+        let socket_path = dir.join("probes.sock");
+        let journal_path = dir.join("broker-journal.jsonl");
+        let cache_path = dir.join("native-read-agents-v1.json");
+        let mut journal = String::new();
+        for index in 0..12 {
+            journal.push_str(
+                &json!({
+                    "kind": "agent.upsert",
+                    "agent": {
+                        "id": format!("agent-{index}"),
+                        "displayName": format!("Agent {index}"),
+                        "agentClass": "general",
+                        "capabilities": ["chat", "invoke"],
+                        "metadata": { "updatedAt": 1_700_000_000_000_u64 + index }
+                    }
+                })
+                .to_string(),
+            );
+            journal.push('\n');
+        }
+        fs::write(&journal_path, journal).unwrap();
+
+        let mut options = base_options(socket_path.clone());
+        options.native_read_enabled = true;
+        options.native_read_journal_path = journal_path.clone();
+        options.native_read_cache_path = cache_path;
+        options.native_read_poll_interval = Duration::from_millis(10);
+        options.connection_workers = 1;
+        options.connection_queue = 0;
+        start_test_server(options);
+        thread::sleep(Duration::from_millis(25));
+
+        let mut stream = UnixStream::connect(&socket_path).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .write_all(
+                br#"{"schema":"openscout.native.read.request/v1","requestId":"req-1","resource":"agents","mode":"subscribe","limit":10}"#,
+            )
+            .unwrap();
+        stream.write_all(b"\n").unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        let mut first: Value = serde_json::from_str(&first).unwrap();
+        if first
+            .get("agents")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            let mut refreshed = String::new();
+            reader.read_line(&mut refreshed).unwrap();
+            first = serde_json::from_str(&refreshed).unwrap();
+        }
+        assert_eq!(
+            first.get("schema").and_then(Value::as_str),
+            Some("openscout.native.read.snapshot/v1")
+        );
+        assert_eq!(
+            first.get("agents").and_then(Value::as_array).map(Vec::len),
+            Some(10)
+        );
+        assert_eq!(first.get("hasMore").and_then(Value::as_bool), Some(true));
+
+        let appended = json!({
+            "kind": "agent.upsert",
+            "agent": {
+                "id": "agent-new",
+                "displayName": "Newest Agent",
+                "agentClass": "builder",
+                "capabilities": ["chat"],
+                "metadata": { "updatedAt": 1_800_000_000_000_u64 }
+            }
+        });
+        let mut journal = OpenOptions::new().append(true).open(&journal_path).unwrap();
+        writeln!(journal, "{appended}").unwrap();
+        drop(journal);
+
+        let mut update = String::new();
+        reader.read_line(&mut update).unwrap();
+        let update: Value = serde_json::from_str(&update).unwrap();
+        assert_eq!(
+            update.pointer("/agents/0/id").and_then(Value::as_str),
+            Some("agent-new")
+        );
+        assert!(
+            update.get("sequence").and_then(Value::as_u64)
+                > first.get("sequence").and_then(Value::as_u64)
+        );
+
+        drop(reader);
+        thread::sleep(Duration::from_millis(500));
+        let capabilities = request(
+            &socket_path,
+            r#"{"schema":"openscout.probe.capabilities/v1"}"#,
+        );
+        assert_eq!(
+            capabilities.get("schema").and_then(Value::as_str),
+            Some(CAPABILITIES_SCHEMA)
         );
 
         let _ = fs::remove_dir_all(dir);

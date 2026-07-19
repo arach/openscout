@@ -1,5 +1,5 @@
 {
-  "originHash" : "3be6f20b90012a879469a3f71fde27b71522e4ccb982c0a39c1ddfaa66c843f1",
+  "originHash" : "b5de2871dfc3f62bc536d4e20b03f6e24885115f5ca35f8df25c42374a0bc3f1",
   "pins" : [
     {
       "identity" : "sparkle",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "1b6b2e274e85105bfa155183145a1dcfd63331f1",
-        "version" : "4.5.0"
+        "revision" : "47d3869a7291f085c1fb9fb1e6d3b97a793f45c6",
+        "version" : "4.5.1"
       }
     },
     {
@@ -51,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "cd3e1152083706d77b223fb29110e590efcc70c0",
-        "version" : "2.101.2"
+        "revision" : "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
+        "version" : "2.101.3"
       }
     },
     {
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio-ssh.git",
       "state" : {
-        "revision" : "1a915a324afefd4031e396e81a0e210178621be8",
-        "version" : "0.13.0"
+        "revision" : "31cdc3c3391a10460dedf1170530cf651d2ca496",
+        "version" : "0.14.1"
       }
     },
     {
@@ -78,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system.git",
       "state" : {
-        "revision" : "7502b711c92a17741fa625d722b0ccbd595d8ed1",
-        "version" : "1.7.2"
+        "revision" : "b5544ba79a70a0cb3563e75bf26dc198d6b40ed3",
+        "version" : "1.7.4"
       }
     },
     {
@@ -88,7 +88,7 @@
       "location" : "git@github.com:arach/Termini.git",
       "state" : {
         "branch" : "main",
-        "revision" : "ccd0d17e883d1af93fce002d204860184f2a9bad"
+        "revision" : "1509fdc6d8093b2e41064fbb273c56e630491afa"
       }
     },
     {

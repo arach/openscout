@@ -7,7 +7,11 @@ import { ScoutbotBroadcastChip } from "../../components/ScoutbotBroadcastChip.ts
 import { ensureOpenAIKeyOnServer } from "../../lib/credentials.ts";
 import { usePersistentBoolean, usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { onToggleScoutbot } from "../../lib/scoutbot-broadcast-store.ts";
-import { extractScoutbotUiActions, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
+import {
+  extractScoutbotUiActions,
+  SCOUTBOT_SUBMIT_EVENT,
+  stripScoutbotUiFences,
+} from "../../lib/scoutbot.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import {
   isScoutSpeechStopped,
@@ -436,7 +440,7 @@ export function ScoutbotPanel({
     setLastReply(replyText);
     for (const action of extractScoutbotUiActions(body)) {
       if (action.type === "ask-agent") {
-        setAskStatus(`Asking ${action.targetLabel}`);
+        setAskStatus(`Sending to ${action.targetLabel}`);
         void api<ScoutbotAskAgentResult>("/api/scoutbot/actions/ask", {
           method: "POST",
           body: JSON.stringify({
@@ -448,12 +452,12 @@ export function ScoutbotPanel({
         }).then((result) => {
           setAskStatus(
             result.flightId
-              ? `Asked ${result.targetAgentId ?? result.targetLabel} · flight ${result.flightId}`
-              : `Asked ${result.targetAgentId ?? result.targetLabel}`,
+              ? `Sent to ${result.targetAgentId ?? result.targetLabel} · run ${result.flightId}`
+              : `Sent to ${result.targetAgentId ?? result.targetLabel}`,
           );
         }).catch((err) => {
           setAskStatus(null);
-          setError(err instanceof Error ? err.message : "Could not ask agent.");
+          setError(err instanceof Error ? err.message : "Could not send to agent.");
         });
       } else if (action.type !== "reminder") {
         applyScoutbotUiAction(action);
@@ -604,8 +608,8 @@ export function ScoutbotPanel({
         void askScoutbot(body);
       }
     };
-    window.addEventListener("scout:scoutbot-submit", submitHandler);
-    return () => window.removeEventListener("scout:scoutbot-submit", submitHandler);
+    window.addEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
+    return () => window.removeEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
   }, [askScoutbot, setCollapsed]);
 
   useEffect(() => {

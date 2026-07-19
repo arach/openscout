@@ -1148,16 +1148,16 @@ struct ScoutRepoAgentChip: View {
     }
 }
 
-private enum ScoutRepoAskService {
+private enum ScoutRepoMessageService {
     @MainActor
     static func sendToAssistant(body: String) async throws {
         await ScoutComposeService.shared.send(body: body, targetHandle: nil)
         if let error = ScoutComposeService.shared.lastError {
-            throw ScoutRepoAskError(message: error)
+            throw ScoutRepoMessageError(message: error)
         }
     }
 
-    static func askAgent(agentId: String, targetLabel: String?, body: String) async throws {
+    static func sendToAgent(agentId: String, targetLabel: String?, body: String) async throws {
         var payload: [String: Any] = [
             "body": body,
             "targetAgentId": agentId,
@@ -1184,7 +1184,7 @@ private enum ScoutRepoAskService {
     }
 }
 
-private struct ScoutRepoAskError: LocalizedError {
+private struct ScoutRepoMessageError: LocalizedError {
     let message: String
 
     var errorDescription: String? { message }
@@ -1452,15 +1452,15 @@ struct ScoutReposInspector: View {
     private func askPlaceholder(worktree: RepoWorktree?, project: RepoProject?) -> String {
         if worktree != nil {
             return askTarget == "assistant"
-                ? "ask Scout about this worktree"
-                : "ask this agent about the worktree"
+                ? "message Scout about this worktree"
+                : "message this agent about the worktree"
         }
         if project != nil {
             return askTarget == "assistant"
-                ? "ask Scout about this repo"
-                : "ask this agent about the repo"
+                ? "message Scout about this repo"
+                : "message this agent about the repo"
         }
-        return "ask Scout"
+        return "message Scout"
     }
 
     private var canSubmitAsk: Bool {
@@ -1515,15 +1515,15 @@ struct ScoutReposInspector: View {
             if let agentId = agentId(from: askTarget) {
                 let agent = agentTargets(worktree: worktree, project: project)
                     .first(where: { $0.id == agentId })
-                try await ScoutRepoAskService.askAgent(
+                try await ScoutRepoMessageService.sendToAgent(
                     agentId: agentId,
                     targetLabel: agent?.id,
                     body: body
                 )
-                askConfirmation = "Asked \(agent?.name?.nilIfEmpty ?? agent?.handle ?? agentId)"
+                askConfirmation = "Sent to \(agent?.name?.nilIfEmpty ?? agent?.handle ?? agentId)"
             } else {
-                try await ScoutRepoAskService.sendToAssistant(body: body)
-                askConfirmation = "Asked Scout"
+                try await ScoutRepoMessageService.sendToAssistant(body: body)
+                askConfirmation = "Sent to Scout"
             }
             askDraft = ""
         } catch {

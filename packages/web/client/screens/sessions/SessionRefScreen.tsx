@@ -22,11 +22,11 @@ export type SessionRefObservePayload =
   | {
       kind: "broker";
       refId: string;
-      agentId: null;
+      agentId: string;
       source: "broker";
       fidelity: "synthetic";
       historyPath: null;
-      sessionId: string;
+      sessionId: string | null;
       updatedAt: number;
       data: ObserveData;
     }

@@ -404,6 +404,31 @@ public final class BridgeConnection: @unchecked Sendable {
         return _currentHost
     }
 
+    /// Best direct host for paired web surfaces. The live bridge may be using
+    /// OSN while a saved LAN/Tailnet route is still reachable from the iPad, so
+    /// fall back through those trusted routes instead of treating relay choice as
+    /// the web-view transport boundary.
+    public var webAccessHost: String? {
+        lock.lock(); defer { lock.unlock() }
+        if let host = _currentHost {
+            let kind = classifyTransport(host: host)
+            if kind == .lan || kind == .tailnet { return host }
+        }
+        return connectionInfo?.relayURLs.lazy
+            .filter { route in
+                let kind = transportKind(forRelayURL: route)
+                return kind == .lan || kind == .tailnet
+            }
+            .compactMap { bridgeMachineHost(from: $0) }
+            .first
+    }
+
+    /// HTTP port advertised by the paired Scout web server.
+    public var webAccessPort: Int? {
+        lock.lock(); defer { lock.unlock() }
+        return connectionInfo?.webPort
+    }
+
     /// Public-key hex of the bridge this connection is pinned to, if any.
     public var targetPublicKeyHex: String? { target?.publicKeyHex }
 

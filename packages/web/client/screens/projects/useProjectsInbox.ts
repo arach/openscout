@@ -26,7 +26,6 @@ import {
   buildProjectsInboxModel,
   type BuildInboxInput,
   type ProjectsInboxModel,
-  type SmartView,
 } from "./projects-inbox-model.ts";
 
 const REFRESH_INTERVAL_MS = 15_000;
@@ -284,31 +283,4 @@ export function useProjectsInbox(route: Extract<Route, { view: "agents-v2" }>): 
     loadedAt: snap.loadedAt,
     error: snap.error,
   };
-}
-
-/* ── Smart-view selection — shared UI state across the rail + inbox ──
-   Scope (all vs one project) rides the URL; the smart view is ephemeral UI, so
-   a tiny module store keeps the rail and the center in lockstep without a
-   router round-trip or a shared React parent. */
-
-let smartView: SmartView = "everything";
-const viewSubscribers = new Set<() => void>();
-
-function setSmartView(next: SmartView): void {
-  if (next === smartView) return;
-  smartView = next;
-  for (const notify of [...viewSubscribers]) notify();
-}
-
-export function useProjectsInboxView(): [SmartView, (next: SmartView) => void] {
-  const [view, setView] = useState(smartView);
-  useEffect(() => {
-    const sync = () => setView(smartView);
-    viewSubscribers.add(sync);
-    sync();
-    return () => {
-      viewSubscribers.delete(sync);
-    };
-  }, []);
-  return [view, setSmartView];
 }

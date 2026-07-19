@@ -50,6 +50,7 @@ scout up / session start → runtime creates or attaches session → broker regi
 | Target form | Session behavior |
 |---|---|
 | `--to <label>` / `--to <agentId>` | fresh session for new ask work |
+| `--to target:<handle>` | resolve a saved situated Scout target for convenient follow-up |
 | `--to session:<id>` | continue exact harness context |
 | `--to session:<harness>:<native-id>` | continue an exact broker-known native harness session when the id needs harness scope |
 | `--project <path> --harness <rt>` | broker/runtime pick or create concrete worker+session for project/capability |
@@ -59,8 +60,21 @@ Mismatch example: Codex-targeted ask + only Claude endpoint attached → `harnes
 
 Fresh capability work should be project-routed first. The broker returns durable
 follow-up handles (`ref`, flight, conversation, work, session) and may return a
-friendly worker handle. Exact session routing is only for continuity; card/name
-promotion happens after the worker is known good.
+situated target handle. Humans type saved situated targets as `target:<handle>`;
+agents and compact UI may render the same target as `⌖handle`. Exact session
+routing is only for raw continuity; card/name promotion happens after the worker
+is known good.
+
+Fresh broker-created Claude project sessions use `tmux` by default so operators
+can inspect and attach to the live terminal. `claude_stream_json` remains a
+supported explicit transport for configured agents and recovery paths; it is
+not the default for a new cardless Claude task. Set
+`OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT=claude_stream_json` to intentionally use
+the backup transport for newly spawned cardless Claude sessions. The
+declarative source of truth is the selected harness catalog entry's
+`sessionDefaults` (`defaultHarness`, `defaultTransport`, and
+`fallbackTransports`); broker spawning consumes that metadata rather than
+maintaining its own harness switch.
 
 ## Endpoint States
 
@@ -91,7 +105,15 @@ After broker restart: assume `reachability_unknown` until proven.
 
 ## Adapter Registry (pairing/runtime)
 
-Built-in adapter keys include: `claude-code`, `codex`, `acp`, `pi`, `opencode`, `openai`.
+Built-in adapter keys include: `claude-code`, `codex`, `acp`, `grok-acp`, `kimi-acp`, `pi`, `opencode`, `openai`.
+
+Kimi Code is a first-class cardless harness target: `--harness kimi` resolves
+through the catalog to the `kimi_acp` transport, which launches `kimi acp` and
+reuses the CLI's cached `kimi login` authentication state.
+
+Kimi's harness-owned session history is observed separately by
+`packages/runtime/src/tail/kimi-source.ts`; the ACP adapter does not import those
+wire logs into Scout session records.
 
 Managed-process direction (SCO-056): ACP stdio and similar executables map into same session/endpoint model via adapter boundary.
 

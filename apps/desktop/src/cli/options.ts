@@ -315,6 +315,12 @@ function parseComposerRoutedBody(
       message: parsed.body,
     };
   }
+  if (target.kind === "target_handle") {
+    return {
+      targetLabel: target.value ?? `target:${target.handle}`,
+      message: parsed.body,
+    };
+  }
   if (target.kind === "binding_ref") {
     return {
       targetLabel: `ref:${target.ref}`,
@@ -324,7 +330,7 @@ function parseComposerRoutedBody(
   }
   if (target.kind === "session_id") {
     if (commandName === "send") {
-      throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
+      throw new ScoutCliError("send route operator must target an agent label, target handle, ref, channel, or broadcast");
     }
     return {
       targetLabel: target.value ?? `session:${target.sessionId}`,
@@ -333,7 +339,7 @@ function parseComposerRoutedBody(
   }
   if (target.kind === "project_path") {
     if (commandName === "send") {
-      throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
+      throw new ScoutCliError("send route operator must target an agent label, target handle, ref, channel, or broadcast");
     }
     return {
       projectPath: resolveInputFilePath(currentDirectory, target.projectPath),
@@ -342,7 +348,7 @@ function parseComposerRoutedBody(
   }
   if (target.kind === "channel") {
     if (commandName === "ask") {
-      throw new ScoutCliError("ask route operator must target an agent label, ref, or project path");
+      throw new ScoutCliError("ask route operator must target an agent label, target handle, ref, or project path");
     }
     return {
       channel: target.channel,
@@ -351,7 +357,7 @@ function parseComposerRoutedBody(
   }
   if (target.kind === "broadcast") {
     if (commandName === "ask") {
-      throw new ScoutCliError("ask route operator must target an agent label, ref, or project path");
+      throw new ScoutCliError("ask route operator must target an agent label, target handle, ref, or project path");
     }
     return {
       channel: "shared",
@@ -360,7 +366,7 @@ function parseComposerRoutedBody(
   }
 
   throw new ScoutCliError(
-    `${commandName} route operator does not support agent id targets yet; use an agent label, ref, or project path`,
+    `${commandName} route operator does not support agent id targets yet; use an agent label, target handle, ref, or project path`,
   );
 }
 

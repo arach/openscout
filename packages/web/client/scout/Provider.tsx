@@ -108,6 +108,7 @@ export type ContextCaptureRequest = {
   conversationId?: string;
   message?: string;
   files?: File[];
+  attachmentFeedback?: string;
   preferExistingChat?: boolean;
 };
 

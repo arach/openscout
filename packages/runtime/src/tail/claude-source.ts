@@ -23,10 +23,15 @@ const DEFAULT_HOT_DISCOVERY_LIMIT = 64;
 const DEFAULT_SHALLOW_DISCOVERY_LIMIT = 160;
 const DEFAULT_DEEP_DISCOVERY_LIMIT = 160;
 const HEAD_READ_BYTES = 256 * 1024;
+const TAIL_READ_BYTES = 512 * 1024;
 const METADATA_CACHE_LIMIT = 512;
 
 type TranscriptFileStat = { path: string; mtimeMs: number; size: number };
-type TranscriptMetadata = { cwd: string | null; sessionId: string | null };
+type TranscriptMetadata = {
+  cwd: string | null;
+  sessionId: string | null;
+  lastEventAt: number | null;
+};
 
 const metadataCache = new Map<string, TranscriptFileStat & TranscriptMetadata>();
 
@@ -125,6 +130,30 @@ function readFileHead(filePath: string): string {
   }
 }
 
+function readFileTail(file: TranscriptFileStat): { content: string; startsAtBeginning: boolean } {
+  let fd: number | null = null;
+  try {
+    fd = openSync(file.path, "r");
+    const start = Math.max(0, file.size - TAIL_READ_BYTES);
+    const buffer = new Uint8Array(Math.min(file.size, TAIL_READ_BYTES));
+    const bytesRead = readSync(fd, buffer, 0, buffer.length, start);
+    return {
+      content: Buffer.from(buffer.subarray(0, bytesRead)).toString("utf8"),
+      startsAtBeginning: start === 0,
+    };
+  } catch {
+    return { content: "", startsAtBeginning: false };
+  } finally {
+    if (fd != null) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 function parseJsonRecord(line: string): Record<string, unknown> | null {
   try {
     const value = JSON.parse(line) as unknown;
@@ -139,7 +168,11 @@ function parseJsonRecord(line: string): Record<string, unknown> | null {
 function readClaudeMetadata(file: TranscriptFileStat): TranscriptMetadata {
   const cached = metadataCache.get(file.path);
   if (cached && cached.mtimeMs === file.mtimeMs && cached.size === file.size) {
-    return { cwd: cached.cwd, sessionId: cached.sessionId };
+    return {
+      cwd: cached.cwd,
+      sessionId: cached.sessionId,
+      lastEventAt: cached.lastEventAt,
+    };
   }
 
   const head = readFileHead(file.path);
@@ -157,11 +190,21 @@ function readClaudeMetadata(file: TranscriptFileStat): TranscriptMetadata {
         : typeof record.session_id === "string" && record.session_id.trim()
           ? record.session_id
           : null;
-    if (cwd && sessionId) {
-      return rememberMetadata(file, { cwd, sessionId });
-    }
+    if (cwd && sessionId) break;
   }
-  return rememberMetadata(file, { cwd, sessionId });
+
+  const tail = readFileTail(file);
+  const tailLines = tail.content.split(/\r?\n/);
+  if (!tail.startsAtBeginning) tailLines.shift();
+  let lastEventAt: number | null = null;
+  for (let index = tailLines.length - 1; index >= 0; index -= 1) {
+    const record = parseJsonRecord(tailLines[index]?.trim() ?? "");
+    if (!record) continue;
+    lastEventAt = pickTimestamp(record);
+    if (lastEventAt != null) break;
+  }
+
+  return rememberMetadata(file, { cwd, sessionId, lastEventAt });
 }
 
 function decodeProjectDir(dirName: string): string | null {
@@ -412,6 +455,7 @@ export const ClaudeSource: TranscriptSource = {
         cwd,
         project: cwd ? basename(cwd) : projectDirNameForPath(file.path) ?? "(unknown)",
         harness: "unattributed",
+        lastEventAt: meta.lastEventAt,
         mtimeMs: file.mtimeMs,
         size: file.size,
       };

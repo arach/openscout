@@ -26,6 +26,7 @@ import {
 } from "./service.ts";
 
 const originalHome = process.env.HOME;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
@@ -38,6 +39,11 @@ const testDirectories = new Set<string>();
 
 afterEach(() => {
   process.env.HOME = originalHome;
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
   if (originalSupportDirectory === undefined) {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
@@ -84,6 +90,7 @@ function useIsolatedOpenScoutHome(): string {
   const home = mkdtempSync(join(tmpdir(), "openscout-desktop-broker-"));
   testDirectories.add(home);
   process.env.HOME = home;
+  process.env.OPENSCOUT_HOME = join(home, ".openscout");
   process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
@@ -583,6 +590,100 @@ describe("sendScoutMessage", () => {
 });
 
 describe("sendScoutConversationMessage", () => {
+  test("fans a group Chat post out to its agent participants without creating invocations", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: { operator: { id: "operator", kind: "person", displayName: "Operator" } },
+          agents: {
+            fable: { id: "fable", kind: "agent", displayName: "Fable" },
+            talkie: { id: "talkie", kind: "agent", displayName: "Talkie" },
+          },
+          endpoints: {},
+          conversations: {
+            "chn-iris": {
+              id: "chn-iris",
+              kind: "channel",
+              title: "iris-architecture",
+              visibility: "workspace",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "fable", "talkie"],
+            },
+            "chn-iris-thread": {
+              id: "chn-iris-thread",
+              kind: "thread",
+              title: "Thread · iris-architecture",
+              visibility: "workspace",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "fable", "talkie"],
+              parentConversationId: "chn-iris",
+              messageId: "msg-anchor",
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationMessage({
+      conversationId: "chn-iris",
+      senderId: "operator",
+      body: "Keep the first slice simple.",
+      notifyParticipantAgents: true,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    const messagePost = requests.find((request) => request.path === "/v1/messages");
+
+    expect(result.invokedTargets).toEqual([]);
+    expect(result.notifiedTargets).toEqual(["fable", "talkie"]);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+    expect(messagePost?.body).toMatchObject({
+      audience: { notify: ["fable", "talkie"], reason: "conversation_visibility" },
+      metadata: {
+        deliveryIntent: "group_message",
+        relayTargetIds: ["fable", "talkie"],
+      },
+    });
+
+    requests.length = 0;
+    const threadResult = await sendScoutConversationMessage({
+      conversationId: "chn-iris-thread",
+      senderId: "operator",
+      body: "Keep this in the child thread.",
+      notifyParticipantAgents: true,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    const threadMessagePost = requests.find((request) => request.path === "/v1/messages");
+
+    expect(threadResult.invokedTargets).toEqual([]);
+    expect(threadResult.notifiedTargets).toEqual(["fable", "talkie"]);
+    expect(requests.some((request) => request.path === "/v1/invocations")).toBe(false);
+    expect(threadMessagePost?.body).toMatchObject({
+      conversationId: "chn-iris-thread",
+      audience: { notify: ["fable", "talkie"], reason: "conversation_visibility" },
+    });
+  }, 15000);
+
   test("appends operator contributions to the existing conversation", async () => {
     const home = useIsolatedOpenScoutHome();
     const requests: Array<{ method: string; path: string; body?: any }> = [];
@@ -784,6 +885,12 @@ describe("sendScoutConversationSteer", () => {
       conversationId: "c.hudson-narrative",
       senderId: "operator",
       body: "Who has next?",
+      steerContextByTargetAgentId: {
+        "hudson.main.mini": {
+          runId: "run:flight:flt-hudson-active",
+          flightId: "flt-hudson-active",
+        },
+      },
       currentDirectory: home,
       source: "scout-web",
     });
@@ -830,6 +937,8 @@ describe("sendScoutConversationSteer", () => {
           intent: "steer",
           relayTarget: "hudson.main.mini",
           relayMessageId: messagePost.id,
+          parentRunId: "run:flight:flt-hudson-active",
+          steeredFlightId: "flt-hudson-active",
         }),
       }),
       expect.objectContaining({
@@ -908,6 +1017,66 @@ describe("sendScoutConversationSteer", () => {
           sourceIntent: "direct_message",
           relayMessageId: tellMessagePost.id,
         }),
+      });
+
+    requests.length = 0;
+    const invokeResult = await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "Review the current implementation.",
+      targetParticipantIds: ["hudson.main.mini"],
+      intent: "invoke",
+      execution: { harness: "claude", model: "opus-test" },
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(invokeResult).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.hudson-narrative",
+      invokedTargets: ["hudson.main.mini"],
+    });
+    const invokeMessagePost = requests.find((request) => request.path === "/v1/messages")?.body;
+    expect(invokeMessagePost).toMatchObject({
+      conversationId: "c.hudson-narrative",
+      metadata: expect.objectContaining({
+        intent: "invoke",
+      }),
+    });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({
+        targetAgentId: "hudson.main.mini",
+        action: "consult",
+        conversationId: "c.hudson-narrative",
+        messageId: invokeMessagePost.id,
+        execution: {
+          session: "existing",
+          targetSessionId: "relay-hudson-claude",
+          harness: "claude",
+          model: "opus-test",
+        },
+        labels: ["invoke"],
+        metadata: expect.objectContaining({
+          intent: "invoke",
+          relayMessageId: invokeMessagePost.id,
+        }),
+      });
+
+    requests.length = 0;
+    await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "",
+      attachments: [{ id: "att-only", mediaType: "image/png", data: "aW1hZ2U=" }],
+      targetParticipantIds: ["hudson.main.mini"],
+      intent: "invoke",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({
+        task: "Review the attached message.",
+        conversationId: "c.hudson-narrative",
       });
   }, 15000);
 

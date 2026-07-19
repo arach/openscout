@@ -7,5 +7,7 @@ export * from "./Glyph";
 export * from "./data";
 export * from "./primitives";
 export * from "./surfaces";
+export * from "./fleet-surface";
+export * from "./fleet-log-surface";
 export * from "./PhoneShell";
 export * from "./detail-surfaces";

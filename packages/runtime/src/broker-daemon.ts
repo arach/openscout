@@ -130,7 +130,11 @@ import { BrokerManagedSessionService } from "./broker-managed-session-service.js
 import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-service.js";
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
-import { cardlessSessionDisplayName, registerCardlessSession } from "./broker-cardless-session.js";
+import {
+  cardlessSessionDisplayName,
+  registerCardlessSession,
+  resolveCardlessSessionSpawnTarget,
+} from "./broker-cardless-session.js";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
@@ -872,7 +876,9 @@ async function createCardlessProjectSessionForDelivery(input: {
   void input.createdAt;
   const projectRoot = resolve(expandHomePath(input.projectPath));
   const requestedHarness = input.execution?.harness;
-  const { harness, transport } = resolveCardlessSpawnTarget(requestedHarness);
+  const { harness, transport } = resolveCardlessSessionSpawnTarget(requestedHarness, {
+    claudeTransport: process.env.OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT,
+  });
   const launchArgs = launchArgsForCardlessSession(harness, input.execution);
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;
@@ -928,32 +934,6 @@ async function createCardlessProjectSessionForDelivery(input: {
       nodeId: endpoint.nodeId,
     },
   };
-}
-
-// Harnesses the broker can auto-spawn for a cardless project session, and the
-// transport each one runs on. Grok always runs over ACP — the interactive CLI
-// has no spawnable transport and tmux is not a fallback here. Anything else
-// must fail loudly: silently substituting claude leaves the ask parked forever
-// on an endpoint that can never match the requested harness.
-function resolveCardlessSpawnTarget(requestedHarness: string | undefined): {
-  harness: AgentHarness;
-  transport: "codex_app_server" | "grok_acp" | "claude_stream_json";
-} {
-  switch (requestedHarness ?? "claude") {
-    case "codex":
-      return { harness: "codex", transport: "codex_app_server" };
-    case "grok":
-    case "grok-acp":
-      return { harness: "grok-acp", transport: "grok_acp" };
-    case "claude":
-      return { harness: "claude", transport: "claude_stream_json" };
-    default:
-      throw new Error(
-        `cannot auto-spawn a session for harness "${requestedHarness}"; `
-        + `supported: claude, codex, grok (runs over ACP). `
-        + `Bring a worker online first (scout up) to use other harnesses.`,
-      );
-  }
 }
 
 function launchArgsForCardlessSession(
@@ -1240,6 +1220,7 @@ const brokerService = createBrokerCoreService({
   threadEvents,
   isReconciledStaleFlightActivityItem,
   readChildServices: () => webControl.readChildServiceSnapshots(),
+  readProjectionStatus: () => projection.statusSnapshot(),
   readHome: () => homeService.read(),
   readCapabilities: readBrokerCapabilityMatrixSnapshot,
   executeCommand: handleCommand,

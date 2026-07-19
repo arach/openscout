@@ -49,6 +49,18 @@ Before your first release, make sure the following are set up locally.
   ```
 - Verify the profile: `xcrun notarytool history --keychain-profile notarytool`.
 
+### Sparkle update signing
+
+- Generate the updater key once with Sparkle's
+  `generate_keys --account openscout` tool.
+- Keep the private key in the login Keychain under the `openscout` account.
+- Back it up as the GitHub Production secret
+  `OPENSCOUT_SPARKLE_PRIVATE_KEY`; never commit or log it.
+- Keep `OPENSCOUT_SPARKLE_ACCOUNT=openscout` and
+  `OPENSCOUT_SPARKLE_PUBLIC_KEY` configured as Production variables.
+- `scripts/update-appcast.mjs` refuses to sign when the configured signer and
+  `SUPublicEDKey` differ.
+
 Overrides:
 
 - `OPENSCOUT_SIGN_IDENTITY` — pick a specific identity instead of the

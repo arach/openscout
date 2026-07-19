@@ -451,6 +451,8 @@ function formatBrokerStatus(status: BrokerServiceStatus): string {
     `loaded: ${status.loaded ? "yes" : "no"}`,
     `reachable: ${status.reachable ? "yes" : "no"}`,
     `health: ${status.health.ok ? "ok" : status.health.error ?? "unreachable"}`,
+    `runtime freshness: ${status.runtimeFreshness?.state ?? "unavailable"}`,
+    ...(status.runtimeFreshness ? [`runtime detail: ${status.runtimeFreshness.detail}`] : []),
   ].join("\n");
 }
 
@@ -475,11 +477,15 @@ function formatDoctor(report: {
     `Broker service adapter: ${report.broker.serviceAdapter ?? "unknown"}`,
     `Broker URL: ${report.broker.brokerUrl}`,
     `Broker reachable: ${report.broker.reachable ? "yes" : "no"}`,
+    `Runtime freshness: ${report.broker.runtimeFreshness?.state ?? "unavailable"}`,
     `Known runtimes: ${report.catalog.entries.length}`,
     `Onboarding needed: ${report.onboarding.needed ? "yes" : "no"}`,
   ];
   if (report.nativeRepairs.requested) {
     lines.push(`Native repairs: ${report.nativeRepairs.detail}`);
+  }
+  if (report.broker.runtimeFreshness) {
+    lines.push(`Runtime detail: ${report.broker.runtimeFreshness.detail}`);
   }
   return lines.join("\n");
 }

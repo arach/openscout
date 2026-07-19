@@ -7,6 +7,7 @@ import { ProjectsRail, ProjectsScreen, ProjectsThreadAside } from "./projects/in
 import { BriefingsContent } from "./briefings/index.ts";
 import { BrokerContent } from "./broker/index.ts";
 import { ChatContent, ChatLeft, ChatRight } from "./chat/index.ts";
+import { CodeContent } from "./code/index.ts";
 import { FollowContent } from "./follow/index.ts";
 import { HarnessesContent } from "./harnesses/index.ts";
 import { HomeContent, HomeLeft, HomeRight } from "./home/index.ts";
@@ -76,6 +77,8 @@ export function resolveContentPane(
       return <MeshContent route={route} navigate={navigate} />;
     case "broker":
       return <BrokerContent route={route} navigate={navigate} />;
+    case "code":
+      return <CodeContent route={route} navigate={navigate} />;
     case "repos":
     case "repo-diff":
       return <ReposContent route={route} navigate={navigate} />;

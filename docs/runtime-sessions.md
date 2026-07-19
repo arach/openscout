@@ -286,8 +286,13 @@ For a different repo, callers should provide `projectPath` / `--project` plus
 optional `harness` / `--harness`. This is a capability request, not an identity
 request: the broker chooses or creates a compatible worker, returns durable
 handles (`ref`, `flightId`, `conversationId`, `workId`, `sessionId`), and may
-return a friendly mnemonic handle. Follow-up uses those handles; a persistent
+return a situated target handle. Follow-up uses those handles; a persistent
 name/pin is an explicit promotion after the worker is known good.
+
+When the broker exposes a friendly situated target, the human-typed form is
+`target:<handle>`. Agent-authored prompts and compact UI may render the same
+handle as `⌖handle`. Use this for "get back to that useful situation" shorthand.
+Use `session:<harness>:<native-id>` only for exact raw harness continuation.
 
 ## Ask Targets And Reply Sessions
 

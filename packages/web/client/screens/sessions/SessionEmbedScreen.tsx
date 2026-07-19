@@ -31,11 +31,11 @@ type SessionRefObservePayload =
   | {
       kind: "broker" | "history" | "tail";
       refId: string;
-      agentId: null;
+      agentId: string | null;
       source: string;
       fidelity: string;
       historyPath: string | null;
-      sessionId: string;
+      sessionId: string | null;
       updatedAt: number;
       data: ObserveData;
     };

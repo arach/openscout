@@ -255,8 +255,8 @@ export function ScoutbotChipPopover({
                   type="button"
                   className="s-scoutbot-popover-icon-btn"
                   onClick={handleAction(() => actions.askReminderStatus({ id: reminder.id, body: reminder.body }))}
-                  title="Ask status"
-                  aria-label="Ask status"
+                  title="Run status"
+                  aria-label="Run status"
                 >
                   <Radio size={11} />
                 </button>
@@ -316,7 +316,7 @@ export function ScoutbotChipPopover({
               onClick={handleAction(actions.triggerAskState)}
             >
               <Radio size={11} />
-              <span>Ask state</span>
+              <span>Run state</span>
             </button>
             <button
               type="button"

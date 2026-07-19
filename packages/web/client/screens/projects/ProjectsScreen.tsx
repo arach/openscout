@@ -1,5 +1,8 @@
 import type { Route } from "../../lib/types.ts";
+import { useScout } from "../../scout/Provider.tsx";
+import { defineSurface } from "../../surfaces/types.ts";
 import { ProjectsInbox } from "./ProjectsInbox.tsx";
+import { ProjectsRail } from "./ProjectsRail.tsx";
 import { ProjectAgentProfile } from "./ProjectAgentProfile.tsx";
 import { isProjectAgentProfileRoute } from "./model.ts";
 import "./projects.css";
@@ -28,6 +31,40 @@ export function ProjectsScreen({
     </div>
   );
 }
+
+export function ProjectsEmbedScreen({
+  navigate,
+}: {
+  navigate: (route: Route) => void;
+  embedded?: boolean;
+}) {
+  const { route } = useScout();
+  const projectsRoute: Extract<Route, { view: "agents-v2" }> = route.view === "agents-v2"
+    ? route
+    : { view: "agents-v2" };
+
+  return (
+    <div className="pi-projectsEmbedShell">
+      <ProjectsRail route={projectsRoute} navigate={navigate} />
+      <ProjectsScreen route={projectsRoute} navigate={navigate} />
+    </div>
+  );
+}
+
+export const scoutSurface = defineSurface({
+  id: "projects",
+  label: "Projects",
+  route: { view: "agents-v2" },
+  webPath: "/projects",
+  screen: "ProjectsEmbedScreen",
+  embed: {
+    path: "/embed/projects",
+    profile: "macos.projects",
+    rootClassName: "s-projects-embed",
+    chrome: { showSecondaryNav: false, showPageStatusBar: false },
+    hosts: { macos: true },
+  },
+});
 
 function projectsZeroPreviewEnabled(): boolean {
   if (typeof window === "undefined") return false;

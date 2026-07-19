@@ -1,36 +1,16 @@
 import type { SecondaryNavGroup } from "../components/SecondaryNav.tsx";
 
+// Agents is a top-level tab (Projects); its only remaining sub-page is the
+// configuration surface. Directory (.deprecated) and Sessions left the subnav —
+// the route stays alive, the nav entry does not.
 export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
-      {
-        id: "projects",
-        label: "Projects",
-        route: { view: "agents-v2" },
-        active: (route) => route.view === "agents-v2",
-      },
-      {
-        id: "directory-deprecated",
-        label: "Directory .deprecated",
-        route: { view: "agents" },
-        active: (route) => route.view === "agents" || route.view === "agent-info",
-        hideInLean: true,
-      },
-      {
-        id: "sessions",
-        label: "Sessions",
-        route: { view: "sessions" },
-        active: (route) => route.view === "sessions",
-        // Lean promotes Sessions to the primary bar, so the subnav entry only
-        // renders in the full nav.
-        hideInLean: true,
-      },
       {
         id: "config",
         label: "Config",
         route: { view: "settings", section: "agents" },
         active: (route) => route.view === "settings" && route.section === "agents",
-        hideInLean: true,
       },
     ],
   },
@@ -53,36 +33,25 @@ export const CHAT_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Channels",
         route: { view: "channels" },
         active: (route) => route.view === "channels",
-        // Lean view is one unified conversations area — no DM/channel split.
-        hideInLean: true,
       },
     ],
   },
 ];
 
+/** Search is a single surface; /search/indexer keeps resolving to the same page. */
 export const SEARCH_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
       {
         id: "knowledge",
-        label: "Knowledge",
-        route: { view: "search", mode: "knowledge" },
-        active: (route) => route.view === "search" && (route.mode === undefined || route.mode === "knowledge"),
-      },
-      {
-        id: "indexer",
-        label: "Indexer",
-        route: { view: "search", mode: "indexer" },
-        active: (route) => route.view === "search" && route.mode === "indexer",
+        label: "Search",
+        route: { view: "search" },
+        active: (route) => route.view === "search",
       },
     ],
   },
 ];
 
-// In the lean view the ops surfaces (Tail/Dispatch/Repos promoted to the top
-// nav; Control/Mesh/Providers/Runtime/Plans tucked behind the palette) are all
-// one level — so every item is `hideInLean`. The bar collapses to nothing and
-// `.s-ops-header:empty` drops the empty chrome. The full bar returns in max-pro.
 export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
@@ -91,65 +60,62 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Lanes",
         route: { view: "ops", mode: "lanes" },
         active: (route) => route.view === "ops" && route.mode === "lanes",
-        hideInLean: true,
       },
       {
         id: "control",
-        label: "Control",
+        label: "Mission Control",
         route: { view: "ops", mode: "mission" },
         active: (route) =>
           route.view === "ops" &&
           (route.mode === undefined || route.mode === "mission" || route.mode === "issues"),
-        hideInLean: true,
       },
       {
         id: "dispatch",
         label: "Dispatch",
         route: { view: "broker" },
         active: (route) => route.view === "broker",
-        hideInLean: true,
       },
       {
         id: "repos",
         label: "Repos",
         route: { view: "repos" },
         active: (route) => route.view === "repos",
-        hideInLean: true,
+      },
+      {
+        id: "code",
+        label: "Code",
+        route: { view: "code" },
+        active: (route) => route.view === "code",
       },
       {
         id: "harnesses",
         label: "Providers",
         route: { view: "harnesses" },
         active: (route) => route.view === "harnesses",
-        hideInLean: true,
       },
       {
         id: "mesh",
         label: "Mesh",
         route: { view: "mesh" },
         active: (route) => route.view === "mesh",
-        hideInLean: true,
       },
       {
         id: "tail",
         label: "Tail",
         route: { view: "ops", mode: "tail" },
         active: (route) => route.view === "ops" && route.mode === "tail",
-        hideInLean: true,
       },
       {
         id: "runtime",
         label: "Runtime",
         route: { view: "ops", mode: "atop" },
         active: (route) => route.view === "ops" && route.mode === "atop",
-        hideInLean: true,
       },
       {
         id: "plans",
         label: "Plans",
         route: { view: "ops", mode: "plan" },
         active: (route) => route.view === "ops" && route.mode === "plan",
-        hideInLean: true,
       },
     ],
   },

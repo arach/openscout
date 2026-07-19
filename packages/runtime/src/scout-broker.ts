@@ -436,15 +436,25 @@ function renderScoutTargetLabel(targetLabel: string): string {
   if (!trimmed) {
     return "";
   }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return `@${trimmed}`;
 }
 
 function scoutTargetDiagnosticFromDeliveryFailure(
   delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>,
 ): ScoutTargetDiagnostic | undefined {
-  const dispatch: ScoutDispatchRecord = delivery.kind === "question"
+  const dispatch = (delivery.kind === "question"
     ? delivery.question
-    : delivery.rejection;
+    : delivery.rejection) as ScoutDispatchRecord | undefined;
+  if (!dispatch) {
+    return undefined;
+  }
 
   if (dispatch.kind === "ambiguous") {
     return {

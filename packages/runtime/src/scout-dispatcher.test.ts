@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { isolateOpenScoutUserDataForTests } from "./test-user-data-isolation.ts";
+
+isolateOpenScoutUserDataForTests();
+
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -185,6 +189,92 @@ describe("resolveAgentLabel", () => {
     if (result.kind === "resolved_session") {
       expect(result.session.actorId).toBe(sessionId);
     }
+  });
+
+  test("resolves target handles to saved session aliases", () => {
+    const sessionId = "session-mw-talkie-1";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-mw-talkie",
+          agentId: sessionId,
+          harness: "codex",
+          projectRoot: "/Users/art/dev/talkie",
+          metadata: { cardless: true, handle: "project-mw-talkie" },
+        }),
+      ],
+      {},
+      {
+        [sessionId]: makeSessionActor({
+          id: sessionId,
+          handle: "project-mw-talkie",
+          displayName: "Mission Writer Talkie",
+        }),
+      },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "target_handle", handle: "mw-talkie", value: "target:mw-talkie" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(sessionId);
+    }
+  });
+
+  test("resolves target label text to saved session aliases", () => {
+    const sessionId = "session-mw-talkie-1";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-mw-talkie",
+          agentId: sessionId,
+          harness: "codex",
+          projectRoot: "/Users/art/dev/talkie",
+          metadata: { cardless: true, handle: "project-mw-talkie" },
+        }),
+      ],
+      {},
+      {
+        [sessionId]: makeSessionActor({
+          id: sessionId,
+          handle: "project-mw-talkie",
+          displayName: "Mission Writer Talkie",
+        }),
+      },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { targetLabel: "target:mw-talkie" },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(sessionId);
+    }
+  });
+
+  test("does not treat unknown target handles as fresh agent labels", () => {
+    const agent = makeAgent({ id: "agent-mw-talkie", definitionId: "mw-talkie", handle: "mw-talkie" });
+    const snapshot = makeSnapshot([agent]);
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "target_handle", handle: "mw-talkie", value: "target:mw-talkie" } },
+      { helpers },
+    );
+
+    expect(result).toMatchObject({
+      kind: "unknown",
+      label: "target:mw-talkie",
+    });
   });
 
   test("resolves repeated cardless handles to the latest reachable session", () => {

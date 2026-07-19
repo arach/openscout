@@ -153,7 +153,7 @@ export function routingPreview(input: {
   projectRootLabel: string;
 }): RoutingPreview {
   const { handle, persistence, harness, projectRootLabel } = input;
-  const note = "A card starts a fresh session each ask. Use session:<id> only to continue an exact run.";
+  const note = "A card starts a fresh session for each request. Use session:<id> only to continue an exact run.";
 
   if (persistence === "one_time") {
     return {

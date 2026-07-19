@@ -217,7 +217,8 @@ struct ScoutPendingFlightStatus: Decodable, Sendable {
 /// The selected conversation's current in-flight turn, surfaced inline in the
 /// thread so a new or slow session shows progress without opening Observe.
 /// `summary` is the flight's coarse status ("claude acknowledged"); `detail` is
-/// the agent's latest observe event ("Running grep") when one is live.
+/// the agent's latest observe event ("Running grep") when one is live. Organic
+/// harness work without a Scout flight uses the observe activity directly.
 struct ScoutActiveTurn: Equatable, Sendable {
     let agentName: String
     let state: String          // queued | waking | running | waiting

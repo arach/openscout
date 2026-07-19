@@ -41,8 +41,9 @@ commands; here are the semantics:
 - **A capability request** names a project path plus an optional harness; the
   broker picks or creates the worker. Prefer this over guessing a concrete handle.
 - **Continuity** rides a returned handle — a `ref`, `flightId`, `conversationId`,
-  `workId`, or `session:<id>`. Follow up by handle; do not re-derive the target
-  from body text or re-guess a name.
+  `workId`, `target:<name>`, or `session:<id>`. Follow up by handle; do not
+  re-derive the target from body text or re-guess a name. `target:<name>` is the
+  human-typed saved situation; `⌖name` is the compact agent/UI shorthand.
 
 Message body text is payload, never routing metadata. State the target in an
 explicit field and keep the body for the human-readable request.
@@ -234,6 +235,7 @@ an operator opens a request into Scout in the first place, see
 6. A one-to-one delegation stays in its DM; it never leaks to a channel or
    broadcast.
 7. Follow-up rides the handles the broker returned — `ref`, `flightId`,
-   `conversationId`, `workId`, `session:<id>` — never a re-guessed name.
+   `conversationId`, `workId`, `target:<name>`, `session:<id>` — never a
+   re-guessed name.
 8. Work-state transitions are broker-recorded, not inferred; routing history is
    reconstructable from durable records, not from terminal scrollback.

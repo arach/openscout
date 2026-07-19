@@ -50,9 +50,11 @@ const AGENTS: Agent[] = [
 
 const THREAD: ThreadMessage[] = [
   { side: "in",  who: "atlas",  body: "pr-1287 ready when you are — schema migration touches the broker tables." },
-  { side: "in",  who: "hudson", body: "on it. running the test plane locally first.", delay: 1300 },
-  { side: "in",  who: "hudson", body: "ci green. merging.", delay: 2400 },
-  { side: "sys", who: "system", kind: "flight", body: "flight.complete · hudson · pr-1287", delay: 800 },
+  { side: "in",  who: "hudson", body: "two specs assume the old schema — drop them, or rewrite against v2?", delay: 1400 },
+  { side: "sys", who: "system", kind: "warn", body: "ask · hudson needs a decision", delay: 900 },
+  { side: "out", who: "you",    body: "rewrite against v2. old schema is gone once this lands.", delay: 2100 },
+  { side: "in",  who: "hudson", body: "on it. rewriting both, re-running the suite.", delay: 1400 },
+  { side: "sys", who: "system", kind: "flight", body: "flight.complete · hudson · pr-1287", delay: 2400 },
   { side: "in",  who: "atlas",  body: "nice. release notes drafted — want me to push?", delay: 1500 },
   { side: "out", who: "you",    body: "yes. and ping @echo to publish.", delay: 1800 },
   { side: "sys", who: "system", kind: "inv", body: "invocation · you → echo", delay: 700 },
@@ -366,13 +368,12 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
         </span>
       </div>
 
-      <div className="scout-console__tabs" role="tablist">
+      <div className="scout-console__tabs" aria-label="Console views">
         {(["thread", "resolve", "send"] as Tab[]).map((t, i) => (
           <button
             key={t}
             type="button"
-            role="tab"
-            aria-selected={tab === t}
+            aria-pressed={tab === t}
             className={`scout-console__tab ${tab === t ? "is-on" : ""}`}
             onClick={() => setTab(t)}
           >
@@ -441,7 +442,7 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
             <div className="scout-console__thread-head">
               <span>4 agents</span>
               <span className="scout-console__dim">·</span>
-              <span className="scout-console__dim">atlas, hudson, echo</span>
+              <span>1 needs you</span>
               <span className="scout-console__dim">·</span>
               <span className="scout-console__dim">+ you</span>
             </div>
@@ -541,6 +542,13 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
       <form
         className={`scout-console__cmdbar ${composerLive ? "is-live" : ""}`}
         onSubmit={onComposerSubmit}
+        onBlur={(e) => {
+          // Close the suggestion palette only when focus leaves the command
+          // bar entirely, so rows stay reachable by keyboard.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setComposerFocused(false);
+          }
+        }}
       >
         {composerLive && grammar && suggestions.length > 0 && (
           <div className="scout-console__palette">
@@ -552,8 +560,8 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
                 key={`${grammar}-${i}-${s.label}`}
                 type="button"
                 className="scout-console__palette-row"
-                onMouseDown={(ev) => {
-                  ev.preventDefault();
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={() => {
                   setComposer(s.complete);
                   composerRef.current?.focus();
                 }}
@@ -572,7 +580,6 @@ export function ScoutConsole({ audience = "human" }: { audience?: Audience }) {
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onFocus={onComposerFocus}
-              onBlur={() => setComposerFocused(false)}
               disabled={!composerLive}
               aria-label="Message the room"
               spellCheck={false}

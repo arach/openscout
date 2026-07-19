@@ -15,8 +15,9 @@
 
 import type { GlyphKind } from "./Glyph";
 
-/** Palette variant — shipped native HudPalette vs the higher-contrast proposal. */
-export type Variant = "shipped" | "hc";
+/** Palette variant — shipped native HudPalette, the higher-contrast proposal,
+ *  or the warm-light Paper study (the "less dark" comparison palette). */
+export type Variant = "shipped" | "hc" | "paper";
 /**
  * The study surfaces. The first four are top-level tab content; the rest are
  * detail/sheet surfaces (custom header, often no tab bar) reached by push or
@@ -68,6 +69,32 @@ export const SCOUT_IOS_CSS = `
   --i-card-edge-top: #46484f; --i-card-edge-bottom: #303030;
   --i-wash-top: #0c0c0d; --i-wash-bottom: #040405; --i-keylight: rgba(255,255,255,0.055);
 }
+
+/* ── Paper — warm light study palette (the "less dark" comparison) ────── */
+/* Warm grays (R>G>B, per the macOS Paper preset direction), emerald-600
+   accent for contrast on light. Additive: shipped/hc stay the baseline.
+   Tuned for hairline legibility + soft ink-tinted lift (not black glass). */
+.scoutios[data-v="paper"] {
+  --i-bg: #f1efe9; --i-surface: #fbfaf7; --i-chrome: #ebe8e2;
+  --i-ink: #1f1d19; --i-muted: #6a6660; --i-dim: #968f85;
+  --i-border: #d6d1c7; --i-hairline: #e2ddd4; --i-hairline-strong: #cdc7bc;
+  --i-accent: #059669; --i-accent-2: #10b981; --i-accent-soft: rgba(5,150,105,0.09);
+  --i-ok: #16a34a; --i-warn: #b45309; --i-error: #b91c1c; --i-info: #2563eb;
+  --i-card-top: #fffcf8; --i-card-bottom: #f5f3ee;
+  --i-card-edge-top: #ffffff; --i-card-edge-bottom: #d2cdc3;
+  --i-wash-top: #f7f5f0; --i-wash-bottom: #e7e3db; --i-keylight: rgba(255,255,255,0.92);
+}
+/* paper: layered ink-tinted shadows, hairline tab edge — warm, not sooty */
+.scoutios[data-v="paper"] .iCard { box-shadow: inset 0 1px 0 var(--i-card-edge-top),
+  0 1px 2px rgba(62,56,44,0.05), 0 6px 14px -6px rgba(62,56,44,0.09); }
+.scoutios[data-v="paper"] .iTabs { border-top-color: var(--i-hairline-strong);
+  box-shadow: 0 -3px 10px rgba(62,56,44,0.04); }
+.scoutios[data-v="paper"] .iStatusBar { border-top-color: var(--i-hairline-strong); }
+.scoutios[data-v="paper"] .iFleetAskWell { box-shadow: inset 0 1px 2px rgba(62,56,44,0.06); }
+.scoutios[data-v="paper"] .iHomeBar { background: #55524b; }
+/* paper mic/send: soft keylit face instead of dark-glass inset */
+.scoutios[data-v="paper"] .iMic, .scoutios[data-v="paper"] .iSend {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.75), 0 1px 2px rgba(62,56,44,0.05); }
 
 /* ── Phone frame ─────────────────────────────────────────────────────── */
 /* iPhone 17 Pro — screen 402×874pt, display corner radius 55, Dynamic Island */
@@ -345,6 +372,236 @@ export const SCOUT_IOS_CSS = `
 .iSbDot { font-size: 9px; color: var(--i-dim); font-family: var(--i-mono); }
 .iHomeBar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
   width: 139px; height: 5px; border-radius: 3px; background: var(--i-muted); opacity: 0.5; z-index: 4; }
+
+/* ── Fleet home (responsive) ───────────────────────────────────────────── */
+/* One component, two formats via container queries: the phone default keeps
+   EVERY element to a single line (inline stat run + mini sparkline, one-line
+   lane rows, a one-line ask strip); the wide stage (≥600px container — the
+   iPad frame) opens into the dashboard: big numerals, lanes beside an
+   Ask-the-fleet rail with the live fleet log. Same markup, no forks. */
+.iFleet { container-type: inline-size; }
+
+/* stat band — phone: one inline run + mini sparkline */
+.iFleetStats { display: flex; align-items: center; gap: 10px; padding: 8px 4px 4px; }
+.iFleetStat { display: inline-flex; align-items: baseline; gap: 5px; flex: none; }
+.iFleetNum { font-size: 15px; font-weight: 700; font-family: var(--i-mono); color: var(--i-ink);
+  letter-spacing: -0.02em; }
+.iFleetStat.hot .iFleetNum { color: var(--i-accent); }
+.iFleetStatCap { font-size: 8.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); white-space: nowrap; }
+.iFleetSpark { flex: 1; min-width: 40px; height: 20px; }
+/* Stat separators — inert by default; crisp language turns them on for the
+   phone inline run (wide hides them again once numerals stack). */
+.iFleetStatSep { display: none; }
+
+/* lane headers */
+.iFleetLaneHead { display: flex; align-items: center; gap: 7px; padding: 9px 4px 5px; }
+.iFleetLaneLabel { font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-muted); }
+.iFleetLaneCount { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
+.iFleetCard.hot { border-color: color-mix(in oklab, var(--i-accent) 26%, var(--i-card-edge-bottom)); }
+
+/* one row = one line, always */
+.iFleetRow { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-width: 0; }
+.iFleetName { font-size: 12.5px; font-weight: 600; color: var(--i-ink); flex: none; max-width: 104px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iFleetName.dim { color: var(--i-muted); font-weight: 500; }
+.iFleetDetail { flex: 1; min-width: 0; font-size: 11.5px; color: var(--i-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iFleetDetail.mono { font-size: 10.5px; font-family: var(--i-mono); }
+.iFleetRow.dim .iFleetDetail { color: var(--i-dim); }
+.iFleetTok { display: none; font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em;
+  font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iFleetAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iFleetAge.live { color: var(--i-accent); }
+
+/* ask-the-fleet — phone: folded to a one-line docked strip */
+.iFleetAsk { margin-top: 10px; }
+.iFleetAskHead, .iFleetAskPickers, .iFleetAskWell { display: none; }
+.iFleetAskRow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 13px;
+  background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
+.iFleetAskHint { flex: 1; font-size: 12.5px; color: var(--i-dim); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.iFleetLog { display: none; }
+
+/* wide — the iPad stage: numerals, two columns, full ask rail + fleet log */
+@container (min-width: 600px) {
+  .iFleetStats { gap: 26px; padding: 12px 6px 8px; }
+  .iFleetStat { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .iFleetNum { font-size: 30px; line-height: 1; }
+  .iFleetSpark { height: 40px; max-width: 260px; flex: 1; margin-left: auto; align-self: flex-end; }
+  .iFleetGrid { display: grid; grid-template-columns: 1fr 250px; gap: 16px; align-items: start; }
+  .iFleetTok { display: inline; }
+  .iFleetName { max-width: 150px; font-size: 13px; }
+  .iFleetDetail { font-size: 12px; }
+  .iFleetRow { padding: 9px 13px; }
+  .iFleetAsk { margin-top: 9px; padding: 12px; border-radius: 14px; background: var(--i-surface);
+    border: 1px solid var(--i-hairline-strong); }
+  .iFleetAskHead { display: flex; padding: 0 0 8px; }
+  .iFleetAskPickers { display: flex; gap: 6px; padding-bottom: 8px; }
+  .iFleetPicker { font-size: 10px; font-weight: 700; font-family: var(--i-mono); letter-spacing: 0.05em;
+    color: var(--i-muted); padding: 4px 9px; border-radius: 7px; border: 1px solid var(--i-hairline-strong);
+    display: inline-flex; align-items: center; gap: 5px; }
+  .iFleetPicker i { font-style: normal; font-size: 8px; color: var(--i-dim); }
+  .iFleetPicker.on { color: var(--i-accent); background: var(--i-accent-soft);
+    border-color: color-mix(in oklab, var(--i-accent) 40%, transparent); }
+  .iFleetAskWell { display: block; font-size: 12px; color: var(--i-dim); line-height: 1.45;
+    min-height: 62px; padding: 9px 11px; border-radius: 10px; background: var(--i-bg);
+    border: 1px solid var(--i-hairline); box-shadow: inset 0 1px 2px rgba(0,0,0,0.3); margin-bottom: 9px; }
+  .iFleetAskRow { padding: 0; border: none; background: transparent; border-radius: 0; }
+  .iFleetAskHint { display: none; }
+  .iFleetAskRow .iMic { margin-right: auto; }
+  .iFleetLog { display: block; margin-top: 14px; }
+  .iFleetLogRow { display: flex; align-items: baseline; gap: 7px; padding: 4px 2px; font-family: var(--i-mono); }
+  .iFleetLogTime { font-size: 9px; color: var(--i-dim); flex: none; }
+  .iFleetLogSrc { font-size: 9px; font-weight: 700; color: var(--i-muted); flex: none; }
+  .iFleetLogText { font-size: 10px; color: var(--i-muted); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+}
+
+/* ── Fleet home · Log (chart + quota strip, one flat activity log) ──────── */
+/* A calmer Home. The top is a compact strip of the two glance-values that
+   help — a mini activity chart and each subscription's spent windows (short 5h
+   + long weekly) — and the whole body is ONE flat log: no cards, no lanes, no
+   dividing sections. Responsive via the same container-query idiom: the phone
+   fits three strip segments across; the iPad stage gives them more air (bigger
+   chart, per-window resets) and the flat log full width. */
+/* fixed top (strip + notifications) · scrolling activity log · fixed bottom
+   (terminals) — a proper app column so both shelves stay put and the log flexes */
+.iLog { container-type: inline-size; padding-top: 4px; height: 100%;
+  display: flex; flex-direction: column; }
+
+/* top strip — activity · Claude · Codex, split by hairlines, closed with a
+   single hairline before the log */
+.iStrip { flex: none; display: flex; align-items: stretch; padding: 8px 2px 12px;
+  border-bottom: 1px solid var(--i-hairline); }
+.iStripSeg { flex: 1.1; min-width: 0; display: flex; flex-direction: column;
+  padding: 1px 10px; border-left: 1px solid var(--i-hairline); }
+.iStripSeg:first-child { padding-left: 2px; border-left: none; }
+.iStripSeg--chart { flex: 0.85; }
+.iStripHead { display: flex; align-items: baseline; gap: 5px; margin-bottom: 7px; min-width: 0; }
+.iStripLabel { font-size: 9px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-muted); flex: none; }
+.iStripPlan { font-size: 7.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+
+/* mini activity chart — fills the segment height under its label */
+.iChartSpark { width: 100%; flex: 1; min-height: 30px; display: block; }
+
+/* subscription windows — short (5h) + long (weekly), thin meters, single accent,
+   amber once a window is nearly spent (≥80%). Reset hidden on the tight phone. */
+.iWins { display: flex; flex-direction: column; gap: 6px; }
+.iWin { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.iWinLabel { font-size: 8.5px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim);
+  flex: none; width: 14px; }
+.iWinTrack { flex: 1; min-width: 12px; height: 3px; border-radius: 999px;
+  background: var(--i-hairline-strong); overflow: hidden; }
+.iWinFill { height: 100%; border-radius: 999px; background: var(--i-accent); }
+.iWinFill[data-hot] { background: var(--i-warn); }
+.iWinPct { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-accent);
+  flex: none; min-width: 24px; text-align: right; }
+.iWinPct[data-hot] { color: var(--i-warn); }
+.iWinReset { display: none; font-size: 8.5px; font-family: var(--i-mono); color: var(--i-dim);
+  flex: none; min-width: 22px; text-align: right; }
+
+/* ── Home shelves — recent notifications (top) + terminals (bottom) ─────── */
+/* Two horizontal shelves that bracket the flat log: notifications just under
+   the strip, terminals docked at the bottom. Each is a labelled header + a
+   horizontal scroller of fixed-width tiles. */
+.iShelf { flex: none; }
+.iShelf--notifs { padding: 9px 0 4px; border-bottom: 1px solid var(--i-hairline); }
+.iShelf--terms { padding: 7px 0 2px; border-top: 1px solid var(--i-hairline); }
+.iShelfHead { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; color: var(--i-dim); }
+.iShelfLabel { font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-muted); }
+.iShelfCount { font-size: 9px; font-weight: 700; font-family: var(--i-mono); color: var(--i-dim); }
+.iShelfRow { display: flex; gap: 8px; overflow-x: auto; padding: 1px 2px 4px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.iShelfRow::-webkit-scrollbar { display: none; }
+
+/* notification chip */
+.iNotif { flex: none; width: 186px; position: relative; padding: 7px 10px 8px 11px;
+  border-radius: 11px; background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
+.iNotif::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px;
+  border-radius: 999px; background: transparent; }
+.iNotif[data-fresh]::before { background: var(--i-accent); }
+.iNotifTop { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
+.iNotifAgent { flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; color: var(--i-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iNotifAge { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iNotifAge.live { color: var(--i-accent); }
+.iNotifBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.iNotifKind { font-size: 8px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iNotifKind[data-hot] { color: var(--i-warn); }
+.iNotifText { flex: 1; min-width: 0; font-size: 10.5px; color: var(--i-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* terminal tile — mono, a darker well; a running session reads live */
+.iTerm { flex: none; width: 208px; padding: 7px 10px 8px; border-radius: 10px;
+  background: var(--i-bg); border: 1px solid var(--i-hairline-strong); }
+.iTerm[data-run] { border-color: color-mix(in oklab, var(--i-accent) 26%, var(--i-hairline-strong)); }
+.iTermTop { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; }
+.iTermCwd { flex: 1; min-width: 0; font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; font-family: var(--i-mono); color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iTermAge { font-size: 9px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iTermAge.live { color: var(--i-accent); }
+.iTermCmd { font-size: 11px; font-family: var(--i-mono); color: var(--i-ink); margin-bottom: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iTermCaret { color: var(--i-accent); margin-right: 5px; }
+.iTermLast { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* flat activity log — no cards, no lane dividers; one continuous stream */
+.iLogHead { flex: none; display: flex; align-items: center; gap: 7px; padding: 11px 2px 3px; }
+.iLogList { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.iLogList::-webkit-scrollbar { display: none; }
+.iLogRow { display: flex; align-items: center; gap: 9px; padding: 8px 4px 8px 8px; position: relative;
+  border-bottom: 1px solid var(--i-hairline); }
+.iLogRow:last-child { border-bottom: none; }
+.iLogRow::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+  border-radius: 999px; background: transparent; }
+.iLogRow[data-now]::before { background: var(--i-accent); }
+.iLogText { flex: 1; min-width: 0; font-size: 12px; color: var(--i-muted); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iLogRow[data-now] .iLogText { color: var(--i-ink); }
+.iLogSrc { font-size: 8.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iLogAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none;
+  min-width: 30px; text-align: right; }
+.iLogAge.live { color: var(--i-accent); }
+
+/* wide — the iPad stage: the strip gets air (bigger chart, per-window resets),
+   the flat log runs full width */
+@container (min-width: 600px) {
+  .iStrip { padding: 12px 4px 16px; }
+  .iStripSeg { padding: 1px 20px; }
+  .iStripSeg--chart { flex: 1; }
+  .iStripHead { margin-bottom: 10px; }
+  .iChartSpark { min-height: 56px; }
+  .iWins { gap: 9px; }
+  .iWinLabel { font-size: 9.5px; width: 16px; }
+  .iWinTrack { height: 4px; }
+  .iWinPct { font-size: 10px; min-width: 28px; }
+  .iWinReset { display: block; }
+  .iLogRow { padding: 10px 6px 10px 10px; }
+  .iLogText { font-size: 12.5px; }
+}
+
+/* ── Tablet frame (wide exhibit) ───────────────────────────────────────── */
+/* iPad landscape-ish stage for responsive treatments — same palette wash. */
+.iPad { width: 100%; max-width: 1060px; border-radius: 34px; padding: 10px;
+  background: #000; border: 1px solid #2a2a2a;
+  box-shadow: 0 30px 70px -28px rgba(0,0,0,0.85); }
+.iPadScreen { position: relative; height: 820px; border-radius: 24px; overflow: hidden;
+  font-family: var(--i-font); color: var(--i-ink); display: flex; flex-direction: column;
+  background:
+    radial-gradient(130% 55% at 50% 0%, var(--i-keylight), rgba(255,255,255,0) 62%),
+    linear-gradient(180deg, var(--i-wash-top) 0%, var(--i-bg) 36%, var(--i-wash-bottom) 100%); }
+.iPadScreen .iStatus { height: 34px; padding: 0 20px; font-size: 12.5px; }
+.iPadScreen .iBody { padding: 0 20px 10px; }
 
 /* ── Token board ─────────────────────────────────────────────────────── */
 .iBoardGroup { margin-bottom: 16px; }
@@ -626,4 +883,152 @@ export const SCOUT_IOS_CSS = `
   border: 1px solid var(--i-hairline-strong); margin: 0 0 6px 2px; }
 .iReasonChipDot { width: 4px; height: 4px; border-radius: 50%; background: var(--i-dim); }
 .iReasonChipCaret { color: var(--i-dim); font-family: var(--i-mono); }
+
+/* ── Crisp language (data-lang) — squarer · lighter-weight · quieter ───── */
+/* A comparison design language, additive over any palette: radii step down
+   (cards 16→6, fields 11→6, round chrome buttons → soft squares, pills →
+   square tags), weights drop one stop (bold numerals go light, bold names go
+   medium), and gradient card depth quiets to a single surface + 1px hairline
+   with a whisper of lift — not merely flattened. Type keeps the lighter
+   weight and recovers presence via tracking + size rhythm. Pair with Paper
+   for the warm read; flip palette to Shipped to judge geometry on dark. */
+.scoutios[data-lang="crisp"] .iCard { border-radius: 6px; background: var(--i-card-top);
+  border: 1px solid var(--i-hairline-strong);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.10), 0 4px 12px -6px rgba(0,0,0,0.14); }
+.scoutios[data-lang="crisp"] .iFleetCard.hot {
+  border-color: color-mix(in oklab, var(--i-accent) 28%, var(--i-hairline-strong));
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08),
+    0 0 0 1px color-mix(in oklab, var(--i-accent) 8%, transparent); }
+.scoutios[data-lang="crisp"] .iField, .scoutios[data-lang="crisp"] .iFleetAskRow,
+.scoutios[data-lang="crisp"] .iFleetAsk, .scoutios[data-lang="crisp"] .iEv,
+.scoutios[data-lang="crisp"] .iWorkCard, .scoutios[data-lang="crisp"] .iNewCard { border-radius: 6px; }
+.scoutios[data-lang="crisp"] .iFleetAskWell, .scoutios[data-lang="crisp"] .iNeedCmd { border-radius: 5px; }
+.scoutios[data-lang="crisp"] .iFleetPicker, .scoutios[data-lang="crisp"] .iNeedBtn,
+.scoutios[data-lang="crisp"] .iNeedOpt, .scoutios[data-lang="crisp"] .iSortBtn { border-radius: 4px; }
+.scoutios[data-lang="crisp"] .iCompose, .scoutios[data-lang="crisp"] .iGear,
+.scoutios[data-lang="crisp"] .iBackBtn, .scoutios[data-lang="crisp"] .iMic,
+.scoutios[data-lang="crisp"] .iSend { border-radius: 7px; }
+.scoutios[data-lang="crisp"] .iChip { border-radius: 5px; }
+.scoutios[data-lang="crisp"] .iPill, .scoutios[data-lang="crisp"] .iUnread,
+.scoutios[data-lang="crisp"] .iNeedCount, .scoutios[data-lang="crisp"] .iLiveInd,
+.scoutios[data-lang="crisp"] .iTabBadge { border-radius: 4px; }
+
+/* Paper × Crisp — warm hairline + ink-tinted lift (no sooty glass) */
+.scoutios[data-v="paper"][data-lang="crisp"] .iCard {
+  border-color: var(--i-hairline-strong);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72),
+    0 1px 2px rgba(62,56,44,0.045), 0 8px 18px -10px rgba(62,56,44,0.11); }
+.scoutios[data-v="paper"][data-lang="crisp"] .iFleetCard.hot {
+  border-color: color-mix(in oklab, var(--i-accent) 26%, var(--i-hairline-strong));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72),
+    0 1px 2px rgba(62,56,44,0.04),
+    0 0 0 1px color-mix(in oklab, var(--i-accent) 7%, transparent); }
+.scoutios[data-v="paper"][data-lang="crisp"] .iFleetAsk {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 2px rgba(62,56,44,0.04); }
+.scoutios[data-v="paper"][data-lang="crisp"] .iFleetAskRow {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 2px rgba(62,56,44,0.04); }
+.scoutios[data-v="paper"][data-lang="crisp"] .iRowSep {
+  background: color-mix(in oklab, var(--i-ink) 7%, transparent); }
+
+/* one weight-stop lighter — recover presence with tracking, not weight */
+.scoutios[data-lang="crisp"] .iWordmark { font-weight: 500; letter-spacing: -0.015em; }
+.scoutios[data-lang="crisp"] .iSecLabel, .scoutios[data-lang="crisp"] .iSecAll {
+  font-weight: 500; letter-spacing: 0.15em; }
+/* CLARITY — micro-type contrast floor. Under ~10px, tracked caps on Paper at
+   --i-dim fell below a comfortable read; lift such labels to --i-muted and hold
+   size at/above 9px so lane labels and stat captions actually resolve. */
+.scoutios[data-lang="crisp"] .iFleetLaneLabel { font-weight: 600; letter-spacing: 0.14em;
+  font-size: 9.5px; color: var(--i-muted); }
+.scoutios[data-lang="crisp"] .iFleetStatCap { font-weight: 600; letter-spacing: 0.1em;
+  font-size: 9px; color: var(--i-muted); }
+.scoutios[data-lang="crisp"] .iFleetLaneCount { font-weight: 600; font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em; font-size: 9.5px; color: var(--i-muted); }
+.scoutios[data-lang="crisp"] .iFleetName { font-weight: 500; letter-spacing: -0.01em;
+  font-size: 12px; }
+.scoutios[data-lang="crisp"] .iFleetName.dim { font-weight: 400; }
+.scoutios[data-lang="crisp"] .iFleetNum { font-weight: 400; font-family: var(--i-font);
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums; font-size: 15.5px; }
+.scoutios[data-lang="crisp"] .iFleetDetail { font-size: 11px; letter-spacing: 0.005em; }
+.scoutios[data-lang="crisp"] .iFleetDetail.mono { font-size: 10px; letter-spacing: 0; }
+.scoutios[data-lang="crisp"] .iFleetAge { font-size: 10px; letter-spacing: 0.01em;
+  color: var(--i-muted); }
+.scoutios[data-lang="crisp"] .iFleetPicker { font-weight: 600; letter-spacing: 0.06em; }
+.scoutios[data-lang="crisp"] .iFleetLogSrc { font-weight: 500; letter-spacing: 0.02em; }
+.scoutios[data-lang="crisp"] .iFleetLogTime { letter-spacing: 0.02em; }
+.scoutios[data-lang="crisp"] .iFleetLogText { font-size: 9.5px; }
+
+/* CLARITY — the KIND token. At --i-dim/8px it was effectively invisible even
+   on the wide stage, so the "what does it want from me" signal was lost. Give
+   it a legible square tag voice; the needs-you kinds (see .kind) get a hairline
+   tag box, blocking ones (approval/question) read ink-bright. */
+.scoutios[data-lang="crisp"] .iFleetTok { font-weight: 600; letter-spacing: 0.06em;
+  font-size: 8.5px; color: var(--i-muted); }
+.scoutios[data-lang="crisp"] .iFleetTok.kind { color: var(--i-muted); padding: 1.5px 5px;
+  border: 1px solid var(--i-hairline-strong); border-radius: 4px; line-height: 1;
+  font-size: 8px; letter-spacing: 0.07em; }
+.scoutios[data-lang="crisp"] .iFleetTok.kind.blocking { color: var(--i-ink);
+  border-color: color-mix(in oklab, var(--i-ink) 30%, var(--i-hairline-strong)); }
+/* the KIND token rides on the phone for the attention lane (single-line safe —
+   it is flex:none, the summary keeps ellipsizing beside it). Working/detected
+   harness tokens stay wide-only so their rows don't crowd on the phone. */
+.scoutios[data-lang="crisp"] .iFleetTok.kind { display: inline; }
+
+/* Fleet cadence under crisp — stat band · lanes · rail as clear beats */
+.scoutios[data-lang="crisp"] .iFleetStats { gap: 12px; padding: 10px 2px 11px;
+  border-bottom: 1px solid var(--i-hairline); margin-bottom: 2px; }
+.scoutios[data-lang="crisp"] .iFleetStat { gap: 6px; }
+.scoutios[data-lang="crisp"] .iFleetStatSep { display: block; width: 1px; height: 12px;
+  flex: none; background: var(--i-hairline-strong); opacity: 0.85; align-self: center; }
+.scoutios[data-lang="crisp"] .iFleetSpark { height: 18px; opacity: 0.95; }
+.scoutios[data-lang="crisp"] .iFleetLaneHead { padding: 11px 2px 5px; gap: 8px; }
+.scoutios[data-lang="crisp"] .iFleetLanes > .iFleetLaneHead:first-child { padding-top: 8px; }
+.scoutios[data-lang="crisp"] .iFleetRow { gap: 9px; padding: 7px 11px; }
+.scoutios[data-lang="crisp"] .iRowSep { margin-left: 11px; }
+
+/* CLARITY — attention hierarchy: needs-you ≫ working > detected, without color.
+   The hot lane label reads bigger + ink; the quiet (Detected) label steps to
+   dim; and the working/detected heads get extra air above so the needs-you card
+   sits apart as the first thing the eye lands on. */
+.scoutios[data-lang="crisp"] .iCard + .iFleetLaneHead { padding-top: 15px; }
+/* the hot (needs-you) label carries an inline color:ink — key off that inline
+   style to also bump its size/tracking so it clearly outranks the others. */
+.scoutios[data-lang="crisp"] .iFleetLaneLabel[style] { font-size: 10px; letter-spacing: 0.15em; }
+.scoutios[data-lang="crisp"] .iFleetLaneHead.tone-quiet .iFleetLaneLabel { color: var(--i-dim); }
+.scoutios[data-lang="crisp"] .iFleetLaneHead.tone-quiet .iFleetLaneCount { color: var(--i-dim); }
+/* the working lane's mono is a live action (present tense + caret); the detected
+   lane's mono is quiet location metadata — push it dim + a hair smaller so the
+   two mono voices don't compete. */
+.scoutios[data-lang="crisp"] .iFleetRow.dim .iFleetDetail.mono { color: var(--i-dim);
+  font-size: 9.5px; letter-spacing: 0.01em; }
+.scoutios[data-lang="crisp"] .iFleetAsk { margin-top: 12px; }
+.scoutios[data-lang="crisp"] .iFleetAskRow { padding: 7px 9px; border-radius: 6px; }
+.scoutios[data-lang="crisp"] .iFleetAskHint { font-size: 12px; letter-spacing: 0.005em; }
+
+/* sparkline — thin stroke, soft fade fill, end mark (see fleet-surface Sparkline) */
+.scoutios[data-lang="crisp"] .iFleetSpark .iFleetSparkBase { stroke: var(--i-hairline-strong); }
+.scoutios[data-lang="crisp"] .iFleetSpark .iFleetSparkLine { stroke-width: 1.15; }
+.scoutios[data-lang="crisp"] .iFleetSpark .iFleetSparkEnd { r: 1.7; }
+
+/* wide stage — open the numbers, air out the grid, keep phone single-line intact */
+@container (min-width: 600px) {
+  .scoutios[data-lang="crisp"] .iFleetStats { gap: 28px; padding: 14px 4px 16px;
+    border-bottom-color: var(--i-hairline); }
+  .scoutios[data-lang="crisp"] .iFleetStat { gap: 5px; }
+  .scoutios[data-lang="crisp"] .iFleetStatSep { display: none; }
+  .scoutios[data-lang="crisp"] .iFleetNum { font-size: 32px; letter-spacing: -0.04em;
+    line-height: 0.95; }
+  .scoutios[data-lang="crisp"] .iFleetStatCap { font-size: 8.5px; letter-spacing: 0.13em; }
+  .scoutios[data-lang="crisp"] .iFleetSpark { height: 44px; max-width: 280px; }
+  .scoutios[data-lang="crisp"] .iFleetGrid { gap: 20px; margin-top: 2px; }
+  .scoutios[data-lang="crisp"] .iFleetName { max-width: 148px; font-size: 12.5px; }
+  .scoutios[data-lang="crisp"] .iFleetDetail { font-size: 11.5px; }
+  .scoutios[data-lang="crisp"] .iFleetRow { padding: 8px 12px; }
+  .scoutios[data-lang="crisp"] .iFleetAsk { margin-top: 11px; padding: 13px 14px; }
+  .scoutios[data-lang="crisp"] .iFleetAskHead { padding-bottom: 9px; }
+  .scoutios[data-lang="crisp"] .iFleetAskPickers { gap: 6px; padding-bottom: 9px; }
+  .scoutios[data-lang="crisp"] .iFleetAskWell { min-height: 68px; padding: 10px 12px;
+    margin-bottom: 10px; font-size: 12px; line-height: 1.5; }
+  .scoutios[data-lang="crisp"] .iFleetLog { margin-top: 16px; }
+  .scoutios[data-lang="crisp"] .iFleetLogRow { gap: 8px; padding: 5px 2px; }
+}
 `;

@@ -15,6 +15,7 @@ const AGENT_HARNESSES = [
   "claude",
   "grok",
   "grok-acp",
+  "kimi",
   "flue",
   "cursor",
   "native",
@@ -70,6 +71,11 @@ const scoutRouteTargetSchema: z.ZodType<ScoutRouteTarget> = z.discriminatedUnion
   z.object({
     kind: z.literal("agent_label"),
     label: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("target_handle"),
+    handle: nonEmptyString,
     ...routeTargetValueSchema,
   }).passthrough(),
   z.object({

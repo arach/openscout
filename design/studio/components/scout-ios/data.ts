@@ -53,6 +53,48 @@ export const MACHINES: { name: string; state: "connected" | "idle" }[] = [
   { name: "mini", state: "idle" },
 ];
 
+// Subscription quotas — the plans you're actually burning across the fleet.
+// The "Log" Home surfaces only the two useful glance-values at the top: the
+// activity chart and how much of each subscription you've spent. Each plan
+// bills two rolling windows — a short one (the 5h session) and a long one (the
+// weekly cap) — so both are shown. `used` is 0..1 of that window; ≥0.8 reads
+// amber ("watch the cap"), else accent.
+export interface QuotaWindow { label: string; used: number; reset: string; }
+export interface Quota { id: string; label: string; plan: string; windows: QuotaWindow[]; }
+export const QUOTAS: Quota[] = [
+  { id: "claude", label: "Claude", plan: "Max 20×", windows: [
+    { label: "5h", used: 0.84, reset: "48m" },
+    { label: "wk", used: 0.52, reset: "4d" },
+  ] },
+  { id: "codex", label: "Codex", plan: "ChatGPT Pro", windows: [
+    { label: "5h", used: 0.34, reset: "2h" },
+    { label: "wk", used: 0.61, reset: "Sun" },
+  ] },
+];
+
+// Recent notifications — the home shelf of alerts that pinged you (push/relay).
+// Distinct from the activity log (which is the whole swarm humming): only events
+// with a claim on your attention, most-recent first. approval/error read amber
+// ("act on it"); the rest stay mono. Sits just under the chart/quota strip.
+export type NotifKind = "approval" | "question" | "reply" | "done" | "error";
+export interface Notif { id: string; kind: NotifKind; agent: string; text: string; age: string; }
+export const NOTIFS: Notif[] = [
+  { id: "n1", kind: "approval", agent: "broker-smith", text: "rm -rf .build/checkouts", age: "1m" },
+  { id: "n2", kind: "question", agent: "session initiation", text: "machine rail above or below the field?", age: "2m" },
+  { id: "n3", kind: "error", agent: "voice tray", text: "dictation build failed — HudsonVoice gated", age: "12m" },
+  { id: "n4", kind: "done", agent: "tail-tuner", text: "streamed 1.2k tail tokens", age: "18m" },
+];
+
+// Recent terminals — the home shelf of PTY sessions you can jump back into,
+// docked at the bottom. Terminal-styled tiles: cwd · the command · last output.
+// A running session reads live (accent age); exited ones recede to dim.
+export interface TermSession { id: string; cmd: string; cwd: string; last: string; running: boolean; age: string; }
+export const TERMINALS_RECENT: TermSession[] = [
+  { id: "tm1", cmd: "scout dev-build", cwd: "openscout", last: "Build complete — 0 errors, 0 warnings", running: true, age: "now" },
+  { id: "tm2", cmd: "git status -s", cwd: "hudson", last: " M apps/ios/Scout/HomeSurface.swift", running: false, age: "6m" },
+  { id: "tm3", cmd: "bun test", cwd: "openscout", last: "798 pass · 0 fail", running: false, age: "22m" },
+];
+
 // Latest activity — Home's curated log (HomeSurface.seedDemoActivity).
 export type ActKind = "assistant" | "tool" | "toolResult" | "user" | "system";
 export interface ActEvent { id: string; kind: ActKind; summary: string; source: string; age: string; }
@@ -60,10 +102,15 @@ export const ACTIVITY: ActEvent[] = [
   // Increasingly the activity is agents talking to each other, not to us.
   { id: "ev0", kind: "assistant", summary: "broker-smith → tail-tuner · confirm the firehose still streams?", source: "claude", age: "now" },
   { id: "ev1", kind: "tool", summary: "Ran swift build — 0 errors, 0 warnings", source: "claude", age: "now" },
+  { id: "ev6", kind: "assistant", summary: "session initiation → broker-smith · going with machine rail above the field", source: "codex", age: "1m" },
   { id: "ev2", kind: "assistant", summary: "Wired HudCodeHighlighter into the message renderer", source: "codex", age: "2m" },
+  { id: "ev7", kind: "tool", summary: "Read ScoutTheme.swift", source: "claude", age: "3m" },
   { id: "ev3", kind: "toolResult", summary: "Edited ConversationSurface.swift (+14 −6)", source: "claude", age: "5m" },
+  { id: "ev8", kind: "toolResult", summary: "Edited ScoutSessionService.swift (+22 −4)", source: "codex", age: "8m" },
   { id: "ev4", kind: "tool", summary: "git commit — projects-first Home + machine rail", source: "codex", age: "14m" },
+  { id: "ev9", kind: "system", summary: "session.start · claude · openscout · feat/repo-watch-web-converge", source: "system", age: "18m" },
   { id: "ev5", kind: "user", summary: "ship the v0-2 ttf to hero/output", source: "claude", age: "25m" },
+  { id: "ev10", kind: "assistant", summary: "tail-tuner: Parakeet warm-up no longer cancels on thread exit", source: "codex", age: "32m" },
 ];
 export const ACT_COLOR: Record<ActKind, string> = {
   assistant: "var(--i-accent)",

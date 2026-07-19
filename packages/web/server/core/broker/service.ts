@@ -52,6 +52,7 @@ import {
   type ScoutBrokerBuildIdentity,
   type ScoutBrokerChildServiceSnapshots,
   type ScoutBrokerHealthPayload,
+  type ScoutBrokerProjectionStatus,
 } from "@openscout/runtime/broker-api";
 import {
   resolveBrokerServiceConfig,
@@ -102,6 +103,7 @@ export type ScoutBrokerHealthState = {
   meshId: string | null;
   build: ScoutBrokerBuildIdentity | null;
   services: ScoutBrokerChildServiceSnapshots | null;
+  projection: ScoutBrokerProjectionStatus | null;
   counts: {
     nodes: number;
     actors: number;
@@ -195,6 +197,7 @@ export type ScoutMessagePostResult = {
   flight?: ScoutFlightRecord;
   flights?: ScoutFlightRecord[];
   invokedTargets: string[];
+  notifiedTargets?: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
 };
@@ -763,7 +766,14 @@ function renderScoutTargetLabel(targetLabel: string): string {
   if (!trimmed) {
     return "";
   }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return `@${trimmed}`;
 }
 
 function renderedScoutAskTarget(target: ScoutRouteTarget): string {
@@ -772,6 +782,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "target_handle":
+      return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
       return target.value?.trim() || `session:${target.sessionId.trim()}`;
     case "binding_ref":
@@ -785,12 +797,34 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
   }
 }
 
+function renderedScoutAskBodyTargetLabel(
+  target: ScoutRouteTarget | undefined,
+  renderedTarget: string,
+): string {
+  if (target?.kind === "project_path") {
+    return "";
+  }
+  if (target?.kind === "target_handle") {
+    return renderedTarget.trim();
+  }
+  return renderScoutTargetLabel(renderedTarget);
+}
+
+function defaultScoutAskExecutionSession(
+  target: ScoutRouteTarget | undefined,
+): "new" | "existing" {
+  return target?.kind === "target_handle" ? "existing" : "new";
+}
+
 function scoutTargetDiagnosticFromDeliveryFailure(
   delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>,
 ): ScoutTargetDiagnostic | undefined {
-  const dispatch: ScoutDispatchRecord = delivery.kind === "question"
+  const dispatch = (delivery.kind === "question"
     ? delivery.question
-    : delivery.rejection;
+    : delivery.rejection) as ScoutDispatchRecord | undefined;
+  if (!dispatch) {
+    return undefined;
+  }
 
   if (dispatch.kind === "ambiguous") {
     return {
@@ -846,6 +880,7 @@ export async function readScoutBrokerHealth(
       meshId: health.meshId ?? null,
       build: health.build ?? null,
       services: health.services ?? null,
+      projection: health.projection ?? null,
       counts: health.counts
         ? {
             nodes: health.counts.nodes ?? 0,
@@ -879,15 +914,19 @@ export async function readScoutBrokerHealth(
       meshId: null,
       build: null,
       services: null,
+      projection: null,
       counts: null,
       error: error instanceof Error ? error.message : null,
     };
   }
 }
 
-export async function readScoutBrokerHome(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerHomePayload | null> {
+export async function readScoutBrokerHome(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerHomePayload | null> {
   try {
-    return await brokerReadJson<ScoutBrokerHomePayload>(baseUrl, scoutBrokerPaths.v1.home);
+    return await brokerReadJson<ScoutBrokerHomePayload>(baseUrl, scoutBrokerPaths.v1.home, options);
   } catch {
     return null;
   }
@@ -952,9 +991,41 @@ export async function readScoutBrokerTailRecent(
   }
 }
 
-export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerSnapshot | null> {
+export async function readScoutBrokerSnapshot(
+  baseUrl = resolveScoutBrokerUrl(),
+  options: { signal?: AbortSignal } = {},
+): Promise<ScoutBrokerSnapshot | null> {
   try {
-    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot);
+    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot, options);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the broker's compact, canonical message feed without loading the full
+ * registry snapshot. Dispatch only needs recent messages, and the full
+ * snapshot can be tens of megabytes on a long-running broker.
+ */
+export async function readScoutBrokerMessages(options: {
+  baseUrl?: string;
+  since?: number;
+  limit?: number;
+  signal?: AbortSignal;
+} = {}): Promise<ScoutBrokerMessageRecord[] | null> {
+  const search = new URLSearchParams();
+  if (typeof options.since === "number" && Number.isFinite(options.since) && options.since > 0) {
+    search.set("since", String(Math.trunc(options.since)));
+  }
+  if (typeof options.limit === "number" && Number.isFinite(options.limit) && options.limit > 0) {
+    search.set("limit", String(Math.trunc(options.limit)));
+  }
+  try {
+    return await brokerReadJson<ScoutBrokerMessageRecord[]>(
+      options.baseUrl ?? resolveScoutBrokerUrl(),
+      scoutBrokerMessagesListPath(search),
+      { signal: options.signal },
+    );
   } catch {
     return null;
   }
@@ -2141,6 +2212,8 @@ export async function sendScoutConversationMessage(input: {
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
+  /** A shared Chat post reaches its agent participants without requesting work. */
+  notifyParticipantAgents?: boolean;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -2166,28 +2239,44 @@ export async function sendScoutConversationMessage(input: {
     input.body,
     currentDirectory,
   );
+  const mentionedTargetIds = new Set(mentionResolution.resolved.map((target) => target.agentId));
+  const participantTargetIds = input.notifyParticipantAgents
+    && (
+      conversation.kind === "channel"
+      || conversation.kind === "group_direct"
+      || conversation.kind === "thread"
+    )
+    ? conversation.participantIds.filter((participantId) =>
+        isSteerableParticipant(broker.snapshot, participantId, senderId)
+      )
+    : [];
+  const candidateTargetIds = [...new Set([
+    ...mentionedTargetIds,
+    ...participantTargetIds,
+  ])];
 
   const availableTargets = (
     await Promise.all(
-      mentionResolution.resolved.map(async (target) => (
+      candidateTargetIds.map(async (agentId) => (
         await ensureTargetRelayAgentRegistered(
           broker.baseUrl,
           broker.snapshot,
           broker.node.id,
-          target.agentId,
+          agentId,
           currentDirectory,
         )
-          ? target
+          ? agentId
           : null
       )),
     )
-  ).filter((target): target is ScoutMentionTarget => Boolean(target));
+  ).filter((agentId): agentId is string => Boolean(agentId));
 
   const validTargets = [...new Set(
     availableTargets
-      .map((target) => target.agentId)
       .filter((target) => target !== senderId && Boolean(broker.snapshot.agents[target])),
   )].sort();
+  const mentionedValidTargets = validTargets.filter((targetId) => mentionedTargetIds.has(targetId));
+  const participantValidTargets = validTargets.filter((targetId) => participantTargetIds.includes(targetId));
   const unresolvedTargets = mentionResolution.resolved
     .filter((target) => !validTargets.includes(target.agentId))
     .map((target) => target.label)
@@ -2208,10 +2297,14 @@ export async function sendScoutConversationMessage(input: {
     body: input.body,
     ...(input.replyToMessageId?.trim() ? { replyToMessageId: input.replyToMessageId.trim() } : {}),
     mentions: mentionResolution.resolved
-      .filter((target) => validTargets.includes(target.agentId))
+      .filter((target) => mentionedValidTargets.includes(target.agentId))
       .map((target) => ({ actorId: target.agentId, label: target.label })),
     attachments: normalizeOutgoingAttachments(input.attachments),
-    audience: validTargets.length > 0 ? { notify: validTargets, reason: "mention" } : undefined,
+    audience: participantValidTargets.length > 0
+      ? { notify: participantValidTargets, reason: "conversation_visibility" }
+      : mentionedValidTargets.length > 0
+        ? { notify: mentionedValidTargets, reason: "mention" }
+        : undefined,
     visibility: conversation.visibility,
     policy: "durable",
     createdAt: createdAtMs,
@@ -2220,12 +2313,25 @@ export async function sendScoutConversationMessage(input: {
       destinationKind: "conversation",
       destinationId: conversation.id,
       relayMessageId: messageId,
+      ...(participantValidTargets.length
+        ? {
+            deliveryIntent: "group_message",
+            relayTargetIds: participantValidTargets,
+          }
+        : {}),
       ...clientMessageMetadata(input.clientMessageId),
       returnAddress,
     },
   });
 
-  return { usedBroker: true, conversationId: conversation.id, messageId, invokedTargets: validTargets, unresolvedTargets };
+  return {
+    usedBroker: true,
+    conversationId: conversation.id,
+    messageId,
+    invokedTargets: mentionedValidTargets,
+    ...(participantValidTargets.length ? { notifiedTargets: participantValidTargets } : {}),
+    unresolvedTargets,
+  };
 }
 
 export async function sendScoutConversationSteer(input: {
@@ -2235,7 +2341,9 @@ export async function sendScoutConversationSteer(input: {
   attachments?: OutgoingAttachmentInput[];
   replyToMessageId?: string | null;
   targetParticipantIds?: string[];
-  intent?: "steer" | "tell";
+  steerContextByTargetAgentId?: Record<string, { runId: string; flightId?: string }>;
+  intent?: "invoke" | "steer" | "tell";
+  execution?: InvocationRequest["execution"];
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -2252,7 +2360,11 @@ export async function sendScoutConversationSteer(input: {
 
   const currentDirectory = input.currentDirectory ?? process.cwd();
   const createdAtMs = input.createdAtMs ?? Date.now();
-  const intent = input.intent === "tell" ? "tell" : "steer";
+  const intent = input.intent === "tell"
+    ? "tell"
+    : input.intent === "invoke"
+      ? "invoke"
+      : "steer";
   const senderId = await resolveConversationActorId(
     broker.baseUrl,
     broker.snapshot,
@@ -2391,6 +2503,9 @@ export async function sendScoutConversationSteer(input: {
   const flights: ScoutFlightRecord[] = [];
   for (const targetActorId of targetIds) {
     const target = invocationTargetRoute(broker.snapshot, targetActorId);
+    const steerContext = intent === "steer"
+      ? input.steerContextByTargetAgentId?.[targetActorId]
+      : undefined;
     const response = await brokerPostJson<ScoutInvocationPostResponse>(
       broker.baseUrl,
       scoutBrokerPaths.v1.invocations,
@@ -2400,11 +2515,14 @@ export async function sendScoutConversationSteer(input: {
         requesterNodeId: broker.node.id,
         targetAgentId: targetActorId,
         ...(target ? { target } : {}),
-        action: "wake",
-        task: input.body,
+        action: intent === "invoke" ? "consult" : "wake",
+        task: input.body.trim() || "Review the attached message.",
         conversationId: conversation.id,
         messageId,
-        execution: invocationExecutionForSteer(broker.snapshot, targetActorId),
+        execution: {
+          ...invocationExecutionForSteer(broker.snapshot, targetActorId),
+          ...(intent === "invoke" && input.execution ? input.execution : {}),
+        },
         ensureAwake: true,
         stream: false,
         labels: [intent],
@@ -2418,6 +2536,12 @@ export async function sendScoutConversationSteer(input: {
           relayTarget: targetActorId,
           relayTargetIds: targetIds,
           relayMessageId: messageId,
+          ...(steerContext
+            ? {
+                parentRunId: steerContext.runId,
+                ...(steerContext.flightId ? { steeredFlightId: steerContext.flightId } : {}),
+              }
+            : {}),
           returnAddress,
         },
       },
@@ -2667,9 +2791,7 @@ export async function askScoutQuestion(input: {
   if (!renderedTarget) {
     return { usedBroker: true, unresolvedTarget: renderedTarget };
   }
-  const normalizedTargetLabel = input.target?.kind === "project_path"
-    ? ""
-    : renderScoutTargetLabel(renderedTarget);
+  const normalizedTargetLabel = renderedScoutAskBodyTargetLabel(input.target, renderedTarget);
   const explicitTargetAgentId = input.targetAgentId?.trim()
     || (input.target ? undefined : broker.snapshot.agents[renderedTarget]?.id);
   if (explicitTargetAgentId) {
@@ -2706,7 +2828,7 @@ export async function askScoutQuestion(input: {
       ...(input.executionReasoningEffort?.trim()
         ? { reasoningEffort: input.executionReasoningEffort.trim() }
         : {}),
-      session: input.executionSession ?? "new",
+      session: input.executionSession ?? defaultScoutAskExecutionSession(input.target),
       ...(input.executionTargetSessionId?.trim()
         ? { targetSessionId: input.executionTargetSessionId.trim() }
         : {}),

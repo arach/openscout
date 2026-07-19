@@ -126,6 +126,14 @@ not grow a quiet variant because it creates ownership and lifecycle state.
 
 ### Ask / Requested Reply
 
+`ask` remains the compatibility name for the explicit invocation API used by
+CLI and agent integrations. Product composers should expose one **Send** action:
+in an idle direct agent Chat, Send creates an invocation; while a scoped Run is
+active it steers that Run. In a shared Chat, an untargeted Send posts a passive
+message. An explicitly targeted Send creates requested work while that agent is
+idle or steers that agent's scoped active Run. The invocation and flight
+records remain separate from the Chat and Message that originated them.
+
 Use the ask path when the caller expects work, investigation, review, or an
 answer.
 
@@ -161,7 +169,9 @@ Expected client behavior:
 - do not teach agents to guess generic names such as `claude.main`; start from
   project + capability, then trust the broker receipt
 - surface returned ids such as `flightId` and `workId`, plus any `ref`,
-  `sessionId`, or broker-suggested friendly handle for follow-up
+  `sessionId`, or broker-suggested situated target handle for follow-up
+- expose friendly situated target handles as `target:<name>` for human input;
+  agents and compact UI may render the same handle as `⌖name`
 - treat the initial `ask` response as the broker receipt, not as the target
   agent's acknowledgement
 - expect the target agent to promptly post a broker-visible acknowledgement in
@@ -344,6 +354,7 @@ The route target grammar is:
 | --- | --- |
 | `>> hudson` | `{ kind: "agent_label", label: "hudson" }` |
 | `>> agent:hudson` | `{ kind: "agent_label", label: "hudson" }` |
+| `>> target:mw-talkie` | `{ kind: "target_handle", handle: "mw-talkie" }` |
 | `>> ref:8kj4pd` | `{ kind: "binding_ref", ref: "8kj4pd" }` |
 | `>> project:../talkie` | `{ kind: "project_path", projectPath: "../talkie" }` |
 | `>> id:agent-...` | `{ kind: "agent_id", agentId: "agent-..." }` |
@@ -354,9 +365,15 @@ The shared parser can recognize direct agent ids for clients that pass
 `targetAgentId`. CLI composer routing currently uses labels, refs, and project
 paths for asks; `channel:<name>` and `broadcast` are send/update routes.
 
+`target:<name>` is the canonical human-typed form for a Scout-saved situated
+target: profile, project, harness, rules/tool context, and current continuation
+handle. Agent-authored prompts and compact UI may use `⌖name` for the same
+handle. Clients should normalize both spellings to the same structured target
+before broker dispatch.
+
 `@agent` remains valid compatibility syntax where a surface owns the text box.
 For new Scout-aware composers, prefer `>>` for target entry and render the
-resolved target with the Scout contact mark, such as `⌖ hudson`.
+resolved situated target with the Scout contact mark, such as `⌖mw-talkie`.
 
 If routing cannot complete safely, a client should render the broker's dispatch
 or remediation result rather than guessing. `ScoutDispatchRecord` covers
@@ -476,10 +493,12 @@ Meanings:
 | `⟲` | `status` | status check or check-in |
 | `·` | `wake` | wake, nudge, or attention ping |
 
-`⌖` means Scout-mediated contact. The short reference should usually be the
-last useful suffix of the broker `messageId`, with full ids available in a
-debug or collapsed context view. Do not parse the contact line for routing; use
-the structured context fields.
+`⌖` means Scout-mediated contact. When attached directly to a name, as in
+`⌖mw-talkie`, it is the compact agent/UI shorthand for human `target:mw-talkie`.
+In a contact line, the short reference should usually be the last useful suffix
+of the broker `messageId`, with full ids available in a debug or collapsed
+context view. Do not parse a full contact line for routing; use the structured
+context fields.
 
 When the contact cue is rendered next to payload text, use ` › ` as the
 payload lead-in so previews and single-line host surfaces keep the boundary:

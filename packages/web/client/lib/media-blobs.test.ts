@@ -1,10 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { isCodeFileName, isMarkdownFileName } from "./capture-attachments.ts";
 import {
+  dataTransferMayContainFiles,
   isRoutableMediaFile,
   isRoutableMediaType,
+  readRoutableFiles,
   resolvedUploadMediaType,
 } from "./media-blobs.ts";
+
+function fakeTransfer(input: {
+  files?: File[];
+  items?: Array<{ kind: string; file?: File | null }>;
+  types?: string[];
+}): DataTransfer {
+  const items = input.items ?? [];
+  return {
+    files: input.files ?? [],
+    items: items.map((item) => ({
+      kind: item.kind,
+      getAsFile: () => item.file ?? null,
+    })),
+    types: input.types ?? [],
+  } as unknown as DataTransfer;
+}
 
 describe("media blob routing", () => {
   test("accepts image, video, markdown, and code mime types", () => {
@@ -30,5 +48,21 @@ describe("media blob routing", () => {
     expect(resolvedUploadMediaType({ type: "text/plain", name: "router.ts" })).toBe("text/typescript");
     expect(resolvedUploadMediaType({ type: "", name: "config.json" })).toBe("application/json");
     expect(resolvedUploadMediaType({ type: "image/png", name: "shot.png" })).toBe("image/png");
+  });
+
+  test("recognizes protected drag payloads before File objects are readable", () => {
+    expect(dataTransferMayContainFiles(fakeTransfer({ types: ["Files"] }))).toBe(true);
+    expect(dataTransferMayContainFiles(fakeTransfer({
+      items: [{ kind: "file", file: null }],
+    }))).toBe(true);
+    expect(dataTransferMayContainFiles(fakeTransfer({ types: ["text/plain"] }))).toBe(false);
+  });
+
+  test("reads and filters files once the drop payload is available", () => {
+    const image = new File(["image"], "shot.png", { type: "image/png" });
+    const pdf = new File(["pdf"], "brief.pdf", { type: "application/pdf" });
+
+    expect(readRoutableFiles(fakeTransfer({ files: [image, pdf], types: ["Files"] })))
+      .toEqual([image]);
   });
 });

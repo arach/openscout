@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { Agent, FleetAsk, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
+import type { Agent, FleetAsk, FleetAttentionItem, FleetState, SessionEntry, TailDiscoverySnapshot } from "../../lib/types.ts";
 import {
   buildProjectsInboxModel,
-  filterThreadsForView,
   groupThreads,
   isDormantProject,
   isSessionSelected,
@@ -80,13 +79,28 @@ function mkAsk(agentId: string): FleetAsk {
   };
 }
 
-function mkFleet(asks: FleetAsk[]): FleetState {
+function mkAttention(agentId: string): FleetAttentionItem {
+  return {
+    kind: "work_item",
+    recordId: `work-${agentId}`,
+    title: "Review the migration diff",
+    summary: "Choose whether the migration is ready to merge",
+    agentId,
+    agentName: agentId,
+    conversationId: null,
+    state: "review",
+    acceptanceState: "pending",
+    updatedAt: RECENT,
+  };
+}
+
+function mkFleet(asks: FleetAsk[], needsAttention: FleetAttentionItem[] = []): FleetState {
   return {
     generatedAt: NOW,
-    totals: { active: asks.length, recentCompleted: 0, needsAttention: asks.length, activity: 0 },
+    totals: { active: asks.length, recentCompleted: 0, needsAttention: needsAttention.length, activity: 0 },
     activeAsks: asks,
     recentCompleted: [],
-    needsAttention: [],
+    needsAttention,
     activity: [],
   };
 }
@@ -138,7 +152,7 @@ describe("buildProjectsInboxModel — collapse + truthful counts", () => {
     const model = buildProjectsInboxModel(baseInput(agents, null));
     const scoutThreads = model.threads.filter((thread) => thread.agentName === "Scout");
     expect(scoutThreads).toHaveLength(1);
-    expect(model.counts.everything).toBe(1);
+    expect(model.threads).toHaveLength(1);
   });
 
   test("ephemeral card/clone agents fold away unless showEphemeral", () => {
@@ -154,19 +168,29 @@ describe("buildProjectsInboxModel — collapse + truthful counts", () => {
     expect(shown.threads.length).toBe(2);
   });
 
-  test("needs count reflects active asks, never the raw agent count", () => {
+  test("your-turn count reflects human attention items, never active work or raw agent count", () => {
     const agents = [
       mkAgent({ id: "scout.a", name: "Scout" }),
       mkAgent({ id: "helper.a", name: "Helper", harness: "codex" }),
       mkAgent({ id: "runner.a", name: "Runner", state: "working" }),
     ];
     const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("helper.a")])));
-    expect(model.counts.everything).toBe(3);
-    expect(model.counts.needs).toBe(1);
-    expect(model.counts.working).toBe(1);
+    expect(model.threads).toHaveLength(3);
+    expect(model.threads.filter((thread) => thread.needs)).toHaveLength(1);
+    expect(model.threads.filter((thread) => thread.working)).toHaveLength(1);
     const helper = model.threads.find((thread) => thread.agentName === "Helper");
     expect(helper?.needs).toBe(true);
     expect(helper?.group).toBe("needs");
+    expect(helper?.work).toBe("Review the migration diff");
+  });
+
+  test("working asks stay in working instead of being mislabeled as your turn", () => {
+    const agent = mkAgent({ id: "worker.a", name: "Worker", state: "working" });
+    const ask = { ...mkAsk(agent.id), status: "working" as const, statusLabel: "working" };
+    const model = buildProjectsInboxModel(baseInput([agent], mkFleet([ask])));
+    expect(model.threads.filter((thread) => thread.needs)).toHaveLength(0);
+    expect(model.threads.filter((thread) => thread.working)).toHaveLength(1);
+    expect(model.threads[0]?.group).toBe("working");
   });
 });
 
@@ -177,7 +201,7 @@ describe("attention ordering", () => {
       mkAgent({ id: "work.a", name: "Worker", state: "working" }),
       mkAgent({ id: "need.a", name: "Needer", harness: "codex" }),
     ];
-    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("need.a")])));
+    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([], [mkAttention("need.a")])));
     expect(model.threads.map((thread) => thread.agentName)).toEqual(["Needer", "Worker", "Idler"]);
   });
 
@@ -187,7 +211,7 @@ describe("attention ordering", () => {
       mkAgent({ id: "need.a", name: "Needer", harness: "codex" }),
       mkAgent({ id: "idle.a", name: "Idler" }),
     ];
-    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("need.a")])));
+    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([], [mkAttention("need.a")])));
     const groups = groupThreads(model.threads).map((section) => section.group);
     expect(groups).toEqual(["needs", "working", "recent"]);
   });
@@ -229,6 +253,26 @@ describe("project aggregation + dormancy", () => {
     expect(openscout?.sessionCount).toBe(1);
   });
 
+  test("project rollup preserves the concrete worktree inventory", () => {
+    const agents = [
+      mkAgent({ id: "main.a", name: "Main", cwd: "/Users/test/dev/openscout", branch: "main" }),
+      mkAgent({
+        id: "feature.a",
+        name: "Feature",
+        cwd: "/Users/test/.codex/worktrees/123/openscout",
+        branch: "codex/worktree-preview",
+      }),
+    ];
+    const model = buildProjectsInboxModel(baseInput(agents, null));
+    const openscout = model.projects.find((project) => project.slug === "openscout");
+
+    expect(openscout?.worktreeCount).toBe(2);
+    expect(openscout?.worktrees.map((worktree) => ({ root: worktree.root, branch: worktree.branch }))).toEqual([
+      { root: "/Users/test/.codex/worktrees/123/openscout", branch: "codex/worktree-preview" },
+      { root: "/Users/test/dev/openscout", branch: "main" },
+    ]);
+  });
+
   test("process-only native observations do not become openable sessions", () => {
     const discovery: TailDiscoverySnapshot = {
       generatedAt: NOW,
@@ -261,20 +305,44 @@ describe("project aggregation + dormancy", () => {
     expect(openscout?.sessionCount).toBe(0);
     expect(openscout?.liveSessionCount).toBe(0);
   });
+
+  test("uses transcript event time instead of a freshly touched file for project recency", () => {
+    const discovery: TailDiscoverySnapshot = {
+      generatedAt: NOW,
+      processes: [],
+      transcripts: [
+        {
+          source: "claude",
+          transcriptPath: "/Users/test/.claude/projects/-Users-test-dev-arc/session.jsonl",
+          sessionId: "claude-arc-session",
+          cwd: "/Users/test/dev/arc",
+          project: "arc",
+          harness: "unattributed",
+          lastEventAt: STALE,
+          mtimeMs: RECENT,
+          size: 42_000,
+        },
+      ],
+      issues: [],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const model = buildProjectsInboxModel(baseInput([], null, false, [], discovery));
+    const arc = model.projects.find((project) => project.slug === "arc");
+
+    expect(model.threads).toHaveLength(0);
+    expect(arc?.lastActivityAt).toBe(STALE);
+    expect(arc && isDormantProject(arc, NOW)).toBe(true);
+  });
 });
 
 describe("filters + routing", () => {
-  test("filterThreadsForView narrows to the smart view", () => {
-    const agents = [
-      mkAgent({ id: "work.a", name: "Worker", state: "working" }),
-      mkAgent({ id: "need.a", name: "Needer", harness: "codex" }),
-    ];
-    const model = buildProjectsInboxModel(baseInput(agents, mkFleet([mkAsk("need.a")])));
-    expect(filterThreadsForView(model.threads, "needs", NOW).map((t) => t.agentName)).toEqual(["Needer"]);
-    expect(filterThreadsForView(model.threads, "working", NOW).map((t) => t.agentName)).toEqual(["Worker"]);
-    expect(filterThreadsForView(model.threads, "everything", NOW)).toHaveLength(2);
-  });
-
   test("threadsForProject scopes to one slug", () => {
     const agents = [
       mkAgent({ id: "os.a", name: "Scout" }),

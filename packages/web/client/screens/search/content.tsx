@@ -6,5 +6,6 @@ type Navigate = ReturnType<typeof useScout>["navigate"];
 
 export function SearchContent({ route, navigate }: { route: Route; navigate: Navigate }) {
   if (route.view !== "search") return null;
-  return <KnowledgeSearchScreen navigate={navigate} mode={route.mode} />;
+  // mode is accepted on the route for back-compat (/search/indexer → same surface).
+  return <KnowledgeSearchScreen navigate={navigate} />;
 }

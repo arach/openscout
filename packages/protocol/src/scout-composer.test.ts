@@ -41,6 +41,16 @@ describe("Scout composer route operator", () => {
       label: "hudson",
       value: "hudson",
     });
+    expect(parseScoutComposerRouteTarget("target:mw-talkie")).toEqual({
+      kind: "target_handle",
+      handle: "mw-talkie",
+      value: "target:mw-talkie",
+    });
+    expect(parseScoutComposerRouteTarget("⌖mw-talkie")).toEqual({
+      kind: "target_handle",
+      handle: "mw-talkie",
+      value: "target:mw-talkie",
+    });
     expect(parseScoutComposerRouteTarget("ref:8kj4pd")).toEqual({
       kind: "binding_ref",
       ref: "8kj4pd",
@@ -81,6 +91,17 @@ describe("Scout composer route operator", () => {
     expect(parseScoutComposerRouteTarget("broadcast")).toEqual({
       kind: "broadcast",
       value: "broadcast",
+    });
+  });
+
+  test("parses target handle shorthand routes", () => {
+    const result = parseScoutComposerRoute("please >> ⌖mw-talkie continue here");
+
+    expect(result.body).toBe("please continue here");
+    expect(result.route?.target).toEqual({
+      kind: "target_handle",
+      handle: "mw-talkie",
+      value: "target:mw-talkie",
     });
   });
 

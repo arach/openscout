@@ -8,6 +8,7 @@ export type ScoutCandidateEndpointState = "online" | "offline" | "unknown";
 export type ScoutRouteTargetKind =
   | "agent_id"
   | "agent_label"
+  | "target_handle"
   | "session_id"
   | "binding_ref"
   | "project_path"
@@ -28,6 +29,7 @@ export interface ScoutCallerContext {
 export type ScoutRouteTarget =
   | { kind: "agent_id"; agentId: ScoutId; value?: string }
   | { kind: "agent_label"; label: string; value?: string }
+  | { kind: "target_handle"; handle: string; value?: string }
   | { kind: "session_id"; sessionId: ScoutId; harness?: AgentHarness; value?: string }
   | { kind: "binding_ref"; ref: string; value?: string }
   | { kind: "project_path"; projectPath: string; value?: string }

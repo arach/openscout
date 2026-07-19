@@ -35,9 +35,16 @@ snapshot to `.1` and truncates the active file before opening it for append.
 ## Probe/repo socket
 
 `scoutd probes serve` listens on `$OPENSCOUT_HOME/run/scoutd-probes.sock` (or
-`OPENSCOUT_PROBES_SOCKET`) with one JSON request per connection. The
-capabilities response advertises probe families plus job capabilities:
-`repo.scan` and `repo.diff`.
+`OPENSCOUT_PROBES_SOCKET`). Probe/repo requests receive one JSON response per
+connection. Native read subscriptions keep the same mode-`0600` Unix socket
+open and exchange newline-delimited JSON frames. The capabilities response
+advertises probe families plus job capabilities: `repo.scan` and `repo.diff`.
+
+The native agent read path uses `openscout.native.read.request/v1`. Rust tails
+the broker journal asynchronously and serves a bounded persisted projection;
+it never proxies the broker or web server. Snapshot mode returns one
+`openscout.native.read.snapshot/v1` frame. Subscribe mode sends the initial
+snapshot plus material updates and `openscout.native.read.event/v1` heartbeats.
 
 Repo jobs use request schemas `openscout.repo.scan/v1` and
 `openscout.repo.diff/v1`; the remaining request fields are the same JSON

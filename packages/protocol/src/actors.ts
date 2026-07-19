@@ -40,6 +40,7 @@ export type AgentEndpointTransport = Extract<
   | "claude_resume"
   | "pi_rpc"
   | "grok_acp"
+  | "kimi_acp"
   | "tmux"
   | "cursor_exec"
   | "cursor_cli_text"
@@ -52,6 +53,7 @@ export const AGENT_HARNESSES = [
   "claude",
   "grok",
   "grok-acp",
+  "kimi",
   "flue",
   "cursor",
   "native",

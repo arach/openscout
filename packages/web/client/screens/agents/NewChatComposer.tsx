@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+} from "react";
+import { FileText, Loader2 } from "lucide-react";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
+  dataTransferMayContainFiles,
   isRoutableMediaFile,
+  readTransferredFiles,
   uploadMediaFiles,
   type OutgoingAttachment,
 } from "../../lib/media-blobs.ts";
@@ -29,22 +39,28 @@ function AttachmentPreview({
   file: File;
   onRemove: () => void;
 }) {
-  const [url, setUrl] = useState(() => previewUrl(file));
+  const url = useMemo(() => previewUrl(file), [file]);
   useEffect(() => {
-    const next = previewUrl(file);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [file]);
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
 
   const isVideo = file.type.startsWith("video/");
+  const isImage = file.type.startsWith("image/");
   return (
     <div className="s-newchat-attachment">
       {isVideo ? (
         <video src={url} muted playsInline />
-      ) : (
+      ) : isImage ? (
         <img src={url} alt={file.name} />
+      ) : (
+        <div className="s-newchat-attachment-file" title={file.name}>
+          <FileText size={24} aria-hidden="true" />
+          <span>{file.name}</span>
+        </div>
       )}
-      <span className="s-newchat-attachment-badge">{isVideo ? "video" : "image"}</span>
+      <span className="s-newchat-attachment-badge">
+        {isVideo ? "video" : isImage ? "image" : "file"}
+      </span>
       <button
         type="button"
         className="s-newchat-attachment-remove"
@@ -71,6 +87,7 @@ export function NewChatComposer({
   initialConversationId,
   initialMessage,
   initialFiles,
+  initialAttachmentFeedback,
   defaultMode,
 }: {
   agents: Agent[];
@@ -81,6 +98,7 @@ export function NewChatComposer({
   initialConversationId?: string;
   initialMessage?: string;
   initialFiles?: File[];
+  initialAttachmentFeedback?: string;
   defaultMode?: CaptureDeliveryMode;
 }) {
   const routeContext = useMemo(() => resolveCaptureRouteContext(route, agents), [route, agents]);
@@ -101,13 +119,19 @@ export function NewChatComposer({
   const [state, setState] = useState<"idle" | "starting">("idle");
   const [phase, setPhase] = useState<SubmitPhase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(
+    () => initialAttachmentFeedback ?? null,
+  );
+  const [dragDepth, setDragDepth] = useState(0);
   const { ref, onKeyDown } = useFocusTrap<HTMLDivElement>(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
 
   const agent = sorted.find((candidate) => candidate.id === agentId) ?? null;
   const hasAttachments = files.length > 0;
   const isStarting = state === "starting";
+  const isDraggingFiles = dragDepth > 0;
   const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
   const title = hasAttachments ? "Route capture" : "New chat";
   const committedMessage = message.trim();
@@ -115,12 +139,12 @@ export function NewChatComposer({
     ? "Uploading capture"
     : hasAttachments
       ? "Routing capture"
-      : "Sending ask";
+      : "Sending message";
   const progressDetail = hasAttachments
     ? "Submitted. Opening the chat when the broker returns it."
     : committedMessage
       ? "Submitting your first message to Scout."
-      : "Starting a new ask with Scout.";
+      : "Starting a new chat with Scout.";
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
@@ -142,11 +166,79 @@ export function NewChatComposer({
     textRef.current?.focus();
   }, []);
 
-  const addFiles = (incoming: File[]) => {
-    const next = incoming.filter(isRoutableMediaFile);
-    if (next.length === 0) return;
-    setFiles((current) => [...current, ...next]);
-  };
+  const addFiles = useCallback((incoming: File[], action = "Added") => {
+    if (isStarting) return;
+    const accepted = incoming.filter(isRoutableMediaFile);
+    const rejected = incoming.filter((file) => !isRoutableMediaFile(file));
+
+    if (accepted.length > 0) {
+      setFiles((current) => [...current, ...accepted]);
+      setAttachmentFeedback(
+        accepted.length === 1
+          ? `${action} ${accepted[0]?.name ?? "1 attachment"}.`
+          : `${action} ${accepted.length} attachments.`,
+      );
+    }
+
+    if (rejected.length > 0) {
+      const rejectedLabel = rejected.length === 1
+        ? rejected[0]?.name ?? "That file"
+        : `${rejected.length} files`;
+      setError(
+        `${rejectedLabel} ${rejected.length === 1 ? "is" : "are"} not supported. Attach markdown, code, an image, or a video clip.`,
+      );
+    } else if (accepted.length > 0) {
+      setError(null);
+    }
+  }, [isStarting]);
+
+  const acceptTransfer = useCallback((dataTransfer: DataTransfer, action: string) => {
+    const incoming = readTransferredFiles(dataTransfer);
+    if (incoming.length === 0) {
+      setError("Scout could not read that file. Try the attachment picker instead.");
+      return;
+    }
+    addFiles(incoming, action);
+  }, [addFiles]);
+
+  const handleDragEnter = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (isStarting || !dataTransferMayContainFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setDragDepth(dragDepthRef.current);
+  }, [isStarting]);
+
+  const handleDragOver = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (isStarting || !dataTransferMayContainFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  }, [isStarting]);
+
+  const handleDragLeave = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (dragDepthRef.current === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    setDragDepth(dragDepthRef.current);
+  }, []);
+
+  const handleDrop = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (!dataTransferMayContainFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragDepth(0);
+    acceptTransfer(event.dataTransfer, "Added");
+  }, [acceptTransfer]);
+
+  const handlePaste = useCallback((event: ReactClipboardEvent<HTMLElement>) => {
+    if (isStarting || !dataTransferMayContainFiles(event.clipboardData)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    acceptTransfer(event.clipboardData, "Pasted");
+  }, [acceptTransfer, isStarting]);
 
   const start = async () => {
     if (!agent || isStarting) return;
@@ -182,7 +274,7 @@ export function NewChatComposer({
       const result = await startAgentSession(agent, committedMessage ? { instructions: committedMessage } : undefined);
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
-        throw new Error("Ask submitted, but no conversation was returned.");
+        throw new Error("Message sent, but no Chat was returned.");
       }
       navigate({
         view: "conversation",
@@ -195,7 +287,7 @@ export function NewChatComposer({
           ? caught.message
           : hasAttachments
             ? "Could not route capture."
-            : "Could not send ask.",
+            : "Could not send message.",
       );
       setState("idle");
       setPhase("idle");
@@ -203,10 +295,19 @@ export function NewChatComposer({
   };
 
   return (
-    <div className="s-newchat-backdrop" onClick={requestClose} role="presentation">
+    <div
+      className="s-newchat-backdrop"
+      onClick={requestClose}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onPaste={handlePaste}
+      role="presentation"
+    >
       <div
         ref={ref}
-        className={`s-newchat-panel${isStarting ? " s-newchat-panel--starting" : ""}`}
+        className={`s-newchat-panel${isStarting ? " s-newchat-panel--starting" : ""}${isDraggingFiles ? " s-newchat-panel--dragging" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -226,6 +327,12 @@ export function NewChatComposer({
             ✕
           </button>
         </header>
+
+        {isDraggingFiles ? (
+          <div className="s-newchat-drop-prompt" role="status" aria-live="polite">
+            Drop to attach markdown, code, images, or video
+          </div>
+        ) : null}
 
         <div className="s-newchat-body">
           <label className="s-newchat-field">
@@ -293,7 +400,6 @@ export function NewChatComposer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/*"
             multiple
             hidden
             disabled={isStarting}
@@ -308,8 +414,14 @@ export function NewChatComposer({
             disabled={isStarting}
             onClick={() => fileInputRef.current?.click()}
           >
-            Attach image or video
+            Attach file
           </button>
+
+          {attachmentFeedback ? (
+            <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
+              {attachmentFeedback}
+            </div>
+          ) : null}
 
           <textarea
             ref={textRef}
@@ -326,7 +438,7 @@ export function NewChatComposer({
             }}
           />
 
-          {error && <div className="s-newchat-error">{error}</div>}
+          {error && <div className="s-newchat-error" role="alert">{error}</div>}
           {isStarting && (
             <div className="s-newchat-progress" role="status" aria-live="polite">
               <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />

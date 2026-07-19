@@ -1,6 +1,6 @@
 {
   "name": "@openscout/agent-sessions",
-  "version": "0.2.73",
+  "version": "0.2.76",
   "description": "Browser-safe session boundary for OpenScout agent sessions",
   "license": "Apache-2.0",
   "type": "module",
@@ -97,6 +97,12 @@
       "types": "./dist/adapters/grok-acp/index.d.ts",
       "import": "./dist/adapters/grok-acp/index.js",
       "default": "./dist/adapters/grok-acp/index.js"
+    },
+    "./adapters/kimi-acp": {
+      "bun": "./src/adapters/kimi-acp/index.ts",
+      "types": "./dist/adapters/kimi-acp/index.d.ts",
+      "import": "./dist/adapters/kimi-acp/index.js",
+      "default": "./dist/adapters/kimi-acp/index.js"
     },
     "./adapters/openai-compat": {
       "bun": "./src/adapters/openai-compat/index.ts",

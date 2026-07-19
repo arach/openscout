@@ -355,7 +355,7 @@ function SessionDetail({
           Open ↗
         </button>
         <button type="button" className="ap-sx-resume" onClick={takeover}>
-          {status === "running" ? "Steer" : "Take over"}
+          {status === "running" ? "Send" : "Take over"}
         </button>
         <button
           type="button"

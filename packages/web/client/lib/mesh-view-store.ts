@@ -35,11 +35,12 @@ export type MeshViewMode = "map" | "tree";
 export type MeshDensity = "compact" | "comfortable" | "spacious";
 
 export type MeshStateFilter = "all" | "in_turn" | "callable";
-export type AgentStateToken = "in_turn" | "in_flight" | "callable" | "blocked";
+export type AgentStateToken = "in_turn" | "in_flight" | "needs_attention" | "callable" | "blocked";
 
 const ALL_AGENT_STATES: ReadonlySet<AgentStateToken> = new Set([
   "in_turn",
   "in_flight",
+  "needs_attention",
   "callable",
   "blocked",
 ]);

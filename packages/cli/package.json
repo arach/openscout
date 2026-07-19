@@ -1,6 +1,6 @@
 {
   "name": "@openscout/scout",
-  "version": "0.2.73",
+  "version": "0.2.76",
   "description": "Public Scout package that installs the `scout` command and bundled local runtime",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,10 +31,10 @@
     "ws": "^8.18.3"
   },
   "scripts": {
-    "build": "npm --prefix ../protocol run build && npm --prefix ../runtime run build && node ./scripts/build.mjs",
+    "build": "bun run --cwd ../protocol build && bun run --cwd ../runtime build && node ./scripts/build.mjs",
     "dev": "bun ./src/main.ts",
     "test:happy": "node --test test/*.test.mjs",
-    "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
+    "prepack": "bun run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpack": "node ../../scripts/restore-publish-manifest.mjs .",
     "postpublish": "node ../../scripts/restore-publish-manifest.mjs ."
   },

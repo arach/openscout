@@ -48,8 +48,10 @@ Every host integration should teach the same low-churn workflow:
 2. **Broker dispatch:** let Scout choose/wake/create a compatible worker instead
    of asking the user or agent to guess names such as `claude.main`.
 3. **Durable handle:** display the returned `ref`, `flightId`, `conversationId`,
-   `workId`, session id, and any broker-suggested friendly handle.
-4. **Follow-up:** continue by that handle.
+   `workId`, session id, and any broker-suggested situated target handle.
+4. **Follow-up:** continue by that handle. Humans type saved situated targets as
+   `target:<name>`; agents and compact UI may render the same handle as
+   `⌖name`.
 5. **Promotion:** name or pin a long-lived sibling only after the routed worker is
    known good, preferably using the broker-suggested mnemonic.
 

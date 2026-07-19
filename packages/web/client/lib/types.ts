@@ -337,9 +337,20 @@ export type BrokerDialogueItem = {
 
 export type BrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
 
+export type BrokerDiagnosticsSource = {
+  mode: "live_broker" | "sqlite_projection";
+  status: "current" | "degraded" | "unknown";
+  latestMessageAt: number | null;
+  projectionLatestMessageAt: number | null;
+  liveMessageCount: number | null;
+  projectionMessageCount: number | null;
+  detail: string | null;
+};
+
 export type BrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  source?: BrokerDiagnosticsSource;
   ledger: {
     mode: "latest";
     limit: number;
@@ -1250,7 +1261,6 @@ export type Route =
   | ({
       view: "conversation";
       conversationId: string;
-      composeMode?: "tell" | "ask";
       composeDraft?: string;
     } & MachineScopedRoute)
   | { view: "agent-info"; conversationId: string }
@@ -1287,7 +1297,10 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string; agentId?: string } & MachineScopedRoute)
-  | ({ view: "repos" } & MachineScopedRoute)
+  // `root` pre-selects a project by absolute root — used when drilling in from
+  // a project surface ("Worktrees" facet) so the repos view keeps the caller's
+  // scope. Deep-linkable as /repos?root=<abs>.
+  | ({ view: "repos"; root?: string } & MachineScopedRoute)
   | ({ view: "harnesses" } & MachineScopedRoute)
   // A diff path is absolute + machine-local, so this is intentionally not
   // machine-scoped. Reached by drilling in / "open as page" from the Repos
@@ -1305,6 +1318,7 @@ export type Route =
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker" }
+  | { view: "code"; root?: string; file?: string; project?: string; path?: string; wt?: string }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)
   | ({ view: "work"; workId: string } & MachineScopedRoute)
@@ -1413,6 +1427,8 @@ export type TailDiscoveredTranscript = {
   project: string;
   /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
+  /** Timestamp of the latest parseable transcript event, when available. */
+  lastEventAt?: number | null;
   mtimeMs: number;
   size: number;
 };

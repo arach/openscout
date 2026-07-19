@@ -35,8 +35,10 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
+  getScoutMobileTerminals,
   getScoutMobileWorkspaces,
   sendScoutMobileComms,
   sendScoutMobileMessage,
@@ -733,6 +735,20 @@ async function handleRPCInner(
         return {
           id: req.id,
           result: await getScoutMobileActivity(p),
+        };
+      }
+
+      case "mobile/service-budgets": {
+        return {
+          id: req.id,
+          result: await getScoutMobileServiceBudgets(),
+        };
+      }
+
+      case "mobile/terminal-sessions": {
+        return {
+          id: req.id,
+          result: await getScoutMobileTerminals(),
         };
       }
 

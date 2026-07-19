@@ -43,6 +43,24 @@ describe("isTailNoiseEvent", () => {
     expect(isTailNoiseEvent(event({ summary: "permission allow · Read" }))).toBe(false);
   });
 
+  test("flags Cursor process samples without hiding other Cursor activity", () => {
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "process sample · openscout, vox",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "system",
+      summary: "agent process exited",
+    }))).toBe(false);
+    expect(isTailNoiseEvent(event({
+      source: "cursor",
+      kind: "tool",
+      summary: "Process sample data",
+    }))).toBe(false);
+  });
+
   test("flags codex lifecycle and chunk noise", () => {
     expect(isTailNoiseEvent(event({
       source: "codex",
@@ -246,6 +264,34 @@ describe("observeToolFieldsFromTailEvent", () => {
       stream: ["done"],
     });
   });
+
+  test("parses Kimi clean-log tool calls and correlated results", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "kimi",
+      summary: "Read runtime/tail/service.ts",
+      kind: "tool",
+    }))).toEqual({ tool: "Read", arg: "runtime/tail/service.ts" });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "kimi",
+      summary: "Read runtime/tail/service.ts -> res: export function refreshTailDiscovery",
+      kind: "tool-result",
+    }))).toEqual({
+      tool: "Read",
+      arg: "runtime/tail/service.ts",
+      result: { outcome: "success" },
+      stream: ["export function refreshTailDiscovery"],
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "kimi",
+      summary: "git status --short -> res: M packages/runtime/src/tail/service.ts",
+      kind: "tool-result",
+    }))).toEqual({
+      tool: "bash",
+      arg: "git status --short",
+      result: { outcome: "success" },
+      stream: ["M packages/runtime/src/tail/service.ts"],
+    });
+  });
 });
 
 describe("tailObserveEventDetail", () => {
@@ -299,6 +345,13 @@ describe("observeKindFromTailEvent", () => {
       kind: "assistant",
     }))).toBe("message");
   });
+
+  test("maps Kimi thinking into lane-friendly reasoning", () => {
+    expect(observeKindFromTailEvent(event({
+      source: "kimi",
+      summary: "[thinking] Inspect the firehose registry first.",
+    }))).toBe("think");
+  });
 });
 
 describe("observeTextFromTailEvent", () => {
@@ -317,6 +370,13 @@ describe("observeTextFromTailEvent", () => {
       source: "codex",
       summary: "task complete",
     }), {})).toBe("Turn complete");
+  });
+
+  test("renders Kimi thinking without its transport marker", () => {
+    expect(observeTextFromTailEvent(event({
+      source: "kimi",
+      summary: "[thinking] Inspect the firehose registry first.",
+    }), {})).toBe("Inspect the firehose registry first.");
   });
 });
 

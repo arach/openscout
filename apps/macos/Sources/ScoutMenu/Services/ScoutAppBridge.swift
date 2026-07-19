@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ScoutAppCore
 import ScoutHUD
 
 @MainActor
@@ -20,16 +21,39 @@ enum ScoutAppBridge {
         }
     }
 
-    static func openHUD(command: String, value: String? = nil) {
-        if runningScoutApp == nil {
-            guard command != "hide", command != "tail-hide" else { return }
-            launchScoutIfNeeded(activates: false, arguments: hudLaunchArguments(command: command, value: value)) {}
-            return
+    @discardableResult
+    static func openHUD(command: String, value: String? = nil) -> Bool {
+        let appWasRunning = runningScoutApp != nil
+        if !appWasRunning && (command == "hide" || command == "tail-hide") {
+            return false
+        }
+        guard appWasRunning || scoutApplicationURL() != nil else {
+            return false
         }
 
-        launchScoutIfNeeded(activates: false, arguments: []) {
-            postHUDCommand(command: command, value: value)
+        do {
+            try ScoutHUDCommandInbox.enqueue(command: command, value: value)
+        } catch {
+            NSLog("[hud] could not persist command inbox entry: %@", error.localizedDescription)
+            guard appWasRunning || scoutApplicationURL() != nil else { return false }
+            if appWasRunning {
+                postHUDCommand(command: command, value: value)
+            } else {
+                launchScoutIfNeeded(
+                    activates: false,
+                    arguments: hudLaunchArguments(command: command, value: value)
+                ) {}
+            }
+            return true
         }
+
+        let arguments = appWasRunning
+            ? []
+            : hudLaunchArguments(command: "drain-inbox", value: nil)
+        launchScoutIfNeeded(activates: false, arguments: arguments) {
+            postHUDCommand(command: "drain-inbox", value: nil)
+        }
+        return true
     }
 
     private static func reopenScoutApp(completion: @MainActor @escaping @Sendable () -> Void) {

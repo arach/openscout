@@ -37,6 +37,8 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/agents":           TRPCRoute(path: "mobile.agents",          method: .query),
     "mobile/workspaces":       TRPCRoute(path: "mobile.workspaces",      method: .query),
     "mobile/activity":         TRPCRoute(path: "mobile.activity",        method: .query),
+    "mobile/service-budgets":  TRPCRoute(path: "mobile.serviceBudgets",  method: .query),
+    "mobile/terminal-sessions": TRPCRoute(path: "mobile.terminalSessions", method: .query),
     "mobile/tail":             TRPCRoute(path: "mobile.tail",            method: .query),
     "mobile/endpoints":        TRPCRoute(path: "mobile.endpoints",       method: .query),
     "mobile/session/snapshot": TRPCRoute(path: "mobile.sessionSnapshot", method: .query),

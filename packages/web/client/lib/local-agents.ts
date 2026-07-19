@@ -23,6 +23,7 @@ export type DiscoveredTranscript = {
   cwd: string | null;
   project: string;
   harness: HarnessAttribution;
+  lastEventAt?: number | null;
   mtimeMs: number;
   size: number;
 };
@@ -62,7 +63,9 @@ export function synthesizeOrganicAgents(
   for (const t of discovery.transcripts) {
     if (!t.cwd) continue;
     const existing = transcriptByCwd.get(t.cwd);
-    if (!existing || t.mtimeMs > existing.mtimeMs) transcriptByCwd.set(t.cwd, t);
+    const activityAt = t.lastEventAt ?? t.mtimeMs;
+    const existingActivityAt = existing?.lastEventAt ?? existing?.mtimeMs ?? 0;
+    if (!existing || activityAt > existingActivityAt) transcriptByCwd.set(t.cwd, t);
   }
 
   const synthetic: Agent[] = [];
@@ -72,7 +75,7 @@ export function synthesizeOrganicAgents(
 
     const transcript = p.cwd ? transcriptByCwd.get(p.cwd) : undefined;
     const project = transcript?.project ?? projectFromPath(p.cwd) ?? null;
-    const updatedAt = transcript?.mtimeMs ?? discovery.generatedAt;
+    const updatedAt = transcript?.lastEventAt ?? transcript?.mtimeMs ?? discovery.generatedAt;
     const sessionId = transcript?.sessionId ?? null;
 
     synthetic.push({

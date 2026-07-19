@@ -5,6 +5,7 @@ import { ClaudeSource } from "./claude-source.js";
 import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
 import { GrokSource } from "./grok-source.js";
+import { KimiSource } from "./kimi-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
 import { PiSource } from "./pi-source.js";
 import { sessionRegistryKey } from "./registry.js";
@@ -44,7 +45,7 @@ const RECENT_TRANSCRIPT_READ_BYTES = 512 * 1024;
 const SESSION_TRANSCRIPT_READ_BYTES = 8 * 1024 * 1024;
 const RECENT_TRANSCRIPT_LINES_PER_FILE = 200;
 const RECENT_TRANSCRIPT_MAX_FILES = readPositiveIntEnv("OPENSCOUT_TAIL_RECENT_TRANSCRIPT_MAX_FILES", 24);
-const NATIVE_TAIL_SOURCES = new Set<TranscriptSource["name"]>(["grok", "opencode", "cursor"]);
+const NATIVE_TAIL_SOURCES = new Set<TranscriptSource["name"]>(["grok", "kimi", "opencode", "cursor"]);
 
 type Subscriber = (event: TailEvent) => void;
 
@@ -60,7 +61,7 @@ type Watcher = {
   state: Record<string, unknown>;
 };
 
-const sources: TranscriptSource[] = [GrokSource, ClaudeSource, CodexSource, CursorSource, OpenCodeSource, PiSource];
+const sources: TranscriptSource[] = [GrokSource, KimiSource, ClaudeSource, CodexSource, CursorSource, OpenCodeSource, PiSource];
 
 const watchers = new Map<string, Watcher>(); // key = `${source}:${transcriptPath}` (one watcher per file, regardless of how many processes share it)
 const aggregateBuffer: TailEvent[] = [];

@@ -53,6 +53,13 @@ export type HarnessReadinessConfig = {
   notReadyMessage?: string;
 };
 
+export type HarnessSessionDefaults = {
+  /** Canonical harness/adapter used when this catalog entry is selected. */
+  defaultHarness?: AgentHarness | (string & {});
+  defaultTransport: string;
+  fallbackTransports?: string[];
+};
+
 export type HarnessCatalogEntry = {
   name: string;
   harness: AgentHarness | (string & {});
@@ -73,17 +80,19 @@ export type HarnessCatalogEntry = {
     sessionFlag: string;
     cwdFlag?: string;
   };
+  sessionDefaults?: HarnessSessionDefaults;
   resolveEnv?: Array<{ from: string; to: string }>;
   capabilities: AgentCapability[];
   metadata?: Record<string, string | number | boolean | null>;
 };
 
-export type HarnessCatalogOverride = Partial<Omit<HarnessCatalogEntry, "support" | "install" | "readiness" | "launch" | "resume">> & {
+export type HarnessCatalogOverride = Partial<Omit<HarnessCatalogEntry, "support" | "install" | "readiness" | "launch" | "resume" | "sessionDefaults">> & {
   support?: Partial<HarnessCatalogSupport>;
   install?: Partial<HarnessInstallSpec>;
   readiness?: Partial<HarnessReadinessConfig>;
   launch?: Partial<HarnessCatalogEntry["launch"]>;
   resume?: Partial<HarnessCatalogEntry["resume"]>;
+  sessionDefaults?: Partial<HarnessSessionDefaults>;
 };
 
 export type HarnessCatalogOverrideRecord = {
@@ -182,6 +191,10 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       command: "claude",
       sessionFlag: "--resume",
     },
+    sessionDefaults: {
+      defaultTransport: "tmux",
+      fallbackTransports: ["claude_stream_json"],
+    },
     capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
   },
   {
@@ -217,6 +230,10 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     resume: {
       command: "grok",
       sessionFlag: "--resume",
+    },
+    sessionDefaults: {
+      defaultHarness: "grok-acp",
+      defaultTransport: "grok_acp",
     },
     capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
     metadata: {
@@ -257,6 +274,9 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       sessionFlag: "resume",
       cwdFlag: "-C",
     },
+    sessionDefaults: {
+      defaultTransport: "codex_app_server",
+    },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
   {
@@ -289,9 +309,50 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       loginCommand: "grok login",
       notReadyMessage: "Grok ACP is installed but still needs a cached login or XAI_API_KEY.",
     },
+    sessionDefaults: {
+      defaultTransport: "grok_acp",
+    },
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
     metadata: {
       adapterType: "grok-acp",
+      transport: "acp_stdio",
+    },
+  },
+  {
+    name: "kimi",
+    harness: "kimi",
+    label: "Kimi Code",
+    description: "Kimi Code CLI coding agent over ACP",
+    homepage: "https://www.kimi.com/code/docs/en/",
+    tags: ["coding", "cli", "kimi", "moonshot", "acp"],
+    featured: true,
+    order: 4,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "kimi",
+      requires: ["curl"],
+      macos: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+      linux: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+      windows: "irm https://code.kimi.com/kimi-code/install.ps1 | iex",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "file", path: "~/.kimi-code/credentials", label: "~/.kimi-code/credentials", fileType: "directory" },
+      ],
+      loginCommand: "kimi login",
+      notReadyMessage: "Kimi Code is installed but still needs a cached login from kimi login.",
+    },
+    sessionDefaults: {
+      defaultTransport: "kimi_acp",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+    metadata: {
+      adapterType: "kimi-acp",
       transport: "acp_stdio",
     },
   },
@@ -502,6 +563,24 @@ function mergeLaunch(
   };
 }
 
+function mergeSessionDefaults(
+  base?: HarnessSessionDefaults,
+  override?: Partial<HarnessSessionDefaults>,
+): HarnessSessionDefaults | undefined {
+  const defaultTransport = override?.defaultTransport ?? base?.defaultTransport;
+  if (!defaultTransport) return undefined;
+  return {
+    ...(base ?? {}),
+    ...(override ?? {}),
+    defaultTransport,
+    fallbackTransports: override?.fallbackTransports
+      ? [...override.fallbackTransports]
+      : base?.fallbackTransports
+        ? [...base.fallbackTransports]
+        : undefined,
+  };
+}
+
 function formatRequirement(requirement: HarnessRequirement): string {
   if (requirement.label?.trim()) return requirement.label.trim();
   if (requirement.kind === "env") return requirement.key;
@@ -566,6 +645,31 @@ export function findHarnessEntry(
   return BUILT_IN_HARNESS_CATALOG.find((e) => e.harness === harness || e.name === harness) ?? null;
 }
 
+export function resolveHarnessSessionDefaults(
+  harness: string | null | undefined,
+  options: {
+    transportOverride?: string;
+    entries?: readonly HarnessCatalogEntry[];
+  } = {},
+): { harness: string; transport: string; fallbackTransports: string[] } | null {
+  if (!harness) return null;
+  const entry = (options.entries ?? BUILT_IN_HARNESS_CATALOG)
+    .find((candidate) => candidate.harness === harness || candidate.name === harness);
+  const defaults = entry?.sessionDefaults;
+  if (!entry || !defaults) return null;
+
+  const fallbackTransports = [...(defaults.fallbackTransports ?? [])];
+  const supportedTransports = new Set([defaults.defaultTransport, ...fallbackTransports]);
+  const requestedTransport = options.transportOverride?.trim();
+  return {
+    harness: String(defaults.defaultHarness ?? entry.harness),
+    transport: requestedTransport && supportedTransports.has(requestedTransport)
+      ? requestedTransport
+      : defaults.defaultTransport,
+    fallbackTransports,
+  };
+}
+
 export function createBuiltInHarnessCatalog(): HarnessCatalogEntry[] {
   return BUILT_IN_HARNESS_CATALOG.map((entry) => ({
     ...entry,
@@ -581,6 +685,14 @@ export function createBuiltInHarnessCatalog(): HarnessCatalogEntry[] {
       : undefined,
     launch: entry.launch ? { ...entry.launch, args: [...entry.launch.args] } : undefined,
     resume: entry.resume ? { ...entry.resume } : undefined,
+    sessionDefaults: entry.sessionDefaults
+      ? {
+        ...entry.sessionDefaults,
+        fallbackTransports: entry.sessionDefaults.fallbackTransports
+          ? [...entry.sessionDefaults.fallbackTransports]
+          : undefined,
+      }
+      : undefined,
     resolveEnv: entry.resolveEnv ? [...entry.resolveEnv] : undefined,
     capabilities: [...entry.capabilities],
     metadata: entry.metadata ? { ...entry.metadata } : undefined,
@@ -602,6 +714,7 @@ export function mergeHarnessCatalogEntries(
       install: mergeInstall(entry.install, override.install),
       readiness: mergeReadiness(entry.readiness, override.readiness),
       launch: mergeLaunch(entry.launch, override.launch),
+      sessionDefaults: mergeSessionDefaults(entry.sessionDefaults, override.sessionDefaults),
       resume: override.resume && entry.resume
         ? { ...entry.resume, ...override.resume }
         : entry.resume,
@@ -636,6 +749,7 @@ export function mergeHarnessCatalogEntries(
       resume: override.resume?.command && override.resume?.sessionFlag
         ? { command: override.resume.command, sessionFlag: override.resume.sessionFlag, cwdFlag: override.resume.cwdFlag }
         : undefined,
+      sessionDefaults: mergeSessionDefaults(undefined, override.sessionDefaults),
       resolveEnv: override.resolveEnv ? [...override.resolveEnv] : undefined,
       capabilities: [...override.capabilities],
       metadata: override.metadata ? { ...override.metadata } : undefined,

@@ -3,8 +3,10 @@ import SwiftUI
 
 /// Stable surface ids — must match web `scoutSurface.id` values.
 enum ScoutEmbedSurfaceId: String, CaseIterable, Identifiable, Sendable {
+    case projects
     case dispatch
     case lanes
+    case code
 
     var id: String { rawValue }
 }
@@ -36,9 +38,18 @@ enum ScoutEmbedSurfaceRegistry {
     /// Add a row here when a web screen exports `scoutSurface.embed`.
     static let embeddable: [ScoutEmbedSurface] = [
         ScoutEmbedSurface(
+            id: .projects,
+            label: "Projects",
+            shellPath: "/projects",
+            embedPath: "/embed/projects",
+            profile: "macos.projects",
+            systemImage: "folder",
+            section: .agents
+        ),
+        ScoutEmbedSurface(
             id: .dispatch,
             label: "Dispatch",
-            shellPath: "/broker",
+            shellPath: "/dispatch",
             embedPath: "/embed/dispatch",
             profile: "macos.dispatch",
             systemImage: "paperplane",
@@ -52,6 +63,15 @@ enum ScoutEmbedSurfaceRegistry {
             profile: "macos.lanes",
             systemImage: "rectangle.split.3x1",
             section: .lanes
+        ),
+        ScoutEmbedSurface(
+            id: .code,
+            label: "Code",
+            shellPath: "/code",
+            embedPath: "/embed/code",
+            profile: "macos.code",
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            section: .code
         ),
     ]
 

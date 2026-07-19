@@ -60,7 +60,13 @@ describe("broker daemon local agent routing", () => {
     const snapshot = await broker.getJson<{
       actors: Record<string, { kind: string; displayName?: string; handle?: string; metadata?: Record<string, unknown> }>;
       agents: Record<string, unknown>;
-      endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
+      endpoints: Record<string, {
+        agentId: string;
+        harness?: string;
+        transport?: string;
+        projectRoot?: string;
+        metadata?: Record<string, unknown>;
+      }>;
     }>(harness.baseUrl, "/v1/snapshot");
     expect(snapshot.actors[response.targetAgentId!]?.handle).toMatch(/^project-/);
     expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^implicit-project-/);
@@ -76,11 +82,64 @@ describe("broker daemon local agent routing", () => {
     expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         agentId: response.targetAgentId,
+        harness: "claude",
+        transport: "tmux",
         projectRoot,
         metadata: expect.objectContaining({
           cardless: true,
           pendingExternalSession: true,
         }),
+      }),
+    ]));
+  }, 15_000);
+
+  test("uses stream JSON only when the cardless Claude backup transport is explicit", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "stream-json-backup");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+        OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT: "claude_stream_json",
+      },
+    });
+
+    const response = await broker.postJson<{
+      accepted: boolean;
+      targetAgentId?: string;
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-stream-json-backup",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Use the explicitly configured backup transport.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.accepted).toBe(true);
+    const snapshot = await broker.getJson<{
+      endpoints: Record<string, { agentId: string; harness?: string; transport?: string }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        harness: "claude",
+        transport: "claude_stream_json",
       }),
     ]));
   }, 15_000);
@@ -242,6 +301,114 @@ for await (const line of rl) {
         dispatchAck: expect.objectContaining({
           transport: "grok_acp",
         }),
+      }),
+    }));
+  }, 15_000);
+
+  test("starts and invokes a Kimi ACP cardless session for project routing", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "kimi-acp-project");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+    const fakeBin = mkdtempSync(join(tmpdir(), "openscout-fake-kimi-"));
+    broker.temporaryDirectories.add(fakeBin);
+    const fakeKimiPath = join(fakeBin, "kimi");
+    writeFileSync(fakeKimiPath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+for await (const line of rl) {
+  const message = JSON.parse(line);
+  const { id, method } = message;
+  const params = message.params ?? {};
+  if (method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id,
+      result: {
+        protocolVersion: 1,
+        agentCapabilities: { promptCapabilities: { image: true }, sessionCapabilities: { close: {} }, loadSession: true },
+        agentInfo: { name: "Kimi Code CLI", version: "test" },
+        authMethods: [{ id: "login" }]
+      }
+    }));
+  } else if (method === "authenticate") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+  } else if (method === "session/new") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { sessionId: "fake-kimi-acp-session" } }));
+  } else if (method === "session/prompt") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", method: "session/update",
+      params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "kimi-acp-ok" } } }
+    }));
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } }));
+  } else if (method === "session/close") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+  }
+}
+`, "utf8");
+    chmodSync(fakeKimiPath, 0o755);
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+        KIMI_CLI_BIN: fakeKimiPath,
+      },
+    });
+
+    const response = await broker.postJson<{
+      accepted: boolean;
+      targetAgentId?: string;
+      flight?: { id: string; targetAgentId: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-kimi-acp",
+      caller: { actorId: "operator", nodeId: harness.nodeId },
+      target: { kind: "project_path", projectPath: projectRoot },
+      body: "Reply with exactly kimi-acp-ok.",
+      intent: "consult",
+      execution: { harness: "kimi", session: "new" },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    const completed = await broker.waitFor(
+      () => broker.getJson<{
+        endpoints: Record<string, {
+          agentId: string;
+          harness?: string;
+          transport?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+        flights: Record<string, { state: string; output?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => Object.values(snapshot.endpoints).some((endpoint) =>
+        endpoint.agentId === response.targetAgentId
+        && endpoint.harness === "kimi"
+        && endpoint.transport === "kimi_acp"
+        && endpoint.metadata?.pendingExternalSession === false
+      ) && Boolean(response.flight?.id && snapshot.flights[response.flight.id]?.state === "completed"),
+    );
+
+    const endpoint = Object.values(completed.endpoints).find((candidate) =>
+      candidate.agentId === response.targetAgentId && candidate.transport === "kimi_acp"
+    );
+    expect(endpoint?.metadata).toEqual(expect.objectContaining({
+      cardless: true,
+      pendingExternalSession: false,
+      adapterType: "kimi-acp",
+    }));
+    expect(completed.flights[response.flight!.id]).toEqual(expect.objectContaining({
+      state: "completed",
+      output: expect.stringContaining("kimi-acp-ok"),
+      metadata: expect.objectContaining({
+        dispatchAck: expect.objectContaining({ transport: "kimi_acp" }),
       }),
     }));
   }, 15_000);

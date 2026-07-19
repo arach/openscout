@@ -19,6 +19,7 @@ describe("normalizeAgentState", () => {
     expect(normalizeAgentState("in_flight")).toBe("in_flight");
     expect(normalizeAgentState("queued")).toBe("in_flight");
     expect(normalizeAgentState("waking")).toBe("in_flight");
+    expect(normalizeAgentState("needs_attention")).toBe("needs_attention");
   });
 
   test("marks retired or superseded agents blocked", () => {
@@ -29,6 +30,7 @@ describe("normalizeAgentState", () => {
   });
 
   test("ranks busy agents above callable", () => {
+    expect(agentStateRank("needs_attention")).toBeLessThan(agentStateRank("in_turn"));
     expect(agentStateRank("in_turn")).toBeLessThan(agentStateRank("in_flight"));
     expect(agentStateRank("in_flight")).toBeLessThan(agentStateRank("callable"));
     expect(agentStateRank("callable")).toBeLessThan(agentStateRank("blocked"));
@@ -38,6 +40,8 @@ describe("normalizeAgentState", () => {
     expect(agentStateLabel("offline")).toBe("Callable");
     expect(agentStateLabel("working")).toBe("In turn");
     expect(agentStateLabel("in_flight")).toBe("In flight");
+    expect(agentStateLabel("needs_attention")).toBe("Needs attention");
+    expect(isAgentOnline("needs_attention")).toBe(true);
     expect(isAgentOnline("offline")).toBe(true);
     expect(isAgentOnline("offline", { retiredFromFleet: true })).toBe(false);
   });

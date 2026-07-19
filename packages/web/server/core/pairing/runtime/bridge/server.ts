@@ -35,8 +35,10 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileServiceBudgets,
   getScoutMobileSessionSnapshot,
   getScoutMobileSessions,
+  getScoutMobileTerminals,
   getScoutMobileWorkspaces,
   markScoutMobileConversationRead,
   sendScoutMobileComms,
@@ -742,6 +744,22 @@ async function handleRPCInner(
         return {
           id: req.id,
           result: await getScoutMobileActivity(p),
+        };
+      }
+
+      case "mobile/service-budgets": {
+        // No params; the phone just asks for the current usage-quota readout.
+        return {
+          id: req.id,
+          result: await getScoutMobileServiceBudgets(),
+        };
+      }
+
+      case "mobile/terminal-sessions": {
+        // No params; the phone just asks for the recent terminal sessions.
+        return {
+          id: req.id,
+          result: await getScoutMobileTerminals(),
         };
       }
 
