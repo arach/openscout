@@ -9,7 +9,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,7 +26,11 @@ const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 // allow the same readiness window used by the full restart orchestrator.
 const START_TIMEOUT: Duration = Duration::from_secs(60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
-const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
+// Graceful window scoutd gives each child (base, probe) before SIGKILL. Set above
+// base's worst-case subtree shutdown (~14s: broker 8s + kill wait + caddy) so base
+// exits cleanly on its own, and below launchd's 20s ExitTimeOut so scoutd itself is
+// not SIGKILLed mid-shutdown.
+const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(18);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
 const CHILD_LOG_ROTATE_LIMIT: u64 = 512 * 1024;
@@ -736,6 +740,9 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
     let stderr_log = open_child_log(&config.stderr_log_path)?;
     let mut command = Command::new(&config.bun_executable);
     command
+        // openscout-runtime.mjs now runs base-daemon in-process (no second bun
+        // child), so this process IS scout-base; name it for ps/doctor.
+        .arg0("scout-base")
         .arg(config.runtime_entrypoint())
         .arg("base")
         .current_dir(&config.runtime_package_dir)

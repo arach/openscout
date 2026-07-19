@@ -29,12 +29,17 @@ const RESTART_MIN_DELAY_MS = 1_000;
 const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
-const CHILD_SHUTDOWN_TIMEOUT_MS = 12_000;
+// Broker's graceful window before base SIGKILLs it. Kept below scoutd's own
+// CHILD_SHUTDOWN_TIMEOUT (18s) so base's whole subtree finishes before scoutd
+// force-kills base; 8s clears the broker's internal 5s server force-close with margin.
+const CHILD_SHUTDOWN_TIMEOUT_MS = 8_000;
 const WEB_START_RETRY_MS = 5_000;
 const MENU_BUNDLE_ID = "app.openscout.scout.menu";
 const MENU_PROCESS_NAME = "ScoutMenu";
 const PROCESS_NAME = "scout-base";
-const BROKER_LAUNCHER_PROCESS_NAME = "scout-broker-run";
+// openscout-runtime.mjs runs broker-daemon in-process (no second bun child),
+// so the process spawned here IS the broker; name it accordingly for ps/doctor.
+const BROKER_PROCESS_NAME = "scout-broker";
 const EDGE_PROCESS_NAME = "scout-edge";
 const MDNS_PROCESS_NAME = "scout-mdns";
 
@@ -50,6 +55,9 @@ let supervisedWebPid: number | null = null;
 let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
 let webStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let webStartInFlight = false;
+let parentWatcher: ReturnType<typeof setInterval> | null = null;
+
+const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 
 const config = resolveBrokerServiceConfig();
 const brokerControlUrl = buildLocalBrokerControlUrl(config.brokerHost, config.brokerPort);
@@ -133,7 +141,7 @@ function spawnBroker(): void {
     runtimeEntrypoint(config),
     "broker",
   ], {
-    argv0: BROKER_LAUNCHER_PROCESS_NAME,
+    argv0: BROKER_PROCESS_NAME,
     cwd: config.runtimePackageDir,
     env: {
       ...process.env,
@@ -522,6 +530,10 @@ async function shutdown(exitCode = 0): Promise<void> {
     clearInterval(baseKeepAlive);
     baseKeepAlive = null;
   }
+  if (parentWatcher) {
+    clearInterval(parentWatcher);
+    parentWatcher = null;
+  }
   if (webStartRetryTimer) {
     clearTimeout(webStartRetryTimer);
     webStartRetryTimer = null;
@@ -563,6 +575,24 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.exit(1);
     });
   });
+}
+
+// scoutd exports OPENSCOUT_PARENT_PID when it spawns scout-base. Watch it the
+// same way broker-daemon watches this process, so a dead scoutd cannot leave
+// the base/broker/web/edge tree orphaned under launchd.
+if (Number.isFinite(parentPid) && parentPid > 0 && parentPid !== process.pid) {
+  parentWatcher = setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      log(`parent ${parentPid} is gone, shutting down base`);
+      shutdown(0).catch((error) => {
+        warn("shutdown failed", error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      });
+    }
+  }, 2_000);
+  parentWatcher.unref();
 }
 
 log("starting Scout base service", {
