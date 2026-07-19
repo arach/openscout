@@ -9,6 +9,7 @@ import ScoutCapabilities
 /// reader scrolls away, at which point it becomes explicitly detached.
 struct TailSurface: View {
     let model: AppModel
+    let isActive: Bool
     var reloadToken: Int = 0
 
     /// Match `tail -n 50`: seed with a useful historical window, retain that
@@ -30,6 +31,8 @@ struct TailSurface: View {
     @State private var autoScrollGeneration = 0
     @State private var scrollToBottomToken = 0
     @State private var refreshToken = 0
+    @StateObject private var entrance = CockpitEntrancePhase()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct MachineTailEvent: Identifiable {
         let id: String
@@ -66,12 +69,18 @@ struct TailSurface: View {
             header
                 .padding(.horizontal, HudSpacing.xxl)
                 .padding(.bottom, HudSpacing.lg)
+                .cockpitEntrance(index: 0, phase: entrance)
 
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: reloadKey) { await poll() }
-        .task(id: refreshToken) { if refreshToken != 0 { await fetchOnce() } }
+        .task(id: "\(reloadKey)|\(isActive)") {
+            guard isActive else { return }
+            await poll()
+        }
+        .task(id: "\(refreshToken)|\(isActive)") {
+            if isActive, refreshToken != 0 { await fetchOnce() }
+        }
     }
 
     private var header: some View {
@@ -148,15 +157,21 @@ struct TailSurface: View {
                 icon: "waveform"
             )
             .padding(HudSpacing.xxl)
+            .cockpitEntrance(
+                index: 1,
+                phase: entrance,
+                motionEnabled: hasLoadedInitialSnapshot
+            )
             Spacer(minLength: 0)
         } else {
             GeometryReader { viewport in
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(events) { row in
+                            ForEach(Array(events.enumerated()), id: \.element.id) { index, row in
                                 logRow(row)
                                     .id(row.id)
+                                    .cockpitEntrance(index: index + 1, phase: entrance)
                             }
                             bottomMarker
                         }
@@ -328,10 +343,12 @@ struct TailSurface: View {
     }
 
     private func poll() async {
+        await fetchOnce()
+        await entrance.reveal(when: isActive, animated: !reduceMotion)
         while !Task.isCancelled {
-            await fetchOnce()
-            if Task.isCancelled { break }
             try? await Task.sleep(for: .seconds(Self.pollIntervalSeconds))
+            if Task.isCancelled { break }
+            await fetchOnce()
         }
     }
 

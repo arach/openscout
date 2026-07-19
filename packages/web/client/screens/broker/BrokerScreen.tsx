@@ -500,7 +500,7 @@ function BrokerAttemptList({
                 >
                   <div className="sys-broker-event-rail" aria-hidden="true">
                     <span className="sys-broker-event-icon">
-                      {isFailure ? <TriangleAlert size={15} /> : <CheckCircle2 size={15} />}
+                      {isFailure ? <TriangleAlert size={12} /> : <CheckCircle2 size={12} />}
                     </span>
                   </div>
                   <div className="sys-broker-cell sys-broker-cell-detail">

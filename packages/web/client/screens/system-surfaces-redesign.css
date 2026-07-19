@@ -290,9 +290,10 @@
 }
 
 .sys-broker-page {
-  gap: var(--space-2xl);
+  gap: var(--space-lg);
   height: 100%;
   min-height: 0;
+  padding: var(--space-lg) var(--space-3xl) var(--space-3xl);
   overflow: auto;
 }
 
@@ -437,7 +438,7 @@
 .sys-broker-table {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xl);
+  gap: var(--space-lg);
   background: transparent;
 }
 
@@ -453,7 +454,7 @@
 .sys-broker-day {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   min-width: 0;
 }
 
@@ -503,12 +504,12 @@
   position: relative;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px;
-  column-gap: var(--space-md);
+  grid-template-columns: 20px minmax(0, 1fr) 24px;
+  column-gap: var(--space-sm);
   align-items: start;
   width: 100%;
   row-gap: 0;
-  padding: var(--space-xl);
+  padding: var(--space-xs) var(--space-md);
   border-bottom-color: var(--sys-hairline-soft);
   border-left: 3px solid transparent;
   transition: background 120ms ease, border-color 120ms ease;
@@ -526,7 +527,7 @@
 
 .sys-broker-row--ledger.sys-broker-row-selected {
   border-left-color: var(--accent);
-  background: var(--sys-row-selected);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .sys-broker-row--failure:not(.sys-broker-row-selected) {
@@ -553,8 +554,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 18px;
+  height: 18px;
   border: 1px solid color-mix(in srgb, var(--green) 20%, var(--sys-hairline));
   border-radius: 999px;
   background: color-mix(in srgb, var(--green) 9%, var(--surface));
@@ -570,7 +571,7 @@
 .sys-broker-cell-detail {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
 }
 
 .sys-broker-cell-action {
@@ -581,8 +582,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -612,12 +613,12 @@
   margin: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 520;
-  line-height: var(--leading-snug);
+  line-height: var(--leading-tight);
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
 }
 
 .sys-broker-route-line,
@@ -674,7 +675,7 @@
 
 .sys-broker-dispatch-footer {
   gap: var(--space-sm);
-  min-height: 18px;
+  min-height: 13px;
 }
 
 .sys-broker-outcome {
@@ -780,9 +781,9 @@
 
 @media (max-width: 760px) {
   .sys-broker-row--ledger {
-    grid-template-columns: 26px minmax(0, 1fr) 26px;
+    grid-template-columns: 20px minmax(0, 1fr) 22px;
     column-gap: var(--space-sm);
-    padding: var(--space-lg) var(--space-md);
+    padding: var(--space-xs) var(--space-sm);
   }
 
   .sys-broker-source-note > span:last-child {

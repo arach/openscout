@@ -16,6 +16,10 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var sessionStatusContext: String?
     @State private var terminalDiagnostics = TerminalDiagnosticsModel()
+    @AppStorage(ScoutHomeFX.grainKey) private var homeGrainEnabled = true
+    @AppStorage(ScoutHomeFX.motionKey) private var homeMotionEnabled = true
+    @AppStorage(ScoutHomeFX.identityKey) private var homeIdentityEnabled = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -89,65 +93,72 @@ struct RootView: View {
                     VStack(spacing: 0) {
                         titleBar(layout)
 
-                        Group {
-                            switch surface {
-                            case .home:
+                        // Keep every tab surface alive for the launch lifetime.
+                        // Opacity switches presentation without discarding view
+                        // state, scroll positions, loaded snapshots, or Terminal's
+                        // live workspace. Inactive surfaces gate their own work.
+                        ZStack {
+                            surfaceLayer(.home) {
                                 HomeSurface(
                                     model: model,
-                                    onSelectMachine: { machine in
-                                        Task { await model.selectMachineFilter(.machine(machine.id)) }
-                                    },
-                                    onSelectAll: {
-                                        Task { await model.selectMachineFilter(.all) }
-                                    },
+                                    motionEnabled: homeMotionEnabled,
+                                    identityEnabled: homeIdentityEnabled,
+                                    isActive: surface == .home,
                                     onConversationStatusContext: { sessionStatusContext = $0 },
-                                    onSeeAllAgents: {
-                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                                            surface = .agents
-                                        }
-                                    },
-                                    onSeeAllActivity: {
-                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                                            surface = .comms
-                                        }
-                                    },
-                                    onCompose: {
-                                        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                                            surface = .new
-                                        }
-                                    },
+                                    onSeeAllAgents: { selectSurface(.agents) },
+                                    onSeeAllActivity: { selectSurface(.comms) },
+                                    onCompose: { selectSurface(.new) },
+                                    onConnect: { showConnection = true },
                                     reloadToken: model.fleetDataReadyToken
                                 )
-                            case .agents:
+                            }
+                            surfaceLayer(.agents) {
                                 AgentsSurface(
                                     model: model,
+                                    isActive: surface == .agents,
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
-                            case .tail:
-                                TailSurface(model: model, reloadToken: model.fleetDataReadyToken)
-                            case .comms:
+                            }
+                            surfaceLayer(.tail) {
+                                TailSurface(
+                                    model: model,
+                                    isActive: surface == .tail,
+                                    reloadToken: model.fleetDataReadyToken
+                                )
+                            }
+                            surfaceLayer(.comms) {
                                 CommsSurface(
                                     model: model,
+                                    isActive: surface == .comms,
                                     reloadToken: model.fleetDataReadyToken,
                                     notificationRoute: model.pendingNotificationRoute
                                 )
-                            case .lanes:    MissionControlSurface(model: model, kind: .lanes)
-                            case .dispatch: MissionControlSurface(model: model, kind: .dispatch)
-                            case .terminal: TerminalSurface(
-                                client: client,
-                                diagnostics: terminalDiagnostics,
-                                reloadToken: model.dataReadyToken,
-                                terminalTargetID: activeMachine?.id,
-                                connectedHost: model.terminalSSHHost,
-                                onReconnectBridge: { Task { await model.reconnect() } },
-                                onOpenConnectionSettings: { showConnection = true },
-                                isPresentingSettings: showSettings
-                            )
-                            case .new:
+                            }
+                            surfaceLayer(.lanes) {
+                                MissionControlSurface(model: model, kind: .lanes, isActive: surface == .lanes)
+                            }
+                            surfaceLayer(.dispatch) {
+                                MissionControlSurface(model: model, kind: .dispatch, isActive: surface == .dispatch)
+                            }
+                            surfaceLayer(.terminal) {
+                                TerminalSurface(
+                                    client: client,
+                                    diagnostics: terminalDiagnostics,
+                                    reloadToken: model.dataReadyToken,
+                                    terminalTargetID: activeMachine?.id,
+                                    connectedHost: model.terminalSSHHost,
+                                    onReconnectBridge: { Task { await model.reconnect() } },
+                                    onOpenConnectionSettings: { showConnection = true },
+                                    isPresentingSettings: showSettings,
+                                    isActive: surface == .terminal
+                                )
+                            }
+                            surfaceLayer(.new) {
                                 NewSessionSurface(
                                     model: model,
                                     client: client,
                                     reloadToken: model.dataReadyToken,
+                                    isActive: surface == .new,
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
                             }
@@ -199,7 +210,14 @@ struct RootView: View {
             // the design frame, so the physical edges stay covered even when the
             // frame shrinks to fit the 13 mini. (The shell itself paints only a
             // flat color.)
-            .background { ScoutCanvas().ignoresSafeArea() }
+            .background {
+                ScoutCanvas(
+                    isFleetLive: model.activeAgentCount > 0,
+                    grainEnabled: homeGrainEnabled,
+                    motionEnabled: homeMotionEnabled
+                )
+                .ignoresSafeArea()
+            }
         }
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
@@ -254,6 +272,30 @@ struct RootView: View {
         case .dispatch: .dispatch
         case .terminal: .terminal
         case .new: .new
+        }
+    }
+
+    /// A stable, always-mounted slot for one top-level surface. The selected
+    /// slot crossfades above the others; hidden slots remain in the hierarchy but
+    /// cannot receive touch or accessibility focus.
+    private func surfaceLayer<Content: View>(
+        _ candidate: Surface,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isActive = surface == candidate
+        return content()
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+            .accessibilityHidden(!isActive)
+            .zIndex(isActive ? 1 : 0)
+    }
+
+    private func selectSurface(_ next: Surface) {
+        guard surface != next else { return }
+        if reduceMotion {
+            surface = next
+        } else {
+            withAnimation(.easeOut(duration: 0.18)) { surface = next }
         }
     }
 
@@ -402,7 +444,7 @@ struct RootView: View {
             #if canImport(UIKit)
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             #endif
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { surface = s }
+            selectSurface(s)
         } label: {
             VStack(spacing: HudSpacing.xxs) {
                 Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
@@ -434,10 +476,14 @@ struct RootView: View {
         // over a refined hairline — no logo tile, no heavy weight.
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             HStack(spacing: HudSpacing.sm) {
-                Text("SCOUT")
-                    .font(HudFont.ui(layout.wordmarkSize, weight: .light))
-                    .tracking(3)
-                    .foregroundStyle(HudPalette.ink)
+                if homeIdentityEnabled {
+                    EtchedScoutWordmark(size: layout.wordmarkSize)
+                } else {
+                    Text("SCOUT")
+                        .font(HudFont.ui(layout.wordmarkSize, weight: .light))
+                        .tracking(3)
+                        .foregroundStyle(HudPalette.ink)
+                }
                 machineArea
                     .frame(maxWidth: .infinity, alignment: .leading)
                 settingsButton
@@ -524,5 +570,38 @@ struct RootView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Settings")
+    }
+}
+
+/// The normal wordmark's exact type metrics, finished as a dark letterpress:
+/// four sub-point edge impressions surround a graphite face, and the faint
+/// top-to-bottom shading gives the inset face an inner shadow without changing
+/// the masthead's layout or introducing a logo tile.
+private struct EtchedScoutWordmark: View {
+    let size: CGFloat
+
+    private var face: some View {
+        Text("SCOUT")
+            .font(HudFont.ui(size, weight: .light))
+            .tracking(3)
+    }
+
+    var body: some View {
+        ZStack {
+            face.foregroundStyle(Color.black.opacity(0.72)).offset(y: 0.65)
+            face.foregroundStyle(ScoutInk.dim.opacity(0.48)).offset(x: -0.4)
+            face.foregroundStyle(ScoutInk.dim.opacity(0.48)).offset(x: 0.4)
+            face.foregroundStyle(ScoutInk.dim.opacity(0.42)).offset(y: -0.4)
+            face.foregroundStyle(ScoutInk.dim.opacity(0.34)).offset(y: 0.4)
+            face.foregroundStyle(
+                LinearGradient(
+                    colors: [ScoutSignalSurface.edge.opacity(0.78), ScoutSignalSurface.top],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Scout")
     }
 }
