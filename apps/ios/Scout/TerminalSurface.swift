@@ -6,6 +6,129 @@ import HudsonVoice
 import TerminiSSH
 import ScoutCapabilities
 
+/// Shared, metadata-only snapshot of the live Terminal surface. Root owns one
+/// instance so contextual Settings can inspect the terminal while its full-page
+/// cover is open. No transcript or typed command is retained here.
+@MainActor
+@Observable
+final class TerminalDiagnosticsModel {
+    enum SurfaceState: String {
+        case neverOpened = "Not opened"
+        case visible = "Visible"
+        case settings = "Settings open"
+        case hidden = "Hidden"
+    }
+
+    enum ProvisioningState: String {
+        case idle = "Not started"
+        case waitingForBridge = "Waiting for bridge"
+        case authorizing = "Authorizing key"
+        case ready = "Authorized"
+        case unavailable = "Unavailable"
+        case failed = "Failed"
+    }
+
+    enum SSHState: String {
+        case idle = "Not started"
+        case connecting = "Connecting"
+        case connected = "Connected"
+        case disconnected = "Disconnected"
+        case failed = "Failed"
+    }
+
+    var surfaceState: SurfaceState = .neverOpened
+    var provisioningState: ProvisioningState = .idle
+    var provisioningDetail: String?
+    var sshState: SSHState = .idle
+    var sshDetail: String?
+    var endpoint: String?
+    var targetID: String?
+    var routeHost: String?
+    var hostKeyPinned = false
+    var ptyColumns: Int?
+    var ptyRows: Int?
+    var cellWidthPixels: Int?
+    var cellHeightPixels: Int?
+    var rendererDiagnostics: [String] = []
+    /// Text currently parsed into Ghostty's visible viewport. This is metadata
+    /// for troubleshooting the renderer boundary: non-empty text with blank
+    /// pixels means transport/parsing worked and compositing failed.
+    var rendererVisibleText = ""
+    var keyboardHeight: CGFloat = 0
+    var hostStatus: TerminalHostStatus?
+    var hostStatusError: String?
+    var lastUpdatedAt: Date?
+
+    func begin(targetID: String?, routeHost: String?) {
+        surfaceState = .visible
+        self.targetID = targetID
+        self.routeHost = routeHost
+        lastUpdatedAt = .now
+    }
+
+    func recordProvisioning(_ state: ProvisioningState, detail: String? = nil) {
+        provisioningState = state
+        provisioningDetail = detail
+        lastUpdatedAt = .now
+    }
+
+    func recordAccess(_ access: TerminalAccess, resolvedHost: String) {
+        endpoint = "\(access.username)@\(resolvedHost):\(access.port)"
+        hostKeyPinned = access.hostKeyFingerprint?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        recordProvisioning(.ready)
+    }
+
+    func sample(_ workspace: TerminiSSHWorkspace, keyboardHeight: CGFloat) {
+        switch workspace.status {
+        case .connecting:
+            sshState = .connecting
+            sshDetail = workspace.statusMessage
+        case .connected:
+            sshState = .connected
+            sshDetail = workspace.statusMessage
+        case .disconnected:
+            sshState = .disconnected
+            sshDetail = workspace.statusMessage
+        case .failed(let message):
+            sshState = .failed
+            sshDetail = message.isEmpty ? workspace.statusMessage : message
+        }
+        if let size = workspace.terminalSize {
+            ptyColumns = size.columns
+            ptyRows = size.rows
+            cellWidthPixels = size.cellWidthPixels
+            cellHeightPixels = size.cellHeightPixels
+        }
+        rendererDiagnostics = workspace.diagnostics?.lines ?? []
+        rendererVisibleText = workspace.controller.visibleText() ?? ""
+        self.keyboardHeight = keyboardHeight
+        lastUpdatedAt = .now
+    }
+
+    func recordFailure(_ message: String) {
+        provisioningState = .failed
+        provisioningDetail = message
+        sshState = .failed
+        sshDetail = message
+        lastUpdatedAt = .now
+    }
+
+    func refreshHostStatus(using client: any ScoutBrokerClient) async {
+        guard let provider = client as? any TerminalStatusProviding else {
+            hostStatus = nil
+            hostStatusError = "This broker client does not expose terminal status."
+            return
+        }
+        do {
+            hostStatus = try await provider.terminalHostStatus()
+            hostStatusError = nil
+        } catch {
+            hostStatusError = error.localizedDescription
+        }
+        lastUpdatedAt = .now
+    }
+}
+
 /// Terminal — a real SSH/PTY into the paired Mac.
 ///
 /// Flow on appear: generate (once) a device SSH identity, ask the broker to
@@ -14,6 +137,7 @@ import ScoutCapabilities
 /// No mock console — when this can't connect it says exactly why.
 struct TerminalSurface: View {
     let client: any ScoutBrokerClient
+    let diagnostics: TerminalDiagnosticsModel
     /// Flips 0 → 1 when the bridge connection lands (`AppModel.dataReadyToken`).
     /// We key provisioning on it so the SSH handshake waits for the transport.
     var reloadToken: Int = 0
@@ -28,15 +152,25 @@ struct TerminalSurface: View {
     /// Recovery hooks owned by Root/AppModel.
     var onReconnectBridge: () -> Void = {}
     var onOpenConnectionSettings: () -> Void = {}
+    /// A full-screen Settings cover should not tear down the session it is
+    /// actively diagnosing.
+    var isPresentingSettings = false
 
     @State private var workspace: TerminiSSHWorkspace?
     @State private var phase: Phase = .preparing
     @State private var endpoint: String = ""
     @State private var preparedIdentityToken: String?
+    /// `.task(id:)` can restart when the bridge readiness token changes while
+    /// an earlier provisioning call is still suspended. Only the newest
+    /// generation may create/own an SSH workspace, otherwise one app launch
+    /// attaches multiple tmux clients and duplicates terminal replies.
+    @State private var preparationGeneration = 0
 
-    /// Height the hosted terminal keyboard reports for itself; it self-sizes and
-    /// can swipe between compact (full QWERTY) and minimal rows.
-    @State private var keyboardHeight: CGFloat = 262
+    /// The PTY owns keyboard presentation explicitly: hidden gives the terminal
+    /// its full height, quick is a single terminal-actions row, and full is the
+    /// complete QWERTY. Native swipes still move between quick and full.
+    @State private var keyboardPresentation: KeyboardPresentation = .hidden
+    @State private var keyboardHeight: CGFloat = 80
 
     /// On-device dictation, shared with the message composers (injected at the
     /// app root). The terminal keyboard's mic toggles it; transcripts land at the
@@ -49,15 +183,26 @@ struct TerminalSurface: View {
     /// a per-terminal setting (small/standard presets). 8pt ≈ 70 cols on this
     /// device, so `ls -la` fits without wrapping.
     ///
-    /// `fontFamily: nil` is deliberate — it tells Termini NOT to override the
-    /// face, so Ghostty uses its built-in chain (JetBrains Mono + the embedded
-    /// "Symbols Nerd Font" fallback). That fallback renders the Mac's powerline /
-    /// Powerlevel10k prompt glyphs; forcing "SF Mono" (hudson's default) dropped
-    /// it and left the prompt as a bare floating cursor. Zero added bytes — the
-    /// Nerd symbols already ship inside the Ghostty binary, verified via
-    /// `strings` ("Symbols Nerd Font 3.4.0").
+    /// Leave the family unset so Ghostty uses the renderer artifact's built-in
+    /// monospace chain. GhosttyKit 0.1.5 currently substitutes private-use Nerd
+    /// Font cells even when a patched family is registered and selected; that
+    /// remaining fix belongs in the renderer artifact rather than app chrome.
     private var terminalAppearance: HudTerminalAppearance {
         HudTerminalAppearance(fontSize: 8, fontFamily: nil)
+    }
+
+    private enum KeyboardPresentation: Equatable {
+        case hidden
+        case quick
+        case full
+
+        var visibleLayout: TerminalKeyboardLayout? {
+            switch self {
+            case .hidden: nil
+            case .quick: .quick
+            case .full: .full
+            }
+        }
     }
 
     private enum Phase: Equatable {
@@ -87,15 +232,20 @@ struct TerminalSurface: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            content
-        }
+        content
         .background(HudPalette.bg)
         // The hosted keyboard IS the keyboard now (no system QWERTY underneath);
         // it rides the bottom safe area and the terminal lays out above it.
         .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
+        .overlay(alignment: .bottomTrailing) { keyboardLauncher }
         .task(id: preparationToken) { await prepare() }
+        .task(id: workspace.map(ObjectIdentifier.init)) {
+            guard let observedWorkspace = workspace else { return }
+            while !Task.isCancelled, workspace === observedWorkspace {
+                diagnostics.sample(observedWorkspace, keyboardHeight: presentedKeyboardHeight)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
         // Dictated text lands at the prompt (no trailing newline) — you review it
         // and press RET yourself, so a misheard command never auto-executes. The
         // pulse makes the keyboard's mic flash a success check.
@@ -106,7 +256,11 @@ struct TerminalSurface: View {
             dictationSuccessPulse += 1
         }
         .onDisappear {
+            preparationGeneration &+= 1
             if voice.isListening { voice.cancel() }
+            if let workspace { diagnostics.sample(workspace, keyboardHeight: presentedKeyboardHeight) }
+            diagnostics.surfaceState = isPresentingSettings ? .settings : .hidden
+            guard !isPresentingSettings else { return }
             let activeWorkspace = workspace
             workspace = nil
             endpoint = ""
@@ -117,26 +271,100 @@ struct TerminalSurface: View {
 
     // MARK: - Keyboard
 
+    private var presentedKeyboardHeight: CGFloat {
+        keyboardPresentation == .hidden ? 0 : keyboardHeight
+    }
+
     /// hudson's in-app terminal keyboard (`HudHostedKeyboard`, extracted from
     /// talkie) — a full QWERTY that swipes down to a terminal quick-tray, both
     /// with a mic that drives `HudDictation`. Mounted only once the PTY is live;
     /// every key (and dictation transcript) writes straight to the channel.
     @ViewBuilder
     private var terminalKeyboard: some View {
-        if case .live = phase {
-            TerminalHostedKeyboard(
-                send: { workspace?.controller.onTransportWrite?($0) },
-                onDictate: { voice.toggleFromUserIntent() },
-                dictationPhase: dictationPhase,
-                successPulse: dictationSuccessPulse,
-                preferredHeight: $keyboardHeight
-            )
-            .frame(height: keyboardHeight)
-            // The keyboard reflows to its width but renders full-bleed (3pt
-            // internal padding). On the 13 mini's narrow screen that's too wide,
-            // so inset it into a contained tray that lines up with the terminal
-            // grid (which is also inset) instead of running edge-to-edge.
-            .padding(.horizontal, HudSpacing.xxl)
+        if case .live = phase, let layout = keyboardPresentation.visibleLayout {
+            VStack(spacing: 0) {
+                keyboardControlBar(layout: layout)
+                TerminalHostedKeyboard(
+                    send: { workspace?.controller.onTransportWrite?($0) },
+                    onDictate: { voice.toggleFromUserIntent() },
+                    dictationPhase: dictationPhase,
+                    successPulse: dictationSuccessPulse,
+                    preferredHeight: $keyboardHeight,
+                    layout: layout,
+                    onLayoutChange: { next in
+                        keyboardPresentation = next == .quick ? .quick : .full
+                    }
+                )
+                .frame(height: keyboardHeight)
+                // The keyboard reflows to its width but renders full-bleed (3pt
+                // internal padding). On compact phones this keeps it aligned with
+                // the inset terminal grid instead of clipping at either edge.
+                .padding(.horizontal, HudSpacing.xxl)
+            }
+            .background(HudPalette.bg)
+        }
+    }
+
+    @ViewBuilder
+    private var keyboardLauncher: some View {
+        if case .live = phase, keyboardPresentation == .hidden {
+            Button {
+                keyboardPresentation = .quick
+            } label: {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(HudPalette.ink)
+                    .frame(width: 38, height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .fill(ScoutSurface.raised)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show terminal keyboard")
+            .padding(.trailing, HudSpacing.xxl)
+            .padding(.bottom, HudSpacing.sm)
+        }
+    }
+
+    private func keyboardControlBar(layout: TerminalKeyboardLayout) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Button {
+                keyboardPresentation = .hidden
+            } label: {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .frame(width: 34, height: 28)
+            }
+            .accessibilityLabel("Hide terminal keyboard")
+
+            Spacer()
+
+            Text(layout == .quick ? "QUICK KEYS" : "FULL KEYBOARD")
+                .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                .foregroundStyle(ScoutInk.dim)
+
+            Spacer()
+
+            Button {
+                keyboardPresentation = layout == .quick ? .full : .quick
+            } label: {
+                Image(systemName: layout == .quick ? "chevron.up" : "chevron.down")
+                    .frame(width: 34, height: 28)
+            }
+            .accessibilityLabel(layout == .quick ? "Expand terminal keyboard" : "Use quick terminal keys")
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(ScoutInk.muted)
+        .padding(.horizontal, HudSpacing.xxl)
+        .frame(height: 30)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(HudHairline.standard)
+                .frame(height: HudStrokeWidth.thin)
         }
     }
 
@@ -147,36 +375,6 @@ struct TerminalSurface: View {
         case .transcribing: return .processing
         default:            return .idle
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: HudSpacing.md) {
-            Glyphic(kind: .terminal, size: 19)
-                .foregroundStyle(HudTint.green.color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Terminal")
-                    .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                Text(endpoint.isEmpty ? "paired Mac" : endpoint)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(ScoutInk.muted)
-            }
-            Spacer()
-            statusDot
-        }
-        .padding(.horizontal, HudSpacing.xxl)
-        .padding(.vertical, HudSpacing.lg)
-    }
-
-    private var statusDot: some View {
-        let connected = workspace?.isConnected ?? false
-        let connecting = workspace?.isConnecting ?? false
-        let color: Color = connected ? HudPalette.accent
-            : connecting ? HudPalette.statusWarn
-            : ScoutInk.dim
-        return HudStatusDot(color: color, size: 7, pulses: connecting)
     }
 
     // MARK: - Content
@@ -317,6 +515,7 @@ struct TerminalSurface: View {
     // MARK: - Provision + connect
 
     private func prepare(force: Bool = false) async {
+        diagnostics.begin(targetID: terminalTargetID, routeHost: connectedHost)
         let identityToken = terminalIdentityToken
         let phaseIsLive: Bool
         if case .live = phase {
@@ -330,8 +529,12 @@ struct TerminalSurface: View {
             return
         }
 
+        preparationGeneration &+= 1
+        let generation = preparationGeneration
+
         if force || sameLiveTarget || preparedIdentityToken != identityToken {
             await workspace?.disconnect()
+            guard generation == preparationGeneration, !Task.isCancelled else { return }
             workspace = nil
             endpoint = ""
             preparedIdentityToken = nil
@@ -339,6 +542,7 @@ struct TerminalSurface: View {
 
         guard let provider = client as? TerminalAccessProviding else {
             phase = .unavailable("This connection doesn't support the in-app terminal yet.")
+            diagnostics.recordProvisioning(.unavailable, detail: "This connection does not support terminal provisioning.")
             return
         }
 
@@ -347,16 +551,19 @@ struct TerminalSurface: View {
         // race ahead of the transport.
         guard force || reloadToken > 0 else {
             phase = .preparing
+            diagnostics.recordProvisioning(.waitingForBridge)
             return
         }
 
         phase = .preparing
+        diagnostics.recordProvisioning(.authorizing)
 
         let key = TerminalIdentity.loadOrCreate()
         let publicKey = TerminalIdentity.opensshPublicKey(for: key, comment: "scout-ios")
 
         do {
             let access = try await provisionWithRetry(provider, publicKey: publicKey)
+            guard generation == preparationGeneration, !Task.isCancelled else { return }
             let hostKeyFingerprint = access.hostKeyFingerprint?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let hostKeyFingerprint, !hostKeyFingerprint.isEmpty else {
                 throw TerminalPreparationError.missingHostKeyFingerprint
@@ -365,6 +572,7 @@ struct TerminalSurface: View {
             // route ⇒ it's the Mac); fall back to the broker's `.local`.
             let sshHost = connectedHost ?? access.host
             endpoint = "\(access.username)@\(sshHost)"
+            diagnostics.recordAccess(access, resolvedHost: sshHost)
 
             let connection = TerminiConnectionConfig(
                 name: "Scout Terminal",
@@ -389,7 +597,11 @@ struct TerminalSurface: View {
                 //      only by *interactive* shells, so `-lc` skips it entirely.
                 //      The inner pane is interactive and prompts at most once, on
                 //      first session create, answerable in-pane.
-                startupCommand: "/bin/zsh -lc 'exec tmux new -A -s scout'",
+                startupCommand: "/bin/zsh -lc 'for p in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do if [[ -x $p ]]; then exec $p new -A -s scout; fi; done; print -u2 -- \"tmux is not installed in a supported location\"; exit 127'",
+                // Give tmux the PTY from the first byte. Typing this command
+                // into a transient login shell lets terminal capability replies
+                // contaminate that shell's input line before tmux attaches.
+                useExecRequest: true,
                 // Provisioning is over the already-authenticated Noise bridge;
                 // require that it returns the Mac's host-key fingerprint and pin
                 // it before SSH auth. No empty-fingerprint TOFU fallback.
@@ -402,9 +614,17 @@ struct TerminalSurface: View {
             preparedIdentityToken = identityToken
             phase = .live
             await ws.connect()
+            guard generation == preparationGeneration, !Task.isCancelled else {
+                await ws.disconnect()
+                if workspace === ws { workspace = nil }
+                return
+            }
+            diagnostics.sample(ws, keyboardHeight: presentedKeyboardHeight)
             await paintPromptOnAttach(ws)
         } catch {
+            guard generation == preparationGeneration, !Task.isCancelled else { return }
             phase = .failed(error.localizedDescription)
+            diagnostics.recordFailure(error.localizedDescription)
         }
     }
 

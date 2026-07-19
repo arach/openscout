@@ -6,9 +6,12 @@ import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
+  SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
   SUPPORTED_SCOUT_HARNESSES,
   buildAttachedSessionInvocationPrompt,
+  buildClaudeEndpointSessionOptions,
+  buildCodexEndpointSessionOptions,
   buildLocalAgentDirectInvocationPrompt,
   buildLocalAgentNudge,
   buildLocalAgentSystemPrompt,
@@ -173,6 +176,56 @@ for await (const line of rl) {
 }
 
 describe("local agent prompts", () => {
+  test("applies an attached endpoint's explicit Codex permission boundary", () => {
+    const options = buildCodexEndpointSessionOptions({
+      id: "endpoint.scoutbot",
+      agentId: "scoutbot",
+      nodeId: "node-1",
+      harness: "codex",
+      transport: "codex_app_server",
+      state: "waiting",
+      cwd: "/tmp/openscout",
+      metadata: {
+        source: "scoutbot",
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        launchArgs: ["-c", "features.shell_tool=false"],
+      },
+    });
+
+    expect(options.approvalPolicy).toBe("never");
+    expect(options.sandbox).toBe("read-only");
+    expect(options.launchArgs).toContain("features.shell_tool=false");
+  });
+
+  test("applies an attached Claude endpoint's model and effort metadata to launch args", () => {
+    const options = buildClaudeEndpointSessionOptions({
+      id: "endpoint.cardless-claude",
+      agentId: "session-cardless-claude",
+      nodeId: "node-1",
+      harness: "claude",
+      transport: "claude_stream_json",
+      state: "idle",
+      cwd: "/tmp/openscout",
+      metadata: {
+        cardless: true,
+        launchArgs: [
+          "--model", "stale-model",
+          "--reasoning-effort", "low",
+          "--allowedTools", "Read,Grep",
+        ],
+        model: "claude-opus-4-8",
+        reasoningEffort: "high",
+      },
+    });
+
+    expect(options.launchArgs).toEqual([
+      "--allowedTools", "Read,Grep",
+      "--model", "claude-opus-4-8",
+      "--effort", "high",
+    ]);
+  });
+
   test("derives context-window usage from observed token metadata", () => {
     expect(resolveLocalAgentContextWindowUsage({
       session: {
@@ -276,6 +329,8 @@ describe("local agent prompts", () => {
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("grok");
+    expect(SUPPORTED_SCOUT_HARNESSES).toContain("kimi");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("kimi");
   });
 
   test("hydrates persisted Codex thread ids onto local endpoint metadata", async () => {
@@ -545,6 +600,146 @@ describe("local agent prompts", () => {
     expect(prompt).toContain(`${scoutCli} latest --agent shaper --limit 20`);
     expect(prompt).not.toContain("[ask:flt-1]");
     expect(prompt).not.toContain(`${scoutCli} send --as shaper`);
+  });
+
+  test("nudge and invocation prompts surface originating message attachments", () => {
+    const invocation = {
+      id: "inv-1",
+      requesterId: "hudson",
+      requesterNodeId: "node-1",
+      targetAgentId: "shaper",
+      action: "wake",
+      task: "Can you look at the screenshot?",
+      context: {
+        [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+          {
+            id: "att-1",
+            mediaType: "image/png",
+            fileName: "screenshot.png",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          },
+        ],
+      },
+      conversationId: "dm.operator.shaper",
+      messageId: "msg-request-1",
+      ensureAwake: true,
+      stream: false,
+      createdAt: 1,
+    } as const;
+
+    const nudge = buildLocalAgentNudge("shaper", invocation, "flt-1");
+    const directPrompt = buildLocalAgentDirectInvocationPrompt("shaper", invocation);
+
+    for (const prompt of [nudge, directPrompt]) {
+      expect(prompt).toContain("Attachments:");
+      expect(prompt).toContain("- screenshot.png (image/png): http://127.0.0.1:3200/api/blobs/blob-1");
+      expect(prompt).toContain("Fetch/open the attachment URL");
+      expect(prompt).not.toContain(SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY);
+    }
+  });
+
+  test("attachment prompts resolve blobKey via web origin and omit unfetchable locators", () => {
+    const previous = process.env.OPENSCOUT_WEB_BUN_URL;
+    process.env.OPENSCOUT_WEB_BUN_URL = "http://127.0.0.1:43200";
+    try {
+      const withBlobKey = {
+        id: "inv-blob",
+        requesterId: "hudson",
+        requesterNodeId: "node-1",
+        targetAgentId: "shaper",
+        action: "wake" as const,
+        task: "Inspect the image",
+        context: {
+          [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+            {
+              id: "att-blob",
+              mediaType: "image/png",
+              fileName: "shot.png",
+              blobKey: "blob-42",
+            },
+            {
+              id: "att-relative",
+              mediaType: "image/png",
+              fileName: "relative.png",
+              url: "/api/blobs/blob-rel",
+            },
+            {
+              id: "att-other-path",
+              mediaType: "text/plain",
+              fileName: "notes.txt",
+              url: "/api/other/notes.txt",
+            },
+          ],
+        },
+        conversationId: "dm.operator.shaper",
+        messageId: "msg-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      };
+      const prompt = buildLocalAgentDirectInvocationPrompt("shaper", withBlobKey);
+      expect(prompt).toContain("- shot.png (image/png): http://127.0.0.1:43200/api/blobs/blob-42");
+      expect(prompt).toContain("- relative.png (image/png): http://127.0.0.1:43200/api/blobs/blob-rel");
+      expect(prompt).not.toContain("notes.txt");
+      expect(prompt).not.toContain("/api/other/notes.txt");
+      expect(prompt).not.toContain("blob:blob-42");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENSCOUT_WEB_BUN_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_BUN_URL = previous;
+      }
+    }
+
+    const previousMissing = process.env.OPENSCOUT_WEB_BUN_URL;
+    const previousPublic = process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    const previousVite = process.env.OPENSCOUT_WEB_VITE_URL;
+    delete process.env.OPENSCOUT_WEB_BUN_URL;
+    delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    delete process.env.OPENSCOUT_WEB_VITE_URL;
+    try {
+      const blobOnly = {
+        id: "inv-orphan",
+        requesterId: "hudson",
+        requesterNodeId: "node-1",
+        targetAgentId: "shaper",
+        action: "wake" as const,
+        task: "Inspect the image",
+        context: {
+          [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: [
+            {
+              id: "att-orphan",
+              mediaType: "image/png",
+              blobKey: "blob-missing-origin",
+            },
+          ],
+        },
+        conversationId: "dm.operator.shaper",
+        messageId: "msg-2",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+      };
+      const prompt = buildLocalAgentDirectInvocationPrompt("shaper", blobOnly);
+      expect(prompt).not.toContain("Attachments:");
+      expect(prompt).not.toContain("blob:blob-missing-origin");
+    } finally {
+      if (previousMissing === undefined) {
+        delete process.env.OPENSCOUT_WEB_BUN_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_BUN_URL = previousMissing;
+      }
+      if (previousPublic === undefined) {
+        delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+      } else {
+        process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = previousPublic;
+      }
+      if (previousVite === undefined) {
+        delete process.env.OPENSCOUT_WEB_VITE_URL;
+      } else {
+        process.env.OPENSCOUT_WEB_VITE_URL = previousVite;
+      }
+    }
   });
 
   test("direct invocation prompt starts with a compact Scout title and collapses routing context", () => {

@@ -14,12 +14,13 @@ import ScoutCapabilities
 /// default and stays calm until engaged), write the **prompt** (typed or
 /// dictated), then **Start**.
 struct NewSessionSurface: View {
+    /// The fleet — for the machine picker (which paired Mac the session lands on)
+    /// and resolving that Mac's live client.
+    let model: AppModel
+    /// The focused Mac's client — the fallback target when no machine is explicitly
+    /// picked (and the sole link today; the picker becomes live once a second Mac
+    /// pairs).
     let client: any ScoutBrokerClient
-    /// Friendly name of the Mac the live bridge is connected to, shown as the
-    /// read-only "Target" — the session lands on the machine we're paired with.
-    /// nil when unconnected. A live target *picker* (choosing among paired
-    /// machines) waits on multi-machine routing; today the bridge is one link.
-    var targetMachineName: String? = nil
     /// Bumps when the bridge becomes ready (data loaded) — re-runs the workspace
     /// load so the machine-backed harness list fills in once connected, not just
     /// on first appear (which can land before the connection is up).
@@ -28,12 +29,18 @@ struct NewSessionSurface: View {
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
 
-    @State private var projectPath: String = "/Users/arach/dev/openscout"
-    @State private var instructions: String = "Stand up the Scout shell and get it running in the simulator."
+    /// Empty until the paired Mac returns its current workspace inventory. A
+    /// device must never guess the Mac account name or carry a developer-specific
+    /// absolute path into a create-session RPC.
+    @State private var projectPath: String = ""
+    /// Explicitly-picked target Mac; nil follows the focused machine.
+    @State private var selectedMachineId: String? = nil
+    @State private var instructions: String = ""
     /// Selected harness id (the spec's `execution.harness`) and curated model id.
     /// Model is scoped to the harness, so changing harness resets it to Default.
     @State private var harnessId: String = HarnessOption.catalog[0].id
     @State private var modelId: String = ModelOption.defaultId
+    @State private var effortId: String = EffortOption.defaultId
     /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
     /// each carrying the harnesses actually installed there. Empty until loaded /
     /// when offline, in which case the harness menu falls back to the curated
@@ -46,6 +53,7 @@ struct NewSessionSurface: View {
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showFileImporter = false
+    @State private var showPhotoPicker = false
     @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
 
@@ -53,7 +61,38 @@ struct NewSessionSurface: View {
     /// the app root — the same controller the Comms composer and Settings use.
     @Environment(HudDictation.self) private var voice
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scoutLayout) private var layout
     @State private var micPulse = false
+
+    /// Definite content width inside the surface padding — the same discipline
+    /// Home uses so wide rows (the agent row, the Start button) fit and truncate
+    /// within the screen instead of inflating the column and clipping off the
+    /// right edge on a scaled/native phone.
+    private var laneWidth: CGFloat { max(0, layout.designWidth - layout.surfacePadding * 2) }
+
+    /// Macs you can start a session on right now.
+    private var onlineMachines: [AppModel.PairedMachine] {
+        model.pairedMachines.filter(\.isOnline)
+    }
+
+    /// The Mac the session will land on: the explicit pick, else the focused Mac,
+    /// else the first online one.
+    private var activeMachine: AppModel.PairedMachine? {
+        if let id = selectedMachineId, let picked = model.pairedMachines.first(where: { $0.id == id }) {
+            return picked
+        }
+        return model.pairedMachines.first(where: \.isActive)
+            ?? model.pairedMachines.first(where: \.isOnline)
+            ?? model.pairedMachines.first
+    }
+
+    /// The live client for the active Mac (falls back to the passed focused client).
+    private var activeClient: any ScoutBrokerClient {
+        if let machine = activeMachine, let resolved = model.client(forMachineId: machine.id) {
+            return resolved
+        }
+        return client
+    }
 
     /// A Hashable navigation target — contract models stay transport-pure.
     private struct ConversationRoute: Hashable, Identifiable {
@@ -82,6 +121,9 @@ struct NewSessionSurface: View {
             ]),
             HarnessOption(id: "codex", label: "Codex", models: [
                 .defaultOption,
+                ModelOption(id: "gpt-5.6-sol", label: "GPT-5.6 Sol", value: "gpt-5.6-sol"),
+                ModelOption(id: "gpt-5.6-terra", label: "GPT-5.6 Terra", value: "gpt-5.6-terra"),
+                ModelOption(id: "gpt-5.6-luna", label: "GPT-5.6 Luna", value: "gpt-5.6-luna"),
                 ModelOption(id: "gpt-5.5", label: "GPT-5.5", value: "gpt-5.5"),
                 ModelOption(id: "gpt-5.5-mini", label: "GPT-5.5 mini", value: "gpt-5.5-mini"),
             ]),
@@ -97,6 +139,26 @@ struct NewSessionSurface: View {
 
         static let defaultId = "default"
         static let defaultOption = ModelOption(id: defaultId, label: "Default", value: nil)
+    }
+
+    /// One reasoning-effort menu entry. `value` is the spec's
+    /// `execution.reasoningEffort`; nil for "Default" (the harness decides).
+    private struct EffortOption: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let value: String?
+
+        static let defaultId = "default"
+        static let catalog: [EffortOption] = [
+            EffortOption(id: defaultId, label: "Auto", value: nil),
+            EffortOption(id: "low", label: "Low", value: "low"),
+            EffortOption(id: "medium", label: "Medium", value: "medium"),
+            EffortOption(id: "high", label: "High", value: "high"),
+        ]
+    }
+
+    private var selectedEffort: EffortOption {
+        EffortOption.catalog.first { $0.id == effortId } ?? EffortOption.catalog[0]
     }
 
     /// One selectable harness in the menu — sourced from the connected machine
@@ -151,11 +213,16 @@ struct NewSessionSurface: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                projectSection
-                agentSection
+        // Fill the screen height (no scroll) so the Prompt box can grow into the
+        // space between the agent row and the Start button. The column is pinned
+        // to a DEFINITE lane width, left-anchored, with a trailing Spacer absorbing
+        // any surplus — so wide rows truncate within the lane instead of inflating
+        // the column and dragging the Start button (and agent row) off the edge.
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: HudSpacing.md) {
+                topRow
                 instructionsSection
+                    .frame(maxHeight: .infinity)
                 if let errorText {
                     Text(errorText)
                         .font(HudFont.mono(HudTextSize.xs))
@@ -165,13 +232,16 @@ struct NewSessionSurface: View {
                 if let result {
                     resultCard(result)
                 }
-                footer
             }
-            .padding(HudSpacing.xxl)
+            .frame(width: laneWidth, alignment: .leading)
+            .frame(maxHeight: .infinity, alignment: .top)
+            Spacer(minLength: 0)
         }
+        .padding(.leading, layout.surfacePadding)
+        .padding(.vertical, layout.surfacePadding)
         .navigationDestination(item: $route) { route in
             ConversationSurface(
-                client: client,
+                client: activeClient,
                 conversationId: route.id,
                 title: route.title,
                 onClose: { self.route = nil },
@@ -179,7 +249,7 @@ struct NewSessionSurface: View {
             )
         }
             .sheet(isPresented: $showProjectPicker) {
-                ProjectPickerSheet(client: client, projectPath: $projectPath)
+                ProjectPickerSheet(client: activeClient, projectPath: $projectPath)
             }
             .onChange(of: selectedPhotoItems) { _, items in
                 guard !items.isEmpty else { return }
@@ -188,9 +258,17 @@ struct NewSessionSurface: View {
             .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 addFiles(result)
             }
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images)
             .task(id: reloadToken) { await loadWorkspaces() }
         // When the project changes, adopt that machine workspace's harnesses.
         .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
+        // Picking a different Mac re-reads its workspaces (the project list + the
+        // machine-backed harnesses are per-Mac); drop the old project so the load
+        // re-picks a valid default on that host.
+        .onChange(of: selectedMachineId) { _, _ in
+            projectPath = ""
+            Task { await loadWorkspaces() }
+        }
     }
 
     // MARK: - Machine-backed harnesses
@@ -198,8 +276,15 @@ struct NewSessionSurface: View {
     private func loadWorkspaces() async {
         // Don't clobber the current list (or the curated fallback) on a failed
         // fetch — only a successful load replaces it.
-        guard let loaded = try? await client.listWorkspaces(query: nil, limit: 200) else { return }
+        guard let loaded = try? await activeClient.listWorkspaces(query: nil, limit: 200) else { return }
         workspaces = loaded
+        if trimmedProjectPath.isEmpty {
+            let preferred = loaded.first { workspace in
+                workspace.projectName.localizedCaseInsensitiveCompare("openscout") == .orderedSame
+                    || workspace.title.localizedCaseInsensitiveCompare("openscout") == .orderedSame
+            } ?? loaded.first
+            projectPath = preferred?.root ?? ""
+        }
         applyWorkspaceDefault()
     }
 
@@ -225,40 +310,40 @@ struct NewSessionSurface: View {
 
     // MARK: - Project
 
-    /// The project row reads as a value — name on top, parent dimmed beneath —
-    /// and the whole row taps through to the known-projects tree.
-    private var projectSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Project")
-            Button {
-                showProjectPicker = true
-            } label: {
-                HStack(spacing: HudSpacing.md) {
-                    Glyphic(kind: .folder, size: 18)
-                        .foregroundStyle(ScoutInk.muted)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
-                            .font(HudFont.ui(HudTextSize.base, weight: .medium))
-                            .foregroundStyle(projectLeaf.isEmpty ? ScoutInk.dim : HudPalette.ink)
-                            .lineLimit(1)
-                        if !projectParent.isEmpty {
-                            Text(projectParent)
-                                .font(HudFont.mono(HudTextSize.xxs))
-                                .foregroundStyle(ScoutInk.dim)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
-                    }
-                    Spacer(minLength: HudSpacing.md)
-                    Glyphic.chevron(.trailing, size: 14)
-                        .foregroundStyle(ScoutInk.muted)
-                }
-                .padding(HudSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .scoutCard(cornerRadius: HudRadius.standard)
-            }
-            .buttonStyle(.plain)
+    /// Top line — the "where": the project picker (flexible) with the target Mac
+    /// picker beside it, collapsed onto one row as two compact one-line cards.
+    private var topRow: some View {
+        HStack(spacing: HudSpacing.sm) {
+            projectButton
+                .frame(maxWidth: .infinity)
+            machineMenu
         }
+    }
+
+    /// The project value, tapping through to the known-projects tree. One line
+    /// (folder · name · caret) so it sits on the top row beside the machine.
+    private var projectButton: some View {
+        Button {
+            showProjectPicker = true
+        } label: {
+            HStack(spacing: HudSpacing.sm) {
+                Glyphic(kind: .folder, size: 16)
+                    .foregroundStyle(ScoutInk.muted)
+                Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .foregroundStyle(projectLeaf.isEmpty ? ScoutInk.dim : HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: HudSpacing.xs)
+                Glyphic.chevron(.bottom, size: 12)
+                    .foregroundStyle(ScoutInk.muted)
+            }
+            .padding(.horizontal, HudSpacing.md)
+            .padding(.vertical, HudSpacing.sm + 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .scoutCard(cornerRadius: HudRadius.standard)
+        }
+        .buttonStyle(.plain)
     }
 
     private var projectLeaf: String {
@@ -276,50 +361,161 @@ struct NewSessionSurface: View {
 
     // MARK: - Instructions
 
+    /// The classic message input box: a filling prompt with, at the bottom, a
+    /// config line (model · effort) over an action row — "+" attach (left), the
+    /// dictation mic (centered), and the circular send (right).
     private var instructionsSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Prompt")
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                TextEditor(text: $instructions)
-                    .font(HudFont.ui(HudTextSize.base))
-                    .foregroundStyle(HudPalette.ink)
-                    .scrollContentBackground(.hidden)
-                    .focused($instructionsFocused)
-                    .frame(minHeight: 168)
-                // Floating dictation mic, centered along the bottom of the box —
-                // the live partial transcript surfaces just above it while active.
-                VStack(spacing: HudSpacing.xs) {
-                    if voice.isListening, !voice.partialText.isEmpty {
-                        Text(voice.partialText)
-                            .font(HudFont.mono(HudTextSize.xxs))
-                            .foregroundStyle(ScoutInk.muted)
-                            .lineLimit(1)
-                            .truncationMode(.head)
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            TextEditor(text: $instructions)
+                .font(HudFont.ui(HudTextSize.base))
+                .foregroundStyle(HudPalette.ink)
+                .scrollContentBackground(.hidden)
+                .focused($instructionsFocused)
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    if instructions.isEmpty {
+                        Text("Describe the task, or leave blank to open a fresh session.")
+                            .font(HudFont.ui(HudTextSize.base))
+                            .foregroundStyle(ScoutInk.dim)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
                     }
-                    micButton
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                if !pendingAttachments.isEmpty {
-                    ComposerAttachmentStrip(attachments: pendingAttachments) { id in
-                        pendingAttachments.removeAll { $0.id == id }
-                    }
-                    .padding(.top, HudSpacing.sm)
-                }
-                HStack(spacing: HudSpacing.sm) {
-                    attachPhotoButton
-                    attachFileButton
-                    if !pendingAttachments.isEmpty {
-                        Text("\(pendingAttachments.count) attached")
-                            .font(HudFont.mono(HudTextSize.xxs))
-                            .foregroundStyle(ScoutInk.muted)
-                    }
-                    Spacer()
-                }
-                .padding(.top, HudSpacing.xs)
+            if voice.isListening, !voice.partialText.isEmpty {
+                Text(voice.partialText)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutInk.muted)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(HudSpacing.lg)
-            .scoutCard(cornerRadius: HudRadius.standard)
+            if !pendingAttachments.isEmpty {
+                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
+                    pendingAttachments.removeAll { $0.id == id }
+                }
+            }
+            composerBar
         }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(HudSpacing.lg)
+        .scoutCard(cornerRadius: HudRadius.standard)
+    }
+
+    /// Bottom of the box: a distinctive centered floating mic on its own line
+    /// (a live waveform spans it while recording) over the action row — "+" attach
+    /// (left) and the agent token + circular send (right).
+    private var composerBar: some View {
+        VStack(spacing: HudSpacing.sm) {
+            ZStack {
+                if voice.isListening {
+                    RecordingWaveform()
+                }
+                micButton
+            }
+            .frame(maxWidth: .infinity)
+            HStack(spacing: HudSpacing.sm) {
+                attachMenu
+                Spacer(minLength: HudSpacing.sm)
+                agentToken
+                sendButton
+            }
+        }
+        // Menus inherit the system blue tint by default; pull onto the cockpit accent.
+        .tint(HudPalette.accent)
+    }
+
+    /// Combined agent token — the model in bold with the effort secondary, under a
+    /// single caret. Its menu carries a section per harness (the models) plus an
+    /// Effort section, so both are set from one control.
+    private var agentToken: some View {
+        Menu {
+            ForEach(harnessChoices) { harness in
+                Section(harness.label) {
+                    ForEach(modelChoices(harness.id)) { model in
+                        Button {
+                            harnessId = harness.id
+                            modelId = model.id
+                        } label: {
+                            if harnessId == harness.id && modelId == model.id {
+                                Label(model.label, systemImage: "checkmark")
+                            } else {
+                                Text(model.label)
+                            }
+                        }
+                    }
+                }
+            }
+            Section("Effort") {
+                ForEach(EffortOption.catalog) { effort in
+                    Button {
+                        effortId = effort.id
+                    } label: {
+                        if effortId == effort.id {
+                            Label(effort.label, systemImage: "checkmark")
+                        } else {
+                            Text(effort.label)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(modelId == ModelOption.defaultId ? selectedHarnessLabel : selectedModel.label)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 104, alignment: .trailing)
+                Text(selectedEffort.label)
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .medium))
+                    .foregroundStyle(ScoutInk.dim)
+                    .lineLimit(1)
+                Glyphic.chevron(.bottom, size: 9)
+                    .foregroundStyle(ScoutInk.dim)
+            }
+        }
+    }
+
+    /// "+" attach menu (bottom-left): photos or files, consolidated.
+    private var attachMenu: some View {
+        Menu {
+            Button { showPhotoPicker = true } label: { Label("Photo", systemImage: "photo") }
+            Button { showFileImporter = true } label: { Label("File", systemImage: "paperclip") }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(ScoutSurface.inset))
+                .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+        }
+        .disabled(isSubmitting)
+    }
+
+    /// Circular send (bottom-right) — starts the session. The accent fill is always
+    /// present (dimmed until a project is ready) so it doesn't pop in grey→green a
+    /// beat after the box appears; it just brightens when submittable.
+    private var sendButton: some View {
+        Button {
+            submit()
+        } label: {
+            Group {
+                if isSubmitting {
+                    ProgressView().controlSize(.small).tint(HudPalette.bg)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(HudPalette.bg)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .background(Circle().fill(ScoutVibe.accent.opacity(canSubmit && !isSubmitting ? 1 : 0.32)))
+            .animation(.easeInOut(duration: 0.2), value: canSubmit)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSubmitting || !canSubmit)
+        .accessibilityLabel("Start session")
     }
 
     // MARK: - Dictation
@@ -331,18 +527,21 @@ struct NewSessionSurface: View {
             voice.toggleFromUserIntent()
         } label: {
             ZStack {
-                // A persistent inset disc so the mic reads as a floating control,
-                // not a stray glyph; it warms to the accent + a pulse while active.
+                // An OPAQUE inset base so the mic reads as a floating control and
+                // masks the waveform running behind it; it warms to the accent + a
+                // pulse while active.
+                Circle().fill(ScoutSurface.inset)
+                if voice.isListening {
+                    Circle().fill(HudPalette.accent.opacity(micPulse ? 0.26 : 0.14))
+                }
                 Circle()
-                    .fill(voice.isListening ? HudPalette.accent.opacity(micPulse ? 0.24 : 0.12) : ScoutSurface.inset)
-                Circle()
-                    .stroke(voice.isListening ? HudPalette.accent.opacity(0.45) : HudHairline.standard,
+                    .stroke(voice.isListening ? HudPalette.accent.opacity(0.5) : HudHairline.standard,
                             lineWidth: HudStrokeWidth.thin)
                 MicGlyph()
                     .stroke(micColor, style: StrokeStyle(lineWidth: voice.isListening ? 1.8 : 1.3, lineCap: .round, lineJoin: .round))
-                    .frame(width: 17, height: 17)
+                    .frame(width: 16, height: 16)
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 40, height: 40)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -351,25 +550,6 @@ struct NewSessionSurface: View {
             let text = voice.finalText
             if !text.isEmpty { appendDictation(text) }
         }
-    }
-
-    private var attachPhotoButton: some View {
-        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
-            Label("Photo", systemImage: "photo")
-                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(ScoutInk.muted)
-        }
-        .disabled(isSubmitting)
-    }
-
-    private var attachFileButton: some View {
-        Button { showFileImporter = true } label: {
-            Label("File", systemImage: "paperclip")
-                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(ScoutInk.muted)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSubmitting)
     }
 
     private var micColor: Color {
@@ -430,46 +610,6 @@ struct NewSessionSurface: View {
 
     // MARK: - Agent
 
-    /// Harness · model · target on one calm line. They lead with the default and
-    /// present as values (ink text + a small caret), not loud controls; the
-    /// harness and model carets open inline menus. Target is read-only until
-    /// multi-machine routing exists.
-    private var agentSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Agent")
-            HStack(spacing: HudSpacing.md) {
-                choiceMenu(value: selectedHarnessLabel) {
-                    Picker("Harness", selection: $harnessId) {
-                        ForEach(harnessChoices) { choice in
-                            Text(choice.label).tag(choice.id)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-                tokenSeparator
-                choiceMenu(value: selectedModel.label) {
-                    Picker("Model", selection: $modelId) {
-                        ForEach(modelChoices(harnessId)) { model in
-                            Text(model.label).tag(model.id)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                }
-                Spacer(minLength: HudSpacing.md)
-                targetToken
-            }
-            .padding(HudSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .scoutCard(cornerRadius: HudRadius.standard)
-            // The menus inherit the system blue tint by default; pull them onto
-            // the cockpit accent so the open menu reads with the rest of the app.
-            .tint(HudPalette.accent)
-        }
-        // A model belongs to its harness — switching harness drops back to the
-        // harness's Default rather than carrying a now-invalid model id.
-        .onChange(of: harnessId) { _, _ in modelId = ModelOption.defaultId }
-    }
-
     /// A value token that opens a menu on tap: ink text + a small muted caret.
     private func choiceMenu<Menu: View>(value: String, @ViewBuilder menu: () -> Menu) -> some View {
         SwiftUI.Menu {
@@ -491,15 +631,42 @@ struct NewSessionSurface: View {
             .foregroundStyle(ScoutInk.dim)
     }
 
-    private var targetToken: some View {
-        HStack(spacing: HudSpacing.xs) {
-            HudStatusDot(color: targetMachineName == nil ? ScoutInk.muted : HudPalette.accent, size: 6)
-            Text(targetMachineName ?? "Not connected")
-                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(targetMachineName == nil ? ScoutInk.dim : ScoutInk.muted)
-                .lineLimit(1)
-                .truncationMode(.tail)
+    /// Target-machine picker in the agent row — which paired Mac the session lands
+    /// on. A value token (dot · name · chevron) opening a menu of online Macs; the
+    /// chevron shows only once there's more than one to choose between.
+    private var machineMenu: some View {
+        let machines = onlineMachines
+        return SwiftUI.Menu {
+            ForEach(machines) { machine in
+                Button {
+                    selectedMachineId = machine.id
+                } label: {
+                    if activeMachine?.id == machine.id {
+                        Label(machine.name, systemImage: "checkmark")
+                    } else {
+                        Text(machine.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: HudSpacing.xs) {
+                HudStatusDot(color: (activeMachine?.isOnline ?? false) ? HudPalette.accent : ScoutInk.muted, size: 6)
+                Text(activeMachine?.name ?? "Not connected")
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .foregroundStyle(ScoutInk.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 108, alignment: .leading)
+                // A caret marks it as a picker (beside the project on the top row).
+                Glyphic.chevron(.bottom, size: 12)
+                    .foregroundStyle(ScoutInk.muted)
+            }
+            .padding(.horizontal, HudSpacing.md)
+            .padding(.vertical, HudSpacing.sm + 2)
+            .scoutCard(cornerRadius: HudRadius.standard)
         }
+        .tint(HudPalette.accent)
+        .disabled(machines.isEmpty)
     }
 
     // MARK: - Result
@@ -560,21 +727,6 @@ struct NewSessionSurface: View {
         }
     }
 
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack {
-            if isSubmitting {
-                ProgressView().controlSize(.small)
-            }
-            Spacer()
-            HudButton("Start", icon: "paperplane.fill", style: .primary(.green)) {
-                submit()
-            }
-            .disabled(isSubmitting || !canSubmit)
-        }
-    }
-
     private var canSubmit: Bool {
         !trimmedProjectPath.isEmpty
     }
@@ -583,7 +735,7 @@ struct NewSessionSurface: View {
         let trimmedInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         return SessionInitiationSpec(
             target: .init(projectPath: trimmedProjectPath),
-            execution: .init(harness: harnessId, model: selectedModel.value, session: .new),
+            execution: .init(harness: harnessId, model: selectedModel.value, reasoningEffort: selectedEffort.value, session: .new),
             agent: .init(persistence: "sticky"),
             seed: .init(
                 instructions: trimmedInstructions.isEmpty ? nil : trimmedInstructions,
@@ -604,7 +756,7 @@ struct NewSessionSurface: View {
             do {
                 let hosted = try await upload(attachments)
                 let spec = makeSpec(attachments: hosted)
-                let outcome = try await client.startSession(spec)
+                let outcome = try await activeClient.startSession(spec)
                 isSubmitting = false
                 result = outcome
                 // Land in the new conversation when the broker returns one.
@@ -623,7 +775,7 @@ struct NewSessionSurface: View {
         guard !attachments.isEmpty else { return nil }
         var hosted: [MessageAttachment] = []
         for attachment in attachments {
-            hosted.append(try await client.uploadAttachment(attachment.upload))
+            hosted.append(try await activeClient.uploadAttachment(attachment.upload))
         }
         return hosted
     }
@@ -636,10 +788,47 @@ struct NewSessionSurface: View {
     }
 }
 
-/// Known-projects picker: a tree of the project roots Scout has seen (grouped by
-/// parent directory), plus a manual path field for anything not yet known. The
-/// known list comes from the broker's sessions — empty until connected, which
-/// is why the manual field always stays available.
+/// A recording indicator: a horizontal row of accent bars whose heights animate
+/// while dictation is live, spanning the mic line above the composer's send row.
+/// The motion is ambient (a time-driven wave), NOT live audio amplitude — the
+/// dictation controller exposes no metering — so it reads as "recording" without
+/// claiming to visualize the actual voice. Wire real levels here if the voice
+/// package gains a meter.
+private struct RecordingWaveform: View {
+    private let barCount = 45
+    private let barWidth: CGFloat = 2.5
+    private let spacing: CGFloat = 2.5
+    private let maxBar: CGFloat = 22
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            HStack(spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    Capsule()
+                        .fill(ScoutVibe.accent.opacity(0.5))
+                        .frame(width: barWidth, height: barHeight(index: index, time: t))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .frame(height: maxBar + 6)
+        .allowsHitTesting(false)
+        .transition(.opacity)
+    }
+
+    private func barHeight(index: Int, time: Double) -> CGFloat {
+        let a = sin(time * 5.5 + Double(index) * 0.55)
+        let b = sin(time * 2.7 + Double(index) * 1.10)
+        let v = (a * 0.6 + b * 0.4 + 1) / 2   // 0…1
+        return 3 + CGFloat(v) * maxBar
+    }
+}
+
+/// Known-projects picker: a tree of the paired Mac's current workspace roots
+/// (grouped by parent directory), plus a manual path field for anything not yet
+/// known. Session history is deliberately not a source of paths: it can outlive
+/// a Mac account rename or migration.
 private struct ProjectPickerSheet: View {
     let client: any ScoutBrokerClient
     @Binding var projectPath: String
@@ -782,11 +971,10 @@ private struct ProjectPickerSheet: View {
     private func load() async {
         if manualPath.isEmpty { manualPath = projectPath }
         do {
-            let sessions = try await client.listSessions(query: nil, limit: 200)
-            let roots = sessions.compactMap { session -> String? in
-                guard let root = session.workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !root.isEmpty else { return nil }
-                return root
+            let workspaces = try await client.listWorkspaces(query: nil, limit: 200)
+            let roots = workspaces.compactMap { workspace -> String? in
+                let root = workspace.root.trimmingCharacters(in: .whitespacesAndNewlines)
+                return root.isEmpty ? nil : root
             }
             groups = Self.group(Array(Set(roots)))
             isLoading = false

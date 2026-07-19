@@ -2,7 +2,7 @@ import HudsonUI
 import SwiftUI
 
 /// Keyboard cheatsheet for the Scout desktop app, toggled by ⌘/ from Comms or
-/// Agents. A scrim overlay listing the live chords so nothing has to be
+/// Projects. A scrim overlay listing the live chords so nothing has to be
 /// guessed — the group matching the active section is emphasized. Mirrors the
 /// menu-bar HUD's cheatsheet, restyled with Scout's Hudson tokens. Esc, ⌘/, or
 /// a scrim tap dismisses.
@@ -37,7 +37,7 @@ struct ScoutKeyboardCheatsheet: View {
 
             keyGroup("Navigate · when not typing", active: false) {
                 kbd("j  ↓  ·  k  ↑", "next / previous item")
-                kbd("l  ·  h", "Comms: next / prev  ·  Agents/Repos: expand / collapse")
+                kbd("l  ·  h", "Comms: next / prev  ·  Repos: expand / collapse")
                 kbd("g  ·  ⇧G", "first / last item")
                 kbd("⌘↑  ⌘↓", "next / previous (works while typing too)")
             }
@@ -53,11 +53,10 @@ struct ScoutKeyboardCheatsheet: View {
                 kbd("↵  ·  ⇧↵", "send  ·  newline (in composer)")
             }
 
-            keyGroup("Agents", active: section == .agents) {
-                kbd("j  k  ·  ↑ ↓", "walk project · agent · session")
-                kbd("l  ·  h", "expand · collapse / parent")
-                kbd("⌘↩", "open session / agent channel")
-                kbd("⌘O", "observe agent")
+            keyGroup("Projects", active: section == .agents) {
+                kbd("j  k", "walk recent work")
+                kbd("↵", "open selection")
+                kbd("web controls", "find, sort, and browse sessions")
             }
 
             keyGroup("Terminals", active: section == .terminals) {

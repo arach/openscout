@@ -15,6 +15,7 @@ const AGENT_HARNESSES = [
   "claude",
   "grok",
   "grok-acp",
+  "kimi",
   "flue",
   "cursor",
   "native",

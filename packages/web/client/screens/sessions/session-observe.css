@@ -57,7 +57,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
-  min-height: 30px;
+  min-height: 32px;
   margin: 0 calc(-1 * var(--space-lg)) var(--space-xs);
   padding: var(--space-xs) var(--space-lg);
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
@@ -79,6 +79,7 @@
   font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.1em;
+  line-height: var(--leading-none);
   text-transform: uppercase;
   color: var(--dim);
 }
@@ -329,35 +330,6 @@
   }
 }
 
-@keyframes s-observe-row-nudge {
-  from {
-    opacity: 0.78;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes s-observe-row-time-nudge {
-  from {
-    opacity: 0.55;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes s-observe-spine-scroll-nudge {
-  from {
-    opacity: 0.72;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes s-observe-row-tick-enter {
   from {
     width: 0;
@@ -377,26 +349,9 @@
   animation: s-observe-row-tick-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.s-observe--lane .s-observe-row--nudge {
-  animation: s-observe-row-nudge 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--row-nudge-delay, 0ms);
-}
-
-.s-observe--lane .s-observe-row--nudge .s-observe-row-time {
-  animation: s-observe-row-time-nudge 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--row-nudge-delay, 0ms);
-}
-
-.s-observe--lane .s-observe-stream--scroll-nudge .s-observe-spine {
-  animation: s-observe-spine-scroll-nudge 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .s-observe--lane .s-observe-row--enter,
-  .s-observe--lane .s-observe-row--enter::before,
-  .s-observe--lane .s-observe-row--nudge,
-  .s-observe--lane .s-observe-row--nudge .s-observe-row-time,
-  .s-observe--lane .s-observe-stream--scroll-nudge .s-observe-spine {
+  .s-observe--lane .s-observe-row--enter::before {
     animation: none;
   }
 }
@@ -2610,6 +2565,11 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
+.s-observe-compose-tool:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
 .s-observe-compose-send {
   grid-column: 4;
   grid-row: 2;
@@ -2647,6 +2607,10 @@
 
 .s-observe-compose-status--error {
   color: var(--red);
+}
+
+.s-observe-compose-status--muted {
+  color: var(--dim);
 }
 
 /* ── Scrubber footer ── */

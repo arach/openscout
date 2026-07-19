@@ -515,7 +515,7 @@ function VoiceSection() {
     micPermission?.status === "denied" || micPermission?.status === "restricted"
       ? micPermission?.status === "restricted"
         ? "Microphone access is restricted on this Mac."
-        : "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it."
+        : "Microphone access is off for Scout Menu. Choose Retry access to reopen the macOS permission pane."
       : micPermission?.canRequest
         ? "Microphone has not been requested yet. Request access or tap the mic in chat to show the macOS prompt."
         : null,

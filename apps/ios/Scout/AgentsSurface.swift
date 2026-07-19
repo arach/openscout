@@ -54,6 +54,12 @@ struct AgentsSurface: View {
         let agents: [AgentSummary]
     }
 
+    private struct FleetAgent: Identifiable {
+        let machine: MachineAgents
+        let agent: AgentSummary
+        var id: String { "\(machine.id)::\(agent.id)" }
+    }
+
     private struct ConversationRoute: Hashable, Identifiable {
         let id: String
         let title: String
@@ -78,7 +84,7 @@ struct AgentsSurface: View {
         case .all: filter = "all"
         case .machine(let id): filter = id
         }
-        return "\(model.dataReadyToken).\(model.fleetRevision).\(filter)"
+        return "\(model.fleetDataReadyToken).\(model.fleetRevision).\(filter)"
     }
 
     var body: some View {
@@ -102,7 +108,16 @@ struct AgentsSurface: View {
             }
         }
         .refreshable { await load() }
-        .task(id: reloadKey) { await load(); openDebugProjectIfRequested() }
+        .task(id: reloadKey) {
+            await load()
+            openDebugProjectIfRequested()
+            guard model.fleetDataReadyToken != 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                if Task.isCancelled { break }
+                await load()
+            }
+        }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
                 client: routeClient ?? model.client,
@@ -150,6 +165,8 @@ struct AgentsSurface: View {
         if allVisibleAgents.isEmpty && !allAgents.isEmpty {
             HudEmptyState(title: "No matches", subtitle: "Nothing matches “\(searchText)”.", icon: "magnifyingglass")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
+        } else if sort == .recent {
+            fleetRecentContent
         } else if sections.count > 1 {
             stackedContent
         } else if let only = sections.first, only.isOnline, !only.agents.isEmpty {
@@ -157,6 +174,26 @@ struct AgentsSurface: View {
         } else {
             HudEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
+        }
+    }
+
+    /// RECENT is fleet-global: machine sections must not pin an older first row
+    /// above fresher activity on another connected Mac.
+    private var fleetRecentContent: some View {
+        let rows = sections
+            .filter(\.isOnline)
+            .flatMap { machine in filtered(machine.agents).map { FleetAgent(machine: machine, agent: $0) } }
+            .sorted { lhs, rhs in Self.agentOrder(lhs.agent, rhs.agent) }
+        return ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            AgentRow(
+                agent: row.agent,
+                connector: nil,
+                showProject: true,
+                context: sections.count > 1 ? row.machine.name : nil
+            ) {
+                tapAgent(row.agent, in: row.machine)
+            }
+            if index < rows.count - 1 { rowDivider }
         }
     }
 
@@ -313,12 +350,15 @@ struct AgentsSurface: View {
     /// come through agent-less for a collapsed row. Queried in series — the fleet
     /// is small, and series keeps the `any ScoutBrokerClient` reads on-actor.
     private func load() async {
-        isLoading = true
+        if sections.isEmpty { isLoading = true }
+        let expectedReloadKey = reloadKey
         var result: [MachineAgents] = []
         for machine in model.agentMachines() {
             let agents: [AgentSummary]
             if let client = machine.client {
-                agents = (try? await client.listAgents(query: nil, limit: 100)) ?? []
+                agents = (try? await client.listAgents(query: nil, limit: 100))
+                    ?? sections.first(where: { $0.id == machine.id })?.agents
+                    ?? []
             } else {
                 agents = []
             }
@@ -334,6 +374,7 @@ struct AgentsSurface: View {
                 )
             )
         }
+        guard !Task.isCancelled, expectedReloadKey == reloadKey else { return }
         sections = result
         isLoading = false
     }
@@ -366,10 +407,6 @@ struct ProjectNode: Identifiable, Hashable {
     let agents: [AgentSummary]
     var hasLive: Bool { agents.contains { $0.state == .live } }
     var liveCount: Int { agents.filter { $0.state == .live }.count }
-    /// Best-effort local checkout path for the project (the workspace lives under
-    /// ~/dev). Editable in the launcher before starting a session.
-    var guessedPath: String { "/Users/arach/dev/\(name)" }
-
     static func == (lhs: ProjectNode, rhs: ProjectNode) -> Bool { lhs.id == rhs.id && lhs.agents == rhs.agents }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
@@ -538,6 +575,8 @@ private struct AgentRow: View {
     /// When set, prepends the project to the session line — only useful where no
     /// header carries it. Recent mode leaves this off (name + age is enough).
     var showProject: Bool = false
+    /// Optional fleet provenance used by the global RECENT ordering.
+    var context: String? = nil
     let onTap: () -> Void
 
     struct Connector { let isLast: Bool }
@@ -591,7 +630,7 @@ private struct AgentRow: View {
     /// prefixed for rows that have no header to carry it.
     private var sessionLine: String? {
         let branch = agent.branch.flatMap { $0.isEmpty ? nil : $0 }
-        let parts = [showProject ? displayProjectName(agent.projectName) : nil, branch].compactMap { $0 }
+        let parts = [context, showProject ? displayProjectName(agent.projectName) : nil, branch].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
@@ -640,7 +679,7 @@ private struct ProjectDetailSheet: View {
         self.client = client
         self.onOpenSession = onOpenSession
         self.onStarted = onStarted
-        _path = State(initialValue: node.guessedPath)
+        _path = State(initialValue: "")
         // Default the harness to whatever the project already runs most.
         let common = Dictionary(grouping: node.agents.compactMap { $0.harness?.lowercased() }, by: { $0 })
             .max { $0.value.count < $1.value.count }?.key
@@ -671,6 +710,22 @@ private struct ProjectDetailSheet: View {
                 }
             }
         }
+        .task { await loadProjectPath() }
+    }
+
+    /// Resolve the launcher path from the paired Mac's current inventory. Agent
+    /// history can contain paths from an older account and is not authoritative.
+    private func loadProjectPath() async {
+        guard path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let workspaces = try? await client.listWorkspaces(query: node.name, limit: 50)
+        else { return }
+        let wanted = node.name.lowercased()
+        let match = workspaces.first { workspace in
+            workspace.projectName.lowercased() == wanted
+                || workspace.title.lowercased() == wanted
+                || (workspace.root as NSString).lastPathComponent.lowercased() == wanted
+        }
+        path = match?.root ?? ""
     }
 
     private var agentsSection: some View {

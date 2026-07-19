@@ -1,17 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../../lib/api.ts";
 import { useScout } from "../Provider.tsx";
+import { friendlyOnboardingError } from "./onboarding-errors.ts";
+
+const TOTAL_STEPS = 4;
 
 /* ── Top-level takeover — picks the first unresolved step and renders it ─── */
 export function OnboardingTakeover() {
   const { onboarding } = useScout();
   if (!onboarding) return null;
 
-  if (!onboarding.hasLocalConfig) return <Frame><PortsStep /></Frame>;
-  if (!onboarding.hasOperatorName) return <Frame><NameStep /></Frame>;
-  if (!onboarding.hasProjectConfig) return <Frame><ProjectStep /></Frame>;
+  if (!onboarding.hasLocalConfig) return <Frame><PortsStep step={1} /></Frame>;
+  if (!onboarding.hasOperatorName) return <Frame><NameStep step={2} /></Frame>;
+  if (!onboarding.hasProjectConfig) return <Frame><ProjectStep step={3} /></Frame>;
   if (onboarding.needed !== false && (!onboarding.brokerReachable || !onboarding.hasReadyRuntime)) {
-    return <Frame><SetupStep /></Frame>;
+    return <Frame><SetupStep step={4} /></Frame>;
   }
   return null;
 }
@@ -70,28 +73,33 @@ function Actions({
 }) {
   const { skipOnboarding } = useScout();
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 24, paddingTop: 8 }}>
-      <button
-        type="button"
-        onClick={onPrimary}
-        disabled={primaryDisabled || busy}
-        style={{
-          ...primaryButtonStyle,
-          opacity: primaryDisabled || busy ? 0.5 : 1,
-          cursor: primaryDisabled || busy ? "default" : "pointer",
-        }}
-      >
-        {busy ? "Working…" : primary}
-      </button>
-      <button
-        type="button"
-        onClick={skipOnboarding}
-        style={skipLinkStyle}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
-      >
-        Skip for now
-      </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+        <button
+          type="button"
+          onClick={onPrimary}
+          disabled={primaryDisabled || busy}
+          style={{
+            ...primaryButtonStyle,
+            opacity: primaryDisabled || busy ? 0.5 : 1,
+            cursor: primaryDisabled || busy ? "default" : "pointer",
+          }}
+        >
+          {busy ? "Working…" : primary}
+        </button>
+        <button
+          type="button"
+          onClick={skipOnboarding}
+          style={skipLinkStyle}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
+        >
+          Set up later
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.5 }}>
+        Scout stays limited until setup finishes.
+      </div>
     </div>
   );
 }
@@ -116,7 +124,7 @@ function ErrorBanner({ message }: { message: string | null }) {
 }
 
 /* ── Step 0 — write ~/.openscout/config.json (ports) ────────────────────── */
-function PortsStep() {
+function PortsStep({ step }: { step: number }) {
   const { onboarding, refreshOnboarding } = useScout();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +136,7 @@ function PortsStep() {
       await api("/api/onboarding/init", { method: "POST", body: "{}" });
       await refreshOnboarding();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyOnboardingError("init", err));
     } finally {
       setBusy(false);
     }
@@ -137,7 +145,7 @@ function PortsStep() {
   return (
     <>
       <Header
-        eyebrow="First-run setup"
+        eyebrow={`First-run setup · Step ${step} of ${TOTAL_STEPS}`}
         title="Welcome to Scout"
         description={
           <>
@@ -167,7 +175,7 @@ function PortsStep() {
 }
 
 /* ── Step 1 — operator name (writes user.json) ──────────────────────────── */
-function NameStep() {
+function NameStep({ step }: { step: number }) {
   const { onboarding, refreshOnboarding } = useScout();
   const suggestion = onboarding?.operatorNameSuggestion ?? "";
   const [name, setName] = useState(suggestion);
@@ -191,7 +199,7 @@ function NameStep() {
       });
       await refreshOnboarding();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyOnboardingError("identity", err));
     } finally {
       setBusy(false);
     }
@@ -200,7 +208,7 @@ function NameStep() {
   return (
     <>
       <Header
-        eyebrow="Identity"
+        eyebrow={`Identity · Step ${step} of ${TOTAL_STEPS}`}
         title="What should we call you?"
         description="Your name shows up on messages you send and in any agent that speaks for you. You can change it later in Settings."
       />
@@ -227,10 +235,11 @@ function NameStep() {
 }
 
 /* ── Step 2 — source roots + harness ────────────────────────────────────── */
-function ProjectStep() {
+function ProjectStep({ step }: { step: number }) {
   const { onboarding, refreshOnboarding } = useScout();
   const suggestedContext = onboarding?.currentDirectory ?? "";
-  const [roots, setRoots] = useState<string[]>([suggestedContext || "~/dev"]);
+  const placeholderPath = suggestedContext || "~/dev";
+  const [roots, setRoots] = useState<string[]>([placeholderPath]);
   const [contextRoot, setContextRoot] = useState<string>(suggestedContext);
   const [harness, setHarness] = useState<"claude" | "codex">("claude");
   const [busy, setBusy] = useState(false);
@@ -259,7 +268,7 @@ function ProjectStep() {
       });
       await refreshOnboarding();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyOnboardingError("project", err));
     } finally {
       setBusy(false);
     }
@@ -268,7 +277,7 @@ function ProjectStep() {
   return (
     <>
       <Header
-        eyebrow="Project"
+        eyebrow={`Project · Step ${step} of ${TOTAL_STEPS}`}
         title="Where do your repos live?"
         description={
           <>
@@ -286,7 +295,7 @@ function ProjectStep() {
               <input
                 value={root}
                 onChange={(e) => setRootAt(i, e.target.value)}
-                placeholder={i === 0 ? "~/dev" : "Add another folder"}
+                placeholder={i === 0 ? placeholderPath : "Add another folder"}
                 style={{ ...inputStyle, flex: 1 }}
               />
               <button
@@ -315,13 +324,14 @@ function ProjectStep() {
         <input
           value={contextRoot}
           onChange={(e) => setContextRoot(e.target.value)}
-          placeholder="~/dev"
+          placeholder={placeholderPath}
           style={inputStyle}
         />
         <div style={hintStyle}>
           Scout writes <code style={codeStyle}>.openscout/project.json</code>{" "}
           inside this folder.
         </div>
+        <div style={hintStyle}>Tip: ~ expands to your home folder.</div>
       </div>
 
       <div style={sectionStyle}>
@@ -346,9 +356,17 @@ function ProjectStep() {
                     ? "Anthropic Claude Code — local CLI agent."
                     : "OpenAI Codex — cloud agentic sandbox."}
                 </div>
+                <div style={{ fontSize: 11, fontFamily: "var(--hud-font-mono)", color: "rgba(255,255,255,0.4)", marginTop: 8, lineHeight: 1.5 }}>
+                  {h === "claude"
+                    ? "Requires the Claude Code CLI, installed and signed in."
+                    : "Requires the Codex CLI, installed and signed in."}
+                </div>
               </button>
             );
           })}
+        </div>
+        <div style={hintStyle}>
+          Not installed yet? Pick one anyway — the final step checks and tells you what's missing.
         </div>
       </div>
 
@@ -364,7 +382,7 @@ function ProjectStep() {
 }
 
 /* Step 3: run setup and verify runtime readiness. */
-function SetupStep() {
+function SetupStep({ step }: { step: number }) {
   const { onboarding, refreshOnboarding } = useScout();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -379,12 +397,12 @@ function SetupStep() {
       });
       await refreshOnboarding();
       if (result.brokerWarning) {
-        setError(result.brokerWarning);
+        setError(friendlyOnboardingError("setup", result.brokerWarning));
       } else if (result.hasReadyRuntime === false) {
-        setError("Setup ran, but no ready runtime was found yet. Install or sign into Claude Code or Codex, then run this again.");
+        setError("Setup finished, but Scout didn't find a coding agent it can use. Install Claude Code or Codex, sign in from a terminal, then choose Run setup again.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(friendlyOnboardingError("setup", err));
     } finally {
       setBusy(false);
     }
@@ -393,7 +411,7 @@ function SetupStep() {
   return (
     <>
       <Header
-        eyebrow="Setup"
+        eyebrow={`Setup · Step ${step} of ${TOTAL_STEPS}`}
         title="Finish setup"
         description="Scout will install its harness skills, start the local broker, refresh discovery, and check for a ready agent runtime."
       />
@@ -406,12 +424,12 @@ function SetupStep() {
         <Row
           label="Broker reachable"
           done={Boolean(onboarding?.brokerReachable)}
-          hint={onboarding?.brokerReachable ? "ready" : "needs setup"}
+          hint={onboarding?.brokerReachable ? "ready" : "will start during setup"}
         />
         <Row
           label="Claude or Codex runtime"
           done={Boolean(onboarding?.hasReadyRuntime)}
-          hint={onboarding?.hasReadyRuntime ? "ready" : "missing or not signed in"}
+          hint={onboarding?.hasReadyRuntime ? "ready" : "install Claude Code or Codex, then sign in"}
         />
       </ul>
       <ErrorBanner message={error} />

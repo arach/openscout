@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ActivityItem } from "./sqlite-store.js";
+import type { ScoutBrokerProjectionStatus } from "./broker-api.js";
 import { createBrokerCoreService } from "./broker-core-service.js";
 import { createRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "./registry.js";
+import type { ActivityItem } from "./sqlite-store.js";
 
-function createReadOnlyBrokerCoreService(snapshot: RuntimeRegistrySnapshot) {
+function createReadOnlyBrokerCoreService(
+  snapshot: RuntimeRegistrySnapshot,
+  projectionStatus?: ScoutBrokerProjectionStatus,
+) {
   return createBrokerCoreService({
     baseUrl: "http://broker.test",
     nodeId: "node-1",
@@ -63,11 +67,29 @@ function createReadOnlyBrokerCoreService(snapshot: RuntimeRegistrySnapshot) {
       closeWatch: async () => {},
     },
     isReconciledStaleFlightActivityItem: () => false,
+    ...(projectionStatus
+      ? { readProjectionStatus: () => projectionStatus }
+      : {}),
     executeCommand: async () => ({ ok: true }),
   });
 }
 
 describe("createBrokerCoreService", () => {
+  test("includes projection status in broker health without changing broker readiness", async () => {
+    const projection = {
+      state: "degraded",
+      detail: "database schema is newer than this runtime",
+    } satisfies ScoutBrokerProjectionStatus;
+
+    const health = await createReadOnlyBrokerCoreService(
+      createRuntimeRegistrySnapshot(),
+      projection,
+    ).readHealth();
+
+    expect(health.ok).toBe(true);
+    expect(health.projection).toEqual(projection);
+  });
+
   test("builds broker reads around runtime state and delegates writes", async () => {
     const snapshot = createRuntimeRegistrySnapshot({
       messages: {

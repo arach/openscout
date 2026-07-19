@@ -63,6 +63,8 @@ export type ScoutConversationSummary = {
   harness: string | null;
   sessionId: string | null;
   currentBranch: string | null;
+  parentConversationId: string | null;
+  anchorMessageId: string | null;
   preview: string | null;
   messageCount: number;
   lastMessageAt: number | null;
@@ -72,6 +74,25 @@ export type ScoutConversationSummary = {
   unreadCount: number;
   /// Best-effort per-conversation ask, omitted entirely when there is no signal.
   ask?: ScoutConversationAsk;
+};
+
+export type ScoutConversationMessage = {
+  id: string;
+  conversationId: string;
+  actorId: string;
+  actorName: string;
+  body: string;
+  createdAt: number;
+  class: MessageRecord["class"];
+  metadata: MessageRecord["metadata"] | null;
+  replyToMessageId: string | null;
+  threadConversationId: string | null;
+  attachments: NonNullable<MessageRecord["attachments"]>;
+  threadSummary?: {
+    count: number;
+    participants: string[];
+    lastActiveAt: number;
+  };
 };
 
 const DEFAULT_CONVERSATION_KINDS: ConversationKind[] = [
@@ -270,6 +291,66 @@ function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string,
     ));
   }
   return buckets;
+}
+
+function isTransientBrokerWaitStatusMessage(message: MessageRecord): boolean {
+  if (message.class !== "status" || metadataString(message.metadata, "source") !== "broker") {
+    return false;
+  }
+  return message.body.includes("Scout stopped waiting for a synchronous result")
+    || message.body.includes("the requester stopped waiting after");
+}
+
+function messageActorName(snapshot: ScoutBrokerSnapshot, actorId: string): string {
+  return snapshot.actors[actorId]?.displayName
+    ?? snapshot.agents[actorId]?.displayName
+    ?? actorId;
+}
+
+function threadSummaryForMessage(
+  snapshot: ScoutBrokerSnapshot,
+  messagesByConversation: Map<string, MessageRecord[]>,
+  message: MessageRecord,
+): ScoutConversationMessage["threadSummary"] {
+  const childConversations = Object.values(snapshot.conversations).filter((conversation) =>
+    conversation.parentConversationId === message.conversationId
+      && conversation.messageId === message.id
+  );
+  if (childConversations.length === 0) return undefined;
+
+  const participants: string[] = [];
+  const childMessages: MessageRecord[] = [];
+  for (const conversation of childConversations) {
+    for (const participant of buildScopedParticipants(
+      snapshot,
+      conversation.id,
+      conversation.participantIds,
+    )) {
+      if (!participants.some((label) => label.localeCompare(
+        participant.label,
+        undefined,
+        { sensitivity: "accent" },
+      ) === 0)) {
+        participants.push(participant.label);
+      }
+    }
+    childMessages.push(
+      ...(messagesByConversation.get(conversation.id) ?? [])
+        .filter((candidate) => !isTransientBrokerWaitStatusMessage(candidate)),
+    );
+  }
+
+  return {
+    count: childMessages.length,
+    participants,
+    lastActiveAt: childMessages.reduce(
+      (latest, candidate) => Math.max(
+        latest,
+        normalizeTimestampMs(candidate.createdAt) ?? 0,
+      ),
+      normalizeTimestampMs(message.createdAt) ?? 0,
+    ),
+  };
 }
 
 function invocationsByConversation(snapshot: ScoutBrokerSnapshot): Map<string, InvocationRequest[]> {
@@ -576,6 +657,7 @@ export async function getScoutConversations(
         readAtByConversation.get(conversation.id),
         operatorIds,
       );
+      const isChildConversation = Boolean(conversation.parentConversationId && conversation.messageId);
       const askField = {};
       const participants = buildScopedParticipants(
         snapshot,
@@ -591,7 +673,7 @@ export async function getScoutConversations(
           || metadataBoolean(agent?.metadata, "retiredFromFleet")
           || metadataBoolean(actor?.metadata, "retiredFromFleet")
           || isFailedCardlessLaunchStub(endpoint)
-          || messageCount === 0
+          || (!isChildConversation && messageCount === 0)
         ) {
           return [];
         }
@@ -616,6 +698,8 @@ export async function getScoutConversations(
             ?? metadataString(endpoint?.metadata, "workspaceQualifier")
             ?? metadataString(agent?.metadata, "branch")
             ?? metadataString(agent?.metadata, "workspaceQualifier"),
+          parentConversationId: conversation.parentConversationId ?? null,
+          anchorMessageId: conversation.messageId ?? null,
           preview: latestMessage?.body ?? null,
           messageCount,
           lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
@@ -626,12 +710,12 @@ export async function getScoutConversations(
       }
 
       if (conversation.kind === "channel" || conversation.kind === "group_direct") {
-        const visible = messageCount >= 1 || conversation.participantIds.includes("operator");
+        const visible = isChildConversation || messageCount >= 1 || conversation.participantIds.includes("operator");
         if (!visible) {
           return [];
         }
       } else if (conversation.kind === "thread") {
-        if (messageCount === 0) {
+        if (!isChildConversation && messageCount === 0) {
           return [];
         }
       } else if (conversation.kind === "system") {
@@ -655,6 +739,8 @@ export async function getScoutConversations(
         harness: null,
         sessionId,
         currentBranch: null,
+        parentConversationId: conversation.parentConversationId ?? null,
+        anchorMessageId: conversation.messageId ?? null,
         preview: latestMessage?.body ?? null,
         messageCount,
         lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
@@ -674,6 +760,53 @@ export async function getScoutConversations(
     ? Math.floor(filters.limit)
     : null;
   return limit ? summaries.slice(0, limit) : summaries;
+}
+
+/// Read a conversation transcript from the same broker snapshot that powers
+/// the conversation list. `null` means the broker is unavailable and lets the
+/// HTTP compatibility route fall back to its legacy SQLite projection; an
+/// empty array is an authoritative broker result for a conversation with no
+/// visible messages.
+export async function getScoutConversationMessages(
+  conversationId: string,
+  limit = 80,
+): Promise<ScoutConversationMessage[] | null> {
+  const normalizedId = conversationId.trim();
+  if (!normalizedId || !isOpaqueChannelId(normalizedId)) {
+    return [];
+  }
+
+  const broker = await loadScoutBrokerContext();
+  if (!broker) return null;
+
+  const snapshot = broker.snapshot;
+  const messagesByConversation = latestMessageByConversation(snapshot);
+  const messages = (messagesByConversation.get(normalizedId) ?? [])
+    .filter((message) => !isTransientBrokerWaitStatusMessage(message));
+  const resolvedLimit = Number.isFinite(limit) && limit > 0
+    ? Math.min(500, Math.floor(limit))
+    : 80;
+  const visibleMessages = messages.length > resolvedLimit
+    ? messages.slice(messages.length - resolvedLimit)
+    : messages;
+
+  return visibleMessages.map((message) => {
+    const threadSummary = threadSummaryForMessage(snapshot, messagesByConversation, message);
+    return {
+      id: message.id,
+      conversationId: message.conversationId,
+      actorId: message.actorId,
+      actorName: messageActorName(snapshot, message.actorId),
+      body: message.body,
+      createdAt: normalizeTimestampMs(message.createdAt) ?? 0,
+      class: message.class,
+      metadata: message.metadata ?? null,
+      replyToMessageId: message.replyToMessageId ?? null,
+      threadConversationId: message.threadConversationId ?? null,
+      attachments: message.attachments ?? [],
+      ...(threadSummary ? { threadSummary } : {}),
+    };
+  });
 }
 
 export async function getScoutConversationById(

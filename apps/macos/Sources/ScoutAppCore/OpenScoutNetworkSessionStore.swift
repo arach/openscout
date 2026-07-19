@@ -1,4 +1,6 @@
 import Foundation
+import LocalAuthentication
+import os
 import Security
 
 public enum OpenScoutNetworkSessionError: LocalizedError {
@@ -33,6 +35,11 @@ public enum OpenScoutNetworkSessionError: LocalizedError {
 public enum OpenScoutNetworkSessionStore {
     private static let service = "net.oscout.session"
     private static let account = "session"
+    private static let cache = SessionTokenCache()
+    private static let logger = Logger(
+        subsystem: "app.openscout.scout",
+        category: "network-keychain"
+    )
 
     public static func saveSession(from callbackURL: URL, now: Date = Date()) throws {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
@@ -69,24 +76,52 @@ public enum OpenScoutNetworkSessionStore {
         try saveSessionToken(session)
     }
 
-    public static func loadSessionToken() -> String? {
+    /// Loads the OSN session without allowing a background refresh to summon
+    /// Keychain UI. User-initiated setup can opt in to authentication UI.
+    public static func loadSessionToken(allowAuthenticationUI: Bool = false) -> String? {
+        if let cached = cache.value() {
+            if cached != nil || !allowAuthenticationUI {
+                return cached
+            }
+        }
+
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let authenticationContext = LAContext()
+        authenticationContext.interactionNotAllowed = !allowAuthenticationUI
+        query[kSecUseAuthenticationContext as String] = authenticationContext
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound {
+            cache.store(nil)
+            logger.debug("OSN session is not present in Keychain")
+            return nil
+        }
+        if status == errSecInteractionNotAllowed {
+            logger.notice("OSN session needs Keychain authorization; background UI was suppressed")
+            cache.store(nil)
             return nil
         }
         guard status == errSecSuccess else {
+            // A denied Keychain prompt should not recur on every status poll.
+            // A user-initiated authenticated read can bypass a cached miss;
+            // a subsequent auth save also updates the cache.
+            logger.error("OSN session Keychain load failed with status \(status, privacy: .public)")
+            cache.store(nil)
             return nil
         }
         guard let data = item as? Data else {
+            logger.error("OSN session Keychain result did not contain data")
+            cache.store(nil)
             return nil
         }
         let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return token.isEmpty ? nil : token
+        let result = token.isEmpty ? nil : token
+        logger.debug("OSN session loaded from Keychain")
+        cache.store(result)
+        return result
     }
 
     public static func saveSessionToken(_ token: String) throws {
@@ -105,6 +140,7 @@ public enum OpenScoutNetworkSessionStore {
         guard status == errSecSuccess else {
             throw OpenScoutNetworkSessionError.saveFailed(status)
         }
+        cache.store(trimmed)
     }
 
     public static func deleteSessionToken() throws {
@@ -112,6 +148,7 @@ public enum OpenScoutNetworkSessionStore {
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw OpenScoutNetworkSessionError.deleteFailed(status)
         }
+        cache.store(nil)
     }
 
     private static func baseQuery() -> [String: Any] {
@@ -120,5 +157,26 @@ public enum OpenScoutNetworkSessionStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+    }
+}
+
+private final class SessionTokenCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var loaded = false
+    private var token: String?
+
+    /// The outer optional says whether Keychain has been queried; the inner
+    /// optional is the cached presence/absence of a session.
+    func value() -> String?? {
+        lock.lock()
+        defer { lock.unlock() }
+        return loaded ? .some(token) : nil
+    }
+
+    func store(_ token: String?) {
+        lock.lock()
+        self.token = token
+        loaded = true
+        lock.unlock()
     }
 }

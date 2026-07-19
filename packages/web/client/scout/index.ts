@@ -186,7 +186,7 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     id: "openscout",
     name: "Scout",
     description:
-      "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
+      "All your agents, one message away. Scout is a control plane for managing coding agents: Send posts into a Chat, direct agent messages create or steer Runs, and shared work stays in explicit channels.",
     mode: "panel",
     icon: createElement(
       "svg",

@@ -189,6 +189,7 @@ private struct CompactDock: View {
             Spacer(minLength: 0)
             HStack(spacing: 8) {
                 MicButton(box: 20, glyph: 12)
+                SpeakerButton(box: 20, glyph: 12)
 
                 if let target {
                     MessageRouteChip(label: target, style: .hud)
@@ -265,6 +266,7 @@ private struct MediumLargeDock: View {
         // growth so a runaway paste can't push the whole HUD around.
         HStack(alignment: .top, spacing: 10) {
             MicButton(box: micBox, glyph: micGlyph)
+            SpeakerButton(box: micBox, glyph: micGlyph)
 
             if let target {
                 MessageRouteChip(label: target, style: .hud)
@@ -418,7 +420,9 @@ private extension MessageSendChipStyle {
 
 // ─── Mic button (hand-drawn glyph, no SF Symbols) ───────────────────
 
-/// Tap → toggle dictation. Visual state mirrors HudVoiceService.state:
+/// Tap → toggle dictation. Hold (≥250ms) → push-to-talk: talk while held,
+/// release to send the transcript to the target. Visual state mirrors
+/// HudVoiceService.state:
 ///   idle/probing      → faint ink stroke
 ///   starting          → ink stroke + soft pulse
 ///   recording         → accent stroke + halo + pulse
@@ -454,42 +458,96 @@ private struct MicButton: View {
     private var tooltip: String {
         switch voice.state {
         case .probing:               return "Preparing voice…"
-        case .idle:                  return "Hold to dictate (or tap to start)"
+        case .idle:                  return "Tap to dictate · hold to talk-and-send to the target"
         case .starting:              return "Starting recording…"
-        case .recording:             return "Recording — tap to commit"
+        case .recording:             return "Recording — release to send, or tap to commit"
         case .processing:            return "Transcribing…"
         case .unavailable(let r):    return r
         }
     }
 
-    var body: some View {
-        Button(action: handleTap) {
-            ZStack {
-                // Pulsing halo only when actively recording — accent at
-                // 14-20% alpha so the dock still reads composed.
-                if isRecording {
-                    Circle()
-                        .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.08))
-                        .frame(width: box, height: box)
+    // Press-and-hold plumbing. A press held ≥250ms enters push-to-talk
+    // (beginHoldToTalk on threshold-crossing, endHoldToTalk on release);
+    // a short press keeps the existing tap-to-toggle dictation.
+    @State private var pressBeganAt: Date?
+    @State private var holdActive = false
+    @State private var holdArmTask: Task<Void, Never>?
+    @State private var holdToken: UUID?
+
+    private var pressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard pressBeganAt == nil else { return }   // debounce repeats
+                pressBeganAt = Date()
+                holdActive = false
+                holdArmTask?.cancel()
+                holdArmTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled, pressBeganAt != nil else { return }
+                    // Crossing the threshold makes this press a hold even when
+                    // another source already owns the dock (token == nil) —
+                    // the release must then be inert, not a stray tap-toggle.
+                    holdActive = true
+                    holdToken = HUDDockState.shared.beginHoldToTalk()
                 }
-                MicGlyphShape()
-                    .stroke(
-                        strokeColor,
-                        style: StrokeStyle(
-                            lineWidth: isRecording ? 1.4 : 1,
-                            lineCap: .round,
-                            lineJoin: .round,
-                            dash: isUnavailable ? [1.5, 1.5] : []
-                        )
-                    )
-                    .frame(width: glyph, height: glyph)
-                    .opacity(isProcessing && pulse ? 0.55 : 1.0)
             }
-            .frame(width: box, height: box)
-            .contentShape(Rectangle())
+            .onEnded { _ in
+                holdArmTask?.cancel()
+                holdArmTask = nil
+                let wasHold = holdActive
+                let token = holdToken
+                pressBeganAt = nil
+                holdActive = false
+                holdToken = nil
+                if wasHold {
+                    if let token {
+                        HUDDockState.shared.endHoldToTalk(token: token)
+                    }
+                } else {
+                    Task { @MainActor in await HUDDockState.shared.toggleDictation() }
+                }
+            }
+    }
+
+    var body: some View {
+        ZStack {
+            // Pulsing halo only when actively recording — accent at
+            // 14-20% alpha so the dock still reads composed.
+            if isRecording {
+                Circle()
+                    .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.08))
+                    .frame(width: box, height: box)
+            }
+            MicGlyphShape()
+                .stroke(
+                    strokeColor,
+                    style: StrokeStyle(
+                        lineWidth: isRecording ? 1.4 : 1,
+                        lineCap: .round,
+                        lineJoin: .round,
+                        dash: isUnavailable ? [1.5, 1.5] : []
+                    )
+                )
+                .frame(width: glyph, height: glyph)
+                .opacity(isProcessing && pulse ? 0.55 : 1.0)
         }
-        .buttonStyle(.plain)
+        .frame(width: box, height: box)
+        .contentShape(Rectangle())
+        .gesture(pressGesture)
         .help(tooltip)
+        .onDisappear {
+            // The dock can be torn down mid-press (HUD dismissed via IPC or
+            // Esc cascade) — onEnded never fires then, so release our hold
+            // here or the mic stays hot with nobody holding it.
+            holdArmTask?.cancel()
+            holdArmTask = nil
+            pressBeganAt = nil
+            holdActive = false
+            if let token = holdToken {
+                HUDDockState.shared.cancelHoldToTalk(token: token)
+                holdToken = nil
+            }
+        }
         .task { if voice.state == .probing { await voice.probe() } }
         .onChange(of: voice.state) { _, newValue in
             // Drive the pulse based on whether we're hot/processing.
@@ -499,12 +557,6 @@ private struct MicButton: View {
                     pulse = true
                 }
             }
-        }
-    }
-
-    private func handleTap() {
-        Task { @MainActor in
-            await HUDDockState.shared.toggleDictation()
         }
     }
 }
@@ -550,6 +602,106 @@ private struct MicGlyphShape: Shape {
         // Foot — flat horizontal base.
         path.move(to: p(5, 12.7))
         path.addLine(to: p(9, 12.7))
+
+        return path
+    }
+}
+
+// ─── Speaker toggle (spoken agent replies) ──────────────────────────
+
+/// One obvious switch for spoken agent replies. Toggles the UserDefaults
+/// gate "scout.voiceRepliesEnabled" via HUDReplySpeaker (default OFF).
+/// Accent stroke when ON; a soft halo pulses while a reply is actually
+/// being spoken. Same hand-drawn stroke family as MicGlyphShape.
+private struct SpeakerButton: View {
+    let box: CGFloat
+    let glyph: CGFloat
+
+    @ObservedObject private var speaker = HUDReplySpeaker.shared
+    @State private var pulse = false
+
+    private var isOn: Bool { speaker.enabled }
+
+    private var strokeColor: Color {
+        isOn ? HUDChrome.accent : HUDChrome.inkFaint
+    }
+
+    private var tooltip: String {
+        isOn
+            ? "Spoken replies on — tap to mute the agent's voice"
+            : "Spoken replies off — tap to hear agent replies aloud"
+    }
+
+    var body: some View {
+        Button(action: { speaker.toggle() }) {
+            ZStack {
+                if isOn && speaker.isSpeaking {
+                    Circle()
+                        .fill(HUDChrome.accent.opacity(pulse ? 0.20 : 0.06))
+                        .frame(width: box, height: box)
+                }
+                SpeakerGlyphShape(muted: !isOn)
+                    .stroke(
+                        strokeColor,
+                        style: StrokeStyle(
+                            lineWidth: isOn ? 1.4 : 1,
+                            lineCap: .round,
+                            lineJoin: .round
+                        )
+                    )
+                    .frame(width: glyph, height: glyph)
+            }
+            .frame(width: box, height: box)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .onChange(of: speaker.isSpeaking) { _, speaking in
+            pulse = false
+            if speaking {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
+        }
+    }
+}
+
+// SpeakerGlyphShape — a small speaker cone (foot + cone box) with one or
+// two emitted waves. Drawn on the same 14×14 viewBox and stroke weight as
+// MicGlyphShape so the pair reads as one hand-drawn set. When `muted`, the
+// waves are dropped and a short slash sits over the cone.
+private struct SpeakerGlyphShape: Shape {
+    var muted: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 14.0
+        let sy = rect.height / 14.0
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
+        }
+        var path = Path()
+
+        // Cone body — a small box on the left driving out to a trapezoid.
+        path.move(to: p(2, 5.5))
+        path.addLine(to: p(4, 5.5))
+        path.addLine(to: p(7, 3))
+        path.addLine(to: p(7, 11))
+        path.addLine(to: p(4, 8.5))
+        path.addLine(to: p(2, 8.5))
+        path.closeSubpath()
+
+        if muted {
+            // Short slash across the cone mouth.
+            path.move(to: p(9, 4.5))
+            path.addLine(to: p(12.5, 9.5))
+        } else {
+            // Two emitted waves.
+            path.move(to: p(9, 5))
+            path.addQuadCurve(to: p(9, 9), control: p(10.6, 7))
+            path.move(to: p(10.8, 3.6))
+            path.addQuadCurve(to: p(10.8, 10.4), control: p(13, 7))
+        }
 
         return path
     }

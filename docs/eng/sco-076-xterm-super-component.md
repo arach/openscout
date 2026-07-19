@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation direction. Use with `sco-075-terminal-pty-parity-inventory.md`.
+Implementation direction for the shared xterm component.
 
 ## Date
 

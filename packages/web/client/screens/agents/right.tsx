@@ -1233,7 +1233,7 @@ function ObserveStats({
           <TraceMetric label="Turns" value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)} />
           <TraceMetric label="Tools" value={fmtCompactNumber(toolCount)} />
           <TraceMetric label="Thinks" value={fmtCompactNumber(thinkCount)} />
-          <TraceMetric label="Asks" value={fmtCompactNumber(askCount)} />
+          <TraceMetric label="Requests" value={fmtCompactNumber(askCount)} />
           <TraceMetric label="Reads" value={fmtCompactNumber(readCount)} />
           <TraceMetric label="Edits" value={fmtCompactNumber(editCount)} />
           <TraceMetric label="Files" value={fmtCompactNumber(files.length)} />
@@ -1677,7 +1677,7 @@ function InspectorAsks({
   if (relevant.length === 0) return null;
 
   return (
-    <Section label={`Incoming asks · ${relevant.length}`}>
+    <Section label={`Incoming requests · ${relevant.length}`}>
       <div className="flex flex-col gap-2">
         {relevant.map((ask) => (
           <div

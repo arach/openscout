@@ -10,10 +10,15 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class ScoutCommsStore: ObservableObject {
+    private static let log = ScoutLog.logger(category: "comms.store")
     @Published private(set) var channels: [ScoutChannel] = []
     @Published private(set) var messages: [ScoutMessage] = []
     @Published private(set) var agents: [ScoutAgent] = []
     @Published private(set) var selectedCId: String?
+    /// True from selecting a conversation until its transcript fetch settles.
+    /// The steady-state poll never sets it, so it only gates the first paint.
+    @Published private(set) var isLoadingMessages = false
+    @Published var replyTarget: ScoutMessage?
     @Published var selectedAgentId: String?
     @Published var channelQuery = ""
     @Published var isLoading = false
@@ -25,8 +30,9 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var observeError: String?
     /// The selected conversation's current in-flight turn, if one is running.
     /// Drives the in-thread "agent is working" preview so a new or slow session
-    /// shows progress without opening Observe. Nil when the conversation is idle
-    /// (no non-terminal flight).
+    /// shows progress without opening Observe. A broker flight is preferred, but
+    /// a live observed harness session also keeps the row present for organic
+    /// work that was not started through a Scout ask.
     @Published private(set) var activeTurn: ScoutActiveTurn?
     /// Read cursors for the selected conversation, keyed by actor on the broker.
     /// The UI uses these as read receipts on the latest operator-authored turn
@@ -35,6 +41,14 @@ final class ScoutCommsStore: ObservableObject {
     /// cIds that appeared in the latest channels fetch but weren't in the prior
     /// one — drives the list's one-shot "new conversation" reveal.
     @Published private(set) var newChannelIds: Set<String> = []
+    /// Local-service health, classified only from existing fetch outcomes (no
+    /// standalone polling loop). An offline broker returns an empty channel list
+    /// that otherwise masquerades as "No chats"; this lets the view say so
+    /// honestly and offer a real recovery action.
+    @Published private(set) var serviceHealth: ScoutServiceHealth = .ok
+    /// True while a broker (re)start is in flight, so the offline state can show
+    /// a spinner instead of the "Start broker" button.
+    @Published private(set) var isStartingBroker = false
 
     private let decoder = JSONDecoder()
     private var knownChannelIds: Set<String> = []
@@ -42,6 +56,13 @@ final class ScoutCommsStore: ObservableObject {
     private var channelsTask: Task<Void, Never>?
     private var channelsRequestId: UUID?
     private var messagesTask: Task<Void, Never>?
+    // Last-known transcript per conversation, so switching threads paints the
+    // cached turns instantly while the fetch refreshes them — no zero-state
+    // flash between threads. Bounded (insertion order) so a long session
+    // doesn't hoard every conversation ever opened.
+    private var messageCache: [String: [ScoutMessage]] = [:]
+    private var messageCacheOrder: [String] = []
+    private let messageCacheLimit = 24
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
     private var observeRequestId: UUID?
@@ -52,8 +73,16 @@ final class ScoutCommsStore: ObservableObject {
     private var readCursorsTask: Task<Void, Never>?
     private var activeTurnTask: Task<Void, Never>?
     private var activeTurnRequestId: UUID?
+    private var activeTurnRequestCId: String?
     private var activeTurnPollTask: Task<Void, Never>?
     private var activeTurnPollCId: String?
+    private var healthProbeTask: Task<Void, Never>?
+    private var brokerActionTask: Task<Void, Never>?
+    /// Latches once an empty channel list has been probed as genuinely-empty
+    /// (broker reachable) so the steady-state poll doesn't re-probe shell-state
+    /// on every heartbeat. A degraded classification leaves it `false` so the
+    /// poll keeps probing and recovery flips health back to `ok`.
+    private var settledEmptyAsHealthy = false
     /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
     /// reactive advance against the steady-state poll re-firing the same POST on
     /// every heartbeat — we only re-mark when the selection or its newest
@@ -86,8 +115,16 @@ final class ScoutCommsStore: ObservableObject {
 
     var visibleChannels: [ScoutChannel] {
         let trimmed = channelQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return channels }
-        return channels.filter { channel in
+        let knownChannelIds = Set(channels.map(\.cId))
+        let topLevelChannels = channels.filter { channel in
+            guard let parentConversationId = channel.parentConversationId?.nilIfEmpty else { return true }
+            // Child conversations stay out of the top-level list while their
+            // parent is present. If the parent was deleted or is otherwise not
+            // in the payload, surface the child rather than orphaning it.
+            return !knownChannelIds.contains(parentConversationId)
+        }
+        guard !trimmed.isEmpty else { return topLevelChannels }
+        return topLevelChannels.filter { channel in
             channel.displayTitle.localizedCaseInsensitiveContains(trimmed)
                 || channel.cId.localizedCaseInsensitiveContains(trimmed)
                 || channel.participantDisplayNames.joined(separator: " ").localizedCaseInsensitiveContains(trimmed)
@@ -131,6 +168,8 @@ final class ScoutCommsStore: ObservableObject {
         readCursorsTask?.cancel()
         activeTurnTask?.cancel()
         activeTurnPollTask?.cancel()
+        healthProbeTask?.cancel()
+        brokerActionTask?.cancel()
         channelsTask = nil
         channelsRequestId = nil
         messagesTask = nil
@@ -140,13 +179,17 @@ final class ScoutCommsStore: ObservableObject {
         readCursorsTask = nil
         activeTurnTask = nil
         activeTurnRequestId = nil
+        activeTurnRequestCId = nil
         activeTurnPollTask = nil
         activeTurnPollCId = nil
+        healthProbeTask = nil
+        brokerActionTask = nil
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
         observeRequestId = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
+        setIfChanged(false, to: \.isStartingBroker)
     }
 
     func refresh(force: Bool = false) {
@@ -166,9 +209,13 @@ final class ScoutCommsStore: ObservableObject {
         guard selectedCId != resolvedCId else { return }
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
+        replyTarget = nil
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
-        messages = []
+        // Paint the last-known transcript immediately (empty only on a cold
+        // first visit); the fetch below refreshes it in place.
+        messages = messageCache[resolvedCId] ?? []
+        isLoadingMessages = true
         readCursors = []
         // Drop the prior conversation's in-flight row immediately so it can't
         // flash on the new thread; the fire-now fetch repopulates if this one
@@ -190,8 +237,10 @@ final class ScoutCommsStore: ObservableObject {
         selectedAgentNameHint = agentName?.nilIfEmpty
         selectedAgentId = agentId?.nilIfEmpty
         if selectedCId != resolvedCId {
+            replyTarget = nil
             selectedCId = resolvedCId
-            messages = []
+            messages = messageCache[resolvedCId] ?? []
+            isLoadingMessages = true
             readCursors = []
             activeTurn = nil
             stopActiveTurnPolling()
@@ -212,7 +261,13 @@ final class ScoutCommsStore: ObservableObject {
             let isNewSelection = selectedCId != cId
             selectedCId = cId
             if isNewSelection {
+                replyTarget = nil
                 readCursors = []
+                // Swap to the new thread's cached transcript right away —
+                // leaving the prior thread's rows up would flash the wrong
+                // conversation under the new header.
+                messages = messageCache[cId] ?? []
+                isLoadingMessages = true
             }
             loadMessages()
             loadReadCursors(cId: cId)
@@ -317,6 +372,9 @@ final class ScoutCommsStore: ObservableObject {
                 "cId": selectedCId,
                 "conversationId": selectedCId,
             ]
+            if let replyToMessageId = replyTarget?.id.nilIfEmpty {
+                payload["replyToMessageId"] = replyToMessageId
+            }
             if !attachments.isEmpty {
                 payload["attachments"] = attachments.map(Self.attachmentPayload)
             }
@@ -326,6 +384,7 @@ final class ScoutCommsStore: ObservableObject {
                 throw ScoutCommsError.sendFailed
             }
             setIfChanged(nil, to: \.lastError)
+            replyTarget = nil
             refresh(force: true)
             loadMessages()
         } catch {
@@ -344,6 +403,10 @@ final class ScoutCommsStore: ObservableObject {
         if self[keyPath: keyPath] != value {
             self[keyPath: keyPath] = value
         }
+    }
+
+    func clearReplyTarget() {
+        replyTarget = nil
     }
 
     private var pollIntervalNanoseconds: UInt64 {
@@ -425,10 +488,74 @@ final class ScoutCommsStore: ObservableObject {
                 setIfChanged(next.first?.agentId, to: \.selectedAgentId)
             }
             setIfChanged(nil, to: \.lastError)
+            classifyHealth(fromChannels: next)
             loadMessages()
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
+            // A failed channels fetch is the web-service-down path — probe
+            // shell-state once to confirm (and to recover when it comes back).
+            probeServiceHealth()
+        }
+    }
+
+    /// Distinguish a genuinely-empty conversation list from an offline broker
+    /// (both return `[]`). A non-empty list proves the broker is reachable, so
+    /// mark healthy directly. An empty list is ambiguous — probe shell-state
+    /// once to classify, gated by `settledEmptyAsHealthy` so a healthy-but-empty
+    /// list isn't re-probed on every heartbeat while a degraded one keeps
+    /// probing until it recovers.
+    private func classifyHealth(fromChannels channels: [ScoutChannel]) {
+        if !channels.isEmpty {
+            setIfChanged(.ok, to: \.serviceHealth)
+            settledEmptyAsHealthy = false
+            return
+        }
+        if !settledEmptyAsHealthy {
+            probeServiceHealth()
+        }
+    }
+
+    /// One-shot shell-state probe. Reuses the existing fetch outcomes as its
+    /// trigger (no new polling loop) and is guarded so overlapping triggers
+    /// collapse to a single in-flight request.
+    private func probeServiceHealth() {
+        guard healthProbeTask == nil else { return }
+        healthProbeTask = Task { [weak self] in
+            let health = await ScoutShellStateClient().classify()
+            guard let self else { return }
+            self.healthProbeTask = nil
+            guard let health else { return }
+            self.setIfChanged(health, to: \.serviceHealth)
+            self.settledEmptyAsHealthy = (health == .ok)
+        }
+    }
+
+    /// Honestly (re)start the local broker via scoutd, then re-probe health so
+    /// the offline state clears itself when the broker comes back. Only the
+    /// broker-down state offers this — web-down isn't recoverable from the app.
+    func startBroker() {
+        guard !isStartingBroker, brokerActionTask == nil else { return }
+        isStartingBroker = true
+        brokerActionTask = Task { [weak self] in
+            do {
+                _ = try await BrokerService().control(.restart)
+            } catch {
+                if !ScoutAppError.isCancellation(error) {
+                    self?.setIfChanged(Self.userFacingError(error), to: \.lastError)
+                }
+            }
+            let health = await ScoutShellStateClient().classify()
+            guard let self else { return }
+            self.isStartingBroker = false
+            self.brokerActionTask = nil
+            if let health {
+                self.setIfChanged(health, to: \.serviceHealth)
+                self.settledEmptyAsHealthy = (health == .ok)
+            }
+            if self.serviceHealth == .ok {
+                self.refresh(force: true)
+            }
         }
     }
 
@@ -462,8 +589,12 @@ final class ScoutCommsStore: ObservableObject {
         defer { messagesTask = nil }
         do {
             let next = try await ScoutCommsClient().fetchMessages(cId: cId, limit: 260)
+            // Cache before the selection guard — the fetch is fresh even if the
+            // user has already moved on, and it makes their way back instant.
+            cacheMessages(next, for: cId)
             guard selectedCId == cId else { return }
             setIfChanged(next, to: \.messages)
+            setIfChanged(false, to: \.isLoadingMessages)
             setIfChanged(nil, to: \.lastError)
             // Having the conversation's messages on screen reads it. Advance to
             // the exact latest message id; the dedup key keeps the steady-state
@@ -476,8 +607,22 @@ final class ScoutCommsStore: ObservableObject {
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
+            setIfChanged(false, to: \.isLoadingMessages)
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
+    }
+
+    /// Insert-or-refresh the per-conversation transcript cache, evicting the
+    /// oldest-inserted entry past the cap.
+    private func cacheMessages(_ next: [ScoutMessage], for cId: String) {
+        if messageCache[cId] == nil {
+            messageCacheOrder.append(cId)
+            if messageCacheOrder.count > messageCacheLimit {
+                let evicted = messageCacheOrder.removeFirst()
+                messageCache[evicted] = nil
+            }
+        }
+        messageCache[cId] = next
     }
 
     private func fetchReadCursors(cId: String) async {
@@ -516,32 +661,58 @@ final class ScoutCommsStore: ObservableObject {
     }
 
     private func loadActiveTurn(cId: String) {
-        activeTurnTask?.cancel()
+        if let activeTurnTask {
+            guard activeTurnRequestCId != cId else {
+                Self.log.debug("active turn fetch coalesced cId=\(cId, privacy: .public)")
+                return
+            }
+            Self.log.debug("active turn fetch cancelled for conversation change from=\(self.activeTurnRequestCId ?? "unknown", privacy: .public) to=\(cId, privacy: .public)")
+            activeTurnTask.cancel()
+        }
         let requestId = UUID()
         activeTurnRequestId = requestId
+        activeTurnRequestCId = cId
         let agentId = selectedAgentId
         let flightId = selectedFlightIdHint
+        let sessionId = selectedChannel?.sessionId?.nilIfEmpty
         let agentName = selectedAgent?.displayName
             ?? selectedChannel?.agentName?.nilIfEmpty
             ?? selectedAgentNameHint
             ?? "agent"
+        Self.log.debug("active turn fetch started cId=\(cId, privacy: .public) requestId=\(requestId.uuidString, privacy: .public)")
         activeTurnTask = Task { [weak self] in
-            await self?.fetchActiveTurn(cId: cId, requestId: requestId, flightId: flightId, agentId: agentId, agentName: agentName)
+            await self?.fetchActiveTurn(
+                cId: cId,
+                requestId: requestId,
+                flightId: flightId,
+                agentId: agentId,
+                sessionId: sessionId,
+                agentName: agentName
+            )
         }
     }
 
     /// Read the conversation's current flight (reusing `/api/flights` — the same
-    /// endpoint the pending-list rows already use) and, while a turn is live,
-    /// enrich it with the agent's latest observe event for the rolling detail
-    /// line. Self-contained: it never touches the Observe sidecar's single-slot
-    /// state, so the in-thread preview works without opening Observe. The observe
-    /// call only fires while a non-terminal flight exists, so an idle
-    /// conversation costs just the lightweight flights read. Failures are
-    /// swallowed — an absent in-flight turn is the common, non-error case.
-    private func fetchActiveTurn(cId: String, requestId: UUID, flightId: String?, agentId: String?, agentName: String) async {
+    /// endpoint the pending-list rows already use) and enrich it with the
+    /// selected harness session's recent observe events. Observe is also the
+    /// fallback authority when a live turn was started organically in the
+    /// harness and therefore has no Scout flight. Self-contained: it never
+    /// touches the Observe sidecar's single-slot state, so the in-thread preview
+    /// works without opening Observe. Failures are swallowed — an absent live
+    /// turn is the common, non-error case.
+    private func fetchActiveTurn(
+        cId: String,
+        requestId: UUID,
+        flightId: String?,
+        agentId: String?,
+        sessionId: String?,
+        agentName: String
+    ) async {
         defer {
             if activeTurnRequestId == requestId {
                 activeTurnTask = nil
+                activeTurnRequestCId = nil
+                Self.log.debug("active turn fetch finished cId=\(cId, privacy: .public) requestId=\(requestId.uuidString, privacy: .public)")
             }
         }
         let base = ScoutWeb.baseURL()
@@ -558,12 +729,8 @@ final class ScoutCommsStore: ObservableObject {
             .appending(queryItems: queryItems)
         let flights = (try? await fetch([ScoutPendingFlightStatus].self, from: flightsURL)) ?? []
         guard selectedCId == cId, activeTurnRequestId == requestId else { return }
-        guard let live = flights.first(where: { !$0.isTerminal }) else {
-            setIfChanged(nil, to: \.activeTurn)
-            stopActiveTurnPolling()
-            return
-        }
-        if shouldHideActiveTurn(live, cId: cId) {
+        let live = flights.first(where: { !$0.isTerminal })
+        if let live, shouldHideActiveTurn(live, cId: cId) {
             setIfChanged(nil, to: \.activeTurn)
             stopActiveTurnPolling()
             return
@@ -571,11 +738,17 @@ final class ScoutCommsStore: ObservableObject {
 
         var detail: String?
         var activity: [ScoutTurnActivityItem] = []
-        let liveAgentId = live.agentId?.nilIfEmpty ?? agentId?.nilIfEmpty
+        var observedSessionIsLive = false
+        let liveAgentId = live?.agentId?.nilIfEmpty ?? agentId?.nilIfEmpty
         if let liveAgentId {
-            let observeURL = base.appending(path: "api/agents/\(liveAgentId)/observe")
+            var observeURL = base.appending(path: "api/agents/\(liveAgentId)/observe")
+            if let sessionId = sessionId?.nilIfEmpty {
+                observeURL = observeURL.appending(queryItems: [URLQueryItem(name: "sessionId", value: sessionId)])
+            }
             if let payload = try? await fetch(ScoutObservePayload.self, from: observeURL),
-               payload.data.live {
+               payload.data.live,
+               Self.observePayload(payload, matches: sessionId) {
+                observedSessionIsLive = true
                 detail = payload.data.events.last.flatMap(Self.activeTurnDetailLine)
                 activity = Array(payload.data.events
                     .compactMap(Self.activeTurnActivityItem)
@@ -584,17 +757,32 @@ final class ScoutCommsStore: ObservableObject {
             guard selectedCId == cId, activeTurnRequestId == requestId else { return }
         }
 
+        guard live != nil || observedSessionIsLive else {
+            setIfChanged(nil, to: \.activeTurn)
+            stopActiveTurnPolling()
+            return
+        }
+
         setIfChanged(
             ScoutActiveTurn(
-                agentName: live.agentName?.nilIfEmpty ?? agentName,
-                state: live.state,
-                summary: live.summary?.nilIfEmpty,
+                agentName: live?.agentName?.nilIfEmpty ?? agentName,
+                state: live?.state ?? "running",
+                summary: live?.summary?.nilIfEmpty,
                 detail: detail,
                 activity: activity
             ),
             to: \.activeTurn
         )
         ensureActiveTurnPolling(cId: cId)
+    }
+
+    /// The observe endpoint is asked for the selected harness session. Keep the
+    /// explicit check because older/local servers may ignore that query and
+    /// return the agent's newest *other* session instead; cross-session activity
+    /// is worse than a quiet row in the selected conversation.
+    private static func observePayload(_ payload: ScoutObservePayload, matches sessionId: String?) -> Bool {
+        guard let sessionId = sessionId?.nilIfEmpty else { return true }
+        return payload.sessionId?.nilIfEmpty == sessionId
     }
 
     private func shouldHideActiveTurn(_ flight: ScoutPendingFlightStatus, cId: String) -> Bool {

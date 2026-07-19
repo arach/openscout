@@ -509,7 +509,7 @@ function deriveSnapshotCounts(
   tryCount("agents", state.agents);
   if (state.fleet && typeof state.fleet === "object") {
     const fleet = state.fleet as Record<string, unknown>;
-    tryCount("active asks", fleet.activeAsks);
+    tryCount("active requests", fleet.activeAsks);
     tryCount("attention", fleet.needsAttention);
     tryCount("recent", fleet.recentCompleted);
   }

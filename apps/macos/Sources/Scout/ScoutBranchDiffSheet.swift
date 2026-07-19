@@ -649,25 +649,12 @@ private struct ScoutBranchDiffWebView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in self?.phase = next }
         }
 
-        /// Map common `NSURLErrorDomain` codes to operator-readable copy. The
-        /// underlying URL is intentionally omitted — it carries an absolute
-        /// worktree path (§13: no path leakage into surfaced strings beyond what
-        /// the operator already sees in the row).
+        /// Route through the shared humanizer so a connection failure reads as
+        /// the same honest "services offline" copy everywhere. The underlying URL
+        /// is intentionally omitted — it carries an absolute worktree path (§13:
+        /// no path leakage into surfaced strings beyond what the row already shows).
         static func message(for error: Error) -> String {
-            let ns = error as NSError
-            guard ns.domain == NSURLErrorDomain else { return ns.localizedDescription }
-            switch ns.code {
-            case NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
-                return "The local OpenScout web server isn't reachable. Make sure it's running, then retry."
-            case NSURLErrorTimedOut:
-                return "The diff viewer took too long to respond. Retry once the local server is ready."
-            case NSURLErrorNotConnectedToInternet:
-                return "Pierre/Shiki assets couldn't be fetched on first load — connect once to cache them, then it works offline."
-            case NSURLErrorCancelled:
-                return "The load was cancelled."
-            default:
-                return ns.localizedDescription
-            }
+            ScoutAppError.userFacing(error, connectionMessage: ScoutServicesHelper.servicesOfflineMessage)
         }
     }
 }

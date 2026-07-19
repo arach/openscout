@@ -21,7 +21,7 @@ import {
   type MissionActivityState,
   type MissionGroupMode,
 } from "../../lib/mission-control-store.ts";
-import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
+import { agentStateRank, normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import {
   useObservePolling,
   type ObserveCacheEntry,
@@ -277,7 +277,6 @@ function agentSubject(
   activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
   now: number,
 ): CanvasSubject {
-  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
   const state = normalizeAgentState(agent.state);
   const lastActiveAt = activity?.lastActiveAt ?? agent.updatedAt ?? 0;
   const band = activityBand(Boolean(activity?.current), lastActiveAt, now);
@@ -285,7 +284,7 @@ function agentSubject(
     id: agent.id,
     name: agent.name,
     group: agent.project ?? "unassigned",
-    stateRank: stateOrder[state] ?? 1,
+    stateRank: agentStateRank(state),
     activity: band.activity,
     bandLabel: band.label,
     bandRank: band.rank,
@@ -383,9 +382,7 @@ function compareAgentsByActivity(
 ): number {
   const activity = compareActivity(activityByAgent.get(a.id), activityByAgent.get(b.id));
   if (activity !== 0) return activity;
-  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
-  const state = (stateOrder[normalizeAgentState(a.state)] ?? 1)
-    - (stateOrder[normalizeAgentState(b.state)] ?? 1);
+  const state = agentStateRank(a.state) - agentStateRank(b.state);
   if (state !== 0) return state;
   return a.name.localeCompare(b.name);
 }
@@ -412,6 +409,65 @@ function stableHash(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
+}
+
+
+function isNativeSessionAgent(agent: Agent): boolean {
+  return agent.agentClass === "native-session" || agent.id.startsWith("native:");
+}
+
+function nativeSessionInstructionsPayload(agent: Agent, instructions: string) {
+  const sessionId = agent.harnessSessionId?.trim();
+  if (!sessionId) {
+    throw new Error("This native session has no session id to continue.");
+  }
+  const projectPath = agent.projectRoot?.trim() || agent.cwd?.trim();
+  if (!projectPath) {
+    throw new Error("This native session has no project path to route from.");
+  }
+  const harness = agent.harness?.trim();
+  const model = agent.model?.trim();
+  return {
+    target: {
+      projectPath,
+    },
+    execution: {
+      session: "existing",
+      targetSessionId: sessionId,
+      ...(harness ? { harness } : {}),
+      ...(model ? { model } : {}),
+    },
+    agent: {
+      persistence: "one_time",
+      ...(agent.handle?.trim() ? { handle: agent.handle.trim() } : {}),
+    },
+    seed: {
+      instructions,
+    },
+  };
+}
+
+async function sendToFocusedAgentSession(agent: Agent, body: string): Promise<void> {
+  if (isNativeSessionAgent(agent)) {
+    await api<unknown>("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify(nativeSessionInstructionsPayload(agent, body)),
+    });
+    return;
+  }
+
+  const conversationId = await ensureAgentChat(agent);
+  await api<unknown>("/api/send", {
+    method: "POST",
+    body: JSON.stringify({
+      body,
+      chatId: conversationId,
+      execution: {
+        ...(agent.harness?.trim() ? { harness: agent.harness.trim() } : {}),
+        ...(agent.model?.trim() ? { model: agent.model.trim() } : {}),
+      },
+    }),
+  });
 }
 
 function nativeSessionId(transcript: TailDiscoveredTranscript): string {
@@ -890,10 +946,16 @@ export function MissionControlView({
   }, [zoom]);
 
   /* ── Keyboard shortcuts ── */
+  const focusedNativeSession = focusedId
+    ? visibleNativeSessions.find((s) => s.id === focusedId || s.agent.id === focusedId) ?? null
+    : null;
   const focusedAgent = focusedId
     ? (agents.find((a) => a.id === focusedId)
-        ?? visibleNativeSessions.find((s) => s.agent.id === focusedId)?.agent
+        ?? focusedNativeSession?.agent
         ?? null)
+    : null;
+  const focusedObserve = focusedAgent
+    ? (observeCache[focusedAgent.id]?.data ?? focusedNativeSession?.observe ?? null)
     : null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1126,31 +1188,15 @@ export function MissionControlView({
       {focusedAgent && (
         <FocusOverlay
           agent={focusedAgent}
-          observe={observeCache[focusedAgent.id]?.data ?? null}
+          observe={focusedObserve}
           onClose={() => setFocusedId(null)}
-          onSend={async (body, mode) => {
-            if (mode === "ask") {
-              await api<unknown>("/api/ask", {
-                method: "POST",
-                body: JSON.stringify({
-                  body,
-                  targetAgentId: focusedAgent.id,
-                  targetLabel: focusedAgent.name,
-                }),
-              });
-              return;
-            }
-            const conversationId = await ensureAgentChat(focusedAgent);
-            await api<unknown>("/api/send", {
-              method: "POST",
-              body: JSON.stringify({
-                body,
-                chatId: conversationId,
-              }),
-            });
-          }}
+          onSend={(body) => sendToFocusedAgentSession(focusedAgent, body)}
           onOpenConversation={() => {
             setFocusedId(null);
+            if (isNativeSessionAgent(focusedAgent) && focusedAgent.harnessSessionId) {
+              navigate({ view: "sessions", sessionId: focusedAgent.harnessSessionId });
+              return;
+            }
             void ensureAgentChat(focusedAgent)
               .then((conversationId) => {
                 navigate({

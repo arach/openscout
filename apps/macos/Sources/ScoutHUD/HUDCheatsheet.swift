@@ -77,9 +77,14 @@ struct HUDCheatsheetOverlay: View {
                 kbd("@", "stage an agent target from the dock")
                 kbd("session:", "complete a known session id")
                 kbd("↑ ↓", "move through open suggestions")
-                kbd("m", "toggle voice dictation — transcript lands in active draft")
                 kbd("↵", "send message")
                 kbd("Esc", "cascade: suggestions → text → target → blur → dismiss")
+            }
+
+            section("Voice") {
+                kbd("m", "tap: dictate into draft · hold: talk-and-send to target")
+                kbd("hold mic", "same, via the dock mic button (press and hold)")
+                kbd("speaker", "toggle spoken agent replies (off by default)")
             }
 
             HStack(spacing: 6) {

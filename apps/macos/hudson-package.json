@@ -29,6 +29,9 @@
         "infoPlist": "ScoutInfo.plist",
         "bundleIdentifier": "app.openscout.scout",
         "icon": "../../apps/desktop/public/scout-icon.png",
+        "frameworks": [
+          ".build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+        ],
         "embeddedHelpers": [
           {
             "name": "Scout Menu",

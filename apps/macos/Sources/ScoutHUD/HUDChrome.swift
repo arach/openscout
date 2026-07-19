@@ -62,6 +62,18 @@ public enum HUDChrome {
     public static let accentSoft  = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.14)
     public static let accentWhisper = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.06)
 
+    // ── Composer semantics ────────────────────────────────────────────
+    // Shared by task, message, and session composers. These describe UI
+    // roles rather than the current graphite/mint treatment, so composer
+    // surfaces can stay coherent when the broader Scout palette evolves.
+    public static let composerPanel = Color(red: 0.055, green: 0.058, blue: 0.057)
+    public static let composerField = Color(red: 0.032, green: 0.035, blue: 0.034)
+    public static let composerFieldLift = Color(red: 0.072, green: 0.078, blue: 0.076)
+    public static let composerBorder = Color(red: 0.175, green: 0.190, blue: 0.186)
+    public static let composerBorderStrong = Color(red: 0.285, green: 0.305, blue: 0.300)
+    public static let composerAction = Color(red: 0.420, green: 0.730, blue: 0.640)
+    public static let composerActionWhisper = composerAction.opacity(0.07)
+
     // ── Per-agent hue helper ───────────────────────────────────────────
     //
     // Studio convention is oklch(0.72 0.14 H). The HSB approximation lands
@@ -582,52 +594,5 @@ struct HUDEyebrow: View {
             .tracking(HUDType.eyebrowMicro)
             .foregroundStyle(color)
             .fixedSize(horizontal: true, vertical: false)
-    }
-}
-
-// MARK: - Mock pulse data
-
-enum HUDMockPulse {
-    static let table: [String: [Double]] = [
-        "hudson": [0.2, 0.3, 0.5, 0.4, 0.6, 0.8, 0.7, 0.9, 0.85, 0.95, 0.8, 0.9],
-        "drover": [0.6, 0.7, 0.5, 0.3, 0.2, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05],
-        "pike":   [0.4, 0.5, 0.7, 0.8, 0.7, 0.6, 0.9, 0.85, 0.7, 0.8, 0.9, 0.85],
-        "atlas":  [0.7, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1],
-        "quill":  [0.5, 0.6, 0.5, 0.6, 0.7, 0.5, 0.6, 0.7, 0.65, 0.7, 0.6, 0.7],
-        "cobalt": [0.5, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1, 0.08, 0.08, 0.08, 0.08, 0.08],
-    ]
-
-    static func pulse(for id: String) -> [Double] {
-        if let table = table[id] { return table }
-        return synthesized(for: id)
-    }
-
-    /// Deterministic, varied 12-step amplitude derived from the id.
-    /// Mirrors what `design/studio/lib/agentHue.ts` does for hue — we
-    /// don't want every unknown agent's row to flatline at 0.2, that
-    /// reads as "dead" instead of "pulsing". Each agent gets a unique
-    /// curve that holds across renders.
-    private static func synthesized(for id: String) -> [Double] {
-        var seed: UInt64 = 5381
-        for byte in id.utf8 {
-            seed = (seed &* 33) &+ UInt64(byte)
-        }
-        var state = seed | 1 // avoid degenerate 0
-        func next() -> Double {
-            // xorshift64* — cheap deterministic PRNG, plenty for visuals
-            state ^= state >> 12
-            state ^= state << 25
-            state ^= state >> 27
-            let n = state &* 0x2545F4914F6CDD1D
-            return Double(n >> 11) / Double(1 << 53)
-        }
-        // Bias the curve toward a profile shape so it reads as activity,
-        // not noise: pick a base amplitude per agent, then jitter ±0.35
-        // around it. Floor at 0.12 (visible bar), ceil at 0.95.
-        let base = 0.35 + next() * 0.45 // 0.35–0.80
-        return (0..<12).map { _ in
-            let jitter = (next() - 0.5) * 0.7
-            return min(0.95, max(0.12, base + jitter))
-        }
     }
 }

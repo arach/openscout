@@ -1,8 +1,7 @@
 import { Eye, UserPlus } from "lucide-react";
-import type { CSSProperties } from "react";
-import { actorColor } from "../../lib/colors.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import type { Agent, Route } from "../../lib/types.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
@@ -117,22 +116,19 @@ export function ConversationHeader({
         {visibleParticipants.length > 0 && (
           <div className="s-thread-participants" aria-label="Conversation participants">
             {visibleParticipants.map((participant) => {
-              const participantStyle = {
-                background: actorColor(participant.name),
-              } as CSSProperties;
               const modelLabel = participant.model ?? participant.harness ?? null;
               const pillTitle = modelLabel
                 ? `${participant.name} · ${modelLabel}`
                 : participant.title;
               const content = (
                 <>
-                  <span
+                  <AgentAvatar
+                    agent={participant.agent ?? undefined}
+                    name={participant.name}
+                    placement="turn"
                     className="s-thread-participant-avatar"
-                    style={participantStyle}
-                    aria-hidden="true"
-                  >
-                    {participant.name[0]?.toUpperCase() ?? "?"}
-                  </span>
+                    title={participant.name}
+                  />
                   <span className="s-thread-participant-identity">
                     <span className="s-thread-participant-name">
                       {participant.name}
@@ -189,12 +185,12 @@ export function ConversationHeader({
                 className="s-thread-participant-pill s-thread-participant-pill--operator"
                 title={`${operator.name} · in this conversation`}
               >
-                <span
+                <AgentAvatar
+                  name={operator.name}
+                  placement="turn"
                   className="s-thread-participant-avatar s-thread-participant-avatar--operator"
-                  aria-hidden="true"
-                >
-                  {operator.name[0]?.toUpperCase() ?? "Y"}
-                </span>
+                  title={operator.name}
+                />
                 <span className="s-thread-participant-identity">
                   <span className="s-thread-participant-name">You</span>
                 </span>

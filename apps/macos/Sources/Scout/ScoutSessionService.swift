@@ -46,7 +46,10 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
             .init(harness: "claude", value: "claude-haiku-4-5", label: "Haiku 4.5", detail: "Claude API alias"),
         ]),
         .init(id: "codex", label: "Codex", models: [
-            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Recommended"),
+            .init(harness: "codex", value: "gpt-5.6-sol", label: "GPT-5.6 Sol", detail: "Latest frontier"),
+            .init(harness: "codex", value: "gpt-5.6-terra", label: "GPT-5.6 Terra", detail: "Frontier"),
+            .init(harness: "codex", value: "gpt-5.6-luna", label: "GPT-5.6 Luna", detail: "Efficient"),
+            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: nil),
             .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
     ]
@@ -66,6 +69,8 @@ private struct ScoutSessionEffortChoice: Identifiable, Equatable {
         .init(value: "medium", label: "Medium", detail: "Default"),
         .init(value: "high", label: "High", detail: "Deeper pass"),
         .init(value: "xhigh", label: "XHigh", detail: "Highest supported"),
+        .init(value: "max", label: "Max", detail: "Maximum reasoning depth"),
+        .init(value: "ultra", label: "Ultra", detail: "Maximum with delegation"),
     ]
 }
 
@@ -79,18 +84,23 @@ struct ScoutSessionComposer: View {
     @State private var isSubmitting = false
     @State private var errorText: String?
     @State private var openDropdown: String?
-    @State private var advancedOpen = false
     @State private var agentQuery: String = ""
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
     @State private var messageBoxHovering = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
-    @ObservedObject private var voice = ScoutVoiceService.shared
+    @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @AppStorage("scout.session.lastProjectPath") private var lastProjectPath = ""
+    @AppStorage("scout.session.lastHarness") private var lastHarness = ""
+    @AppStorage("scout.session.lastModel") private var lastModel = ""
+    @AppStorage("scout.session.lastReasoningEffort") private var lastReasoningEffort = ""
 
     private let agents: [ScoutAgent]
     private let projectOptions: [ScoutSessionProjectOption]
+    private static let lastHarnessKey = "scout.session.lastHarness"
+    private static let lastModelKey = "scout.session.lastModel"
+    private static let lastReasoningEffortKey = "scout.session.lastReasoningEffort"
 
     // Fixed modal geometry — wide enough that Project / Model / Harness sit as three
     // equal chips on one line and the message box reads close to the main composer.
@@ -107,13 +117,16 @@ struct ScoutSessionComposer: View {
         self.onComplete = onComplete
         self.agents = agents
         self.projectOptions = projectOptions
-        _draft = State(initialValue: draft)
+        _draft = State(initialValue: Self.applyLastRuntimeChoices(to: draft))
     }
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.42)
+            Rectangle()
+                .fill(.thinMaterial)
+                .overlay(Color.black.opacity(0.36))
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { if !isSubmitting { onClose() } }
 
             card
@@ -123,9 +136,24 @@ struct ScoutSessionComposer: View {
         .onExitCommand { if !isSubmitting { onClose() } }
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .onAppear { instructionsFocused = true }
+        .background(
+            ScoutSessionSubmitShortcutMonitor(isActive: true) {
+                submit()
+            }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
+        .onChange(of: draft.harness) { _, _ in persistLastRuntimeChoices() }
+        .onChange(of: draft.model) { _, _ in persistLastRuntimeChoices() }
+        .onChange(of: draft.reasoningEffort) { _, _ in persistLastRuntimeChoices() }
     }
 
     private var isDictating: Bool { voice.state.isCaptureActive }
+
+    private var voiceUnavailableReason: String? {
+        if case .unavailable(let reason) = voice.state { return reason }
+        return nil
+    }
 
     private var isProjectTarget: Bool {
         if case .project = draft.target { return true }
@@ -206,6 +234,42 @@ struct ScoutSessionComposer: View {
         }
     }
 
+    private static func applyLastRuntimeChoices(to draft: ScoutSessionDraft) -> ScoutSessionDraft {
+        guard draft.mode != .continueContext else { return draft }
+        var copy = draft
+        let defaults = UserDefaults.standard
+        let storedHarness = defaults.string(forKey: lastHarnessKey)?.nilIfEmpty
+        let storedModel = defaults.string(forKey: lastModelKey)?.nilIfEmpty
+        let storedEffort = defaults.string(forKey: lastReasoningEffortKey)?.nilIfEmpty
+        let hadExplicitHarness = copy.harness?.nilIfEmpty != nil
+
+        if copy.harness?.nilIfEmpty == nil, let storedHarness {
+            copy.harness = storedHarness
+        }
+        if copy.model?.nilIfEmpty == nil, let storedModel {
+            if !hadExplicitHarness {
+                copy.model = storedModel
+            } else if let storedHarness, let explicitHarness = copy.harness?.nilIfEmpty,
+                      storedHarness.caseInsensitiveCompare(explicitHarness) == .orderedSame {
+                copy.model = storedModel
+            }
+        }
+        // Default draft effort is "medium". Only restore the last choice when the
+        // caller left that default in place; an explicit non-default effort wins.
+        if copy.reasoningEffort.nilIfEmpty == "medium" || copy.reasoningEffort.nilIfEmpty == nil,
+           let storedEffort {
+            copy.reasoningEffort = storedEffort
+        }
+        return copy
+    }
+
+    private func persistLastRuntimeChoices() {
+        guard draft.mode != .continueContext else { return }
+        lastHarness = draft.harness?.nilIfEmpty ?? ""
+        lastModel = draft.model?.nilIfEmpty ?? ""
+        lastReasoningEffort = draft.reasoningEffort.nilIfEmpty ?? "medium"
+    }
+
     private func toggleDictation() {
         instructionsFocused = true
         Task {
@@ -227,7 +291,7 @@ struct ScoutSessionComposer: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft.instructions = ScoutDictationBuffer.appending(trimmed, to: draft.instructions)
-        ScoutVoiceService.shared.consumeFinalText()
+        ScoutRemoteVoiceService.shared.consumeFinalText()
         instructionsFocused = true
     }
 
@@ -235,8 +299,15 @@ struct ScoutSessionComposer: View {
         VStack(alignment: .leading, spacing: HudSpacing.xxl) {
             header
             targetSection
-            advancedSection
+            if isProjectTarget {
+                optionalAliasField
+            }
             messageSection
+            if let reason = voiceUnavailableReason {
+                ScoutVoiceIssueRow(message: reason) {
+                    Task { await voice.openMicrophoneSettings() }
+                }
+            }
             if let errorText {
                 Text(errorText)
                     .font(HudFont.mono(HudTextSize.xxs))
@@ -444,7 +515,7 @@ struct ScoutSessionComposer: View {
                 ? "Continue \(agent.displayName) with full context"
                 : "New chat with \(agent.displayName)"
         case .project:
-            return "Choose project, setup, and first message"
+            return "Choose project and first message"
         }
     }
 
@@ -462,57 +533,14 @@ struct ScoutSessionComposer: View {
         }
     }
 
-    private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.md) {
-            Button {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    advancedOpen.toggle()
-                }
-            } label: {
-                HStack(spacing: HudSpacing.sm) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.accent)
-                        .frame(width: 18)
-                    Text("Advanced")
-                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.ink)
-                    Spacer(minLength: HudSpacing.sm)
-                    Text(advancedSummary)
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(HudFont.ui(HudTextSize.micro, weight: .bold))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .rotationEffect(.degrees(advancedOpen ? 180 : 0))
-                }
-                .padding(.horizontal, HudSpacing.md)
-                .frame(height: 34)
-                .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-                .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
-                .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-
-            if advancedOpen {
-                VStack(alignment: .leading, spacing: HudSpacing.md) {
-                    HStack(spacing: HudSpacing.sm) {
-                        effortChip
-                        Spacer(minLength: 0)
-                    }
-                    if isProjectTarget {
-                        aliasTextField(
-                            key: "@",
-                            placeholder: "Alias",
-                            text: $draft.agentName,
-                            mono: true
-                        )
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+    private var optionalAliasField: some View {
+        aliasTextField(
+            key: "@",
+            placeholder: "Optional alias",
+            text: $draft.agentName,
+            mono: true
+        )
+        .help("Optional agent alias")
     }
 
     private func aliasTextField(key: String, placeholder: String, text: Binding<String>, mono: Bool = false) -> some View {
@@ -523,7 +551,7 @@ struct ScoutSessionComposer: View {
                 .textCase(.uppercase)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(mono ? HudFont.mono(HudTextSize.sm, weight: .semibold) : HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .font(mono ? HudFont.mono(HudTextSize.xs, weight: .medium) : HudFont.ui(HudTextSize.sm, weight: .medium))
                 .foregroundStyle(ScoutPalette.ink)
                 .tint(ScoutPalette.accent)
                 .lineLimit(1)
@@ -893,10 +921,10 @@ struct ScoutSessionComposer: View {
         HStack(spacing: HudSpacing.sm) {
             Button { if !isSubmitting { onClose() } } label: {
                 Text("Cancel")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .font(HudFont.mono(HudTextSize.xs, weight: .medium))
                     .foregroundStyle(ScoutPalette.muted)
                     .padding(.horizontal, HudSpacing.sm)
-                    .padding(.vertical, HudSpacing.xs)
+                    .frame(height: 30)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain).scoutPointerCursor()
@@ -906,11 +934,21 @@ struct ScoutSessionComposer: View {
             Spacer(minLength: HudSpacing.sm)
 
             Text("⌘↵")
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundColor(ScoutPalette.dim)
+                .font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                .foregroundColor(ScoutPalette.muted)
                 .lineLimit(1)
+                .frame(height: 30)
+                .padding(.horizontal, HudSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .fill(ScoutSurface.inset)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                )
 
-            ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
+            ScoutMicButton(box: 30, glyph: 15, action: toggleDictation)
 
             messageSendButton
         }
@@ -948,11 +986,11 @@ struct ScoutSessionComposer: View {
                     ScoutBrailleSpinner(size: 12, tint: ScoutPalette.accent)
                 } else {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: HudTextSize.sm, weight: .bold))
+                        .font(.system(size: HudTextSize.md, weight: .bold))
                         .foregroundStyle(ready ? ScoutDesign.bg : ScoutPalette.dim)
                 }
             }
-            .frame(width: 26, height: 26)
+            .frame(width: 30, height: 30)
             .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -973,6 +1011,7 @@ struct ScoutSessionComposer: View {
             projectChip
             harnessChip
             modelChip
+            effortChip
         }
     }
 
@@ -980,11 +1019,8 @@ struct ScoutSessionComposer: View {
         HStack(spacing: HudSpacing.sm) {
             harnessChip
             modelChip
+            effortChip
         }
-    }
-
-    private var advancedSummary: String {
-        effortDisplayName(draft.reasoningEffort)
     }
 
     private var projectChip: some View {
@@ -1264,6 +1300,7 @@ struct ScoutSessionComposer: View {
         guard !isSubmitting, canSubmit else { return }
         isSubmitting = true
         errorText = nil
+        persistLastRuntimeChoices()
         let submittedDraft = draft
         let spec = submittedDraft.spec()
         if let projectPath = submittedDraft.projectPath.nilIfEmpty {
@@ -1281,3 +1318,79 @@ struct ScoutSessionComposer: View {
         }
     }
 }
+
+
+#if os(macOS)
+private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
+    var isActive: Bool
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isActive: isActive, onSubmit: onSubmit)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+        context.coordinator.onSubmit = onSubmit
+        context.coordinator.install()
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator {
+        var isActive: Bool
+        var onSubmit: () -> Void
+        private var monitor: Any?
+
+        init(isActive: Bool, onSubmit: @escaping () -> Void) {
+            self.isActive = isActive
+            self.onSubmit = onSubmit
+        }
+
+        deinit {
+            uninstall()
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.isActive else { return event }
+                guard Self.isSubmitShortcut(event) else { return event }
+                self.onSubmit()
+                return nil
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+
+        private static func isSubmitShortcut(_ event: NSEvent) -> Bool {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.contains(.command) || flags.contains(.control) else { return false }
+            guard !flags.contains(.option) else { return false }
+            return event.keyCode == 36 || event.keyCode == 76
+        }
+    }
+}
+#else
+private struct ScoutSessionSubmitShortcutMonitor: View {
+    var isActive: Bool
+    var onSubmit: () -> Void
+
+    var body: some View {
+        EmptyView()
+    }
+}
+#endif

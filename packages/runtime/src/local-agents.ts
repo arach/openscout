@@ -13,6 +13,7 @@ import type {
   AgentEndpoint,
   AgentHarness,
   InvocationRequest,
+  MessageAttachment,
   ScoutPermissionProfile,
   ScoutReplyContext,
 } from "@openscout/protocol";
@@ -27,6 +28,7 @@ import {
   readTmuxSessionExistsSnapshot,
 } from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
+import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -446,6 +448,7 @@ export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "grok-acp",
+  "kimi",
   "flue",
 ];
 
@@ -1227,6 +1230,24 @@ function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs:
     return next;
   }
 
+  if (harness === "claude" || harness === "grok") {
+    const next: string[] = [];
+    const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
+    const flags = ["--effort", "--reasoning-effort"];
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index] ?? "";
+      if (flags.includes(current)) {
+        index += 1;
+        continue;
+      }
+      if (flags.some((flag) => current.startsWith(`${flag}=`))) {
+        continue;
+      }
+      next.push(current);
+    }
+    return next;
+  }
+
   if (harness !== "codex") {
     return normalizeLaunchArgsForHarness(harness, launchArgs);
   }
@@ -1261,6 +1282,9 @@ function stripLaunchReasoningEffortForHarness(harness: AgentHarness, launchArgs:
 function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reasoningEffort: string): string[] {
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(["--reasoning-effort", reasoningEffort]);
+  }
+  if (harness === "claude") {
+    return ["--effort", reasoningEffort];
   }
   if (harness === "pi") {
     return ["--thinking", reasoningEffort.trim().toLowerCase() === "none" ? "off" : reasoningEffort];
@@ -2343,6 +2367,17 @@ function attachedCodexEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   );
 }
 
+function attachedClaudeEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
+  return applyRequestedRuntimeOptionsToLaunchArgs(
+    "claude",
+    endpointMetadataStringArray(endpoint, "launchArgs"),
+    {
+      model: endpointMetadataString(endpoint, "model"),
+      reasoningEffort: endpointMetadataString(endpoint, "reasoningEffort"),
+    },
+  );
+}
+
 function attachedPiEndpointLaunchArgs(endpoint: AgentEndpoint): string[] {
   return applyRequestedRuntimeOptionsToLaunchArgs(
     "pi",
@@ -2426,7 +2461,26 @@ function attachedLocalSessionSystemPrompt(endpoint: AgentEndpoint): string {
   return "Resume the existing session without changing its identity or prior context.";
 }
 
-function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServerSessionOptions & {
+function attachedCodexApprovalPolicy(endpoint: AgentEndpoint): CodexApprovalPolicy | undefined {
+  const value = endpointMetadataString(endpoint, "approvalPolicy");
+  return value === "untrusted"
+    || value === "on-request"
+    || value === "on-failure"
+    || value === "never"
+    ? value
+    : undefined;
+}
+
+function attachedCodexSandbox(endpoint: AgentEndpoint): CodexSandboxMode | undefined {
+  const value = endpointMetadataString(endpoint, "sandbox");
+  return value === "read-only"
+    || value === "workspace-write"
+    || value === "danger-full-access"
+    ? value
+    : undefined;
+}
+
+export function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServerSessionOptions & {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2453,12 +2507,14 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): CodexAppServ
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
     launchArgs: attachedCodexEndpointLaunchArgs(endpoint),
+    approvalPolicy: attachedCodexApprovalPolicy(endpoint),
+    sandbox: attachedCodexSandbox(endpoint),
     threadId,
     requireExistingThread: Boolean(threadId) && !ownsSessionThread,
   });
 }
 
-function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
+export function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
   agentName: string;
   sessionId: string;
   cwd: string;
@@ -2475,7 +2531,7 @@ function buildClaudeEndpointSessionOptions(endpoint: AgentEndpoint): {
     systemPrompt: attachedLocalSessionSystemPrompt(endpoint),
     runtimeDirectory: relayAgentRuntimeDirectory(agentName),
     logsDirectory: relayAgentLogsDirectory(agentName),
-    launchArgs: [],
+    launchArgs: attachedClaudeEndpointLaunchArgs(endpoint),
   };
 }
 
@@ -2517,6 +2573,15 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
 }
 
+// A single broker can receive several deliveries for an on-demand agent before
+// its first tmux session is visible. Coalesce those starts so they share one
+// `tmux new-session` call instead of racing to create the same named session.
+const localAgentOnlineFlights = new Map<string, Promise<LocalAgentRecord>>();
+
+function localAgentOnlineFlightKey(agentName: string, record: LocalAgentRecord): string {
+  return [agentName, record.transport, record.tmuxSession].join("\u0000");
+}
+
 export function isLocalAgentSessionAlive(sessionName: string): boolean {
   return readTmuxSessionExistsSnapshot(sessionName);
 }
@@ -2550,7 +2615,7 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
-  if (endpoint.transport === "grok_acp") {
+  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp") {
     return endpoint.state !== "offline";
   }
 
@@ -2801,6 +2866,7 @@ function withScoutReplyContextEnvironment<T extends { runtimeDirectory: string; 
     ...options,
     env: {
       ...(options.env ?? {}),
+      OPENSCOUT_CODEX_MANAGED_HOME: "1",
       OPENSCOUT_REPLY_CONTEXT_FILE: scoutReplyContextPath(options.runtimeDirectory),
     },
   };
@@ -2843,6 +2909,122 @@ async function sendCodexAppServerAgentForBroker(
     return await sendCodexAppServerAgent(wrappedOptions);
   } finally {
     await writeScoutReplyContextFile(wrappedOptions.runtimeDirectory, null);
+  }
+}
+
+export const SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY = "scoutMessageAttachments";
+
+function isMessageAttachmentContextEntry(value: unknown): value is MessageAttachment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const attachment = value as Partial<MessageAttachment>;
+  return typeof attachment.id === "string"
+    && typeof attachment.mediaType === "string"
+    && (
+      typeof attachment.url === "string"
+      || typeof attachment.blobKey === "string"
+    );
+}
+
+function invocationMessageAttachments(invocation: InvocationRequest): MessageAttachment[] {
+  const value = invocation.context?.[SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isMessageAttachmentContextEntry);
+}
+
+function scoutWebOriginForAttachments(env: NodeJS.ProcessEnv = process.env): string | null {
+  const candidates = [
+    env.OPENSCOUT_WEB_PUBLIC_ORIGIN,
+    env.OPENSCOUT_WEB_BUN_URL,
+    env.OPENSCOUT_WEB_VITE_URL,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (!trimmed) continue;
+    try {
+      return new URL(trimmed).origin;
+    } catch {
+      // ignore invalid env values
+    }
+  }
+  return null;
+}
+
+function resolveAttachmentFetchUrl(
+  attachment: MessageAttachment,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const direct = attachment.url?.trim();
+  if (direct) {
+    try {
+      // Absolute http(s) URLs are already fetchable.
+      if (/^https?:\/\//i.test(direct)) {
+        return new URL(direct).toString();
+      }
+      // Only promote known blob paths; other root-relative URLs stay opaque.
+      const origin = scoutWebOriginForAttachments(env);
+      if (origin && direct.startsWith("/api/blobs/")) {
+        return new URL(direct, `${origin}/`).toString();
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const blobKey = attachment.blobKey?.trim();
+  if (!blobKey) {
+    return null;
+  }
+  const origin = scoutWebOriginForAttachments(env);
+  if (!origin) {
+    return null;
+  }
+  return `${origin.replace(/\/$/, "")}/api/blobs/${encodeURIComponent(blobKey)}`;
+}
+
+function buildInvocationAttachmentsPrompt(
+  invocation: InvocationRequest,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const attachments = invocationMessageAttachments(invocation)
+    .map((attachment, index) => {
+      const url = resolveAttachmentFetchUrl(attachment, env);
+      if (!url) return null;
+      const fileName = attachment.fileName?.trim();
+      const label = fileName || attachment.id || `attachment-${index + 1}`;
+      return `- ${label} (${attachment.mediaType}): ${url}`;
+    })
+    .filter((line): line is string => Boolean(line));
+  if (attachments.length === 0) {
+    return undefined;
+  }
+
+  return [
+    "Attachments:",
+    ...attachments,
+    "Fetch/open the attachment URL when you need to inspect the image or file contents.",
+  ].join("\n");
+}
+
+function invocationContextEntries(invocation: InvocationRequest): [string, unknown][] {
+  return Object.entries(invocation.context ?? {})
+    .filter(([key]) => key !== SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY);
+}
+
+function formatInvocationContextValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 
@@ -2889,10 +3071,11 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
 }
 
 export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
-  const contextLines = Object.entries(invocation.context ?? {})
-    .map(([key, value]) => `- ${key}: ${String(value)}`);
+  const contextLines = invocationContextEntries(invocation)
+    .map(([key, value]) => `- ${key}: ${formatInvocationContextValue(value)}`);
   const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
   const forkContext = buildInvocationForkContextPrompt(invocation);
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
     : invocation.action === "wake"
@@ -2914,6 +3097,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     collaborationContext,
     forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
+    attachmentsContext,
     "Task:",
     invocation.task,
   ]
@@ -2922,11 +3106,12 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
 }
 
 export function buildAttachedSessionInvocationPrompt(invocation: InvocationRequest, agentName = invocation.targetAgentId): string {
-  const contextLines = Object.entries(invocation.context ?? {})
-    .map(([key, value]) => `- ${key}: ${String(value)}`);
+  const contextLines = invocationContextEntries(invocation)
+    .map(([key, value]) => `- ${key}: ${formatInvocationContextValue(value)}`);
   const replyContext = buildScoutReplyContext(agentName, invocation);
   const replyContextPrompt = invocation.action === "wake" ? [] : buildScoutReplyContextPrompt(replyContext);
   const forkContext = buildInvocationForkContextPrompt(invocation);
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
 
   return [
     buildInvocationOpener(invocation),
@@ -2939,6 +3124,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
       : "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
     forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
+    attachmentsContext,
     "",
     invocation.task,
   ]
@@ -2948,15 +3134,18 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
 
 export function buildLocalAgentNudge(agentName: string, invocation: InvocationRequest, flightId: string): string {
   const relayCommand = brokerRelayCommand();
+  const attachmentsContext = buildInvocationAttachmentsPrompt(invocation);
+  const contextEntries = invocationContextEntries(invocation);
   if (invocation.action === "wake") {
     const parts = [
       `New broker message from ${invocation.requesterId}.`,
       `Message: ${invocation.task}`,
+      attachmentsContext,
       "This is a message/update, not a reply-required ask. Read it and continue your current work; reply only if a human-useful response is needed.",
-    ];
+    ].filter((part): part is string => Boolean(part));
 
-    if (invocation.context && Object.keys(invocation.context).length > 0) {
-      parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+    if (contextEntries.length > 0) {
+      parts.push(`Context: ${JSON.stringify(Object.fromEntries(contextEntries))}`);
     }
 
     parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);
@@ -2966,11 +3155,12 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
   const parts = [
     `New broker ask from ${invocation.requesterId}.`,
     `Task: ${invocation.task}`,
+    attachmentsContext,
     "Follow the OpenScout collaboration contract: answer directly if you can, otherwise make the next owner explicit and avoid broad wakeups.",
-  ];
+  ].filter((part): part is string => Boolean(part));
 
-  if (invocation.context && Object.keys(invocation.context).length > 0) {
-    parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+  if (contextEntries.length > 0) {
+    parts.push(`Context: ${JSON.stringify(Object.fromEntries(contextEntries))}`);
   }
   if (invocation.execution?.session === "fork") {
     const source = invocation.execution.forkFromStateId?.trim() || invocation.execution.forkFromSessionId?.trim();
@@ -3558,6 +3748,25 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
 
 async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
   const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
+  const flightKey = localAgentOnlineFlightKey(agentName, normalizedRecord);
+  const existingFlight = localAgentOnlineFlights.get(flightKey);
+  if (existingFlight) {
+    return await existingFlight;
+  }
+
+  const flight = ensureLocalAgentOnlineOnce(agentName, normalizedRecord);
+  localAgentOnlineFlights.set(flightKey, flight);
+  try {
+    return await flight;
+  } finally {
+    if (localAgentOnlineFlights.get(flightKey) === flight) {
+      localAgentOnlineFlights.delete(flightKey);
+    }
+  }
+}
+
+async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentRecord): Promise<LocalAgentRecord> {
+  const normalizedRecord = normalizeLocalAgentRecord(agentName, record);
   if (isLocalAgentRecordOnline(agentName, normalizedRecord)) {
     return normalizedRecord;
   }
@@ -3718,14 +3927,18 @@ async function ensureLocalAgentOnline(agentName: string, record: LocalAgentRecor
     }, null, 2) + "\n",
   );
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
-      break;
+  // Liveness must be an awaited fresh read: the sync snapshot read above can
+  // serve the pre-spawn session list while the post-invalidation probe refresh
+  // is still in flight, which used to fail healthy sessions within ~2s.
+  let sessionOnline = false;
+  for (let attempt = 0; attempt < 20 && !sessionOnline; attempt += 1) {
+    sessionOnline = await isLocalAgentSessionAliveAsync(normalizedRecord.tmuxSession);
+    if (!sessionOnline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  if (!isLocalAgentSessionAlive(normalizedRecord.tmuxSession)) {
+  if (!sessionOnline) {
     const stderrTail = existsSync(stderrLogFile)
       ? readFileSync(stderrLogFile, "utf8").trim().split(/\r?\n/).slice(-10).join("\n").trim()
       : "";
@@ -4839,6 +5052,24 @@ export async function invokeLocalAgentEndpoint(
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "kimi_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const result = await invokeKimiAcpAgent({
+      sessionId,
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
       timeoutMs: invocation.timeoutMs,
     });
 

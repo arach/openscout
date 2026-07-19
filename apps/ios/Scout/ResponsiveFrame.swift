@@ -13,20 +13,24 @@ struct ScoutLayoutMetrics: Equatable {
     var isNarrowPhone: Bool { physicalWidth > 0 && physicalWidth < 390 }
 
     var titleHorizontalPadding: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }
-    var titleTopPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.md }
-    var titleBottomPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.md }
-    var wordmarkSize: CGFloat { isNarrowPhone ? HudTextSize.xl : HudTextSize.xxl }
+    var titleTopPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.sm }
+    var titleBottomPadding: CGFloat { HudSpacing.xs }
+    // A thin, small all-caps wordmark (set with wide tracking at the call site).
+    var wordmarkSize: CGFloat { isNarrowPhone ? 14 : 15 }
     var surfacePadding: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }
     var surfaceTopPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.lg }
     var surfaceBottomPadding: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }
     var surfaceSectionSpacing: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }
 
     var tabBarTopPadding: CGFloat { isNarrowPhone ? HudSpacing.xxs : HudSpacing.xs }
-    var tabBarHorizontalPadding: CGFloat { isNarrowPhone ? HudSpacing.md : HudSpacing.lg }
+    // Tight side gutters so all six tabs (incl. the trailing "New") tile across a
+    // native 393pt bar; the mini only fit them via its responsive downscale.
+    var tabBarHorizontalPadding: CGFloat { HudSpacing.xs }
     // Slick: minimal top/bottom padding, a calm glyph — active state is carried
-    // by accent color, not glyph heft.
-    var tabButtonHeight: CGFloat { isNarrowPhone ? 48 : 52 }
-    var tabGlyphSize: CGFloat { isNarrowPhone ? 17 : 18 }
+    // by accent color, not glyph heft. Kept low so the docked bar reads as a
+    // trim strip (studio `.iTabs` ~52px total incl. safe area), not a slab.
+    var tabButtonHeight: CGFloat { isNarrowPhone ? 42 : 44 }
+    var tabGlyphSize: CGFloat { isNarrowPhone ? 16 : 16.5 }
     var tabLabelSize: CGFloat { isNarrowPhone ? HudTextSize.micro : HudTextSize.xxs }
 
     var statusSideInset: CGFloat { isNarrowPhone ? HudSpacing.xxxl : 42 }
@@ -84,16 +88,25 @@ struct DesignFrame<Content: View>: View {
             let scale = scale(forWidth: avail.width)
             // At ≥ reference we lay out at the device's own width (fluid fill);
             // between mini and reference we lay out natively with compact metrics;
-            // below mini we lay out at the mini width and shrink to fit.
-            let designWidth = scale < 1 ? nativeMinimumWidth : avail.width
+            // below mini we lay out at the width that, once shrunk, exactly fills
+            // the screen. Deriving the design width from the *floored* scale (rather
+            // than pinning it to the mini) means the rendered footprint is always
+            // `designWidth * scale == avail.width`, so an ultra-narrow phone (or a
+            // resized "responsive" simulator) shrinks to fit instead of overflowing
+            // and clipping both edges.
+            let designWidth = scale < 1 ? avail.width / scale : avail.width
             let designHeight = scale > 0 ? avail.height / scale : avail.height
             let metrics = ScoutLayoutMetrics(physicalWidth: avail.width, designWidth: designWidth, scale: scale)
 
             content(metrics)
                 .environment(\.scoutLayout, metrics)
-                .frame(width: designWidth, height: designHeight, alignment: .top)
-                .scaleEffect(scale, anchor: .top)
-                .frame(width: avail.width, height: avail.height, alignment: .top)
+                // Pin content to the top-leading corner (not top-center) so that if
+                // anything ever lays out wider than the frame it clips off the right
+                // edge — where a horizontal scroll can absorb it — instead of being
+                // centered and clipping the leading edge (masthead, section labels).
+                .frame(width: designWidth, height: designHeight, alignment: .topLeading)
+                .scaleEffect(scale, anchor: .topLeading)
+                .frame(width: avail.width, height: avail.height, alignment: .topLeading)
         }
     }
 

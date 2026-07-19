@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -60,6 +60,24 @@ describe("Codex executable inventory", () => {
 
     expect(inventory.candidates.find((candidate) => candidate.path === newPathBin)?.version).toBe("0.128.0-alpha.1");
     expect(inventory.candidates.find((candidate) => candidate.path === oldPathBin)?.version).toBe("0.121.0");
+  });
+
+  test("discovers Codex bundled in ChatGPT.app when PATH is empty", () => {
+    const homeRoot = mkdtempSync(join(tmpdir(), "openscout-codex-chatgpt-home-"));
+    tempPaths.add(homeRoot);
+    const bundleResources = join(homeRoot, "Applications", "ChatGPT.app", "Contents", "Resources");
+    mkdirSync(bundleResources, { recursive: true });
+    const bundledBin = fakeCodex(bundleResources, "999.0.0");
+
+    const inventory = resolveCodexExecutableInventory({
+      HOME: homeRoot,
+      PATH: "",
+      OPENSCOUT_CODEX_BIN: "",
+      CODEX_BIN: "",
+    });
+
+    expect(inventory.selectedPath).toBe(bundledBin);
+    expect(inventory.selected?.source).toBe("codex_app_bundle");
   });
 
   test("prefers an explicit executable even when PATH has a newer one", () => {

@@ -59,6 +59,17 @@
   padding: var(--space-md) var(--space-lg) var(--space-lg);
 }
 
+.s-agent-lanes--embedded .s-observe--lane .s-observe-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.s-agent-lanes--embedded .s-observe--lane .s-observe-stream {
+  flex: none;
+  margin-top: auto;
+}
+
 .s-agent-lanes--embedded .s-agent-lane {
   width: min(var(--lane-width, 512px), calc(100vw - (var(--space-lg) * 2)));
   backdrop-filter: none;
@@ -103,7 +114,8 @@
   display: none;
 }
 
-.s-agent-lanes-horizons {
+.s-agent-lanes-horizons,
+.s-agent-lanes-layouts {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
@@ -731,8 +743,6 @@
   border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
   background: color-mix(in srgb, var(--surface) 82%, var(--bg));
-  backdrop-filter: blur(12px) saturate(125%);
-  -webkit-backdrop-filter: blur(12px) saturate(125%);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   transition:
@@ -787,6 +797,38 @@
   box-shadow:
     0 6px 18px rgba(0, 0, 0, 0.12),
     inset 0 1px 0 color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* ── Light mode ──
+   Dark mode gets figure-ground for free — cards glow above a near-black bg.
+   Light mode has to earn it: the deck canvas steps one tone below the paper so
+   white cards read as cards, hairlines do the separation work black shadows
+   can't, and shadows are ink-tinted and shallow so they read as depth, not
+   dirt. */
+[data-scout-theme-mode="light"] .s-agent-lanes,
+[data-scout-theme-mode="light"] .s-agent-lanes-embed {
+  background: color-mix(in srgb, var(--ink) 4%, var(--bg));
+}
+
+[data-scout-theme-mode="light"] .s-agent-lane {
+  border-color: color-mix(in srgb, var(--ink) 12%, transparent);
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent),
+    0 6px 18px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+[data-scout-theme-mode="light"] .s-agent-lane:hover {
+  border-color: color-mix(in srgb, var(--ink) 17%, transparent);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent),
+    0 10px 26px color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+/* The trace recesses a touch below the card face, so the summary reads as the
+   card's header and the event stream as its well. */
+[data-scout-theme-mode="light"] .s-agent-lane-trace {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
 }
 
 @keyframes s-agent-lane-enter {
@@ -1405,19 +1447,345 @@
   padding: var(--space-lg) var(--space-lg);
 }
 
+@keyframes s-agent-lanes-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes s-agent-lanes-loading-sheen {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+
+.s-agent-lanes-loading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
+  overflow: hidden;
+  animation: s-agent-lanes-panel-in 220ms ease-out both;
+}
+
+.s-agent-lanes-loading-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 24px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+.s-agent-lanes-loading-kicker {
+  color: var(--muted);
+}
+
+.s-agent-lanes-loading-meta {
+  color: color-mix(in srgb, var(--dim) 78%, transparent);
+}
+
+.s-agent-lanes-loading-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(18rem, 32rem));
+  gap: var(--space-lg);
+  min-height: 0;
+}
+
+.s-agent-lanes-loading-lane {
+  min-width: 0;
+  height: min(42rem, calc(100vh - 10rem));
+  min-height: 26rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 66%, transparent), transparent 22%),
+    color-mix(in srgb, var(--surface) 28%, var(--bg));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 70%, transparent);
+  overflow: hidden;
+}
+
+.s-agent-lanes-loading-card {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  grid-template-rows: repeat(2, 14px);
+  column-gap: var(--space-md);
+  row-gap: var(--space-xs);
+  align-items: center;
+  padding: var(--space-2xl);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--bg) 42%, transparent);
+}
+
+.s-agent-lanes-loading-avatar,
+.s-agent-lanes-loading-line,
+.s-agent-lanes-loading-rule,
+.s-agent-lanes-loading-event {
+  display: block;
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--surface) 58%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 12%, var(--surface)) 42%,
+      color-mix(in srgb, var(--green) 8%, var(--surface)) 62%,
+      color-mix(in srgb, var(--surface) 58%, transparent) 100%
+    );
+  background-size: 240% 100%;
+  animation: s-agent-lanes-loading-sheen 1.5s linear infinite;
+}
+
+.s-agent-lanes-loading-avatar {
+  grid-row: 1 / span 2;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+}
+
+.s-agent-lanes-loading-line {
+  height: 9px;
+}
+
+.s-agent-lanes-loading-line--name {
+  width: min(13rem, 72%);
+}
+
+.s-agent-lanes-loading-line--meta {
+  width: min(8rem, 46%);
+}
+
+.s-agent-lanes-loading-rule {
+  width: calc(100% - (var(--space-4xl) * 2));
+  height: 1px;
+  margin: var(--space-lg) var(--space-4xl) var(--space-md);
+}
+
+.s-agent-lanes-loading-event {
+  width: 72%;
+  height: 24px;
+  margin: var(--space-sm) var(--space-4xl);
+  background-color: color-mix(in srgb, var(--amber) 7%, var(--surface));
+}
+
+.s-agent-lanes-loading-event--short {
+  width: 46%;
+}
+
 .s-agent-lanes-empty {
   flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-3xl);
+  padding: var(--space-5xl);
   font-family: var(--font-sans);
+  overflow: hidden;
+  animation: s-agent-lanes-panel-in 260ms ease-out both;
+}
+
+.s-agent-lanes-empty-card {
+  width: min(36rem, 100%);
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-areas:
+    "rail copy"
+    "rail actions";
+  column-gap: var(--space-2xl);
+  row-gap: var(--space-2xl);
+  padding: var(--space-4xl);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--green) 7%, transparent), transparent 38%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 74%, transparent), color-mix(in srgb, var(--bg) 76%, transparent)),
+    color-mix(in srgb, var(--surface) 50%, var(--bg));
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.s-agent-lanes-empty-rail {
+  grid-area: rail;
+  display: grid;
+  grid-template-rows: 10px 1fr 10px;
+  justify-items: center;
+  min-height: 9rem;
+}
+
+.s-agent-lanes-empty-rail::before {
+  content: "";
+  grid-row: 1 / span 3;
+  grid-column: 1;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 34%, transparent) 18%,
+    color-mix(in srgb, var(--green) 30%, transparent) 82%,
+    transparent
+  );
+}
+
+.s-agent-lanes-empty-rail span {
+  grid-column: 1;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.s-agent-lanes-empty-rail span:nth-child(1) {
+  grid-row: 1;
+}
+
+.s-agent-lanes-empty-rail span:nth-child(2) {
+  grid-row: 2;
+  align-self: center;
+  border-color: color-mix(in srgb, var(--green) 36%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 5%, transparent);
+}
+
+.s-agent-lanes-empty-rail span:nth-child(3) {
+  grid-row: 3;
+}
+
+.s-agent-lanes-empty-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+
+.s-agent-lanes-empty-kicker {
+  display: block;
+  margin-bottom: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-agent-lanes-empty h2 {
+  margin: 0;
+  font-size: var(--text-3xl);
+  line-height: 1.25;
+  font-weight: 550;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+.s-agent-lanes-empty p {
+  margin: var(--space-sm) 0 0;
+  max-width: 31rem;
   font-size: var(--text-md);
   line-height: 1.55;
+  color: var(--muted);
+}
+
+.s-agent-lanes-empty-secondary {
   color: var(--dim);
-  text-align: center;
-  max-width: 36rem;
-  margin: 0 auto;
+}
+
+.s-agent-lanes-empty-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.s-agent-lanes-empty-actions button {
+  appearance: none;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-lg);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.s-agent-lanes-empty-actions button:first-child {
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--ink);
+}
+
+.s-agent-lanes-empty-actions button:hover {
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+@container agent-lanes (max-width: 760px) {
+  .s-agent-lanes-loading-grid {
+    grid-template-columns: repeat(2, minmax(16rem, 1fr));
+  }
+}
+
+@container agent-lanes (max-width: 520px) {
+  .s-agent-lanes-loading,
+  .s-agent-lanes-empty {
+    padding: var(--space-3xl);
+  }
+
+  .s-agent-lanes-loading-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-agent-lanes-empty-card {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "copy"
+      "actions";
+    padding: var(--space-3xl);
+  }
+
+  .s-agent-lanes-empty-rail {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-agent-lanes-loading,
+  .s-agent-lanes-empty {
+    animation: none;
+  }
+
+  .s-agent-lanes-loading-avatar,
+  .s-agent-lanes-loading-line,
+  .s-agent-lanes-loading-rule,
+  .s-agent-lanes-loading-event {
+    animation: none;
+  }
+}
+
+.s-agent-lanes--low-motion .s-agent-lanes-loading,
+.s-agent-lanes--low-motion .s-agent-lanes-empty,
+.s-agent-lanes--low-motion .s-agent-lanes-loading-avatar,
+.s-agent-lanes--low-motion .s-agent-lanes-loading-line,
+.s-agent-lanes--low-motion .s-agent-lanes-loading-rule,
+.s-agent-lanes--low-motion .s-agent-lanes-loading-event {
+  animation: none;
 }
 
 /* ── Agent lane detail sheet ── */

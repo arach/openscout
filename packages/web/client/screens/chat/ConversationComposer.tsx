@@ -29,7 +29,6 @@ export function ConversationComposer({
   isStopMode,
   sending,
   composeAction,
-  isDm,
   onSend,
   onInterrupt,
 }: {
@@ -50,12 +49,11 @@ export function ConversationComposer({
   isStopMode: boolean;
   sending: boolean;
   composeAction: ComposeAction;
-  isDm: boolean;
   onSend: () => void;
   onInterrupt: () => void;
 }) {
   const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
-  const showVoiceStatus = voiceStatus && voiceStatus.state !== "idle" && voiceStatus.message;
+  const showVoiceStatus = voiceStatus?.message;
 
   return (
     <form
@@ -271,13 +269,9 @@ export function ConversationComposer({
               disabled={sending || !draft.trim()}
               title="Send (Cmd+Enter)"
               aria-label={
-                composeAction === "ask"
-                  ? "Ask agent (Cmd+Enter)"
-                  : composeAction === "steer"
-                    ? "Steer agent (Cmd+Enter)"
-                    : isDm
-                      ? "Tell agent (Cmd+Enter)"
-                      : "Send message (Cmd+Enter)"
+                composeAction === "steer"
+                  ? "Send follow-up (Cmd+Enter)"
+                  : "Send message (Cmd+Enter)"
               }
             >
               <SendIcon />
@@ -288,10 +282,12 @@ export function ConversationComposer({
           <div
             className={[
               "s-thread-compose-voice-status",
-              voiceStatus.state === "recording" ? "s-thread-compose-voice-status--recording" : "",
-              voiceStatus.state === "processing" ? "s-thread-compose-voice-status--processing" : "",
+              voiceStatus.tone === "recording" ? "s-thread-compose-voice-status--recording" : "",
+              voiceStatus.tone === "processing" ? "s-thread-compose-voice-status--processing" : "",
+              voiceStatus.tone === "error" ? "s-thread-compose-voice-status--error" : "",
             ].filter(Boolean).join(" ")}
-            aria-live="polite"
+            role={voiceStatus.tone === "error" ? "alert" : "status"}
+            aria-live={voiceStatus.tone === "error" ? "assertive" : "polite"}
           >
             {voiceStatus.message}
           </div>

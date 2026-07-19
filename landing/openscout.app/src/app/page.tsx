@@ -2,26 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Activity,
-  Bot,
-  Check,
-  Copy,
-  ExternalLink,
-  Layers,
-  MessageSquare,
-  Monitor,
-  Network,
-  Send,
-  Shield,
-  Workflow,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
+import { LogoMark } from "@/components/logo-mark";
 import { ScoutConsole } from "@/components/scout-console";
 import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiloDesktop } from "@/components/silo-desktop";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
 import { SCOUT_VERSION } from "@/lib/version";
@@ -29,19 +17,6 @@ import openscoutManifest from "../../public/.well-known/scout.json";
 
 type AudienceMode = "general" | "technical" | "agent";
 type HumanAudienceMode = Exclude<AudienceMode, "agent">;
-
-type IconCard = {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-};
-
-type CapabilityCard = {
-  icon: LucideIcon;
-  label: string;
-  title: string;
-  description: string;
-};
 
 type CommandStep = {
   command: string;
@@ -72,7 +47,7 @@ type IntegrationCard = {
 };
 
 const navLinks = [
-  { label: "How it works", href: "#mesh" },
+  { label: "Why Scout", href: "#mesh" },
   { label: "Features", href: "#capabilities" },
   { label: "Apps", href: "#surfaces" },
   { label: "Integrations", href: "#integrations" },
@@ -83,138 +58,41 @@ const navLinks = [
 const macosDownloadUrl = "https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg";
 
 
-// How-it-works — a before → after, two stacked rows (text beside illustration).
-// "Without Scout" names the sprawl of tools; "With Scout" is the one common
-// layer, and the capability records live underneath it.
+// Why Scout — an editorial head row, then two matched plates (problem →
+// solution) over a shared hairline, with the capability records pulled out
+// into their own band underneath. The panels stay symmetric: label, title,
+// one short body, figure. The records are the #capabilities anchor.
 type HiwCapability = { label: string; text: string };
 
 const howItWorksContent: {
   eyebrow: string;
+  statement: string;
+  support: string;
   before: { label: string; title: string; body: string };
-  after: { label: string; title: string; body: string; capabilities: HiwCapability[] };
+  after: { label: string; title: string; body: string };
+  capabilities: HiwCapability[];
 } = {
-  eyebrow: "How it works",
+  eyebrow: "Why Scout",
+  statement: "Stop juggling agents across windows.",
+  support:
+    "Scout sees all your agents, no matter where you run them. You don't have to change anything about your workflow to get a single pane of glass over every harness, session, and machine.",
   before: {
     label: "Without Scout",
     title: "Every agent in its own tool.",
-    body: "A tmux pane here, an IDE there, a different harness for the next one — each agent boxed into its own window. You carry context between them by hand, and finished work disappears into scrollback.",
+    body: "A tmux pane here, an IDE there, a different harness for the next one. Context moves by hand, and finished work disappears into scrollback.",
   },
   after: {
     label: "With Scout",
     title: "One common layer for your agents.",
-    body: "Scout sits underneath them all, so any agent can reach any other, hand work off, and you steer from one place — and the work it routes becomes records you can read back.",
-    capabilities: [
-      { label: "Flights", text: "Delegation with receipts — who was asked, what ran, how it landed." },
-      { label: "Mesh", text: "Trusted machines reach each other, so agents hand off work." },
-      { label: "Protocol", text: "Speaks ACP — open and model-neutral, no lock-in." },
-      { label: "Bridges", text: "Telegram, voice, and webhooks plug in as transports." },
-    ],
+    body: "Any agent can reach any other, hand work off, and you steer from one place — every step kept as a durable record.",
   },
+  capabilities: [
+    { label: "Flights", text: "Delegation with receipts — who was asked, what ran, how it landed." },
+    { label: "Mesh", text: "Trusted machines reach each other so agents can hand off work." },
+    { label: "Protocol", text: "Speaks ACP — open protocol, no lock-in." },
+    { label: "Bridges", text: "Telegram, voice, and webhooks plug in as transports." },
+  ],
 };
-
-const technicalMeshPrinciples: IconCard[] = [
-  {
-    icon: Network,
-    title: "Peer mesh",
-    description:
-      "Agents stay addressable peers on a local broker instead of being forced into brittle parent-child hierarchies.",
-  },
-  {
-    icon: Layers,
-    title: "Durable broker state",
-    description:
-      "Conversation, invocation, flight, delivery, and binding records stay separate and rebuildable after failure.",
-  },
-  {
-    icon: Shield,
-    title: "Local-first control plane",
-    description:
-      "Workspaces, runtimes, launch-agent services, and endpoint identity all live on your machines with inspectable health.",
-  },
-];
-
-const generalCapabilities: CapabilityCard[] = [
-  {
-    icon: Activity,
-    label: "Flights",
-    title: "Delegation with receipts",
-    description:
-      "Hand work to an agent and the broker opens a flight: a durable record of who was asked, what ran, and how it landed. Restart the broker or pick it up on your phone — the flight, its deliveries, and the thread are still there.",
-  },
-  {
-    icon: Workflow,
-    label: "Protocol",
-    title: "Speaks ACP",
-    description:
-      "Scout implements the Agent Client Protocol, so any ACP-compatible editor or client can drive your local agents — open and model-neutral, no lock-in.",
-  },
-  {
-    icon: Bot,
-    label: "Mesh",
-    title: "Trusted machines can reach each other",
-    description:
-      "Your laptop, your desktop, your server — Scout can connect trusted peers so one agent can hand off work to another.",
-  },
-  {
-    icon: Workflow,
-    label: "Bridges",
-    title: "Telegram, voice, webhooks",
-    description:
-      "New ways to reach your agents plug in as transports. Your conversation model stays the same regardless of how you connect.",
-  },
-];
-
-const technicalCapabilities: CapabilityCard[] = [
-  {
-    icon: Workflow,
-    label: "Protocol",
-    title: "Agent Client Protocol",
-    description:
-      "A first-class ACP endpoint: ACP clients connect to the local broker to discover, address, and drive agents over the open, model-neutral protocol.",
-  },
-  {
-    icon: MessageSquare,
-    label: "Conversations",
-    title: "Broker-backed conversations",
-    description:
-      "Sessions, the TUI, and direct sends stay fast while projecting the same durable broker state.",
-  },
-  {
-    icon: Monitor,
-    label: "Surfaces",
-    title: "One state, native and web",
-    description:
-      "Inspect conversations, tasks, flights, machines, and runtime health from the native Mac app or the local web dashboard — same broker state.",
-  },
-  {
-    icon: Workflow,
-    label: "Protocol",
-    title: "Explicit work records",
-    description:
-      "Messages, invocations, flights, deliveries, and bindings share one typed contract across every app and agent.",
-  },
-  {
-    icon: Bot,
-    label: "Discovery",
-    title: "Real agent identities",
-    description:
-      "Workspace roots, manifests, and runtime discovery map local repos to tracked agents and reachable endpoints.",
-  },
-  {
-    icon: Send,
-    label: "Bindings",
-    title: "Bridge-ready delivery",
-    description:
-      "Telegram, voice, webhooks, and future transports attach without forking the core conversation model.",
-  },
-  {
-    icon: Activity,
-    label: "Runtime",
-    title: "Observable delivery",
-    description:
-      "Queued work, running flights, ownership, failures, and recoverable state stay visible instead of disappearing into terminals.",
-  },
-];
 
 const hostIntegrations: IntegrationCard[] = [
   {
@@ -275,6 +153,11 @@ type FaqEntry = {
 
 const faqEntries: FaqEntry[] = [
   {
+    question: "Is Scout an orchestrator?",
+    answer:
+      "No. Orchestrators race a swarm of agents at a task inside their own framework — a different job. Scout sits underneath the agents you already run: one place to see, steer, and remember them, over an open protocol. You keep your tools and workflow; it keeps you from losing track.",
+  },
+  {
     question: "What does the broker actually do?",
     answer:
       "It is a local service that keeps durable records of agent coordination: messages, invocations, flights, deliveries, and bindings. It routes those records between addressable agents and rebuilds surfaces from stored state instead of terminal scrollback, so work survives restarts and handoffs.",
@@ -302,20 +185,20 @@ const faqEntries: FaqEntry[] = [
   {
     question: "What is the maturity and license story?",
     answer:
-      "OpenScout is an experimental local-first prototype in active v0.x development, built for high-trust local developer pilots — not enterprise, compliance, or multi-tenant use. There is no top-level license file yet and package manifests are UNLICENSED, so the license posture is pending; do not infer reuse rights.",
+      "OpenScout is experimental v0.x product code for high-trust local developer pilots, not enterprise, compliance, or untrusted multi-tenant use. The repository and published packages are licensed under Apache License 2.0; see LICENSE and NOTICE.",
   },
   {
     question: "What do I install first?",
     answer:
-      "Scout runs on Bun, so install that first, then add the CLI with one command. Run scout setup to materialize local settings, discover projects, register agents, and bring the broker online, then scout doctor to confirm it is reachable.",
+      "Just the CLI — one command: curl -fsSL https://openscout.app/install | sh. It installs Bun if needed, then the Scout CLI. Run scout setup to materialize local settings, discover projects, register agents, and bring the broker online, then scout doctor to confirm it is reachable.",
   },
 ];
 
 const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   general: [
     {
-      command: "bun add -g @openscout/scout",
-      label: "Install the CLI package.",
+      command: "curl -fsSL https://openscout.app/install | sh",
+      label: "One command — installs Bun if needed, then the CLI.",
     },
     {
       command: "scout setup",
@@ -329,8 +212,8 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
   ],
   technical: [
     {
-      command: "bun add -g @openscout/scout",
-      label: "Install the CLI package.",
+      command: "curl -fsSL https://openscout.app/install | sh",
+      label: "One command — installs Bun if needed, then the CLI.",
     },
     {
       command: "scout setup",
@@ -353,32 +236,35 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "iPhone",
       title: "Mobile",
       description:
-        "Pair your iPhone once and your whole fleet is in your pocket — machines, projects, and live activity. Tap into any agent to read context and steer. Same broker state, different screen.",
+        "Kick off a long job at your desk and walk away — when an agent needs a decision, Scout nudges your phone. Tap in, answer, and the work keeps going. Same broker state, different screen.",
       width: 1206,
       height: 2622,
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
       chrome: "scout · iphone",
     },
     {
-      src: "/mac/app-native.png",
-      alt: "Scout native macOS app — the agent roster with a live inspector showing runtime, capabilities, branch, and model.",
+      src: "/mac/native-repos-diff.png",
+      alt: "Scout native Mac app showing the Repos surface with live worktrees, agent activity, changed files, and a split diff.",
       eyebrow: "Mac",
       title: "Native app",
       description:
-        "The full native macOS app — the agent roster with a live inspector for runtime, workspace, branch, and model, plus one-key actions to message or steer. The whole control plane on your desktop.",
-      width: 1332,
-      height: 947,
-      imageClassName: "aspect-[1332/947] w-full object-cover object-top",
-      chrome: "scout · agents",
+        "The native Mac app brings repos, worktrees, agents, changed files, and review context into one Scout window.",
+      width: 1917,
+      height: 1528,
+      imageClassName: "aspect-[538/312] w-full object-cover object-top",
+      chrome: "scout · repos",
     },
     {
-      src: "/relay/home-command-center.png",
-      alt: "Scout web fleet briefing with active asks, online agents, and current work.",
+      src: "/relay/ops-lanes-chrome.png",
+      alt: "Scout web Ops lanes in Chrome showing live agent lanes, trace cards, and coordination context.",
       eyebrow: "Web",
-      title: "Fleet briefing",
+      title: "Ops lanes",
       description:
-        "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
-      chrome: "relay · /home",
+        "Watch live agent lanes, trace cards, and coordination context from the local web dashboard.",
+      width: 2864,
+      height: 1410,
+      imageClassName: "aspect-[960/314] w-full object-cover object-top",
+      chrome: "relay · /ops/lanes",
     },
     {
       src: "/relay/agents-overview.png",
@@ -436,23 +322,28 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
     },
     {
-      src: "/mac/hud-agents-roster.png",
-      alt: "Scout macOS menu-bar HUD — agents roster listing reachable peers with presence, host runtime, and current work.",
+      src: "/mac/native-repos-diff.png",
+      alt: "Scout native Mac app showing the Repos surface with live worktrees, agent activity, changed files, and a split diff.",
       eyebrow: "Mac",
-      title: "Menu-bar HUD",
+      title: "Native app",
       description:
-        "The native menu-bar cockpit. Slots for agents, activity, tail, sessions, and assistant; the roster lists every reachable peer with presence, host runtime, and current work.",
-      width: 606,
-      height: 566,
+        "Repos, worktrees, changed files, split diffs, and live agent context project from the same broker state as the web dashboard.",
+      width: 1917,
+      height: 1528,
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
+      chrome: "scout · repos",
     },
     {
-      src: "/relay/home-command-center.png",
-      alt: "Scout web fleet briefing with active asks, online agents, and live work.",
+      src: "/relay/ops-lanes-chrome.png",
+      alt: "Scout web Ops lanes in Chrome showing live agent lanes, trace cards, and coordination context.",
       eyebrow: "Web",
-      title: "Fleet briefing",
+      title: "Ops lanes",
       description:
-        "A top-level developer read across asks, work in flight, fleet activity, and online agent presence.",
+        "A lane-oriented operator view for live traces, agent progress, recent turns, and the coordination panel beside active work.",
+      width: 2864,
+      height: 1410,
+      imageClassName: "aspect-[2864/1410] w-full object-cover object-top",
+      chrome: "relay · /ops/lanes",
     },
     {
       src: "/relay/agents-overview.png",
@@ -588,8 +479,10 @@ function InstallCommand({ command }: { command: string }) {
       className={`hero-install ${copied ? "hero-install--copied" : ""}`}
       aria-label="Copy install command"
     >
-      <span className="hero-install__prompt">$</span>
-      <span>{command}</span>
+      <span className="hero-install__cmd">
+        <span className="hero-install__prompt">$</span>
+        {tokenizeCommand(command)}
+      </span>
       <span className="hero-install__copy inline-flex items-center gap-1.5">
         {copied ? (
           <>
@@ -607,18 +500,90 @@ function InstallCommand({ command }: { command: string }) {
   );
 }
 
+/* Splits a shell line into styled tokens: command word, -flags, the URL (the
+   one accent), and pipe operators. */
+function tokenizeCommand(command: string) {
+  const parts = command.split(" ");
+  return parts.flatMap((word, i) => {
+    let cls: string | undefined;
+    if (word === "|") cls = "hero-install__tok--op";
+    else if (/^https?:\/\//.test(word)) cls = "hero-install__tok--url";
+    else if (word.startsWith("-")) cls = "hero-install__tok--flag";
+    else if (i === 0) cls = "hero-install__tok--cmd";
+    const el = cls ? (
+      <span key={`${i}-${word}`} className={cls}>
+        {word}
+      </span>
+    ) : (
+      word
+    );
+    return i === 0 ? [el] : [" ", el];
+  });
+}
+
+/* Install channels for the CLI row. curl is primary (installs Bun + the CLI in
+   one shot); bun/npm are the package-manager paths for the published
+   @openscout/scout. brew is intentionally absent — there is no Homebrew tap yet,
+   so shipping one would be a dead command. */
+const INSTALL_METHODS = [
+  {
+    id: "curl",
+    label: "curl",
+    command: "curl -fsSL https://openscout.app/install | sh",
+    note: "installs Bun if needed, then the CLI",
+  },
+  {
+    id: "bun",
+    label: "bun",
+    command: "bun add -g @openscout/scout",
+    note: "global install · then scout setup",
+  },
+  {
+    id: "npm",
+    label: "npm",
+    command: "npm install -g @openscout/scout",
+    note: "global install · then scout setup",
+  },
+] as const;
+
+/* CLI install with a package-manager selector — curl leads, bun/npm swap in the
+   published package command. The command box + copy is the shared InstallCommand. */
+function InstallPicker() {
+  const [methodId, setMethodId] = useState<(typeof INSTALL_METHODS)[number]["id"]>(
+    INSTALL_METHODS[0].id,
+  );
+  const active = INSTALL_METHODS.find((m) => m.id === methodId) ?? INSTALL_METHODS[0];
+  return (
+    <div className="install-picker">
+      <div className="install-picker__tabs" role="tablist" aria-label="Install method">
+        {INSTALL_METHODS.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={m.id === methodId}
+            className={`install-picker__tab ${m.id === methodId ? "install-picker__tab--active" : ""}`}
+            onClick={() => setMethodId(m.id)}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <InstallCommand command={active.command} />
+      <p className="hero-setup__note">{active.note}</p>
+    </div>
+  );
+}
+
 function MacDownloadButton({ onClick }: { onClick?: () => void }) {
   return (
-    <a href={macosDownloadUrl} onClick={onClick} className="mac-download">
+    <a href={macosDownloadUrl} onClick={onClick} className="mac-download" draggable={false}>
       <span className="mac-download__glyph" aria-hidden>
-        <svg viewBox="0 0 384 512" role="img" aria-hidden="true">
+        <svg viewBox="0 0 384 512" fill="currentColor">
           <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
         </svg>
       </span>
-      <span className="mac-download__text">
-        <span className="mac-download__label">Download for macOS</span>
-        <span className="mac-download__meta">Universal · Apple silicon &amp; Intel</span>
-      </span>
+      <span className="mac-download__label">Download for macOS</span>
     </a>
   );
 }
@@ -642,9 +607,10 @@ function GithubStars() {
   if (stars == null) return null;
   return (
     <a
-      href="https://github.com/arach/openscout/stargazers"
+      href="https://github.com/arach/openscout"
       target="_blank"
       rel="noopener noreferrer"
+      aria-label={`openscout on GitHub — ${stars} stars`}
       className="status-bar__cell status-bar__cell--link hidden md:inline-flex"
     >
       ★&nbsp;<b>{stars}</b>
@@ -652,22 +618,7 @@ function GithubStars() {
   );
 }
 
-function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
-  const pixelSize = size === "md" ? 32 : 26;
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center"
-      style={{ width: pixelSize, height: pixelSize }}
-      aria-hidden
-    >
-      <img
-        src="/openscout-icon.png"
-        alt=""
-        className="h-full w-full rounded-[6px] bg-black ring-1 ring-[var(--site-border-strong)]"
-      />
-    </span>
-  );
-}
+
 
 type Viewer = "human" | "agent";
 
@@ -684,7 +635,7 @@ function ViewerToggle({
       type="button"
       role="switch"
       aria-checked={isAgent}
-      aria-label="Read this page as an agent"
+      aria-label="Agent view"
       onClick={() => onChange(isAgent ? "human" : "agent")}
       className="viewer-toggle"
       data-on={isAgent}
@@ -712,9 +663,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "Chat for agents.",
-    bottom: "Local-first. Neutral by design.",
-    sub: "We built Scout because we kept jumping between models, harnesses, and IDEs to put the right tool on each job. Scout is our way to connect them all — so your agents can reach each other and you can steer from one place. Helpful when you want it, out of the way the rest of the time.",
+    top: "Every agent. Every session.",
+    bottom: "One place to steer.",
+    sub: "One agent was easy to babysit. Now it's five sessions across harnesses and terminals — and the one that stalls waiting on your yes is the one you miss. Scout shows what every agent is doing and flags the one blocked on your decision. Local-first: nothing leaves your machine.",
   },
   agent: {
     top: "Comms platform for agents.",
@@ -723,10 +674,9 @@ const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }
   },
 };
 
-const heroInstall: Record<Viewer, { command: string; footnote: string }> = {
+const heroInstall: Record<Viewer, { command: string; footnote?: string }> = {
   human: {
-    command: "bun add -g @openscout/scout",
-    footnote: "Local-first. Runs on your machine. Mac and iPhone apps optional.",
+    command: "curl -fsSL https://openscout.app/install | sh",
   },
   agent: {
     command: "bun add @openscout/runtime",
@@ -765,6 +715,9 @@ export default function Home() {
   };
   return (
     <div className="site-marketing relative isolate min-h-screen overflow-x-clip bg-[var(--site-page-bg)] text-[var(--site-ink)]">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       {/* ── Operator Console (header) ── */}
       <header className="operator-console">
         {/* main row — wordmark + minimal mono nav + theme toggle */}
@@ -772,10 +725,10 @@ export default function Home() {
           <Link
             href="/"
             onClick={onNavigationClick("Scout", "/", "header_logo")}
-            className="flex items-center gap-2.5"
+            className="site-wordmark flex items-center"
           >
             <LogoMark />
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
+            <span className="site-wordmark__text font-[family-name:var(--font-spectral)]">
               Scout
             </span>
           </Link>
@@ -788,8 +741,7 @@ export default function Home() {
                 onClick={onNavigationClick(link.label, link.href, "header_nav")}
                 className="operator-link"
               >
-                <span className="operator-link__sigil">:</span>
-                {link.label.toLowerCase().replace(/\s+/g, "-")}
+                {link.label}
               </a>
             ))}
           </nav>
@@ -807,29 +759,29 @@ export default function Home() {
               )}
               className="operator-link hidden sm:inline-flex"
             >
-              <span className="operator-link__sigil">:</span>github
+              GitHub
             </a>
             <Link
               href="/docs"
               onClick={onCtaClick("Read the docs", "/docs", "header_nav", "docs")}
               className="operator-link"
             >
-              <span className="operator-link__sigil">:</span>docs
+              Docs
             </Link>
             <Link
               href="/blog"
               onClick={onCtaClick("Read the blog", "/blog", "header_nav", "blog")}
               className="operator-link"
             >
-              <span className="operator-link__sigil">:</span>blog
+              Blog
             </Link>
+            <SiteThemeToggle />
           </div>
         </div>
       </header>
 
-      {/* ── Agent view (replaces everything) ── */}
         <>
-          <main ref={scrollRef} className="relative z-10">
+          <main id="main" ref={scrollRef} className="relative z-10">
             {/* ── Hero (editorial column beside the live console) ── */}
             <section className="overflow-hidden pb-8 pt-20 md:pt-28 md:pb-10">
               <div className="mx-auto max-w-7xl px-6">
@@ -853,17 +805,10 @@ export default function Home() {
                       </ul>
                     )}
 
-                    <div className="hero-install-block">
-                      <InstallCommand command={install.command} />
-                      {viewer === "human" && (
-                        <p className="hero-install-next">
-                          <span className="hero-install-next__label">then</span>
-                          <span className="hero-install-next__prompt">$</span>
-                          <span>scout setup</span>
-                        </p>
-                      )}
-                      <p className="hero-install-foot">{install.footnote}</p>
-                      {viewer === "agent" ? (
+                    {viewer === "agent" ? (
+                      <div className="hero-install-block">
+                        <InstallCommand command={install.command} />
+                        <p className="hero-install-foot">{install.footnote}</p>
                         <p className="hero-links">
                           Tool manifest at{" "}
                           <a href="/scout/manifest">
@@ -874,19 +819,41 @@ export default function Home() {
                             /.well-known/scout.json
                           </a>
                         </p>
-                      ) : (
-                        <div className="hero-download">
-                          <MacDownloadButton
-                            onClick={onCtaClick(
-                              "Download for macOS",
-                              macosDownloadUrl,
-                              "hero",
-                              "download",
-                            )}
-                          />
+                      </div>
+                    ) : (
+                      <div className="hero-setup">
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">How it runs</div>
+                          <p className="hero-setup__body">
+                            Scout is a native app and a Rust watcher — keep your
+                            tools. As long as it can find your harness logs,
+                            you&apos;re good to go.
+                          </p>
                         </div>
-                      )}
-                    </div>
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">CLI</div>
+                          <div className="hero-setup__content">
+                            <InstallPicker />
+                          </div>
+                        </div>
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">Mac app</div>
+                          <div className="hero-setup__content">
+                            <MacDownloadButton
+                              onClick={onCtaClick(
+                                "Download for macOS",
+                                macosDownloadUrl,
+                                "hero",
+                                "download",
+                              )}
+                            />
+                            <p className="hero-setup__note">
+                              optional surface · iPhone companion too
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="hero-console-col hero-animate" style={{ animationDelay: "0.12s" }}>
@@ -915,57 +882,68 @@ export default function Home() {
               />
             </section>
 
-            {/* ── How it works — before → after, two stacked rows ── */}
+            {/* ── Why Scout — head row, problem → solution plates, capability band ── */}
             <section id="mesh" className="section-band">
               <div className="mx-auto max-w-7xl px-6">
-                <div className="reveal section-eyebrow how-it-works__eyebrow">
-                  {howItWorksContent.eyebrow}
+                {/* Editorial head — split treatment: the pull-quote statement
+                    seats left, the no-adoption support line to its right, both
+                    bottom-aligned under a full-width eyebrow. */}
+                <header className="reveal hiw-head">
+                  <div className="hiw-head__main">
+                    <div className="section-eyebrow">{howItWorksContent.eyebrow}</div>
+                    <h2 className="hiw-statement">{howItWorksContent.statement}</h2>
+                    <p className="hiw-statement__support">{howItWorksContent.support}</p>
+                  </div>
+                </header>
+
+                <div className="reveal hiw-contrast">
+                  {/* The hinge — one quiet directional mark on the center rule. */}
+                  <span className="hiw-contrast__hinge" aria-hidden>
+                    →
+                  </span>
+
+                  {/* Without — problem, muted */}
+                  <article className="hiw-panel hiw-panel--before">
+                    <div className="hiw-panel__label">{howItWorksContent.before.label}</div>
+                    <h3 className="hiw-panel__title">{howItWorksContent.before.title}</h3>
+                    <p className="hiw-panel__body">{howItWorksContent.before.body}</p>
+                    <div className="hiw-panel__stage">
+                      <SiloDesktop />
+                    </div>
+                  </article>
+
+                  {/* With — solution, primary */}
+                  <article className="hiw-panel hiw-panel--after">
+                    <div className="hiw-panel__label">{howItWorksContent.after.label}</div>
+                    <h3 className="hiw-panel__title">{howItWorksContent.after.title}</h3>
+                    <p className="hiw-panel__body">{howItWorksContent.after.body}</p>
+                    <div className="hiw-panel__stage">
+                      <MeshFigureSvg />
+                    </div>
+                  </article>
                 </div>
 
-                {/* With Scout — lead with the positioning; the records live here */}
-                <div id="capabilities" className="reveal hiw-row hiw-row--after">
-                  <div className="hiw-row__text">
-                    <div className="how-it-works__panel-label">
-                      {howItWorksContent.after.label}
-                    </div>
-                    <h2 className="hiw-row__title">{howItWorksContent.after.title}</h2>
-                    <p className="hiw-row__body">{howItWorksContent.after.body}</p>
-                    <ul className="hiw-caps">
-                      {howItWorksContent.after.capabilities.map((cap) => (
-                        <li key={cap.label} className="hiw-caps__item">
-                          <span className="hiw-caps__label">{cap.label}</span>
-                          <span className="hiw-caps__text">{cap.text}</span>
-                        </li>
-                      ))}
-                    </ul>
+                {/* What the layer gives you — the records, as their own band. */}
+                <div id="capabilities" className="reveal hiw-caps">
+                  <div className="hiw-caps__head">
+                    <span className="hiw-caps__eyebrow">Capabilities</span>
                     <Link
                       href="/docs"
                       onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
-                      className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                      className="hiw-caps__link"
                     >
-                      <span className="text-[var(--site-muted)]">→</span>
+                      <span aria-hidden>→</span>
                       <span>browse the docs</span>
                     </Link>
                   </div>
-                  <div className="hiw-row__stage">
-                    <MeshFigureSvg />
-                  </div>
-                </div>
-
-                {/* Without Scout — the world it replaces, shown after as contrast */}
-                <div className="reveal hiw-row hiw-row--before">
-                  <div className="hiw-row__text">
-                    <div className="how-it-works__panel-label">
-                      {howItWorksContent.before.label}
-                    </div>
-                    <h3 className="hiw-row__title hiw-row__title--before">
-                      {howItWorksContent.before.title}
-                    </h3>
-                    <p className="hiw-row__body">{howItWorksContent.before.body}</p>
-                  </div>
-                  <div className="hiw-row__stage">
-                    <SiloDesktop />
-                  </div>
+                  <ul className="hiw-caps__grid">
+                    {howItWorksContent.capabilities.map((cap) => (
+                      <li key={cap.label} className="hiw-cap">
+                        <span className="hiw-cap__label">{cap.label}</span>
+                        <span className="hiw-cap__text">{cap.text}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </section>
@@ -996,7 +974,7 @@ export default function Home() {
                 <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
                   {surfaceGallery
                     .filter((s) =>
-                      ["Mobile", "Native app", "Fleet briefing"].includes(s.title),
+                      ["Mobile", "Native app", "Ops lanes"].includes(s.title),
                     )
                     .map((shot, i) => {
                       const isPhone = shot.eyebrow === "iPhone";
@@ -1231,73 +1209,129 @@ export default function Home() {
                 </div>
               </div>
             </section>
+
+            {/* ── Where we are ── */}
+            <section className="section-band">
+              <div className="mx-auto max-w-7xl px-6">
+                <div className="reveal max-w-2xl">
+                  <div className="section-eyebrow">Where we are</div>
+                  <h2 className="section-title">
+                    Early, honest, and open.
+                  </h2>
+                  <p className="section-lead">
+                    Scout is v0.x under active development — genuinely useful
+                    today for steering agents on your own machine, early enough
+                    that your feedback still moves the roadmap. It’s Apache-2.0
+                    and on GitHub, so “help shape it” is a real invitation.
+                  </p>
+                  <p className="mt-6 font-[family-name:var(--font-mono-display)] text-[12.5px] leading-relaxed text-[var(--site-muted)]">
+                    The straight version: built for developers who want to run
+                    ahead of the curve — not for enterprise, compliance, or
+                    multi-tenant deployments yet.
+                  </p>
+                  <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 font-[family-name:var(--font-mono-display)] text-[12.5px]">
+                    <a
+                      href="https://github.com/arach/openscout/issues"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={onCtaClick(
+                        "Open an issue",
+                        "https://github.com/arach/openscout/issues",
+                        "where_we_are",
+                        "repo",
+                      )}
+                      className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                    >
+                      <span className="text-[var(--site-muted)]">→</span>
+                      <span>open an issue</span>
+                    </a>
+                    <a
+                      href="https://github.com/arach/openscout"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={onCtaClick(
+                        "Browse the repo",
+                        "https://github.com/arach/openscout",
+                        "where_we_are",
+                        "repo",
+                      )}
+                      className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                    >
+                      <span className="text-[var(--site-muted)]">→</span>
+                      <span>browse the repo</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </section>
           </main>
 
           {/* ── Status footer (Cursor-style IDE status bar) ── */}
           <footer className="status-bar">
             <div className="mx-auto flex max-w-7xl items-stretch px-6">
               <div className="status-bar__inner w-full">
-                {/* Left group: identity + broker status */}
+                {/* Left group: identity, release line, license, and the repo
+                    with its stargazers seated right beside it. */}
                 <span className="status-bar__cell">
                   <span className="status-bar__brand">SCOUT</span>
                 </span>
                 <span className="status-bar__cell hidden sm:inline-flex">
-                  proto&nbsp;<b>v0.1 · experimental</b>
-                </span>
-                <span className="status-bar__cell">
-                  <span className="status-dot" aria-hidden />
-                  <span>online</span>
+                  proto&nbsp;<b>experimental</b>
                 </span>
                 <span className="status-bar__cell">
                   <b>v{SCOUT_VERSION}</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
-                  license pending
+                  apache-2.0
                 </span>
-                <span className="status-bar__cell hidden md:inline-flex">
-                  local
-                </span>
+                <a
+                  href="https://github.com/arach/openscout"
+                  onClick={onCtaClick(
+                    "GitHub",
+                    "https://github.com/arach/openscout",
+                    "footer",
+                    "repo",
+                  )}
+                  className="status-bar__cell status-bar__cell--link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span className="status-bar__sigil">:</span>github
+                </a>
+                <GithubStars />
 
-                {/* Right group: link cells */}
+                {/* Right group: content links, then social + legal. */}
                 <span className="status-bar__zone--right">
-                  <GithubStars />
-                  <a
+                  <Link
                     href="/docs"
                     onClick={onNavigationClick("Docs", "/docs", "footer")}
                     className="status-bar__cell status-bar__cell--link"
                   >
                     <span className="status-bar__sigil">:</span>docs
+                  </Link>
+                  <a
+                    href="#faq"
+                    onClick={onNavigationClick("FAQ", "#faq", "footer")}
+                    className="status-bar__cell status-bar__cell--link hidden sm:inline-flex"
+                  >
+                    <span className="status-bar__sigil">:</span>faq
                   </a>
                   <a
-                    href="https://github.com/arach/openscout"
-                    onClick={onCtaClick(
-                      "GitHub",
-                      "https://github.com/arach/openscout",
-                      "footer",
-                      "repo",
-                    )}
-                    className="status-bar__cell status-bar__cell--link"
+                    href="https://x.com/arach"
+                    onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
+                    className="status-bar__cell status-bar__cell--link hidden sm:inline-flex"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    <span className="status-bar__sigil">:</span>github
+                    <span className="status-bar__sigil">:</span>x
                   </a>
-                  <a
+                  <Link
                     href="/privacy"
                     onClick={onNavigationClick("Privacy", "/privacy", "footer")}
                     className="status-bar__cell status-bar__cell--link hidden sm:inline-flex"
                   >
                     <span className="status-bar__sigil">:</span>privacy
-                  </a>
-                  <a
-                    href="https://x.com/arach"
-                    onClick={onCtaClick("Twitter", "https://x.com/arach", "footer", "social")}
-                    className="status-bar__cell status-bar__cell--link hidden md:inline-flex"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span className="status-bar__sigil">:</span>twitter
-                  </a>
+                  </Link>
                 </span>
               </div>
             </div>
@@ -1305,133 +1339,5 @@ export default function Home() {
         </>
 
     </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════
-   Agent View — flat, utilitarian, machine-friendly
-   ═══════════════════════════════════════════════ */
-
-const agentResources = [
-  { label: "GitHub", href: "https://github.com/arach/openscout" },
-  { label: "Docs", href: "/docs" },
-  { label: "@openscout/scout", href: "https://github.com/arach/openscout" },
-  { label: "@openscout/runtime", href: "https://github.com/arach/openscout" },
-  { label: "@openscout/protocol", href: "https://github.com/arach/openscout" },
-] as const;
-
-const agentSections = [
-  {
-    title: "What you can do",
-    items: [
-      "Send and receive messages through a local broker. Any agent on the mesh can address any other agent directly.",
-      "Persist conversations and task state across terminal closes, machine restarts, and handoffs. Your context survives.",
-      "Register as a discoverable peer. Other agents and operator surfaces can find you by workspace, manifest, or endpoint.",
-      "Receive invocations from operators or other agents. Work arrives as typed records, not raw text piped through stdout.",
-    ],
-  },
-  {
-    title: "How to join the mesh",
-    items: [
-      "Install Bun: `brew install bun`",
-      "Install Scout: `bun add -g @openscout/scout`",
-      "Bootstrap: `scout setup` — creates local settings, discovers projects, registers agents, starts the broker.",
-      "Connect: import `@openscout/runtime` to send messages, create sessions, and listen for invocations programmatically.",
-      "Or use the CLI: `scout watch --as myagent` to attach as a named peer from any terminal.",
-    ],
-  },
-  {
-    title: "Protocol shape",
-    items: [
-      "Messages, invocations, flights, deliveries, and bindings are the five record types. All are typed via `@openscout/protocol`.",
-      "Agents are peers, not children. No parent-child hierarchy — the broker routes between equals.",
-      "Bridges (Telegram, voice, webhooks) attach as transports. Your conversation model stays the same regardless of surface.",
-      "State is durable and inspectable. Operator surfaces (Mac app, web dashboard, iPhone) project the same broker state you write to.",
-    ],
-  },
-] as const;
-
-function AgentView({ onExit }: { onExit: () => void }) {
-  return (
-    <main className="relative z-10 mx-auto max-w-2xl px-6 pt-24 pb-20">
-      {/* ── banner ── */}
-      <div className="border-b border-[#111110]/10 pb-6">
-        <h1 className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[#111110]">
-          Scout
-        </h1>
-        <p className="mt-2 max-w-lg text-[13px] leading-relaxed text-[#111110]/55">
-          Local-first broker for AI agents. Send messages, persist state,
-          discover peers, and receive invocations through one runtime on the
-          operator&apos;s machine.
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          {agentResources.map((r) => (
-            <a
-              key={r.label}
-              href={r.href}
-              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110] transition-colors hover:text-[#111110]/70"
-            >
-              {r.label}
-              <span className="text-[11px] text-[#111110]/30">&#x2197;</span>
-            </a>
-          ))}
-        </div>
-      </div>
-
-      {/* ── numbered sections ── */}
-      {agentSections.map((section, si) => (
-        <div
-          key={section.title}
-          className="mt-8 border-b border-[#111110]/10 pb-6 last:border-b-0"
-        >
-          <div className="font-[family-name:var(--font-geist-mono)] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#111110]/40">
-            {section.title}
-          </div>
-          <ol className="mt-3 space-y-2">
-            {section.items.map((item, ii) => (
-              <li
-                key={ii}
-                className="flex items-baseline gap-3 text-[13px] leading-relaxed text-[#111110]/70"
-              >
-                <span className="shrink-0 font-[family-name:var(--font-geist-mono)] text-[12px] font-semibold text-[#111110]/25">
-                  {si + 1}.{ii + 1}
-                </span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
-
-      {/* ── quick start ── */}
-      <div className="mt-8">
-        <div className="font-[family-name:var(--font-geist-mono)] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#111110]/40">
-          Quick start
-        </div>
-        <div className="mt-3 space-y-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110]/60">
-          <div>
-            <span className="text-[#111110]/30">$ </span>bun add -g
-            @openscout/scout
-          </div>
-          <div>
-            <span className="text-[#111110]/30">$ </span>scout setup
-          </div>
-          <div>
-            <span className="text-[#111110]/30">$ </span>scout watch
-            --as myagent
-          </div>
-        </div>
-      </div>
-
-      {/* ── back link ── */}
-      <button
-        type="button"
-        onClick={onExit}
-        className="mt-10 font-[family-name:var(--font-geist-mono)] text-[12px] text-[#111110]/40 transition-colors hover:text-[#111110]/70"
-      >
-        ← Back to product view
-      </button>
-    </main>
   );
 }

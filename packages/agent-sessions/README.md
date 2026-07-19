@@ -1,6 +1,6 @@
 # OpenScout Agent Sessions
 
-`@openscout/agent-sessions` is the shared session substrate for OpenScout. It normalizes live harness sessions — Claude Code, Codex, pi, Grok ACP, opencode, OpenAI-compatible processes, and any ACP stdio agent — into one small stream of session events, snapshots, approvals, topology hints, and replayable state that the runtime and surfaces can consume.
+`@openscout/agent-sessions` is the shared session substrate for OpenScout. It normalizes live harness sessions — Claude Code, Codex, pi, Grok ACP, Kimi Code ACP, opencode, OpenAI-compatible processes, and any ACP stdio agent — into one small stream of session events, snapshots, approvals, topology hints, and replayable state that the runtime and surfaces can consume.
 
 This package observes harness-owned material. It does not turn Claude Code, Codex, pi, or future harness transcripts into first-party Scout conversation messages. Durable coordination records belong in the broker and runtime; adapter state here is the bridge between a concrete harness session and Scout's control plane.
 
@@ -101,7 +101,7 @@ inferModelContextWindowTokens("claude-sonnet-4-20250514"); // 200000
 ```ts
 import { completeLocalAgentTurn } from "@openscout/agent-sessions/local";
 
-// Illustrative: this call requires a live local harness (codex / pi / grok) on
+// Illustrative: this call requires a live local harness (codex / pi / grok / kimi) on
 // the host. The shape is exact; the result depends on your installed harness.
 const result = await completeLocalAgentTurn({
   harness: "codex",
@@ -133,6 +133,7 @@ For a warm, multi-turn client that reuses one local session, use `createLocalAge
 | `@openscout/agent-sessions/adapters/codex/topology` | Observed Codex topology tracker (`CodexObservedTopologyTracker`). |
 | `@openscout/agent-sessions/adapters/echo` | Echo test harness that streams a full turn (`createEchoAdapter`). |
 | `@openscout/agent-sessions/adapters/grok-acp` | Grok ACP adapter (`createGrokAcpAdapter`). |
+| `@openscout/agent-sessions/adapters/kimi-acp` | Kimi Code ACP adapter (`createKimiAcpAdapter`). |
 | `@openscout/agent-sessions/adapters/openai-compat` | OpenAI-compatible chat/completions adapter (`createOpenAiCompatAdapter`). |
 | `@openscout/agent-sessions/adapters/opencode` | opencode adapter (`createOpencodeAdapter`). |
 | `@openscout/agent-sessions/adapters/pi` | pi adapter (`createPiAdapter`). |
@@ -148,11 +149,12 @@ pure protocol/client surfaces. Server imports run on both Node and Bun.
 | --- | :---: | :---: |
 | `./client`, `./protocol/primitives` | ✅ | ✅ |
 | Root observability / history / budget helpers | — | ✅ |
-| `./local` (codex, grok, pi) | — | ✅ |
+| `./local` (codex, grok, kimi, pi) | — | ✅ |
 | `./codex-executable` | — | ✅ |
 | `adapters/acp` | — | ✅ |
 | `adapters/codex` (observe/topology/usage) | — | ✅ |
 | `adapters/grok-acp` | — | ✅ |
+| `adapters/kimi-acp` | — | ✅ |
 | `adapters/openai-compat` (pure `fetch`) | — | ✅ |
 | `adapters/echo` | — | ✅ |
 | `adapters/claude-code` | — | ✅ |
@@ -163,7 +165,7 @@ The pure protocol and `./client` surfaces are browser-safe: no process
 spawning, no Node built-ins. Server-side surfaces use standard Web APIs,
 plain `fetch`, or runtime-native process spawning for harness processes.
 Claude Code, opencode, and pi use `Bun.spawn` when running under Bun and fall
-back to `node:child_process` under Node. Existing ACP, Grok ACP, and Codex
+back to `node:child_process` under Node. Existing ACP, Grok ACP, Kimi Code ACP, and Codex
 app-server transports use the Node child-process API, which is available in
 both runtimes.
 

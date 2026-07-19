@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -46,6 +45,7 @@ import {
   fmtLaneAgeTitle,
   fmtLaneWallGapLabel,
   fmtTraceSpanMs,
+  LANE_TRACE_FILL_MIN,
   laneSnippetText,
   laneTextNeedsExpand,
   laneToolArgSnippet,
@@ -67,6 +67,7 @@ import {
 } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import { resumeAgentSession } from "../../lib/session-start.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
@@ -1032,7 +1033,7 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
           <div className="s-observe-ask-answer-text">{ask.answer.text}</div>
         </div>
       )}
-      {!laneMode && <CopyButton text={ask.copyText} label="Copy ask" />}
+      {!laneMode && <CopyButton text={ask.copyText} label="Copy request" />}
     </div>
   );
 }
@@ -1321,8 +1322,6 @@ function StreamRow({
   prevWallMs,
   laneMode = false,
   entering = false,
-  nudging = false,
-  nudgeDelayMs = 0,
   repeatCount = 1,
   sessionStartMs,
   nowMs = Date.now(),
@@ -1344,8 +1343,6 @@ function StreamRow({
   prevWallMs?: number | null;
   laneMode?: boolean;
   entering?: boolean;
-  nudging?: boolean;
-  nudgeDelayMs?: number;
   repeatCount?: number;
   sessionStartMs?: number;
   nowMs?: number;
@@ -1383,7 +1380,6 @@ function StreamRow({
     "s-observe-row",
     `s-observe-row--kind-${event.kind}`,
     entering ? "s-observe-row--enter" : "",
-    nudging ? "s-observe-row--nudge" : "",
     laneSelectable ? "s-observe-row--selectable" : "",
     highlighted ? "s-observe-row--highlighted" : "",
     focusAnchor ? "s-observe-row--focus-anchor" : "",
@@ -1467,9 +1463,6 @@ function StreamRow({
     <div
       className={rowClass}
       data-event-id={event.id}
-      style={nudging && nudgeDelayMs > 0
-        ? ({ "--row-nudge-delay": `${nudgeDelayMs}ms` } as CSSProperties)
-        : undefined}
       onClick={laneSelectable ? (clickEvent) => {
         if (isObserveInteractiveTarget(clickEvent.target)) return;
         onLaneEventSelect?.(event);
@@ -1542,8 +1535,6 @@ function ReplayStream({
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const laneEventsPrimedRef = useRef(false);
   const [enteringEventIds, setEnteringEventIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [nudgingEventIds, setNudgingEventIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [streamScrollNudge, setStreamScrollNudge] = useState(false);
   const [expandedTechnicalRollups, setExpandedTechnicalRollups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -1602,20 +1593,10 @@ function ReplayStream({
 
     const freshSet = new Set(fresh);
     setEnteringEventIds(freshSet);
-    if (followEnd) {
-      setNudgingEventIds(new Set(
-        displayRows
-          .filter((row) => !freshSet.has(row.event.id))
-          .map((row) => row.event.id),
-      ));
-      setStreamScrollNudge(true);
-    }
 
     const timer = window.setTimeout(() => {
       setEnteringEventIds(new Set());
-      setNudgingEventIds(new Set());
-      setStreamScrollNudge(false);
-    }, 520);
+    }, 380);
     return () => window.clearTimeout(timer);
   }, [displayRows, followEnd, laneMode]);
 
@@ -1628,12 +1609,9 @@ function ReplayStream({
     prevFollowEndRef.current = true;
     scrollTraceToEnd(
       endRef.current,
-      justEnabled ? "instant" : "smooth",
+      laneMode || justEnabled ? "instant" : "smooth",
     );
-  }, [displayRows.length, followEnd]);
-
-  const laneNudgeStrideMs = 28;
-  const laneNudgeCapMs = 154;
+  }, [displayRows.length, followEnd, laneMode]);
   const laneToolHover = useLaneToolHoverCard(laneMode);
 
   const renderDisplayRow = (
@@ -1669,13 +1647,7 @@ function ReplayStream({
         stackedTool={stackedTool}
         laneGutter={laneGutter}
         entering={laneMode && enteringEventIds.has(row.event.id)}
-        nudging={laneMode && nudgingEventIds.has(row.event.id)}
         repeatCount={row.repeatCount}
-        nudgeDelayMs={
-          laneMode && nudgingEventIds.has(row.event.id)
-            ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
-            : 0
-        }
         sessionStartMs={sessionStartMs}
         nowMs={nowMs}
         preferWallAge={preferWallAge}
@@ -1708,7 +1680,7 @@ function ReplayStream({
   };
 
   return (
-    <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
+    <div className="s-observe-stream">
       <div className="s-observe-spine" />
       {displayRows.map((row, index) => {
         const prevRow = index > 0 ? displayRows[index - 1]! : null;
@@ -2084,7 +2056,8 @@ function Scrubber({
               key={e.id}
               className="s-observe-track-tick"
               style={{
-                left: `${(e.t / duration) * 100}%`,
+                // Single-event sessions have duration 0 — park ticks at 0%.
+                left: `${duration > 0 ? (e.t / duration) * 100 : 0}%`,
                 top: h === 6 ? -2 : -1,
                 height: h,
                 background: KIND_COLOR[e.kind] ?? "var(--dim)",
@@ -2094,11 +2067,11 @@ function Scrubber({
         })}
         <div
           className="s-observe-track-played"
-          style={{ width: `${(cursor / duration) * 100}%` }}
+          style={{ width: `${duration > 0 ? (cursor / duration) * 100 : 0}%` }}
         />
         <span
           className="s-observe-track-cursor"
-          style={{ left: `${(cursor / duration) * 100}%` }}
+          style={{ left: `${duration > 0 ? (cursor / duration) * 100 : 0}%` }}
         />
       </div>
     </div>
@@ -2558,7 +2531,7 @@ export function SessionObserveContextRail({
           />
           <StatCard label="Tools" value={fmtCompactNumber(toolCount)} />
           <StatCard label="Thinks" value={fmtCompactNumber(thinkCount)} />
-          <StatCard label="Asks" value={fmtCompactNumber(askCount)} />
+          <StatCard label="Requests" value={fmtCompactNumber(askCount)} />
           <StatCard label="Reads" value={fmtCompactNumber(readCount)} />
           <StatCard label="Edits" value={fmtCompactNumber(editCount)} />
           <StatCard label="Files" value={fmtCompactNumber(files.length)} />
@@ -2655,22 +2628,35 @@ export function SessionObserveContextRail({
 
 function SessionObserveComposer({
   conversationId,
+  agentId,
+  sessionId,
 }: {
   conversationId?: string | null;
+  agentId?: string | null;
+  sessionId?: string | null;
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState(() => conversationId?.trim() || null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const canSubmit = draft.trim().length > 0 && !sending;
+  useEffect(() => {
+    setActiveConversationId(conversationId?.trim() || null);
+  }, [conversationId]);
+
+  const resumableAgentId = agentId?.trim() || null;
+  const resumableSessionId = sessionId?.trim() || null;
+  const canResumeSession = Boolean(resumableAgentId && resumableSessionId);
+  const canWrite = Boolean(activeConversationId || canResumeSession);
+  const canSubmit = canWrite && draft.trim().length > 0 && !sending;
 
   const submit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const body = draft.trim();
     if (!body || sending) return;
-    if (!conversationId) {
+    if (!activeConversationId && (!resumableAgentId || !resumableSessionId)) {
       setError("No writable session target is attached yet.");
       return;
     }
@@ -2679,14 +2665,26 @@ function SessionObserveComposer({
     setStatus(null);
     setError(null);
     try {
-      await api("/api/send", {
-        method: "POST",
-        body: JSON.stringify({
-          body,
-          conversationId,
-          intent: "steer",
-        }),
-      });
+      if (activeConversationId) {
+        await api("/api/send", {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            conversationId: activeConversationId,
+            intent: "steer",
+          }),
+        });
+      } else {
+        const result = await resumeAgentSession({
+          agentId: resumableAgentId!,
+          sessionId: resumableSessionId!,
+          instructions: body,
+        });
+        const resumedConversationId = result.conversationId?.trim();
+        if (resumedConversationId) {
+          setActiveConversationId(resumedConversationId);
+        }
+      }
       setDraft("");
       setStatus("Sent into this session.");
       inputRef.current?.focus();
@@ -2706,7 +2704,8 @@ function SessionObserveComposer({
             className="s-observe-compose-input"
             value={draft}
             rows={3}
-            placeholder="Write into this session..."
+            placeholder={canWrite ? "Write into this session..." : "This trace is read-only"}
+            disabled={!canWrite || sending}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (!isComposerSendShortcut(event)) return;
@@ -2719,11 +2718,13 @@ function SessionObserveComposer({
             className="s-observe-compose-tool"
             aria-label="Add context"
             title="Add context"
+            disabled={!canWrite || sending}
             onClick={() => inputRef.current?.focus()}
           >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <DictationMic
+            disabled={!canWrite || sending}
             onAppend={(text) =>
               setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
             }
@@ -2740,6 +2741,11 @@ function SessionObserveComposer({
         </div>
       </div>
       {error ? <div className="s-observe-compose-status s-observe-compose-status--error">{error}</div> : null}
+      {!canWrite ? (
+        <div className="s-observe-compose-status s-observe-compose-status--muted">
+          No broker conversation or resumable agent session is attached to this trace.
+        </div>
+      ) : null}
       {status ? <div className="s-observe-compose-status">{status}</div> : null}
     </form>
   );
@@ -2882,12 +2888,17 @@ export function SessionObserve({
   const visible = (() => {
     let filtered = events.filter((event) => event.t <= cursor);
     if (useHorizonTrace && traceWindowMs) {
-      filtered = filterObserveEventsForHorizon(
+      const horizoned = filterObserveEventsForHorizon(
         filtered,
         sessionStartMs,
         now,
         traceWindowMs,
       );
+      // The horizon decides lane presence; content keeps a minimum tail so a
+      // present-but-quiet lane still fills with recent history.
+      filtered = horizoned.length >= LANE_TRACE_FILL_MIN
+        ? horizoned
+        : filtered.slice(-LANE_TRACE_FILL_MIN);
     } else if (laneMode && traceLimit && traceLimit > 0) {
       filtered = filtered.slice(-traceLimit);
     }
@@ -2895,12 +2906,13 @@ export function SessionObserve({
   })();
   const laneTraceStats = useMemo(() => {
     if (!useHorizonTrace || !traceWindowMs) return null;
-    const hiddenBeforeCount = countObserveEventsBeforeHorizon(
-      events,
-      sessionStartMs,
-      now,
-      traceWindowMs,
-    );
+    // Count events hidden before the OLDEST VISIBLE event (not the horizon
+    // cutoff) so the "earlier" stat stays honest when the tail fill reaches
+    // back past the window.
+    const oldestVisibleId = visible[0]?.id;
+    const hiddenBeforeCount = oldestVisibleId === undefined
+      ? countObserveEventsBeforeHorizon(events, sessionStartMs, now, traceWindowMs)
+      : Math.max(0, events.findIndex((event) => event.id === oldestVisibleId));
     return laneTraceWindowStats(
       visible,
       sessionStartMs,
@@ -3052,6 +3064,8 @@ export function SessionObserve({
           />
           <SessionObserveComposer
             conversationId={conversationId}
+            agentId={agentId}
+            sessionId={sessionId}
           />
         </footer>
       )}

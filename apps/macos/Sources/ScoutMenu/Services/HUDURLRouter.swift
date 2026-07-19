@@ -13,6 +13,7 @@ import ScoutAppCore
 ///   scout://hud/tail[/size]   — select the embedded HUD Tail tab
 ///   scout://hud/tab/<name>    — agents | activity | tail | sessions | assistant
 ///   scout://hud/size/<name>   — compact | medium | large  (also accepts s | m | l)
+///   scout://hud/task[/corner] — create an agent task; optional screen corner anchor
 ///
 /// Supported paths (host = `tail`):
 ///   scout://tail/show[/size]  — present standalone Tail mode

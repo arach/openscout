@@ -5,9 +5,33 @@ import {
   isScoutbotAddressedMessage,
   isScoutbotDirectDeliveryFlight,
 } from "./runner.ts";
-import { SCOUTBOT_ROLE_CONFIG } from "./role.ts";
+import {
+  SCOUTBOT_ROLE_CONFIG,
+  scoutbotCodexLaunchArgs,
+  scoutbotRuntimeToolNames,
+} from "./role.ts";
 
 describe("scoutbot runner routing", () => {
+  test("constrains Codex to the effective Scout broker tool manifest", () => {
+    expect(SCOUTBOT_ROLE_CONFIG.grants).toMatchObject({
+      shell: false,
+      codebaseWrites: false,
+      write: ["messages_send", "ask"],
+    });
+    expect(scoutbotRuntimeToolNames()).toEqual(expect.arrayContaining([
+      "agents_search",
+      "broker_feed",
+      "messages_send",
+      "ask",
+    ]));
+    expect(scoutbotCodexLaunchArgs()).toEqual(expect.arrayContaining([
+      "features.shell_tool=false",
+      "features.unified_exec=false",
+      "features.browser_use=false",
+      `mcp_servers.scout.enabled_tools=${JSON.stringify(scoutbotRuntimeToolNames())}`,
+    ]));
+  });
+
   test("recognizes direct-route metadata as addressed to scoutbot", () => {
     const message = {
       id: "msg-direct-status",
@@ -61,6 +85,7 @@ describe("scoutbot runner routing", () => {
       labels: ["assistant", "scout", "scoutbot"],
       metadata: {
         source: "scoutbot",
+        brokerRegistered: true,
         roleConfig: SCOUTBOT_ROLE_CONFIG,
       },
       definitionId: "scoutbot",

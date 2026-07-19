@@ -300,6 +300,9 @@ export function AgentInfoScreen({
     ...(skills.length > 0 ? [{ label: "Skills", value: <CapabilityTokens values={skills} /> }] : []),
     ...(!hasExternalCardIdentity ? [{ label: "Class", value: formatLabel(agent.agentClass) ?? "—" }] : []),
     ...(!hasExternalCardIdentity && agent.role ? [{ label: "Role", value: formatLabel(agent.role) ?? agent.role }] : []),
+    ...(agent.authorityProfile
+      ? [{ label: "Authority profile", value: <CodeValue value={agent.authorityProfile.roleId} /> }]
+      : []),
     ...(agent.workspaceQualifier
       ? [{ label: "Workspace qualifier", value: <CodeValue value={agent.workspaceQualifier} /> }]
       : []),
@@ -333,6 +336,21 @@ export function AgentInfoScreen({
     ...(agent.harnessSessionId ? [{ label: protocol ? `${protocol} session` : "Harness session", value: <CodeValue value={agent.harnessSessionId} /> }] : []),
     ...(agent.harnessLogPath ? [{ label: "Harness log", value: <CodeValue value={agent.harnessLogPath} /> }] : []),
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
+    ...(agent.authorityProfile?.readTools.length
+      ? [{ label: "Broker reads", value: <CapabilityTokens values={agent.authorityProfile.readTools} /> }]
+      : []),
+    ...(agent.authorityProfile?.writeTools.length
+      ? [{ label: "Broker writes", value: <CapabilityTokens values={agent.authorityProfile.writeTools} /> }]
+      : []),
+    ...(agent.authorityProfile
+      ? [{
+          label: "Machine access",
+          value: `shell ${agent.authorityProfile.shell ? "allowed" : "blocked"} · code writes ${agent.authorityProfile.codebaseWrites ? "allowed" : "blocked"}`,
+        }]
+      : []),
+    ...(agent.runtimePolicy?.sandbox
+      ? [{ label: "Sandbox", value: agent.runtimePolicy.sandbox }]
+      : []),
   ];
   const conversationItems: ProfileField[] = [
     { label: "Conversation ID", value: <CodeValue value={conversationId} /> },

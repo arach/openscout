@@ -1,24 +1,32 @@
 import { createElement, type ReactNode } from "react";
 import type { Route } from "../lib/types.ts";
-import type { TopNavItem, TopNavKey } from "./topNavConfig.ts";
+import type { TopNavKey } from "./topNavConfig.ts";
 
-export type NavCenterConfig = {
+// Generic over the tab key so the scope shell (scope/nav.ts) can reuse the
+// chrome with its own key set.
+export type NavCenterItem<K extends string = TopNavKey> = {
+  key: K;
+  label: string;
+  route: Route;
+};
+
+export type NavCenterConfig<K extends string = TopNavKey> = {
   className?: string;
   brandTag?: string;
-  items: TopNavItem[];
-  activeKey: TopNavKey;
+  items: NavCenterItem<K>[];
+  activeKey: K;
   breadcrumb?: string | null;
   navigate: (route: Route) => void;
 };
 
-export function renderNavCenter({
+export function renderNavCenter<K extends string = TopNavKey>({
   className = "scout-nav-tabs",
   brandTag,
   items,
   activeKey,
   breadcrumb,
   navigate,
-}: NavCenterConfig): ReactNode {
+}: NavCenterConfig<K>): ReactNode {
   return createElement("div", { className },
     brandTag && createElement("span", { className: "scout-nav-scope-tag" }, brandTag),
     items.map(({ key, label, route: tabRoute }) =>

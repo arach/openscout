@@ -61,6 +61,8 @@ export type DiscoveredTranscript = {
   project: string;
   /** Launch attribution; retained as `harness` for wire compatibility. */
   harness: TailHarness;
+  /** Timestamp of the latest parseable event in the transcript, when available. */
+  lastEventAt?: number | null;
   mtimeMs: number;
   size: number;
 };

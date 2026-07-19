@@ -382,7 +382,7 @@ function OpsInspectorPanel({
           {activeAsks.length > 0 && <span className="ctx-panel-count">{activeAsks.length}</span>}
         </div>
         {activeAsks.length === 0 ? (
-          <div className="ctx-panel-empty">No active asks</div>
+          <div className="ctx-panel-empty">No active requests</div>
         ) : (
           <div className="ctx-panel-list">
             {activeAsks.slice(0, 5).map((ask) => (
@@ -714,7 +714,7 @@ function PlanContextInspectorPanel({
         ))}
       </PlanContextSection>
 
-      <PlanContextSection title="Asks" count={related.asks.length}>
+      <PlanContextSection title="Requests" count={related.asks.length}>
         {related.asks.map((ask) => (
           <button
             key={ask.invocationId}
@@ -788,7 +788,9 @@ function planRouteForRun(run: AgentRun): Route {
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
-  if (item.recordId) return { view: "work", workId: item.recordId };
+  // Only work items live on the work detail page; questions belong to their
+  // conversation (or fall through to the owning agent).
+  if (item.kind === "work_item" && item.recordId) return { view: "work", workId: item.recordId };
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
   if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
   return null;

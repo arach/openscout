@@ -26,6 +26,11 @@ describe("scoutbot directives", () => {
     expect(parsed.body).toBe("inspect");
   });
 
+  test("preserves the full Codex effort ladder", () => {
+    expect(parseScoutbotDirectives("inspect eff:max").directives.reasoningEffort).toBe("max");
+    expect(parseScoutbotDirectives("inspect eff:ultra").directives.reasoningEffort).toBe("ultra");
+  });
+
   test("exports flat directive metadata for broker records", () => {
     const parsed = parseScoutbotDirectives("/steer session:abc-123 eff:high");
 

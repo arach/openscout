@@ -40,6 +40,8 @@ targets:
       - package: Hudson
         product: HudsonUI
       - package: Hudson
+        product: HudsonUIWeb       # Embedded Lanes + Dispatch mission-control surfaces
+      - package: Hudson
         product: HudsonUICapture   # QR scanner (split out by the optional-iOS-features refactor)
       - package: Hudson
         product: HudsonVoice       # Embedded VoxEngine/Parakeet dictation; no Vox service runtime

@@ -295,7 +295,24 @@
 .s-lane-card-namebox {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-width: 0;
+}
+.s-lane-card-authority {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--amber) 42%, transparent);
+  border-radius: 999px;
+  padding: 1px 5px 0;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  cursor: help;
+  position: relative;
+  z-index: 3;
 }
 
 /* shared glyph-led fact bits (cwd · branch in the left column) */
@@ -446,6 +463,12 @@
    stays a calm dark readout, just a whisper of warmth on the edge. */
 .s-lane-card--working .s-lane-card-summary {
   border-color: color-mix(in srgb, var(--green) 11%, color-mix(in srgb, var(--ink) 10%, transparent));
+}
+/* Light mode: "30% toward black" lands on a muddy mid-gray slab, and the ink
+   text inside barely clears it. The light translation of a recessed console
+   readout is a paper well — clearly below the card face, text stays ink. */
+[data-scout-theme-mode="light"] .s-lane-card-summary {
+  --lane-screen: color-mix(in srgb, var(--ink) 5%, var(--bg));
 }
 .s-lane-card-current {
   display: flex;

@@ -24,6 +24,7 @@ import {
   type InvocationStatusPatch,
 } from "./broker-local-invocation-helpers.js";
 import { isBrokerRunnableLocalAgentTransport } from "./local-agent-transports.js";
+import { SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY } from "./local-agents.js";
 import type { PairingInvocationResult } from "./pairing-session-agents.js";
 import type { RuntimeSnapshot } from "./scout-dispatcher.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
@@ -35,6 +36,7 @@ type LocalInvocationRuntime = {
   actor(actorId: string): ActorIdentity | undefined;
   agent(agentId: string): AgentDefinition | undefined;
   conversation(conversationId: string): ConversationDefinition | undefined;
+  message(messageId: string): MessageRecord | undefined;
   flightForInvocation(invocationId: string): FlightRecord | undefined;
   snapshot(): RuntimeSnapshot;
 };
@@ -67,6 +69,34 @@ type InvocationExecutorResult =
   | PairingInvocationResult
   | A2AHttpInvocationResult
   | LocalAgentInvocationResult;
+
+function invocationWithOriginatingMessageAttachments(
+  invocation: InvocationRequest,
+  runtime: LocalInvocationRuntime,
+): InvocationRequest {
+  if (!invocation.messageId) {
+    return invocation;
+  }
+
+  const attachments = runtime.message(invocation.messageId)?.attachments;
+  if (!attachments?.length) {
+    return invocation;
+  }
+
+  return {
+    ...invocation,
+    context: {
+      ...(invocation.context ?? {}),
+      [SCOUT_MESSAGE_ATTACHMENTS_CONTEXT_KEY]: attachments.map((attachment) => ({
+        id: attachment.id,
+        mediaType: attachment.mediaType,
+        ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+        ...(attachment.url ? { url: attachment.url } : {}),
+        ...(attachment.blobKey ? { blobKey: attachment.blobKey } : {}),
+      })),
+    },
+  };
+}
 
 export type BrokerLocalInvocationServiceOptions = {
   nodeId: string;
@@ -272,7 +302,10 @@ export class BrokerLocalInvocationService {
     });
 
     try {
-      const result = await this.invokeEndpoint(runningEndpoint, invocation);
+      const result = await this.invokeEndpoint(
+        runningEndpoint,
+        invocationWithOriginatingMessageAttachments(invocation, this.options.runtime),
+      );
       const completedEndpoint = this.completedEndpoint(runningEndpoint, result);
 
       if (invocation.action === "wake") {

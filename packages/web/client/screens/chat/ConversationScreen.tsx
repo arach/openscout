@@ -18,7 +18,6 @@ import {
   timeAgo,
 } from "../../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
-import { actorColor } from "../../lib/colors.ts";
 import { isAgentOnline } from "../../lib/agent-state.ts";
 import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
@@ -44,6 +43,7 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { MessageEmbeds } from "../../components/MessageEmbeds.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import type {
   Agent,
   Flight,
@@ -74,6 +74,7 @@ import {
   describePresence,
   displayNameForActor,
   emptyFleetState,
+  hasOutstandingConversationReply,
   isOperatorMessage,
   keepPreviousIfJsonEqual,
   latestAgentMessageAt,
@@ -85,6 +86,7 @@ import {
   pathLeaf,
   readScoutDispatch,
   resolveAgentByIdentity,
+  resolveComposeAction,
   resolveAskReplyContext,
   resolveMessageAgent,
   selectCurrentFlight,
@@ -93,7 +95,6 @@ import {
   selectTurnAsk,
   sortMessages,
   type ComposeAction,
-  type ComposeMode,
   type ConversationPresence,
   type EventFlightRecord,
   type EventInvocationRecord,
@@ -120,14 +121,12 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 export function ConversationScreen({
   conversationId,
-  initialComposeMode,
   initialDraft,
   navigate,
   embedded,
   showBackNav = true,
 }: {
   conversationId: string;
-  initialComposeMode?: ComposeMode;
   initialDraft?: string;
   navigate: (r: Route) => void;
   embedded?: boolean;
@@ -202,7 +201,6 @@ export function ConversationScreen({
         navigate({
           view: "conversation",
           conversationId: canonicalConversationId,
-          ...(initialComposeMode ? { composeMode: initialComposeMode } : {}),
         });
         return;
       }
@@ -278,7 +276,7 @@ export function ConversationScreen({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [conversationId, initialComposeMode, navigate]);
+  }, [conversationId, navigate]);
 
   useEffect(() => {
     void load();
@@ -319,17 +317,10 @@ export function ConversationScreen({
   const [awaitingResponseSince, setAwaitingResponseSince] = useState<
     number | null
   >(null);
-  const [composeMode, setComposeMode] = useState<ComposeMode>(
-    initialComposeMode === "ask" ? "ask" : "tell",
-  );
   const [addParticipantOpen, setAddParticipantOpen] = useState(false);
   const [addParticipantId, setAddParticipantId] = useState("");
   const [addParticipantError, setAddParticipantError] = useState<string | null>(null);
   const [addingParticipant, setAddingParticipant] = useState(false);
-
-  useEffect(() => {
-    setComposeMode(isDm && initialComposeMode === "ask" ? "ask" : "tell");
-  }, [conversationId, initialComposeMode, isDm]);
 
   useEffect(() => {
     setAddParticipantOpen(false);
@@ -527,8 +518,6 @@ export function ConversationScreen({
   const workingTurnHasNoRecentUpdate = showWorkingTurn && currentFlightHasNoRecentUpdate;
   const currentFlightQueuedUntilOnline =
     showWorkingTurn && isQueuedUntilOnlineConversationFlight(currentFlight);
-  const awaitingActiveResponse =
-    awaitingResponseSince !== null && !currentFlightQueuedUntilOnline;
   const workingTurnIsGone =
     workingTurnHasNoRecentUpdate &&
     !isAgentOnline(agent?.state ?? null);
@@ -536,9 +525,11 @@ export function ConversationScreen({
     isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =
     isDm &&
-    (sending ||
-      awaitingActiveResponse ||
-      (showWorkingTurn && !workingTurnHasNoRecentUpdate && !currentFlightQueuedUntilOnline));
+    hasOutstandingConversationReply({
+      sending,
+      awaitingResponse: awaitingResponseSince !== null,
+      currentFlight,
+    });
 
   const agentName = minimalAgentDisplayName({
     name: agent?.name,
@@ -915,16 +906,15 @@ export function ConversationScreen({
 
   const sendText = async (
     text: string,
-    options?: { forceMode?: ComposeMode },
+    options?: { forceAction?: ComposeAction },
   ) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    const effectiveMode = options?.forceMode ?? composeMode;
-    const action: ComposeAction = isDm
-      ? hasOutstandingReply
-        ? "steer"
-        : effectiveMode
-      : "tell";
+    const forceAction = options?.forceAction;
+    const action = forceAction ?? resolveComposeAction({
+      isDm,
+      hasOutstandingReply,
+    });
 
     const optimisticCreatedAt = Date.now();
     const optimisticMessage: Message = {
@@ -938,7 +928,7 @@ export function ConversationScreen({
     };
 
     setSending(true);
-    if (isDm && action !== "tell") {
+    if (action !== "message") {
       setAwaitingResponseSince(optimisticCreatedAt);
     }
     setError(null);
@@ -946,24 +936,19 @@ export function ConversationScreen({
 
     try {
       const result = await api<SendResult>(
-        action === "ask" ? "/api/ask" : "/api/send",
+        `/api/chats/${encodeURIComponent(conversationId)}/messages`,
         {
-          method: "POST",
-          body: JSON.stringify({
-            body: trimmed,
-            conversationId,
-            ...(action !== "ask" ? { intent: action } : {}),
-          }),
+        method: "POST",
+        body: JSON.stringify({
+          body: trimmed,
+        }),
         },
       );
-      const routedConversationId = result.conversationId?.trim();
+      const routedConversationId = result.chatId?.trim() ?? result.conversationId?.trim();
       if (routedConversationId && routedConversationId !== conversationId) {
-        setMessages((previous) =>
-          previous.filter((message) => message.id !== optimisticMessage.id),
+        throw new Error(
+          `Send returned a different Chat (${routedConversationId}) instead of appending to ${conversationId}.`,
         );
-        setAwaitingResponseSince(null);
-        navigate({ view: "conversation", conversationId: routedConversationId });
-        return;
       }
       if (result.flight) {
         trackedInvocationIdsRef.current.add(result.flight.invocationId);
@@ -972,7 +957,7 @@ export function ConversationScreen({
         );
         setTurnActivity([]);
         setTurnAsk(null);
-      } else if (action !== "tell") {
+      } else if (action !== "message") {
         setAwaitingResponseSince(null);
       }
     } catch (cause) {
@@ -1007,24 +992,12 @@ export function ConversationScreen({
 
   const isAgentBusy =
     presence.tone === "working" || presence.tone === "pending";
-  const composeAction: ComposeAction = isDm
-    ? hasOutstandingReply
-      ? "steer"
-      : composeMode
-    : "tell";
+  const composeAction = resolveComposeAction({ isDm, hasOutstandingReply });
   const composePlaceholder = isDm
-    ? `Reply — or type / to route, @ to mention an agent, ? to ask a question`
+    ? `Message ${agentName} — type / to route or @ to mention an agent`
     : sessionMeta?.kind === "channel"
       ? `Message #${conversationShortLabel(sessionMeta)}...`
       : `Message ${threadTitle}...`;
-  const composeModeDetail =
-    composeAction === "ask"
-      ? "Ask creates owned work in this private conversation and expects a reply here."
-      : composeAction === "steer"
-        ? "Follow-up stays in this private conversation while the current turn is active."
-        : isDm
-          ? "Tell is for heads-up, replies, and status in this private conversation."
-          : "Shared conversations are for group coordination and shared updates.";
   const isStopMode = !draft.trim() && isAgentBusy;
 
   const showContextMenu = useContextMenu();
@@ -1080,7 +1053,7 @@ export function ConversationScreen({
     const leftover = draft.trim();
     if (leftover) {
       setDraft("");
-      await sendText(`${prefix}${leftover}`, { forceMode: "tell" });
+      await sendText(`${prefix}${leftover}`, { forceAction: "invoke" });
       return;
     }
     setDraft(prefix);
@@ -1238,7 +1211,7 @@ export function ConversationScreen({
                 <p>{threadTitle}</p>
                 <p>
                   {isDm
-                    ? "No messages yet. Use Tell for quick updates or Ask to create owned work with a reply."
+                    ? "No messages yet. Send a message to start working with this agent."
                     : "No messages yet. Start the conversation below."}
                 </p>
                 {(workspaceName || sessionMeta?.currentBranch) && (
@@ -1338,31 +1311,30 @@ export function ConversationScreen({
                                       { returnTo: route },
                                     )
                                 : null;
-                              const avatarLabel = (isYou
-                                ? operatorName[0]
-                                : message.actorName?.[0] ?? "?"
-                              ).toUpperCase();
-                              const avatarStyle = {
-                                "--size": "24px",
-                                background: actorColor(
-                                  isYou ? operatorName : (message.actorName ?? "?"),
-                                ),
-                              } as React.CSSProperties;
+                              const avatarName = isYou
+                                ? operatorName
+                                : message.actorName ?? "?";
+                              const avatar = (
+                                <AgentAvatar
+                                  agent={messageAgent ?? undefined}
+                                  name={avatarName}
+                                  placement="turn"
+                                  className="s-thread-msg-avatar"
+                                  title={avatarName}
+                                />
+                              );
                               return profileNav ? (
                                 <button
                                   type="button"
-                                  className="s-ops-avatar s-thread-msg-avatar s-thread-msg-avatar--nav"
-                                  style={avatarStyle}
+                                  className="s-thread-msg-avatar--nav"
                                   onClick={profileNav}
                                   aria-label={`View profile for ${message.actorName ?? "agent"}`}
                                   title={`View profile for ${message.actorName ?? "agent"}`}
                                 >
-                                  {avatarLabel}
+                                  {avatar}
                                 </button>
                               ) : (
-                                <div className="s-ops-avatar s-thread-msg-avatar" style={avatarStyle}>
-                                  {avatarLabel}
-                                </div>
+                                avatar
                               );
                             })()}
                             {!isYou && messageAgent ? (
@@ -1443,7 +1415,7 @@ export function ConversationScreen({
                           <button
                             type="button"
                             className="s-thread-reply-ctx"
-                            title={`Open the originating ask${
+                            title={`Open the originating request${
                               replyContext.flightId
                                 ? ` · ${replyContext.flightId}`
                                 : ""
@@ -1516,15 +1488,13 @@ export function ConversationScreen({
             <div className="s-thread-feed-block">
               <div className="s-thread-msg" aria-live="polite">
                 <div className={workingTurnCardClassName}>
-                  <div
-                    className="s-ops-avatar s-thread-msg-avatar"
-                    style={{
-                      "--size": "28px",
-                      background: actorColor(agentName),
-                    } as React.CSSProperties}
-                  >
-                    {agentName[0]?.toUpperCase() ?? "?"}
-                  </div>
+                  <AgentAvatar
+                    agent={agent ?? undefined}
+                    name={agentName}
+                    placement="turn"
+                    className="s-thread-msg-avatar s-thread-msg-avatar--working"
+                    title={agentName}
+                  />
                   <div className="s-thread-msg-card-content">
                     <div className="s-thread-msg-header">
                       <div className="s-thread-msg-meta">
@@ -1606,15 +1576,13 @@ export function ConversationScreen({
         {presence.showTyping && (
           <div className={presenceLineClassName}>
             <div className="s-thread-presence-line-avatars">
-              <div
-                className="s-ops-avatar"
-                style={{
-                  "--size": "20px",
-                  background: actorColor(agentName),
-                } as React.CSSProperties}
-              >
-                {agentName[0]?.toUpperCase() ?? "?"}
-              </div>
+              <AgentAvatar
+                agent={agent ?? undefined}
+                name={agentName}
+                placement="turn"
+                className="s-thread-presence-line-avatar"
+                title={agentName}
+              />
             </div>
             <span className="s-thread-presence-line-label">
               {presenceLineLabel}
@@ -1641,7 +1609,6 @@ export function ConversationScreen({
           isStopMode={isStopMode}
           sending={sending}
           composeAction={composeAction}
-          isDm={isDm}
           onSend={() => void send()}
           onInterrupt={() => void interrupt()}
         />

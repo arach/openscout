@@ -305,6 +305,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Project + harness + model + prompt composer to start a session on any paired machine. Compose + Started (result ids) states.",
   },
   {
+    href: "/studies/scout-steering-loop",
+    label: "Scout · Steering Loop",
+    bucket: "studies",
+    surface: "ios",
+    family: "steering-loop",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-steering-loop.tsx",
+      "apps/ios/Scout/AgentsSurface.swift",
+      "packages/web/client/screens/ops/lane-deck.ts",
+      "packages/web/server/create-openscout-web-server.ts",
+    ],
+    blurb:
+      "Rethinks the iOS core surfaces around the operator loop — dispatch → ambient work → attention — as a current ⇄ proposed showcase. WORK becomes a deck of lane cockpits that scales from an iPhone summary tier to an iPad lane deck (grounded in the web AgentLaneSummaryResize cockpit + the lane-deck.ts profiles, which already carry width tiers and an attention lane kind). DISPATCH retires the 8-decision session form for a calm activity feed behind an intent-first \"+\" that promotes the HUD dock's @-routing. ATTENTION is a short low-hanging-fruit ledger: one /api/agents change wakes four dormant surfaces; a full inbox is parked. Every fact verified against the codebase.",
+  },
+  {
     href: "/studies/scout-ios-connect",
     label: "Scout iOS · Connect",
     bucket: "studies",
@@ -383,6 +399,48 @@ export const STUDIO_PAGES: StudioPage[] = [
     ],
     blurb:
       "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
+  },
+  {
+    href: "/studies/projects-landing",
+    label: "Projects · Landing",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/views/projects-landing.tsx",
+      "packages/web/client/screens/projects/ProjectsInbox.tsx",
+      "packages/web/client/screens/projects/ProjectsRail.tsx",
+    ],
+    blurb:
+      "The unscoped /projects center — shortcuts · recent projects · active diffs — in three switchable takes: Rows (what shipped), Ledger (dense aligned columns), Editorial (quietest, text-led, recommended). Hard rules baked in: nothing pill-shaped (filters that aren't), no raw .jsonl paths as titles, one emerald accent reserved for needs-you/live, and the center never re-lists all projects — the rail owns navigation.",
+  },
+  {
+    href: "/studies/app-nav",
+    label: "App nav · Structural models",
+    bucket: "studies",
+    surface: "shell",
+    status: "concept",
+    source: [
+      "design/studio/views/app-nav.tsx",
+      "packages/web/client/scout/topNavConfig.ts",
+      "packages/web/client/scout/secondaryNavConfig.ts",
+    ],
+    blurb:
+      "Framed by the posture: Scout is an overview-first platform, not an IDE or ADE replacement — every deep surface is a preview with a handoff, never a workbench. Three switchable shell models — A · Status quo (control, problem-flagged: two inboxes, sessions ×3, 10-item Ops drawer, deprecated directory, nav.clean fork), B · Work nouns (CHOSEN: Home · Projects · Sessions · Chat + ⌘K + one System drawer), C · Project-first (SHELVED: the rail-as-nav premise makes you pick a scope before showing agents, but the product is all-agents-in-view across projects) — with the full 24-route inventory mapped onto each.",
+  },
+  {
+    href: "/studies/chat-landing",
+    label: "Chat · Landing",
+    bucket: "studies",
+    surface: "web",
+    status: "shipped",
+    source: [
+      "design/studio/views/chat-landing.tsx",
+      "packages/web/client/screens/chat/MessagesScreen.tsx",
+      "packages/web/client/screens/chat/left.tsx",
+    ],
+    blurb:
+      "The unscoped /chat center (messages route, nothing selected) — today a card grid that re-lists the rail, with per-card 1/2/4 layout chrome, marketing copy, and filter route state the grid ignores. Three switchable takes: A · Grid (control, problem-flagged), B · Jump board (recommended: shortcuts + unread + a few recents — the rail owns the tree), C · Editorial (quietest, text-led). Principles: the rail navigates, unread is chat's attention (ask-states belong to the rail and Home), no layout chrome on rows, one address per conversation, filters own the rail only.",
   },
   {
     href: "/studies/agents-directory",
@@ -616,6 +674,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The conversation surface broken out from the design system — recency groups, labeled filters, unread emphasis, ask answered/pending, pinned Ask, collapsible turns, composer hint. Carries the unreadCount + askState data contract for the native port.",
   },
   {
+    href: "/studies/scout-comms-threads",
+    label: "Scout Comms · Threads",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-comms-threads.tsx",
+      "docs/agent/comms-threads-brief.md",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+      "apps/macos/Sources/ScoutAppCore/ScoutCommsModels.swift",
+      "packages/runtime/src/schema.ts",
+    ],
+    blurb: "Reply and thread as first-class moves in the Comms surface, staged by backing: Current (the shipped custody-caption baseline, plus the orphan row branch-from-message mints today), Reply-to (phase 1 — hover Reply, composer target chip, chain gathered behind a hairline rail; replyToMessageId already decodes, only the send path is new), Sub-thread (phase 2 — an anchored child conversation via parent_conversation_id + message_id with a faces·count·recency stub, expanded inline; the list gains no row and branch-from-message anchors here). Data contract separates the phase-1 client fields from the phase-2 server population.",
+  },
+  {
     href: "/studies/scout-conversation-presentations",
     label: "Scout Comms · Presentations",
     bucket: "studies",
@@ -765,6 +839,22 @@ export const STUDIO_PAGES: StudioPage[] = [
       "apps/macos/Sources/Scout/ScoutSessionService.swift",
     ],
     blurb: "The native New-conversation modal rebuilt in the shell token language — refined header, a compact Project / Agent target (inline harness · model + target token, not stacked 48pt fields), a focus-bordered message well (no left bar, ~2.5 lines), a quiet Options disclosure, and a harmonized Cancel / Start footer.",
+  },
+  {
+    href: "/studies/quick-capture-magic",
+    label: "Quick Capture · Magic Motion",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/quick-capture-magic/page.tsx",
+      "apps/macos/Sources/ScoutHUD/HUDCaptureHotZone.swift",
+      "apps/macos/Sources/ScoutHUD/HUDController.swift",
+      "apps/macos/Sources/ScoutHUD/HUDRunnerComposerView.swift",
+    ],
+    blurb:
+      "Interactive motion lab for the two quick-create entries — the Hyper+A hotkey and the hot-corner image drop. A simulated desktop plays the whole choreography (arrival spring · receiver entrance · drop-continuity flying thumbnail · departure to the menu-bar glyph) switchable Current ⇄ Proposed with ¼× slow-mo, plus a moment ledger mapping each spec to its Swift call site and a proposed HUDMotion token vocabulary. Thesis: object permanence and a little physics, not more chrome.",
   },
 
   // ── Studies · Web ───────────────────────────────────────────────
@@ -1347,6 +1437,37 @@ export const STUDIO_PAGES: StudioPage[] = [
     status: "draft",
     source: ["design/studio/app/atoms/inspector-section/page.tsx"],
     blurb: "Proposed Tier-1 atom from the inspector-bar audit.",
+  },
+
+  {
+    href: "/studies/scout-one-system",
+    label: "One System",
+    bucket: "studies",
+    surface: "cross",
+    family: "one-system",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-one-system.tsx",
+      "apps/macos/Sources/Scout/ScoutTheme.swift",
+      "apps/ios/Scout/Theme.swift",
+    ],
+    blurb:
+      "Scout ships four visual dialects today — main-window indigo (themable, 5×5), the HUD lime broadsheet, the menu-bar green, and iOS emerald (dark-locked). One System keeps each platform's depth idiom (flat ruled panels on desktop, raised cards on phone, the broadsheet HUD) and unifies the grammar: sprite identity, status vocabulary, hand-drawn icon language, and theme inheritance — a paired phone adopts the Mac's theme. Current ⇄ One System flips both platforms; a ledger maps every proposal to ship/refine/defer.",
+  },
+  {
+    href: "/studies/scout-green-question",
+    label: "The Green Question",
+    bucket: "studies",
+    surface: "cross",
+    family: "one-system",
+    status: "draft",
+    source: [
+      "design/studio/views/scout-green-question.tsx",
+      "apps/macos/Sources/ScoutHUD/HUDChrome.swift",
+      "apps/macos/Sources/ScoutMenu/Views/Theme.swift",
+    ],
+    blurb:
+      "Settles the open brand call left by One System (its deferred Row 6): Scout ships three near-neighbor greens — HUD lime #94E36B, menu-bar green #6DDB8C, iOS/web emerald #10B981. Should they converge on one green (and which), or follow the user's chosen accent instead? A comparison matrix — three signal surfaces (HUD · menu · iOS card) down × four treatments (Current · One green·Emerald · One green·Lime · Follow accent) across — with the brand-constant vs. default-accent tension named, a cost ledger against the real palette constants, and a VERDICT slot left to the owner.",
   },
 
   // ── Meta ────────────────────────────────────────────────────────

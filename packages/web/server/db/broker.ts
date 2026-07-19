@@ -56,6 +56,10 @@ type DeliveryRow = {
   sort_id: string;
   ts: number;
   message_id: string | null;
+  message_actor_id: string | null;
+  message_actor_name: string | null;
+  message_body: string | null;
+  message_metadata_json: string | null;
   invocation_id: string | null;
   target_id: string;
   transport: string;
@@ -89,6 +93,9 @@ const ROUTED_MESSAGE_BATCH_SIZE = 500;
 const FAILED_DELIVERY_STATUSES = ["failed", "cancelled"] as const;
 
 function metadataTarget(metadata: Record<string, unknown> | null): string | null {
+  if (isScoutbotThreadDispatchMetadata(metadata)) {
+    return "scoutbot";
+  }
   const relayTarget = metadata?.relayTarget;
   if (typeof relayTarget === "string" && relayTarget.trim()) {
     return relayTarget.trim();
@@ -104,6 +111,9 @@ function metadataTarget(metadata: Record<string, unknown> | null): string | null
 }
 
 function metadataRoute(metadata: Record<string, unknown> | null): string | null {
+  if (isScoutbotThreadDispatchMetadata(metadata)) {
+    return "dm";
+  }
   const relayChannel = metadata?.relayChannel;
   return typeof relayChannel === "string" && relayChannel.trim()
     ? relayChannel.trim()
@@ -119,7 +129,14 @@ function isBrokerRoutedMessage(metadata: Record<string, unknown> | null): boolea
   return metadata?.source === "scout-cli"
     || typeof metadata?.relayTarget === "string"
     || Array.isArray(metadata?.relayTargetIds)
-    || typeof metadata?.relayChannel === "string";
+    || typeof metadata?.relayChannel === "string"
+    || isScoutbotThreadDispatchMetadata(metadata);
+}
+
+function isScoutbotThreadDispatchMetadata(metadata: Record<string, unknown> | null): boolean {
+  return metadata?.destinationKind === "scoutbot_thread"
+    && metadata?.source !== "scoutbot"
+    && metadata?.generatedBy !== "scoutbot";
 }
 
 function shortBrokerBody(value: string): string {
@@ -168,6 +185,20 @@ function countSql(sql: string, ...params: SQLQueryBindings[]): number {
   return row?.count ?? 0;
 }
 
+function queryMessageProjectionWatermark(): { count: number; latestAt: number | null } {
+  const createdAtExpression = sqlTimestampMsExpression("m.created_at");
+  const row = db()
+    .prepare(
+      `SELECT COUNT(*) AS count, MAX(${createdAtExpression}) AS latest_at
+       FROM messages m`,
+    )
+    .get() as { count: number; latest_at: number | null } | undefined;
+  return {
+    count: row?.count ?? 0,
+    latestAt: normalizeTimestampMs(row?.latest_at) ?? null,
+  };
+}
+
 function compareHistoryRows(left: { ts: number; id: string }, right: { ts: number; id: string }): number {
   return right.ts - left.ts || left.id.localeCompare(right.id);
 }
@@ -204,6 +235,7 @@ function queryMessageRows(options: {
       OR m.metadata_json LIKE '%relayTarget%'
       OR m.metadata_json LIKE '%relayTargetIds%'
       OR m.metadata_json LIKE '%relayChannel%'
+      OR m.metadata_json LIKE '%scoutbot_thread%'
     )`);
   }
   const cursorFilter = cursorPredicate(options.cursor ?? null, tsExpression, options.sortIdExpression);
@@ -409,6 +441,10 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          ${sortIdExpression} AS sort_id,
          ${tsExpression} AS ts,
          d.message_id,
+         m.actor_id AS message_actor_id,
+         sender.display_name AS message_actor_name,
+         m.body AS message_body,
+         m.metadata_json AS message_metadata_json,
          d.invocation_id,
          d.target_id,
          d.transport,
@@ -420,6 +456,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          ac.display_name AS actor_name
        FROM deliveries d
        LEFT JOIN messages m ON m.id = d.message_id
+       LEFT JOIN actors sender ON sender.id = m.actor_id
        LEFT JOIN actors ac ON ac.id = d.target_id
        ${whereClause(predicates)}
        ORDER BY ts DESC, sort_id ASC
@@ -430,6 +467,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
 
 function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
   const deliveryMetadata = parseJson<Record<string, unknown> | null>(row.metadata_json, null);
+  const messageMetadata = parseJson<Record<string, unknown> | null>(row.message_metadata_json, null);
   const failureReason = metadataString(deliveryMetadata, "failureReason");
   const failureDetail = metadataString(deliveryMetadata, "failureDetail");
   const reconciledReason = metadataString(deliveryMetadata, "reconciledReason");
@@ -439,10 +477,10 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
     kind: "failed_delivery",
     status: row.status,
     ts: normalizeTimestampMs(row.ts) ?? row.ts,
-    actorName: row.actor_name,
+    actorName: row.message_actor_name ?? row.message_actor_id ?? row.actor_name,
     target: row.target_id,
-    route: row.transport,
-    detail: row.reason,
+    route: metadataRoute(messageMetadata) ?? row.transport,
+    detail: row.message_body ? shortBrokerBody(row.message_body) : row.reason,
     conversationId: row.conversation_id,
     messageId: row.message_id,
     deliveryId: row.id,
@@ -463,6 +501,7 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
       ...(failureDetail ? { failureDetail } : {}),
       ...(reconciledReason ? { reconciledReason } : {}),
       raw: {
+        message: messageMetadata,
         delivery: {
           id: row.id,
           messageId: row.message_id,
@@ -566,6 +605,7 @@ export function queryBrokerDiagnostics(opts?: {
   const dispatchAtExpression = sqlTimestampMsExpression("sd.dispatched_at");
   const deliveryCreatedAtExpression = sqlTimestampMsExpression("d.created_at");
   const attemptCreatedAtExpression = sqlTimestampMsExpression("da.created_at");
+  const projectionMessages = queryMessageProjectionWatermark();
 
   const dialoguePage = paginateHistory(
     queryMessageRows({
@@ -647,6 +687,15 @@ export function queryBrokerDiagnostics(opts?: {
   return {
     generatedAt: now,
     windowMs,
+    source: {
+      mode: "sqlite_projection",
+      status: "unknown",
+      latestMessageAt: projectionMessages.latestAt,
+      projectionLatestMessageAt: projectionMessages.latestAt,
+      liveMessageCount: null,
+      projectionMessageCount: projectionMessages.count,
+      detail: null,
+    },
     ledger: {
       mode: "latest",
       limit,

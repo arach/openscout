@@ -20,7 +20,7 @@ export function ReposContent({ route, navigate }: { route: Route; navigate: Navi
     );
   }
   if (route.view === "repos") {
-    return <ReposScreen navigate={navigate} />;
+    return <ReposScreen navigate={navigate} focusRoot={route.root ?? null} />;
   }
   return null;
 }

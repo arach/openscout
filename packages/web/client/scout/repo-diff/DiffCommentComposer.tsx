@@ -146,7 +146,7 @@ export function DiffCommentComposer({
           disabled={pending}
           placeholder={
             contextItems.length > 0
-              ? `Steer ${targetLabel} with included context`
+              ? `Send to ${targetLabel} with included context`
               : `Leave a note on this diff…`
           }
           aria-label="Diff comment"

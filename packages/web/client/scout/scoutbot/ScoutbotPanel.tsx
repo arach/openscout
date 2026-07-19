@@ -14,7 +14,12 @@ import {
   selectActiveBroadcast,
   useScoutbotBroadcastStore,
 } from "../../lib/scoutbot-broadcast-store.ts";
-import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
+import {
+  extractScoutbotUiActions,
+  normalizeScoutbotUiAction,
+  SCOUTBOT_SUBMIT_EVENT,
+  stripScoutbotUiFences,
+} from "../../lib/scoutbot.ts";
 import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import {
@@ -139,6 +144,7 @@ export function ScoutbotPanel({
   const [voiceDefaults, setVoiceDefaults] = useState<ScoutbotVoiceDefaults | null>(null);
   const [reminderState, setReminderState] = useState<ScoutbotReminderState | null>(null);
   const [chatExpanded, setChatExpanded] = useState(false);
+  const [composeFocusNonce, setComposeFocusNonce] = useState(0);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const clientRef = useRef(getSharedScoutVoiceClient());
@@ -272,7 +278,7 @@ export function ScoutbotPanel({
     const mention = promptAgent ? `@${agentPromptHandle(promptAgent)}` : "@agent";
     return [
       "Let me know when this turn finishes.",
-      `Ask ${mention} what needs me next.`,
+      `Message ${mention} to find out what needs me next.`,
       "Summarize these lanes and call out blockers.",
     ];
   }, [agents]);
@@ -525,7 +531,7 @@ export function ScoutbotPanel({
     setLastReply(replyText);
     for (const action of extractScoutbotUiActions(body)) {
       if (action.type === "ask-agent") {
-        setAskStatus(`Asking ${action.targetLabel}`);
+        setAskStatus(`Sending to ${action.targetLabel}`);
         void api<ScoutbotAskAgentResult>("/api/scoutbot/actions/ask", {
           method: "POST",
           body: JSON.stringify({
@@ -537,12 +543,12 @@ export function ScoutbotPanel({
         }).then((result) => {
           setAskStatus(
             result.flightId
-              ? `Asked ${result.targetAgentId ?? result.targetLabel} · flight ${result.flightId}`
-              : `Asked ${result.targetAgentId ?? result.targetLabel}`,
+              ? `Sent to ${result.targetAgentId ?? result.targetLabel} · run ${result.flightId}`
+              : `Sent to ${result.targetAgentId ?? result.targetLabel}`,
           );
         }).catch((err) => {
           setAskStatus(null);
-          setError(err instanceof Error ? err.message : "Could not ask agent.");
+          setError(err instanceof Error ? err.message : "Could not send to agent.");
         });
       } else if (action.type === "reminder") {
         void createScoutbotReminder({
@@ -1020,9 +1026,25 @@ export function ScoutbotPanel({
         void askScoutbot(body);
       }
     };
-    window.addEventListener("scout:scoutbot-submit", submitHandler);
-    return () => window.removeEventListener("scout:scoutbot-submit", submitHandler);
+    window.addEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
+    return () => window.removeEventListener(SCOUTBOT_SUBMIT_EVENT, submitHandler);
   }, [askScoutbot, setCollapsed]);
+
+  useEffect(() => {
+    const composeHandler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      const body = detail && typeof detail === "object" && "body" in detail
+        ? (detail as { body?: unknown }).body
+        : null;
+      if (typeof body === "string" && body.trim()) {
+        setCollapsed(false);
+        setDraft(body);
+        setComposeFocusNonce((nonce) => nonce + 1);
+      }
+    };
+    window.addEventListener("scout:scoutbot-compose", composeHandler);
+    return () => window.removeEventListener("scout:scoutbot-compose", composeHandler);
+  }, [setCollapsed]);
 
   useEffect(() => {
     const briefHandler = () => {
@@ -1264,9 +1286,9 @@ export function ScoutbotPanel({
             </span>
             <button
               type="button"
-              title="Ask about this"
-              aria-label="Ask about this"
-              onClick={() => void askScoutbot(`Tell me about this broadcast: ${promotedBroadcast.text}`)}
+              title="Message Scout about this"
+              aria-label="Message Scout about this"
+              onClick={() => void askScoutbot(`Explain this broadcast: ${promotedBroadcast.text}`)}
               disabled={sending || briefing}
               className="shrink-0 rounded border border-[var(--scout-chrome-border-soft)] p-1 text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)] disabled:opacity-40"
             >
@@ -1383,6 +1405,7 @@ export function ScoutbotPanel({
           }}
           prominent={isEmptyChat}
           autoFocus={forceExpanded}
+          focusSignal={composeFocusNonce}
         />
 
         {error && (

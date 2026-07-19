@@ -132,12 +132,11 @@ function AgentDetailPane({
             >
               {spec.headline}
             </span>
-            {entry.group.needs ? <span className="av2-agentDetailNeeds">needs you</span> : null}
           </div>
           <span className="av2-agentDetailStatus">
             <span className="av2-dot" data-tone={tone === "idle" ? undefined : tone} aria-hidden />
             {agentStateLabel(agent.state, agent)}
-            {entry.leadRow.activeAskCount > 0 ? ` · ${entry.leadRow.activeAskCount} asks` : ""}
+            {entry.leadRow.activeAskCount > 0 ? ` · ${entry.leadRow.activeAskCount} runs` : ""}
             {entry.group.sessionCount > 0
               ? ` · ${entry.group.sessionCount} session${entry.group.sessionCount === 1 ? "" : "s"}`
               : ""}

@@ -45,7 +45,7 @@ struct ScoutStatusLogBridge: ViewModifier {
         }
         guard trimmed != last else { return }
         last = trimmed
-        HudLogStore.shared.record(trimmed, level: .error, category: category)
+        HudLogger(category: category).error(trimmed)
     }
 }
 

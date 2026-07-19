@@ -4,13 +4,16 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { performance } from "node:perf_hooks";
+import { createHash } from "node:crypto";
 
 import { Hono, type Context } from "hono";
 import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  extractAgentSelectors,
   isOpaqueChannelId,
+  resolveAgentIdentity,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -79,6 +82,22 @@ import {
   type WebFlight,
 } from "./db-queries.ts";
 import {
+  brokerDiagnosticsNeedsFullSnapshot,
+  markBrokerDiagnosticsLiveUnavailable,
+  mergeBrokerDiagnosticsWithLiveSnapshot,
+} from "./db/broker-live.ts";
+import { queryAgentIdsByEndpointSessionId } from "./db/agents.ts";
+import { queryOperatorAttentionRows } from "./db/fleet.ts";
+import {
+  applyAgentAttention,
+  buildAgentAttentionIndex,
+  type AgentAttentionEntry,
+} from "./core/attention/agent-attention.ts";
+import {
+  collectTmuxHostAttention,
+  type TmuxHostAttentionItem,
+} from "./core/attention/tmux-host-attention.ts";
+import {
   configuredOperatorActorIds,
 } from "./db/internal/conversation-ids.ts";
 import {
@@ -94,6 +113,10 @@ import {
   loadScoutReadCursors,
   markScoutConversationRead,
   openScoutDirectSession,
+  readScoutBrokerHome,
+  readScoutBrokerHealth,
+  readScoutBrokerMessages,
+  readScoutBrokerSnapshot,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
   type ScoutBrokerContext,
@@ -105,7 +128,11 @@ import {
   upsertScoutFlight,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
-import { getScoutConversationById, getScoutConversations } from "./core/conversations/service.ts";
+import {
+  getScoutConversationById,
+  getScoutConversationMessages,
+  getScoutConversations,
+} from "./core/conversations/service.ts";
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
@@ -171,7 +198,10 @@ import {
   type OpenScoutWebShellState,
 } from "./runtime-summary.ts";
 import type { ScoutbotCodexAssistantInvoker } from "./scoutbot-assistant.ts";
-import { SCOUTBOT_AGENT_ID } from "./scoutbot/role.ts";
+import {
+  SCOUTBOT_AGENT_ID,
+  SCOUTBOT_DEFAULT_THREAD_ID,
+} from "./scoutbot/role.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 import {
   buildWorkMaterialsInventory,
@@ -231,8 +261,11 @@ import {
   writeOpenScoutSettings,
 } from "@openscout/runtime/setup";
 import {
+  addOpenScoutWorkspaceRoot,
+  ensureOpenScoutOnboardingCompletion,
   ensureOpenScoutOnboardingLocalConfig,
   loadOpenScoutOnboardingState,
+  restartOpenScoutOnboarding,
   runOpenScoutOnboardingSetup,
   saveOpenScoutOnboardingIdentity,
   saveOpenScoutOnboardingProject,
@@ -591,6 +624,9 @@ type ServerTimingMetric = {
   desc?: string;
 };
 
+const MAX_SERVER_TIMING_HEADER_LENGTH = 2048;
+const TRUNCATED_SERVER_TIMING_HEADER = 'server-timing-truncated;desc="oversize"';
+
 function serverTimingToken(value: string): string {
   return value.trim().replace(/[^A-Za-z0-9!#$%&'*+.^_`|~-]+/g, "-") || "metric";
 }
@@ -615,12 +651,22 @@ function formatServerTiming(metrics: ServerTimingMetric[]): string {
     .join(", ");
 }
 
+function boundedServerTimingHeader(value: string): string {
+  const trimmed = value.replace(/[\r\n]+/g, " ").trim();
+  return trimmed.length <= MAX_SERVER_TIMING_HEADER_LENGTH
+    ? trimmed
+    : TRUNCATED_SERVER_TIMING_HEADER;
+}
+
 function appendServerTimingHeader(
   upstream: string | null,
   metrics: ServerTimingMetric[],
 ): string {
   const local = formatServerTiming(metrics);
-  return [upstream?.trim() || null, local || null].filter(Boolean).join(", ");
+  return boundedServerTimingHeader([
+    upstream ? boundedServerTimingHeader(upstream) : null,
+    local || null,
+  ].filter(Boolean).join(", "));
 }
 
 type TailRecentPayload = {
@@ -1128,6 +1174,15 @@ async function readKnowledgeJsonlPreview(input: {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+const LEGACY_SCOUTBOT_CONVERSATION_IDS = new Set([
+  "dm.operator.scoutbot",
+  "dm.operator.scoutbot.default",
+]);
+
+function isLegacyScoutbotConversationId(value: string): boolean {
+  return LEGACY_SCOUTBOT_CONVERSATION_IDS.has(value.trim());
 }
 
 function optionalFiniteNumber(value: unknown): number | undefined {
@@ -1843,6 +1898,87 @@ function brokerAgentSkillNames(
   ));
 }
 
+function brokerAgentAuthorityProfile(
+  metadata: Record<string, unknown> | null,
+): WebAgent["authorityProfile"] {
+  const roleConfig = metadataRecordValue(metadata, "roleConfig");
+  const grants = metadataRecordValue(roleConfig, "grants");
+  const roleId = metadataStringValue(roleConfig, "roleId");
+  if (!roleId || !grants) return null;
+  return {
+    roleId,
+    readTools: metadataStringArrayValue(grants, "read"),
+    writeTools: metadataStringArrayValue(grants, "write"),
+    shell: grants.shell === true,
+    codebaseWrites: grants.codebaseWrites === true,
+  };
+}
+
+function brokerAgentRuntimePolicy(
+  endpointMetadata: Record<string, unknown>,
+): WebAgent["runtimePolicy"] {
+  const approvalPolicy = metadataStringValue(endpointMetadata, "approvalPolicy");
+  const sandbox = metadataStringValue(endpointMetadata, "sandbox");
+  const shellTool = typeof endpointMetadata.shellTool === "boolean"
+    ? endpointMetadata.shellTool
+    : null;
+  return approvalPolicy || sandbox || shellTool !== null
+    ? { approvalPolicy, sandbox, shellTool }
+    : null;
+}
+
+function brokerAgentActivity(
+  broker: ScoutBrokerContext,
+  agentId: string,
+): NonNullable<WebAgent["brokerActivity"]> {
+  const activity: NonNullable<WebAgent["brokerActivity"]> = [];
+  for (const message of Object.values(broker.snapshot.messages ?? {})) {
+    if (message.actorId !== agentId) continue;
+    const at = epochMs(message.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: message.id,
+      kind: "message",
+      at,
+      state: null,
+      summary: message.body.trim() || "Message sent",
+      conversationId: message.conversationId ?? null,
+    });
+  }
+  for (const invocation of Object.values(broker.snapshot.invocations ?? {})) {
+    if (invocation.targetAgentId !== agentId) continue;
+    const at = epochMs(invocation.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: invocation.id,
+      kind: "invocation",
+      at,
+      state: null,
+      summary: invocation.task?.trim() || invocation.action || "Invocation received",
+      conversationId: invocation.conversationId ?? null,
+    });
+  }
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    if (flight.targetAgentId !== agentId) continue;
+    const invocation = broker.snapshot.invocations?.[flight.invocationId];
+    const at = epochMs(flight.completedAt)
+      ?? epochMs(flight.startedAt)
+      ?? epochMs(invocation?.createdAt);
+    if (!at) continue;
+    activity.push({
+      id: flight.id,
+      kind: "flight",
+      at,
+      state: flight.state,
+      summary: flight.summary?.trim() || invocation?.task?.trim() || `Flight ${flight.state}`,
+      conversationId: invocation?.conversationId ?? null,
+    });
+  }
+  return activity
+    .sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+    .slice(-80);
+}
+
 function brokerDirectConversationIdForAgent(
   broker: ScoutBrokerContext,
   agentId: string,
@@ -1883,10 +2019,15 @@ function brokerAgentCardToWebAgent(
     projectRoot,
   );
   const owner = brokerActorDisplay(broker, agent.ownerId);
+  const brokerActivity = brokerAgentActivity(broker, agent.id);
   const createdAt = metadataTimestampMs(agentMetadata?.createdAt)
     ?? metadataTimestampMs(agentMetadata?.registeredAt)
     ?? null;
-  const updatedAt = latestBrokerAgentTimestamp(agent, endpoint) ?? createdAt;
+  const updatedAt = Math.max(
+    latestBrokerAgentTimestamp(agent, endpoint) ?? 0,
+    brokerActivity.at(-1)?.at ?? 0,
+    createdAt ?? 0,
+  ) || null;
 
   return {
     id: agent.id,
@@ -1909,7 +2050,7 @@ function brokerAgentCardToWebAgent(
     capabilities: brokerAgentCapabilitiesForWeb(agent, agentMetadata),
     project: metadataStringValue(agentMetadata, "project") ?? projectNameFromRoot(projectRoot),
     branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
-    role: null,
+    role: metadataStringValue(agentMetadata, "role"),
     model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
     modelProvider: metadataStringValue(endpointMetadata, "provider") ?? metadataStringValue(agentMetadata, "provider"),
     harnessSessionId: resolveHarnessSessionIdForAgent(
@@ -1945,6 +2086,9 @@ function brokerAgentCardToWebAgent(
     providerUrl: provider.url,
     protocol,
     skills,
+    brokerActivity,
+    authorityProfile: brokerAgentAuthorityProfile(agentMetadata),
+    runtimePolicy: brokerAgentRuntimePolicy(endpointMetadata),
   };
 }
 
@@ -1958,29 +2102,241 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
-async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
+const AGENT_ATTENTION_TTL_MS = 2_000;
+type TmuxPaneCapture = NonNullable<CreateOpenScoutWebServerOptions["captureTmuxPane"]>;
+type AgentAttentionSnapshot = {
+  index: Map<string, AgentAttentionEntry>;
+  hostItems: TmuxHostAttentionItem[];
+};
+
+let agentAttentionCache: {
+  at: number;
+  capture: TmuxPaneCapture;
+  snapshot: AgentAttentionSnapshot;
+} | null = null;
+let agentAttentionInFlight: {
+  capture: TmuxPaneCapture;
+  promise: Promise<AgentAttentionSnapshot>;
+} | null = null;
+
+/**
+ * Needs-attention index for /api/agents, cached briefly and coalesced: the
+ * endpoint is polled every ~2.5s per client and the pairing-snapshot read
+ * opens a bridge socket per call, so concurrent post-TTL polls must share one
+ * rebuild. Failures yield an empty index so a broken source cannot take
+ * /api/agents down with it. The sourcing lives in `core/attention` so the
+ * mobile agents RPC can build the identical index.
+ */
+function queryAgentAttentionIndex(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<Map<string, AgentAttentionEntry>> {
+  return queryAgentAttentionSnapshot(broker, capture).then((snapshot) => snapshot.index);
+}
+
+function queryAgentAttentionSnapshot(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<AgentAttentionSnapshot> {
+  const cached = agentAttentionCache;
+  if (cached && cached.capture === capture && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+    return Promise.resolve(cached.snapshot);
+  }
+  if (agentAttentionInFlight?.capture === capture) {
+    return agentAttentionInFlight.promise;
+  }
+  const promise = buildAgentAttentionIndexSnapshot(broker, capture).finally(() => {
+    if (agentAttentionInFlight?.promise === promise) {
+      agentAttentionInFlight = null;
+    }
+  });
+  agentAttentionInFlight = { capture, promise };
+  return promise;
+}
+
+async function buildAgentAttentionIndexSnapshot(
+  broker: ScoutBrokerContext | null,
+  capture: TmuxPaneCapture,
+): Promise<AgentAttentionSnapshot> {
+  let snapshot: AgentAttentionSnapshot = {
+    index: new Map<string, AgentAttentionEntry>(),
+    hostItems: [],
+  };
+  try {
+    const pairingSnapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
+    const sessionItems = pairingSnapshots.length > 0 ? projectSessionsAttention(pairingSnapshots) : [];
+    let agentIdBySessionId = new Map<string, string>();
+    try {
+      agentIdBySessionId = queryAgentIdsByEndpointSessionId();
+    } catch {
+      // A direct host-attention row already owns its agent id; a temporarily
+      // unavailable read model must not suppress that independent signal.
+    }
+    // The broker snapshot is the live authority on which agent currently
+    // holds a session — it overrides any stale endpoint row in the db.
+    for (const agent of Object.values(broker?.snapshot.agents ?? {})) {
+      const sessionId = broker
+        ? activeEndpointForAgent(broker.snapshot, agent.id)?.sessionId?.trim()
+        : null;
+      if (sessionId) {
+        agentIdBySessionId.set(sessionId, agent.id);
+      }
+    }
+
+    const databaseAgents = queryAgents().map(withResolvedHarnessSessionIdentity);
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker).map(withResolvedHarnessSessionIdentity) : [];
+    const candidatesById = new Map(databaseAgents.map((agent) => [agent.id, agent]));
+    for (const agent of brokerAgents) {
+      candidatesById.set(agent.id, mergeBrokerAgentProjection(candidatesById.get(agent.id) ?? agent, agent));
+    }
+    const hostItems = await collectTmuxHostAttention(
+      [...candidatesById.values()],
+      async (agent, paneTarget) => {
+        const terminal = agent.terminalSurface;
+        if (!terminal) return null;
+        const result = await capture({
+          agentId: agent.id,
+          sessionId: terminal.sessionName,
+          paneTarget,
+          cwd: agent.cwd ?? agent.projectRoot,
+          lines: 80,
+          columns: 240,
+        });
+        return result?.body ?? null;
+      },
+    );
+    snapshot = {
+      hostItems,
+      index: buildAgentAttentionIndex({
+        sessionItems,
+        agentIdBySessionId,
+        collaborationRows: (() => {
+          try {
+            return queryOperatorAttentionRows();
+          } catch {
+            return [];
+          }
+        })(),
+        hostRows: hostItems,
+      }),
+    };
+  } catch (error) {
+    // Attention is a decoration on the agent list, never a reason to 500 it.
+    console.warn("[openscout-web] attention snapshot failed", error);
+  }
+  agentAttentionCache = { at: Date.now(), capture, snapshot };
+  return snapshot;
+}
+
+function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
+  if (limit === undefined) return agents;
+  return [...agents]
+    .sort((left, right) =>
+      (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+      || left.name.localeCompare(right.name),
+    )
+    .slice(0, limit);
+}
+
+function agentListSummary(agent: WebAgent) {
+  return {
+    id: agent.id,
+    name: agent.name,
+    handle: agent.handle,
+    agentClass: agent.agentClass,
+    harness: agent.harness,
+    state: agent.state,
+    pendingAsk: agent.pendingAsk,
+    role: agent.role,
+    projectRoot: agent.projectRoot,
+    cwd: agent.cwd,
+    project: agent.project,
+    branch: agent.branch,
+    selector: agent.selector,
+    model: agent.model,
+    transport: agent.transport,
+    capabilities: agent.capabilities,
+    authorityNodeName: agent.authorityNodeName,
+    homeNodeName: agent.homeNodeName,
+    conversationId: agent.conversationId,
+    harnessSessionId: agent.harnessSessionId,
+    updatedAt: agent.updatedAt,
+    createdAt: agent.createdAt,
+  };
+}
+
+async function queryAgentsIncludingBrokerCards(
+  limit?: number,
+  includeAttention = true,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
-  const agents = queryAgents()
+  // Archived rows are filtered outside SQL, so over-fetch by their count to
+  // keep a bounded response from coming back short when an archived agent is
+  // among the newest database rows.
+  const databaseLimit = limit === undefined ? undefined : limit + archivedIds.size;
+  const agents = queryAgents(databaseLimit)
     .map(withResolvedHarnessSessionIdentity)
     .filter((agent) => !archivedIds.has(agent.id));
   const broker = await loadScoutBrokerContext().catch(() => null);
+  // The HUD's first page is deliberately a summary read. The full attention
+  // index opens the pairing bridge and can take seconds on a busy machine, so
+  // only rich callers pay that cost.
+  const attention = includeAttention
+    ? await queryAgentAttentionIndex(broker, capture)
+    : new Map<string, AgentAttentionEntry>();
   if (!broker) {
-    return agents;
+    return mostRecentAgents(applyAgentAttention(agents, attention), limit);
   }
-  const existingIds = new Set(agents.map((agent) => agent.id));
   const brokerAgents = brokerCardAgentsForWeb(broker)
-    .filter((agent) => !existingIds.has(agent.id) && !archivedIds.has(agent.id))
+    .filter((agent) => !archivedIds.has(agent.id))
     .map(withResolvedHarnessSessionIdentity);
-  return [...agents, ...brokerAgents];
+  const brokerById = new Map(brokerAgents.map((agent) => [agent.id, agent]));
+  const canonicalScoutbot = brokerById.get("scoutbot");
+  const mergedAgents = agents
+    .filter((agent) => !(
+      canonicalScoutbot
+      && agent.id !== canonicalScoutbot.id
+      && agent.definitionId === canonicalScoutbot.definitionId
+    ))
+    .map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
+  const existingIds = new Set(mergedAgents.map((agent) => agent.id));
+  return mostRecentAgents(applyAgentAttention([
+    ...mergedAgents,
+    ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
+  ], attention), limit);
 }
 
-async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefined): WebAgent {
+  if (!broker) return local;
+  return {
+    ...broker,
+    ...local,
+    updatedAt: Math.max(local.updatedAt ?? 0, broker.updatedAt ?? 0) || null,
+    role: local.role ?? broker.role,
+    brokerActivity: broker.brokerActivity,
+    authorityProfile: broker.authorityProfile,
+    runtimePolicy: broker.runtimePolicy,
+  };
+}
+
+async function queryAgentIncludingBrokerCard(
+  agentId: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+): Promise<WebAgent | null> {
+  const broker = await loadScoutBrokerContext().catch(() => null);
   const agent = queryAgentById(agentId);
   if (agent) {
-    return withResolvedHarnessSessionIdentity(agent);
+    const attention = await queryAgentAttentionIndex(broker, capture);
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker) : [];
+    const canonical = agent.definitionId === "scoutbot"
+      ? brokerAgents.find((candidate) => candidate.id === "scoutbot")
+      : brokerAgents.find((candidate) => candidate.id === agent.id);
+    return applyAgentAttention([
+      mergeBrokerAgentProjection(withResolvedHarnessSessionIdentity(agent), canonical),
+    ], attention)[0] ?? null;
   }
-  const broker = await loadScoutBrokerContext().catch(() => null);
   if (!broker) {
     return null;
   }
@@ -1988,7 +2344,11 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
     (candidate) => brokerAgentIdentityMatches(candidate, agentId),
   );
   const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
-  return brokerWebAgent ? withResolvedHarnessSessionIdentity(brokerWebAgent) : null;
+  if (!brokerWebAgent) {
+    return null;
+  }
+  const attention = await queryAgentAttentionIndex(broker, capture);
+  return applyAgentAttention([withResolvedHarnessSessionIdentity(brokerWebAgent)], attention)[0] ?? null;
 }
 
 function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
@@ -2218,12 +2578,245 @@ function sessionIncludesOperatorParticipant(session: { participantIds: string[] 
   return session.participantIds.some((participantId) => operatorIds.has(participantId));
 }
 
-function defaultSendModeForConversationSession(
-  session: { kind: string; participantIds: string[] } | null,
-): "tell" | "steer" {
-  return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
-    ? "tell"
-    : "steer";
+function defaultSendModeForConversationSession(input: {
+  session: { kind: string; participantIds: string[] } | null;
+  hasExplicitTarget: boolean;
+  hasActiveRun: boolean;
+}): "invoke" | "steer" | "message" {
+  const isOperatorDirect =
+    input.session?.kind === "direct" && sessionIncludesOperatorParticipant(input.session);
+  if (!isOperatorDirect && !input.hasExplicitTarget) {
+    return "message";
+  }
+  return input.hasActiveRun ? "steer" : "invoke";
+}
+
+type ChatMessagePlacement =
+  | { kind: "root" }
+  | { kind: "inline_reply"; replyToMessageId: string }
+  | {
+      kind: "thread_reply";
+      parentConversationId: string;
+      anchorMessageId: string;
+      replyToMessageId?: string;
+    };
+
+function resolveChatMessagePlacement(
+  chatId: string,
+  replyToMessageId?: string,
+): ChatMessagePlacement {
+  const conversation = queryConversationDefinitionById(chatId);
+  if (conversation?.parentConversationId && conversation.messageId) {
+    return {
+      kind: "thread_reply",
+      parentConversationId: conversation.parentConversationId,
+      anchorMessageId: conversation.messageId,
+      ...(replyToMessageId ? { replyToMessageId } : {}),
+    };
+  }
+  return replyToMessageId
+    ? { kind: "inline_reply", replyToMessageId }
+    : { kind: "root" };
+}
+
+function semanticSessionForChat(
+  chatId: string,
+  session: NonNullable<ReturnType<typeof querySessionById>>,
+): NonNullable<ReturnType<typeof querySessionById>> {
+  // A direct Chat may be visually anchored beneath another message while
+  // retaining its own direct-work semantics. Only a generic thread Chat needs
+  // to inherit the parent Chat's delivery mode.
+  if (session.kind !== "thread") return session;
+  const definition = queryConversationDefinitionById(chatId);
+  if (!definition?.parentConversationId) return session;
+  return querySessionById(definition.parentConversationId) ?? session;
+}
+
+function steerContextByTargetAgentId(
+  runs: ReturnType<typeof queryRuns>,
+): Record<string, { runId: string; flightId?: string }> | undefined {
+  const entries = new Map<string, { runId: string; flightId?: string }>();
+  for (const run of runs) {
+    if (entries.has(run.agentId)) continue;
+    const flightId = run.flightIds?.[0];
+    entries.set(run.agentId, {
+      runId: run.id,
+      ...(flightId ? { flightId } : {}),
+    });
+  }
+  return entries.size > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function resolveSendSelectorTargetAgentIds(
+  selectors: ReturnType<typeof extractAgentSelectors>,
+  participantIds: string[],
+): string[] {
+  if (selectors.length === 0) return [];
+  const participantIdSet = new Set(participantIds);
+  const candidates = queryAgents()
+    .filter((agent) => participantIdSet.has(agent.id))
+    .map((agent) => ({
+      agentId: agent.id,
+      definitionId: agent.definitionId,
+      nodeQualifier: agent.nodeQualifier ?? undefined,
+      workspaceQualifier: agent.workspaceQualifier ?? undefined,
+      harness: agent.harness ?? undefined,
+      model: agent.model ?? undefined,
+      aliases: [agent.selector, agent.defaultSelector, agent.handle, agent.name]
+        .filter((alias): alias is string => Boolean(alias?.trim())),
+    }));
+  return [...new Set(
+    selectors
+      .map((selector) => resolveAgentIdentity(selector, candidates)?.agentId)
+      .filter((agentId): agentId is string => Boolean(agentId)),
+  )];
+}
+
+function anchoredThreadNaturalKey(parentConversationId: string, anchorMessageId: string): string {
+  return `thread:${encodeURIComponent(parentConversationId)}:${encodeURIComponent(anchorMessageId)}`;
+}
+
+function deterministicThreadConversationId(parentConversationId: string, anchorMessageId: string): string {
+  const digest = createHash("sha256")
+    .update(`${parentConversationId}\u0000${anchorMessageId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `chn-${digest}`;
+}
+
+function conversationDefinitionFromDb(
+  row: NonNullable<ReturnType<typeof queryConversationDefinitionById>>,
+): ConversationDefinition {
+  return {
+    id: row.id,
+    kind: row.kind as ConversationDefinition["kind"],
+    title: row.title,
+    visibility: row.visibility as ConversationDefinition["visibility"],
+    shareMode: row.shareMode as ConversationDefinition["shareMode"],
+    authorityNodeId: row.authorityNodeId,
+    participantIds: [...row.participantIds],
+    ...(row.topic ? { topic: row.topic } : {}),
+    ...(row.parentConversationId ? { parentConversationId: row.parentConversationId } : {}),
+    ...(row.messageId ? { messageId: row.messageId } : {}),
+    ...(row.metadata ? { metadata: row.metadata } : {}),
+  };
+}
+
+function findAnchoredChildConversation(
+  conversations: Record<string, ConversationDefinition>,
+  parentConversationId: string,
+  anchorMessageId: string,
+): ConversationDefinition | null {
+  return Object.values(conversations).find((conversation) =>
+    conversation.parentConversationId === parentConversationId
+    && conversation.messageId === anchorMessageId
+  ) ?? null;
+}
+
+function requireAnchorMessageInConversation(
+  broker: ScoutBrokerContext,
+  parentConversationId: string,
+  anchorMessageId: string,
+): void {
+  const anchor = broker.snapshot.messages[anchorMessageId];
+  if (!anchor) {
+    throw new Error(`Message ${anchorMessageId} is not available.`);
+  }
+  if (anchor.conversationId !== parentConversationId) {
+    throw new Error(`Message ${anchorMessageId} is not in conversation ${parentConversationId}.`);
+  }
+}
+
+async function anchorConversationToMessage(input: {
+  conversationId: string;
+  parentConversationId: string;
+  anchorMessageId: string;
+}): Promise<ConversationDefinition | null> {
+  const existingRow = queryConversationDefinitionById(input.conversationId);
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const existing = existingRow
+    ? conversationDefinitionFromDb(existingRow)
+    : broker?.snapshot.conversations[input.conversationId] ?? null;
+  if (!existing) return null;
+  if (!broker) {
+    throw new Error("broker unreachable");
+  }
+  requireAnchorMessageInConversation(broker, input.parentConversationId, input.anchorMessageId);
+
+  const next: ConversationDefinition = {
+    ...existing,
+    parentConversationId: input.parentConversationId,
+    messageId: input.anchorMessageId,
+    metadata: {
+      ...(existing.metadata ?? {}),
+      anchorSource: "scout-web",
+      parentConversationId: input.parentConversationId,
+      anchorMessageId: input.anchorMessageId,
+    },
+  };
+  await upsertScoutConversation(next);
+  return next;
+}
+
+async function createAnchoredThreadConversation(input: {
+  parentConversationId: string;
+  anchorMessageId: string;
+  title?: string | null;
+}): Promise<{ conversation: ConversationDefinition; existed: boolean }> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    throw new Error("broker unreachable");
+  }
+
+  const parentRow = queryConversationDefinitionById(input.parentConversationId);
+  const parent = parentRow
+    ? conversationDefinitionFromDb(parentRow)
+    : broker.snapshot.conversations[input.parentConversationId] ?? null;
+  if (!parent) {
+    throw new Error(`Conversation ${input.parentConversationId} is not available.`);
+  }
+  if (parent.parentConversationId) {
+    throw new Error("Nested threads are not supported.");
+  }
+  requireAnchorMessageInConversation(broker, input.parentConversationId, input.anchorMessageId);
+
+  const existing = findAnchoredChildConversation(
+    broker.snapshot.conversations,
+    input.parentConversationId,
+    input.anchorMessageId,
+  );
+  if (existing) {
+    return { conversation: existing, existed: true };
+  }
+
+  const naturalKey = anchoredThreadNaturalKey(input.parentConversationId, input.anchorMessageId);
+  const deterministicId = deterministicThreadConversationId(input.parentConversationId, input.anchorMessageId);
+  const deterministicExisting = broker.snapshot.conversations[deterministicId];
+  if (deterministicExisting) {
+    return { conversation: deterministicExisting, existed: true };
+  }
+
+  const title = input.title?.trim()
+    || `Thread · ${parent.title}`;
+  const conversation: ConversationDefinition = {
+    id: deterministicId,
+    kind: "thread",
+    title,
+    visibility: parent.visibility,
+    shareMode: parent.shareMode,
+    authorityNodeId: parent.authorityNodeId,
+    participantIds: [...parent.participantIds],
+    parentConversationId: input.parentConversationId,
+    messageId: input.anchorMessageId,
+    metadata: {
+      naturalKey,
+      source: "scout-web",
+      parentConversationId: input.parentConversationId,
+      anchorMessageId: input.anchorMessageId,
+    },
+  };
+  await upsertScoutConversation(conversation);
+  return { conversation, existed: false };
 }
 
 function inferChannelName(
@@ -2870,13 +3463,18 @@ function operatorAttentionFromSessionItem(item: SessionAttentionItem): OperatorA
   };
 }
 
-async function buildOperatorAttentionState(currentDirectory: string) {
-  const [pairing, pairingSnapshots, fleet, broker] = await Promise.all([
+async function buildOperatorAttentionState(
+  currentDirectory: string,
+  capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+) {
+  const [pairing, pairingSnapshots, fleet, brokerDiagnostics, scoutBroker] = await Promise.all([
     loadPairingState(currentDirectory, false).catch(() => null),
     getScoutWebPairingSessionSnapshots().catch(() => []),
     Promise.resolve(queryFleet({ limit: 24, activityLimit: 120 })),
     Promise.resolve(queryBrokerDiagnostics({ limit: 160, windowMs: 24 * 60 * 60_000 })),
+    loadScoutBrokerContext().catch(() => null),
   ]);
+  const hostAttention = await queryAgentAttentionSnapshot(scoutBroker, capture);
 
   const items: OperatorAttentionItem[] = [];
   const pendingApprovalIds = new Set<string>();
@@ -2920,6 +3518,31 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 
   for (const sessionItem of projectSessionsAttention(pairingSnapshots, { pendingApprovalIds })) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
+  }
+
+  for (const hostItem of hostAttention.hostItems) {
+    items.push({
+      id: hostItem.id,
+      kind: "session",
+      title: hostItem.title,
+      summary: hostItem.summary,
+      detail: hostItem.detail,
+      agentId: hostItem.agentId,
+      agentName: hostItem.agentName,
+      conversationId: null,
+      updatedAt: hostItem.updatedAt,
+      severity: "warning",
+      sourceLabel: hostItem.sourceLabel,
+      actions: [{
+        kind: "open",
+        label: "Open terminal",
+        route: {
+          view: "terminal",
+          agentId: hostItem.agentId,
+          mode: "takeover",
+        },
+      }],
+    });
   }
 
   for (const work of fleet.needsAttention) {
@@ -2973,7 +3596,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const failure of [...broker.failedDeliveries, ...broker.failedQueries]) {
+  for (const failure of [...brokerDiagnostics.failedDeliveries, ...brokerDiagnostics.failedQueries]) {
     const hint = permissionSetupHint(failure.detail);
     if (!hint) {
       continue;
@@ -2997,7 +3620,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const message of broker.dialogue) {
+  for (const message of brokerDiagnostics.dialogue) {
     if (message.actorName !== "Openscout") {
       continue;
     }
@@ -3155,6 +3778,320 @@ const BYOK_PROVIDER_CATALOG = [
 
 function isProviderConfigured(envKeys: readonly string[]): boolean {
   return envKeys.some((key) => Boolean(process.env[key]?.trim()));
+}
+
+type HudRunnerHarnessOption = {
+  id: string;
+  name: string | null;
+  label: string;
+  description: string | null;
+  state: string | null;
+  ready: boolean | null;
+  detail: string | null;
+};
+
+type HudRunnerModelOption = {
+  id: string;
+  label: string;
+  harnesses: string[];
+  source: string;
+  family?: string;
+  version?: string;
+};
+
+type HudRunnerEffortOption = {
+  id: string;
+  label: string;
+  description: string;
+  harnesses: string[];
+};
+
+type HudRunnerProjectOption = {
+  id: string;
+  title: string;
+  root: string;
+  source: string | null;
+  registrationKind: string | null;
+  defaultHarness: string | null;
+};
+
+type HudRunnerAgentOption = {
+  id: string;
+  name: string;
+  handle: string | null;
+  status: string | null;
+  harness: string | null;
+  model: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  harnessSessionId: string | null;
+};
+
+const HUD_PROJECT_MARKERS = [
+  ".git",
+  ".openscout/project.json",
+  "AGENTS.md",
+  "package.json",
+  "Package.swift",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+] as const;
+
+const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
+  {
+    id: "claude-opus-4-8",
+    label: "Opus 4.8",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Opus",
+    version: "4.8",
+  },
+  {
+    id: "claude-sonnet-4-6",
+    label: "Sonnet 4.6",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Sonnet",
+    version: "4.6",
+  },
+  {
+    id: "claude-haiku-4-5",
+    label: "Haiku 4.5",
+    harnesses: ["claude"],
+    source: "default",
+    family: "Haiku",
+    version: "4.5",
+  },
+  {
+    id: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Sol",
+  },
+  {
+    id: "gpt-5.6-terra",
+    label: "GPT-5.6 Terra",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Terra",
+  },
+  {
+    id: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.6 Luna",
+  },
+  {
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.5",
+  },
+  {
+    id: "gpt-5.5-mini",
+    label: "GPT-5.5 mini",
+    harnesses: ["codex"],
+    source: "default",
+    family: "GPT",
+    version: "5.5 mini",
+  },
+];
+
+const HUD_RUNNER_EFFORT_OPTIONS: HudRunnerEffortOption[] = [
+  { id: "none", label: "None", description: "No extra thinking", harnesses: ["codex"] },
+  { id: "minimal", label: "Minimal", description: "Smallest reasoning budget", harnesses: ["codex"] },
+  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
+  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
+  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
+  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
+  { id: "max", label: "Max", description: "Maximum reasoning depth", harnesses: ["claude", "codex"] },
+  { id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"] },
+];
+
+function isRetiredHudRunnerModel(model: string, harness: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return harness === "codex"
+    && (normalized === "gpt-5.3-codex-spark" || normalized.startsWith("gpt-5.4"));
+}
+
+function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
+  const models = HUD_RUNNER_MODEL_OPTIONS.map((model) => ({
+    ...model,
+    harnesses: [...model.harnesses],
+  }));
+  const seen = new Set(models.map((model) => `${model.harnesses[0] ?? ""}:${model.id.toLowerCase()}`));
+
+  for (const agent of agents) {
+    const harness = agent.harness?.trim().toLowerCase() ?? "";
+    const model = agent.model?.trim() ?? "";
+    if (!harness || !model || isRetiredHudRunnerModel(model, harness)) continue;
+    const key = `${harness}:${model.toLowerCase()}`;
+    if (!seen.add(key)) continue;
+    models.push({
+      id: model,
+      label: model,
+      harnesses: [harness],
+      source: "observed",
+    });
+  }
+
+  return models;
+}
+
+function defaultHudRunnerModel(
+  harness: string | null | undefined,
+  models: HudRunnerModelOption[],
+): string | null {
+  return models.find((model) => model.harnesses.includes(harness ?? ""))?.id ?? null;
+}
+
+function normalizeHudRunnerRoot(root: string): string {
+  return resolve(expandHomePath(root.trim()));
+}
+
+function isLikelyHudProjectRoot(root: string): boolean {
+  const normalized = normalizeHudRunnerRoot(root);
+  try {
+    if (!statSync(normalized).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return HUD_PROJECT_MARKERS.some((marker) => existsSync(join(normalized, marker)));
+}
+
+function currentDirectoryProjectOption(
+  currentDirectory: string,
+  defaultHarness: string,
+): HudRunnerProjectOption | null {
+  const trimmed = currentDirectory.trim();
+  if (!trimmed || !isLikelyHudProjectRoot(trimmed)) return null;
+  const root = normalizeHudRunnerRoot(trimmed);
+  return {
+    id: `current:${root}`,
+    title: basename(root) || root,
+    root,
+    source: "currentDirectory",
+    registrationKind: "current",
+    defaultHarness,
+  };
+}
+
+function dedupeHudRunnerProjects(projects: HudRunnerProjectOption[]): HudRunnerProjectOption[] {
+  const seen = new Set<string>();
+  const result: HudRunnerProjectOption[] = [];
+  for (const project of projects) {
+    const root = normalizeHudRunnerRoot(project.root);
+    if (!seen.add(root)) continue;
+    result.push({ ...project, root });
+  }
+  return result;
+}
+
+async function buildHudRunnerOptions(currentDirectory: string) {
+  // This endpoint sits on the global-hotkey path, so it deliberately avoids
+  // the workspace scan performed by the full agent-configuration snapshot.
+  const [settingsResult, catalogResult] = await Promise.allSettled([
+    readOpenScoutSettings({ currentDirectory }),
+    loadHarnessCatalogSnapshot(),
+  ]);
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
+  const agents = queryAgents(50);
+  const defaultHarness = settings?.agents.defaultHarness ?? "claude";
+
+  const harnessesById = new Map<string, HudRunnerHarnessOption>();
+  for (const entry of catalog?.entries ?? []) {
+    const id = String(entry.harness || entry.name || "").trim();
+    if (!id) continue;
+    harnessesById.set(id, {
+      id,
+      name: entry.name,
+      label: entry.label || id,
+      description: entry.description || null,
+      state: entry.readinessReport.state,
+      ready: entry.readinessReport.ready,
+      detail: entry.readinessReport.detail,
+    });
+  }
+  for (const fallback of [
+    { id: "claude", label: "Claude Code" },
+    { id: "codex", label: "Codex" },
+  ]) {
+    if (harnessesById.has(fallback.id)) continue;
+    harnessesById.set(fallback.id, {
+      id: fallback.id,
+      name: fallback.id,
+      label: fallback.label,
+      description: null,
+      state: null,
+      ready: null,
+      detail: null,
+    });
+  }
+
+  const projectOptions: HudRunnerProjectOption[] = agents
+    .map((agent) => agent.projectRoot ?? agent.cwd)
+    .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+    .map((root) => {
+      const normalizedRoot = normalizeHudRunnerRoot(root);
+      return {
+        id: `agent:${normalizedRoot}`,
+        title: basename(normalizedRoot) || normalizedRoot,
+        root: normalizedRoot,
+        source: "agent",
+        registrationKind: null,
+        defaultHarness,
+      };
+    });
+  const currentProject = currentDirectoryProjectOption(currentDirectory, defaultHarness);
+  if (currentProject) projectOptions.unshift(currentProject);
+  const projects = dedupeHudRunnerProjects(projectOptions);
+  const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
+  const models = hudRunnerModels(agents);
+  const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
+    const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
+    return rank(left.id) - rank(right.id) || left.label.localeCompare(right.label);
+  });
+
+  return {
+    defaults: {
+      runner: "scout",
+      directory: defaultDirectory,
+      harness: defaultHarness,
+      model: defaultHudRunnerModel(defaultHarness, models),
+      reasoningEffort: "medium",
+      persistence: "sticky",
+    },
+    runners: [{
+      id: "scout",
+      label: "Scout",
+      description: "Start a broker-owned Scout session",
+      supports: harnesses.map((harness) => harness.id),
+    }],
+    harnesses,
+    models,
+    efforts: HUD_RUNNER_EFFORT_OPTIONS,
+    projects,
+    agents: agents.map((agent): HudRunnerAgentOption => ({
+      id: agent.id,
+      name: agent.name,
+      handle: agent.handle,
+      status: agent.state,
+      harness: agent.harness,
+      model: agent.model,
+      projectRoot: agent.projectRoot ? normalizeHudRunnerRoot(agent.projectRoot) : null,
+      cwd: agent.cwd ? normalizeHudRunnerRoot(agent.cwd) : null,
+      harnessSessionId: agent.harnessSessionId,
+    })),
+  };
 }
 
 async function buildAgentConfigurationSnapshot(currentDirectory: string) {
@@ -3321,6 +4258,31 @@ export async function createOpenScoutWebServer(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const dispatchBrokerSnapshotCache = createCachedSnapshot(async () => {
+    const baseUrl = resolveScoutBrokerUrl();
+    const signal = AbortSignal.timeout(2_000);
+    const [messages, health, home] = await Promise.all([
+      readScoutBrokerMessages({ baseUrl, limit: 500, signal }),
+      readScoutBrokerHealth(baseUrl, { signal }),
+      readScoutBrokerHome(baseUrl, { signal }),
+    ]);
+    if (!messages) return null;
+    return {
+      actors: Object.fromEntries(
+        (home?.agents ?? []).map((agent) => [agent.id, { displayName: agent.title }]),
+      ),
+      messages: Object.fromEntries(messages.map((message) => [message.id, message])),
+      totalMessageCount: health.counts?.messages ?? null,
+      projectionStatus: health.projection?.state ?? null,
+    };
+  }, 0);
+  const dispatchFullBrokerSnapshotCache = createCachedSnapshot(
+    () => readScoutBrokerSnapshot(
+      resolveScoutBrokerUrl(),
+      { signal: AbortSignal.timeout(5_000) },
+    ),
+    0,
+  );
   const tailRuntime: WebTailRuntime = {
     getTailDiscovery,
     refreshTailDiscovery,
@@ -3331,12 +4293,29 @@ export async function createOpenScoutWebServer(
   const scoutbot = await createScoutbotWebServices({
     currentDirectory,
     tailRuntime,
-    loadOperatorAttention: buildOperatorAttentionState,
+    loadOperatorAttention: (directory) => buildOperatorAttentionState(
+      directory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ),
     loadBuildInfo: loadOpenScoutBuildInfo,
     invokeCodex: options.scoutbotAssistant?.invokeCodex,
     scoutbot: options.scoutbot,
   });
   let scoutbotRunner = scoutbot.runner;
+  const resolveSessionRequestConversationId = async (conversationId: string): Promise<string | null> => {
+    if (isOpaqueChannelId(conversationId)) return conversationId;
+    if (!isLegacyScoutbotConversationId(conversationId) || !scoutbotRunner) return null;
+    try {
+      const threadList = await scoutbotRunner.getThreads();
+      const thread = threadList.threads.find((candidate) => candidate.threadId === threadList.defaultThreadId)
+        ?? threadList.threads.find((candidate) => candidate.threadId === SCOUTBOT_DEFAULT_THREAD_ID)
+        ?? threadList.threads[0];
+      const canonicalConversationId = thread?.conversationId?.trim();
+      return isOpaqueChannelId(canonicalConversationId) ? canonicalConversationId : null;
+    } catch {
+      return null;
+    }
+  };
   const tailDiscoveryCaches = new Map<string, BrokerJsonCache<DiscoverySnapshot>>();
   const tailRecentCaches = new Map<string, BrokerJsonCache<TailRecentPayload>>();
 
@@ -3531,6 +4510,50 @@ export async function createOpenScoutWebServer(
       return c.json({ error: result.error }, result.status as 400 | 403 | 404);
     }
     return c.json(result.payload);
+  });
+
+  // One-off project registration: appends to discovery.workspaceRoots
+  // (never replaces — that's the onboarding writer's job), then re-scans
+  // and reports which projects actually appeared under the new root.
+  app.post("/api/projects/add", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { root?: string };
+    const requested = body.root?.trim();
+    if (!requested) {
+      return c.json({ error: "root is required" }, 400);
+    }
+    const root = resolve(expandHomePath(requested));
+    if (!existsSync(root)) {
+      return c.json({ error: `That folder doesn't exist: ${root}` }, 400);
+    }
+    if (!statSync(root).isDirectory()) {
+      return c.json({ error: `Not a folder: ${root}` }, 400);
+    }
+
+    try {
+      const { alreadyRegistered } = await addOpenScoutWorkspaceRoot({ root, currentDirectory });
+      const setup = await loadResolvedRelayAgents({ currentDirectory });
+      const registered = setup.projectInventory
+        .filter((project) => project.projectRoot === root || project.projectRoot.startsWith(`${root}/`))
+        .map((project) => ({
+          id: project.agentId,
+          title: project.displayName,
+          root: project.projectRoot,
+          source: project.source,
+          registrationKind: project.registrationKind,
+          defaultHarness: project.defaultHarness,
+          projectConfigPath: project.projectConfigPath,
+        }));
+      return c.json({
+        ok: true,
+        root,
+        alreadyRegistered,
+        projects: registered,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[projects/add]", message);
+      return c.json({ error: message }, 500);
+    }
   });
 
   app.get("/api/file/preview", (c) => {
@@ -3776,7 +4799,10 @@ export async function createOpenScoutWebServer(
     return c.json({ request: req });
   });
   app.get("/api/operator-attention", async (c) =>
-    c.json(await buildOperatorAttentionState(currentDirectory)),
+    c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    )),
   );
   app.post("/api/operator-attention/approvals/decide", async (c) => {
     const body = (await c.req.json()) as {
@@ -3805,7 +4831,10 @@ export async function createOpenScoutWebServer(
       currentDirectory,
     );
     shellStateCache.invalidate();
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/operator-attention/dismiss", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -3814,7 +4843,9 @@ export async function createOpenScoutWebServer(
       flightId?: unknown;
       itemUpdatedAt?: unknown;
     };
-    const recordKind = body.recordKind === "work_item" ? body.recordKind : null;
+    const recordKind = body.recordKind === "work_item" || body.recordKind === "question"
+      ? body.recordKind
+      : null;
     const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
     const flightId = typeof body.flightId === "string" ? body.flightId.trim() : "";
     const itemUpdatedAt = typeof body.itemUpdatedAt === "number" && Number.isFinite(body.itemUpdatedAt)
@@ -3828,7 +4859,10 @@ export async function createOpenScoutWebServer(
     } else if (recordKind && recordId) {
       await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });
     }
-    return c.json(await buildOperatorAttentionState(currentDirectory));
+    return c.json(await buildOperatorAttentionState(
+      currentDirectory,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    ));
   });
   app.post("/api/pairing/control", async (c) => {
     const { action } = (await c.req.json()) as {
@@ -3858,7 +4892,20 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/runner/options", async (c) =>
+    c.json(await buildHudRunnerOptions(currentDirectory)),
+  );
+  app.get("/api/agents", async (c) => {
+    const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
+    const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
+    const summary = c.req.query("detail") === "summary";
+    const agents = await queryAgentsIncludingBrokerCards(
+      limit,
+      !summary,
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
+    return c.json(summary ? agents.map(agentListSummary) : agents);
+  });
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
@@ -3951,11 +4998,17 @@ export async function createOpenScoutWebServer(
     });
   });
   app.get("/api/agents/:id", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   app.get("/api/agents/:id/definitions", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const agent = await queryAgentIncludingBrokerCard(
+      c.req.param("id"),
+      options.captureTmuxPane ?? defaultCaptureTmuxPane,
+    );
     if (!agent) {
       return c.json({ error: "agent not found" }, 404);
     }
@@ -4026,9 +5079,17 @@ export async function createOpenScoutWebServer(
     // Execution preferences fall back to the resolved agent so "same agent"
     // keeps its harness/model.
     const session = normalizeExecutionSession(body.execution?.session);
-    const harness =
-      coerceAgentHarness(body.execution?.harness) ??
-      coerceAgentHarness(agent?.harness);
+    const requestedHarness = coerceAgentHarness(body.execution?.harness);
+    const agentHarness = coerceAgentHarness(agent?.harness);
+    const harness = requestedHarness ?? agentHarness;
+    const routeTargetAgentId = targetAgentId
+      && (
+        !projectPath
+        || !requestedHarness
+        || (agentHarness ? requestedHarness === agentHarness : false)
+      )
+      ? targetAgentId
+      : undefined;
     const model =
       optionalString(body.execution?.model)?.trim() ||
       agent?.model?.trim() ||
@@ -4062,8 +5123,8 @@ export async function createOpenScoutWebServer(
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
     let agentHandle =
       optionalString(body.agent?.handle)?.trim()
-      || (targetAgentId ? agent?.name?.trim() : undefined);
-    if (!targetAgentId && !agentHandle) {
+      || (routeTargetAgentId ? agent?.name?.trim() : undefined);
+    if (!routeTargetAgentId && !agentHandle) {
       const broker = await loadScoutBrokerContext().catch(() => null);
       const occupied = broker
         ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
@@ -4082,6 +5143,15 @@ export async function createOpenScoutWebServer(
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
+    if ((fromMessageId && !fromConversationId) || (fromConversationId && !fromMessageId)) {
+      return c.json(
+        { error: "seed.fromMessageId and seed.fromConversationId must be provided together" },
+        400,
+      );
+    }
+    if (fromConversationId && !isOpaqueChannelId(fromConversationId)) {
+      return c.json({ error: "seed.fromConversationId must be an opaque chat id" }, 400);
+    }
     const seedAttachments = Array.isArray(body.seed?.attachments)
       ? body.seed.attachments
       : undefined;
@@ -4092,9 +5162,9 @@ export async function createOpenScoutWebServer(
       ...(projectPath
         ? {
             target: { kind: "project_path", projectPath },
-            ...(targetAgentId ? { targetAgentId } : {}),
+            ...(routeTargetAgentId ? { targetAgentId: routeTargetAgentId } : {}),
           }
-        : { targetLabel: targetAgentId!, targetAgentId: targetAgentId! }),
+        : { targetLabel: routeTargetAgentId!, targetAgentId: routeTargetAgentId! }),
       body: instructions && instructions.length > 0 ? instructions : "New session started.",
       ...(harness ? { executionHarness: harness } : {}),
       ...(model ? { executionModel: model } : {}),
@@ -4118,7 +5188,8 @@ export async function createOpenScoutWebServer(
     if (result.unresolvedTarget) {
       console.warn("[openscout-web] api.sessions.unresolved", JSON.stringify({
         target: result.unresolvedTarget,
-        targetAgentId: targetAgentId ?? null,
+        targetAgentId: routeTargetAgentId ?? null,
+        requestedAgentId: targetAgentId ?? null,
         projectPath: projectPath ?? null,
         harness: harness ?? null,
         model: model ?? null,
@@ -4134,12 +5205,32 @@ export async function createOpenScoutWebServer(
       );
     }
 
+    // Session work already launched above. Anchoring is metadata-only and must
+    // never turn a successful launch into a client retry (duplicate sessions).
+    let anchoredConversation: ConversationDefinition | null = null;
+    let anchorError: string | null = null;
+    if (result.conversationId && fromConversationId && fromMessageId) {
+      try {
+        anchoredConversation = await anchorConversationToMessage({
+          conversationId: result.conversationId,
+          parentConversationId: fromConversationId,
+          anchorMessageId: fromMessageId,
+        });
+        if (!anchoredConversation) {
+          anchorError = "could not anchor session conversation";
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        anchorError = `could not anchor session conversation: ${message}`;
+      }
+    }
+
     return c.json({
       ok: true,
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
-      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? targetAgentId ?? null,
+      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? routeTargetAgentId ?? targetAgentId ?? null,
       sessionId: result.targetSessionId ?? null,
       handle: agentHandle ?? null,
       provenance:
@@ -4150,6 +5241,8 @@ export async function createOpenScoutWebServer(
               branchFrom: branchFrom ?? null,
             }
           : null,
+      anchoredConversationId: anchoredConversation?.id ?? null,
+      ...(anchorError ? { anchorError } : {}),
     });
   });
   app.get("/api/observe/agents", async (c) => {
@@ -4356,17 +5449,34 @@ export async function createOpenScoutWebServer(
     if (localSnapshot) return c.json(localSnapshot);
     return c.json({ error: "broker topology unavailable" }, 502);
   });
-  app.get("/api/broker", (c) =>
-    c.json(
-      queryBrokerDiagnostics({
-        limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
-        windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
-        cursor: c.req.query("cursor") ?? null,
-        scopeRowsToWindow: c.req.query("scopeRowsToWindow") === "1"
-          || c.req.query("scopeRowsToWindow") === "true",
-      }),
-    ),
-  );
+  app.get("/api/broker", async (c) => {
+    const cursor = c.req.query("cursor") ?? null;
+    const diagnostics = queryBrokerDiagnostics({
+      limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
+      windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
+      cursor,
+      scopeRowsToWindow: c.req.query("scopeRowsToWindow") === "1"
+        || c.req.query("scopeRowsToWindow") === "true",
+    });
+    let broker = await dispatchBrokerSnapshotCache.get().catch(() => null);
+    if (broker && brokerDiagnosticsNeedsFullSnapshot(diagnostics, broker)) {
+      const completeSnapshot = await dispatchFullBrokerSnapshotCache.get().catch(() => null);
+      broker = completeSnapshot
+        ? {
+            actors: completeSnapshot.actors,
+            messages: completeSnapshot.messages,
+            totalMessageCount: broker.totalMessageCount,
+            projectionStatus: broker.projectionStatus,
+            messageCoverageIncomplete: false,
+          }
+        : { ...broker, messageCoverageIncomplete: true };
+    }
+    return c.json(
+      broker
+        ? mergeBrokerDiagnosticsWithLiveSnapshot(diagnostics, broker, cursor)
+        : markBrokerDiagnosticsLiveUnavailable(diagnostics),
+    );
+  });
   app.post("/api/broker/dispatch-review", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       attemptId?: string;
@@ -4475,7 +5585,7 @@ export async function createOpenScoutWebServer(
       }),
     ),
   );
-  app.get("/api/messages", (c) => {
+  app.get("/api/messages", async (c) => {
     const cId = c.req.query("chatId")
       || c.req.query("cId")
       || c.req.query("conversationId")
@@ -4483,8 +5593,12 @@ export async function createOpenScoutWebServer(
     if (cId && !isOpaqueChannelId(cId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const messages = queryRecentMessages(
-      parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80,
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 80) ?? 80;
+    const brokerMessages = cId
+      ? await getScoutConversationMessages(cId, limit)
+      : null;
+    const messages = brokerMessages ?? queryRecentMessages(
+      limit,
       { conversationId: cId },
     );
     return c.json(messages.map((message) => ({
@@ -4763,6 +5877,49 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  app.post("/api/conversations/:id/threads", async (c) => {
+    const parentConversationId = c.req.param("id");
+    if (!isOpaqueChannelId(parentConversationId)) {
+      return c.json({ error: "chatId must be an opaque chat id" }, 400);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      messageId?: unknown;
+      anchorMessageId?: unknown;
+      title?: unknown;
+    };
+    const anchorMessageId =
+      optionalString(body.messageId)?.trim()
+      ?? optionalString(body.anchorMessageId)?.trim();
+    if (!anchorMessageId) {
+      return c.json({ error: "messageId is required" }, 400);
+    }
+
+    try {
+      const result = await createAnchoredThreadConversation({
+        parentConversationId,
+        anchorMessageId,
+        title: optionalString(body.title),
+      });
+      const conversationId = result.conversation.id;
+      return c.json({
+        ok: true,
+        id: conversationId,
+        chatId: conversationId,
+        cId: conversationId,
+        conversationId,
+        parentConversationId,
+        anchorMessageId,
+        existed: result.existed,
+        conversation: result.conversation,
+        session: querySessionById(conversationId),
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const status = /not supported|not in conversation|not available|required/i.test(message) ? 400 : 502;
+      return c.json({ error: message }, status as 400 | 502);
+    }
+  });
+
   app.get("/api/conversations/:id/read-cursors", async (c) => {
     const conversationId = c.req.param("id");
     if (!isOpaqueChannelId(conversationId)) {
@@ -4928,14 +6085,15 @@ export async function createOpenScoutWebServer(
   });
   app.get("/api/session/:id", async (c) => {
     const chatId = c.req.param("id");
-    if (!isOpaqueChannelId(chatId)) {
+    const resolvedChatId = await resolveSessionRequestConversationId(chatId);
+    if (!resolvedChatId) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const session = querySessionById(chatId);
+    const session = querySessionById(resolvedChatId);
     if (session) {
       return c.json(session);
     }
-    const conversation = await getScoutConversationById(chatId);
+    const conversation = await getScoutConversationById(resolvedChatId);
     return conversation ? c.json(conversation) : c.json({ error: "not found" }, 404);
   });
   app.get("/api/mesh", async (c) => {
@@ -5021,7 +6179,11 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/onboarding/state", async (c) => {
-    return c.json(await loadOpenScoutOnboardingState({ currentDirectory }));
+    return c.json(await ensureOpenScoutOnboardingCompletion({ currentDirectory }));
+  });
+
+  app.post("/api/onboarding/restart", async (c) => {
+    return c.json(await restartOpenScoutOnboarding({ currentDirectory }));
   });
 
   app.delete("/api/onboarding/state", (c) => {
@@ -5076,6 +6238,15 @@ export async function createOpenScoutWebServer(
       .map((entry) => entry?.trim())
       .filter((entry): entry is string => Boolean(entry && entry.length > 0));
     const harness = body.defaultHarness === "codex" ? "codex" : "claude";
+
+    // Reject folders that do not exist before we save — otherwise a typo'd
+    // root gets silently `mkdir -p`'d by downstream setup.
+    for (const candidate of [contextRoot, ...sourceRoots]) {
+      const expanded = resolve(expandHomePath(candidate));
+      if (!existsSync(expanded)) {
+        return c.json({ error: `That folder doesn't exist: ${expanded}` }, 400);
+      }
+    }
 
     try {
       await saveOpenScoutOnboardingProject({
@@ -5443,8 +6614,202 @@ export async function createOpenScoutWebServer(
     return new Response(Bun.file(entry.path), { headers });
   });
 
+  type ChatMessageDispatchInput = {
+    chatId: string;
+    body: string;
+    attachments?: OutgoingAttachmentInput[];
+    replyToMessageId?: string;
+    /** Compatibility-only overrides accepted by the transitional /api/send route. */
+    requestedSendMode?: string;
+    targetParticipantIds?: string[];
+    execution?: {
+      harness?: unknown;
+      model?: unknown;
+    };
+  };
+  type ChatMessageDispatchOutcome =
+    | { ok: true; result: Record<string, unknown> }
+    | { ok: false; status: 404 | 502; error: string };
+
+  const dispatchOperatorChatMessage = async (
+    input: ChatMessageDispatchInput,
+  ): Promise<ChatMessageDispatchOutcome> => {
+    const routeSession = querySessionById(input.chatId);
+    if (!routeSession) {
+      return { ok: false, status: 404, error: "chat not found" };
+    }
+
+    const semanticSession = semanticSessionForChat(input.chatId, routeSession);
+    const { conversationId: routedConversationId, senderId } =
+      resolveConversationRouting(input.chatId);
+    if (!routedConversationId) {
+      return { ok: false, status: 404, error: "chat not found" };
+    }
+
+    const isOperatorDirectConversation =
+      semanticSession.kind === "direct" && sessionIncludesOperatorParticipant(semanticSession);
+    const isSharedChat =
+      routeSession.kind === "channel"
+      || routeSession.kind === "group_direct"
+      || (routeSession.kind === "thread" && !isOperatorDirectConversation);
+    const scopedTargetParticipantIds = Array.isArray(input.targetParticipantIds)
+      ? [...new Set(
+          input.targetParticipantIds
+            .filter((targetId): targetId is string => typeof targetId === "string")
+            .map((targetId) => targetId.trim())
+            .filter(Boolean),
+        )]
+      : undefined;
+    const requestedSendMode = input.requestedSendMode?.trim();
+    const selectors = extractAgentSelectors(input.body);
+    const selectorTargetAgentIds = resolveSendSelectorTargetAgentIds(
+      selectors,
+      routeSession.participantIds,
+    );
+    const hasExplicitTarget =
+      Boolean(scopedTargetParticipantIds?.length)
+      || selectors.length > 0;
+    const shouldInspectActiveRuns =
+      requestedSendMode?.toLowerCase() === "steer"
+      || (!requestedSendMode && (isOperatorDirectConversation || hasExplicitTarget));
+    const activeRuns = shouldInspectActiveRuns
+      ? queryRuns({
+          conversationId: routedConversationId,
+          active: true,
+          limit: 100,
+        })
+      : [];
+    const resolvedTargetIds = new Set([
+      ...(scopedTargetParticipantIds ?? []),
+      ...selectorTargetAgentIds,
+    ]);
+    const matchedActiveRuns = hasExplicitTarget
+      ? activeRuns.filter((run) => resolvedTargetIds.has(run.agentId))
+      : activeRuns;
+    const hasActiveRun = matchedActiveRuns.length > 0;
+    const steerContext = steerContextByTargetAgentId(matchedActiveRuns);
+    const sendMode = (requestedSendMode
+      || defaultSendModeForConversationSession({
+        session: semanticSession,
+        hasExplicitTarget,
+        hasActiveRun,
+      })).toLowerCase();
+    const shouldCommentOnly =
+      sendMode === "comment"
+      || sendMode === "message"
+      || (sendMode === "tell" && !isOperatorDirectConversation);
+    const executionHarness = coerceAgentHarness(input.execution?.harness);
+    const executionModel = optionalString(input.execution?.model)?.trim();
+    const requestedExecution = executionHarness || executionModel
+      ? {
+          ...(executionHarness ? { harness: executionHarness } : {}),
+          ...(executionModel ? { model: executionModel } : {}),
+        }
+      : undefined;
+    const result = shouldCommentOnly
+      ? await sendScoutConversationMessage({
+          conversationId: routedConversationId,
+          senderId,
+          body: input.body,
+          attachments: input.attachments,
+          replyToMessageId: input.replyToMessageId,
+          // Shared Chat membership is broker-owned. A passive post creates
+          // durable visibility deliveries without creating requested work.
+          notifyParticipantAgents: isSharedChat,
+          currentDirectory,
+          source: "scout-web",
+        })
+      : await sendScoutConversationSteer({
+          conversationId: routedConversationId,
+          senderId,
+          body: input.body,
+          attachments: input.attachments,
+          replyToMessageId: input.replyToMessageId,
+          ...(scopedTargetParticipantIds?.length
+            ? { targetParticipantIds: scopedTargetParticipantIds }
+            : {}),
+          intent: sendMode === "tell"
+            ? "tell"
+            : sendMode === "invoke"
+              ? "invoke"
+              : "steer",
+          ...(sendMode === "steer" && steerContext
+            ? { steerContextByTargetAgentId: steerContext }
+            : {}),
+          ...(requestedExecution ? { execution: requestedExecution } : {}),
+          currentDirectory,
+          source: "scout-web",
+        });
+    if (!result.usedBroker) {
+      return { ok: false, status: 502, error: "broker unreachable" };
+    }
+    const flights = result.flights?.length
+      ? result.flights
+      : result.flight
+        ? [result.flight]
+        : [];
+    return {
+      ok: true,
+      result: {
+        ...result,
+        conversationId: routedConversationId,
+        chatId: routedConversationId,
+        runIds: flights.map((flight) => `run:flight:${flight.id}`),
+      },
+    };
+  };
+
+  // The web composer speaks in Chat terms only.  Delivery policy, requested
+  // work, and thread placement are server-owned consequences of that Chat and
+  // an optional reply anchor; callers do not send routing modes or recipient
+  // lists.  `/api/send` remains below as the compatibility surface for older
+  // clients and automation.
+  app.post("/api/chats/:chatId/messages", async (c) => {
+    const chatId = c.req.param("chatId");
+    if (!isOpaqueChannelId(chatId)) {
+      return c.json({ error: "chatId must be an opaque chat id" }, 400);
+    }
+
+    const requestBody = (await c.req.json().catch(() => ({}))) as {
+      body?: unknown;
+      attachments?: unknown;
+      replyToMessageId?: unknown;
+    };
+    const body = optionalString(requestBody.body) ?? "";
+    if (requestBody.attachments !== undefined && !Array.isArray(requestBody.attachments)) {
+      return c.json({ error: "attachments must be an array" }, 400);
+    }
+    const attachments = requestBody.attachments as OutgoingAttachmentInput[] | undefined;
+    if (!body.trim() && !attachments?.length) {
+      return c.json({ error: "body or attachments are required" }, 400);
+    }
+    const hasReplyAnchor = requestBody.replyToMessageId !== undefined
+      && requestBody.replyToMessageId !== null;
+    const replyToMessageId = hasReplyAnchor
+      ? optionalString(requestBody.replyToMessageId)?.trim()
+      : undefined;
+    if (hasReplyAnchor && !replyToMessageId) {
+      return c.json({ error: "replyToMessageId must be a non-empty string" }, 400);
+    }
+
+    const outcome = await dispatchOperatorChatMessage({
+      chatId,
+      body: body.trim(),
+      ...(attachments?.length ? { attachments } : {}),
+      ...(replyToMessageId ? { replyToMessageId } : {}),
+    });
+    if (!outcome.ok) {
+      return c.json({ error: outcome.error }, outcome.status);
+    }
+
+    return c.json({
+      ...outcome.result,
+      placement: resolveChatMessagePlacement(chatId, replyToMessageId),
+    });
+  });
+
   app.post("/api/send", async (c) => {
-    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds } = (await c.req.json()) as {
+    const { body, chatId, cId, conversationId, threadId, attachments, intent, mode, targetParticipantIds, replyToMessageId, execution } = (await c.req.json()) as {
       body: string;
       chatId?: string;
       cId?: string;
@@ -5454,27 +6819,49 @@ export async function createOpenScoutWebServer(
       intent?: string;
       mode?: string;
       targetParticipantIds?: string[];
+      replyToMessageId?: unknown;
+      execution?: {
+        harness?: unknown;
+        model?: unknown;
+      };
     };
     const messageBody = body?.trim() ?? "";
     if (!messageBody && !attachments?.length) {
       return c.json({ error: "body or attachments are required" }, 400);
+    }
+    const hasReplyToMessageId = replyToMessageId !== undefined && replyToMessageId !== null;
+    const routedReplyToMessageId = hasReplyToMessageId ? optionalString(replyToMessageId)?.trim() : undefined;
+    if (hasReplyToMessageId && !routedReplyToMessageId) {
+      return c.json({ error: "replyToMessageId must be a non-empty string" }, 400);
     }
 
     const routeCId = optionalString(chatId) ?? optionalString(cId) ?? optionalString(conversationId);
     if (routeCId && !isOpaqueChannelId(routeCId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    const routeSession = routeCId ? querySessionById(routeCId) : null;
-    if (routeCId && !routeSession) {
-      return c.json({ error: "chat not found" }, 404);
+    if (routeCId) {
+      const outcome = await dispatchOperatorChatMessage({
+        chatId: routeCId,
+        body: messageBody,
+        attachments,
+        replyToMessageId: routedReplyToMessageId,
+        requestedSendMode: optionalString(intent)?.trim() || optionalString(mode)?.trim(),
+        targetParticipantIds,
+        execution,
+      });
+      if (!outcome.ok) {
+        return c.json({ error: outcome.error }, outcome.status);
+      }
+      return c.json(outcome.result);
     }
 
-    if (!routeCId && scoutbotRunner) {
+    if (scoutbotRunner) {
       try {
         const result = await scoutbotRunner.postOperatorMessage({
           body: messageBody,
           threadId,
           attachments,
+          replyToMessageId: routedReplyToMessageId,
         });
         if (!result.usedBroker) {
           return c.json({ error: "broker unreachable" }, 502);
@@ -5486,8 +6873,7 @@ export async function createOpenScoutWebServer(
       }
     }
 
-    const { directAgentId, channel, conversationId: routedConversationId, senderId } =
-      resolveConversationRouting(routeCId);
+    const { directAgentId, channel, senderId } = resolveConversationRouting(undefined);
 
     if (directAgentId) {
       if (directAgentId === SCOUTBOT_AGENT_ID && scoutbotRunner) {
@@ -5496,6 +6882,7 @@ export async function createOpenScoutWebServer(
             body: messageBody,
             threadId,
             attachments,
+            replyToMessageId: routedReplyToMessageId,
           });
           if (!result.usedBroker) {
             return c.json({ error: "broker unreachable" }, 502);
@@ -5510,48 +6897,16 @@ export async function createOpenScoutWebServer(
       const result = await sendScoutDirectMessage({
         agentId: directAgentId,
         body: messageBody,
+        attachments,
+        replyToMessageId: routedReplyToMessageId,
         currentDirectory,
         source: "scout-web",
       });
-      return c.json(result);
-    }
-
-    if (routedConversationId) {
-      const sendMode = (optionalString(intent)?.trim()
-        || optionalString(mode)?.trim()
-        || defaultSendModeForConversationSession(routeSession)).toLowerCase();
-      const isOperatorDirectConversation =
-        routeSession?.kind === "direct" && sessionIncludesOperatorParticipant(routeSession);
-      const shouldCommentOnly =
-        sendMode === "comment"
-        || !messageBody
-        || (sendMode === "tell" && !isOperatorDirectConversation);
-      const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
-        ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
-        : undefined;
-      const result = shouldCommentOnly
-        ? await sendScoutConversationMessage({
-            conversationId: routedConversationId,
-            senderId,
-            body: messageBody,
-            attachments,
-            currentDirectory,
-            source: "scout-web",
-          })
-        : await sendScoutConversationSteer({
-            conversationId: routedConversationId,
-            senderId,
-            body: messageBody,
-            attachments,
-            ...(scopedTargetParticipantIds?.length ? { targetParticipantIds: scopedTargetParticipantIds } : {}),
-            intent: sendMode === "tell" ? "tell" : "steer",
-            currentDirectory,
-            source: "scout-web",
-          });
-      if (!result.usedBroker) {
-        return c.json({ error: "broker unreachable" }, 502);
-      }
-      return c.json(result);
+      return c.json({
+        ...result,
+        chatId: result.conversationId,
+        runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+      });
     }
 
     const result = await sendScoutMessage({
@@ -5566,7 +6921,11 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "broker unreachable" }, 502);
     }
 
-    return c.json(result);
+    return c.json({
+      ...result,
+      ...(result.conversationId ? { chatId: result.conversationId } : {}),
+      runIds: result.flight ? [`run:flight:${result.flight.id}`] : [],
+    });
   });
 
   app.post("/api/ask", async (c) => {
@@ -5789,6 +7148,23 @@ export async function createOpenScoutWebServer(
     }
   });
 
+  app.post("/api/scout-services/restart-link", async (c) => {
+    let target = parseScoutServicesRestartTarget(c.req.query("target"));
+    if (!target) {
+      try {
+        const body = await c.req.json<{ target?: string }>();
+        target = parseScoutServicesRestartTarget(body.target);
+      } catch {
+        // Body is optional; query-string target is enough.
+      }
+    }
+
+    if (!target) {
+      return c.json({ error: "unsupported Scout Services restart target" }, 400);
+    }
+
+    return c.json(createSignedScoutServicesRestartUrl(target));
+  });
 
   app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;

@@ -4,7 +4,9 @@ export type ScoutbotReasoningEffort =
   | "low"
   | "medium"
   | "high"
-  | "xhigh";
+  | "xhigh"
+  | "max"
+  | "ultra";
 
 export type ScoutbotDirectiveAction =
   | "help"
@@ -57,7 +59,8 @@ const EFFORT_ALIASES: Record<string, ScoutbotReasoningEffort> = {
   high: "high",
   deep: "high",
   xhigh: "xhigh",
-  max: "xhigh",
+  max: "max",
+  ultra: "ultra",
 };
 
 const EFFORT_KEYS = new Set(["eff", "effort", "reasoning", "reasoning-effort", "reasoning_effort"]);

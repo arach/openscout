@@ -22,6 +22,7 @@ export type MicStatus = {
   state: MicSessionState;
   partial: string;
   message: string | null;
+  tone: "neutral" | "recording" | "processing" | "error";
 };
 
 function sessionStateFromVoice(state: ScoutVoiceSessionState): MicSessionState {
@@ -91,6 +92,13 @@ export function DictationMic({
       state,
       partial,
       message: statusMessageForState(state, partial, message),
+      tone: message
+        ? "error"
+        : state === "recording"
+          ? "recording"
+          : state === "processing"
+            ? "processing"
+            : "neutral",
     });
   }, [onStatus]);
 

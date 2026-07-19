@@ -17,8 +17,19 @@ public struct ScoutCommsClient: Sendable {
         return try await fetchWithFallback([ScoutChannel].self, primary: commsURL, fallback: fallbackURL)
     }
 
-    public func fetchAgents() async throws -> [ScoutAgent] {
-        try await ScoutHTTP.fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
+    public func fetchAgents(limit: Int? = nil, summary: Bool = false) async throws -> [ScoutAgent] {
+        var url = ScoutWeb.baseURL().appending(path: "api/agents")
+        var queryItems: [URLQueryItem] = []
+        if let limit, limit > 0 {
+            queryItems.append(URLQueryItem(name: "limit", value: "\(limit)"))
+        }
+        if summary {
+            queryItems.append(URLQueryItem(name: "detail", value: "summary"))
+        }
+        if !queryItems.isEmpty {
+            url = url.appending(queryItems: queryItems)
+        }
+        return try await ScoutHTTP.fetch([ScoutAgent].self, from: url)
     }
 
     public func fetchMessages(cId: String, limit: Int) async throws -> [ScoutMessage] {
@@ -41,17 +52,22 @@ public struct ScoutCommsClient: Sendable {
         )
     }
 
-    public func send(body: String, cId: String) async throws {
+    public func send(body: String, cId: String, replyToMessageId: String? = nil) async throws {
         let url = ScoutWeb.baseURL().appending(path: "api/send")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        var payload: [String: Any] = [
             "body": body,
             "chatId": cId,
             "cId": cId,
             "conversationId": cId,
-        ])
+        ]
+        if let replyToMessageId = replyToMessageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !replyToMessageId.isEmpty {
+            payload["replyToMessageId"] = replyToMessageId
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         try await ScoutHTTP.send(request)
     }
 

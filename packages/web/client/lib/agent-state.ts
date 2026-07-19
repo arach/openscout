@@ -1,7 +1,7 @@
 import type { Agent } from "./types.ts";
 
 /** User-facing agent posture: callable by default; busy states only when work is moving. */
-export type AgentDisplayState = "callable" | "in_flight" | "in_turn" | "blocked";
+export type AgentDisplayState = "callable" | "in_flight" | "in_turn" | "needs_attention" | "blocked";
 
 /** CSS / sprite tone bucket — keeps existing available/offline/working styling hooks. */
 export type AgentVisualState = "offline" | "available" | "working";
@@ -20,6 +20,7 @@ const BLOCKED_STATE_VALUES = new Set([
 
 const IN_TURN_STATE_VALUES = new Set(["working", "active", "running", "in_turn"]);
 const IN_FLIGHT_STATE_VALUES = new Set(["in_flight", "queued", "waking", "dispatching"]);
+const NEEDS_ATTENTION_STATE_VALUES = new Set(["needs_attention", "needs-attention"]);
 
 export function isAgentBlocked(agent: AgentStateInput): boolean {
   return Boolean(agent?.retiredFromFleet || agent?.staleLocalRegistration);
@@ -43,6 +44,9 @@ export function normalizeAgentState(
   if (IN_FLIGHT_STATE_VALUES.has(value)) {
     return "in_flight";
   }
+  if (NEEDS_ATTENTION_STATE_VALUES.has(value)) {
+    return "needs_attention";
+  }
   if (BLOCKED_STATE_VALUES.has(value)) {
     return "blocked";
   }
@@ -55,6 +59,8 @@ export function agentStateCssToken(state: string | null, agent?: AgentStateInput
   switch (normalizeAgentState(state, agent)) {
     case "in_turn":
     case "in_flight":
+      return "working";
+    case "needs_attention":
       return "working";
     case "callable":
       return "available";
@@ -90,6 +96,8 @@ export function agentStateLabel(state: string | null, agent?: AgentStateInput): 
       return "In turn";
     case "in_flight":
       return "In flight";
+    case "needs_attention":
+      return "Needs attention";
     case "callable":
       return "Callable";
     case "blocked":
@@ -100,14 +108,16 @@ export function agentStateLabel(state: string | null, agent?: AgentStateInput): 
 /** Sort rank for fleet lists — busy agents bubble up; blocked sink. */
 export function agentStateRank(state: string | null, agent?: AgentStateInput): number {
   switch (normalizeAgentState(state, agent)) {
-    case "in_turn":
+    case "needs_attention":
       return 0;
-    case "in_flight":
+    case "in_turn":
       return 1;
-    case "callable":
+    case "in_flight":
       return 2;
-    case "blocked":
+    case "callable":
       return 3;
+    case "blocked":
+      return 4;
   }
 }
 

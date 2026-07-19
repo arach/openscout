@@ -108,6 +108,10 @@ struct ScoutToneTokens {
 enum ScoutSurface {
     static var inset: Color { ScoutTone.stored.tokens.inset }
     static var raised: Color { ScoutTone.stored.tokens.raised }
+    /// A lifted card fill — the tone's lightest step, so stat bars, the ask dock,
+    /// and the horizontal cards read as raised panels off the canvas (an off-white
+    /// in light mode) rather than dissolving into it.
+    static var card: Color { ScoutTone.stored.tokens.cardTop }
 }
 
 struct ScoutCanvas: View {
@@ -180,6 +184,32 @@ enum ScoutInk {
     static let dim   = Color(red: 150.0/255, green: 150.0/255, blue: 150.0/255)
 }
 
+// MARK: - Canvas vibe (Scout Mobile)
+
+/// The brighter "Scout Mobile" canvas accents used by the Home fleet dashboard —
+/// a lime signal and more luminous status hues that pop against the dark canvas,
+/// for a higher-contrast, more energetic read than the app's default emerald set.
+enum ScoutVibe {
+    /// Lime accent (#9ce86b) — the canvas signature, brighter than emerald.
+    static let accent = Color(red: 156.0/255, green: 232.0/255, blue: 107.0/255)
+    /// Warm amber (#f2b34d) — permission / confirm.
+    static let amber  = Color(red: 242.0/255, green: 179.0/255, blue: 77.0/255)
+    /// Coral red (#f2725b) — blocked / Claude runtime.
+    static let red    = Color(red: 242.0/255, green: 114.0/255, blue: 91.0/255)
+    /// Sky blue (#7cc4f2) — decision / Gemini runtime.
+    static let blue   = Color(red: 124.0/255, green: 196.0/255, blue: 242.0/255)
+    /// Bright primary ink (#eef0f2) for card titles — a touch brighter than the
+    /// app default for extra contrast on the dark surfaces.
+    static let ink    = Color(red: 238.0/255, green: 240.0/255, blue: 242.0/255)
+    /// A crisper hairline than the neutral default, so cards read as defined
+    /// panels against the (warm) canvas rather than dissolving into it.
+    static let hairline = Color(red: 58.0/255, green: 58.0/255, blue: 62.0/255)
+    /// A lifted card fill that is deliberately NEUTRAL grey (a hair cool), not
+    /// warmed by the canvas tone — the tone's `cardTop` reads brownish on the
+    /// dashboard, so Home's cards use this clean grey instead.
+    static let card = Color(red: 34.0/255, green: 34.0/255, blue: 37.0/255)
+}
+
 // MARK: - Card depth
 
 extension View {
@@ -219,5 +249,140 @@ private struct ScoutCardDepth: ViewModifier {
             )
             .clipShape(shape)
             .shadow(color: Color.black.opacity(0.33), radius: 9, y: 3)
+    }
+}
+
+// MARK: - Signal frame
+
+/// A restrained instrument-panel treatment for structural surfaces. Signal
+/// panels intentionally sit on a neutral graphite plane even when the surrounding
+/// Scout canvas is warm or cool: the content reads as instrumentation, not as a
+/// conventional raised card. The accent is supplied by real state and only
+/// reaches the registration marks / datum line; it never washes the whole panel.
+extension View {
+    func signalPanel(accent: Color? = nil, cut: CGFloat = 6) -> some View {
+        modifier(SignalPanelDepth(accent: accent, cut: cut))
+    }
+}
+
+/// Home's Signal grammar is deliberately narrower than the general Scout tone
+/// system. These solid graphite tokens keep its structural hairlines crisp and
+/// prevent a warm canvas from turning operational panels brown.
+enum ScoutSignalSurface {
+    static let top = Color(red: 19.0/255, green: 21.0/255, blue: 22.0/255)
+    static let bottom = Color(red: 11.0/255, green: 13.0/255, blue: 14.0/255)
+    static let edge = Color(red: 58.0/255, green: 62.0/255, blue: 63.0/255)
+    static let rule = Color(red: 42.0/255, green: 46.0/255, blue: 47.0/255)
+    static let neutralSignal = Color(red: 118.0/255, green: 124.0/255, blue: 125.0/255)
+}
+
+struct SignalPanelShape: InsettableShape {
+    var cut: CGFloat = 6
+    var insetAmount: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: insetAmount, dy: insetAmount)
+        let c = min(cut, min(r.width, r.height) / 3)
+        var path = Path()
+        path.move(to: CGPoint(x: r.minX + c, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.minY + c))
+        path.addLine(to: CGPoint(x: r.maxX, y: r.maxY - c))
+        path.addLine(to: CGPoint(x: r.maxX - c, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + c, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX, y: r.maxY - c))
+        path.addLine(to: CGPoint(x: r.minX, y: r.minY + c))
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> SignalPanelShape {
+        var copy = self
+        copy.insetAmount += amount
+        return copy
+    }
+}
+
+private struct SignalPanelDepth: ViewModifier {
+    let accent: Color?
+    let cut: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = SignalPanelShape(cut: cut)
+        let markTint = accent ?? ScoutSignalSurface.neutralSignal
+        return content
+            .background(
+                shape.fill(
+                    LinearGradient(
+                        colors: [ScoutSignalSurface.top, ScoutSignalSurface.bottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            )
+            .overlay(
+                shape.strokeBorder(ScoutSignalSurface.edge, lineWidth: HudStrokeWidth.thin)
+            )
+            .overlay {
+                SignalRegistrationMarks(tint: markTint)
+            }
+            .overlay(alignment: .topLeading) {
+                // One short datum is enough to carry state into the frame. The
+                // rest stays neutral so green / amber remain meaningful signals.
+                Rectangle()
+                    .fill(markTint)
+                    .frame(width: accent == nil ? 18 : 30, height: HudStrokeWidth.thin)
+                    .padding(.leading, 15)
+            }
+            .clipShape(shape)
+            .shadow(color: Color.black.opacity(0.24), radius: 4, y: 2)
+    }
+}
+
+private struct SignalRegistrationMarks: View {
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            SignalCornerMark(corner: .topLeading).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .topTrailing).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .bottomLeading).stroke(tint, lineWidth: 1)
+            SignalCornerMark(corner: .bottomTrailing).stroke(tint, lineWidth: 1)
+        }
+        .opacity(0.82)
+        .allowsHitTesting(false)
+    }
+}
+
+private enum SignalCorner {
+    case topLeading, topTrailing, bottomLeading, bottomTrailing
+}
+
+private struct SignalCornerMark: Shape {
+    let corner: SignalCorner
+
+    func path(in rect: CGRect) -> Path {
+        let inset: CGFloat = 4
+        let length: CGFloat = 9
+        var path = Path()
+        switch corner {
+        case .topLeading:
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset + length))
+            path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.minX + inset + length, y: rect.minY + inset))
+        case .topTrailing:
+            path.move(to: CGPoint(x: rect.maxX - inset - length, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.minY + inset + length))
+        case .bottomLeading:
+            path.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset - length))
+            path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.minX + inset + length, y: rect.maxY - inset))
+        case .bottomTrailing:
+            path.move(to: CGPoint(x: rect.maxX - inset - length, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset))
+            path.addLine(to: CGPoint(x: rect.maxX - inset, y: rect.maxY - inset - length))
+        }
+        return path
     }
 }

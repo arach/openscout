@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import {
   ArrowUpRight,
   Bell,
@@ -9,7 +8,7 @@ import {
   Shield,
   Speech,
 } from "lucide-react";
-import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — OpenScout",
@@ -75,23 +74,8 @@ const appPractices = [
 
 export default function PrivacyPage() {
   return (
-    <div className="site-docs min-h-screen bg-[var(--site-docs-bg)] text-[var(--site-ink)]">
-      <header className="border-b border-[var(--site-border-soft)] bg-[var(--site-docs-bg-strong)] backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-3">
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-              Scout
-            </span>
-          </Link>
-          <div className="flex items-center gap-5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
-            <Link href="/docs" className="transition-colors hover:text-[var(--site-ink)]">
-              Docs
-            </Link>
-            <span className="text-[var(--site-ink)]">Privacy</span>
-            <SiteThemeToggle />
-          </div>
-        </div>
-      </header>
+    <div className="site-docs min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
+      <SiteHeader active="privacy" />
 
       <main className="mx-auto max-w-5xl px-6 pb-20 pt-16">
         <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">

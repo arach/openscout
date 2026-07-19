@@ -102,7 +102,7 @@ export function ProjectsThreadAside({
   const branch = thread?.branch ?? session?.branch ?? null;
   const working = thread?.working ?? session?.working ?? false;
   const statusTone = thread?.needs ? "needs" : working ? "working" : "recent";
-  const statusLabel = thread?.needs ? "needs you" : working ? "working" : session ? "selected" : "idle";
+  const statusLabel = thread?.needs ? "your turn" : working ? "working" : session ? "selected" : "idle";
   const headline = thread?.work ?? session?.work ?? "No session detail available.";
   const lastActivityAt = thread?.lastActivityAt ?? session?.lastActivityAt ?? 0;
   const sessionRef = session?.sessionId ?? thread?.sessionId ?? null;

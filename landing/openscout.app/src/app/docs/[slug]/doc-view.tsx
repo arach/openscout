@@ -10,7 +10,7 @@ import type { MDXRemoteSerializeResult } from "next-mdx-remote";
 import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import { docsComponents } from "./mdx-components";
-import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import { SCOUT_VERSION } from "@/lib/version";
 
 const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
@@ -392,39 +392,13 @@ export function DocView({
 
   return (
     <div className="site-docs min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
-      {/* Header — operator console style */}
-      <header className="operator-console fixed inset-x-0 top-0 z-40">
-        <div className="mx-auto flex h-14 max-w-[92rem] items-center justify-between px-4 sm:px-6 lg:px-8 operator-row" style={{ height: 56 }}>
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex shrink-0 items-center justify-center text-[var(--site-ink)]" style={{ width: 26, height: 26 }} aria-hidden>
-              <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
-                <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
-                <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
-                <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-docs-bg)" strokeWidth="1.2" opacity="0.9" />
-                <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
-              </svg>
-            </span>
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-              Scout
-            </span>
-          </Link>
-          <nav className="flex items-center gap-6">
-            <Link href="/docs" className="operator-link">
-              <span className="operator-link__sigil">:</span>docs
-            </Link>
-            <span className="operator-link hidden sm:block truncate max-w-[18rem] text-[var(--site-muted)]">{title}</span>
-            <SiteThemeToggle />
-          </nav>
-        </div>
-        <div className="absolute inset-x-0 bottom-0 h-[2px]">
-          <div className="h-full bg-[var(--site-progress)] transition-[width] duration-150" style={{ width: `${scrollProgress * 100}%` }} />
-        </div>
-      </header>
+      <SiteHeader
+        active="docs"
+        context={title}
+        fixed
+        scrollProgress={scrollProgress}
+        maxWidthClassName="max-w-[92rem]"
+      />
 
       <main className="relative z-10 mx-auto max-w-[92rem] pt-14">
         <div className="grid lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_13rem]">
@@ -661,7 +635,7 @@ export function DocView({
                 <b>v{SCOUT_VERSION}</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
-              <span className="status-bar__cell hidden md:inline-flex">license pending</span>
+              <span className="status-bar__cell hidden md:inline-flex">apache-2.0</span>
             </span>
             <span className="status-bar__zone status-bar__zone--right">
               <Link href="/" className="status-bar__link">

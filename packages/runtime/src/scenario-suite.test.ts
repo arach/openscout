@@ -1,4 +1,8 @@
 import { describe, expect } from "bun:test";
+import { isolateOpenScoutUserDataForTests } from "./test-user-data-isolation.ts";
+
+isolateOpenScoutUserDataForTests();
+
 
 import type {
   DeliveryIntent,

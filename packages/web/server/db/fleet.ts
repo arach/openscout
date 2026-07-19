@@ -93,7 +93,7 @@ type FleetAskRow = {
 };
 
 type FleetAttentionRow = {
-  record_kind: "work_item";
+  record_kind: "work_item" | "question";
   record_id: string;
   title: string;
   summary: string | null;
@@ -484,6 +484,24 @@ export function queryFleetAttentionRows(requesterIds: string[], limit: number): 
   ).all(...requesterIds, ...requesterIds, limit) as Array<FleetAttentionRow>;
 }
 
+/**
+ * Collaboration records whose next move belongs to the operator, shaped for
+ * the /api/agents needs-attention index.
+ */
+export function queryOperatorAttentionRows(limit = 48): Array<{
+  agentId: string | null;
+  title: string;
+  summary: string | null;
+  updatedAt: number;
+}> {
+  return queryFleetAttentionRows(fleetRequesterIds(), limit).map((row) => ({
+    agentId: row.agent_id,
+    title: row.title,
+    summary: row.summary,
+    updatedAt: normalizeTimestampMs(row.updated_at) ?? Date.now(),
+  }));
+}
+
 export function queryFleet(opts?: {
   limit?: number;
   activityLimit?: number;
@@ -495,7 +513,8 @@ export function queryFleet(opts?: {
   const requesterIdSet = new Set(requesterIds);
   const asks = queryFleetAskRows(requesterIds, Math.max(limit * 3, 24)).map((row) => projectFleetAsk(row, requesterIdSet));
   const activeAsks = asks
-    .filter((ask) => ask.status === "queued" || ask.status === "working")
+    .filter((ask) =>
+      ask.status === "queued" || ask.status === "working" || ask.status === "needs_attention")
     .slice(0, limit);
   const recentCompleted = asks
     .filter((ask) => ask.status === "completed" || (ask.status === "failed" && ask.attention !== "silent"))

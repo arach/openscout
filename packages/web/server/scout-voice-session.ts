@@ -462,7 +462,7 @@ export function getScoutVoiceHealthSnapshot(now = Date.now()): ScoutVoiceHealthS
   const microphoneCanRequest = micPermission?.canRequest ?? false;
   if (!microphoneGranted) {
     const detail = micPermission?.status === "denied"
-      ? "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it."
+      ? "Microphone access is off for Scout Menu. Choose Retry access to reopen the macOS permission pane."
       : microphoneCanRequest
         ? "Microphone has not been requested yet. Tap the mic or choose Request access to show the macOS prompt."
         : "Scout Menu needs microphone access before dictation can start.";

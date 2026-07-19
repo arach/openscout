@@ -184,11 +184,11 @@ function LaneTraceAskFocus({
   return (
     <section
       className={`s-lane-trace-focus s-lane-trace-focus--ask${variant === "inline" ? " s-lane-trace-focus--inline" : ""}`}
-      aria-label="Selected ask"
+      aria-label="Selected request"
     >
       <div className="s-lane-trace-focus-eyebrow">
         <span className="s-lane-trace-focus-eyebrow-dot" aria-hidden />
-        {variant === "inline" ? "Expanded at this ask" : "Selected ask"}
+        {variant === "inline" ? "Expanded at this request" : "Selected request"}
       </div>
 
       <div className="s-lane-trace-focus-head">
@@ -198,7 +198,7 @@ function LaneTraceAskFocus({
             <div className="s-lane-trace-focus-ask-preview">{ask.preview}</div>
           ) : null}
         </div>
-        <CopyButton text={ask.copyText} label="Copy full ask" />
+        <CopyButton text={ask.copyText} label="Copy full request" />
       </div>
 
       {fields.length > 0 && (
@@ -213,7 +213,7 @@ function LaneTraceAskFocus({
       )}
 
       <div className="s-lane-trace-focus-section s-lane-trace-focus-section--primary">
-        <div className="s-lane-trace-focus-section-title">full ask</div>
+        <div className="s-lane-trace-focus-section-title">full request</div>
         <pre className="s-lane-trace-focus-section-body">{ask.fullText}</pre>
       </div>
 

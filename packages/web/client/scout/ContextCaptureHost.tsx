@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { isEditableTarget } from "../lib/keyboard-nav-core.ts";
-import { readClipboardMediaFiles, readRoutableFiles } from "../lib/media-blobs.ts";
+import {
+  dataTransferMayContainFiles,
+  isRoutableMediaFile,
+  readTransferredFiles,
+} from "../lib/media-blobs.ts";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import { routeMachineId } from "../lib/router.ts";
 import { NewChatComposer } from "../screens/agents/NewChatComposer.tsx";
@@ -23,12 +27,14 @@ export function ContextCaptureHost({
   const scopedAgents = filterAgentsByMachineScope(agents, machineId);
   const routeContext = resolveCaptureRouteContext(route, scopedAgents);
   const [dragDepth, setDragDepth] = useState(0);
+  const [captureFeedback, setCaptureFeedback] = useState<string | null>(null);
   const dragDepthRef = useRef(0);
 
-  const openCapture = useCallback((files: File[]) => {
+  const openCapture = useCallback((files: File[], attachmentFeedback?: string) => {
     if (files.length === 0) return;
     onOpenCapture({
       files,
+      attachmentFeedback,
       agentId: routeContext.agentId ?? undefined,
       conversationId: routeContext.conversationId ?? undefined,
       preferExistingChat: routeContext.canUseExistingChat,
@@ -36,35 +42,73 @@ export function ContextCaptureHost({
   }, [onOpenCapture, routeContext]);
 
   useEffect(() => {
+    if (!captureFeedback) return;
+    const timeout = window.setTimeout(() => setCaptureFeedback(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [captureFeedback]);
+
+  useEffect(() => {
     const onDragEnter = (event: DragEvent) => {
-      if (!readRoutableFiles(event.dataTransfer).length) return;
+      if (!dataTransferMayContainFiles(event.dataTransfer)) return;
       event.preventDefault();
       dragDepthRef.current += 1;
       setDragDepth(dragDepthRef.current);
     };
     const onDragOver = (event: DragEvent) => {
-      if (!readRoutableFiles(event.dataTransfer).length) return;
+      if (!dataTransferMayContainFiles(event.dataTransfer)) return;
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     };
     const onDragLeave = () => {
+      if (dragDepthRef.current === 0) return;
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
       setDragDepth(dragDepthRef.current);
     };
     const onDrop = (event: DragEvent) => {
-      const files = readRoutableFiles(event.dataTransfer);
+      if (!dataTransferMayContainFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      const incoming = readTransferredFiles(event.dataTransfer);
+      const files = incoming.filter(isRoutableMediaFile);
+      const rejectedCount = incoming.length - files.length;
       dragDepthRef.current = 0;
       setDragDepth(0);
-      if (files.length === 0) return;
-      event.preventDefault();
-      openCapture(files);
+      if (files.length === 0) {
+        setCaptureFeedback(
+          incoming.length === 0
+            ? "Scout could not read that file. Try the attachment picker instead."
+            : "That file type is not supported. Drop markdown, code, an image, or a video clip.",
+        );
+        return;
+      }
+      const added = files.length === 1
+        ? `Dropped ${files[0]?.name || "1 attachment"}.`
+        : `Dropped ${files.length} attachments.`;
+      const feedback = rejectedCount > 0
+        ? `${added} Skipped ${rejectedCount} unsupported ${rejectedCount === 1 ? "file" : "files"}.`
+        : added;
+      setCaptureFeedback(null);
+      openCapture(files, feedback);
     };
     const onPaste = (event: ClipboardEvent) => {
       if (isEditableTarget(event.target)) return;
-      const files = readClipboardMediaFiles(event.clipboardData);
-      if (files.length === 0) return;
+      if (!dataTransferMayContainFiles(event.clipboardData)) return;
       event.preventDefault();
-      openCapture(files);
+      const incoming = readTransferredFiles(event.clipboardData);
+      const files = incoming.filter(isRoutableMediaFile);
+      if (files.length === 0) {
+        setCaptureFeedback(
+          incoming.length === 0
+            ? "Scout could not read that pasted file. Try the attachment picker instead."
+            : "That pasted file type is not supported. Paste an image or video, or attach markdown or code.",
+        );
+        return;
+      }
+      openCapture(
+        files,
+        files.length === 1
+          ? `Pasted ${files[0]?.name || "1 attachment"}.`
+          : `Pasted ${files.length} attachments.`,
+      );
     };
 
     window.addEventListener("dragenter", onDragEnter);
@@ -95,6 +139,11 @@ export function ContextCaptureHost({
           </div>
         </div>
       ) : null}
+      {captureFeedback ? (
+        <div className="s-capture-feedback" role="alert">
+          {captureFeedback}
+        </div>
+      ) : null}
       {request ? (
         <NewChatComposer
           agents={scopedAgents}
@@ -105,6 +154,7 @@ export function ContextCaptureHost({
           initialConversationId={request.conversationId}
           initialMessage={request.message}
           initialFiles={request.files}
+          initialAttachmentFeedback={request.attachmentFeedback}
           defaultMode={request.preferExistingChat ? "existing-chat" : undefined}
         />
       ) : null}

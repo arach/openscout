@@ -1,8 +1,8 @@
 {
   "name": "@openscout/protocol",
-  "version": "0.2.73",
+  "version": "0.2.76",
   "description": "Typed protocol for the OpenScout local control plane",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "author": "Arach Tchoupani",
   "homepage": "https://github.com/arach/openscout/tree/main/packages/protocol#readme",

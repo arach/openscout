@@ -16,6 +16,29 @@ export type WebTerminalSurfaceDescriptor = {
   socketDir: string | null;
 };
 
+export type WebAgentBrokerActivity = {
+  id: string;
+  kind: "message" | "invocation" | "flight";
+  at: number;
+  state: string | null;
+  summary: string;
+  conversationId: string | null;
+};
+
+export type WebAgentAuthorityProfile = {
+  roleId: string;
+  readTools: string[];
+  writeTools: string[];
+  shell: boolean;
+  codebaseWrites: boolean;
+};
+
+export type WebAgentRuntimePolicy = {
+  approvalPolicy: string | null;
+  sandbox: string | null;
+  shellTool: boolean | null;
+};
+
 export type WebAgent = {
   id: string;
   definitionId: string;
@@ -24,6 +47,8 @@ export type WebAgent = {
   agentClass: string;
   harness: string | null;
   state: string | null;
+  /** The pending question / approval / handoff text when state is needs_attention. */
+  pendingAsk?: string | null;
   projectRoot: string | null;
   cwd: string | null;
   updatedAt: number | null;
@@ -57,6 +82,9 @@ export type WebAgent = {
   providerUrl?: string | null;
   protocol?: string | null;
   skills?: string[];
+  brokerActivity?: WebAgentBrokerActivity[];
+  authorityProfile?: WebAgentAuthorityProfile | null;
+  runtimePolicy?: WebAgentRuntimePolicy | null;
 };
 
 export type WebActivityItem = {
@@ -88,6 +116,11 @@ export type WebMessage = {
   metadata: Record<string, unknown> | null;
   replyToMessageId: string | null;
   threadConversationId: string | null;
+  threadSummary?: {
+    count: number;
+    participants: string[];
+    lastActiveAt: number;
+  };
 };
 
 export type WebBrokerRouteAttempt = {
@@ -117,9 +150,20 @@ export type WebBrokerDialogueItem = {
 
 export type WebBrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
 
+export type WebBrokerDiagnosticsSource = {
+  mode: "live_broker" | "sqlite_projection";
+  status: "current" | "degraded" | "unknown";
+  latestMessageAt: number | null;
+  projectionLatestMessageAt: number | null;
+  liveMessageCount: number | null;
+  projectionMessageCount: number | null;
+  detail: string | null;
+};
+
 export type WebBrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  source?: WebBrokerDiagnosticsSource;
   ledger: {
     mode: "latest";
     limit: number;
@@ -300,7 +344,7 @@ export type WebFleetAsk = {
 };
 
 export type WebFleetAttentionItem = {
-  kind: "work_item";
+  kind: "work_item" | "question";
   recordId: string;
   title: string;
   summary: string | null;

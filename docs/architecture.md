@@ -74,6 +74,7 @@ One concrete example: `scout ask --project ../talkie --harness claude "review th
 |-------|------|------------|
 | **Protocol** | Shared type system and address grammar | Defines the agent identity grammar, message records, invocation requests, flight records, collaboration contracts, and bindings |
 | **Broker** | Local message bus and state store | SQLite-backed daemon that owns registration, routing, threading, dispatch, HTTP reads/writes, and SSE updates |
+| **Native read projection** | Low-latency local surface reads | Rust journal consumer in `scoutd` that serves bounded, persisted projections over a Unix socket without entering the broker or web request queues |
 | **Runtime** | Session and runtime lifecycle management | Starts, resumes, stops, and health-checks sessions across harnesses. Manages tmux sessions, system prompts, and transport adapters |
 | **CLI** | Operator interface | `scout up`, `scout send`, `scout ask`, `scout who` -- passes structured route intent to the broker and keeps bootstrap/orientation cheap |
 | **Surfaces** | Views into broker state | Desktop, web, iOS, terminal, and pi. They read from the broker; none of them own agent state |
@@ -86,7 +87,7 @@ Anything that crosses a boundary — between agents, harnesses, or machines — 
 
 ### Broker
 
-A single local daemon per machine. Agents and surfaces submit commands to it; it resolves structured targets, routes to endpoints, and records coordination history. They do not write Scout-owned control-plane records directly. Exposes HTTP for reads and writes, SSE for live updates.
+A single local daemon per machine. Agents and surfaces submit commands to it; it resolves structured targets, routes to endpoints, and records coordination history. They do not write Scout-owned control-plane records directly. It exposes HTTP/SSE for commands, routing, and broker-specific reads. Latency-sensitive presentation reads may consume replayable broker facts through a separate derived projection; that projection never becomes a writer or routing authority.
 
 ```bash
 # What the broker handles
@@ -139,10 +140,12 @@ On macOS, local service ownership is intentionally layered:
 
 ```plaintext
 launchd -> scoutd -> scout-base -> scout-broker -> scout-web / scout-edge / OpenScoutMenu
+                  \-> scoutd probes/native-read (Unix socket)
 ```
 
 `launchd` keeps `scoutd` alive. `scoutd` is the native daemon and doctor at the
-root of the Scout-owned runtime tree. `scout-base` is the Bun service composer:
+root of the Scout-owned runtime tree. Its Rust child also maintains bounded,
+read-only projections from the broker journal for native surfaces. `scout-base` is the Bun service composer:
 it starts and restarts broker, web, edge, and menu children. This distinction is
 why the Rust binary is named `scoutd`, while the Bun orchestrator keeps the
 `scout-base` process name.
@@ -159,11 +162,25 @@ The pi extension (see [`eng/sco-015-pi-scout-integration.md`](./eng/sco-015-pi-s
 
 ## Performance Direction
 
-Operator commands like `scout up`, `scout ps`, and `scout who` need to stay cheap. They shouldn't repeatedly scan the machine or spawn overlapping probes from each surface.
+Operator commands and surfaces need to stay cheap. They should not repeatedly scan
+the machine, serialize the full broker registry, or queue presentation reads behind
+routing work.
 
-The broker owns all expensive reads — runtime health, agent liveness, tmux sessions, harness readiness, project discovery. These are cached as broker-owned snapshots with TTLs. When a TTL expires, the broker refreshes once and coalesces concurrent readers onto the same in-flight refresh.
+The broker is the canonical writer and communications fast lane. Its hot path owns
+identity, reachability, routing metadata, messages, invocations, deliveries, and
+flights. Rich cards, UI ordering, and other presentation joins are derived read
+models rather than synchronous broker work.
 
-Every surface reads these snapshots first, using stale-while-revalidate where appropriate. Direct filesystem or subprocess probing is limited to bootstrap and recovery paths when the broker is unavailable.
+The macOS native agent roster is the first native read projection. A Rust service
+tails the append-only broker journal asynchronously, keeps a typed bounded projection
+in memory, persists the last usable projection, and publishes sequenced NDJSON frames
+over a mode-`0600` Unix-domain socket. Opening the HUD reads that already-warm state;
+it does not require the web app or a broker snapshot request. The web endpoint remains
+a compatibility fallback while other surfaces migrate.
+
+The read service may lag briefly and must be stale-while-revalidate. It cannot write
+Scout-owned records, synchronously proxy the broker, inspect private in-memory broker
+state, or make routing wait for projection work.
 
 ## The Data Model
 
@@ -204,6 +221,8 @@ The intentional split is:
 
 - the broker journal records Scout-owned control-plane facts
 - SQLite stores query projections of Scout-owned facts for local surfaces
+- Rust native read services may maintain bounded, persisted projections by replaying
+  the broker journal; these caches are disposable and never become canonical facts
 - tail adapters read external harness transcripts from their original files
 - tail views keep bounded live/backlog buffers rather than becoming durable transcript replicas
 

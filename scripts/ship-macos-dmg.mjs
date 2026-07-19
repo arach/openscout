@@ -180,6 +180,14 @@ function main() {
       dryRun: options.dryRun,
       env: buildEnv,
     });
+    // Sign the fresh DMG into apps/macos/appcast.xml. This is fail-closed: the
+    // release stops if the signer does not match the public key embedded in the
+    // app. Committing/pushing the appcast is left to the release commit.
+    run("node", [
+      "scripts/update-appcast.mjs",
+      version,
+      `apps/macos/dist/OpenScout-${version}.dmg`,
+    ], { dryRun: options.dryRun });
   }
 
   if (!options.skipUpload) {

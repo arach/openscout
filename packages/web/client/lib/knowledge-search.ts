@@ -114,52 +114,17 @@ export type WorktreeIndexResponse = {
   status: KnowledgeStatus;
 };
 
-export type GuidedKnowledgeWindow = 2 | 3 | 7 | 21;
-export type GuidedKnowledgeHarness = "all" | "claude" | "codex";
-
-export type GuidedKnowledgeFilters = {
-  harness: GuidedKnowledgeHarness;
-  days: GuidedKnowledgeWindow;
-};
-
-export type GuidedKnowledgeSearch = {
-  q: string;
-  hits: KnowledgeHit[];
-};
-
-export type GuidedKnowledgeSessionSummary = {
-  collectionId: string;
-  title: string;
-  project: string;
-  harness: string;
-  sessionId: string | null;
-  hitCount: number;
-  matchedQueries: string[];
-  recordRanges: string[];
-  topSnippet: string;
-  confidence: "strong" | "possible" | "weak";
-  judgment: string;
-};
-
-export const GUIDED_KNOWLEDGE_WINDOWS: Array<{
-  days: GuidedKnowledgeWindow;
-  label: string;
-  limit: number;
-}> = [
-  { days: 2, label: "2d", limit: 200 },
-  { days: 3, label: "3d", limit: 260 },
-  { days: 7, label: "1w", limit: 520 },
-  { days: 21, label: "3w", limit: 1000 },
-];
-
-export const GUIDED_KNOWLEDGE_HARNESSES: Array<{
-  value: GuidedKnowledgeHarness;
-  label: string;
-}> = [
-  { value: "all", label: "All" },
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-];
+/** Defaults the UI and API clients should use unless the operator opts in later. */
+export const KNOWLEDGE_SEARCH_DEFAULTS = {
+  /** Lookback when building the session index. */
+  days: 3,
+  /** Max sessions to discover/index in a refresh. */
+  sessionLimit: 260,
+  /** Hits returned per query. */
+  hitLimit: 30,
+  /** Debounce for live search. */
+  debounceMs: 250,
+} as const;
 
 export type KnowledgeSourcePreviewRecord = {
   index: number;
@@ -259,143 +224,447 @@ export function queryTerms(query: string): string[] {
     .slice(0, 12);
 }
 
-function guidedText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+/** Chunk headings that read like index machinery, not conversation titles. */
+const MACHINE_CHUNK_TITLE =
+  /^(events?\s+window(\s+\d+)?|files?\s+touched|tool\s+calls?|indexed\s+snippet|manifest|summary|decisions?|context\s+pack)\b/iu;
+
+const HARNESS_PREFIX = /^(claude|codex|kimi|cursor|gpt|gemini)\b/iu;
+const SESSION_META_PREFIX =
+  /^(?:claude|codex|kimi|cursor|gpt|gemini)?\s*[a-z0-9._/-]*\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm)?)?\s*[-–—:]\s*/iu;
+
+export function isMachineChunkTitle(title: string): boolean {
+  return MACHINE_CHUNK_TITLE.test(title.replace(/\s+/g, " ").trim());
 }
 
-function pushUnique(values: string[], value: string) {
-  const compact = guidedText(value);
-  if (!compact) return;
-  if (values.some((existing) => existing.toLowerCase() === compact.toLowerCase())) return;
-  values.push(compact);
-}
+/** Strip harness/date/tag noise into a short scannable headline. */
+export function cleanHeadlineText(raw: string): string {
+  let title = raw.replace(/\s+/g, " ").trim();
+  if (!title) return "";
 
-function guidedWindow(days: GuidedKnowledgeWindow) {
-  return GUIDED_KNOWLEDGE_WINDOWS.find((window) => window.days === days) ?? GUIDED_KNOWLEDGE_WINDOWS[0]!;
-}
+  title = title.replace(/<[^>\n]+>/g, " ").replace(/\s+/g, " ").trim();
 
-export function guidedKnowledgeLimit(days: GuidedKnowledgeWindow): number {
-  return guidedWindow(days).limit;
-}
-
-export function guidedKnowledgeUpdatedAfterMs(days: GuidedKnowledgeWindow, now = Date.now()): number {
-  return now - days * 24 * 60 * 60 * 1000;
-}
-
-export function buildGuidedKnowledgeQueries(theme: string, objective: string): string[] {
-  const queries: string[] = [];
-  const cleanTheme = guidedText(theme);
-  const cleanObjective = guidedText(objective);
-  const objectiveTerms = queryTerms(cleanObjective).slice(0, 6);
-  const allTerms = queryTerms(`${cleanTheme} ${cleanObjective}`)
-    .filter((term) => !["about", "find", "into", "that", "this", "with"].includes(term.toLowerCase()));
-
-  pushUnique(queries, cleanTheme);
-  pushUnique(queries, objectiveTerms.join(" "));
-
-  for (let index = 0; index < allTerms.length - 1 && queries.length < 9; index += 1) {
-    pushUnique(queries, `${allTerms[index]} ${allTerms[index + 1]}`);
-  }
-  for (const term of allTerms) {
-    if (queries.length >= 10) break;
-    if (term.length >= 4 || term.includes("/") || term.includes("-")) {
-      pushUnique(queries, term);
+  if (SESSION_META_PREFIX.test(title)) {
+    title = title.replace(SESSION_META_PREFIX, "").trim();
+  } else {
+    // "Codex openscout - rest" / long left side before em dash that looks like meta
+    const split = title.match(/^(.{6,72}?)\s[-–—]\s+(.+)$/u);
+    if (split) {
+      const left = split[1] ?? "";
+      const right = split[2] ?? "";
+      if (
+        HARNESS_PREFIX.test(left)
+        || /\b(?:am|pm|\d{1,2}:\d{2}|plugin|session|openscout)\b/iu.test(left)
+      ) {
+        title = right.trim();
+      }
     }
   }
 
-  return queries.slice(0, 10);
+  title = title.replace(HARNESS_PREFIX, "").replace(/^\s*[-–—:]\s*/, "").trim();
+  title = title.replace(/\s{2,}/g, " ").trim();
+
+  if (title.length > 72) {
+    title = `${title.slice(0, 69).replace(/\s+\S*$/u, "").trimEnd()}…`;
+  }
+  return title;
 }
 
-export function aggregateGuidedKnowledgeHits(
-  searches: GuidedKnowledgeSearch[],
-  limit = 30,
-): KnowledgeHit[] {
-  const scored = new Map<string, { hit: KnowledgeHit; score: number }>();
-  searches.forEach((search, searchIndex) => {
-    search.hits.forEach((hit, hitIndex) => {
-      const key = hit.chunkId;
-      const existing = scored.get(key) ?? { hit, score: 0 };
-      existing.score += Math.max(1, 32 - hitIndex) + (searchIndex === 0 ? 8 : 0);
-      scored.set(key, existing);
-    });
-  });
-  return [...scored.values()]
-    .sort((left, right) => right.score - left.score)
-    .map((entry) => entry.hit)
-    .slice(0, limit);
+/** Session goal / first-prompt title (shared across moments in a session). */
+export function resultSessionGoal(hit: KnowledgeHit): string {
+  const project = facetText(hit, "project");
+  const raw = hit.title.replace(/\s+/g, " ").trim();
+  if (raw && !isMachineChunkTitle(raw)) {
+    const cleaned = cleanHeadlineText(raw);
+    if (cleaned && cleaned.toLowerCase() !== project.toLowerCase()) return cleaned;
+    if (cleaned) return cleaned;
+  }
+  if (project) return project;
+  const sessionId = transcriptSessionId(firstTranscriptRef(hit));
+  if (sessionId) return sessionId.length > 18 ? `${sessionId.slice(0, 16)}…` : sessionId;
+  return "Session match";
 }
 
-export function summarizeGuidedKnowledgeSessions(
-  searches: GuidedKnowledgeSearch[],
-  limit = 6,
-): GuidedKnowledgeSessionSummary[] {
-  const groups = new Map<string, {
-    hit: KnowledgeHit;
-    score: number;
-    queries: Set<string>;
-    ranges: Set<string>;
-    hitCount: number;
-  }>();
+/** @deprecated Prefer resultSessionGoal / resultMomentHeadline */
+export function resultHeadline(hit: KnowledgeHit): string {
+  return resultSessionGoal(hit);
+}
 
-  searches.forEach((search) => {
-    search.hits.forEach((hit, index) => {
-      const transcript = firstTranscriptRef(hit);
-      const key = hit.collectionId;
-      const group = groups.get(key) ?? {
-        hit,
-        score: 0,
-        queries: new Set<string>(),
-        ranges: new Set<string>(),
-        hitCount: 0,
-      };
-      group.score += Math.max(1, 24 - index);
-      group.hitCount += 1;
-      group.queries.add(search.q);
-      if (transcript?.recordRange) group.ranges.add(transcript.recordRange.join(".."));
-      groups.set(key, group);
-    });
+/** Primary role for a moment (single label, not a multi-role dump). */
+export function resultPrimaryRole(hit: KnowledgeHit): string {
+  const kinds = facetList(hit, "recordKind", 8).map((kind) => kind.toLowerCase());
+  if (kinds.length === 0) {
+    kinds.push(...facetList(hit, "recordTag", 8).map((tag) => tag.toLowerCase()));
+  }
+  if (kinds.some((kind) => kind.includes("assistant"))) return "assistant";
+  if (kinds.some((kind) => kind.includes("user"))) return "user";
+  if (kinds.some((kind) => kind.includes("tool") || kind.includes("command") || kind.includes("response"))) {
+    return "tool";
+  }
+  const where = resultWhere(hit);
+  if (where === "tool activity") return "tool";
+  if (where === "overview") return "overview";
+  return "";
+}
+
+/**
+ * Headline for one matched moment — prose from the snippet, not the session title.
+ * Prefers a clause that contains a query term.
+ */
+export function resultMomentHeadline(hit: KnowledgeHit, query: string): string {
+  const cleaned = cleanSnippetText(hit.snippet, query);
+  const role = resultPrimaryRole(hit);
+  const turn = resultTurnLabel(hit);
+
+  let line = "";
+  if (cleaned) {
+    const terms = queryTerms(query).map((term) => term.toLowerCase());
+    const clauses = cleaned
+      .split(/(?<=[.!?])\s+|\s+[–—]\s+|\s+·\s+/u)
+      .map((part) => part.replace(/^…+|…+$/gu, "").trim())
+      .filter((part) => part.length > 12);
+
+    const withTerm = terms.length > 0
+      ? clauses.find((clause) => terms.some((term) => findWordMatchIndex(clause, term) >= 0))
+      : undefined;
+
+    line = (withTerm ?? clauses[0] ?? cleaned).replace(/^…+|…+$/gu, "").trim();
+  }
+
+  if (!line) {
+    if (role && turn) return `${role} · ${turn}`;
+    return turn || role || resultSessionGoal(hit);
+  }
+
+  if (line.length > 78) {
+    line = `${line.slice(0, 75).replace(/\s+\S*$/u, "").trimEnd()}…`;
+  }
+  return line;
+}
+
+/** Pull a human when-label out of session titles like "Codex openscout Jul 16 at 5:37 PM - …". */
+export function resultWhen(hit: KnowledgeHit): string {
+  if (hit.freshness && hit.freshness !== "unknown") return hit.freshness;
+  const raw = hit.title.replace(/\s+/g, " ").trim();
+  const match = raw.match(
+    /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)?)?)\b/iu,
+  );
+  return match?.[1] ?? "";
+}
+
+function humanDocumentKind(value: string): string {
+  const kind = value.trim().toLowerCase();
+  if (!kind) return "";
+  if (kind === "events" || kind.startsWith("events")) return "conversation";
+  if (kind === "overview" || kind === "summary") return "overview";
+  if (kind === "tool-calls" || kind === "tools") return "tool activity";
+  if (kind === "files" || kind === "files-touched") return "files touched";
+  if (kind === "manifest") return "session index";
+  return kind.replace(/[-_]+/g, " ");
+}
+
+function capitalizeLabel(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+/** Agent / harness label for SERP context (Codex, Claude, …). */
+export function resultAgentLabel(hit: KnowledgeHit): string {
+  const harness = facetText(hit, "harness") || firstTranscriptRef(hit)?.harness || "";
+  if (!harness) return "";
+  const key = harness.toLowerCase();
+  if (key === "claude") return "Claude";
+  if (key === "codex") return "Codex";
+  if (key === "kimi") return "Kimi";
+  if (key === "cursor") return "Cursor";
+  return capitalizeLabel(harness);
+}
+
+/** Short session handle from facets or transcript path. */
+export function resultSessionLabel(hit: KnowledgeHit): string {
+  const fromFacet = facetText(hit, "sessionId").trim();
+  const fromRef = transcriptSessionId(firstTranscriptRef(hit));
+  const id = (fromFacet || fromRef || "").trim();
+  if (!id) return "";
+  // Keep scannable: UUID / long hashes → first 8; short ids stay whole.
+  if (id.length > 14) return id.slice(0, 8);
+  return id;
+}
+
+/**
+ * Turn / record-window label.
+ * Event windows map to transcript record ranges; single-record hits become "turn N".
+ */
+export function resultTurnLabel(hit: KnowledgeHit): string {
+  const range = firstTranscriptRef(hit)?.recordRange;
+  if (range) {
+    const [start, end] = range;
+    if (start === end) return `turn ${start}`;
+    if (end - start <= 1) return `turns ${start}–${end}`;
+    return `turns ${start}–${end}`;
+  }
+  const windowMatch = hit.title.match(/events?\s+window\s+(\d+)/iu);
+  if (windowMatch) return `window ${Number(windowMatch[1])}`;
+  return "";
+}
+
+/** Roles present in the matched chunk (user / assistant / tool). */
+export function resultRoleLabel(hit: KnowledgeHit): string {
+  const kinds = facetList(hit, "recordKind", 8).map((kind) => kind.toLowerCase());
+  if (kinds.length === 0) {
+    // Fall back to tags when kinds are sparse.
+    kinds.push(...facetList(hit, "recordTag", 8).map((tag) => tag.toLowerCase()));
+  }
+  const parts: string[] = [];
+  if (kinds.some((kind) => kind.includes("user"))) parts.push("user");
+  if (kinds.some((kind) => kind.includes("assistant"))) parts.push("assistant");
+  if (kinds.some((kind) => kind.includes("tool") || kind.includes("command") || kind.includes("response"))) {
+    parts.push("tool");
+  }
+  if (parts.length === 0) return "";
+  return parts.join(" · ");
+}
+
+/** Where in the session this chunk came from (conversation, tools, overview…). */
+export function resultWhere(hit: KnowledgeHit): string {
+  const documentKind = facetText(hit, "documentKind");
+  if (documentKind) {
+    const first = documentKind.split(",")[0]?.trim() ?? documentKind;
+    return humanDocumentKind(first);
+  }
+  if (isMachineChunkTitle(hit.title)) return humanDocumentKind(hit.title);
+  const path = firstFileRef(hit);
+  if (path) return "file";
+  return firstTranscriptRef(hit) ? "conversation" : "";
+}
+
+export function resultRecordRange(hit: KnowledgeHit): string {
+  const range = firstTranscriptRef(hit)?.recordRange;
+  if (!range) return "";
+  return `records ${range[0]}–${range[1]}`;
+}
+
+function facetList(hit: KnowledgeHit, key: string, limit = 3): string[] {
+  const value = hit.facets[key];
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return values.map((entry) => entry.trim()).filter(Boolean).slice(0, limit);
+}
+
+export type ResultRoutingContext = {
+  agent: string;
+  project: string;
+  session: string;
+  when: string;
+  turn: string;
+  role: string;
+  where: string;
+};
+
+/** Structured agent / session / turn fields for each SERP row. */
+export function resultRoutingContext(hit: KnowledgeHit): ResultRoutingContext {
+  return {
+    agent: resultAgentLabel(hit),
+    project: facetText(hit, "project"),
+    session: resultSessionLabel(hit),
+    when: resultWhen(hit),
+    turn: resultTurnLabel(hit),
+    role: resultRoleLabel(hit),
+    where: resultWhere(hit),
+  };
+}
+
+/**
+ * Moment-row details under a session header.
+ * Omits redundant "Matched …" / generic "conversation" — those are implied by search + grouping.
+ */
+export function resultMomentBits(hit: KnowledgeHit): string[] {
+  const bits: string[] = [];
+  const turn = resultTurnLabel(hit);
+  if (turn) bits.push(turn);
+  const role = resultPrimaryRole(hit);
+  if (role) bits.push(role);
+  const where = resultWhere(hit);
+  if (where && where !== "conversation") bits.push(where);
+
+  const tools = facetList(hit, "toolName", 2);
+  if (tools.length === 1) bits.push(tools[0]!);
+  if (tools.length > 1) bits.push(tools.join(", "));
+
+  const seen = new Set<string>();
+  return bits.filter((bit) => {
+    const key = bit.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
+}
 
-  return [...groups.values()]
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit)
-    .map((group) => {
-      const transcript = firstTranscriptRef(group.hit);
-      const queryCount = group.queries.size;
-      const confidence = queryCount >= 3 || group.hitCount >= 8
-        ? "strong"
-        : queryCount >= 2 || group.hitCount >= 3
-          ? "possible"
-          : "weak";
-      const judgment = confidence === "strong"
-        ? `Strong candidate: matched ${queryCount} query angles across ${group.hitCount} chunks.`
-        : confidence === "possible"
-          ? `Possible match: enough overlap to inspect before discarding.`
-          : `Weak match: one narrow overlap; treat as a near miss unless the preview confirms it.`;
-      return {
-        collectionId: group.hit.collectionId,
-        title: group.hit.title,
-        project: facetText(group.hit, "project"),
-        harness: facetText(group.hit, "harness"),
-        sessionId: transcriptSessionId(transcript),
-        hitCount: group.hitCount,
-        matchedQueries: [...group.queries].slice(0, 4),
-        recordRanges: [...group.ranges].slice(0, 4),
-        topSnippet: group.hit.snippet,
-        confidence,
-        judgment,
-      };
+/** @deprecated Prefer resultMomentBits under session groups */
+export function resultDetailBits(hit: KnowledgeHit, query: string): string[] {
+  const bits = resultMomentBits(hit);
+  const reason = matchReason(hit, query);
+  if (reason && !bits.some((bit) => bit.toLowerCase().includes("match"))) bits.push(reason);
+  return bits;
+}
+
+export function shortSnippet(hit: KnowledgeHit, query: string, maxLen = 140): string {
+  const full = displaySnippet(hit, query);
+  if (full.length <= maxLen) return full;
+  return `${full.slice(0, maxLen - 1).replace(/\s+\S*$/u, "").trimEnd()}…`;
+}
+
+function findWordMatchIndex(text: string, term: string): number {
+  // Treat path/host glue (./~-) as part of the token so kimi.com / ~/.kimi-code do not match.
+  const re = new RegExp(`(?<![A-Za-z0-9_./~-])${escapeRegExp(term)}(?![A-Za-z0-9_./~-])`, "iu");
+  const match = re.exec(text);
+  return match?.index ?? -1;
+}
+
+export function cleanSnippetText(snippet: string, query = ""): string {
+  let compact = snippet.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+
+  // Strip QMD event-window glue: `… - [0234] \`assistant_turn\` - …`
+  compact = compact.replace(/\s*-\s*\[\d{3,}\]\s*`[^`]+`(?:\s*\([^)]*\))?\s*-\s*/gu, " ");
+  compact = compact.replace(/\[\d{3,}\]\s*`[^`]+`\s*/gu, "");
+  compact = compact.replace(/\*\*/gu, "");
+  compact = compact.replace(
+    /\b(?:assistant_turn|user_turn|agent_reasoning|command_or_tool|response_item|system_record)\b/giu,
+    " ",
+  );
+  // Drop filesystem / home paths (keep prose).
+  compact = compact.replace(/(?:~\/|\.\.?\/|\/(?:Users|home|var|tmp|opt)\/)\S+/gu, " ");
+  // Collapse URLs to nothing in body text (hosts in paths are noise for SERP).
+  compact = compact.replace(/https?:\/\/\S+/gu, " ");
+  compact = compact.replace(/\b[\w.-]+\.(?:com|net|org|io|dev|app)(?:\/\S*)?/giu, " ");
+  // Drop JSON-ish fragments.
+  compact = compact.replace(/\{[^{}]{0,160}\}/gu, " ");
+  compact = compact.replace(/`[^`]{0,64}`/gu, (match) => {
+    const inner = match.slice(1, -1);
+    if (queryTerms(query).some((term) => findWordMatchIndex(inner, term) >= 0)) return inner;
+    if (/^[A-Za-z][\w.-]{0,24}$/u.test(inner)) return inner;
+    return " ";
+  });
+  compact = compact.replace(/\s{2,}/g, " ").trim();
+  compact = compact.replace(/^[\s,;:.\-–—|/]+/u, "").trim();
+
+  // Prefer prose before a trailing JSON dump.
+  if (compact.includes("{") || compact.includes("[")) {
+    const jsonStart = compact.search(/[\[{]/u);
+    if (jsonStart > 18) {
+      const before = compact.slice(0, jsonStart).trim().replace(/[-–—,:;]+$/u, "").trim();
+      if (before) compact = before;
+    }
+  }
+
+  // Window around a *word-boundary* query hit (not path substrings).
+  const terms = queryTerms(query);
+  const maxLen = 200;
+  if (terms.length > 0 && compact.length > maxLen) {
+    let best = -1;
+    for (const term of terms) {
+      const index = findWordMatchIndex(compact, term);
+      if (index >= 0 && (best < 0 || index < best)) best = index;
+    }
+    if (best < 0) {
+      // Fall back to plain includes only for multi-char path-ish terms.
+      for (const term of terms) {
+        if (term.length < 4) continue;
+        const index = compact.toLowerCase().indexOf(term.toLowerCase());
+        if (index >= 0 && (best < 0 || index < best)) best = index;
+      }
+    }
+    if (best >= 0) {
+      const pad = 48;
+      const start = Math.max(0, best - pad);
+      const end = Math.min(compact.length, start + maxLen);
+      const slice = compact.slice(start, end).trim();
+      compact = `${start > 0 ? "…" : ""}${slice}${end < compact.length ? "…" : ""}`;
+    } else {
+      compact = `${compact.slice(0, maxLen - 1).replace(/\s+\S*$/u, "").trimEnd()}…`;
+    }
+  } else if (compact.length > maxLen) {
+    compact = `${compact.slice(0, maxLen - 1).replace(/\s+\S*$/u, "").trimEnd()}…`;
+  }
+
+  return compact.replace(/\s{2,}/g, " ").trim();
+}
+
+export function displaySnippet(hit: KnowledgeHit, query: string, maxLen?: number): string {
+  const cleaned = cleanSnippetText(hit.snippet, query);
+  if (!maxLen || cleaned.length <= maxLen) return cleaned;
+  return `${cleaned.slice(0, maxLen - 1).replace(/\s+\S*$/u, "").trimEnd()}…`;
+}
+
+export function matchReason(hit: KnowledgeHit, query: string): string {
+  const terms = queryTerms(query).filter((term) => {
+    const lower = term.toLowerCase();
+    return hit.title.toLowerCase().includes(lower)
+      || hit.snippet.toLowerCase().includes(lower)
+      || cleanSnippetText(hit.snippet, query).toLowerCase().includes(lower);
+  });
+  if (terms.length === 1) return `Matched “${terms[0]}”`;
+  if (terms.length > 1) return `Matched ${terms.length} terms`;
+  return "Matched in this session";
+}
+
+export type SessionSearchResult = {
+  collectionId: string;
+  best: KnowledgeHit;
+  moments: KnowledgeHit[];
+};
+
+function momentSortKey(hit: KnowledgeHit): number {
+  const range = firstTranscriptRef(hit)?.recordRange;
+  if (range) return range[0];
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/** Collapse chunk hits into session groups; moments sorted by turn/record range. */
+export function groupHitsBySession(hits: KnowledgeHit[]): SessionSearchResult[] {
+  const order: string[] = [];
+  const groups = new Map<string, KnowledgeHit[]>();
+  for (const hit of hits) {
+    const key = hit.collectionId || hit.id;
+    const list = groups.get(key);
+    if (!list) {
+      order.push(key);
+      groups.set(key, [hit]);
+    } else {
+      list.push(hit);
+    }
+  }
+  return order.map((collectionId) => {
+    const moments = [...(groups.get(collectionId) ?? [])].sort((left, right) => {
+      const byTurn = momentSortKey(left) - momentSortKey(right);
+      if (byTurn !== 0) return byTurn;
+      return left.score - right.score;
     });
+    // Keep ranking's top hit as "best" for auto-select, not necessarily earliest turn.
+    const best = groups.get(collectionId)?.[0] ?? moments[0]!;
+    return {
+      collectionId,
+      best,
+      moments,
+    };
+  });
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Highlight query terms with token boundaries so path/host substrings
+ * (kimi.com, ~/.kimi-code) do not light up.
+ */
 export function highlightParts(text: string, query: string): HighlightPart[] {
   const terms = queryTerms(query);
   if (terms.length === 0 || text.length === 0) return [{ text, match: false }];
-  const regex = new RegExp(`(${terms.map(escapeRegExp).join("|")})`, "giu");
+  const patterns = terms.map((term) =>
+    `(?<![A-Za-z0-9_./~-])${escapeRegExp(term)}(?![A-Za-z0-9_./~-])`
+  );
+  const regex = new RegExp(`(${patterns.join("|")})`, "giu");
   const parts: HighlightPart[] = [];
   let cursor = 0;
   for (const match of text.matchAll(regex)) {

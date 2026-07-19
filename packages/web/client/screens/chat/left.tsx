@@ -3,7 +3,7 @@ import "../../scout/slots/ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { friendlyApiError, isOfflineApiError } from "../../lib/api-errors.ts";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
-import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { agentStateRank, normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
   conversationDisplayTitle,
   conversationShortLabel,
@@ -27,8 +27,6 @@ import {
 import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
 import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
-
-const STATE_RANK: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
 
 type ConversationGroup = {
   key: string;
@@ -178,7 +176,9 @@ export function ChatLeft() {
 
   const onSelect = (s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    if (isGroupConversation(s) && route.view === "channels") {
+    // One address per conversation: groups always open the channel view;
+    // DMs always open the messages thread. Destination never depends on tab.
+    if (isGroupConversation(s)) {
       navigate({ view: "channels", channelId: s.id });
       return;
     }
@@ -525,7 +525,7 @@ function buildConversationGroups(
       const agent = s.agentId ? agentById.get(s.agentId) : undefined;
       if (agent) {
         const state = normalizeAgentState(agent.state);
-        if ((STATE_RANK[state] ?? 9) < (STATE_RANK[bucket.bestState] ?? 9)) {
+        if (agentStateRank(state) < agentStateRank(bucket.bestState)) {
           bucket.bestState = state;
         }
       }

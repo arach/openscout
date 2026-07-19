@@ -3,6 +3,7 @@ import HudsonObservability
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
+import ScoutSharedUI
 import SwiftUI
 
 struct MainView: View {
@@ -12,10 +13,10 @@ struct MainView: View {
     @State private var showingActivityLog = false
     @ObservedObject private var activityLog = HudLogStore.shared
 
-    static let baseHeight: CGFloat = 232
-    static let errorHeight: CGFloat = 240
-    static let qrHeight: CGFloat = 484
-    static let qrWithErrorHeight: CGFloat = 556
+    static let baseHeight: CGFloat = 422
+    static let errorHeight: CGFloat = 470
+    static let qrHeight: CGFloat = 674
+    static let qrWithErrorHeight: CGFloat = 726
     static let actionLogPanelHeight: CGFloat = 168
     static let runtimeWarningHeight: CGFloat = 36
     static let pairingApprovalCardHeight: CGFloat = 128
@@ -32,7 +33,7 @@ struct MainView: View {
                     .fill(ShellPalette.line)
                     .frame(height: 1)
 
-                VStack(spacing: 10) {
+                VStack(spacing: 14) {
                     surfaceLauncher
 
                     if let lastError = controller.lastError, !lastError.isEmpty {
@@ -49,8 +50,6 @@ struct MainView: View {
                         pairingApprovalCard(request)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-
-                    Spacer(minLength: 0)
 
                     if controller.broker.hasRestartWarning {
                         runtimeWarningRow
@@ -69,12 +68,10 @@ struct MainView: View {
                         qrPanel
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 14)
 
                 Rectangle()
                     .fill(ShellPalette.line)
@@ -83,23 +80,22 @@ struct MainView: View {
                 footerBar
             }
         }
-        .frame(width: 408, height: popoverHeight)
+        .frame(width: 430, height: popoverHeight)
         // Action-log toggles run alongside restart actions that also flip
         // the menu-bar symbol; animating the frame here makes NSPopover
         // re-anchor against a status item that's mid-redraw and snap the
         // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
         .animation(.easeInOut(duration: 0.18), value: controller.pendingPairingRequests.count)
-        .preferredColorScheme(.dark)
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing, fraction: 0.92) {
-            HudLoggerPanel(title: "Activity Log") {
+            ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
             }
         }
-        .onChange(of: controller.lastError) { _, value in
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        .onChange(of: controller.lastError ?? "") { _, value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            HudLogStore.shared.record(trimmed, level: .error, category: "menu-status")
+            HudLogger(category: "menu-status").error(trimmed)
         }
     }
 
@@ -131,76 +127,58 @@ struct MainView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
-            Text("OPENSCOUT")
-                .font(MenuType.mono(11, weight: .bold))
-                .tracking(1.6)
+        HStack(spacing: 8) {
+            Text("OpenScout")
+                .font(MenuType.bodyMedium(14))
                 .foregroundStyle(ShellPalette.ink)
 
-            Text("·")
-                .font(MenuType.mono(11))
-                .foregroundStyle(ShellPalette.muted)
-
-            Text("MENU")
-                .font(MenuType.mono(10, weight: .medium))
-                .tracking(1.2)
-                .foregroundStyle(ShellPalette.dim)
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(menuStatusTint)
+                    .frame(width: 6, height: 6)
+                Text(menuStatusLabel)
+                    .font(MenuType.bodyMedium(10))
+                    .foregroundStyle(ShellPalette.dim)
+            }
 
             Spacer()
 
             HStack(spacing: 6) {
-                Button {
-                    showingActivityLog = true
-                } label: {
-                    Image(systemName: "list.bullet.rectangle")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(HeaderIconButtonStyle())
-                .help("Open activity log")
-
-                Button {
+                HeaderActionButton(
+                    glyph: "qrcode",
+                    label: showQR ? "Hide pairing QR" : "Show pairing QR",
+                    isSelected: showQR
+                ) {
                     showQR.toggle()
                     if showQR && !controller.pairing.isRunning {
                         controller.startPairing()
                     }
-                } label: {
-                    Image(systemName: "qrcode")
-                        .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(HeaderIconButtonStyle())
-                .help(showQR ? "Hide pairing QR" : "Show pairing QR")
 
-                Button {
-                    ScoutAppBridge.openScout()
-                } label: {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(HeaderIconButtonStyle())
-                .help("Open native Scout")
-
-                Button {
-                    controller.openWebApp()
-                } label: {
-                    Image(systemName: "safari")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(HeaderIconButtonStyle())
-                .disabled(controller.webActionPending)
-
-                Button {
+                HeaderActionButton(
+                    glyph: "arrow.clockwise",
+                    label: "Refresh status",
+                    disabled: controller.isRefreshing
+                ) {
                     controller.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(HeaderIconButtonStyle())
-                .disabled(controller.isRefreshing)
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: 38)
+        .padding(.top, 8)
+        .frame(height: 52)
         .background(ShellPalette.chrome)
+    }
+
+    private var menuStatusLabel: String {
+        if controller.isRefreshing { return "Refreshing" }
+        if controller.brokerActionPending { return "Starting" }
+        return controller.broker.reachable ? "Ready" : "Offline"
+    }
+
+    private var menuStatusTint: Color {
+        if controller.isRefreshing || controller.brokerActionPending { return ShellPalette.warning }
+        return controller.broker.reachable ? ShellPalette.success : ShellPalette.error
     }
 
     private var footerBar: some View {
@@ -208,7 +186,7 @@ struct MainView: View {
             Button {
                 showingActivityLog = true
             } label: {
-                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
+                ScoutLogStatusItem(store: activityLog, label: "Logs", showCounts: true)
             }
             .buttonStyle(.plain)
             .help("Open activity log")
@@ -219,9 +197,8 @@ struct MainView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "gearshape")
                         .font(.system(size: 10, weight: .semibold))
-                    Text("SETTINGS")
-                        .font(MenuType.mono(10, weight: .semibold))
-                        .tracking(1.0)
+                    Text("Settings")
+                        .font(MenuType.bodyMedium(11))
                 }
                 .foregroundStyle(ShellPalette.copy)
             }
@@ -233,51 +210,59 @@ struct MainView: View {
                 .font(MenuType.mono(9))
                 .foregroundStyle(ShellPalette.muted)
 
-            Spacer(minLength: 0)
-
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                Text("QUIT")
-                    .font(MenuType.mono(10, weight: .semibold))
-                    .tracking(1.0)
+                Text("Quit")
+                    .font(MenuType.bodyMedium(11))
                     .foregroundStyle(ShellPalette.dim)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
-        .frame(height: 32)
+        .frame(height: 38)
         .background(ShellPalette.chromeFooter)
     }
 
     // MARK: - Surfaces launcher
     //
-    // The two things you actually *go to* from the menu bar: the full app and
-    // the HUD overlay (plus the tail/logs overlay). Services (broker/relay/web)
+    // The primary places/actions you reach from the menu bar: Scout, a new
+    // task, the HUD overlay, and tail mode. Services (broker/relay/web)
     // live in the deck below — this row is "take me there", up top where it's
     // the first thing you reach.
     private var surfaceLauncher: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 8) {
             LaunchTile(
-                glyph: "macwindow",
-                label: "SCOUT",
-                help: "Open native Scout"
+                glyph: "paperplane.fill",
+                label: "Open Scout",
+                detail: "Agents, chats, repos, and terminals",
+                help: "Open native Scout",
+                prominent: true
             ) {
                 ScoutAppBridge.openScout()
             }
-            LaunchTile(
-                glyph: "square.bottomhalf.filled",
-                label: "HUD",
-                help: "Toggle the HUD overlay  ·  ⌃⌥⇧⌘H"
-            ) {
-                ScoutAppBridge.openHUD(command: "toggle")
-            }
-            LaunchTile(
-                glyph: "list.bullet.rectangle",
-                label: "TAIL",
-                help: "Toggle tail mode  ·  ⌃⌥⇧⌘T"
-            ) {
-                ScoutAppBridge.openHUD(command: "tail-toggle")
+            HStack(spacing: 8) {
+                LaunchTile(
+                    glyph: "plus.square.on.square",
+                    label: "New Task",
+                    help: "Create an agent task  ·  ⌃⌥⇧⌘A"
+                ) {
+                    ScoutAppBridge.openHUD(command: "task")
+                }
+                LaunchTile(
+                    glyph: "viewfinder",
+                    label: "Show HUD",
+                    help: "Toggle the HUD overlay  ·  ⌃⌥⇧⌘H"
+                ) {
+                    ScoutAppBridge.openHUD(command: "toggle")
+                }
+                LaunchTile(
+                    glyph: "terminal",
+                    label: "Open Tail",
+                    help: "Toggle tail mode  ·  ⌃⌥⇧⌘T"
+                ) {
+                    ScoutAppBridge.openHUD(command: "tail-toggle")
+                }
             }
         }
     }
@@ -332,15 +317,27 @@ struct MainView: View {
     /// data the controller already exposes (broker port, peer count, mesh
     /// state) so the bottom of the popover isn't dead space.
     private var deckStrip: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(ShellPalette.line)
-                .frame(height: 1)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Services")
+                .font(MenuType.bodyMedium(12))
+                .foregroundStyle(ShellPalette.copy)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 1)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(ShellPalette.line)
+                        .frame(height: 1)
+                        .offset(y: 7)
+                }
+                .padding(.bottom, 7)
 
-            HStack(alignment: .center, spacing: 0) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+                spacing: 8
+            ) {
                 DeckTileButton(
                     glyph: .broker,
-                    label: "BROKER",
+                    label: "Broker",
                     value: brokerValue,
                     tint: brokerTint,
                     action: brokerAction,
@@ -353,10 +350,9 @@ struct MainView: View {
                         )
                     ]
                 )
-                deckDivider
                 DeckTileButton(
                     glyph: .relay,
-                    label: "RELAY",
+                    label: "Relay",
                     value: relayValue,
                     tint: relayTint,
                     action: relayAction,
@@ -369,10 +365,9 @@ struct MainView: View {
                         )
                     ]
                 )
-                deckDivider
                 DeckTileButton(
                     glyph: .web,
-                    label: "WEB",
+                    label: "Web",
                     value: webValue,
                     tint: webTint,
                     action: webAction,
@@ -385,58 +380,44 @@ struct MainView: View {
                         )
                     ]
                 )
-                deckDivider
                 DeckTileButton(
                     glyph: .terminal,
-                    label: "TERM",
+                    label: "Terminal",
                     value: terminalValue,
                     tint: terminalTint,
                     action: terminalAction,
                     helpText: terminalHelp
                 )
-                deckDivider
                 DeckTileButton(
                     glyph: .mesh,
-                    label: "MESH",
+                    label: "Mesh",
                     value: meshValue,
                     tint: meshTint,
                     action: meshAction,
                     helpText: "Open mesh view"
                 )
-                deckDivider
                 DeckTileButton(
                     glyph: .peers,
-                    label: "DEVICES",
+                    label: "Devices",
                     value: devicesValue,
-                    tint: ShellPalette.ink,
+                    tint: devicesTint,
                     action: devicesAction,
-                    helpText: "Open agents view"
+                    helpText: "Open paired devices"
                 )
             }
-            .padding(.vertical, 8)
-
-            Rectangle()
-                .fill(ShellPalette.line)
-                .frame(height: 1)
         }
-    }
-
-    private var deckDivider: some View {
-        Rectangle()
-            .fill(ShellPalette.line)
-            .frame(width: 1)
     }
 
     // MARK: - Tile data
 
     private var brokerValue: String {
-        if controller.brokerActionPending { return "BOOT" }
+        if controller.brokerActionPending { return "Starting…" }
         if !controller.broker.reachable {
-            return controller.broker.loaded ? "WAIT" : "START"
+            return controller.broker.loaded ? "Waiting" : "Start"
         }
         let url = controller.broker.brokerURL
         if let parsed = URL(string: url), let port = parsed.port {
-            return ":\(port)"
+            return "Port \(port)"
         }
         return "—"
     }
@@ -444,7 +425,7 @@ struct MainView: View {
     private var brokerTint: Color {
         if controller.brokerActionPending { return ShellPalette.warning }
         if controller.broker.hasRestartWarning { return ShellPalette.warning }
-        if controller.broker.reachable { return ShellPalette.ink }
+        if controller.broker.reachable { return ShellPalette.success }
         if controller.broker.loaded { return ShellPalette.warning }
         return ShellPalette.error
     }
@@ -473,18 +454,18 @@ struct MainView: View {
     }
 
     private var relayValue: String {
-        if controller.pairingActionPending { return "BOOT" }
-        if !controller.pairing.isRunning { return "START" }
-        if controller.pairing.qrArt != nil { return "WAIT" }
-        if controller.pairing.trustedPeerCount > 0 { return "PAIRED" }
-        return "ON"
+        if controller.pairingActionPending { return "Starting…" }
+        if !controller.pairing.isRunning { return "Start" }
+        if controller.pairing.qrArt != nil { return "Pair device" }
+        if controller.pairing.trustedPeerCount > 0 { return "Paired" }
+        return "Running"
     }
 
     private var relayTint: Color {
         if controller.pairingActionPending { return ShellPalette.warning }
-        if !controller.pairing.isRunning { return ShellPalette.ink }
+        if !controller.pairing.isRunning { return ShellPalette.error }
         if controller.pairing.qrArt != nil { return ShellPalette.warning }
-        return ShellPalette.ink
+        return ShellPalette.success
     }
 
     private var relayAction: (() -> Void)? {
@@ -502,25 +483,30 @@ struct MainView: View {
     }
 
     private var devicesValue: String {
-        "\(controller.pairing.trustedPeerCount)"
+        let count = controller.pairing.trustedPeerCount
+        return count == 1 ? "1 paired" : "\(count) paired"
+    }
+
+    private var devicesTint: Color {
+        controller.pairing.trustedPeerCount > 0 ? ShellPalette.success : ShellPalette.dim
     }
 
     private var devicesAction: (() -> Void)? {
-        return { controller.openWebPath("/agents") }
+        return { controller.openWebPath("/settings#trusted-peers") }
     }
 
     private var meshValue: String {
         let ts = controller.tailscale
-        if !ts.available { return "OFF" }
-        if !ts.running { return "OFF" }
-        return "\(ts.onlinePeerCount)/\(ts.peerCount)"
+        if !ts.available { return "Unavailable" }
+        if !ts.running { return "Stopped" }
+        return "\(ts.onlinePeerCount) of \(ts.peerCount) online"
     }
 
     private var meshTint: Color {
         let ts = controller.tailscale
         if !ts.available { return ShellPalette.dim }
         if !ts.running { return ShellPalette.warning }
-        return ShellPalette.ink
+        return ShellPalette.success
     }
 
     private var meshAction: (() -> Void)? {
@@ -528,13 +514,13 @@ struct MainView: View {
     }
 
     private var terminalValue: String {
-        if controller.webActionPending { return "BOOT" }
-        return controller.webReachable ? "OPEN" : "START"
+        if controller.webActionPending { return "Starting…" }
+        return controller.webReachable ? "Open" : "Start"
     }
 
     private var terminalTint: Color {
         if controller.webActionPending { return ShellPalette.warning }
-        return controller.webReachable ? ShellPalette.ink : ShellPalette.error
+        return controller.webReachable ? ShellPalette.success : ShellPalette.error
     }
 
     private var terminalAction: (() -> Void)? {
@@ -549,13 +535,15 @@ struct MainView: View {
     }
 
     private var webValue: String {
-        if controller.webActionPending { return "BOOT" }
-        return controller.webReachable ? controller.webSurfacePortLabel : "START"
+        if controller.webActionPending { return "Starting…" }
+        guard controller.webReachable else { return "Start" }
+        let port = controller.webSurfacePortLabel.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        return port.isEmpty ? "Open" : "Port \(port)"
     }
 
     private var webTint: Color {
         if controller.webActionPending { return ShellPalette.warning }
-        return controller.webReachable ? ShellPalette.ink : ShellPalette.error
+        return controller.webReachable ? ShellPalette.success : ShellPalette.error
     }
 
     private var webAction: (() -> Void)? {
@@ -839,14 +827,77 @@ struct MainView: View {
 
 }
 
+private struct HeaderActionButton: View {
+    let glyph: String
+    let label: String
+    var isSelected = false
+    var disabled = false
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: glyph)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(border, lineWidth: isFocused ? 2 : 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .focused($isFocused)
+        .disabled(disabled)
+        .help(label)
+        .accessibilityLabel(label)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+            if hovering && !disabled {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
+    private var foreground: Color {
+        if disabled { return ShellPalette.muted }
+        return isSelected ? ShellPalette.accent : ShellPalette.copy
+    }
+
+    private var background: Color {
+        if isSelected { return ShellPalette.accentSoft }
+        if isHovered && !disabled { return ShellPalette.surfaceFill }
+        return .clear
+    }
+
+    private var border: Color {
+        if isFocused { return ShellPalette.accent }
+        if isSelected { return ShellPalette.accentBorder }
+        return .clear
+    }
+}
+
 private struct LaunchTile: View {
     let glyph: String
     let label: String
+    var detail: String? = nil
     let help: String
     var disabled: Bool = false
+    var prominent: Bool = false
     let action: () -> Void
 
     @State private var hover = false
+    @FocusState private var isFocused: Bool
 
     private var isInteractive: Bool {
         !disabled
@@ -854,28 +905,53 @@ private struct LaunchTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 5) {
+            HStack(spacing: prominent ? 12 : 9) {
                 Image(systemName: glyph)
-                    .font(.system(size: 15, weight: .semibold))
-                Text(label)
-                    .font(MenuType.mono(10, weight: .bold))
-                    .tracking(1.2)
+                    .font(.system(size: prominent ? 17 : 14, weight: .semibold))
+                    .frame(width: prominent ? 38 : 28, height: prominent ? 38 : 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: prominent ? 9 : 7, style: .continuous)
+                            .fill(prominent ? ShellPalette.accentSoft : ShellPalette.surfaceFill)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(MenuType.bodyMedium(prominent ? 13 : 12))
+                    if let detail {
+                        Text(detail)
+                            .font(prominent ? MenuType.body(10) : MenuType.mono(9))
+                            .foregroundStyle(ShellPalette.dim)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 4)
+
+                if prominent {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.dim)
+                }
             }
             .foregroundStyle(disabled ? ShellPalette.dim : ShellPalette.ink)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 11)
+            .padding(.horizontal, prominent ? 12 : 10)
+            .padding(.vertical, prominent ? 10 : 8)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: prominent ? 10 : 8, style: .continuous)
                     .fill(tileFill)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(ShellPalette.line, lineWidth: 1)
+                RoundedRectangle(cornerRadius: prominent ? 10 : 8, style: .continuous)
+                    .stroke(tileBorder, lineWidth: isFocused ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
+        .focused($isFocused)
         .disabled(!isInteractive)
         .help(help)
+        .accessibilityLabel(label)
+        .accessibilityHint(help)
         .onHover { hovering in
             hover = hovering
             if hovering && isInteractive {
@@ -887,8 +963,14 @@ private struct LaunchTile: View {
     }
 
     private var tileFill: Color {
-        if hover && isInteractive { return ShellPalette.surfaceFill }
-        return ShellPalette.chrome
+        if hover && isInteractive { return ShellPalette.surfaceFillStrong }
+        return prominent ? ShellPalette.card : ShellPalette.chrome
+    }
+
+    private var tileBorder: Color {
+        if isFocused { return ShellPalette.accent }
+        if prominent && hover { return ShellPalette.accentBorder }
+        return prominent ? ShellPalette.lineStrong : ShellPalette.line
     }
 }
 
@@ -914,6 +996,7 @@ private struct DeckTileButton: View {
     var menuItems: [DeckTileMenuItem] = []
 
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
     private var isClickable: Bool { action != nil }
 
@@ -922,9 +1005,14 @@ private struct DeckTileButton: View {
             if let action {
                 Button(action: action) { tile }
                     .buttonStyle(.plain)
+                    .focused($isFocused)
                     .help(helpText)
+                    .accessibilityLabel("\(label), \(value)")
+                    .accessibilityHint(helpText)
             } else {
                 tile
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(label), \(value)")
             }
         }
         .contextMenu {
@@ -939,37 +1027,51 @@ private struct DeckTileButton: View {
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
-                ServiceGlyph(kind: glyph, size: 11, color: ShellPalette.ink)
-                Text(label)
-                    .font(MenuType.mono(9, weight: .medium))
-                    .tracking(0.6)
-                    .foregroundStyle(ShellPalette.ink)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                ServiceGlyph(kind: glyph, size: 13, lineWidth: 1.6, color: tint)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(ShellPalette.surfaceFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(ShellPalette.line, lineWidth: 1)
+                    )
+
+                Spacer(minLength: 2)
+
+                Circle()
+                    .fill(tint)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 3)
             }
 
-            HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(MenuType.bodyMedium(11))
+                    .foregroundStyle(ShellPalette.ink)
+
                 Text(value)
-                    .font(MenuType.mono(11, weight: .bold))
-                    .foregroundStyle(tint)
+                    .font(MenuType.body(10.5))
+                    .foregroundStyle(ShellPalette.dim)
                     .lineLimit(1)
                     .truncationMode(.middle)
-
-                if isClickable {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(ShellPalette.ink)
-                        .opacity(isHovered ? 1 : 0)
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 54)
         .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        .padding(.vertical, 6)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .background(
-            Rectangle()
-                .fill(isClickable && isHovered ? ShellPalette.surfaceFill : Color.clear)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isClickable && isHovered ? ShellPalette.surfaceFillStrong : ShellPalette.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tileBorder, lineWidth: isFocused ? 2 : 1)
         )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) {
@@ -982,5 +1084,10 @@ private struct DeckTileButton: View {
                 NSCursor.arrow.set()
             }
         }
+    }
+
+    private var tileBorder: Color {
+        if isFocused { return ShellPalette.accent }
+        return isClickable && isHovered ? ShellPalette.lineStrong : ShellPalette.line
     }
 }

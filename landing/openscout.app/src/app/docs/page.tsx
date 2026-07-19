@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SiteHeader } from "@/components/site-header";
 import { getAllDocs } from "@/lib/docs";
 import type { DocMeta } from "@/lib/docs";
 import { SCOUT_VERSION } from "@/lib/version";
@@ -22,6 +22,16 @@ export const metadata: Metadata = {
   },
 };
 
+const DISCOVERY_LINKS = [
+  { href: "/.well-known/scout.json", label: "scout.json", body: "Broker manifest" },
+  { href: "/.well-known/agent.md", label: "agent.md", body: "Well-known discovery" },
+  { href: "/llms.txt", label: "llms.txt", body: "Compact LLM index" },
+  { href: "/llms-full.txt", label: "llms-full.txt", body: "Full context bundle" },
+  { href: "/nav.json", label: "nav.json", body: "Docs graph" },
+  { href: "/agents.md", label: "agents.md", body: "Agent instructions" },
+  { href: "/install.md", label: "install.md", body: "Bootstrap checklist" },
+] as const;
+
 function DocEntry({
   doc,
   sectionNum,
@@ -30,7 +40,7 @@ function DocEntry({
   sectionNum: string;
 }) {
   return (
-    <Link href={`/docs/${doc.slug}`} className="rfc-block group block">
+    <Link href={`/docs/${doc.slug}`} className="docs-index-entry group">
       <div className="rfc-block__num">{sectionNum}</div>
       <h3 className="rfc-block__title transition-colors group-hover:text-[var(--site-accent)]">
         {doc.title}
@@ -40,58 +50,24 @@ function DocEntry({
   );
 }
 
-export default function DocsIndex() {
-  const docs = getAllDocs();
-  const coreDocs = docs.filter((d) => d.group === "Core Concepts");
-  const annexDocs = docs.filter((d) => d.group === "OpenAgents Tracks");
-  const otherGroups = new Map<string, DocMeta[]>();
+function groupDocs(docs: DocMeta[]): Array<[string, DocMeta[]]> {
+  const groups = new Map<string, DocMeta[]>();
   for (const doc of docs) {
-    if (doc.group === "Core Concepts" || doc.group === "OpenAgents Tracks") continue;
-    const list = otherGroups.get(doc.group) ?? [];
+    const list = groups.get(doc.group) ?? [];
     list.push(doc);
-    otherGroups.set(doc.group, list);
+    groups.set(doc.group, list);
   }
+  return Array.from(groups.entries());
+}
+
+export default function DocsIndex() {
+  const sections = groupDocs(getAllDocs());
 
   return (
     <div className="site-docs min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
-      <header className="operator-console">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 operator-row">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span
-              className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
-              style={{ width: 26, height: 26 }}
-              aria-hidden
-            >
-              <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
-                <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
-                <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
-                <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
-                <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
-                <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
-              </svg>
-            </span>
-            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
-              Scout
-            </span>
-          </Link>
-          <nav className="flex items-center gap-5">
-            <Link href="/privacy" className="operator-link hidden sm:inline-flex">
-              <span className="operator-link__sigil">:</span>privacy
-            </Link>
-            <span className="operator-link text-[var(--site-ink)]">
-              <span className="operator-link__sigil">:</span>docs
-            </span>
-            <SiteThemeToggle />
-          </nav>
-        </div>
-      </header>
+      <SiteHeader active="docs" />
 
       <main className="mx-auto max-w-4xl px-6">
-        {/* RFC front matter */}
         <div className="border-b border-[var(--site-border-soft)] pb-10 pt-16">
           <div className="rfc-section-eyebrow">
             <span className="rfc-section-eyebrow__num">§</span>
@@ -105,64 +81,35 @@ export default function DocsIndex() {
             for inter-agent messaging. Covers topology, identity, record types,
             and implementation guidance.
           </p>
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { href: "/.well-known/scout.json", label: "scout.json", body: "Broker manifest" },
-              { href: "/.well-known/agent.md", label: "agent.md", body: "Well-known discovery entry" },
-              { href: "/llms.txt", label: "llms.txt", body: "Compact LLM index" },
-              { href: "/llms-full.txt", label: "llms-full.txt", body: "Full context bundle" },
-              { href: "/nav.json", label: "nav.json", body: "Docs graph" },
-              { href: "/agents.md", label: "agents.md", body: "Agent instructions" },
-              { href: "/install.md", label: "install.md", body: "Bootstrap checklist" },
-            ].map((item) => (
-              <a key={item.href} href={item.href} className="rfc-block group block border-t-0 pt-0">
-                <h2 className="rfc-block__title text-[15px] transition-colors group-hover:text-[var(--site-accent)]">
-                  {item.label}
-                </h2>
-                <p className="rfc-block__body text-[12.5px]">{item.body}</p>
-              </a>
-            ))}
+
+          <div className="docs-index-discovery mt-8">
+            <div className="rfc-section-eyebrow mb-3">
+              <span className="rfc-section-eyebrow__num">§0</span>
+              <span>Machine-readable</span>
+            </div>
+            <ul className="docs-index-discovery__list">
+              {DISCOVERY_LINKS.map((item) => (
+                <li key={item.href}>
+                  <a href={item.href} className="docs-index-discovery__link group">
+                    <span className="docs-index-discovery__label">{item.label}</span>
+                    <span className="docs-index-discovery__body">{item.body}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        {/* §1 + §A side by side */}
-        <div className="grid gap-x-16 gap-y-14 pb-24 pt-10 lg:grid-cols-2">
-          {/* §1 Core Concepts */}
-          {coreDocs.length > 0 && (
-            <section>
-              <div className="rfc-section-eyebrow mb-5">
-                <span className="rfc-section-eyebrow__num">§1</span>
-                <span>Core Concepts</span>
-              </div>
-              {coreDocs.map((doc, i) => (
-                <DocEntry key={doc.slug} doc={doc} sectionNum={`§1.${i + 1}`} />
-              ))}
-            </section>
-          )}
-
-          {/* §A Annexes */}
-          {annexDocs.length > 0 && (
-            <section>
-              <div className="rfc-section-eyebrow mb-5">
-                <span className="rfc-section-eyebrow__num">§A</span>
-                <span>Annexes</span>
-              </div>
-              {annexDocs.map((doc, i) => (
-                <DocEntry key={doc.slug} doc={doc} sectionNum={`§A.${i + 1}`} />
-              ))}
-            </section>
-          )}
-
-          {/* Any additional groups span full width */}
-          {Array.from(otherGroups).map(([group, items], gi) => (
-            <section key={group} className="lg:col-span-2">
-              <div className="rfc-section-eyebrow mb-5">
-                <span className="rfc-section-eyebrow__num">§{gi + 2}</span>
+        <div className="docs-index-sections pb-24 pt-12">
+          {sections.map(([group, items], gi) => (
+            <section key={group} className="docs-index-section">
+              <div className="rfc-section-eyebrow mb-6">
+                <span className="rfc-section-eyebrow__num">§{gi + 1}</span>
                 <span>{group}</span>
               </div>
-              <div className="grid gap-x-16 lg:grid-cols-2">
+              <div className="docs-index-grid">
                 {items.map((doc, i) => (
-                  <DocEntry key={doc.slug} doc={doc} sectionNum={`§${gi + 2}.${i + 1}`} />
+                  <DocEntry key={doc.slug} doc={doc} sectionNum={`§${gi + 1}.${i + 1}`} />
                 ))}
               </div>
             </section>
@@ -183,7 +130,7 @@ export default function DocsIndex() {
                 <b>v{SCOUT_VERSION}</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
-              <span className="status-bar__cell hidden md:inline-flex">license pending</span>
+              <span className="status-bar__cell hidden md:inline-flex">apache-2.0</span>
             </span>
             <span className="status-bar__zone status-bar__zone--right">
               <Link href="/" className="status-bar__link">

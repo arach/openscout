@@ -38,7 +38,7 @@ private struct ScoutAppIconMark: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.22), lineWidth: HudStrokeWidth.thin)
+                .stroke(ScoutPalette.accent.opacity(0.38), lineWidth: HudStrokeWidth.thin)
         )
         .accessibilityLabel("Scout")
     }
@@ -50,7 +50,7 @@ private struct ScoutAppIconLineMark: View {
             let minSide = min(canvasSize.width, canvasSize.height)
             let lineWidth = max(1.15, minSide * 0.055)
             let lineStyle = StrokeStyle(lineWidth: lineWidth, lineCap: .square, lineJoin: .miter)
-            let lineColor = Color.white.opacity(0.94)
+            let lineColor = ScoutPalette.accent
 
             func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
                 CGPoint(x: canvasSize.width * x, y: canvasSize.height * y)
@@ -101,6 +101,99 @@ private struct ScoutDiffSheetRequest {
     }
 }
 
+private struct ScoutMessageRenderBlock: Identifiable {
+    let root: ScoutMessage
+    let replies: [ScoutMessage]
+
+    var id: String { root.id }
+}
+
+private enum ScoutMessageRenderItem: Identifiable {
+    case inline(ScoutMessage)
+    case chain(ScoutMessageRenderBlock)
+
+    var id: String {
+        switch self {
+        case .inline(let message):
+            return "inline:\(message.id)"
+        case .chain(let block):
+            return "chain:\(block.root.id)"
+        }
+    }
+}
+
+private struct ScoutThreadStartResponse: Decodable {
+    let id: String?
+    let conversationId: String?
+    let chatId: String?
+    let cId: String?
+}
+
+private struct ScoutThreadParticipantFaces: View {
+    let names: [String]
+
+    var body: some View {
+        HStack(spacing: -4) {
+            ForEach(displayNames, id: \.self) { name in
+                SpriteAvatarView(name: name, size: 16, tile: true)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                            .stroke(ScoutDesign.bg, lineWidth: HudStrokeWidth.thin)
+                    )
+            }
+        }
+        .frame(minWidth: displayNames.isEmpty ? 0 : CGFloat(12 + displayNames.count * 12), alignment: .leading)
+    }
+
+    private var displayNames: [String] {
+        let cleaned = names
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return Array(cleaned.prefix(3))
+    }
+}
+
+private struct ScoutThreadCompactMessageRow: View {
+    let message: ScoutMessage
+    let baseDirectory: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.md) {
+            SpriteAvatarView(name: message.actorName, size: 22, tile: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(message.isOperator ? ScoutPalette.accent.opacity(0.5) : Color.clear, lineWidth: HudStrokeWidth.thin)
+                )
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                    Text(message.actorName)
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    Text(ScoutRelativeTime.format(message.createdAt))
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+                if message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(message.attachments.isEmpty ? "Empty message" : "\(message.attachments.count) attachment\(message.attachments.count == 1 ? "" : "s")")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                } else {
+                    ScoutMarkdownView(
+                        text: message.body,
+                        baseDirectory: baseDirectory,
+                        inkColor: ScoutPalette.ink,
+                        mutedColor: ScoutPalette.muted,
+                        accentColor: ScoutPalette.accent,
+                        hug: true
+                    )
+                }
+            }
+            .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
@@ -110,17 +203,25 @@ struct ScoutRootView: View {
     @StateObject private var feeds = ScoutFeeds()
     private var tail: ScoutTailStore { feeds.tail }
     @StateObject private var repos = ScoutRepoStore()
+    #if HUDSON_TERMINAL
+    /// Terminal layouts live at window scope so section changes do not tear down
+    /// their native PTYs or forget the xterm routes that make up each workspace.
+    @StateObject private var terminalWorkspaces = ScoutTerminalWorkspaceStore()
+    #endif
     /// Incoming LAN pairing requests awaiting approval on this Mac.
     @StateObject private var pairingApprovals = ScoutPairingApprovalStore()
-    @ObservedObject private var voice = ScoutVoiceService.shared
+    @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @ObservedObject private var activityLog = HudLogStore.shared
     @State private var showingActivityLog = false
     @State private var section: ScoutSection = .comms
+    @State private var codeLinkQueryItems: [URLQueryItem] = []
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var agentsFilterQuery = ""
     @State private var agentsLiveOnly = false
+    @AppStorage("scout.agents.showProjects") private var agentsShowProjects = true
+    @AppStorage("scout.agents.sortMode") private var agentsSortModeRaw = ScoutAgentSortMode.alpha.rawValue
     @State private var channelFilter: ScoutChannelFilter = .all
     @State private var draft = ""
     /// Per-conversation unsent drafts, so a message isn't lost when navigating
@@ -136,6 +237,12 @@ struct ScoutRootView: View {
     @State private var followLatest = true
     /// Pending one-shot jump to the newest message when a conversation opens.
     @State private var pendingInitialJump = true
+    @State private var expandedThreadConversationIds: Set<String> = []
+    @State private var threadMessages: [String: [ScoutMessage]] = [:]
+    @State private var threadDrafts: [String: String] = [:]
+    @State private var loadingThreadConversationIds: Set<String> = []
+    @State private var pendingThreadReloadIds: Set<String> = []
+    @State private var sendingThreadConversationIds: Set<String> = []
 
     private static let messageListBottomAnchor = "scout.messageList.bottom"
     private static let activeTurnAnchor = "scout.messageList.activeTurn"
@@ -222,7 +329,34 @@ struct ScoutRootView: View {
                         compactInspectorPresented = false
                     }
                 }
+                .onOpenURL { url in
+                    handleScoutDeepLink(url)
+                }
         }
+    }
+
+    /// scout://code/<project>/<relative/file/path>[?wt=…] — same link grammar the
+    /// web serves at /code/<project>/<path>; extra query params pass through so
+    /// the absolute ?root=/&file= form works too.
+    private func handleScoutDeepLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "scout" else { return }
+        guard url.host?.lowercased() == "code" else { return }
+        var items: [URLQueryItem] = []
+        let segments = url.pathComponents.filter { $0 != "/" }
+        if let project = segments.first {
+            items.append(URLQueryItem(name: "project", value: project))
+            let rest = segments.dropFirst().joined(separator: "/")
+            if !rest.isEmpty {
+                items.append(URLQueryItem(name: "path", value: rest))
+            }
+        }
+        if let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
+            for item in query where !items.contains(where: { $0.name == item.name }) {
+                items.append(item)
+            }
+        }
+        codeLinkQueryItems = items
+        section = .code
     }
 
     @ViewBuilder
@@ -239,43 +373,51 @@ struct ScoutRootView: View {
             .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
     }
 
-    private func rootShell(layout: ScoutShellLayout) -> some View {
-        HudChromeShell(titlebarStyle: .systemToolbar, titlebarActions: chromeTitlebarActions(layout: layout)) {
-            HudResizableNavigationSidebar(
-                selection: Binding(
-                    get: { section },
-                    set: { next in
-                        if let next {
-                            section = next
-                        }
-                    }
-                ),
-                entries: sidebarEntries,
-                isCompact: navigationCompactBinding(layout: layout),
-                labelWidth: navigationSidebarLabelWidthBinding,
-                accent: manifest.accent,
-                minLabelWidth: 76,
-                maxLabelWidth: 260,
-                collapseLabelWidth: 44,
-                railHeader: {
-                    ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
-                },
-                labelHeader: {
-                    Text("Scout")
-                        .font(HudFont.ui(HudTextSize.base, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.ink)
-                        .lineLimit(1)
-                },
-                footer: {
-                    ScoutSidebarSettingsButton(
-                        isCompact: effectiveRailCompact(layout: layout),
-                        labelWidth: CGFloat(navigationSidebarLabelWidth),
-                        isSelected: section == .settings
-                    ) {
-                        section = .settings
+    private func navigationSidebar(layout: ScoutShellLayout) -> some View {
+        HudResizableNavigationSidebar(
+            selection: Binding(
+                get: { section },
+                set: { next in
+                    if let next {
+                        section = next
                     }
                 }
-            )
+            ),
+            entries: sidebarEntries,
+            isCompact: navigationCompactBinding(layout: layout),
+            labelWidth: navigationSidebarLabelWidthBinding,
+            accent: manifest.accent,
+            minLabelWidth: 76,
+            maxLabelWidth: 260,
+            collapseLabelWidth: 44,
+            railHeader: {
+                // Full-height window: the traffic lights float over this
+                // corner, so the identity mark steps down below them.
+                ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
+                    .padding(.top, 26)
+            },
+            labelHeader: {
+                Text("Scout")
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                    .padding(.top, 26)
+            },
+            footer: {
+                ScoutSidebarSettingsButton(
+                    isCompact: effectiveRailCompact(layout: layout),
+                    labelWidth: CGFloat(navigationSidebarLabelWidth),
+                    isSelected: section == .settings
+                ) {
+                    section = .settings
+                }
+            }
+        )
+    }
+
+    private func rootChrome(layout: ScoutShellLayout) -> some View {
+        HudChromeShell(titlebarStyle: .contentBar, titlebarActions: chromeTitlebarActions(layout: layout)) {
+            navigationSidebar(layout: layout)
         } trailing: {
             trailingPanel(layout: layout)
         } content: {
@@ -283,6 +425,10 @@ struct ScoutRootView: View {
         } statusBar: {
             statusBar
         }
+    }
+
+    private func rootShell(layout: ScoutShellLayout) -> some View {
+        rootChrome(layout: layout)
         .hudsonAppManifest(manifest)
         .environment(\.hudTheme, ScoutDesign.theme)
         // Opaque chrome rail (not behind-window vibrancy): the `.liquidGlass`
@@ -299,12 +445,10 @@ struct ScoutRootView: View {
         .hudsonSidebarMotionMode(.smoothFade)
         .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
-            HudLoggerPanel(title: "Activity Log") {
+            ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
             }
         }
-        .toolbarBackground(ScoutDesign.chrome, for: .windowToolbar)
-        .toolbarColorScheme(appearance.themeMode.colorScheme, for: .windowToolbar)
         .background {
             #if os(macOS)
             ScoutWindowBackdrop(opacity: appearance.windowOpacity)
@@ -318,12 +462,21 @@ struct ScoutRootView: View {
             if let cId = ScoutExternalCommand.takePendingChannelId() {
                 openChannelFromExternalCommand(cId)
             }
+            if let url = ScoutExternalCommand.takePendingCodeLinkURL() {
+                handleScoutDeepLink(url)
+            }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: section == .comms)
         }
         .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openChannelNotificationName)) { notification in
             guard let cId = notification.userInfo?["cId"] as? String else { return }
             openChannelFromExternalCommand(cId)
             ScoutExternalCommand.clearPendingChannelId(cId)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openCodeLinkNotificationName)) { notification in
+            guard let url = notification.userInfo?["url"] as? URL else { return }
+            handleScoutDeepLink(url)
+            _ = ScoutExternalCommand.takePendingCodeLinkURL()
         }
         .onDisappear {
             store.stop()
@@ -331,17 +484,27 @@ struct ScoutRootView: View {
             repos.stop()
             pairingApprovals.stop()
             cancelPendingFlightMonitors()
+            // No window means no visible conversation — clear the selection so
+            // attention banners for it aren't suppressed as "already on screen".
+            ScoutAttentionCenter.shared.noteSelection(cId: nil, isCommsVisible: false)
         }
         .onChange(of: store.selectedCId) { oldCId, newCId in
             // Preserve the in-progress draft for the chat we're leaving and
             // restore any draft saved for the one we're entering.
             if let oldCId { drafts[oldCId] = draft }
             draft = newCId.flatMap { drafts[$0] } ?? ""
+            expandedThreadConversationIds = []
+            threadMessages = [:]
+            threadDrafts = [:]
+            loadingThreadConversationIds = []
+            pendingThreadReloadIds = []
+            sendingThreadConversationIds = []
             // Keep staged captures when landing on a chat from the quick-capture
             // surface (nil → channel). Clear only when switching chats or leaving.
             if oldCId != nil {
                 pendingImages = []
             }
+            ScoutAttentionCenter.shared.noteSelection(cId: newCId, isCommsVisible: section == .comms)
         }
         .onChange(of: channelReconciliationKeys) { _, _ in
             reconcilePendingConversations()
@@ -351,6 +514,7 @@ struct ScoutRootView: View {
                 tailSessionEvent = nil
             }
             syncScopedStoreLifecycles()
+            ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: newSection == .comms)
         }
         .onChange(of: modalPresented) { _, _ in
             syncScopedStoreLifecycles()
@@ -501,6 +665,11 @@ struct ScoutRootView: View {
     }
 
     private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+        // The terminal owns its complete keyboard stream. In particular, do
+        // not turn its bare h/j/k/l/g input into Scout navigation commands.
+        guard !ScoutKeyboardInputContext.isTerminalInput(for: event) else {
+            return false
+        }
         if event.keyCode == 53, HUDController.shared.handleHostKeyDown(event) {
             return true
         }
@@ -563,7 +732,10 @@ struct ScoutRootView: View {
     /// capturing text input — otherwise they'd be stolen from typing. (Modal
     /// overlays are already excluded by `modalPresented`.)
     private var bareKeysAvailable: Bool {
-        !composerFocused && !searchFocused && !repoAskFocused
+        !composerFocused
+            && !searchFocused
+            && !repoAskFocused
+            && !HUDController.shared.isTaskComposerPresented
     }
 
     /// Step the active page's selection: conversations in Comms, agent cards in
@@ -580,7 +752,7 @@ struct ScoutRootView: View {
             treeMove(delta)
         case .repos:
             reposTreeMove(delta)
-        case .terminals, .tail, .dispatch, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .code, .settings:
             break
         }
     }
@@ -596,7 +768,7 @@ struct ScoutRootView: View {
             treeEdge(last: last)
         case .repos:
             reposTreeEdge(last: last)
-        case .terminals, .tail, .dispatch, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .code, .settings:
             break
         }
     }
@@ -604,7 +776,47 @@ struct ScoutRootView: View {
     // MARK: Agents tree navigation
 
     private var treeGroups: [ScoutAgentsTreeModel.ProjectGroup] {
-        ScoutAgentsTreeModel.groups(agents: filteredTreeAgents, channels: store.channels)
+        let groups = ScoutAgentsTreeModel.groups(agents: filteredTreeAgents, channels: store.channels)
+        switch agentsSortMode {
+        case .alpha:
+            return groups
+        case .recent:
+            return groups.sorted {
+                let left = treeGroupLastActivity($0)
+                let right = treeGroupLastActivity($1)
+                if left != right { return left > right }
+                if $0.live != $1.live { return $0.live > $1.live }
+                return $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+            }
+        }
+    }
+
+    private var agentsSortMode: ScoutAgentSortMode {
+        ScoutAgentSortMode(rawValue: agentsSortModeRaw) ?? .alpha
+    }
+
+    private var agentsTreeSort: ScoutAgentsTreeSort {
+        agentsSortMode == .recent ? .recent : .alpha
+    }
+
+    private var selectedTreeGroup: ScoutAgentsTreeModel.ProjectGroup? {
+        guard section == .agents, let key = agentsTree.selectedProjectKey else { return nil }
+        return treeGroups.first { $0.key == key }
+    }
+
+    private var selectedTreeChannel: ScoutChannel? {
+        guard section == .agents, let cId = agentsTree.selectedSessionCId else { return nil }
+        return store.channels.first { $0.cId == cId }
+    }
+
+    private var selectedTreeProjectPath: String? {
+        guard let path = selectedTreeGroup?.path.nilIfEmpty, path != "—" else { return nil }
+        return path
+    }
+
+    private var selectedTreeAgent: ScoutAgent? {
+        guard section == .agents, let agentID = agentsTree.selectedAgentID else { return nil }
+        return store.agents.first { $0.id == agentID }
     }
 
     /// Roster narrowed by the pane's All/Live scope and filter field.
@@ -623,18 +835,36 @@ struct ScoutRootView: View {
         }
     }
 
+    private func treeGroupLastActivity(_ group: ScoutAgentsTreeModel.ProjectGroup) -> TimeInterval {
+        let agentTimes = group.agents.compactMap(\.updatedAt)
+        let sessionTimes = group.sessions.values.flatMap { $0.compactMap(\.lastMessageAt) }
+        return (agentTimes + sessionTimes).max() ?? 0
+    }
+
+    private func expandVisibleAgentSessions() {
+        agentsTree.expandedAgents = Set(treeGroups.flatMap { group in
+            group.agents.compactMap { agent in
+                (group.sessions[agent.id]?.isEmpty == false) ? agent.id : nil
+            }
+        })
+    }
+
     /// Mirror the tree's selection into the store so the inspector follows.
     private func pushTreeSelection() {
-        if let agentId = agentsTree.selectedAgentID { store.selectAgent(agentId) }
+        if let agentId = agentsTree.selectedAgentID {
+            store.selectAgent(agentId)
+        } else if section == .agents {
+            store.selectedAgentId = nil
+        }
     }
 
     private func treeMove(_ delta: Int) {
-        agentsTree.move(delta, groups: treeGroups)
+        agentsTree.move(delta, groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
         pushTreeSelection()
     }
 
     private func treeEdge(last: Bool) {
-        agentsTree.moveToEdge(last: last, groups: treeGroups)
+        agentsTree.moveToEdge(last: last, groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
         pushTreeSelection()
     }
 
@@ -652,7 +882,9 @@ struct ScoutRootView: View {
     private func moveRight() {
         switch section {
         case .agents:
-            withAnimation(.easeOut(duration: 0.16)) { agentsTree.expandOrDescend(groups: treeGroups) }
+            withAnimation(.easeOut(duration: 0.16)) {
+                agentsTree.expandOrDescend(groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
+            }
             pushTreeSelection()
         case .repos:
             withAnimation(.easeOut(duration: 0.16)) {
@@ -667,7 +899,9 @@ struct ScoutRootView: View {
     private func moveLeft() {
         switch section {
         case .agents:
-            withAnimation(.easeOut(duration: 0.16)) { agentsTree.collapseOrParent(groups: treeGroups) }
+            withAnimation(.easeOut(duration: 0.16)) {
+                agentsTree.collapseOrParent(groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
+            }
             pushTreeSelection()
         case .repos:
             withAnimation(.easeOut(duration: 0.16)) {
@@ -690,7 +924,7 @@ struct ScoutRootView: View {
 
     /// Open the observe sidecar for the selected agent (⌘O, Agents page).
     private func observeSelectedAgent() {
-        guard section == .agents, let agent = store.selectedAgent else { return }
+        guard section == .agents, let agent = selectedTreeAgent else { return }
         observeAgent(agent)
     }
 
@@ -713,7 +947,7 @@ struct ScoutRootView: View {
             section = .comms
             return
         }
-        guard let agent = store.selectedAgent else { return }
+        guard let agent = selectedTreeAgent else { return }
         store.openAgentChannel(agent)
         section = .comms
     }
@@ -764,6 +998,19 @@ struct ScoutRootView: View {
         )
     }
 
+    private func startConversationInProject(_ group: ScoutAgentsTreeModel.ProjectGroup) {
+        repos.refresh()
+        sessionDraft = ScoutSessionDraft(
+            title: "New chat",
+            target: .project,
+            projectPath: group.path == "—" ? "" : group.path,
+            mode: .fresh,
+            instructions: "",
+            fromMessageId: nil,
+            fromConversationId: nil
+        )
+    }
+
     private func startConversationFromMessage(_ message: ScoutMessage, agent: ScoutAgent?) {
         repos.refresh()
         sessionDraft = ScoutSessionDraft(
@@ -800,10 +1047,10 @@ struct ScoutRootView: View {
     private func preferredFreshModel(harness: String?, model: String?) -> String? {
         guard let harness = harness?.nilIfEmpty else { return model?.nilIfEmpty }
         guard harness.lowercased() == "codex" else { return model?.nilIfEmpty }
-        guard let model = model?.nilIfEmpty else { return "gpt-5.5" }
+        guard let model = model?.nilIfEmpty else { return "gpt-5.6-sol" }
         let lower = model.lowercased()
         if lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
-            return "gpt-5.5"
+            return "gpt-5.6-sol"
         }
         return model
     }
@@ -839,6 +1086,7 @@ struct ScoutRootView: View {
     /// agent's root, else any roster agent that exposes one.
     private var defaultProjectPath: String {
         lastSessionProjectPath.nilIfEmpty
+            ?? selectedTreeProjectPath
             ?? store.selectedAgent?.projectRoot?.nilIfEmpty
             ?? store.agents.compactMap { $0.projectRoot?.nilIfEmpty }.first
             ?? ""
@@ -858,6 +1106,7 @@ struct ScoutRootView: View {
         }
 
         append(path: lastSessionProjectPath, name: "Recent")
+        append(path: selectedTreeProjectPath, name: selectedTreeGroup?.label)
         append(path: store.selectedAgent?.projectRoot)
         for project in repos.projects {
             append(path: project.root, name: project.name)
@@ -893,6 +1142,9 @@ struct ScoutRootView: View {
             sessionId: result.sessionId?.nilIfEmpty,
             flightId: result.flightId?.nilIfEmpty,
             messageId: result.messageId?.nilIfEmpty,
+            agentId: result.agentId?.nilIfEmpty,
+            agentName: pendingConversationAgentName(result: result, draft: submittedDraft),
+            createdAt: Date(),
             title: pendingConversationTitle(for: submittedDraft),
             subtitle: pendingConversationSubtitle(for: submittedDraft),
             draft: submittedDraft,
@@ -943,8 +1195,8 @@ struct ScoutRootView: View {
             store.selectPendingConversation(
                 cId: ref,
                 flightId: pending.flightId?.nilIfEmpty,
-                agentId: pending.draft.agent?.id.nilIfEmpty,
-                agentName: pending.title.nilIfEmpty
+                agentId: pending.agentId?.nilIfEmpty ?? pending.draft.agent?.id.nilIfEmpty,
+                agentName: pending.agentName?.nilIfEmpty ?? pending.title.nilIfEmpty
             )
         }
     }
@@ -987,6 +1239,13 @@ struct ScoutRootView: View {
         }
     }
 
+    private func pendingConversationAgentName(result: ScoutSessionStartResult, draft: ScoutSessionDraft) -> String? {
+        result.handle?.nilIfEmpty
+            ?? draft.displayName.nilIfEmpty
+            ?? draft.agentName.nilIfEmpty
+            ?? draft.agent?.displayName.nilIfEmpty
+    }
+
     private func pendingConversationSubtitle(for draft: ScoutSessionDraft) -> String {
         if draft.mode == .continueContext {
             return "Continuing full context"
@@ -996,6 +1255,8 @@ struct ScoutRootView: View {
         }
         return "Starting..."
     }
+
+    private static let pendingConversationStaleAfter: TimeInterval = 5 * 60
 
     private func startPendingFlightMonitor(for pending: ScoutPendingConversation) {
         pendingFlightTasks[pending.id]?.cancel()
@@ -1026,6 +1287,12 @@ struct ScoutRootView: View {
             pendingFlightTasks[pendingId]?.cancel()
             pendingFlightTasks[pendingId] = nil
             return
+        }
+        if let agentId = status.agentId?.nilIfEmpty {
+            pendingConversations[index].agentId = agentId
+        }
+        if let agentName = status.agentName?.nilIfEmpty {
+            pendingConversations[index].agentName = agentName
         }
         if status.isFailure {
             if status.removePendingRow {
@@ -1091,7 +1358,18 @@ struct ScoutRootView: View {
             return flight
         }
         guard let conversationId = pending.conversationId?.nilIfEmpty else { return nil }
-        return try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending)
+        if let failure = try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending) {
+            return failure
+        }
+        if Date().timeIntervalSince(pending.createdAt) > Self.pendingConversationStaleAfter {
+            return ScoutPendingFlightStatus(
+                id: pending.flightId?.nilIfEmpty ?? pending.messageId?.nilIfEmpty ?? pending.id,
+                state: "failed",
+                summary: "Scout did not receive a broker update for this session. Retry or open the chat list to check whether it landed.",
+                removePendingRow: false
+            )
+        }
+        return nil
     }
 
     private static func fetchPendingAnsweredMessageStatus(
@@ -1165,12 +1443,13 @@ struct ScoutRootView: View {
     private var sidebarEntries: [HudSidebarEntry<ScoutSection>] {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
-            .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
+            .item(HudSidebarItem(id: .agents, title: "Projects", icon: "folder", selectedIcon: "folder.fill")),
             .item(HudSidebarItem(id: .terminals, title: "Terminals", icon: "terminal", selectedIcon: "terminal")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
             .item(HudSidebarItem(id: .dispatch, title: "Dispatch", icon: "paperplane", selectedIcon: "paperplane.fill")),
             .item(HudSidebarItem(id: .lanes, title: "Lanes", icon: "rectangle.split.3x1", selectedIcon: "rectangle.split.3x1.fill")),
             .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
+            .item(HudSidebarItem(id: .code, title: "Code", icon: "chevron.left.forwardslash.chevron.right", selectedIcon: "chevron.left.forwardslash.chevron.right")),
         ]
     }
 
@@ -1191,7 +1470,7 @@ struct ScoutRootView: View {
                 }
             }
         ]
-        if section != .settings && section != .terminals {
+        if section != .settings && section != .terminals && section != .agents {
             actions.append(HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
@@ -1224,7 +1503,7 @@ struct ScoutRootView: View {
         case .comms:
             commsContent(layout: layout)
         case .agents:
-            agentsContent
+            projectsContent
         case .terminals:
             terminalContent
         case .repos:
@@ -1235,6 +1514,8 @@ struct ScoutRootView: View {
             dispatchContent
         case .lanes:
             lanesContent(layout: layout)
+        case .code:
+            codeContent
         case .settings:
             settingsContent
         }
@@ -1244,8 +1525,16 @@ struct ScoutRootView: View {
         ScoutSettingsView(appearance: appearance)
     }
 
+    private var projectsContent: some View {
+        ScoutWebEmbedContent(surface: .projects, showsHeader: false)
+    }
+
     private var terminalContent: some View {
+        #if HUDSON_TERMINAL
+        ScoutTerminalContent(workspaceStore: terminalWorkspaces)
+        #else
         ScoutTerminalContent()
+        #endif
     }
 
     private func commsContent(layout: ScoutShellLayout) -> some View {
@@ -1259,10 +1548,14 @@ struct ScoutRootView: View {
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
                 hasActivity: store.workingAgentCount > 0,
+                serviceHealth: store.serviceHealth,
+                isStartingBroker: store.isStartingBroker,
                 width: effectiveConversationListWidth(layout: layout),
                 searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() },
                 onRefresh: { store.refresh(force: true) },
+                onStartBroker: { store.startBroker() },
+                onOpenMenuBar: { ScoutServicesHelper.openMenuBarHelper() },
                 onRetryPending: retryPendingConversation,
                 onSelectPending: selectPendingConversation
             ) { channel in
@@ -1293,14 +1586,10 @@ struct ScoutRootView: View {
             if let channel = store.selectedChannel {
                 VStack(spacing: 0) {
                     chatHeader
-                    if channel.isObserverThread {
-                        ScoutObservingBanner(channel: channel)
-                    }
                     if let ask = channel.ask {
                         ScoutPinnedAskBand(ask: ask)
                     }
                     messageList
-                    HudDivider(color: ScoutDesign.hairline)
                     composer
                 }
             } else if let pending = selectedPendingConversation {
@@ -1333,7 +1622,6 @@ struct ScoutRootView: View {
             } else {
                 messageList
             }
-            HudDivider(color: ScoutDesign.hairline)
             composer
         }
     }
@@ -1565,31 +1853,478 @@ struct ScoutRootView: View {
         return store.agents.first(where: { $0.id == agentId })
     }
 
+    private var messageRenderItems: [ScoutMessageRenderItem] {
+        Self.messageRenderItems(for: store.messages)
+    }
+
+    private var latestMessageIdForFullDisplay: String? {
+        store.messages.last(where: Self.isReplyGatherCandidate)?.id
+    }
+
+    private static func messageRenderItems(for messages: [ScoutMessage]) -> [ScoutMessageRenderItem] {
+        var messagesById: [String: ScoutMessage] = [:]
+        var indexById: [String: Int] = [:]
+        for (index, message) in messages.enumerated() {
+            messagesById[message.id] = message
+            indexById[message.id] = index
+        }
+
+        var gatheredIds = Set<String>()
+        var repliesByRoot: [String: [ScoutMessage]] = [:]
+
+        for message in messages {
+            guard isReplyGatherCandidate(message),
+                  let parentId = message.replyToMessageId?.nilIfEmpty,
+                  let parent = messagesById[parentId],
+                  isReplyGatherCandidate(parent),
+                  let messageIndex = indexById[message.id],
+                  let parentIndex = indexById[parentId] else {
+                continue
+            }
+
+            // Rule A: plain adjacency already reads as a reply. Only pull a
+            // reply into a chain when its parent is elsewhere in the rendered
+            // chronological stream.
+            guard parentIndex != messageIndex - 1 else { continue }
+            guard let rootId = chainRootId(for: message, messagesById: messagesById),
+                  rootId != message.id else {
+                continue
+            }
+
+            gatheredIds.insert(message.id)
+            repliesByRoot[rootId, default: []].append(message)
+        }
+
+        for rootId in repliesByRoot.keys {
+            repliesByRoot[rootId]?.sort {
+                (indexById[$0.id] ?? Int.max) < (indexById[$1.id] ?? Int.max)
+            }
+        }
+
+        return messages.compactMap { message in
+            if gatheredIds.contains(message.id) {
+                return nil
+            }
+            if let replies = repliesByRoot[message.id], !replies.isEmpty {
+                return .chain(ScoutMessageRenderBlock(root: message, replies: replies))
+            }
+            return .inline(message)
+        }
+    }
+
+    private static func chainRootId(
+        for message: ScoutMessage,
+        messagesById: [String: ScoutMessage]
+    ) -> String? {
+        var current = message
+        var visited = Set([message.id])
+
+        while let parentId = current.replyToMessageId?.nilIfEmpty {
+            guard let parent = messagesById[parentId] else {
+                return current.id
+            }
+            guard !visited.contains(parent.id), isReplyGatherCandidate(parent) else {
+                return nil
+            }
+            visited.insert(parent.id)
+            current = parent
+        }
+
+        return current.id
+    }
+
+    private static func isReplyGatherCandidate(_ message: ScoutMessage) -> Bool {
+        let messageClass = message.messageClass.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return messageClass != "status" && messageClass != "system"
+    }
+
+    @ViewBuilder
+    private func messageRow(
+        _ message: ScoutMessage,
+        showCustodyCaption: Bool = true,
+        showThreadAffordances: Bool = true
+    ) -> some View {
+        let allowThreadActions = showThreadAffordances && !isChildConversationId(message.cId)
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            ScoutMessageRow(
+                message: message,
+                agent: agent(for: message),
+                readReceipts: readReceipts(for: message),
+                baseDirectory: fileBaseDirectory(for: message),
+                isLatestMessage: message.id == latestMessageIdForFullDisplay,
+                showCustodyCaption: showCustodyCaption,
+                showThreadActions: allowThreadActions,
+                previewAgent: previewAgent,
+                onReply: {
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        store.replyTarget = message
+                    }
+                    composerFocused = true
+                },
+                onStartThread: {
+                    startThread(from: message)
+                },
+                onNewFromMessage: {
+                    startConversationFromMessage(message, agent: agent(for: message))
+                }
+            )
+            if allowThreadActions,
+               let summary = message.threadSummary,
+               let child = primaryThreadChannel(for: message) {
+                threadStub(message: message, summary: summary, child: child)
+                    .padding(.leading, CGFloat(28) + HudSpacing.xl)
+            }
+        }
+    }
+
+    private func isChildConversationId(_ cId: String) -> Bool {
+        store.channels.first(where: { $0.cId == cId })?.parentConversationId?.nilIfEmpty != nil
+    }
+
+    private func replyChainBlock(_ block: ScoutMessageRenderBlock) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            messageRow(block.root)
+                .id(block.root.id)
+
+            HStack(alignment: .top, spacing: HudSpacing.lg) {
+                Rectangle()
+                    .fill(ScoutDesign.hairlineStrong)
+                    .frame(width: HudStrokeWidth.thin)
+                    .frame(maxHeight: .infinity)
+                    .allowsHitTesting(false)
+
+                VStack(alignment: .leading, spacing: HudSpacing.xl) {
+                    ForEach(block.replies) { reply in
+                        messageRow(reply, showCustodyCaption: false)
+                            .id(reply.id)
+                    }
+                }
+            }
+            .padding(.leading, CGFloat(28) + HudSpacing.xl)
+            .padding(.top, -HudSpacing.sm)
+        }
+    }
+
+    private func threadChannels(for message: ScoutMessage) -> [ScoutChannel] {
+        store.channels
+            .filter { channel in
+                channel.parentConversationId == message.cId
+                    && channel.anchorMessageId == message.id
+            }
+            .sorted {
+                ($0.lastMessageAt ?? 0) > ($1.lastMessageAt ?? 0)
+            }
+    }
+
+    private func primaryThreadChannel(for message: ScoutMessage) -> ScoutChannel? {
+        threadChannels(for: message).first
+    }
+
+    private func threadStub(
+        message: ScoutMessage,
+        summary: ScoutThreadSummary,
+        child: ScoutChannel
+    ) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            Button {
+                toggleThread(child)
+            } label: {
+                HStack(spacing: HudSpacing.sm) {
+                    ScoutThreadParticipantFaces(names: summary.participants)
+                    Text(threadReplyCountLabel(summary.count))
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    Text("· \(threadParticipantsLabel(summary.participants)) · last \(ScoutRelativeTime.format(summary.lastActiveAt))")
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .lineLimit(1)
+                    Text(expandedThreadConversationIds.contains(child.cId) ? "collapse" : "expand")
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .padding(.leading, HudSpacing.xs)
+                }
+                .padding(.vertical, HudSpacing.xs)
+                .padding(.leading, HudSpacing.xs)
+                .padding(.trailing, HudSpacing.md)
+                .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .help("Open thread")
+
+            if expandedThreadConversationIds.contains(child.cId) {
+                threadExpandedRail(child: child)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: expandedThreadConversationIds.contains(child.cId))
+        .onAppear {
+            if expandedThreadConversationIds.contains(child.cId) {
+                loadThreadMessages(child)
+            }
+        }
+    }
+
+    private func threadExpandedRail(child: ScoutChannel) -> some View {
+        HStack(alignment: .top, spacing: HudSpacing.lg) {
+            Rectangle()
+                .fill(ScoutDesign.hairlineStrong)
+                .frame(width: HudStrokeWidth.thin)
+                .frame(maxHeight: .infinity)
+                .allowsHitTesting(false)
+
+            VStack(alignment: .leading, spacing: HudSpacing.md) {
+                if loadingThreadConversationIds.contains(child.cId) && threadMessages[child.cId] == nil {
+                    HStack(spacing: HudSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading thread")
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                    }
+                    .padding(.vertical, HudSpacing.xs)
+                } else {
+                    let messages = threadMessages[child.cId] ?? []
+                    ForEach(messages) { threadMessage in
+                        ScoutThreadCompactMessageRow(
+                            message: threadMessage,
+                            baseDirectory: fileBaseDirectory(for: threadMessage)
+                        )
+                    }
+                    if messages.isEmpty {
+                        Text("No replies yet")
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                            .padding(.vertical, HudSpacing.xs)
+                    }
+                }
+                threadMiniComposer(child: child)
+            }
+        }
+        .padding(.leading, HudSpacing.sm)
+        .padding(.top, HudSpacing.xs)
+    }
+
+    private func threadMiniComposer(child: ScoutChannel) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            TextField("Reply in thread…", text: threadDraftBinding(for: child.cId), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1...3)
+                .onSubmit { sendThreadDraft(child) }
+            Button {
+                sendThreadDraft(child)
+            } label: {
+                Text(sendingThreadConversationIds.contains(child.cId) ? "Sending" : "Send")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.bg)
+                    .padding(.horizontal, HudSpacing.md)
+                    .frame(height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                            .fill(ScoutPalette.accent)
+                    )
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .disabled(!canSendThreadDraft(child.cId))
+            .opacity(canSendThreadDraft(child.cId) ? 1 : 0.5)
+        }
+        .padding(.leading, HudSpacing.md)
+        .padding(.trailing, HudSpacing.sm)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutPalette.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    private func threadDraftBinding(for cId: String) -> Binding<String> {
+        Binding {
+            threadDrafts[cId] ?? ""
+        } set: { next in
+            threadDrafts[cId] = next
+        }
+    }
+
+    private func threadReplyCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 reply" : "\(count) replies"
+    }
+
+    private func threadParticipantsLabel(_ participants: [String]) -> String {
+        let names = participants.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !names.isEmpty else { return "participants" }
+        if names.count <= 2 { return names.joined(separator: ", ") }
+        return "\(names[0]), \(names[1]) +\(names.count - 2)"
+    }
+
+    private func canSendThreadDraft(_ cId: String) -> Bool {
+        !(threadDrafts[cId] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sendingThreadConversationIds.contains(cId)
+    }
+
+    private func toggleThread(_ child: ScoutChannel) {
+        if expandedThreadConversationIds.contains(child.cId) {
+            expandedThreadConversationIds.remove(child.cId)
+            return
+        }
+        expandedThreadConversationIds.insert(child.cId)
+        loadThreadMessages(child)
+    }
+
+    private func loadThreadMessages(_ child: ScoutChannel) {
+        if loadingThreadConversationIds.contains(child.cId) {
+            // Coalesce concurrent reloads (expand + send) into one follow-up fetch.
+            pendingThreadReloadIds.insert(child.cId)
+            return
+        }
+        loadingThreadConversationIds.insert(child.cId)
+        Task {
+            do {
+                let messages = try await ScoutCommsClient().fetchMessages(cId: child.cId, limit: 120)
+                await ScoutCommsClient().advanceReadCursor(
+                    cId: child.cId,
+                    lastReadMessageId: messages.last?.id
+                )
+                await MainActor.run {
+                    threadMessages[child.cId] = messages
+                    loadingThreadConversationIds.remove(child.cId)
+                    if pendingThreadReloadIds.contains(child.cId) {
+                        pendingThreadReloadIds.remove(child.cId)
+                        loadThreadMessages(child)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    loadingThreadConversationIds.remove(child.cId)
+                    if pendingThreadReloadIds.contains(child.cId) {
+                        pendingThreadReloadIds.remove(child.cId)
+                        loadThreadMessages(child)
+                    } else {
+                        setThreadError(error)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sendThreadDraft(_ child: ScoutChannel) {
+        let trimmed = (threadDrafts[child.cId] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !sendingThreadConversationIds.contains(child.cId) else { return }
+        sendingThreadConversationIds.insert(child.cId)
+        Task {
+            do {
+                try await ScoutCommsClient().send(body: trimmed, cId: child.cId)
+                await MainActor.run {
+                    threadDrafts[child.cId] = ""
+                    sendingThreadConversationIds.remove(child.cId)
+                    store.refresh(force: true)
+                    store.loadMessages()
+                    loadThreadMessages(child)
+                }
+            } catch {
+                await MainActor.run {
+                    sendingThreadConversationIds.remove(child.cId)
+                    setThreadError(error)
+                }
+            }
+        }
+    }
+
+    private func startThread(from message: ScoutMessage) {
+        guard store.channels.first(where: { $0.cId == message.cId })?.parentConversationId == nil else { return }
+        if let existing = primaryThreadChannel(for: message) {
+            expandedThreadConversationIds.insert(existing.cId)
+            loadThreadMessages(existing)
+            return
+        }
+
+        Task {
+            do {
+                let url = ScoutWeb.baseURL()
+                    .appending(path: "api/conversations/\(message.cId)/threads")
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "messageId": message.id,
+                ])
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw ScoutCommsError.sendFailed
+                }
+                let started = try JSONDecoder().decode(ScoutThreadStartResponse.self, from: data)
+                let childId = started.conversationId?.nilIfEmpty
+                    ?? started.cId?.nilIfEmpty
+                    ?? started.chatId?.nilIfEmpty
+                    ?? started.id?.nilIfEmpty
+                await MainActor.run {
+                    if let childId {
+                        expandedThreadConversationIds.insert(childId)
+                    }
+                    store.refresh(force: true)
+                    store.loadMessages()
+                }
+            } catch {
+                await MainActor.run {
+                    setThreadError(error)
+                }
+            }
+        }
+    }
+
+    private func setThreadError(_ error: Error) {
+        // Reuse the existing surface error slot. Thread expansion is an inline
+        // affordance; failures should be visible but should not invent a new
+        // alert channel.
+        store.lastError = ScoutAppError.userFacing(
+            error,
+            connectionMessage: "Scout web server isn't running. Start Scout services, then try again."
+        )
+    }
+
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: HudSpacing.xxxl) {
                     if store.messages.isEmpty {
-                        HudEmptyState(
-                            title: store.selectedChannel == nil ? "No channel selected" : "No messages yet",
-                            subtitle: store.selectedChannel == nil ? "Choose a chat from the list." : "This chat has no visible messages.",
-                            icon: "bubble.left"
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 360)
-                    } else {
-                        ForEach(store.messages) { message in
-                            ScoutMessageRow(
-                                message: message,
-                                agent: agent(for: message),
-                                readReceipts: readReceipts(for: message),
-                                baseDirectory: fileBaseDirectory(for: message),
-                                isLatestMessage: message.id == store.messages.last?.id,
-                                previewAgent: previewAgent,
-                                onNewFromMessage: {
-                                    startConversationFromMessage(message, agent: agent(for: message))
-                                }
+                        // While the transcript fetch is in flight, ghost turns —
+                        // not an empty state falsely claiming "no messages yet".
+                        // The header and composer stay put, so the switch reads
+                        // as the thread filling in, not a bounce through zero.
+                        if store.isLoadingMessages, store.selectedChannel != nil {
+                            ScoutThreadLoadingSkeleton()
+                                .transition(.opacity)
+                        } else if let activeTurn = store.activeTurn {
+                            // Organic harness turns can be live before Scout has
+                            // a visible transcript message. The rolling activity
+                            // summary is the conversation in that state; do not
+                            // replace it with a misleading empty-chat panel.
+                            ScoutInFlightTurnRow(turn: activeTurn)
+                                .id(Self.activeTurnAnchor)
+                                .transition(.opacity)
+                        } else {
+                            HudEmptyState(
+                                title: store.selectedChannel == nil ? "No channel selected" : "No messages yet",
+                                subtitle: store.selectedChannel == nil ? "Choose a chat from the list." : "This chat has no visible messages.",
+                                icon: "bubble.left"
                             )
-                                .id(message.id)
+                            .frame(maxWidth: .infinity, minHeight: 360)
+                            .transition(.opacity)
+                        }
+                    } else {
+                        ForEach(messageRenderItems) { item in
+                            switch item {
+                            case .inline(let message):
+                                messageRow(message)
+                                    .id(message.id)
+                            case .chain(let block):
+                                replyChainBlock(block)
+                            }
                         }
 
                         // The agent's still-running turn, rendered as a transient
@@ -1645,6 +2380,10 @@ struct ScoutRootView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .scoutOverlayScrollers()
                 .animation(.easeOut(duration: 0.2), value: store.activeTurn)
+                // Crossfade the loading skeleton ↔ transcript / empty state so
+                // thread switches settle instead of hard-cutting.
+                .animation(.easeOut(duration: 0.18), value: store.messages.isEmpty)
+                .animation(.easeOut(duration: 0.18), value: store.isLoadingMessages)
             }
             .scrollIndicators(.visible)
             .onAppear {
@@ -1686,6 +2425,12 @@ struct ScoutRootView: View {
             if !pendingImages.isEmpty {
                 composerAttachmentStrip
             }
+            if let reason = voiceUnavailableReason {
+                ScoutVoiceIssueRow(message: reason) {
+                    Task { await voice.openMicrophoneSettings() }
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
             composerInputWell
                 .animation(.easeOut(duration: 0.16), value: isDictating)
                 .onChange(of: voice.state) { _, newState in
@@ -1704,27 +2449,9 @@ struct ScoutRootView: View {
                 }
         }
         .padding(.horizontal, HudSpacing.xxl)
-        .padding(.top, HudSpacing.xl)
+        .padding(.top, HudSpacing.xxl)
         .padding(.bottom, HudSpacing.lg)
-        .background {
-            ZStack(alignment: .top) {
-                ScoutDesign.chrome
-                LinearGradient(
-                    colors: [
-                        ScoutPalette.accent.opacity(composerFocused ? 0.055 : 0.018),
-                        Color.clear,
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 54)
-            }
-        }
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(composerFocused ? ScoutPalette.accent.opacity(0.42) : ScoutDesign.hairlineStrong)
-                .frame(height: HudStrokeWidth.thin)
-        }
+        .background(ScoutDesign.bg)
         .overlay(alignment: .topLeading) {
             if !suggestions.isEmpty {
                 MessageSuggestionPopover(
@@ -1781,6 +2508,9 @@ struct ScoutRootView: View {
     // shadow — no left-edge accent rule (banned styleguide treatment).
     private var composerInputWell: some View {
         VStack(spacing: 0) {
+            if let replyTarget = store.replyTarget {
+                composerReplyBand(replyTarget)
+            }
             composerFieldRow
             composerToolbarBar
         }
@@ -1794,13 +2524,13 @@ struct ScoutRootView: View {
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
         )
-        // A shallow, crisp lift — not the old floaty 14pt glow — so the well
-        // reads as a flat surface with a clean edge, matching the studio.
+        // The composer sits on the same page background as the transcript; this
+        // modest lift is the separator instead of a full-width footer band.
         .shadow(
-            color: composerFocused ? ScoutPalette.accent.opacity(0.10) : ScoutSurface.shadow(0.12),
-            radius: composerFocused ? 6 : 3,
+            color: composerFocused ? ScoutPalette.accent.opacity(0.12) : ScoutSurface.shadow(0.18),
+            radius: composerFocused ? 8 : 6,
             x: 0,
-            y: 1
+            y: -1
         )
         .background {
             ScoutAttachmentDropCatcher(
@@ -1811,6 +2541,63 @@ struct ScoutRootView: View {
         .dropDestination(for: URL.self) { urls, _ in
             stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
         }
+        .animation(.easeOut(duration: 0.14), value: store.replyTarget?.id)
+    }
+
+    private func composerReplyBand(_ target: ScoutMessage) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: "arrowshape.turn.up.left")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ScoutPalette.accent)
+            Text("REPLYING TO")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .foregroundStyle(ScoutPalette.accent)
+            Text(replyTargetSummary(target))
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: HudSpacing.md)
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    store.clearReplyTarget()
+                }
+            } label: {
+                Text("×")
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .help("Clear reply target")
+        }
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ScoutPalette.accentSoft.opacity(0.62))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(ScoutDesign.hairline)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func replyTargetSummary(_ target: ScoutMessage) -> String {
+        let body = target.body
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preview: String
+        if body.isEmpty {
+            preview = target.attachments.isEmpty ? "empty message" : "\(target.attachments.count) attachment\(target.attachments.count == 1 ? "" : "s")"
+        } else if body.count > 60 {
+            preview = "\(body.prefix(60))…"
+        } else {
+            preview = body
+        }
+        return "\(target.actorName) — \(preview)"
     }
 
     // The compose line: the multiline field plus an inline dictation waveform.
@@ -1854,6 +2641,12 @@ struct ScoutRootView: View {
                         return .handled
                     }
                     .onKeyPress(.escape) {
+                        if store.replyTarget != nil {
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                store.clearReplyTarget()
+                            }
+                            return .handled
+                        }
                         if !suggestions.isEmpty {
                             dismissSuggestions()
                             return .handled
@@ -2056,8 +2849,8 @@ struct ScoutRootView: View {
         if store.selectedChannel?.isObserverThread == true {
             return "Jump in…"
         }
-        if let steerLabel = composerSteerLabel {
-            return steerLabel
+        if let targetLabel = composerTargetLabel {
+            return targetLabel
         }
         if let title = store.selectedChannel?.displayHandle, !title.isEmpty {
             return "Message \(title)"
@@ -2068,7 +2861,7 @@ struct ScoutRootView: View {
         return "Message"
     }
 
-    private var composerSteerLabel: String? {
+    private var composerTargetLabel: String? {
         guard let channel = store.selectedChannel else { return nil }
         let targets = channel.participants
             .filter { participant in
@@ -2081,12 +2874,12 @@ struct ScoutRootView: View {
             .map { $0.label }
         guard !targets.isEmpty else { return nil }
         if targets.count == 1, let target = targets.first {
-            return "Steer \(target)"
+            return "Message \(target)"
         }
         if targets.count == 2 {
-            return "Steer \(targets[0]) and \(targets[1])"
+            return "Message \(targets[0]) and \(targets[1])"
         }
-        return "Steer \(targets.count) agents"
+        return "Message \(targets.count) agents"
     }
 
     private var composerCanSend: Bool {
@@ -2120,7 +2913,6 @@ struct ScoutRootView: View {
         if let captureDropHint { return captureDropHint }
         if store.selectedCId == nil { return "Select a chat to message" }
         if isDictating { return voiceStatusLine }
-        if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if !pendingImages.isEmpty {
             let noun = pendingImages.count == 1 ? "attachment" : "attachments"
@@ -2212,7 +3004,7 @@ struct ScoutRootView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft = ScoutDictationBuffer.appending(trimmed, to: draft)
-        ScoutVoiceService.shared.consumeFinalText()
+        ScoutRemoteVoiceService.shared.consumeFinalText()
         composerFocused = true
         moveComposerCaretToEnd()
     }
@@ -2311,7 +3103,7 @@ struct ScoutRootView: View {
 
     private var agentsContent: some View {
         Group {
-            if agentContentMode == .observe, let agent = store.selectedAgent {
+            if agentContentMode == .observe, let agent = selectedTreeAgent ?? store.selectedAgent {
                 ScoutAgentObserveContent(
                     agent: agent,
                     payload: store.observeAgentId == agent.id ? store.observePayload : nil,
@@ -2348,6 +3140,8 @@ struct ScoutRootView: View {
                                 ScoutAgentsTree(
                                     model: agentsTree,
                                     groups: treeGroups,
+                                    showProjects: agentsShowProjects,
+                                    sort: agentsTreeSort,
                                     onSelect: { pushTreeSelection() },
                                     onActivate: { openSelectedAgentChannel() },
                                     onObserve: { observeAgent($0) },
@@ -2369,10 +3163,33 @@ struct ScoutRootView: View {
                             }
                             // Follow selection arriving from elsewhere (e.g. Comms).
                             .onChange(of: store.selectedAgentId) { _, id in
-                                agentsTree.syncToAgent(id, groups: treeGroups)
+                                agentsTree.syncToAgent(id, groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
+                            }
+                            .onChange(of: agentsShowProjects) { _, _ in
+                                agentsTree.ensureSelection(
+                                    groups: treeGroups,
+                                    fallbackAgentID: store.selectedAgentId,
+                                    showProjects: agentsShowProjects,
+                                    sort: agentsTreeSort
+                                )
+                                pushTreeSelection()
+                            }
+                            .onChange(of: agentsSortModeRaw) { _, _ in
+                                agentsTree.ensureSelection(
+                                    groups: treeGroups,
+                                    fallbackAgentID: store.selectedAgentId,
+                                    showProjects: agentsShowProjects,
+                                    sort: agentsTreeSort
+                                )
+                                pushTreeSelection()
                             }
                             .onAppear {
-                                agentsTree.ensureSelection(groups: treeGroups, fallbackAgentID: store.selectedAgentId)
+                                agentsTree.ensureSelection(
+                                    groups: treeGroups,
+                                    fallbackAgentID: store.selectedAgentId,
+                                    showProjects: agentsShowProjects,
+                                    sort: agentsTreeSort
+                                )
                                 pushTreeSelection()
                             }
                         }
@@ -2388,13 +3205,11 @@ struct ScoutRootView: View {
 
     // MARK: Agents pane chrome (container for the tree)
 
-    /// Title + live/total census. Mirrors ScoutConversationListBar.header.
+    /// Page title. Mirrors ScoutConversationListBar.header without a low-signal census strip.
     private var agentsPaneHeader: some View {
-        let live = store.agents.filter { $0.state == .working || $0.state == .needsAttention }.count
-        let total = store.agents.count
-        return ScoutColumnHeader(horizontalPadding: ScoutDesign.listGutter, background: .clear) {
+        ScoutColumnHeader(horizontalPadding: ScoutDesign.listGutter, background: .clear) {
             HStack(spacing: HudSpacing.md) {
-                Text("Agents")
+                Text(agentsShowProjects ? "Projects" : "Agents")
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
@@ -2405,12 +3220,7 @@ struct ScoutRootView: View {
         } secondary: {
             EmptyView()
         } trailing: {
-            HStack(spacing: HudSpacing.md) {
-                if live > 0 {
-                    HudBadge("\(live) live", tint: ScoutPalette.accent, dot: true)
-                }
-                HudBadge("\(total) agent\(total == 1 ? "" : "s")", tint: ScoutPalette.muted, dot: false)
-            }
+            EmptyView()
         }
     }
 
@@ -2419,14 +3229,24 @@ struct ScoutRootView: View {
     /// j/k chords stay dead while typing.
     private var agentsPaneControls: some View {
         HStack(spacing: HudSpacing.md) {
-            ScoutSearchField("Filter agents", text: $agentsFilterQuery, focus: $searchFocused)
+            ScoutSearchField("Filter projects or agents", text: $agentsFilterQuery, focus: $searchFocused)
+            ScoutAgentViewModeControl(showProjects: $agentsShowProjects)
+            ScoutAgentSortControl(sortRaw: $agentsSortModeRaw)
             ScoutAgentScopeControl(liveOnly: $agentsLiveOnly)
             Spacer(minLength: HudSpacing.md)
             agentsFoldButton(title: "Expand", icon: "chevron.down") {
-                agentsTree.collapsedProjects.removeAll()
+                if agentsShowProjects {
+                    agentsTree.collapsedProjects.removeAll()
+                } else {
+                    expandVisibleAgentSessions()
+                }
             }
             agentsFoldButton(title: "Collapse", icon: "chevron.right") {
-                for group in treeGroups { agentsTree.collapsedProjects.insert(group.key) }
+                if agentsShowProjects {
+                    for group in treeGroups { agentsTree.collapsedProjects.insert(group.key) }
+                } else {
+                    agentsTree.expandedAgents.removeAll()
+                }
             }
         }
         .padding(.horizontal, ScoutDesign.listGutter)
@@ -2450,7 +3270,7 @@ struct ScoutRootView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
-        .help("\(title) all projects")
+        .help(agentsShowProjects ? "\(title) all projects" : "\(title) all sessions")
     }
 
     /// Non-scrolling column header. State moved to the leading row dot — a text
@@ -2459,7 +3279,7 @@ struct ScoutRootView: View {
     /// lines up with the rows.
     private var agentsColumnHeader: some View {
         HStack(spacing: HudSpacing.sm) {
-            Text("AGENT")
+            Text(agentsShowProjects ? "PROJECT / ITEM" : "AGENT / SESSION")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(ScoutPalette.dim)
@@ -2480,10 +3300,10 @@ struct ScoutRootView: View {
     private var agentsPaneEmptyState: some View {
         let filtering = !agentsFilterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentsLiveOnly
         return HudEmptyState(
-            title: filtering ? "No agents match" : "No agents yet",
+            title: filtering ? (agentsShowProjects ? "No projects match" : "No agents match") : (agentsShowProjects ? "No projects yet" : "No agents yet"),
             subtitle: filtering
                 ? "Clear the filter or switch back to All."
-                : "Agents connected to this broker will appear here.",
+                : (agentsShowProjects ? "Projects appear here as agents register with workspaces." : "Agents connected to this broker will appear here."),
             icon: "person.2"
         )
     }
@@ -2504,6 +3324,11 @@ struct ScoutRootView: View {
 
     private var dispatchContent: some View {
         ScoutWebEmbedContent(surface: .dispatch)
+    }
+
+    private var codeContent: some View {
+        ScoutWebEmbedContent(surface: .code, extraQueryItems: codeLinkQueryItems)
+            .id(codeLinkQueryItems.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&"))
     }
 
     private func lanesContent(layout: ScoutShellLayout) -> some View {
@@ -2547,6 +3372,11 @@ struct ScoutRootView: View {
         case .comms:
             if selectedPendingConversation != nil { return "Conversation" }
             return multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")
+        case .agents:
+            if let channel = selectedTreeChannel { return channel.sessionId == nil ? "DM" : "Session" }
+            if selectedTreeAgent != nil { return "Agent" }
+            if selectedTreeGroup != nil { return "Project" }
+            return "Context"
         default:
             return multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")
         }
@@ -2674,7 +3504,7 @@ struct ScoutRootView: View {
     }
 
     private func showsDefaultInspector(layout: ScoutShellLayout) -> Bool {
-        guard section != .terminals else { return false }
+        guard section != .terminals && section != .agents else { return false }
         guard !inspectorCollapsed else { return false }
         return !layout.autoHidesInspector || compactInspectorPresented
     }
@@ -2752,7 +3582,9 @@ struct ScoutRootView: View {
                 )
             } else {
                 if section == .agents {
-                    if let agent = store.selectedAgent {
+                    if let channel = selectedTreeChannel {
+                        ScoutChannelInspector(channel: channel)
+                    } else if let agent = selectedTreeAgent {
                         ScoutAgentInspector(
                             agent: agent,
                             selectedChannel: store.selectedChannel,
@@ -2775,8 +3607,23 @@ struct ScoutRootView: View {
                         .task(id: agent.id) {
                             store.loadObserve(agentId: agent.id, force: true)
                         }
+                    } else if let group = selectedTreeGroup {
+                        ScoutProjectInspector(
+                            group: group,
+                            onOpenAgent: { agent in
+                                agentsTree.syncToAgent(agent.id, groups: treeGroups, showProjects: agentsShowProjects, sort: agentsTreeSort)
+                                pushTreeSelection()
+                            },
+                            onMessageAgent: { agent in
+                                store.openAgentChannel(agent)
+                                section = .comms
+                            },
+                            onStartSession: {
+                                startConversationInProject(group)
+                            }
+                        )
                     } else {
-                        HudEmptyState(title: "Nothing selected", subtitle: "Select an agent to inspect context.", icon: "sidebar.right")
+                        HudEmptyState(title: "Nothing selected", subtitle: "Select a project or agent to inspect context.", icon: "sidebar.right")
                     }
                 } else if let pending = selectedPendingConversation {
                     ScoutPendingConversationInspector(
@@ -3097,7 +3944,7 @@ struct ScoutRootView: View {
             Button {
                 showingActivityLog = true
             } label: {
-                HudLoggerStatusItem(store: activityLog, label: "Logs", showCounts: true)
+                ScoutLogStatusItem(store: activityLog, label: "Logs", showCounts: true)
             }
             .buttonStyle(.plain)
             .help("Open activity log")
@@ -3106,7 +3953,7 @@ struct ScoutRootView: View {
         }
         .padding(.horizontal, HudSpacing.xxl)
         .frame(height: 24)
-        .background(ScoutDesign.chrome)
+        .background(ScoutDesign.band)
     }
 
     private var statusPreviewMessage: String? {
@@ -3121,10 +3968,10 @@ struct ScoutRootView: View {
     }
 
     private var statusBarToneColor: Color {
-        if statusPreviewMessage != nil || activityLog.summary.tone == .error {
+        if statusPreviewMessage != nil || activityLog.entries.contains(where: { $0.level == .error || $0.level == .fault }) {
             return ScoutPalette.statusError
         }
-        if activityLog.summary.tone == .warning {
+        if activityLog.entries.contains(where: { $0.level == .warning }) {
             return ScoutPalette.statusWarn
         }
         return ScoutPalette.statusOk
@@ -3203,6 +4050,18 @@ enum ScoutDesign {
     static var surface: Color { ScoutPalette.surface }
     static var hairline: Color { ScoutPalette.hairline }
     static var hairlineStrong: Color { ScoutPalette.hairlineStrong }
+
+    /// Window band for the titlebar and status bar: one visible step off the
+    /// ground with a faint vertical grade, so the columns' structural rules
+    /// terminate into a plane instead of dissolving into content black.
+    /// `Color.primary` flips with appearance — lightens dark mode, inks light.
+    static var band: LinearGradient {
+        LinearGradient(
+            colors: [Color.primary.opacity(0.065), Color.primary.opacity(0.03)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
     static let columnHeaderHeight = HudSidebarLayout.headerTopPadding
         + HudSidebarLayout.headerHeight
         + HudSidebarLayout.headerBottomPadding
@@ -3255,6 +4114,88 @@ enum ScoutDesign {
 private enum ScoutAgentContentMode {
     case roster
     case observe
+}
+
+private enum ScoutAgentSortMode: String {
+    case alpha
+    case recent
+}
+
+private struct ScoutAgentViewModeControl: View {
+    @Binding var showProjects: Bool
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            segment(title: "Projects", icon: "folder", active: showProjects) { showProjects = true }
+            segment(title: "Agents", icon: "person.2", active: !showProjects) { showProjects = false }
+        }
+        .padding(HudSpacing.xxs)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+    }
+
+    private func segment(title: String, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: icon)
+                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                Text(title)
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+            }
+            .foregroundStyle(active ? ScoutPalette.ink : ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
+                    .fill(active ? ScoutSurface.selected(ScoutPalette.accent) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help(title)
+    }
+}
+
+private struct ScoutAgentSortControl: View {
+    @Binding var sortRaw: String
+
+    private var sort: ScoutAgentSortMode {
+        ScoutAgentSortMode(rawValue: sortRaw) ?? .alpha
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            segment(title: "A-Z", icon: "textformat", mode: .alpha)
+            segment(title: "Recent", icon: "clock", mode: .recent)
+        }
+        .padding(HudSpacing.xxs)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+    }
+
+    private func segment(title: String, icon: String, mode: ScoutAgentSortMode) -> some View {
+        let active = sort == mode
+        return Button {
+            sortRaw = mode.rawValue
+        } label: {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: icon)
+                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                Text(title)
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+            }
+            .foregroundStyle(active ? ScoutPalette.ink : ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
+                    .fill(active ? ScoutSurface.selected(ScoutPalette.accent) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .help(mode == .recent ? "Sort by recent activity" : "Sort alphabetically")
+    }
 }
 
 /// The single column-header contract. Every column's first row is this 64pt
@@ -3606,6 +4547,52 @@ struct ScoutDictationPreview: View {
     }
 }
 
+struct ScoutVoiceIssueRow: View {
+    let message: String
+    var actionTitle = "Open Settings"
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: HudSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(ScoutPalette.statusError)
+                .frame(width: 18, height: 18)
+
+            Text(message)
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: HudSpacing.md)
+
+            Button(action: action) {
+                Label(actionTitle, systemImage: "gearshape")
+                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(ScoutPalette.statusError)
+                    .padding(.horizontal, HudSpacing.sm)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .help("Open microphone privacy settings")
+        }
+        .padding(.horizontal, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutPalette.statusError.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutPalette.statusError.opacity(0.28), lineWidth: HudStrokeWidth.thin)
+        )
+    }
+}
+
 /// Composer control footprint — a 26pt rounded-square shared by every button
 /// in the toolbar (attach · mic · send) so they read as one harmonized cluster
 /// instead of three mismatched shapes. The ghost variant (attach/mic) is
@@ -3710,7 +4697,8 @@ private struct ScoutSendButton: View {
 }
 
 // Hand-drawn dictation mic, ported from the HUD's HudMessageDock. Tap to
-// toggle HudsonKit dictation. Visual state mirrors ScoutVoiceService.state:
+// toggle dictation through the menu helper. Visual state mirrors the remote
+// voice session state:
 //   idle/probing → faint stroke · recording → accent stroke + pulsing halo
 //   processing   → muted stroke that breathes · unavailable → dim + dashed.
 // Lightweight equalizer-style waveform shown while dictating. Decorative
@@ -3747,7 +4735,7 @@ struct ScoutMicButton: View {
     let glyph: CGFloat
     let action: () -> Void
 
-    @ObservedObject private var voice = ScoutVoiceService.shared
+    @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @State private var hovering = false
 
     private var isRecording: Bool { voice.state.isCaptureActive }
@@ -4053,43 +5041,61 @@ private struct ScoutEyebrow: View {
     }
 }
 
-/// Observer-first banner for an agent↔agent thread the operator is watching but
-/// not part of. A quiet inset strip under the header — it explains why no turn
-/// is "yours" (no accent bubble) until you jump in. Pairs with the "Jump in…"
-/// composer placeholder.
-private struct ScoutObservingBanner: View {
-    let channel: ScoutChannel
+/// Ghost turns shown while a conversation's transcript fetch is in flight —
+/// the header and composer hold steady, so switching threads reads as the new
+/// thread filling in rather than a bounce through an empty state. Neutral
+/// inset washes only, avatar-led like real turns. A gentle whole-group pulse
+/// signals "loading"; reduce-motion holds a steady mid-opacity instead.
+private struct ScoutThreadLoadingSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dimmed = false
 
     var body: some View {
-        HStack(spacing: HudSpacing.sm) {
-            Image(systemName: "eye")
-                .font(.system(size: 11))
-                .foregroundStyle(ScoutPalette.dim)
-            Text("Observing — you're not in this thread")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
-                .lineLimit(1)
-            Spacer(minLength: HudSpacing.sm)
-            Text(channel.rowTitle)
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+            ghostTurn(name: 88, lines: [430, 310])
+            ghostTurn(name: 64, lines: [370, 450, 220])
+            ghostTurn(name: 104, lines: [280])
         }
-        .padding(.horizontal, HudSpacing.huge)
-        .padding(.vertical, HudSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ScoutPalette.chrome)
-        .overlay(alignment: .bottom) {
-            HudDivider(color: ScoutDesign.hairline)
+        .opacity(reduceMotion ? 0.7 : (dimmed ? 0.45 : 0.85))
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                dimmed = true
+            }
         }
+        .accessibilityLabel("Loading conversation")
+    }
+
+    private func ghostTurn(name: CGFloat, lines: [CGFloat]) -> some View {
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(ScoutSurface.inset)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                bar(maxWidth: name, height: 9)
+                VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { line in
+                        bar(maxWidth: line.element, height: 10)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func bar(maxWidth: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(ScoutSurface.inset)
+            .frame(height: height)
+            .frame(maxWidth: maxWidth, alignment: .leading)
     }
 }
 
 /// The pinned-ask that rides under the conversation header — re-crafted to the
 /// Proposal as a recessed "screen": an inset plane with a hairline, inset from
 /// the edges (not a full-bleed band). Neutral when answered (the resolved state
-/// needs no attention, so no accent or amber); amber appears only while the ask
+/// needs no attention, so no accent or amber); amber appears only while the question
 /// is still pending. The accent stays a whisper — it is not used here.
 private struct ScoutPinnedAskBand: View {
     let ask: ScoutChannelAsk
@@ -4103,7 +5109,7 @@ private struct ScoutPinnedAskBand: View {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(tint)
-                Text("PINNED ASK")
+                Text("PINNED QUESTION")
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                     .tracking(1.2)
                     .foregroundStyle(tint)
@@ -4163,6 +5169,11 @@ private struct ScoutPendingOperatorTurnRow: View {
     let text: String
     let baseDirectory: String?
 
+    // Inputs are plain values, so SwiftUI may skip this body on a parent
+    // re-render; observing appearance directly keeps the accent-volume
+    // treatment live when the setting flips.
+    @ObservedObject private var appearance = ScoutAppearance.shared
+
     private let turnHeadBodyGap: CGFloat = HudSpacing.xs
     private let messageReadingMeasure: CGFloat = 600
     private let bubbleRadius: CGFloat = 11
@@ -4184,19 +5195,24 @@ private struct ScoutPendingOperatorTurnRow: View {
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
                 }
+                let vivid = appearance.accentVolume == .vivid
                 ScoutMarkdownView(
                     text: text,
                     baseDirectory: baseDirectory,
-                    inkColor: Color.white,
-                    mutedColor: Color.white.opacity(0.82),
-                    accentColor: Color.white,
+                    inkColor: vivid ? Color.white : ScoutPalette.ink,
+                    mutedColor: vivid ? Color.white.opacity(0.82) : ScoutPalette.muted,
+                    accentColor: vivid ? Color.white : ScoutPalette.accent,
                     hug: true
                 )
                 .padding(.horizontal, HudSpacing.lg)
                 .padding(.vertical, HudSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: bubbleRadius, style: .continuous)
-                        .fill(ScoutPalette.accent)
+                        .fill(vivid ? ScoutPalette.accent : ScoutPalette.accentSoft)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: bubbleRadius, style: .continuous)
+                        .stroke(vivid ? Color.clear : ScoutPalette.accent.opacity(0.28), lineWidth: HudStrokeWidth.thin)
                 )
             }
             .frame(maxWidth: messageReadingMeasure, alignment: .leading)
@@ -4253,7 +5269,8 @@ private struct ScoutPendingConversationProgressRow: View {
     }
 
     private var actorName: String {
-        pending.draft.displayName.nilIfEmpty
+        pending.agentName?.nilIfEmpty
+            ?? pending.draft.displayName.nilIfEmpty
             ?? pending.draft.agentName.nilIfEmpty
             ?? pending.draft.agent?.displayName
             ?? pending.title
@@ -4438,7 +5455,8 @@ private struct ScoutPendingConversationInspector: View {
     }
 
     private var targetLabel: String? {
-        pending.draft.displayName.nilIfEmpty
+        pending.agentName?.nilIfEmpty
+            ?? pending.draft.displayName.nilIfEmpty
             ?? pending.draft.agentName.nilIfEmpty
             ?? pending.draft.agent?.displayName
     }
@@ -4508,6 +5526,187 @@ private struct ScoutInspectorKVRow: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+private struct ScoutProjectInspector: View {
+    let group: ScoutAgentsTreeModel.ProjectGroup
+    let onOpenAgent: (ScoutAgent) -> Void
+    let onMessageAgent: (ScoutAgent) -> Void
+    let onStartSession: () -> Void
+
+    private var working: Int {
+        group.agents.filter { $0.state == .working }.count
+    }
+
+    private var needsAttention: Int {
+        group.agents.filter { $0.state == .needsAttention }.count
+    }
+
+    private var sessionCount: Int {
+        group.sessions.values.reduce(0) { $0 + $1.count }
+    }
+
+    private var latestActivity: TimeInterval? {
+        let agentTimes = group.agents.compactMap(\.updatedAt)
+        let sessionTimes = group.sessions.values.flatMap { $0.compactMap(\.lastMessageAt) }
+        return (agentTimes + sessionTimes).max()
+    }
+
+    private var displayPath: String {
+        group.path == "—" ? "unscoped" : scoutHomeTilde(group.path)
+    }
+
+    var body: some View {
+        HudCard {
+            VStack(alignment: .leading, spacing: HudSpacing.lg) {
+                identity
+                HStack(spacing: HudSpacing.sm) {
+                    ScoutInspectorActionButton(icon: "plus", title: "New session", filled: false, action: onStartSession)
+                    Spacer(minLength: 0)
+                }
+
+                HudDivider(color: ScoutDesign.hairline)
+                section("Project") {
+                    ScoutInspectorKVRow("Path", value: displayPath)
+                    ScoutInspectorKVRow("Agents", value: "\(group.agents.count)")
+                    ScoutInspectorKVRow("Sessions", value: "\(sessionCount)")
+                    ScoutInspectorKVRow("Activity", value: ScoutRelativeTime.format(latestActivity), valueColor: latestActivity == nil ? ScoutPalette.muted : ScoutPalette.ink)
+                }
+
+                HudDivider(color: ScoutDesign.hairline)
+                section("Agent mix") {
+                    ScoutInspectorKVRow("Working", value: "\(working)", valueColor: working > 0 ? ScoutPalette.accent : ScoutPalette.muted)
+                    ScoutInspectorKVRow("Needs you", value: "\(needsAttention)", valueColor: needsAttention > 0 ? ScoutPalette.statusWarn : ScoutPalette.muted)
+                    ScoutInspectorKVRow("Idle", value: "\(max(0, group.agents.count - working - needsAttention))")
+                }
+
+                HudDivider(color: ScoutDesign.hairline)
+                section("Agents") {
+                    if group.agents.isEmpty {
+                        Text("No agents in this project yet")
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(ScoutPalette.dim)
+                    } else {
+                        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                            ForEach(group.agents.prefix(8)) { agent in
+                                ScoutProjectAgentRow(
+                                    agent: agent,
+                                    onSelect: { onOpenAgent(agent) },
+                                    onMessage: { onMessageAgent(agent) }
+                                )
+                            }
+                            if group.agents.count > 8 {
+                                Text("+\(group.agents.count - 8) more")
+                                    .font(HudFont.mono(HudTextSize.micro))
+                                    .foregroundStyle(ScoutPalette.dim)
+                                    .padding(.top, HudSpacing.xxs)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scoutDepth()
+    }
+
+    private var identity: some View {
+        HStack(spacing: HudSpacing.md) {
+            SpriteAvatarView(name: group.label, size: 40, tile: true)
+                .shadow(color: ScoutSurface.shadow(0.32), radius: 6, x: 0, y: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: HudSpacing.xxs) {
+                    Text("/")
+                        .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.dim)
+                    Text(group.label)
+                        .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                        .lineLimit(1)
+                }
+                Text(displayPath)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            ScoutEyebrow(text: title)
+            content()
+        }
+    }
+}
+
+private struct ScoutProjectAgentRow: View {
+    let agent: ScoutAgent
+    let onSelect: () -> Void
+    let onMessage: () -> Void
+    @State private var hovering = false
+
+    private var dotColor: Color {
+        switch agent.state {
+        case .working: return ScoutPalette.accent
+        case .needsAttention: return ScoutPalette.statusWarn
+        case .available: return ScoutPalette.muted
+        case .done, .offline: return ScoutPalette.dim
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Button(action: onSelect) {
+                HStack(spacing: HudSpacing.sm) {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 6, height: 6)
+                        .opacity(agent.state == .done || agent.state == .offline ? 0.35 : 1)
+                    SpriteAvatarView(agent: agent, size: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(agent.displayName)
+                            .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                            .foregroundStyle(ScoutPalette.ink)
+                            .lineLimit(1)
+                        Text([agent.harness?.nilIfEmpty, agent.transport?.nilIfEmpty].compactMap { $0 }.joined(separator: " · ").nilIfEmpty ?? agent.updatedLabel)
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutPalette.dim)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: HudSpacing.sm)
+                    Text(agent.updatedLabel)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .scoutPointerCursor()
+
+            Button(action: onMessage) {
+                Image(systemName: "bubble.left")
+                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(hovering ? ScoutPalette.ink : ScoutPalette.dim)
+                    .frame(width: 20, height: 20)
+                    .background(Circle().fill(hovering ? ScoutSurface.hover : Color.clear))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .scoutPointerCursor()
+            .help("Open DM")
+        }
+        .padding(.horizontal, HudSpacing.sm)
+        .padding(.vertical, HudSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(hovering ? ScoutSurface.hover : Color.clear)
+        )
+        .onHover { hovering = $0 }
     }
 }
 
@@ -4886,7 +6085,7 @@ private struct ScoutAgentInspector: View {
 
     // MARK: Files changed — changed-first, bridges to the full diff
     //
-    // What the session actually produced: created/modified first (accent +/~),
+    // What the session actually produced: created/modified first (ink +/~),
     // read-only dimmed. Parent/filename, not the absolute path. "Open full diff"
     // navigates to the embedded repo-diff for this agent's worktree.
     private func filesChanged(_ payload: ScoutObservePayload) -> some View {
@@ -4941,7 +6140,7 @@ private struct ScoutAgentInspector: View {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8, weight: .bold))
             }
-            .foregroundStyle(emphasis ? ScoutPalette.accent : ScoutPalette.dim)
+            .foregroundStyle(emphasis ? ScoutPalette.ink : ScoutPalette.dim)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -4956,7 +6155,7 @@ private struct ScoutAgentInspector: View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.xs) {
             Text(scoutFileMark(file.state))
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(isRead ? ScoutPalette.dim : ScoutPalette.accent)
+                .foregroundStyle(isRead ? ScoutPalette.dim : ScoutPalette.ink)
                 .frame(width: 8, alignment: .leading)
             (Text(dir).foregroundStyle(ScoutPalette.dim)
                 + Text(name).foregroundStyle(isRead ? ScoutPalette.muted : ScoutPalette.ink))
@@ -5119,11 +6318,19 @@ private struct ScoutGlyphFact: View {
 }
 
 /// The Activity rhythm chart — intensity bars across the window, brighter where
-/// busier (single accent, opacity = intensity). Start → now, left → right.
+/// busier (opacity = intensity). At Quiet accent volume the bars are neutral
+/// ink — history is a quantity, not liveness; the accent stays on the `now`
+/// label. Vivid restores accent bars. Start → now, left → right.
 private struct ScoutActivitySparkline: View {
     let bins: [Int]
 
+    // `bins` is value-equal across most refreshes, so SwiftUI may skip this
+    // body; observing appearance directly keeps the bar color live when the
+    // accent-volume setting flips.
+    @ObservedObject private var appearance = ScoutAppearance.shared
+
     var body: some View {
+        let barColor = appearance.accentVolume == .vivid ? ScoutPalette.accent : ScoutPalette.ink
         Canvas { ctx, size in
             let maxV = max(bins.max() ?? 1, 1)
             let count = max(bins.count, 1)
@@ -5133,8 +6340,8 @@ private struct ScoutActivitySparkline: View {
                 let h = max(1, CGFloat(v) / CGFloat(maxV) * size.height)
                 let x = CGFloat(i) * (bw + gap)
                 let rect = CGRect(x: x, y: size.height - h, width: bw, height: h)
-                let opacity = 0.22 + 0.62 * (Double(v) / Double(maxV))
-                ctx.fill(Path(rect), with: .color(ScoutPalette.accent.opacity(opacity)))
+                let opacity = 0.18 + 0.55 * (Double(v) / Double(maxV))
+                ctx.fill(Path(rect), with: .color(barColor.opacity(opacity)))
             }
         }
         .frame(height: 22)
@@ -5523,7 +6730,7 @@ private extension ScoutObserveEventKind {
         switch self {
         case .think: return "THINK"
         case .tool: return "TOOL"
-        case .ask: return "ASK"
+        case .ask: return "REQ"
         case .message: return "MSG"
         case .note: return "NOTE"
         case .system: return "SYS"
@@ -6280,7 +7487,7 @@ private struct ScoutAgentAbility {
         case "chat":
             return "Can exchange Scout messages with the operator."
         case "invoke":
-            return "Can accept owned asks and run delegated work."
+            return "Can accept work requests and run delegated work."
         case "deliver":
             return "Can report completion, status, or artifacts back."
         case "observe":
@@ -6328,17 +7535,11 @@ private struct ScoutThemedSidebarPanel<Content: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if edge == .trailing {
-                resizeHandle(showsHairline: true)
-            }
-
-            panelContent
-
-            if edge == .leading {
-                resizeHandle(showsHairline: true)
-            }
-        }
+        // No in-flow drag strip: it reserved a full-height transparent column
+        // that read as a gap of window ground beside any non-window-colored
+        // surface (the Code well exposed it). The overlay handle on the panel's
+        // inner edge keeps resizing working; the boundary is one hairline.
+        panelContent
     }
 
     private var panelContent: some View {
@@ -6401,7 +7602,6 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
-            HudDivider(color: theme.hairline.standard)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HudSpacing.xl) {
@@ -6417,10 +7617,10 @@ private struct ScoutResizableInspectorPanel<Header: View, Content: View>: View {
     }
 
     private var headerBar: some View {
-        // The parent VStack draws the under-header rule (theme.hairline.standard
-        // == hairlineStrong), so this is the one header that opts out of the
-        // baked divider. `.clear` keeps the panel's inherited surface.
-        ScoutColumnHeader(horizontalPadding: ScoutDesign.panelGutter, background: .clear, showsDivider: false) {
+        // Baked divider like every other column header — an external divider
+        // stacked after the header sat one hairline lower than the content
+        // columns' rule, reading as a 1px misalignment at the panel seam.
+        ScoutColumnHeader(horizontalPadding: ScoutDesign.panelGutter, background: .clear) {
             header
                 .frame(maxWidth: .infinity, alignment: .leading)
         } secondary: {
@@ -6522,7 +7722,7 @@ private struct ScoutChannelInspector: View {
     @ViewBuilder
     private func askScreen(_ ask: ScoutChannelAsk) -> some View {
         let pending = ask.state == .pending
-        section("Ask") {
+        section("Question") {
             VStack(alignment: .leading, spacing: HudSpacing.xs) {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: "pin.fill")

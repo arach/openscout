@@ -60,7 +60,7 @@ export type BrokerRepoTailServiceOptions<TBrokerSnapshot> = {
 export function parseTailLimit(url: URL): number {
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "500", 10);
   if (!Number.isFinite(limit) || limit <= 0) return 500;
-  return Math.min(limit, 1_000);
+  return Math.min(limit, 10_000);
 }
 
 export function parsePositiveIntParam(url: URL, key: string, cap: number): number | undefined {

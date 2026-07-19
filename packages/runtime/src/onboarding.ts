@@ -410,6 +410,35 @@ export async function saveOpenScoutOnboardingProject(input: {
   return loadOpenScoutOnboardingState({ currentDirectory: contextRoot });
 }
 
+/**
+ * One-off project registration: appends a root to discovery.workspaceRoots
+ * and touches nothing else — unlike saveOpenScoutOnboardingProject, which is
+ * the onboarding writer and REPLACES the roots array wholesale.
+ */
+export async function addOpenScoutWorkspaceRoot(input: {
+  root: string;
+  currentDirectory?: string;
+}): Promise<{ root: string; workspaceRoots: string[]; alreadyRegistered: boolean }> {
+  const root = normalizePath(input.root);
+  const settings = await readOpenScoutSettings({ currentDirectory: input.currentDirectory });
+  const existing = settings.discovery.workspaceRoots.map(normalizePath);
+  const alreadyRegistered = existing.includes(root);
+  if (!alreadyRegistered) {
+    await writeOpenScoutSettings({
+      discovery: {
+        workspaceRoots: [...existing, root],
+      },
+    }, {
+      currentDirectory: input.currentDirectory,
+    });
+  }
+  return {
+    root,
+    workspaceRoots: alreadyRegistered ? existing : [...existing, root],
+    alreadyRegistered,
+  };
+}
+
 async function triggerMeshDiscovery(broker: BrokerServiceStatus): Promise<void> {
   if (!broker.reachable || !broker.brokerUrl) return;
   try {
@@ -534,6 +563,41 @@ export async function markOpenScoutOnboardingCommand(input: {
     }
   }
   return state;
+}
+
+/**
+ * Persist onboarding completion once the core steps are all satisfied.
+ *
+ * Returning users can briefly see a broker dip (mid-session restart, sleep)
+ * that would otherwise re-arm the takeover. Stamping `completedAt` the moment
+ * everything is green makes completion sticky, so a later transient failure
+ * cannot resurrect first-run for someone who already finished. No-op once
+ * `completedAt`/`skippedAt` is set, or while any core step is still open.
+ */
+export async function ensureOpenScoutOnboardingCompletion(options: {
+  currentDirectory?: string;
+  now?: number;
+} = {}): Promise<OpenScoutOnboardingState> {
+  const state = await loadOpenScoutOnboardingState({ currentDirectory: options.currentDirectory });
+  if (state.completedAt || state.skippedAt) {
+    return state;
+  }
+  const complete = state.hasLocalConfig
+    && state.hasOperatorName
+    && state.hasProjectConfig
+    && state.brokerReachable
+    && state.hasReadyRuntime;
+  if (!complete) {
+    return state;
+  }
+  await writeOpenScoutSettings({
+    onboarding: {
+      completedAt: options.now ?? nowMs(),
+    },
+  }, {
+    currentDirectory: options.currentDirectory,
+  });
+  return loadOpenScoutOnboardingState({ currentDirectory: options.currentDirectory });
 }
 
 export async function skipOpenScoutOnboarding(options: {

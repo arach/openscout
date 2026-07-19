@@ -125,6 +125,13 @@ function PairingSettingsScreen() {
     controlBusyRef.current = controlBusy;
   }, [controlBusy]);
 
+  useEffect(() => {
+    if (!pairing || window.location.hash !== "#trusted-peers") return;
+    window.requestAnimationFrame(() => {
+      document.getElementById("trusted-peers")?.scrollIntoView({ block: "start" });
+    });
+  }, [pairing]);
+
   const loadPairing = useCallback(async (mode: "initial" | "background" | "manual" = "initial") => {
     if (mode === "background" && controlBusyRef.current) {
       return;
@@ -467,7 +474,7 @@ function PairingSettingsScreen() {
 
       {/* ── Trusted peers table ── */}
       {pairing && (
-        <section className="sys-settings-peers">
+        <section className="sys-settings-peers" id="trusted-peers">
           <div className="sys-section-head">
             <div>
               <h3 className="sys-section-title">Trusted peers</h3>

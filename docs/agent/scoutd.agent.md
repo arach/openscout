@@ -2,13 +2,13 @@
 
 Source: `crates/scoutd/**`, `packages/runtime/src/broker-process-manager.ts`.
 
-Status: shipped first slice (SCO-062). Native service kernel only — not broker logic.
+Status: native service kernel plus bounded native read projections — still not broker logic.
 
-Verified: 2026-06-11
+Verified: 2026-07-14
 
 ## Role
 
-`scoutd` is the Rust local daemon at the root of the Scout process tree. It installs launchd, supervises the Bun base composer, exposes doctor/status JSON, and repairs stale process ownership.
+`scoutd` is the Rust local daemon at the root of the Scout process tree. It installs launchd, supervises the Bun base composer, exposes doctor/status JSON, repairs stale process ownership, and hosts read-only native projections outside the broker/web request queues.
 
 | Owns | Does not own |
 |---|---|
@@ -17,6 +17,8 @@ Verified: 2026-06-11
 | broker reachability probe | harness sessions |
 | orphan/stale process diagnosis | mesh forwarding |
 | `scoutd-state.json` | protocol records |
+| bounded journal-derived read projections | canonical coordination writes |
+| mode-`0600` Unix-socket NDJSON for native reads | routing decisions or broker snapshots on demand |
 
 Legacy binary name `openscout-supervisor` is compatibility-only; doctor still recognizes `supervise` orphans.
 
@@ -37,6 +39,7 @@ Legacy binary name `openscout-supervisor` is compatibility-only; doctor still re
 ```plaintext
 launchd
   → scoutd supervise
+      → scoutd probes serve        (probes + native read projection/socket)
       → bun openscout-runtime.mjs base   (scout-base)
           → scout-broker-run → broker
           → scout-web
@@ -74,8 +77,27 @@ Operator path: `scout` CLI → shells out to `scoutd` for service commands when 
 | `restartCount` | base restart tally |
 | `restartBackoffMs` | current bounded restart delay, 1000→30000 ms |
 | `lastChildExit` | last base exit `{ atMs, code, signal, description }` or null |
+| `runtimeBuild` | source/bundle identity captured when the supervised base process starts |
 
 Written every ~2s while child alive; updated on exit/restart/shutdown.
+
+## Native Read Projection
+
+The probe child tails `<controlHome>/broker-journal.jsonl` on a background Rust
+thread. It projects current non-retired/non-stale agents, preferred endpoints,
+node labels, and active flight state into a small sorted agent list. The last
+usable list is persisted as `native-read-agents-v1.json` in the control home.
+
+Clients send `openscout.native.read.request/v1` on the existing probe Unix socket.
+Snapshot mode returns one bounded frame. Subscribe mode keeps the socket open,
+returns an initial `openscout.native.read.snapshot/v1` frame, then pushes another
+sequenced bounded snapshot only when the material agent projection changes.
+`openscout.native.read.event/v1` heartbeat frames detect dead connections without
+polling the broker. Requests and frames are newline-delimited JSON.
+
+The projection is disposable and stale-while-revalidate. The broker journal remains
+canonical. Projection parsing, persistence, or a slow native client must never block
+the broker writer or routing path.
 
 ## Supervise Behavior
 
@@ -110,6 +132,15 @@ Doctor merges:
 - restart telemetry from `scoutd-state.json` (`restartCount`, backoff, last child exit)
 - broker HTTP or unix socket `/health` (or equivalent)
 - stale orphans: legacy `openscout-supervisor supervise`, duplicate brokers, zombie base
+- running runtime identity vs the current source/bundle build manifest
+
+Runtime freshness states are `current`, `pinned`, `stale`, and `unverified`.
+CLI builds write `dist/build-manifest.json`; scoutd records the identity that it
+actually launched in `scoutd-state.json` and compares it with the currently
+configured source or artifact. An older build is intentional only when
+`OPENSCOUT_RUNTIME_BUILD_PIN=<commit>` is set. Set
+`OPENSCOUT_RUNTIME_BUILD_PIN_REASON` as well so status/doctor explains why the
+pin exists. A pin mismatch is still stale; a missing identity is unverified.
 
 Output schema: `scout.doctor.v1` phases (CLI wraps same config).
 
@@ -123,14 +154,17 @@ orphaned Scout processes already reported by doctor.
 
 1. Exactly one intended `scoutd supervise` per machine service label.
 2. `scoutd` never embeds Bun; it execs configured `bun` + runtime entrypoint.
-3. Broker business logic stays in TypeScript broker process.
+3. Broker business logic stays in the TypeScript broker process; Rust projections are read-only derivations.
 4. `scout-base` remains the Bun orchestrator for broker/web/edge/menu children.
 5. Status/doctor read daemon state file; they do not guess from log tail alone.
 6. Legacy supervisor process names count as conflicts in doctor until cleaned.
+7. Native read requests never synchronously call the web server or broker HTTP API.
 
 ## Forbidden
 
 - Implement routing or flight semantics in `scoutd`.
+- Write broker records or treat a native projection/cache as canonical.
+- Turn the native read service into a synchronous proxy for `/v1/snapshot` or `/api/agents`.
 - Replace `scout-base` child composition with Rust reimplementation.
 - Treat `scoutd` as the broker canonical writer.
 - Require `scoutd` for dev-only `bun ... server open` paths (optional acceleration).
@@ -140,9 +174,28 @@ orphaned Scout processes already reported by doctor.
 | Concern | Path |
 |---|---|
 | Rust daemon | `crates/scoutd/src/main.rs` |
+| Native read projection | `crates/scoutd/src/native_read_service.rs` |
+| Unix-socket request/stream server | `crates/scoutd/src/probes.rs` |
 | TS service config | `packages/runtime/src/broker-process-manager.ts` |
 | Bun base composer | `packages/runtime/src/base-daemon.ts` |
 | Runtime entry | `packages/runtime/bin/openscout-runtime.mjs` |
+| Transcript discovery/firehose | `packages/runtime/src/tail/**` |
+
+## Transcript Firehose Boundary
+
+`scoutd` does not parse harness transcripts. The supervised Bun broker owns the
+single runtime tail service, discovers harness-owned logs, and publishes bounded
+`TailEvent` observations through broker HTTP reads and the `tail.events` tRPC
+subscription. This keeps transcript parsing out of the Rust service kernel and
+keeps harness logs as observed source material rather than Scout-owned records.
+
+Kimi Code discovery lives in `packages/runtime/src/tail/kimi-source.ts`. It reads
+`~/.kimi-code/sessions/**/agents/*/wire.jsonl` by default (or
+`$KIMI_CODE_HOME/sessions`; tests and operators may use
+`OPENSCOUT_TAIL_KIMI_SESSIONS_ROOT`). A Kimi session's `agents/main/wire.jsonl`
+uses the parent `session_<uuid>` ID. Spawned agent logs use
+`session_<uuid>:agent-N`, so every wire file has an independent watcher and
+cursor while retaining its parent session identity.
 
 ## Verification
 

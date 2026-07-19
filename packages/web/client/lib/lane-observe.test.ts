@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   filterObserveDataForHorizon,
+  filterObserveDataForHorizonWithFill,
   filterObserveEventsForHorizon,
   filesFromObserveEvents,
   fmtLaneAgeLabel,
@@ -227,6 +228,47 @@ describe("filterObserveDataForHorizon", () => {
 
     expect(filtered?.events.map((event) => event.id)).toEqual(["new"]);
     expect(filtered?.files.map((file) => file.path)).toEqual(["new.ts"]);
+  });
+});
+
+describe("filterObserveDataForHorizonWithFill", () => {
+  const NOW = 1_700_000_000_000;
+  const sessionStart = NOW - 60 * 60_000;
+
+  test("tops up a sparse window to the trailing fill minimum", () => {
+    const filtered = filterObserveDataForHorizonWithFill({
+      events: [
+        { id: "old-a", t: 300, kind: "tool", text: "old-a", tool: "Shell" },
+        { id: "old-b", t: 600, kind: "tool", text: "old-b", tool: "Shell" },
+        { id: "new", t: 3540, kind: "tool", text: "new", tool: "Shell" },
+      ],
+      files: [
+        { path: "old.ts", state: "read", touches: 1, lastT: 600 },
+        { path: "new.ts", state: "modified", touches: 1, lastT: 3540 },
+      ],
+      live: false,
+      metadata: { session: { sessionStart } },
+    }, NOW, 30 * 60_000, 2);
+
+    // Window alone keeps just "new"; the fill floor of 2 pulls "old-b" back
+    // in, and the fill path keeps the whole touched-files inventory.
+    expect(filtered?.events.map((event) => event.id)).toEqual(["old-b", "new"]);
+    expect(filtered?.files.map((file) => file.path)).toEqual(["old.ts", "new.ts"]);
+  });
+
+  test("stays window-only when the window meets the fill minimum", () => {
+    const filtered = filterObserveDataForHorizonWithFill({
+      events: [
+        { id: "old", t: 600, kind: "tool", text: "old", tool: "Shell" },
+        { id: "new-a", t: 3480, kind: "tool", text: "new-a", tool: "Shell" },
+        { id: "new-b", t: 3540, kind: "tool", text: "new-b", tool: "Shell" },
+      ],
+      files: [],
+      live: false,
+      metadata: { session: { sessionStart } },
+    }, NOW, 30 * 60_000, 2);
+
+    expect(filtered?.events.map((event) => event.id)).toEqual(["new-a", "new-b"]);
   });
 });
 

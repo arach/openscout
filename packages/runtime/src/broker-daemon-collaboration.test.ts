@@ -94,11 +94,13 @@ describe("broker daemon collaboration routes", () => {
     });
 
     const completedSnapshot = await broker.getJson<{
-      collaborationRecords: Record<string, { state: string; completedAt?: number; progress?: { summary?: string; completedSteps?: number; totalSteps?: number } }>;
+      collaborationRecords: Record<string, { state: string; acceptanceState: string; nextMoveOwnerId?: string; reviewRequestedAt?: number; progress?: { summary?: string; completedSteps?: number; totalSteps?: number } }>;
     }>(harness.baseUrl, "/v1/snapshot");
     expect(completedSnapshot.collaborationRecords["work-delivery-test-1"]).toEqual(expect.objectContaining({
-      state: "done",
-      completedAt: createdAt + 1000,
+      state: "review",
+      acceptanceState: "pending",
+      nextMoveOwnerId: "operator",
+      reviewRequestedAt: createdAt + 1000,
     }));
     expect(completedSnapshot.collaborationRecords["work-delivery-test-1"]?.progress).toEqual(expect.objectContaining({
       summary: "Plan review complete.",
@@ -168,18 +170,18 @@ describe("broker daemon collaboration routes", () => {
 
     expect(duplicate.workItem).toEqual(expect.objectContaining({
       id: "work-delivery-idempotent-1",
-      state: "done",
+      state: "review",
       title: "Retry-safe review",
     }));
 
     const snapshot = await broker.getJson<{
       invocations: Record<string, { collaborationRecordId?: string; metadata?: Record<string, unknown> }>;
-      collaborationRecords: Record<string, { state: string; title: string; completedAt?: number }>;
+      collaborationRecords: Record<string, { state: string; title: string; reviewRequestedAt?: number }>;
     }>(harness.baseUrl, "/v1/snapshot");
     expect(snapshot.collaborationRecords["work-delivery-idempotent-1"]).toEqual(expect.objectContaining({
-      state: "done",
+      state: "review",
       title: "Retry-safe review",
-      completedAt: createdAt + 500,
+      reviewRequestedAt: createdAt + 500,
     }));
     expect(snapshot.invocations[duplicate.flight!.invocationId]?.collaborationRecordId).toBe("work-delivery-idempotent-1");
 

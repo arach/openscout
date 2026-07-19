@@ -35,6 +35,7 @@ describe("broker daemon core routes", () => {
         terminalRelay?: { managedBy?: string; state?: string; healthy?: boolean | null };
         localEdge?: { managedBy?: string; state?: string; healthy?: boolean | null };
       };
+      projection?: { state?: string; detail?: string | null };
       counts?: { collaborationRecords?: number };
     }>(harness.baseUrl, "/health");
 
@@ -63,6 +64,7 @@ describe("broker daemon core routes", () => {
       state: "unknown",
       healthy: null,
     }));
+    expect(health.projection).toEqual({ state: "ready", detail: null });
     expect(health.counts?.collaborationRecords).toBe(0);
   });
 

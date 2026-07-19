@@ -15,7 +15,7 @@ export function PinnedAskCard({
   return (
     <div className="s-thread-pinned-ask">
       <div className="s-thread-pinned-ask-label">
-        Pinned ask &middot; Awaiting operator
+        Agent question &middot; Awaiting operator
       </div>
       <div className="s-thread-pinned-ask-body">
         {pinnedAsk.task}

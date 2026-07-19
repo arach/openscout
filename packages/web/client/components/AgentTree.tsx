@@ -61,7 +61,13 @@ function groupAgentsForTree(agents: Agent[]): ProjectGroup[] {
     const project = pickLabel(projectKey);
     const branches: BranchGroup[] = [];
     let projectLatest = 0;
-    const counts: Record<AgentState, number> = { in_turn: 0, in_flight: 0, callable: 0, blocked: 0 };
+    const counts: Record<AgentState, number> = {
+      in_turn: 0,
+      in_flight: 0,
+      needs_attention: 0,
+      callable: 0,
+      blocked: 0,
+    };
     const projectAgents: Agent[] = [];
     for (const [branch, list] of branchMap) {
       const sorted = [...list].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -157,10 +163,10 @@ export function AgentTree({
               <span className="mesh-tree-project-name">{group.project}</span>
               <span className="mesh-tree-project-count">{group.agents.length}</span>
               <span className="mesh-tree-counts">
-                {(group.counts.in_turn + group.counts.in_flight) > 0 && (
+                {(group.counts.in_turn + group.counts.in_flight + group.counts.needs_attention) > 0 && (
                   <span className="mesh-tree-count mesh-tree-count--working">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.in_turn + group.counts.in_flight}
+                    {group.counts.in_turn + group.counts.in_flight + group.counts.needs_attention}
                   </span>
                 )}
                 {group.counts.callable > 0 && (

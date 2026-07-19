@@ -12,6 +12,7 @@ import {
   PAIRING_QR_TTL_MS,
   type PairingPaths,
   type PairingQrPayload,
+  type PairingRuntimeRelayEndpoint,
   type PairingRuntimeSnapshot,
 } from "./runtime/index.ts";
 
@@ -141,21 +142,47 @@ export async function startScoutPairingSession(input: {
     : input.relayUrl?.trim() || config.relay;
 
   try {
-    const managedRelay = resolvedRelayUrl ? null : await startManagedRelay(config.port + 1);
+    let managedRelay: Awaited<ReturnType<typeof startManagedRelay>> | null = null;
+    try {
+      managedRelay = await startManagedRelay(config.port + 1);
+    } catch (error) {
+      if (!resolvedRelayUrl) {
+        throw error;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[pairing] managed relay unavailable; continuing with configured relay: ${detail}`);
+    }
     relay = managedRelay;
-    const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
-    const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
-    if (!activeRelayUrl || !connectRelayUrl) {
+
+    const relayEndpoints: PairingRuntimeRelayEndpoint[] = [
+      ...(resolvedRelayUrl
+        ? [{
+          relayUrl: resolvedRelayUrl,
+          advertisedRelayUrl: resolvedRelayUrl,
+        }]
+        : []),
+      ...(managedRelay
+        ? [{
+          relayUrl: managedRelay.connectUrl ?? managedRelay.relayUrl,
+          advertisedRelayUrl: managedRelay.relayUrl,
+          fallbackRelayUrls: managedRelay.fallbackRelayUrls,
+        }]
+        : []),
+    ];
+    const advertisedRelayUrls = dedupeRelayUrls(relayEndpoints.flatMap((endpoint) => [
+      endpoint.advertisedRelayUrl ?? endpoint.relayUrl,
+      ...(endpoint.fallbackRelayUrls ?? []),
+    ]));
+    const activeRelayUrl = advertisedRelayUrls[0] ?? null;
+    if (!activeRelayUrl || relayEndpoints.length === 0) {
       throw new Error("Scout pairing relay URL is not configured.");
     }
 
     runtime = await startPairingRuntime({
-      relayUrl: connectRelayUrl,
-      advertisedRelayUrl: activeRelayUrl,
-      fallbackRelayUrls: managedRelay?.fallbackRelayUrls,
+      relayEndpoints,
       relayEvents: {
-        onConnecting() {
-          emitOrQueue(createStatusEvent("connecting", `Connecting to ${activeRelayUrl}`));
+        onConnecting(detail) {
+          emitOrQueue(createStatusEvent("connecting", `Connecting to ${detail?.relayUrl ?? activeRelayUrl}`));
         },
         onConnected({ room }) {
           emitOrQueue(createStatusEvent("connected", `Relay room ${room} is ready`));
@@ -227,4 +254,18 @@ function freshPairingPayload(pairing: NonNullable<PairingRuntimeSnapshot["pairin
     publicKey: pairing.publicKey,
     expiresAt: Date.now() + PAIRING_QR_TTL_MS,
   };
+}
+
+function dedupeRelayUrls(relayUrls: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const relayUrl of relayUrls) {
+    const trimmed = relayUrl.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
 }

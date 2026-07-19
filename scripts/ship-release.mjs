@@ -23,7 +23,7 @@ const VERSION_MANIFESTS = [
   "apps/cloud",
   "apps/desktop",
   "apps/mesh-front-door",
-  "landing",
+  "landing/oscout.net",
   "packages/agent-sessions",
   "packages/cli",
   "packages/protocol",
@@ -254,9 +254,10 @@ function printPlan(version, options) {
   }
   if (!options.skipDmg) {
     run("bash", ["apps/macos/scripts/build-dmg.sh", version], { execute: false });
+    run("node", ["scripts/update-appcast.mjs", version, dmgPath], { execute: false });
   }
   if (options.commit) {
-    run("git", ["add", ...VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`)], { execute: false });
+    run("git", ["add", ...VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`), "apps/macos/appcast.xml"], { execute: false });
     run("git", ["commit", "-m", `🔖 Release v${version}`], { execute: false });
   }
   if (!options.skipTag) {
@@ -311,6 +312,9 @@ function verifyLockstep(nextVersion) {
 
 function gitAddReleaseManifests(execute) {
   const manifests = VERSION_MANIFESTS.map((dir) => dir === "." ? "package.json" : `${dir}/package.json`);
+  // The signed Sparkle appcast is a release artifact that must ride along with
+  // the version bump commit so raw.githubusercontent.com serves the new item.
+  manifests.push("apps/macos/appcast.xml");
   run("git", ["add", ...manifests], { execute });
 }
 
@@ -363,6 +367,7 @@ function main() {
   }
   if (!options.skipDmg) {
     run("bash", ["apps/macos/scripts/build-dmg.sh", nextVersion], { execute: true });
+    run("node", ["scripts/update-appcast.mjs", nextVersion, macosDmgPath(nextVersion)], { execute: true });
   }
 
   if (options.commit) {

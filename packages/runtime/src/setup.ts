@@ -35,7 +35,7 @@ import {
   normalizeOpenScoutNetworkSettings,
   type OpenScoutNetworkRuntimeSettings,
 } from "./open-scout-network.js";
-import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { assertTestIsolatedUserData, ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
@@ -1834,6 +1834,7 @@ export function resolveOpenScoutSetupContextRoot(options: {
 }
 
 export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsInput, options: { currentDirectory?: string } = {}): Promise<OpenScoutSettings> {
+  assertTestIsolatedUserData("write OpenScout settings", "OPENSCOUT_SUPPORT_DIRECTORY");
   ensureOpenScoutCleanSlateSync();
   const current = await readOpenScoutSettings(options);
   const merged = {
@@ -1901,15 +1902,48 @@ const SCOUT_SKILL_FILE_NAME = "SKILL.md";
 const SETUP_MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const SCOUT_SKILL_REPO_ROOT = resolve(SETUP_MODULE_DIRECTORY, "..", "..", "..");
 
+// Host/harness skill roots that should receive the shared Scout skill on setup.
 // Codex's canonical user-level skills path is `~/.agents/skills/` (the
 // loader at codex-rs/core-skills/src/loader.rs marks `~/.codex/skills/` as
-// deprecated). Claude Code still keys off `~/.claude/skills/`.
-const SCOUT_SKILL_INSTALL_PATHS: Partial<Record<ManagedAgentHarness, string>> = {
-  claude: join(homedir(), ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
-  codex: join(homedir(), ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
-  grok: join(homedir(), ".grok", "skills", "scout", SCOUT_SKILL_FILE_NAME),
-  pi: join(homedir(), ".pi", "agent", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+// deprecated). Claude Code still keys off `~/.claude/skills/`. OpenCode
+// discovers both `~/.agents/skills/` and `~/.config/opencode/skills/`.
+type ScoutSkillInstallTarget = {
+  /** Ledger / report id (harness name, or host id such as "opencode"). */
+  id: string;
+  /** Set when this target is one of the managed harnesses. */
+  harness?: ManagedAgentHarness;
+  target: string;
 };
+
+function scoutSkillInstallTargets(home: string = homedir()): ScoutSkillInstallTarget[] {
+  return [
+    {
+      id: "claude",
+      harness: "claude",
+      target: join(home, ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    },
+    {
+      id: "codex",
+      harness: "codex",
+      target: join(home, ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    },
+    {
+      id: "grok",
+      harness: "grok",
+      target: join(home, ".grok", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    },
+    {
+      id: "pi",
+      harness: "pi",
+      target: join(home, ".pi", "agent", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    },
+    // OpenCode host skill root (also discovers ~/.agents via the codex path).
+    {
+      id: "opencode",
+      target: join(home, ".config", "opencode", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+    },
+  ];
+}
 
 function resolveScoutSkillSourcePath(): string | null {
   const candidates = [
@@ -1923,7 +1957,9 @@ function resolveScoutSkillSourcePath(): string | null {
 }
 
 export type ScoutSkillInstallEntry = {
-  harness: ManagedAgentHarness;
+  /** Host or harness id written to the managed-install ledger. */
+  id: string;
+  harness?: ManagedAgentHarness;
   target: string;
   status: "installed" | "skipped" | "error";
   error?: string;
@@ -1943,12 +1979,8 @@ export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallR
   const content = await readFile(source, "utf8");
   const entries: ScoutSkillInstallEntry[] = [];
 
-  for (const harness of MANAGED_AGENT_HARNESSES) {
-    const target = SCOUT_SKILL_INSTALL_PATHS[harness];
-    if (!target) {
-      entries.push({ harness, target: "", status: "skipped" });
-      continue;
-    }
+  for (const installTarget of scoutSkillInstallTargets()) {
+    const { id, harness, target } = installTarget;
     try {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, content, "utf8");
@@ -1958,17 +1990,23 @@ export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallR
         name: "scout-skill",
         title: "Scout harness skill",
         status: "active",
-        harness,
+        // Ledger still keys optional harness; OpenCode is a host skill root.
+        ...(harness ? { harness } : {}),
         targetPath: target,
         sourcePath: source,
+        metadata: {
+          skillId: "scout",
+          installTarget: id,
+        },
         uninstall: {
           strategy: "delete-target",
-          notes: "Remove this skill file from the harness skill directory.",
+          notes: "Remove this skill file from the host/harness skill directory.",
         },
       });
-      entries.push({ harness, target, status: "installed" });
+      entries.push({ id, harness, target, status: "installed" });
     } catch (error) {
       entries.push({
+        id,
         harness,
         target,
         status: "error",

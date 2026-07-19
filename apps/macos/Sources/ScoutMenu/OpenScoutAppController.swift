@@ -438,7 +438,7 @@ final class OpenScoutAppController: ObservableObject {
         if let copyDetails, !copyDetails.isEmpty {
             metadata["details"] = copyDetails
         }
-        HudLogStore.shared.record(trimmed, level: level, category: "menu", metadata: metadata)
+        HudLogger(category: "menu").log(level, trimmed, metadata: metadata)
     }
 
     private func resetActionLog() {
@@ -722,7 +722,7 @@ final class OpenScoutAppController: ObservableObject {
             do {
                 try enableOpenScoutNetworkSettings()
 
-                guard OpenScoutNetworkSessionStore.loadSessionToken() != nil else {
+                guard OpenScoutNetworkSessionStore.loadSessionToken(allowAuthenticationUI: true) != nil else {
                     if openSignInIfNeeded {
                         appendActionLog(.info, "Opening OpenScout Network sign-in...")
                         signInOpenScoutNetwork()

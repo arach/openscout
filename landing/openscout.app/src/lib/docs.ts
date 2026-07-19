@@ -25,17 +25,17 @@ const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/arach/openscout/m
 type GroupDef = { group: string; order: number; title: string; description: string };
 
 const CATALOG: Record<string, GroupDef> = {
-  "quickstart":                            { group: "Core Concepts",       order: 0,  title: "Quickstart",                  description: "The shortest path from install to a first healthy local Scout handoff." },
-  "current-posture":                       { group: "Core Concepts",       order: 1,  title: "Status & Scope",              description: "Maturity, trust, install footprint, mesh, and license-status boundaries." },
-  "architecture":                          { group: "Core Concepts",       order: 2,  title: "Architecture",                description: "The system shape and its data: what Scout owns vs observes, agent identity and addressing, and the integration boundary." },
-  "agents-and-collaboration":              { group: "Core Concepts",       order: 3,  title: "Agents & Collaboration",      description: "How agents reach each other and move owned work: questions, work items, delegation, waking." },
-  "concepts":                              { group: "Core Concepts",       order: 4,  title: "Concepts",                    description: "What every core noun means — the concepts Scout brings, and where it maps to open protocols." },
-  "agent-integration-contract":            { group: "Core Concepts",       order: 5,  title: "Integrating Agents",          description: "The minimum v0 contract expected from agents, runtimes, and adapters." },
-  "operator-attention-and-unblock":        { group: "Core Concepts",       order: 6,  title: "Operator Attention",          description: "Human input, approvals, permissions, and unblock notifications across surfaces." },
-  "activity-indexing":                     { group: "Implementation",      order: 40, title: "Activity Indexing",           description: "Fast broker-native activity projection backed by SQLite." },
-  "codex-app-server-harness":              { group: "Implementation",      order: 41, title: "Codex App Server Harness",    description: "Persistent session plane for Codex via app-server JSON-RPC." },
-  "telegram-bridge-ownership":             { group: "Implementation",      order: 42, title: "Telegram Bridge Ownership",   description: "Singleton polling fix using mesh-elected bridge owner." },
-  "native-runtime":                        { group: "Implementation",      order: 43, title: "Native Runtime",              description: "Historical context on the native shell scaffold." },
+  "quickstart":                            { group: "Core Concepts",       order: 0,  title: "Quickstart",                  description: "Install Scout and complete a first healthy local handoff." },
+  "current-posture":                       { group: "Core Concepts",       order: 1,  title: "Status & Scope",              description: "What is ready today — trust model, install footprint, mesh, and license status." },
+  "architecture":                          { group: "Core Concepts",       order: 2,  title: "Architecture",                description: "How the system fits together: broker, protocol, identity, and what Scout owns versus observes." },
+  "agents-and-collaboration":              { group: "Core Concepts",       order: 3,  title: "Agents & Collaboration",      description: "How agents reach each other and hand off owned work." },
+  "concepts":                              { group: "Core Concepts",       order: 4,  title: "Concepts",                    description: "Plain definitions for Scout's core terms and how they map to open protocols." },
+  "agent-integration-contract":            { group: "Core Concepts",       order: 5,  title: "Integrating Agents",          description: "The minimum contract for agents, runtimes, and adapters plugging into Scout." },
+  "operator-attention-and-unblock":        { group: "Core Concepts",       order: 6,  title: "Operator Attention",          description: "How Scout surfaces human input, approvals, permissions, and unblock prompts." },
+  "activity-indexing":                     { group: "Implementation",      order: 40, title: "Activity Indexing",           description: "A fast SQLite-backed activity feed derived from broker records." },
+  "codex-app-server-harness":              { group: "Implementation",      order: 41, title: "Codex App Server Harness",    description: "Long-lived Codex sessions through the app-server protocol." },
+  "telegram-bridge-ownership":             { group: "Implementation",      order: 42, title: "Telegram Bridge Ownership",   description: "How the mesh picks one node to poll Telegram so bots stay connected." },
+  "native-runtime":                        { group: "Implementation",      order: 43, title: "Native Runtime",              description: "Background on the earlier native shell that shaped the current desktop split." },
 };
 
 let docPathIndex: Map<string, string> | undefined;

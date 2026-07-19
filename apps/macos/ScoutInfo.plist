@@ -29,6 +29,10 @@
     <string>0.1.1</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/arach/openscout/main/apps/macos/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>iTKYmLILQkkeyAazKSWGx+18chlhAG5mhcZmIJ77gdg=</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>ATSApplicationFontsPath</key>

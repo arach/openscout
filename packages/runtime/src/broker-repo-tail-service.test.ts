@@ -134,7 +134,8 @@ describe("BrokerRepoTailService", () => {
   test("parses bounded positive integer query parameters", () => {
     expect(parseTailLimit(new URL("http://test/tail"))).toBe(500);
     expect(parseTailLimit(new URL("http://test/tail?limit=-1"))).toBe(500);
-    expect(parseTailLimit(new URL("http://test/tail?limit=2000"))).toBe(1_000);
+    expect(parseTailLimit(new URL("http://test/tail?limit=2000"))).toBe(2_000);
+    expect(parseTailLimit(new URL("http://test/tail?limit=20000"))).toBe(10_000);
     expect(parsePositiveIntParam(new URL("http://test/repo?maxRoots=300"), "maxRoots", 128)).toBe(128);
     expect(parsePositiveIntParam(new URL("http://test/repo?maxRoots=0"), "maxRoots", 128)).toBeUndefined();
   });
@@ -242,5 +243,34 @@ describe("BrokerRepoTailService", () => {
         expect.objectContaining({ id: "same", summary: "live wins" }),
       ],
     });
+  });
+
+  test("keeps Cursor process samples out of the presented tail only", async () => {
+    const harness = createHarness({
+      liveEvents: [
+        tailEvent({
+          id: "cursor-sample",
+          ts: 10,
+          source: "cursor",
+          kind: "system",
+          summary: "process sample · openscout, vox",
+          raw: { rows: [{ processName: "Cursor Helper openscout" }] },
+        }),
+        tailEvent({
+          id: "cursor-activity",
+          ts: 20,
+          source: "cursor",
+          kind: "system",
+          summary: "agent process exited",
+        }),
+      ],
+      now: 42_000,
+    });
+
+    const payload = await harness.service.readTailRecentPayload(
+      new URL("http://test/v1/tail/recent?limit=50"),
+    );
+
+    expect(payload.events.map((event) => event.id)).toEqual(["cursor-activity"]);
   });
 });

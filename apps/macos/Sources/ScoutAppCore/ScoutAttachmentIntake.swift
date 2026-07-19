@@ -107,6 +107,10 @@ public enum ScoutAttachmentUploadService {
 
 #if os(macOS)
 public enum ScoutMediaIntake {
+    /// Matches the web blob store's hard cap. Larger files stay usable as
+    /// local-path references instead of being read and base64-expanded in RAM.
+    public static let maximumInlineBytes = 25 * 1024 * 1024
+
     public static let supportedImageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "tif", "bmp",
     ]
@@ -147,6 +151,14 @@ public enum ScoutMediaIntake {
         isMarkdownFileName(fileName) || isCodeFileName(fileName)
     }
 
+    public static func canInlineFileURL(_ url: URL) -> Bool {
+        let fileName = url.lastPathComponent
+        let ext = fileExtension(for: fileName)
+        return supportedImageExtensions.contains(ext)
+            || supportedVideoExtensions.contains(ext)
+            || isTextCaptureFileName(fileName)
+    }
+
     public static var pickerContentTypes: [UTType] {
         var types: [UTType] = [.image, .movie, .mpeg4Movie, .quickTimeMovie, .video, .sourceCode, .json]
         for ext in supportedMarkdownExtensions.union(supportedCodeExtensions) {
@@ -173,12 +185,19 @@ public enum ScoutMediaIntake {
             let media = fromFileURLs(urls)
             if !media.isEmpty { return media }
         }
-        if let data = pasteboard.data(forType: .png) {
+        return inlineFromPasteboard(pasteboard)
+    }
+
+    /// Decode only bytes carried directly by the pasteboard. Keeping this
+    /// separate lets mixed drops retain both file URLs and an inline image.
+    public static func inlineFromPasteboard(_ pasteboard: NSPasteboard = .general) -> [ScoutComposerImage] {
+        if let data = pasteboard.data(forType: .png), data.count <= maximumInlineBytes {
             return [ScoutComposerImage(data: data, mediaType: "image/png", fileName: "pasted-image.png")]
         }
         if let tiff = pasteboard.data(forType: .tiff),
            let rep = NSBitmapImageRep(data: tiff),
-           let png = rep.representation(using: .png, properties: [:]) {
+           let png = rep.representation(using: .png, properties: [:]),
+           png.count <= maximumInlineBytes {
             return [ScoutComposerImage(data: png, mediaType: "image/png", fileName: "pasted-image.png")]
         }
         return []
@@ -192,7 +211,12 @@ public enum ScoutMediaIntake {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         let resolvedURL = url.isFileURL ? url.standardizedFileURL : url
+        if let size = (try? resolvedURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           size > maximumInlineBytes {
+            return nil
+        }
         guard let data = try? Data(contentsOf: resolvedURL) else { return nil }
+        guard data.count <= maximumInlineBytes else { return nil }
         let fileName = resolvedURL.lastPathComponent
         let ext = resolvedURL.pathExtension.lowercased()
         let resolved = mediaTypeForExtension(ext)

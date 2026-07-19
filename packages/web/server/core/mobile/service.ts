@@ -1,4 +1,5 @@
 import { basename, resolve } from "node:path";
+import { statSync } from "node:fs";
 
 import type {
   AgentDefinition,
@@ -25,6 +26,11 @@ import { createAgentWorkspace } from "@openscout/runtime/agent-workspace";
 
 import { upScoutAgent } from "../agents/service.ts";
 import { queryFleet } from "../../db-queries.ts";
+import { queryTerminalSessions } from "../../db/terminal-sessions.ts";
+import {
+  loadServiceBudgets,
+  type ServiceGauge,
+} from "../../service-budgets.ts";
 import {
   loadScoutBrokerContext,
   readScoutBrokerHome,
@@ -43,6 +49,14 @@ import {
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 import { postScoutbotOperatorMessage } from "../../scoutbot/runner.ts";
 import { SCOUTBOT_AGENT_ID } from "../../scoutbot/role.ts";
+import type { AgentAttentionEntry } from "../attention/agent-attention.ts";
+import { createAgentAttentionIndexReader } from "../attention/build-agent-attention-index.ts";
+
+/// Shared, TTL-cached reader for the per-agent needs-attention index. Same
+/// sourcing as web /api/agents (see core/attention/build-agent-attention-index),
+/// so the phone's "Needs you" band mirrors the web fleet. Module-level so the
+/// short TTL cache is shared across mobile agents/home pulls.
+const readMobileAgentAttentionIndex = createAgentAttentionIndexReader();
 
 export type ScoutMobileListFilters = {
   query?: string;
@@ -82,6 +96,14 @@ export type ScoutMobileAgentSummary = {
   /// opaque chat id, or null when no chat has been created yet.
   conversationId: string | null;
   lastActiveAt: number | null;
+  /// True when the agent is waiting on the operator (a pending question,
+  /// approval, or handoff). Feeds the phone's "Needs you" band. Additive and
+  /// backward-compatible: older clients ignore it.
+  needsAttention: boolean;
+  /// The pending ask text when `needsAttention` is true, else null. A flat
+  /// string; the iOS client also accepts a structured object but a bare string
+  /// is sufficient (it defaults the kind to a question).
+  pendingAsk: string | null;
 };
 
 export type ScoutMobileSessionSummary = {
@@ -261,6 +283,10 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function metadataTimestampMs(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  return normalizeTimestampMs(metadata?.[key] as number | null | undefined);
+}
+
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
   return metadata?.[key] === true;
 }
@@ -359,6 +385,47 @@ async function loadMobileWorkspaceInventory(currentDirectory?: string): Promise<
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath) || left.title.localeCompare(right.title));
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Rebase a legacy macOS user-home path onto the account running Scout. */
+export function rehomeScoutMobileWorkspacePath(requestedPath: string, currentHome: string): string | null {
+  const requested = resolve(requestedPath);
+  const home = resolve(currentHome);
+  const requestedMatch = requested.match(/^\/Users\/[^/]+(\/.*)?$/);
+  if (!requestedMatch || !/^\/Users\/[^/]+$/.test(home)) return null;
+  const suffix = requestedMatch[1] ?? "";
+  return resolve(home, `.${suffix || "/"}`);
+}
+
+async function resolveMobileWorkspaceRoot(rawWorkspaceId: string, currentDirectory?: string): Promise<string> {
+  const requested = resolve(rawWorkspaceId);
+  if (isDirectory(requested)) return requested;
+
+  const currentHome = process.env.HOME?.trim();
+  const rehomed = currentHome ? rehomeScoutMobileWorkspacePath(requested, currentHome) : null;
+  if (rehomed && isDirectory(rehomed)) return rehomed;
+
+  // Last-resort identity lookup for stale session-history paths. Only accept a
+  // unique current workspace with the same leaf/name; ambiguity is safer as a
+  // clear error than silently launching in the wrong repository.
+  const requestedName = basename(requested).toLowerCase();
+  const inventory = await loadMobileWorkspaceInventory(currentDirectory);
+  const matches = inventory.filter((workspace) => (
+    isDirectory(workspace.root)
+    && [basename(workspace.root), workspace.projectName, workspace.title]
+      .some((value) => value.toLowerCase() === requestedName)
+  ));
+  if (matches.length === 1) return resolve(matches[0]!.root);
+
+  throw new Error(`Workspace is not available on this Mac: ${rawWorkspaceId}. Choose a project from the current workspace list.`);
+}
+
 function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string, MessageRecord[]> {
   const buckets = new Map<string, MessageRecord[]>();
   for (const message of Object.values(snapshot.messages)) {
@@ -402,10 +469,59 @@ function mobileConversationTitle(
   return rawConversationTitle(conversation) ?? conversation.id;
 }
 
+function endpointsForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint[] {
+  const stateRank = (state: AgentEndpoint["state"]): number => {
+    switch (state) {
+      case "active": return 0;
+      case "idle": return 1;
+      case "waiting": return 2;
+      case "offline": return 4;
+      default: return 3;
+    }
+  };
+  return Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint))
+    .sort((left, right) => (
+      Number(right.preferred === true) - Number(left.preferred === true)
+      || stateRank(left.state) - stateRank(right.state)
+      || (endpointActivityAt(right) ?? 0) - (endpointActivityAt(left) ?? 0)
+      || left.id.localeCompare(right.id)
+    ));
+}
+
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
-  return Object.values(snapshot.endpoints).find((endpoint) => (
-    endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
-  )) ?? null;
+  return endpointsForAgent(snapshot, agentId)[0] ?? null;
+}
+
+function maxTimestampMs(values: Array<number | null | undefined>): number | null {
+  const timestamps = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
+function endpointActivityAt(endpoint: AgentEndpoint | null): number | null {
+  if (!endpoint) return null;
+  return maxTimestampMs([
+    metadataTimestampMs(endpoint.metadata, "lastSeenAt"),
+    metadataTimestampMs(endpoint.metadata, "lastEnsuredAt"),
+    metadataTimestampMs(endpoint.metadata, "lastStartedAt"),
+    metadataTimestampMs(endpoint.metadata, "lastCompletedAt"),
+    metadataTimestampMs(endpoint.metadata, "lastFailedAt"),
+    metadataTimestampMs(endpoint.metadata, "startedAt"),
+  ]);
+}
+
+function flightActivityAt(flight: FlightRecord): number | null {
+  return maxTimestampMs([
+    normalizeTimestampMs(flight.completedAt),
+    normalizeTimestampMs(flight.startedAt),
+  ]);
+}
+
+function isActiveMobileFlight(flight: FlightRecord): boolean {
+  return flight.state === "running"
+    || flight.state === "waiting"
+    || flight.state === "queued"
+    || flight.state === "waking";
 }
 
 /// The conversation id the phone should route an agent tap to. It is always an
@@ -418,22 +534,33 @@ function mobileAgentConversationId(snapshot: ScoutBrokerSnapshot, agentId: strin
 function buildMobileAgentSummary(
   snapshot: ScoutBrokerSnapshot,
   agent: AgentDefinition,
+  attention?: ReadonlyMap<string, AgentAttentionEntry>,
 ): ScoutMobileAgentSummary {
-  const endpoint = endpointForAgent(snapshot, agent.id);
+  const endpoints = endpointsForAgent(snapshot, agent.id);
+  const endpoint = endpoints[0] ?? null;
   const flights = Object.values(snapshot.flights as Record<string, FlightRecord>).filter((flight) => flight.targetAgentId === agent.id);
-  const hasWorkingFlight = flights.some((flight) => flight.state === "running");
+  const hasActiveFlight = flights.some(isActiveMobileFlight);
   const lastAuthoredMessageAt = Object.values(snapshot.messages)
     .filter((message) => message.actorId === agent.id)
     .reduce<number | null>((latest, message) => {
       const createdAt = normalizeTimestampMs(message.createdAt);
       return typeof createdAt === "number" && (!latest || createdAt > latest) ? createdAt : latest;
     }, null);
+  const lastActiveAt = maxTimestampMs([
+    lastAuthoredMessageAt,
+    ...endpoints.map(endpointActivityAt),
+    ...flights.map(flightActivityAt),
+  ]);
 
-  const state = hasWorkingFlight
+  const state = hasActiveFlight
     ? "working"
-    : endpoint && endpoint.state !== "offline"
+    : endpoints.some((candidate) => candidate.state !== "offline")
       ? "available"
-      : "offline";
+      : agent.wakePolicy !== "manual"
+        ? "available"
+        : "offline";
+
+  const attentionEntry = attention?.get(agent.id) ?? null;
 
   return {
     id: agent.id,
@@ -447,7 +574,9 @@ function buildMobileAgentSummary(
     statusLabel: state === "working" ? "Working" : state === "available" ? "Available" : "Offline",
     sessionId: endpoint?.sessionId ?? null,
     conversationId: mobileAgentConversationId(snapshot, agent.id),
-    lastActiveAt: lastAuthoredMessageAt,
+    lastActiveAt,
+    needsAttention: attentionEntry !== null,
+    pendingAsk: attentionEntry?.ask ?? null,
   };
 }
 
@@ -599,6 +728,11 @@ async function loadMobileRelayState(): Promise<{
     return { agents: [], sessions: [] };
   }
 
+  // Build the SAME per-agent attention index the web /api/agents path uses, so
+  // the phone's "Needs you" band surfaces the identical set of waiting agents.
+  // Never throws — a broken source yields an empty index, not an empty fleet.
+  const attention = await readMobileAgentAttentionIndex(broker);
+
   const snapshot = broker.snapshot;
   const agents = Object.values(snapshot.agents)
     .filter((agent) => !isInactiveAgent(agent))
@@ -607,7 +741,7 @@ async function loadMobileRelayState(): Promise<{
         .filter((endpoint) => endpoint.agentId === agent.id);
       return endpoints.length === 0 || endpoints.some((endpoint) => !isInactiveEndpoint(snapshot, endpoint));
     })
-    .map((agent) => buildMobileAgentSummary(snapshot, agent))
+    .map((agent) => buildMobileAgentSummary(snapshot, agent, attention))
     .sort((left, right) => (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0) || left.title.localeCompare(right.title));
 
   return {
@@ -872,16 +1006,14 @@ export async function createScoutSession(
   currentDirectory?: string,
   deviceId?: string,
 ): Promise<ScoutMobileSessionHandle> {
-  // The mobile client passes a projectRoot path as workspaceId (see
-  // queryMobileWorkspaces in db-queries.ts). We skip the 4s filesystem inventory
-  // walk here and build a minimal workspace summary directly — createSession is
-  // a hot RPC on every mobile session creation and the downstream code only
-  // needs `root`, `projectName`, and the passthrough fields.
+  // The mobile client passes a projectRoot path as workspaceId. Valid current
+  // directories stay on the hot path; missing/legacy paths take the guarded
+  // inventory fallback before we construct the minimal downstream summary.
   const rawWorkspaceId = input.workspaceId?.trim();
   if (!rawWorkspaceId) {
     throw new Error(`Invalid workspaceId.`);
   }
-  const workspaceRoot = resolve(rawWorkspaceId);
+  const workspaceRoot = await resolveMobileWorkspaceRoot(rawWorkspaceId, currentDirectory);
   const projectName = basename(workspaceRoot) || workspaceRoot;
   const workspace: ScoutMobileWorkspaceSummary = {
     id: workspaceRoot,
@@ -960,6 +1092,8 @@ export async function createScoutSession(
     sessionId: localAgent.sessionId,
     conversationId: directSession.conversation.id,
     lastActiveAt: null,
+    needsAttention: false,
+    pendingAsk: null,
   };
 
   const seedInstructions = input.seed?.instructions?.trim() ?? "";
@@ -1093,12 +1227,214 @@ export type ScoutMobileActivityFilters = {
 export async function getScoutMobileActivity(
   filters: ScoutMobileActivityFilters = {},
 ): Promise<ScoutBrokerHomeActivityRecord[]> {
-  // Home is an orientation surface, so it reads the broker's *curated* home
-  // activity — one row per message, named actors, always thread-linked — not the
-  // raw `/v1/activity` lifecycle firehose (ask_opened / flight_updated / …),
-  // which is an ops feed and stays on the Tail tab. See project_home_purpose.
-  const home = await readScoutBrokerHome();
-  return (home?.activity ?? []).slice(0, filters.limit ?? 100);
+  // Home is an orientation surface: show the actual recent exchanges Scout
+  // mediated, not the raw `/v1/activity` lifecycle firehose. Reading the broker
+  // message ledger directly also avoids depending on the optional home activity
+  // projection, which may legitimately be empty after a broker restart.
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    const home = await readScoutBrokerHome();
+    return (home?.activity ?? []).slice(0, filters.limit ?? 100);
+  }
+
+  const { snapshot } = broker;
+  const selfIds = operatorActorIds();
+  const mediatedKinds = new Set(["channel", "direct", "group_direct", "thread"]);
+  const rows = Object.values(snapshot.messages ?? {})
+    .filter((message) => {
+      const conversation = snapshot.conversations?.[message.conversationId];
+      if (!conversation || !mediatedKinds.has(conversation.kind)) return false;
+      if (filters.agentId && message.actorId !== filters.agentId) return false;
+      if (filters.actorId && message.actorId !== filters.actorId) return false;
+      if (filters.conversationId && message.conversationId !== filters.conversationId) return false;
+      return true;
+    })
+    .sort((left, right) => requireTimestampMs(right.createdAt) - requireTimestampMs(left.createdAt))
+    .map((message): ScoutBrokerHomeActivityRecord => {
+      const conversation = snapshot.conversations[message.conversationId]!;
+      const actorName = commsActorLabel(snapshot, message.actorId, selfIds);
+      const channel = conversation.kind === "channel"
+        ? channelNaturalKeyFromMetadata(conversation.metadata) ?? conversation.title ?? null
+        : null;
+      return {
+        id: message.id,
+        kind: message.class === "status" || message.actorId === "system" ? "system" : "message",
+        actorId: message.actorId,
+        actorName,
+        title: actorName,
+        detail: message.body,
+        conversationId: message.conversationId,
+        channel,
+        timestamp: requireTimestampMs(message.createdAt),
+      };
+    });
+
+  const limit = filters.limit && filters.limit > 0 ? Math.floor(filters.limit) : 100;
+  return rows.slice(0, limit);
+}
+
+// -- Service budgets (usage quotas) --------------------------------------
+//
+// The phone's usage-quota readout: Claude / Codex / GitHub. Projects the web
+// `loadServiceBudgets()` gauges (which carry per-window quota detail) down to a
+// per-provider row that PRESERVES each provider's individual quota windows so
+// the phone can render one meter per window (e.g. Claude 5h + weekly) instead of
+// a single collapsed percent. Windows are emitted in source order (short window
+// first). Providers with at least one quota window are kept; non-quota/failed
+// providers are skipped rather than surfaced as empty rows.
+
+const MOBILE_SERVICE_BUDGET_PROVIDERS = ["claude", "codex", "github"] as const;
+type MobileServiceBudgetProvider = (typeof MOBILE_SERVICE_BUDGET_PROVIDERS)[number];
+
+export type ScoutMobileServiceBudgetWindow = {
+  /// Short window label, e.g. "5h", "wk", "7d".
+  label: string;
+  /// Fraction of the window used, 0-100, rounded to an integer.
+  usedPercent: number;
+  /// Short reset text, e.g. "48m", "4d", "Sun"; "" when unknown or already past.
+  reset: string;
+};
+
+export type ScoutMobileServiceBudget = {
+  provider: MobileServiceBudgetProvider;
+  /// Display name, e.g. "Claude".
+  label: string;
+  /// Plan/tier string from the gauge (e.g. "Max 20×", "ChatGPT Pro"); "" if none.
+  /// The service-budget aggregator does not currently surface a plan/tier, so
+  /// this is "" in practice — kept in the shape so a later plan source is a purely
+  /// additive aggregator change, not a phone-client re-decode.
+  plan: string;
+  /// Per-window meters in source order (short window first).
+  windows: ScoutMobileServiceBudgetWindow[];
+};
+
+const MOBILE_SERVICE_BUDGET_LABELS: Record<MobileServiceBudgetProvider, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  github: "GitHub",
+};
+
+const MOBILE_RESET_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function mobileServiceBudgetProvider(id: string): MobileServiceBudgetProvider | null {
+  return (MOBILE_SERVICE_BUDGET_PROVIDERS as readonly string[]).includes(id)
+    ? (id as MobileServiceBudgetProvider)
+    : null;
+}
+
+/// Short reset text for a single window: minutes under an hour ("48m"), hours
+/// under two days ("4h"), days under a week ("4d"), then the weekday name for
+/// anything a week or more out ("Sun"). "" when the reset is unknown or already
+/// in the past.
+function formatMobileWindowReset(resetAt: number): string {
+  const deltaMs = resetAt - Date.now();
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return "";
+  const minutes = Math.round(deltaMs / 60_000);
+  if (minutes < 60) return `${Math.max(1, minutes)}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d`;
+  return MOBILE_RESET_WEEKDAYS[new Date(resetAt).getDay()] ?? `${days}d`;
+}
+
+/// A provider's plan/tier string, if the gauge ever surfaces one. Today's
+/// aggregator carries no plan/tier (the quota gauge only exposes a provider slug
+/// in `label`), so this resolves to "" — but reading it defensively here means a
+/// future aggregator that populates a plan flows through without a phone change.
+function mobileServiceBudgetPlan(gauge: ServiceGauge): string {
+  const plan = (gauge as { plan?: unknown }).plan;
+  return typeof plan === "string" && plan.trim().length > 0 ? plan.trim() : "";
+}
+
+/// Project one quota gauge onto the phone's per-provider budget row, preserving
+/// each quota window as its own meter. Returns null for a non-quota gauge (status
+/// tiles), a provider we don't surface on mobile, or a provider with no windows.
+function mobileServiceBudgetFromGauge(gauge: ServiceGauge): ScoutMobileServiceBudget | null {
+  const provider = mobileServiceBudgetProvider(gauge.id);
+  if (!provider) return null;
+  if (gauge.kind !== "quota") return null;
+
+  // Each window carries a `fill` (0-1 fraction used). Preserve source order (the
+  // aggregator already sorts short window → long window, e.g. 5h → 7d).
+  const windows: ScoutMobileServiceBudgetWindow[] = (gauge.windows ?? []).map((window) => ({
+    label: window.label,
+    usedPercent: Math.round(Math.max(0, Math.min(1, window.fill)) * 100),
+    reset: formatMobileWindowReset(window.resetAt),
+  }));
+  if (windows.length === 0) return null;
+
+  return {
+    provider,
+    label: MOBILE_SERVICE_BUDGET_LABELS[provider],
+    plan: mobileServiceBudgetPlan(gauge),
+    windows,
+  };
+}
+
+/// The phone's usage-quota surface. Reads the shared service-budget aggregator
+/// (same source as web `GET /api/service-budgets`) and returns each provider's
+/// individual quota windows so the phone renders one meter per window. No params;
+/// accepts and ignores an empty object.
+export async function getScoutMobileServiceBudgets(
+  _filters: Record<string, never> = {},
+): Promise<{ budgets: ScoutMobileServiceBudget[] }> {
+  void _filters;
+  const response = await loadServiceBudgets();
+  const budgets = response.gauges
+    .map(mobileServiceBudgetFromGauge)
+    .filter((budget): budget is ScoutMobileServiceBudget => budget !== null)
+    .sort(
+      (left, right) =>
+        MOBILE_SERVICE_BUDGET_PROVIDERS.indexOf(left.provider)
+        - MOBILE_SERVICE_BUDGET_PROVIDERS.indexOf(right.provider),
+    );
+  return { budgets };
+}
+
+// -- Terminal sessions ---------------------------------------------------
+//
+// The phone's terminal-session surface. Reads the terminal-session registry
+// (same source as web terminal handoff) and flattens each record onto a flat
+// row the phone can render without joining against surfaces. `running` collapses
+// the record's per-surface state to a single "any surface live" flag. No params.
+
+export type ScoutMobileTerminal = {
+  id: string;
+  /// Harness-native session id — the stable session identity across surfaces.
+  sessionId: string;
+  /// Working directory, verbatim (full path).
+  cwd: string;
+  /// The command to resume/attach the session.
+  command: string;
+  /// Owning harness, e.g. "claude", "codex".
+  harness: string;
+  /// True when any surface on the record is live (not detached/exited).
+  running: boolean;
+  /// Last-updated timestamp, ms epoch (integer).
+  updatedAt: number;
+};
+
+/// The phone's terminal-session surface. Reads the terminal-session registry
+/// and returns a flat row per recent session (most-recently-updated first).
+/// `queryTerminalSessions` already orders by updated_at DESC and tolerates a
+/// missing registry table; the try/catch is a defensive belt-and-braces.
+export async function getScoutMobileTerminals(): Promise<{ terminals: ScoutMobileTerminal[] }> {
+  try {
+    const records = queryTerminalSessions({ limit: 12 });
+    const terminals: ScoutMobileTerminal[] = records.map((record) => ({
+      id: record.id,
+      sessionId: record.sourceSessionId,
+      cwd: record.cwd,
+      command: record.resumeCommand,
+      harness: record.harness,
+      running: record.surfaces.some((surface) => surface.state === "live"),
+      updatedAt: record.updatedAt,
+    }));
+    return { terminals };
+  } catch {
+    return { terminals: [] };
+  }
 }
 
 // -- Comms (channels + DMs) ----------------------------------------------

@@ -107,6 +107,7 @@ HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]
   bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
+  bun apps/macos/bin/openscout-menu.ts hud task [top-left|top-right|bottom-left|bottom-right]
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
   bun apps/macos/bin/openscout-menu.ts hud matrix [<dir>]
 
@@ -307,19 +308,14 @@ function signBundle(options: CliOptions): void {
     console.log(`Signing with: ${identity.label}`);
     try {
       execSync(
-        `codesign --force --options runtime --timestamp --sign ${shellQuote(identity.signValue)}${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${
+        `codesign --force --deep --options runtime --timestamp --sign ${shellQuote(identity.signValue)}${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${
           shellQuote(bundlePath)
         }`,
         { stdio: "inherit" },
       );
     } catch {
-      if (options.requireSigningIdentity) {
-        throw new Error(`Signing with '${identity.label}' failed.`);
-      }
-      console.log(`Signing with '${identity.label}' failed. Falling back to ad-hoc.`);
-      execSync(
-        `codesign --force --sign -${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${shellQuote(bundlePath)}`,
-        { stdio: "inherit" },
+      throw new Error(
+        `Signing with '${identity.label}' failed. Refusing to replace the stable app identity with an ad-hoc signature.`,
       );
     }
   } else {
@@ -416,8 +412,11 @@ function build(options: CliOptions): void {
   const version = appVersion(options.version);
   mkdirSync(distDir, { recursive: true });
   writeBundle(version);
-  signBundle(options);
   execSync(`touch '${bundlePath}'`, { stdio: "pipe" });
+  // Signing must be the final bundle mutation. Keychain ACLs trust the stable
+  // Developer ID requirement; an ad-hoc post-build signature is CDHash-bound
+  // and makes every rebuild look like a different application.
+  signBundle(options);
   console.log(`Built ${bundlePath}`);
 }
 
@@ -516,6 +515,7 @@ const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
 const TAIL_STATE_PATH = "/tmp/openscout-tail-state.json";
 const HUD_TABS = ["agents", "activity", "tail", "sessions", "assistant"] as const;
 const HUD_SIZES = ["compact", "medium", "large"] as const;
+const HUD_CAPTURE_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 
 type HudState = {
   visible: boolean;
@@ -544,7 +544,11 @@ function readHudState(): HudState {
 }
 
 function fireHudURL(path: string): void {
-  execSync(`open -g 'scout://hud/${path}'`, { stdio: "inherit" });
+  execFileSync(
+    "open",
+    ["-g", "-b", bundleIdentifier, `scout://hud/${path}`],
+    { stdio: "inherit" },
+  );
 }
 
 function readTailState(): TailState {
@@ -557,7 +561,11 @@ function readTailState(): TailState {
 }
 
 function fireTailURL(path: string): void {
-  execSync(`open -g 'scout://tail/${path}'`, { stdio: "inherit" });
+  execFileSync(
+    "open",
+    ["-g", "-b", bundleIdentifier, `scout://tail/${path}`],
+    { stdio: "inherit" },
+  );
 }
 
 function captureHud(out: string): string {
@@ -620,6 +628,14 @@ async function runHudCommand(args: string[]): Promise<void> {
       fireHudURL(`size/${name}`);
       return;
     }
+    case "task": {
+      const corner = rest[0];
+      if (corner && !HUD_CAPTURE_CORNERS.includes(corner as typeof HUD_CAPTURE_CORNERS[number])) {
+        throw new Error(`hud task [${HUD_CAPTURE_CORNERS.join("|")}]`);
+      }
+      fireHudURL(corner ? `task/${corner}` : "task");
+      return;
+    }
     case "capture": {
       const out =
         rest[0] ?? `/tmp/openscout-hud-${Date.now()}.png`;
@@ -677,7 +693,7 @@ async function runHudCommand(args: string[]): Promise<void> {
     }
     default:
       throw new Error(
-        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, capture, matrix.`,
+        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, task, capture, matrix.`,
       );
   }
 }

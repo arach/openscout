@@ -199,6 +199,18 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
+    /// Operator usage-quota gauges (Claude / Codex / GitHub) for the Home strip.
+    /// Empty until a connected bridge reports them (older bridges omit the RPC).
+    var serviceBudgets: [ServiceBudget] = []
+    var recentTerminals: [MobileTerminal] = []
+
+    /// Wall-clock time of the most recent successfully decoded broker query. The
+    /// transport owns this measurement, so every surface contributes without UI
+    /// call sites having to remember to report a fetch. Mutations, connection
+    /// handshakes, failed calls, and arbitrary UI activity do not advance it.
+    var lastSuccessfulFetchAt: Date? {
+        return BrokerRequestLog.shared.lastSuccessfulReadAt
+    }
 
     /// Bumped whenever the trusted-bridge set changes (forgetting a Mac). The
     /// `pairedMachines` list is computed straight off the keychain and reads no
@@ -1551,14 +1563,45 @@ final class AppModel {
     /// The client every surface consumes.
     var client: any ScoutBrokerClient { fleet.focusedClient }
 
-    /// Refresh the fleet rollup shown in the status bar. A cheap directory read;
-    /// callers poll it while the shell is up so `active` stays roughly live.
+    /// The live client for a specific paired Mac, when it's connected — for
+    /// surfaces (e.g. the New composer's machine picker) that target a chosen Mac.
+    func client(forMachineId id: String) -> (any ScoutBrokerClient)? {
+        fleet.connectedClient(machineId: id)
+    }
+
+    /// Refresh the fleet rollup shown in the status bar. Reads every connected
+    /// Mac, so the status bar answers "the fleet" instead of "the focused link."
     func refreshFleetStats() async {
         // Keep the last good rollup on a transient failure — a dropped poll
         // shouldn't blink the status bar to "0 agents". Only a successful fetch
         // (even an empty fleet) updates the counts. Mirrors HomeSurface.load().
-        guard let agents = try? await client.listAgents(query: nil, limit: 200) else { return }
+        let clients = fleet.connectedClients()
+        guard !clients.isEmpty else { return }
+        var agents: [AgentSummary] = []
+        var sawSuccessfulRead = false
+        for client in clients {
+            guard let rows = try? await client.listAgents(query: nil, limit: 200) else { continue }
+            sawSuccessfulRead = true
+            agents.append(contentsOf: rows)
+        }
+        guard sawSuccessfulRead else { return }
         updateFleetStats(from: agents)
+        // Usage-quota gauges for the Home strip — read once from any connected
+        // bridge (they report the operator's local subscriptions, machine-wide).
+        for client in clients {
+            if let budgets = try? await client.serviceBudgets(), !budgets.isEmpty {
+                serviceBudgets = budgets
+                break
+            }
+        }
+        // Recent terminal sessions for the Home Terminals shelf — first successful
+        // read wins (an empty list is valid: no sessions registered).
+        for client in clients {
+            if let terminals = try? await client.terminalSessions() {
+                recentTerminals = terminals
+                break
+            }
+        }
     }
 
     /// Apply a successful fleet read to the shell counters. Home already fetches
@@ -1582,6 +1625,12 @@ final class AppModel {
         return 0
     }
 
+    /// Reload signal for fleet-readable surfaces. Unlike `dataReadyToken`, this is
+    /// true when any paired Mac is live, not only the focused one.
+    var fleetDataReadyToken: Int {
+        fleet.hasConnectedMachine ? dataRevision + machinesRevision + 1 : 0
+    }
+
     /// A reload signal for fleet-wide surfaces (the Agents "All" stack): bumps on
     /// ANY paired Mac's connection change, not just the focused one (which is all
     /// `dataReadyToken` tracks). Without it, a Mac that finishes connecting in the
@@ -1602,6 +1651,28 @@ final class AppModel {
         case .lan, .tailnet, .loopback: return fleet.focusedClient.currentHost
         case .oscout, .remote, .none: return nil
         }
+    }
+
+    /// Resolve one of Scout Web's purpose-built embed routes against the focused
+    /// paired Mac. Web surfaces stay on a trusted LAN/Tailnet host even when the
+    /// bridge itself happened to connect through OSN.
+    func missionControlURL(path: String) -> URL? {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["SCOUT_WEB_BASE_URL"],
+           let origin = URL(string: override),
+           var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) {
+            components.path = path.hasPrefix("/") ? path : "/\(path)"
+            return components.url
+        }
+        #endif
+        guard let host = fleet.focusedClient.webAccessHost else { return nil }
+        let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = host
+        components.port = fleet.focusedClient.webAccessPort ?? Self.defaultScoutWebPort
+        components.path = normalizedPath
+        return components.url
     }
 
     /// True once at least one bridge has been paired (keychain-backed).
@@ -1637,9 +1708,9 @@ final class AppModel {
         phase = .shell
     }
 
-    /// Attempt to connect the focused bridge only. Unpaired is reported (the
-    /// Connect screen / status chip own the pairing entry point); this never
-    /// force-presents the camera or opens sockets to every saved Mac.
+    /// Attempt to connect every trusted bridge. The focused bridge remains the
+    /// bound Mac for single-host surfaces, but fleet-readable surfaces can only
+    /// aggregate once each saved Mac has its own live client.
     func connectIfNeeded() async {
         resetReconnectState()
         if connectionState == .connecting { return }
@@ -1658,11 +1729,39 @@ final class AppModel {
         fleet.focus(machineId: focusId)
         connectionState = .connecting
         machinesRevision += 1
-        connectionLog.log(machineIds.count == 1 ? "Connecting to paired Mac…" : "Connecting to paired Macs…", level: .info)
+        connectionLog.log(
+            machineIds.count == 1
+                ? "Connecting to paired Mac \(shortMachineId(focusId))…"
+                : "Connecting to \(machineIds.count) paired Macs; focus=\(shortMachineId(focusId))",
+            event: .lifecycle,
+            level: .info
+        )
 
-        let state = await fleet.connect(machineId: focusId)
-        connectionState = state
-        if case .connected = state { dataRevision += 1 }
+        let states = await fleet.connectAll(machineIds: machineIds, prioritizing: focusId)
+        let connectedIds = machineIds.filter { id in
+            if case .connected = states[id] { return true }
+            return false
+        }
+
+        let activeId: String
+        if connectedIds.contains(focusId) {
+            activeId = focusId
+        } else if let replacement = connectedIds.first {
+            activeId = replacement
+            fleet.focus(machineId: replacement)
+            BridgeBrokerClient.setActiveConnectionPublicKeyHex(replacement)
+        } else {
+            activeId = focusId
+        }
+
+        connectionState = states[activeId] ?? fleet.state(machineId: activeId)
+        machinesRevision += 1
+        if !connectedIds.isEmpty { dataRevision += 1 }
+        connectionLog.log(
+            "Fleet bridge connect finished: \(connectedIds.count)/\(machineIds.count) paired Mac(s) online",
+            event: .connected,
+            level: connectedIds.count == machineIds.count ? .success : (connectedIds.isEmpty ? .error : .warning)
+        )
     }
 
     func reconnect() async {
@@ -2060,11 +2159,10 @@ final class AppModel {
 
     // MARK: - Paired machines
 
-    /// One paired base machine for the Home machine-rail. `isActive` means
-    /// focused: surfaces route through this Mac's client. `isOnline` / `route`
-    /// reflect each pinned client's own live connection state, so Settings can
-    /// show several Macs online at the same time before FleetClient coalescing
-    /// lands.
+    /// One paired base machine for the Home machine-rail. `isActive` means this
+    /// is the focused Mac for single-host surfaces; fleet-readable surfaces route
+    /// each row through the Mac that produced it. `isOnline` / `route` reflect
+    /// each pinned client's own live connection state.
     struct PairedMachine: Identifiable, Equatable {
         let id: String          // public-key hex
         let name: String
@@ -2075,9 +2173,8 @@ final class AppModel {
         let connectionState: ConnectionState
     }
 
-    /// Trusted bridges as rail chips, most-recently-seen first. The focused one
-    /// is what surfaces are looking at; every row carries its own live state from
-    /// the keyed bridge-client fleet.
+    /// Trusted bridges as rail chips, most-recently-seen first. Every row carries
+    /// its own live state from the keyed bridge-client fleet.
     var pairedMachines: [PairedMachine] {
         _ = machinesRevision   // participate in observation (see machinesRevision)
         let records = (try? ScoutIdentity.getTrustedBridges()) ?? []
@@ -2438,9 +2535,9 @@ private enum TailnetPairingError: LocalizedError {
 
 // MARK: - FleetConnectionManager
 
-/// Owns the live bridge-client fleet for PR-1. It deliberately stops short of a
-/// coalescing `FleetClient`: surfaces still receive exactly one
-/// `ScoutBrokerClient`, while Settings can observe all keyed connections.
+/// Owns the live bridge-client fleet. It deliberately stops short of a coalescing
+/// `FleetClient`: single-host surfaces bind to the focused client, while
+/// fleet-readable surfaces enumerate the connected keyed clients themselves.
 @MainActor
 private final class FleetConnectionManager: @unchecked Sendable {
     var onChange: ((String?) -> Void)?
@@ -2518,6 +2615,17 @@ private final class FleetConnectionManager: @unchecked Sendable {
         return client
     }
 
+    func connectedClients() -> [BridgeBrokerClient] {
+        clients.keys.sorted().compactMap { connectedClient(machineId: $0) }
+    }
+
+    var hasConnectedMachine: Bool {
+        states.values.contains { state in
+            if case .connected = state { return true }
+            return false
+        }
+    }
+
     var hasTransportWork: Bool {
         states.values.contains { $0.keepsTransportWorkAlive }
     }
@@ -2562,6 +2670,26 @@ private final class FleetConnectionManager: @unchecked Sendable {
             onChange?(key)
             return state
         }
+    }
+
+    @discardableResult
+    func connectAll(machineIds: [String], prioritizing preferredMachineId: String?) async -> [String: AppModel.ConnectionState] {
+        var seen = Set<String>()
+        let normalized = machineIds
+            .map { $0.lowercased() }
+            .filter { seen.insert($0).inserted }
+        let preferred = preferredMachineId?.lowercased()
+        let ordered = normalized.sorted { lhs, rhs in
+            if lhs == preferred { return true }
+            if rhs == preferred { return false }
+            return lhs < rhs
+        }
+
+        var results: [String: AppModel.ConnectionState] = [:]
+        for machineId in ordered {
+            results[machineId] = await connect(machineId: machineId)
+        }
+        return results
     }
 
     func disconnectAll() {

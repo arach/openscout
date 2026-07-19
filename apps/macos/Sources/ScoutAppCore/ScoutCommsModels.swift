@@ -48,6 +48,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let lastMessageAt: TimeInterval?
     public let workspaceRoot: String?
     public let currentBranch: String?
+    public let parentConversationId: String?
+    public let anchorMessageId: String?
     public let unreadCount: Int
     public let ask: ScoutChannelAsk?
 
@@ -168,6 +170,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         case lastMessageAt
         case workspaceRoot
         case currentBranch
+        case parentConversationId
+        case anchorMessageId
         case unreadCount
         case ask
     }
@@ -193,6 +197,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         )
         workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot)
         currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
+        parentConversationId = try c.decodeIfPresent(String.self, forKey: .parentConversationId)
+        anchorMessageId = try c.decodeIfPresent(String.self, forKey: .anchorMessageId)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
         ask = try c.decodeIfPresent(ScoutChannelAsk.self, forKey: .ask)
     }
@@ -220,6 +226,27 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     }
 }
 
+public struct ScoutThreadSummary: Decodable, Sendable, Equatable {
+    public let count: Int
+    public let participants: [String]
+    public let lastActiveAt: TimeInterval
+
+    enum CodingKeys: String, CodingKey {
+        case count
+        case participants
+        case lastActiveAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        participants = try c.decodeIfPresent([String].self, forKey: .participants) ?? []
+        lastActiveAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .lastActiveAt)
+        ) ?? 0
+    }
+}
+
 public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
     public let id: String
     public let cId: String
@@ -229,6 +256,7 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
     public let createdAt: TimeInterval
     public let messageClass: String
     public let replyToMessageId: String?
+    public let threadSummary: ScoutThreadSummary?
     public let attachments: [MessageAttachment]
     public let metadata: ScoutMessageMetadata?
 
@@ -263,6 +291,7 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         case createdAt
         case messageClass = "class"
         case replyToMessageId
+        case threadSummary
         case attachments
         case metadata
     }
@@ -282,6 +311,7 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         ) ?? 0
         messageClass = try c.decodeIfPresent(String.self, forKey: .messageClass) ?? "message"
         replyToMessageId = try c.decodeIfPresent(String.self, forKey: .replyToMessageId)
+        threadSummary = try c.decodeIfPresent(ScoutThreadSummary.self, forKey: .threadSummary)
         attachments = try c.decodeIfPresent([MessageAttachment].self, forKey: .attachments) ?? []
         metadata = try c.decodeIfPresent(ScoutMessageMetadata.self, forKey: .metadata)
     }
@@ -431,6 +461,9 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     public let harnessSessionId: String?
     public let updatedAt: TimeInterval?
     public let createdAt: TimeInterval?
+    /// The pending question / approval / handoff text from the server; a
+    /// generic placeholder when the agent needs attention without detail.
+    public let pendingAsk: String?
 
     public var displayName: String { nilIfEmpty(name) ?? nilIfEmpty(handle) ?? id }
     public var detail: String { [role, harness, transport].compactMap(nilIfEmpty).joined(separator: " · ") }
@@ -472,9 +505,6 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         )
     }
     public var lastMessage: ScoutAgentMessage? { nil }
-    public var pendingAsk: String? {
-        state == .needsAttention ? "waiting for operator input" : nil
-    }
     public var files: Int { capabilities.count }
     public var tokens: String {
         nilIfEmpty(model) ?? nilIfEmpty(harness) ?? nilIfEmpty(transport) ?? "—"
@@ -502,6 +532,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         case harnessSessionId
         case updatedAt
         case createdAt
+        case pendingAsk
     }
 
     public init(from decoder: Decoder) throws {
@@ -531,6 +562,8 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         createdAt = ScoutTimestamp.epochMilliseconds(
             try c.decodeIfPresent(TimeInterval.self, forKey: .createdAt)
         )
+        pendingAsk = nilIfEmpty(try c.decodeIfPresent(String.self, forKey: .pendingAsk))
+            ?? (state == .needsAttention ? "waiting for operator input" : nil)
     }
 
     public static func formatAgo(sinceMs: TimeInterval?, now: Date = Date()) -> String {

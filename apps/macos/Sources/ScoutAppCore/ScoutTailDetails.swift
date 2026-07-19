@@ -22,7 +22,7 @@ public enum ScoutTailDisplayKind: String, Sendable, CaseIterable, Identifiable, 
     case lifecycle = "LIF"
     case prompt = "PMT"
     case broker = "BRK"
-    case ask = "ASK"
+    case ask = "REQ"
 
     public var id: String { rawValue }
     public var label: String { rawValue }
@@ -83,7 +83,7 @@ public enum ScoutTailDisplayKind: String, Sendable, CaseIterable, Identifiable, 
         case .lifecycle: return "Lifecycle"
         case .prompt: return "Prompt"
         case .broker: return "Broker"
-        case .ask: return "Ask"
+        case .ask: return "Request"
         }
     }
 

@@ -725,7 +725,7 @@ describe("web db query broker diagnostics", () => {
         visibility: "private",
         policy: "durable",
         createdAt: now - 5_000,
-        metadata: { source: "scout-cli", relayTarget: "agent-1" },
+        metadata: { source: "scout-cli", relayTarget: "agent-1", relayChannel: "dm" },
       });
       store.recordMessage({
         id: "msg-failed-old",
@@ -776,6 +776,10 @@ describe("web db query broker diagnostics", () => {
 
       expect(diagnostics.failedDeliveries.map((attempt) => attempt.id))
         .toEqual(["delivery:delivery-failed-recent"]);
+      expect(diagnostics.failedDeliveries[0]).toMatchObject({
+        detail: "Recent failed dispatch.",
+        route: "dm",
+      });
       expect(diagnostics.attempts.map((attempt) => attempt.id))
         .not.toContain("delivery:delivery-failed-old");
       expect(diagnostics.failedDeliveries[0]?.metadata).toMatchObject({
@@ -790,6 +794,87 @@ describe("web db query broker diagnostics", () => {
           },
         },
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("classifies operator scoutbot thread sends as dispatch successes", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.upsertActor({
+        id: "scoutbot",
+        kind: "agent",
+        displayName: "Scout",
+      });
+      store.upsertConversation({
+        id: "c.scoutbot-default",
+        kind: "direct",
+        title: "Scout · default",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "scoutbot"],
+        metadata: {
+          surface: "scoutbot",
+          scoutbotThreadId: "thr-default",
+        },
+      });
+      store.recordMessage({
+        id: "msg-scoutbot-send",
+        conversationId: "c.scoutbot-default",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "What needs attention?",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now,
+        metadata: {
+          source: "scout-web",
+          destinationKind: "scoutbot_thread",
+          destinationId: "thr-default",
+          scoutbotThreadId: "thr-default",
+        },
+      });
+      store.recordMessage({
+        id: "msg-scoutbot-reply",
+        conversationId: "c.scoutbot-default",
+        actorId: "scoutbot",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Nothing urgent.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now + 1,
+        metadata: {
+          source: "scoutbot",
+          generatedBy: "scoutbot",
+          scoutbotThreadId: "thr-default",
+        },
+      });
+
+      const diagnostics = queryBrokerDiagnostics({
+        limit: 10,
+        windowMs: 30 * 60_000,
+        scopeRowsToWindow: true,
+      });
+
+      expect(diagnostics.totals.successfulDispatches).toBe(1);
+      expect(diagnostics.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-scoutbot-send"]);
+      expect(diagnostics.attempts[0]).toMatchObject({
+        actorName: "Operator",
+        target: "scoutbot",
+        route: "dm",
+        conversationId: "c.scoutbot-default",
+        messageId: "msg-scoutbot-send",
+      });
+      expect(diagnostics.dialogue.map((message) => message.id)).toEqual([
+        "msg-scoutbot-reply",
+        "msg-scoutbot-send",
+      ]);
     } finally {
       store.close();
     }

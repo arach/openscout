@@ -1,107 +1,204 @@
 import SwiftUI
+import Foundation
 import HudsonUI
-import HudsonLive
 import ScoutCapabilities
 
-/// Tail — recent cross-agent activity. Polls a recent-tail snapshot
-/// (`recentTail(limit:)`) on a slow cadence while the view is open, newest-first,
-/// capped at ~200. Each row reads: time (HH:mm:ss) · /path:session (tinted by
-/// model) · kind glyph · summary. The header shows when it last pulled + a ↻ button
-/// — no live indicator, since mobile doesn't need a low-latency firehose for "a
-/// sense of what's going on". Polling keeps the firehose off the cellular link
-/// except while Tail is the active surface (the task tears down otherwise).
+/// Tail — the cross-agent file log. Its visual grammar intentionally matches
+/// the original flat renderer: timestamp · /project:session · kind glyph · line.
+/// Events are oldest → newest and the viewport follows the bottom until the
+/// reader scrolls away, at which point it becomes explicitly detached.
 struct TailSurface: View {
-    let client: any ScoutBrokerClient
+    let model: AppModel
     var reloadToken: Int = 0
 
-    private static let maxRows = 200
-    /// Slow background refresh cadence — this surface isn't live; the header shows
-    /// when it last pulled and the ↻ button forces an immediate refresh, so the
-    /// auto-poll just keeps it loosely current at minimal cellular/battery cost.
-    private static let pollIntervalSeconds: Double = 15
+    /// Match `tail -n 50`: seed with a useful historical window, retain that
+    /// bounded window, and then keep replacing its oldest rows as new ones land.
+    private static let maxRows = 50
+    private static let pollIntervalSeconds: Double = 5
+    private static let bottomAnchorID = "tail-bottom"
+    private static let scrollSpace = "tail-scroll-space"
+    private static let bottomTolerance: CGFloat = 24
+    private static let pathFixedLen = 14
 
-    @State private var events: [TailEvent] = []
-    /// When the snapshot was last pulled — shown in the header in place of a live
-    /// indicator (this surface polls; it isn't a real-time stream).
+    @State private var events: [MachineTailEvent] = []
     @State private var lastUpdated: Date?
-    /// Bumped by the header refresh button to force an immediate re-poll.
+    @State private var hasLoadedInitialSnapshot = false
+    @State private var failedMachineReads = 0
+    @State private var isFetching = false
+    @State private var isFollowing = true
+    @State private var isAutoScrolling = false
+    @State private var autoScrollGeneration = 0
+    @State private var scrollToBottomToken = 0
     @State private var refreshToken = 0
 
+    private struct MachineTailEvent: Identifiable {
+        let id: String
+        let machineId: String
+        let machineName: String
+        let event: TailEvent
+    }
+
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+    }
+
     private static let hmFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        return f
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
     }()
-    /// Row timestamps keep the seconds — dense HH:mm:ss reads well in the
-    /// firehose. (The header `updated` stays coarse HH:mm.)
+
     private static let clockFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm:ss"
-        return f
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
     }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: HudSpacing.sm) {
-                HudSectionLabel("Tail")
-                Spacer()
-                if let lastUpdated {
-                    Text("updated \(Self.hmFormatter.string(from: lastUpdated))")
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutInk.dim)
-                }
-                Button { refreshToken += 1 } label: {
-                    Text("↻")
-                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(ScoutInk.muted)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HudSpacing.xxl)
-            .padding(.bottom, HudSpacing.lg)
+            header
+                .padding(.horizontal, HudSpacing.xxl)
+                .padding(.bottom, HudSpacing.lg)
 
-            if events.isEmpty {
-                HudEmptyState(title: "No recent activity", subtitle: "Cross-agent events will appear here.", icon: "waveform")
-                    .padding(HudSpacing.xxl)
-                Spacer()
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(events) { event in
-                            row(event)
-                        }
-                    }
-                    .padding(.horizontal, HudSpacing.xxl)
-                    .padding(.bottom, HudSpacing.xxl)
-                }
-            }
+            content
         }
-        .task(id: reloadToken) { await poll() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: reloadKey) { await poll() }
         .task(id: refreshToken) { if refreshToken != 0 { await fetchOnce() } }
     }
 
-    private func row(_ event: TailEvent) -> some View {
-        // One uniform gap (HudSpacing.sm) between every token — the columns hug
-        // their content instead of sitting in over-wide fixed frames, so the gaps
-        // are methodical and the glyph reads tight against the path. Only the
-        // timestamp keeps a fixed width (it's the constant-width anchor).
+    private var header: some View {
+        HStack(spacing: HudSpacing.sm) {
+            HudSectionLabel("Tail")
+            Spacer(minLength: HudSpacing.sm)
+            if let lastUpdated {
+                Text("updated \(Self.hmFormatter.string(from: lastUpdated))")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutInk.dim)
+            }
+            if failedMachineReads > 0 {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(HudPalette.statusWarn)
+                    .accessibilityLabel("Some tail sources could not be refreshed")
+            }
+            followState
+            Button { refreshToken += 1 } label: {
+                Text("↻")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(ScoutInk.muted)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Refresh tail")
+        }
+    }
+
+    @ViewBuilder
+    private var followState: some View {
+        if !hasLoadedInitialSnapshot {
+            Text("Loading")
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutInk.dim)
+                .accessibilityLabel("Loading recent tail events")
+        } else if isFollowing {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(HudPalette.statusOk)
+                    .frame(width: 5, height: 5)
+                Text("Following")
+            }
+            .font(HudFont.mono(HudTextSize.micro))
+            .foregroundStyle(ScoutInk.muted)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Following latest tail events")
+        } else {
+            Button(action: resumeFollowing) {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(HudPalette.statusWarn)
+                        .frame(width: 5, height: 5)
+                    Text("Detached")
+                }
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutInk.muted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Detached from latest tail events")
+            .accessibilityHint("Jumps to the newest event and resumes following")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if events.isEmpty {
+            HudEmptyState(
+                title: hasLoadedInitialSnapshot ? "No recent activity" : "Loading recent activity",
+                subtitle: hasLoadedInitialSnapshot
+                    ? "Cross-agent events will appear here."
+                    : "Reading the latest 50 lines.",
+                icon: "waveform"
+            )
+            .padding(HudSpacing.xxl)
+            Spacer(minLength: 0)
+        } else {
+            GeometryReader { viewport in
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(events) { row in
+                                logRow(row)
+                                    .id(row.id)
+                            }
+                            bottomMarker
+                        }
+                        .padding(.horizontal, HudSpacing.xxl)
+                        .padding(.bottom, HudSpacing.xxl)
+                    }
+                    .coordinateSpace(name: Self.scrollSpace)
+                    .onAppear {
+                        guard isFollowing else { return }
+                        scrollToBottom(using: proxy, animated: false)
+                    }
+                    .onChange(of: scrollToBottomToken) { _, _ in
+                        scrollToBottom(using: proxy, animated: false)
+                    }
+                    .onPreferenceChange(TailBottomOffsetPreferenceKey.self) { bottomY in
+                        updateFollowState(bottomY: bottomY, viewportHeight: viewport.size.height)
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isFollowing {
+                            resumeButton
+                                .padding(HudSpacing.lg)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func logRow(_ row: MachineTailEvent) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-            Text(timeLabel(event.tsMs))
+            Text(timeLabel(row.event.tsMs))
                 .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutInk.dim)
                 .frame(width: 54, alignment: .leading)
-            handleText(event)
+            handleText(row.event)
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .fixedSize(horizontal: true, vertical: false)
-            Text(kindGlyph(event.kind))
+            Text(kindGlyph(row.event.kind))
                 .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(kindColor(event.kind))
+                .foregroundStyle(kindColor(row.event.kind))
                 .fixedSize()
-            Text(event.summary)
+            Text(row.event.summary)
                 .font(HudFont.mono(HudTextSize.xs))
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(2)
@@ -112,13 +209,11 @@ struct TailSurface: View {
         .overlay(alignment: .bottom) {
             HudDivider(color: HudHairline.subtle)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(timeLabel(row.event.tsMs)), \(projectRootedPath(cwd: row.event.cwd, project: row.event.project)), \(row.event.summary)")
     }
 
-    private static let pathFixedLen = 14
-
-    /// `/project-rooted-path[:fixedlen]:sessionlast4` — e.g. `/openscout:9688`.
-    /// The folder path is primary ink so the location reads first; the `:session`
-    /// tail is the secondary/muted tone so the id recedes.
+    /// `/project-rooted-path:sessionlast4` — e.g. `/openscout:9688`.
     private func handleText(_ event: TailEvent) -> Text {
         var path = projectRootedPath(cwd: event.cwd, project: event.project)
         if path.count > Self.pathFixedLen { path = String(path.prefix(Self.pathFixedLen)) }
@@ -128,12 +223,9 @@ struct TailSurface: View {
         return base + Text(":\(last4)").foregroundStyle(ScoutInk.muted)
     }
 
-    /// The cwd re-rooted at the project dir so the meaningful tail leads: e.g.
-    /// `/Users/arach/dev/openscout/apps/ios` → `/openscout/apps/ios`. Falls back
-    /// to `/project`, then the last two path components.
     private func projectRootedPath(cwd: String?, project: String?) -> String {
-        if let project, !project.isEmpty, let cwd, let r = cwd.range(of: "/" + project) {
-            return String(cwd[r.lowerBound...])
+        if let project, !project.isEmpty, let cwd, let range = cwd.range(of: "/" + project) {
+            return String(cwd[range.lowerBound...])
         }
         if let project, !project.isEmpty { return "/" + project }
         if let cwd, !cwd.isEmpty {
@@ -153,29 +245,89 @@ struct TailSurface: View {
         }
     }
 
-    /// Color per event kind so the glyph column scans at a glance: user/assistant
-    /// are the conversation poles, tool/result the work, system/other recede.
     private func kindColor(_ kind: TailEvent.Kind) -> Color {
         switch kind {
-        case .user: return Color(red: 0.50, green: 0.68, blue: 0.95)       // blue
-        case .assistant: return Color(red: 0.45, green: 0.78, blue: 0.55)  // green
-        case .tool: return Color(red: 0.88, green: 0.62, blue: 0.38)       // amber
-        case .toolResult: return Color(red: 0.52, green: 0.72, blue: 0.70) // teal
+        case .user: return Color(red: 0.50, green: 0.68, blue: 0.95)
+        case .assistant: return Color(red: 0.45, green: 0.78, blue: 0.55)
+        case .tool: return Color(red: 0.88, green: 0.62, blue: 0.38)
+        case .toolResult: return Color(red: 0.52, green: 0.72, blue: 0.70)
         case .system: return ScoutInk.muted
         case .other: return ScoutInk.dim
         }
     }
 
     private func timeLabel(_ tsMs: Int64) -> String {
-        Self.clockFormatter.string(from: Date(timeIntervalSince1970: Double(tsMs) / 1000.0))
+        Self.clockFormatter.string(from: Date(timeIntervalSince1970: Double(tsMs) / 1_000))
+    }
+
+    private var bottomMarker: some View {
+        Color.clear
+            .frame(height: 1)
+            .id(Self.bottomAnchorID)
+            .background {
+                GeometryReader { marker in
+                    Color.clear.preference(
+                        key: TailBottomOffsetPreferenceKey.self,
+                        value: marker.frame(in: .named(Self.scrollSpace)).maxY
+                    )
+                }
+            }
+    }
+
+    private var resumeButton: some View {
+        Button(action: resumeFollowing) {
+            Label("Resume", systemImage: "arrow.down.to.line")
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(HudPalette.ink)
+                .padding(.horizontal, HudSpacing.md)
+                .frame(height: 30)
+                .background(Capsule().fill(ScoutSurface.raised))
+                .overlay(Capsule().strokeBorder(HudPalette.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Jumps to the newest event and resumes following")
+    }
+
+    private func resumeFollowing() {
+        isFollowing = true
+        requestScrollToBottom()
+    }
+
+    private func requestScrollToBottom() {
+        isAutoScrolling = true
+        autoScrollGeneration += 1
+        let generation = autoScrollGeneration
+        scrollToBottomToken += 1
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard autoScrollGeneration == generation else { return }
+            isAutoScrolling = false
+        }
+    }
+
+    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func updateFollowState(bottomY: CGFloat, viewportHeight: CGFloat) {
+        guard bottomY.isFinite, viewportHeight > 0 else { return }
+        let isAtBottom = bottomY <= viewportHeight + Self.bottomTolerance
+        if isAtBottom {
+            isFollowing = true
+            isAutoScrolling = false
+        } else if !isAutoScrolling {
+            isFollowing = false
+        }
     }
 
     private func poll() async {
-        // Re-fetch a recent snapshot on a slow cadence for as long as this surface
-        // is on screen. The `.task` is torn down when Tail isn't the active
-        // surface, so the firehose only crosses the link while you're watching;
-        // backgrounding is covered by iOS suspending the app. The query is
-        // resilient server-side (a fresh broker read per call — no stale push).
         while !Task.isCancelled {
             await fetchOnce()
             if Task.isCancelled { break }
@@ -183,13 +335,83 @@ struct TailSurface: View {
         }
     }
 
-    /// One snapshot fetch — shared by the slow auto-poll and the manual refresh
-    /// button. Records `lastUpdated` only on success, so a transient failure
-    /// leaves the last good data (and its timestamp) on screen.
     private func fetchOnce() async {
-        guard let snapshot = try? await client.recentTail(limit: Self.maxRows),
-              !Task.isCancelled else { return }
-        events = snapshot.sorted { $0.tsMs > $1.tsMs }
+        guard !isFetching else { return }
+        isFetching = true
+        defer { isFetching = false }
+
+        let machines = model.agentMachines()
+        var snapshot: [MachineTailEvent] = []
+        var successfulMachineIDs: Set<String> = []
+        var failedMachineIDs: Set<String> = []
+
+        for machine in machines {
+            guard let client = machine.client else {
+                failedMachineIDs.insert(machine.id)
+                continue
+            }
+            do {
+                let rows = try await client.recentTail(limit: Self.maxRows)
+                guard !Task.isCancelled else { return }
+                successfulMachineIDs.insert(machine.id)
+                snapshot.append(contentsOf: rows.map { event in
+                    MachineTailEvent(
+                        id: "\(machine.id)::\(event.id)",
+                        machineId: machine.id,
+                        machineName: machine.name,
+                        event: event
+                    )
+                })
+            } catch {
+                failedMachineIDs.insert(machine.id)
+            }
+        }
+        guard !Task.isCancelled else { return }
+
+        if machines.isEmpty {
+            events = []
+            failedMachineReads = 0
+            return
+        }
+        guard !successfulMachineIDs.isEmpty else {
+            failedMachineReads = failedMachineIDs.count
+            return
+        }
+
+        if !failedMachineIDs.isEmpty {
+            snapshot.append(contentsOf: events.filter { failedMachineIDs.contains($0.machineId) })
+        }
+
+        let newestFirst = snapshot.sorted {
+            if $0.event.tsMs == $1.event.tsMs { return $0.id > $1.id }
+            return $0.event.tsMs > $1.event.tsMs
+        }
+        let nextEvents = Array(newestFirst.prefix(Self.maxRows).reversed())
+        let didChange = nextEvents.map(\.id) != events.map(\.id)
+        let isInitialSnapshot = !hasLoadedInitialSnapshot
+        let shouldKeepFollowing = isFollowing || isInitialSnapshot
+
+        if didChange {
+            events = nextEvents
+        }
+        hasLoadedInitialSnapshot = true
+        if shouldKeepFollowing {
+            isFollowing = true
+            // Schedule after the event rows have entered the view hierarchy.
+            Task { @MainActor in
+                await Task.yield()
+                requestScrollToBottom()
+            }
+        }
+        failedMachineReads = failedMachineIDs.count
         lastUpdated = Date()
+    }
+}
+
+private struct TailBottomOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = .greatestFiniteMagnitude
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ScopeLaneLayoutMode = "swim" | "grid";
+export type ScopeLaneLayoutMode = "swim" | "grid" | "floor";
 
 import { scopeStorageKey } from "../../../shared/scope-integration.js";
 
 const STORAGE_KEY = scopeStorageKey("lanes-layout");
 
 function isLayoutMode(value: string | null | undefined): value is ScopeLaneLayoutMode {
-  return value === "swim" || value === "grid";
+  return value === "swim" || value === "grid" || value === "floor";
 }
 
 function readStoredLayout(): ScopeLaneLayoutMode {

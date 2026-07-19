@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -23,7 +24,15 @@ const bundlePath = resolve(distDir, bundleName);
 const binaryDir = resolve(bundlePath, "Contents", "MacOS");
 const binaryPath = resolve(binaryDir, "Scout");
 const resourcesDir = resolve(bundlePath, "Contents", "Resources");
+const frameworksDir = resolve(bundlePath, "Contents", "Frameworks");
+const loginItemsDir = resolve(bundlePath, "Contents", "Library", "LoginItems");
+const menuBundlePath = resolve(loginItemsDir, "ScoutMenu.app");
+const menuBinaryDir = resolve(menuBundlePath, "Contents", "MacOS");
+const menuBinaryPath = resolve(menuBinaryDir, "ScoutMenu");
+const artifactsDir = resolve(appDir, ".build", "artifacts");
 const infoPlistTemplate = resolve(appDir, "ScoutInfo.plist");
+const menuInfoPlistTemplate = resolve(appDir, "Info.plist");
+const menuEntitlementsPath = resolve(appDir, "ScoutMenu.entitlements");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
 
@@ -74,6 +83,21 @@ function modeLabel(mode: BuildMode): string {
   return mode === "dev" ? "dev" : "build";
 }
 
+function signingIdentity(): string {
+  const explicit = process.env.OPENSCOUT_SIGN_IDENTITY?.trim();
+  if (explicit) return explicit;
+  try {
+    const identities = execSync("security find-identity -v -p codesigning", { stdio: "pipe" }).toString("utf8");
+    const matches = [...identities.matchAll(/^\s*\d+\)\s+([A-Fa-f0-9]{40})\s+\"([^\"]+)\"/gm)];
+    const preferred = matches.find((match) => match[2].startsWith("Developer ID Application:"))
+      ?? matches.find((match) => match[2].startsWith("Apple Development:"));
+    if (preferred) return preferred[1];
+  } catch {
+    // A machine without a development identity can still use an ad-hoc build.
+  }
+  return "-";
+}
+
 function swiftBuildEnvironment(mode: BuildMode): NodeJS.ProcessEnv {
   const hudsonSource = mode === "dev" ? "path" : "git";
   return {
@@ -91,11 +115,38 @@ function buildSwift(mode: BuildMode): string {
     env: swiftBuildEnvironment(mode),
     stdio: "inherit",
   });
+  execSync(`swift build -c ${configuration} --product ScoutMenu`, {
+    cwd: appDir,
+    env: swiftBuildEnvironment(mode),
+    stdio: "inherit",
+  });
   return execSync(`swift build -c ${configuration} --show-bin-path`, {
     cwd: appDir,
     env: swiftBuildEnvironment(mode),
     stdio: "pipe",
   }).toString("utf8").trim();
+}
+
+function embedMenuHelper(binPath: string, version: string, identity: string): void {
+  const builtMenuBinary = join(binPath, "ScoutMenu");
+  if (!existsSync(builtMenuBinary)) {
+    throw new Error(`Built ScoutMenu binary not found: ${builtMenuBinary}`);
+  }
+
+  mkdirSync(menuBinaryDir, { recursive: true });
+  cpSync(builtMenuBinary, menuBinaryPath);
+  chmodSync(menuBinaryPath, 0o755);
+  cpSync(menuInfoPlistTemplate, join(menuBundlePath, "Contents", "Info.plist"));
+  execSync(
+    `/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${version}" '${join(menuBundlePath, "Contents", "Info.plist")}'`,
+  );
+  execSync(
+    `/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" '${join(menuBundlePath, "Contents", "Info.plist")}'`,
+  );
+  execSync(
+    `codesign --force --sign '${identity}' --entitlements '${menuEntitlementsPath}' --identifier app.openscout.scout.menu '${menuBundlePath}'`,
+    { stdio: "inherit" },
+  );
 }
 
 function writeIcon(): void {
@@ -121,8 +172,41 @@ function writeIcon(): void {
   });
 }
 
+// The Scout binary links Sparkle as `@rpath/Sparkle.framework/...`, but SPM's
+// XCFramework binary target neither embeds the framework in the product nor adds
+// a reachable rpath — a bare bundle would dyld-crash at launch. Embed the macOS
+// slice into Contents/Frameworks and point an @executable_path rpath at it. hkit
+// will do the equivalent (plus inside-out re-signing) for notarized releases.
+function sparkleFrameworkSource(): string | null {
+  const xcframework = resolve(artifactsDir, "sparkle", "Sparkle", "Sparkle.xcframework");
+  if (!existsSync(xcframework)) return null;
+  const macosSlice = readdirSync(xcframework).find((name) => name.startsWith("macos"));
+  if (!macosSlice) return null;
+  const framework = resolve(xcframework, macosSlice, "Sparkle.framework");
+  return existsSync(framework) ? framework : null;
+}
+
+function embedSparkleFramework(): void {
+  const source = sparkleFrameworkSource();
+  if (!source) {
+    throw new Error(
+      "Sparkle.framework artifact not found under .build/artifacts/sparkle. Resolve the Sparkle SPM dependency first.",
+    );
+  }
+  mkdirSync(frameworksDir, { recursive: true });
+  const dest = join(frameworksDir, "Sparkle.framework");
+  rmSync(dest, { recursive: true, force: true });
+  // ditto preserves the framework's Versions symlinks, resources, and nested
+  // helper bundles (Autoupdate, Updater.app, Installer/Downloader XPC services).
+  execSync(`ditto '${source}' '${dest}'`);
+  execSync(`install_name_tool -add_rpath @executable_path/../Frameworks '${binaryPath}'`, {
+    stdio: "ignore",
+  });
+}
+
 function bundleApp(mode: BuildMode): void {
   const binPath = buildSwift(mode);
+  const identity = signingIdentity();
   const builtBinary = join(binPath, "Scout");
   if (!existsSync(builtBinary)) {
     throw new Error(`Built Scout binary not found: ${builtBinary}`);
@@ -148,7 +232,9 @@ function bundleApp(mode: BuildMode): void {
   execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" '${join(bundlePath, "Contents", "Info.plist")}'`);
 
   writeIcon();
-  execSync(`codesign --force --deep --sign - '${bundlePath}'`, { stdio: "inherit" });
+  embedSparkleFramework();
+  embedMenuHelper(binPath, version, identity);
+  execSync(`codesign --force --deep --sign '${identity}' '${bundlePath}'`, { stdio: "inherit" });
   console.log(`Built ${bundlePath} (${modeLabel(mode)})`);
 }
 
@@ -166,6 +252,14 @@ function quit(): void {
   execSync("pkill -x Scout", { stdio: "ignore" });
 }
 
+function quitMenuHelper(): void {
+  try {
+    execSync("pkill -x ScoutMenu", { stdio: "ignore" });
+  } catch {
+    // The helper may not be installed or running yet.
+  }
+}
+
 function launch(): void {
   if (!existsSync(bundlePath)) bundleApp("dev");
   spawn("open", [bundlePath], {
@@ -176,6 +270,7 @@ function launch(): void {
 
 function restart(mode: BuildMode): void {
   quit();
+  quitMenuHelper();
   bundleApp(mode);
   launch();
 }

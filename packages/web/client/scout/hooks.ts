@@ -10,12 +10,14 @@ import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import { NEW_CHAT_SHORTCUT_LABEL } from "../lib/new-chat-shortcut.ts";
+import { SCOUTBOT_SUBMIT_EVENT } from "../lib/scoutbot.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
   topNavKeyForRoute,
 } from "./topNavConfig.ts";
 import { renderNavCenter } from "./nav-center.tsx";
+import { SystemMenu } from "./nav-system-menu.tsx";
 
 export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
@@ -40,7 +42,7 @@ export function useScoutCommands(): CommandOption[] {
 
   const askScoutbotForState = useCallback(() => {
     applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
-    window.dispatchEvent(new CustomEvent("scout:scoutbot-submit", {
+    window.dispatchEvent(new CustomEvent(SCOUTBOT_SUBMIT_EVENT, {
       detail: {
         body: "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.",
       },
@@ -159,7 +161,7 @@ export function useScoutCommands(): CommandOption[] {
         action: () => applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" }),
       }, {
         id: "scoutbot:state",
-        label: "Ask Scout for State",
+        label: "Message Scout for State",
         action: () => askScoutbotForState(),
       }, {
         id: "scoutbot:ops-tail",
@@ -301,12 +303,10 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
-  const opsEnabled = useOptionalFlag("ops.control", true);
-  const cleanNav = useOptionalFlag("nav.clean", false);
 
   return renderNavCenter({
-    items: topNavItems(opsEnabled, cleanNav),
-    activeKey: topNavKeyForRoute(route, opsEnabled, cleanNav),
+    items: topNavItems(),
+    activeKey: topNavKeyForRoute(route),
     breadcrumb: topNavBreadcrumbForRoute(route),
     navigate,
   });
@@ -315,9 +315,9 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
-  const cleanNav = useOptionalFlag("nav.clean", false);
   return createElement("div", { className: "scout-nav-actions" },
-    !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),
+    createElement(SystemMenu),
+    createElement(MachineScopeControl, { variant: "nav" }),
     createElement(
       "button",
       {
@@ -358,7 +358,11 @@ export function useScoutTakeover(): TakeoverState | null {
   const needsLocal = !onboarding.hasLocalConfig;
   const needsProject = !onboarding.hasProjectConfig;
   const needsName = !onboarding.hasOperatorName;
-  const active = needsLocal || needsName || needsProject;
+  // Core inputs done but the broker/runtime aren't ready yet: SetupStep is
+  // still owed. The early return above already excludes completed/skipped
+  // onboarding, so this only fires while first-run is genuinely unfinished.
+  const needsSetup = !onboarding.brokerReachable || !onboarding.hasReadyRuntime;
+  const active = needsLocal || needsName || needsProject || needsSetup;
   return {
     active,
     dismissible: true,

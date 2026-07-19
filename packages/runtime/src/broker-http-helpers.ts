@@ -162,6 +162,9 @@ export type ServerTimingMetric = {
   desc?: string;
 };
 
+const MAX_SERVER_TIMING_HEADER_LENGTH = 2048;
+const TRUNCATED_SERVER_TIMING_HEADER = 'server-timing-truncated;desc="oversize"';
+
 function serverTimingToken(value: string): string {
   return value.trim().replace(/[^A-Za-z0-9!#$%&'*+.^_`|~-]+/g, "-") || "metric";
 }
@@ -171,7 +174,7 @@ function serverTimingDescription(value: string): string {
 }
 
 export function serverTimingHeader(metrics: ServerTimingMetric[]): string {
-  return metrics
+  const header = metrics
     .filter((metric) => metric.name.trim())
     .map((metric) => {
       const parts = [serverTimingToken(metric.name)];
@@ -184,6 +187,9 @@ export function serverTimingHeader(metrics: ServerTimingMetric[]): string {
       return parts.join(";");
     })
     .join(", ");
+  return header.length <= MAX_SERVER_TIMING_HEADER_LENGTH
+    ? header
+    : TRUNCATED_SERVER_TIMING_HEADER;
 }
 
 export function notFound(response: RuntimeHttpResponseLike): void {

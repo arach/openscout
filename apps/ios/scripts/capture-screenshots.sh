@@ -1,5 +1,7 @@
 #!/bin/bash
 # Build Scout for Simulator, launch screenshot scenarios, and save App Store-sized screenshots.
+# Home, Comms, and Tail use the simulator's persisted real pairing/broker state.
+# This workflow intentionally has no synthetic-data or skip-pairing mode.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -7,18 +9,19 @@ cd "$(dirname "$0")/.."
 PROJECT="Scout.xcodeproj"
 SCHEME="Scout"
 BUNDLE_ID="app.openscout.scout"
-CONFIGURATION="${OPENSCOUT_IOS_SCREENSHOT_CONFIGURATION:-Release}"
+ASC_BIN="${OPENSCOUT_ASC_BIN:-asc}"
+CONFIGURATION="${OPENSCOUT_IOS_SCREENSHOT_CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="${OPENSCOUT_IOS_SCREENSHOT_DERIVED_DATA_PATH:-$(pwd)/.deriveddata/screenshots}"
 OUTPUT_ROOT="${OPENSCOUT_IOS_SCREENSHOT_OUTPUT_DIR:-$(pwd)/.artifacts/app-store-screenshots}"
-RUNTIME_ID="${OPENSCOUT_IOS_SCREENSHOT_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-4}"
+RUNTIME_ID="${OPENSCOUT_IOS_SCREENSHOT_RUNTIME:-}"
 
-IPHONE_SIM_NAME="${OPENSCOUT_IOS_SCREENSHOT_IPHONE_SIM_NAME:-OpenScout Screenshot iPhone 12 Pro Max}"
-IPHONE_DEVICE_TYPE="${OPENSCOUT_IOS_SCREENSHOT_IPHONE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-12-Pro-Max}"
+IPHONE_SIM_NAME="${OPENSCOUT_IOS_SCREENSHOT_IPHONE_SIM_NAME:-OpenScout Screenshot iPhone 16 Pro Max}"
+IPHONE_DEVICE_TYPE="${OPENSCOUT_IOS_SCREENSHOT_IPHONE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro-Max}"
 IPAD_SIM_NAME="${OPENSCOUT_IOS_SCREENSHOT_IPAD_SIM_NAME:-OpenScout Screenshot iPad Pro 12.9}"
 IPAD_DEVICE_TYPE="${OPENSCOUT_IOS_SCREENSHOT_IPAD_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-12-9-inch-6th-generation-8GB}"
 
-SCENARIOS=(onboarding home sessions timeline)
-IPHONE_OUTPUT_DIR="$OUTPUT_ROOT/iphone-65"
+SCENARIOS=(onboarding home comms tail)
+IPHONE_OUTPUT_DIR="$OUTPUT_ROOT/iphone-69"
 IPAD_OUTPUT_DIR="$OUTPUT_ROOT/ipad-pro-129"
 
 require_cmd() {
@@ -28,13 +31,42 @@ require_cmd() {
   fi
 }
 
+resolve_runtime() {
+  if [[ -n "${RUNTIME_ID}" ]]; then
+    printf '%s\n' "${RUNTIME_ID}"
+    return
+  fi
+
+  local runtime
+  runtime="$(xcrun simctl list runtimes available | awk '
+    /iOS / {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^com\.apple\.CoreSimulator\.SimRuntime\.iOS-/) print $i
+      }
+    }
+  ' | sort -V | tail -n 1)"
+  if [[ -z "${runtime}" ]]; then
+    echo "ERROR: No available iOS Simulator runtime found" >&2
+    exit 1
+  fi
+  printf '%s\n' "${runtime}"
+}
+
 ensure_simulator() {
   local name="$1"
   local device_type="$2"
   local existing
 
   existing="$(xcrun simctl list devices available | awk -v name="$name" '
-    index($0, name " (") { sub(/^.*\(/, "", $0); sub(/\).*/, "", $0); print; exit }
+    index($0, name " (") {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^\([0-9A-Fa-f-]+\)$/) {
+          gsub(/[()]/, "", $i)
+          print $i
+          exit
+        }
+      }
+    }
   ')"
 
   if [[ -n "$existing" ]]; then
@@ -78,12 +110,25 @@ capture_set() {
     printf -v padded_index "%02d" "$index"
     local path="$output_dir/${padded_index}-${scenario}.png"
 
-    xcrun simctl launch --terminate-running-process "$udid" "$BUNDLE_ID" \
-      -ScoutScreenshotScenario "$scenario" \
-      -AppleLanguages "(en-US)" \
-      -AppleLocale "en_US" >/dev/null
+    if [[ "$scenario" == "onboarding" ]]; then
+      xcrun simctl launch --terminate-running-process "$udid" "$BUNDLE_ID" \
+        -AppleLanguages "(en-US)" \
+        -AppleLocale "en_US" >/dev/null
+    else
+      local tab
+      case "$scenario" in
+        home) tab="Home" ;;
+        comms) tab="Comms" ;;
+        tail) tab="Tail" ;;
+        *) echo "ERROR: Unknown screenshot scenario: $scenario" >&2; exit 1 ;;
+      esac
+      SIMCTL_CHILD_SCOUT_TAB="$tab" \
+        xcrun simctl launch --terminate-running-process "$udid" "$BUNDLE_ID" \
+          -AppleLanguages "(en-US)" \
+          -AppleLocale "en_US" >/dev/null
+    fi
 
-    sleep 2
+    sleep 3
     xcrun simctl io "$udid" screenshot "$path" >/dev/null
     index=$((index + 1))
   done
@@ -92,16 +137,19 @@ capture_set() {
 validate_output() {
   local path="$1"
   local device_type="$2"
-  asc-at-125 screenshots validate --path "$path" --device-type "$device_type"
+  "$ASC_BIN" screenshots validate --path "$path" --device-type "$device_type"
 }
 
 require_cmd xcodebuild
 require_cmd xcrun
-require_cmd asc-at-125
+require_cmd "$ASC_BIN"
+
+RUNTIME_ID="$(resolve_runtime)"
 
 echo "Building Scout ($CONFIGURATION) for Simulator..."
 echo "DerivedData: $DERIVED_DATA_PATH"
 echo "Output root: $OUTPUT_ROOT"
+echo "Runtime: $RUNTIME_ID"
 echo ""
 
 # Keychain entitlements for the Simulator build.
@@ -115,7 +163,7 @@ echo ""
 # section, which is where the Simulator's securityd reads from, so the Keychain works.
 SIM_ENTITLEMENTS="$(pwd)/scripts/Scout.simulator.entitlements"
 
-xcodebuild \
+HUDSONKIT_WITH_TERMINAL=1 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
@@ -147,7 +195,7 @@ echo "Capturing iPad screenshots..."
 capture_set "$IPAD_UDID" "$IPAD_OUTPUT_DIR" "$APP_PATH"
 
 echo "Validating screenshot sizes..."
-validate_output "$IPHONE_OUTPUT_DIR" "IPHONE_65"
+validate_output "$IPHONE_OUTPUT_DIR" "IPHONE_69"
 validate_output "$IPAD_OUTPUT_DIR" "IPAD_PRO_3GEN_129"
 
 echo ""

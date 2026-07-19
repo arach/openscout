@@ -12,16 +12,35 @@ import ScoutCapabilities
 /// who + age + unread) that pushes into a thread where the operator posts as
 /// themselves. Shares the broker client; reloads when the bridge connects.
 struct CommsSurface: View {
-    let client: any ScoutBrokerClient
+    let model: AppModel
     var reloadToken: Int = 0
 
-    @State private var conversations: [CommsConversation] = []
+    @State private var conversations: [MachineCommsConversation] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var route: CommsConversation?
+    @State private var routeClient: (any ScoutBrokerClient)?
+    @State private var routeRowId: String?
     /// Lowercased display names of agents the broker reports as live — drives the
     /// row's "working" spinner. A real signal, refreshed on every load.
     @State private var liveAgents: Set<String> = []
+
+    private struct MachineCommsConversation: Identifiable {
+        let id: String
+        let machineId: String
+        let machineName: String
+        let client: any ScoutBrokerClient
+        var conversation: CommsConversation
+    }
+
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(reloadToken).\(model.fleetRevision).\(filter)"
+    }
 
     var body: some View {
         ScrollView {
@@ -43,29 +62,36 @@ struct CommsSurface: View {
                 // One list: channels and DMs interleave by recency. The `#`
                 // glyph is the only thing that says "channel" — no section split.
                 LazyVStack(spacing: 0) {
-                    HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
+                    brokerCommsHeader
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.lg)
+                    HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
+                        .padding(.horizontal, HudSpacing.xxl)
+                        .padding(.top, HudSpacing.md)
                         .padding(.bottom, HudSpacing.lg)
-                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, convo in
+                    ForEach(Array(filtered.enumerated()), id: \.element.id) { index, row in
                         CommsRow(
-                            conversation: convo,
-                            client: client,
+                            conversation: row.conversation,
+                            client: row.client,
                             showDivider: index < filtered.count - 1,
                             liveAgents: liveAgents
-                        ) { route = convo }
+                        ) {
+                            routeClient = row.client
+                            routeRowId = row.id
+                            route = row.conversation
+                        }
                     }
                 }
             }
         }
         .refreshable { await load() }
-        .task(id: reloadToken) { await load() }
+        .task(id: reloadKey) { await load() }
         .navigationDestination(item: $route) { convo in
             CommsThreadView(
-                client: client,
+                client: routeClient ?? model.client,
                 conversation: convo,
                 onClose: { route = nil },
-                onRead: { await markRead(convo.id) }
+                onRead: { await markRead(rowId: routeRowId, conversationId: convo.id, client: routeClient) }
             )
         }
     }
@@ -74,39 +100,74 @@ struct CommsSurface: View {
     /// is already caught up when the operator pops back, then tell the broker to
     /// advance the operator's read cursor. Best-effort — a failed write just means
     /// the badge returns on the next list pull.
-    private func markRead(_ conversationId: String) async {
-        if let idx = conversations.firstIndex(where: { $0.id == conversationId }),
-           conversations[idx].unreadCount != 0 {
-            conversations[idx].unreadCount = 0
+    private func markRead(rowId: String?, conversationId: String, client: (any ScoutBrokerClient)?) async {
+        if let rowId,
+           let idx = conversations.firstIndex(where: { $0.id == rowId }),
+           conversations[idx].conversation.unreadCount != 0 {
+            conversations[idx].conversation.unreadCount = 0
         }
-        _ = try? await client.markConversationRead(conversationId: conversationId)
+        _ = try? await (client ?? model.client).markConversationRead(conversationId: conversationId)
     }
 
     // MARK: - Filtering
 
-    private var filtered: [CommsConversation] {
+    /// A compact provenance label, not explanatory copy: it makes the transport
+    /// boundary visible while keeping channels and agent DMs in one recent list.
+    private var brokerCommsHeader: some View {
+        let channels = conversations.filter { $0.conversation.kind == .channel || $0.conversation.kind == .system }.count
+        let directs = conversations.filter { $0.conversation.kind == .direct }.count
+        return HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+            HudSectionLabel("Scout broker", tint: ScoutInk.muted)
+            Spacer(minLength: HudSpacing.md)
+            Text("\(channels) CH · \(directs) DM")
+                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .tracking(0.6)
+                .foregroundStyle(ScoutInk.dim)
+                .monospacedDigit()
+        }
+    }
+
+    private var filtered: [MachineCommsConversation] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return conversations }
-        return conversations.filter { c in
-            ([c.title, c.lastMessagePreview, c.lastMessageAuthor].compactMap { $0?.lowercased() }
-                + c.participants.map { $0.lowercased() })
-                .contains { $0.contains(q) }
+        return conversations.filter { row in
+            let c = row.conversation
+            let haystack = [c.title, c.lastMessagePreview, c.lastMessageAuthor].compactMap { $0?.lowercased() }
+                + c.participants.map { $0.lowercased() }
+                + [row.machineName.lowercased()]
+            return haystack.contains { $0.contains(q) }
         }
     }
 
     private func load() async {
         isLoading = true
-        var rows = (try? await client.listConversations(kind: nil, limit: 100)) ?? []
-        #if DEBUG
-        if rows.isEmpty, ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" {
-            rows = CommsSurface.demoConversations()
+        let machines = model.agentMachines()
+        var rows: [MachineCommsConversation] = []
+        var liveNames = Set<String>()
+        for machine in machines {
+            guard let client = machine.client else { continue }
+            let machineRows = (try? await client.listConversations(kind: nil, limit: 100)) ?? []
+            rows.append(contentsOf: machineRows.map { conversation in
+                MachineCommsConversation(
+                    id: "\(machine.id)::\(conversation.id)",
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    client: client,
+                    conversation: conversation
+                )
+            })
+            let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
+            liveNames.formUnion(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
         }
-        #endif
-        conversations = rows.sorted { ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast) }
+        conversations = rows.sorted {
+            let lhs = $0.conversation.lastMessageAt ?? .distantPast
+            let rhs = $1.conversation.lastMessageAt ?? .distantPast
+            if lhs != rhs { return lhs > rhs }
+            return $0.machineName.localizedCaseInsensitiveCompare($1.machineName) == .orderedAscending
+        }
         // Live-agent set powers the "working" spinner — match a conversation's
         // counterpart against agents the broker currently reports as live.
-        let agents = (try? await client.listAgents(query: nil, limit: 60)) ?? []
-        liveAgents = Set(agents.filter { $0.state == .live }.map { $0.title.lowercased() })
+        liveAgents = liveNames
         isLoading = false
     }
 }
@@ -814,13 +875,7 @@ struct CommsThreadView: View {
 
     private func load() async {
         isLoading = true
-        var rows = (try? await client.conversationMessages(conversationId: conversation.id, limit: 200)) ?? []
-        #if DEBUG
-        if rows.isEmpty, ProcessInfo.processInfo.environment["SCOUT_DEMO"] == "1" {
-            rows = CommsSurface.demoMessages(for: conversation)
-        }
-        #endif
-        messages = rows
+        messages = (try? await client.conversationMessages(conversationId: conversation.id, limit: 200)) ?? []
         isLoading = false
     }
 
@@ -954,62 +1009,3 @@ private struct CommsBubble: View {
 private func relativeAge(_ date: Date?) -> String? {
     ScoutTimestamp.relativeAge(since: date)
 }
-
-#if DEBUG
-extension CommsSurface {
-    /// Synthetic comms (DEBUG, `SCOUT_DEMO=1` only) so the surface can be
-    /// seen on the simulator before the broker serves `mobile/comms/*`. Never ships.
-    static func demoConversations() -> [CommsConversation] {
-        let now = Date()
-        return [
-            CommsConversation(
-                id: "c.demo-shared", kind: .channel, title: "shared",
-                topic: "fleet-wide coordination",
-                lastMessagePreview: "shipping the projects-first Home now — machine rail looks great",
-                lastMessageAuthor: "broker-smith",
-                lastMessageAt: now.addingTimeInterval(-90), messageCount: 42, unreadCount: 3
-            ),
-            CommsConversation(
-                id: "c.demo-voice", kind: .channel, title: "voice",
-                topic: "TTS + dictation",
-                lastMessagePreview: "Parakeet warm-up no longer cancels on thread exit",
-                lastMessageAuthor: "tail-tuner",
-                lastMessageAt: now.addingTimeInterval(-1_500), messageCount: 11, unreadCount: 0
-            ),
-            CommsConversation(
-                id: "c.demo-broker-smith", kind: .direct, title: "broker-smith",
-                participants: ["broker-smith"],
-                lastMessagePreview: "Done — mobile/comms routes are wired in both mirrors.",
-                lastMessageAuthor: "broker-smith",
-                lastMessageAt: now.addingTimeInterval(-300), messageCount: 8, unreadCount: 1
-            ),
-            CommsConversation(
-                id: "c.demo-tail-tuner", kind: .direct, title: "tail-tuner",
-                participants: ["tail-tuner"],
-                lastMessagePreview: "You: can you confirm the firehose still streams?",
-                lastMessageAuthor: "You",
-                lastMessageAt: now.addingTimeInterval(-3_400), messageCount: 5, unreadCount: 0
-            ),
-        ]
-    }
-
-    static func demoMessages(for conversation: CommsConversation) -> [CommsMessage] {
-        let now = Date()
-        let other = conversation.participants.first ?? "broker-smith"
-        return [
-            CommsMessage(id: "d1", conversationId: conversation.id, actorId: other,
-                         authorLabel: other, authorKind: .agent,
-                         body: "Picking up the **comms surface** now. Channels + DMs, operator posts as you.",
-                         createdAt: now.addingTimeInterval(-600)),
-            CommsMessage(id: "d2", conversationId: conversation.id, actorId: "operator",
-                         authorLabel: "You", authorKind: .person,
-                         body: "Nice. Make sure code blocks render right:\n```swift\nlet x = 1\n```",
-                         createdAt: now.addingTimeInterval(-540), isOperator: true),
-            CommsMessage(id: "d3", conversationId: conversation.id, actorId: other,
-                         authorLabel: other, authorKind: .agent,
-                         body: "They do — `MessageMarkupView` handles fences + highlighting. Shipping it.",
-                         createdAt: now.addingTimeInterval(-120)),
-        ]
-    }
-}
-#endif

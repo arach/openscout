@@ -1,6 +1,11 @@
 import AppKit
 import ScoutHUD
 import SwiftUI
+import WebKit
+
+#if HUDSON_TERMINAL
+import Termini
+#endif
 
 enum ScoutAppCommand: String {
     case newConversation
@@ -33,6 +38,54 @@ extension Notification.Name {
 }
 
 @MainActor
+enum ScoutKeyboardInputContext {
+    /// App-level key monitors must never consume input owned by an embedded
+    /// terminal. WebKit makes its private content view first responder rather
+    /// than the WKWebView itself, so walk both the responder and view trees.
+    static func isTerminalInput(for event: NSEvent) -> Bool {
+        containsTerminalInput(event.window?.firstResponder)
+            || containsTerminalInput(NSApp.keyWindow?.firstResponder)
+    }
+
+    private static func containsTerminalInput(_ responder: NSResponder?) -> Bool {
+        var current = responder
+        while let candidate = current {
+            if isTerminalView(candidate) {
+                return true
+            }
+            if let view = candidate as? NSView, hasTerminalSuperview(view) {
+                return true
+            }
+            current = candidate.nextResponder
+        }
+        return false
+    }
+
+    private static func hasTerminalSuperview(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            if isTerminalView(candidate) {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private static func isTerminalView(_ responder: NSResponder) -> Bool {
+        if responder is WKWebView {
+            return true
+        }
+        #if HUDSON_TERMINAL
+        if responder is SurfaceContainerView {
+            return true
+        }
+        #endif
+        return false
+    }
+}
+
+@MainActor
 private func selectHUDTabIfVisible(_ view: HUDView) -> Bool {
     guard HUDController.shared.isVisible else { return false }
     HUDState.shared.select(view)
@@ -40,7 +93,16 @@ private func selectHUDTabIfVisible(_ view: HUDView) -> Bool {
 }
 
 struct ScoutCommands: Commands {
+    @ObservedObject private var updater = ScoutUpdater.shared
+
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                updater.checkForUpdates()
+            }
+            .disabled(!updater.canCheckForUpdates)
+        }
+
         CommandGroup(after: .newItem) {
             Button("New Conversation") {
                 ScoutAppCommand.newConversation.post()

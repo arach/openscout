@@ -1,6 +1,7 @@
 import type { Agent, OpsMode, Route } from "./types.ts";
 
 export const DEFAULT_SCOUTBOT_AGENT_ID = "scoutbot";
+export const SCOUTBOT_SUBMIT_EVENT = "scout:scoutbot-submit";
 
 const SCOUTBOT_AGENT_IDS = new Set([
   DEFAULT_SCOUTBOT_AGENT_ID,
@@ -348,7 +349,6 @@ function normalizeRoute(raw: unknown): Route | null {
         ? {
             view: "conversation",
             conversationId: record.conversationId,
-            ...(record.composeMode === "ask" || record.composeMode === "tell" ? { composeMode: record.composeMode } : {}),
           }
         : null;
     case "ops": {

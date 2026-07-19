@@ -59,7 +59,14 @@ async function walk(directory: string, out: string[] = []): Promise<string[]> {
     return out;
   }
   for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build" || entry.name === ".next") {
+    if (
+      entry.name === "node_modules"
+      || entry.name === "dist"
+      || entry.name === "build"
+      || entry.name === ".build"
+      || entry.name === ".deriveddata"
+      || entry.name === ".next"
+    ) {
       continue;
     }
     const path = join(directory, entry.name);

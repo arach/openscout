@@ -1,10 +1,14 @@
 import type { Route } from "../lib/types.ts";
 import { SCOPE_BRAND_LABEL, SCOPE_ROUTE_SEGMENTS } from "../../shared/scope-integration.js";
-import type { TopNavItem, TopNavKey } from "../scout/topNavConfig.ts";
+import type { NavCenterItem } from "../scout/nav-center.tsx";
 import { routeToScopeSegment, segmentToRoute, type ScopeRouteSegment } from "./paths.ts";
 
+// Scope keeps its own tab keys — the scout TopNavKey slimmed to the
+// single-personality nav and no longer covers the scope sections.
+export type ScopeTopNavKey = "lanes" | "sessions" | "tail" | "agents";
+
 const SCOPE_NAV_REGISTRY: ReadonlyArray<{
-  key: TopNavKey;
+  key: ScopeTopNavKey;
   label: string;
   segment: ScopeRouteSegment;
 }> = [
@@ -14,13 +18,13 @@ const SCOPE_NAV_REGISTRY: ReadonlyArray<{
   { key: "agents", label: "Agents", segment: SCOPE_ROUTE_SEGMENTS.agents },
 ];
 
-export const SCOPE_TOP_NAV_ITEMS: TopNavItem[] = SCOPE_NAV_REGISTRY.map((entry) => ({
+export const SCOPE_TOP_NAV_ITEMS: NavCenterItem<ScopeTopNavKey>[] = SCOPE_NAV_REGISTRY.map((entry) => ({
   key: entry.key,
   label: entry.label,
   route: segmentToRoute(entry.segment),
 }));
 
-export function scopeTopNavKeyForRoute(route: Route): TopNavKey {
+export function scopeTopNavKeyForRoute(route: Route): ScopeTopNavKey {
   const segment = routeToScopeSegment(route);
   return SCOPE_NAV_REGISTRY.find((entry) => entry.segment === segment)?.key ?? "lanes";
 }

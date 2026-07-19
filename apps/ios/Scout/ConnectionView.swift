@@ -1,6 +1,6 @@
-import HudsonObservability
 import SwiftUI
 import HudsonUI
+import ScoutCapabilities
 import ScoutIOSCore
 
 /// Connection inspector: the live transport route (LAN / TSN / OSN), a reconnect
@@ -17,12 +17,7 @@ struct ConnectionView: View {
                     .padding(HudSpacing.xxl)
                 Divider()
                     .overlay(HudHairline.subtle)
-                HudLoggerView(
-                    store: .shared,
-                    title: "Connection",
-                    showHeader: true,
-                    emptySubtitle: "Route attempts and pairing events will appear here."
-                )
+                ConnectionLogList(entries: model.connectionLog.entries)
             }
             .background(HudPalette.bg)
             .navigationTitle("Connection")
@@ -91,4 +86,88 @@ struct ConnectionView: View {
         return false
     }
 
+}
+
+struct ConnectionLogList: View {
+    let entries: [ConnectionLogEntry]
+    var emptySubtitle = "Route attempts and pairing events will appear here."
+
+    var body: some View {
+        if entries.isEmpty {
+            HudEmptyState(title: "No log entries", subtitle: emptySubtitle, icon: "list.bullet.rectangle")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: HudSpacing.xs) {
+                    ForEach(entries.reversed()) { entry in
+                        entryRow(entry)
+                    }
+                }
+                .padding(HudSpacing.md)
+            }
+        }
+    }
+
+    private func entryRow(_ entry: ConnectionLogEntry) -> some View {
+        let tint = logEventColor(entry)
+        return HStack(alignment: .top, spacing: HudSpacing.md) {
+            RoundedRectangle(cornerRadius: HudRadius.tight)
+                .fill(tint)
+                .frame(width: HudStrokeWidth.bold)
+
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                HStack(spacing: HudSpacing.sm) {
+                    Text(logTime(entry))
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(ScoutInk.dim)
+
+                    Text(entry.event.label)
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .bold))
+                        .foregroundStyle(tint)
+
+                    if let route = entry.route {
+                        Text(route.label)
+                            .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                            .foregroundStyle(ScoutInk.dim)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                Text(entry.message)
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudPalette.surface))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.thin))
+    }
+
+    private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
+        switch entry.event {
+        case .routeDisabled, .routeUnavailable, .reconnect, .network:
+            return HudPalette.statusWarn
+        default:
+            break
+        }
+        switch entry.level {
+        case .error:
+            return HudPalette.statusError
+        case .warning:
+            return HudPalette.statusWarn
+        case .success:
+            return HudPalette.accent
+        case .info:
+            return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
+        }
+    }
+
+    private func logTime(_ entry: ConnectionLogEntry) -> String {
+        (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
+            .formatted(.dateTime.hour().minute().second())
+    }
 }

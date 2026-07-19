@@ -32,13 +32,19 @@ import {
   SCOUTBOT_HANDLE,
   SCOUTBOT_ROLE_CONFIG,
   SCOUTBOT_RUNTIME_INSTANCE_ID,
+  scoutbotCodexLaunchArgs,
   scoutbotProvenance,
 } from "./role.ts";
 
 export interface ScoutbotRunnerHandle {
   stop(): Promise<void>;
   getThreads(): Promise<ScoutbotThreadListResponse>;
-  postOperatorMessage(input: { body: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }): Promise<ScoutbotThreadMessageResult>;
+  postOperatorMessage(input: {
+    body: string;
+    threadId?: string | null;
+    attachments?: OutgoingAttachmentInput[];
+    replyToMessageId?: string | null;
+  }): Promise<ScoutbotThreadMessageResult>;
 }
 
 export type ScoutbotThreadMessageResult = {
@@ -156,6 +162,7 @@ export async function startScoutbotRunner(
         body: input.body,
         threadId: input.threadId,
         attachments: input.attachments,
+        replyToMessageId: input.replyToMessageId,
         source: "scout-web",
         log,
         threadMap,
@@ -250,7 +257,12 @@ function inertHandle(): ScoutbotRunnerHandle {
   return {
     async stop() { /* inert */ },
     async getThreads() { throw new Error("scoutbot runner is inert because broker is unreachable"); },
-    async postOperatorMessage(_input?: { body?: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }) {
+    async postOperatorMessage(_input?: {
+      body?: string;
+      threadId?: string | null;
+      attachments?: OutgoingAttachmentInput[];
+      replyToMessageId?: string | null;
+    }) {
       return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
     },
   };
@@ -331,6 +343,7 @@ function buildScoutbotActor(_nodeId: string): ActorIdentity {
     labels: ["assistant", "scout", "scoutbot"],
     metadata: {
       source: "scoutbot",
+      brokerRegistered: true,
       role: "operator-assistant",
     },
   };
@@ -351,6 +364,7 @@ function buildScoutbotAgent(nodeId: string): ScoutBrokerAgentRecord {
     advertiseScope: "local",
     metadata: {
       source: "scoutbot",
+      brokerRegistered: true,
       role: "operator-assistant",
       summary: "Operator-facing fleet concierge backed by the broker's local session adapter.",
       roleConfig: SCOUTBOT_ROLE_CONFIG,
@@ -381,8 +395,13 @@ function buildScoutbotEndpoint(nodeId: string, currentDirectory: string): ScoutB
       roleConfig: SCOUTBOT_ROLE_CONFIG,
       systemPrompt: SCOUTBOT_ROLE_CONFIG.systemPrompt,
       toolGrants: SCOUTBOT_ROLE_CONFIG.grants,
+      permissionProfile: "observe",
+      permissionEnforcement: "native",
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      shellTool: false,
       reasoningEffort,
-      launchArgs: ["--reasoning-effort", reasoningEffort],
+      launchArgs: scoutbotCodexLaunchArgs(),
       projectRoot: currentDirectory,
       transport: "codex_app_server",
       startedAt: String(Date.now()),
@@ -433,8 +452,19 @@ function isInvalidScoutbotSessionEndpoint(endpoint: ScoutBrokerEndpointRecord): 
 }
 
 function hasCurrentScoutbotRuntimeConfig(endpoint: ScoutBrokerEndpointRecord): boolean {
+  const launchArgs = Array.isArray(endpoint.metadata?.launchArgs)
+    ? endpoint.metadata.launchArgs
+    : [];
   return metadataString(endpoint.metadata, "systemPrompt") === SCOUTBOT_ROLE_CONFIG.systemPrompt
-    && metadataString(endpoint.metadata, "reasoningEffort") === SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort;
+    && metadataString(endpoint.metadata, "reasoningEffort") === SCOUTBOT_ROLE_CONFIG.defaults.reasoningEffort
+    && metadataString(endpoint.metadata, "approvalPolicy") === "never"
+    && metadataString(endpoint.metadata, "sandbox") === "read-only"
+    && endpoint.metadata?.shellTool === false
+    && launchArgs.includes("features.shell_tool=false")
+    && launchArgs.includes(`mcp_servers.scout.enabled_tools=${JSON.stringify([
+      ...SCOUTBOT_ROLE_CONFIG.grants.read,
+      ...SCOUTBOT_ROLE_CONFIG.grants.write,
+    ])}`);
 }
 
 function scoutbotEndpointTransportSessionId(endpoint: ScoutBrokerEndpointRecord): string | null {
@@ -898,7 +928,8 @@ export function hasCurrentScoutbotAgentRegistration(agent: ScoutBrokerAgentRecor
     && agent.authorityNodeId === nodeId
     && agent.advertiseScope === "local"
     && agent.wakePolicy === "keep_warm"
-    && agent.metadata?.source === "scoutbot";
+    && agent.metadata?.source === "scoutbot"
+    && agent.metadata?.brokerRegistered === true;
 }
 
 function hasCurrentScoutbotAgentConfig(agent: ScoutBrokerAgentRecord): boolean {
@@ -923,6 +954,8 @@ const SCOUTBOT_REASONING_EFFORTS = new Set<ScoutbotReasoningEffort>([
   "medium",
   "high",
   "xhigh",
+  "max",
+  "ultra",
 ]);
 
 function metadataReasoningEffort(metadata: Record<string, unknown> | undefined): ScoutbotReasoningEffort | undefined {

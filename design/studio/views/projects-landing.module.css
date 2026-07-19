@@ -1,0 +1,173 @@
+/* Projects · Landing — three takes on the unscoped center: shortcuts · recent
+   projects · active diffs. Studio tokens only; the one emerald accent is
+   reserved for needs-you / live. */
+
+.wrap { display: flex; flex-direction: column; gap: 22px; }
+
+/* ── take switcher ────────────────────────────────────────────────────────── */
+.takeSwitch { display: flex; gap: 8px; margin-bottom: 18px; }
+.takeBtn {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
+  padding: 8px 12px; border: 1px solid var(--studio-edge); border-radius: 6px;
+  background: var(--studio-canvas); cursor: pointer; text-align: left;
+  color: var(--studio-ink-muted); font-size: 11.5px; font-weight: 600;
+}
+.takeBtn:hover { border-color: var(--studio-edge-strong); color: var(--studio-ink); }
+.takeBtnOn { border-color: var(--scout-accent); color: var(--studio-ink); background: var(--scout-accent-soft); }
+.takeNote { font-size: 9.5px; font-weight: 400; color: var(--studio-ink-faint); }
+
+/* ── window frame ─────────────────────────────────────────────────────────── */
+.frame {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--studio-edge);
+  border-radius: 7px;
+  background: var(--studio-canvas);
+  overflow: hidden;
+  box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.5);
+}
+.nav { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 15px; border-bottom: 1px solid var(--studio-edge); background: var(--studio-canvas-alt); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: var(--studio-ink); }
+.brandMark { width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--studio-edge-strong); display: grid; place-items: center; }
+.brandMark::before { content: ""; width: 4px; height: 4px; border-radius: 1px; background: var(--scout-accent); }
+.navTabs { display: flex; gap: 19px; font-size: 10px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; }
+.navTab { color: var(--studio-ink-faint); }
+.navTabActive { color: var(--studio-ink); position: relative; }
+.navTabActive::after { content: ""; position: absolute; left: 0; right: 0; bottom: -13px; height: 2px; background: var(--scout-accent); }
+
+.body { display: flex; min-height: 480px; }
+
+/* ── rail stub (static — context only) ────────────────────────────────────── */
+.rail { width: 200px; flex: none; border-right: 1px solid var(--studio-edge); background: var(--studio-canvas-alt); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+.railFind { display: flex; align-items: center; height: 28px; padding: 0 9px; border: 1px solid var(--studio-edge); border-radius: 6px; color: var(--studio-ink-faint); font-size: 10.5px; margin-bottom: 12px; }
+.railHead { font-size: 9px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--studio-ink-faint); padding: 0 6px 5px; }
+.railRow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 5px; }
+.railName { font-size: 11px; color: var(--studio-ink-muted); }
+.railDisclosure { margin-top: 10px; padding: 2px 6px; font-size: 9.5px; color: var(--studio-ink-faint); }
+
+/* ── shared ───────────────────────────────────────────────────────────────── */
+.dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: color-mix(in oklab, var(--studio-ink-faint) 42%, transparent); }
+.dotLive { background: var(--scout-accent); box-shadow: 0 0 0 3px var(--scout-accent-soft); }
+.dotNeeds { background: var(--scout-accent); }
+.dotIdle { background: color-mix(in oklab, var(--studio-ink-faint) 42%, transparent); }
+.sectionCount { color: var(--studio-ink-faint); }
+.needsTag { font-size: 9.5px; font-weight: 650; color: var(--scout-accent); }
+.churn { display: inline-flex; align-items: baseline; gap: 7px; font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.churnAdd { color: var(--scout-accent); font-weight: 650; }
+.churnDel { color: var(--studio-ink-muted); font-weight: 650; }
+.churn small { color: var(--studio-ink-faint); font-size: 9px; }
+
+/* ── center column ────────────────────────────────────────────────────────── */
+.center { flex: 1; min-width: 0; padding: 14px 18px 20px; display: flex; flex-direction: column; }
+.centerHead { display: flex; align-items: baseline; gap: 10px; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--studio-edge); }
+.centerTitle { font-size: 15px; font-weight: 700; color: var(--studio-ink); }
+.centerDigest { font-size: 10.5px; color: var(--studio-ink-faint); }
+
+/* ── take A · rows (shipped) ──────────────────────────────────────────────── */
+.rwShortcuts { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px 0 4px; }
+.rwShortcut {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 11px;
+  border: 1px solid var(--studio-edge); border-radius: 7px;
+  background: var(--studio-canvas-alt); color: var(--studio-ink-muted);
+  font-size: 11px; font-weight: 560; cursor: pointer;
+}
+.rwShortcut:hover { color: var(--studio-ink); border-color: var(--studio-edge-strong); }
+.rwSectionHead {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 18px 0 6px;
+  font-size: 9px; font-weight: 740; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--studio-ink-muted);
+}
+.rwRow {
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px;
+  width: 100%; padding: 7px 6px 7px 0;
+  border: 0; border-bottom: 1px solid var(--studio-edge);
+  background: none; color: var(--studio-ink-muted); text-align: left; cursor: pointer;
+}
+.rwRow:hover { background: var(--studio-canvas-alt); }
+.rwRowMain { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.rwRowTitle { flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--studio-ink); }
+.rwRowRoot { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; color: var(--studio-ink-faint); }
+.rwRowMeta { flex: none; display: flex; align-items: baseline; gap: 10px; font-size: 9.5px; color: var(--studio-ink-faint); font-variant-numeric: tabular-nums; }
+.rwDiffRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 7px 6px 7px 0; border-bottom: 1px solid var(--studio-edge); }
+.rwDiffMain { min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.rwDiffMain:hover .rwDiffProject { color: var(--scout-accent); }
+.rwDiffProject { flex: none; max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--studio-ink); }
+.rwDiffBranch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; color: var(--studio-ink-faint); }
+.rwDiffOpen {
+  flex: none; padding: 2px 8px; border: 1px solid var(--studio-edge); border-radius: 5px;
+  background: none; color: var(--studio-ink-faint); font-size: 8.5px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+}
+.rwDiffOpen:hover { color: var(--studio-ink); border-color: var(--studio-edge-strong); }
+
+/* ── take B · ledger ──────────────────────────────────────────────────────── */
+.ldShortcuts { display: flex; gap: 12px; padding: 10px 0 4px; }
+.ldShortcuts button {
+  display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: none;
+  color: var(--studio-ink-muted); font-size: 11px; font-weight: 560; cursor: pointer;
+}
+.ldShortcuts button:hover { color: var(--studio-ink); }
+.ldShortcuts kbd {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
+  border: 1px solid var(--studio-edge); border-radius: 4px;
+  color: var(--studio-ink-faint); font-size: 9px; font-family: inherit;
+}
+.ldSectionHead {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 18px 0 6px;
+  font-size: 9px; font-weight: 740; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--studio-ink-muted);
+}
+.ldTable { display: flex; flex-direction: column; }
+.ldCols { display: grid; grid-template-columns: 180px minmax(0, 1fr) 90px 48px; align-items: center; gap: 12px; }
+.ldDiffCols { display: grid; grid-template-columns: 180px minmax(0, 1fr) 150px 48px; align-items: center; gap: 12px; }
+.ldColsHead { padding: 4px 6px 5px 0; border-bottom: 1px solid var(--studio-edge); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--studio-ink-faint); }
+.ldRow { padding: 7px 6px 7px 0; border: 0; border-bottom: 1px solid var(--studio-edge); background: none; text-align: left; cursor: pointer; color: var(--studio-ink-muted); }
+.ldRow:hover { background: var(--studio-canvas-alt); }
+.ldName { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--studio-ink); }
+.ldRoot { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; color: var(--studio-ink-faint); }
+.ldSignal { font-size: 9.5px; color: var(--studio-ink-faint); }
+.ldAgo { font-size: 9.5px; color: var(--studio-ink-faint); font-variant-numeric: tabular-nums; text-align: right; }
+.ldDiffOpen { padding: 0; border: 0; background: none; color: var(--studio-ink-faint); font-size: 9.5px; text-align: right; cursor: pointer; }
+.ldDiffOpen:hover { color: var(--scout-accent); }
+
+/* ── take C · editorial ───────────────────────────────────────────────────── */
+.edShortcuts { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 12px 0 4px; }
+.edShortcuts button {
+  padding: 0; border: 0; background: none;
+  color: var(--studio-ink-muted); font-size: 11.5px; cursor: pointer;
+}
+.edShortcuts button:hover { color: var(--scout-accent); }
+.edSectionHead {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 24px 0 7px; border-bottom: 1px solid var(--studio-edge);
+  font-size: 9px; font-weight: 740; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+.edRow {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  width: 100%; padding: 9px 0;
+  border: 0; border-bottom: 1px solid color-mix(in oklab, var(--studio-edge) 55%, transparent);
+  background: none; text-align: left; cursor: pointer;
+}
+.edRow:hover .edRowTitle { color: var(--scout-accent); }
+.edRowTitle { min-width: 0; display: flex; align-items: baseline; gap: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 550; color: var(--studio-ink); transition: color 120ms ease; }
+.edRowAgo { flex: none; font-size: 9.5px; color: var(--studio-ink-faint); font-variant-numeric: tabular-nums; }
+.edLive { font-style: normal; font-size: 9.5px; color: var(--scout-accent); }
+.edNeeds { font-style: normal; font-size: 9.5px; color: var(--scout-accent); }
+.edDim { font-size: 10px; color: var(--studio-ink-faint); font-weight: 400; }
+.edDiffMeta { flex: none; display: flex; align-items: baseline; gap: 8px; font-size: 9.5px; }
+.edArrow { color: var(--studio-ink-faint); }
+.edRow:hover .edArrow { color: var(--scout-accent); }
+
+/* ── notes + ledger ───────────────────────────────────────────────────────── */
+.noteHead { font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--studio-ink-faint); margin-bottom: 10px; }
+.note { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.noteCell { display: flex; flex-direction: column; gap: 5px; padding: 12px 13px; border: 1px solid var(--studio-edge); border-radius: 6px; background: var(--studio-canvas); }
+.noteTitle { font-size: 11px; font-weight: 650; color: var(--studio-ink); }
+.noteBody { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 11.5px; line-height: 1.5; color: var(--studio-ink-faint); }
+.noteBody code { font-family: inherit; background: var(--studio-canvas-alt); padding: 0 3px; border-radius: 3px; }
+.ledgerTable { display: flex; flex-direction: column; border: 1px solid var(--studio-edge); border-radius: 6px; overflow: hidden; }
+.ledgerRow { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 14px; padding: 10px 13px; border-bottom: 1px solid var(--studio-edge); background: var(--studio-canvas); }
+.ledgerRow:last-child { border-bottom: 0; }
+.ledgerTake { font-size: 10.5px; font-weight: 650; color: var(--studio-ink); }
+.ledgerVerdict { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 11.5px; line-height: 1.5; color: var(--studio-ink-faint); }

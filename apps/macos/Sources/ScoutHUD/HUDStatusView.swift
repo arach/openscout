@@ -51,7 +51,8 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
-    @StateObject private var agentsStore = ScoutAgentsStore()
+    @ObservedObject private var runner = HUDRunnerState.shared
+    @StateObject private var agentsStore = ScoutAgentsStore(pageSize: 10, requestsSummary: true)
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
     @StateObject private var sessionsTail = ScoutTailStore(
@@ -218,6 +219,8 @@ struct HUDStatusView: View {
             } else if isTailOverlay && state.tailCollapsed {
                 tailCollapsedRail
                     .transition(tailCollapsedTransition)
+                    .disabled(runner.isPresented)
+                    .accessibilityHidden(runner.isPresented)
             } else {
                 VStack(spacing: 0) {
                     masthead
@@ -237,16 +240,20 @@ struct HUDStatusView: View {
                     }
                 }
                 .transition(tailExpandedTransition)
+                .disabled(runner.isPresented)
+                .accessibilityHidden(runner.isPresented)
             }
 
             // `?` cheatsheet — drawn on top of the panel body, masthead
             // and dock stay visible underneath. Toggled from HUDController.
             if !isTailCollapsing {
                 HUDCheatsheetOverlay()
+                    .disabled(runner.isPresented)
+                    .accessibilityHidden(runner.isPresented)
             }
 
-            // Runner draft — a HUD-local composer for broker-owned project
-            // asks. Swift gathers helpful inputs; TS owns routing.
+            // Task draft — a HUD-local composer for broker-owned project asks.
+            // Swift gathers helpful inputs; TS owns routing.
             if !isTailCollapsing {
                 HUDRunnerOverlay()
             }
@@ -268,7 +275,9 @@ struct HUDStatusView: View {
             if !isTailFullHeight && !isTailCollapsing {
                 RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
                     .strokeBorder(
-                        HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
+                        runner.isPresented
+                            ? HUDChrome.composerBorderStrong
+                            : HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
                         lineWidth: isTailOverlay ? 0.5 : 1
                     )
             }
@@ -285,14 +294,38 @@ struct HUDStatusView: View {
             if !active { tailHovered = false }
         }
         .onAppear {
-            agentsStore.start()
-            activityStore.start()
+            syncPrimaryStoreLifecycles(for: state.view, isVisible: state.isVisible)
             HUDDockState.shared.setSuggestionAgents(agents)
+        }
+        .onChange(of: state.view) { _, view in
+            syncPrimaryStoreLifecycles(for: view, isVisible: state.isVisible)
+        }
+        .onChange(of: state.isVisible) { _, isVisible in
+            syncPrimaryStoreLifecycles(for: state.view, isVisible: isVisible)
         }
         .onChange(of: agents) { _, next in
             HUDDockState.shared.setSuggestionAgents(next)
         }
         .onDisappear {
+            agentsStore.stop()
+            activityStore.stop()
+        }
+    }
+
+    private func syncPrimaryStoreLifecycles(for view: HUDView, isVisible: Bool) {
+        guard isVisible else {
+            agentsStore.stop()
+            activityStore.stop()
+            return
+        }
+        switch view {
+        case .agents:
+            activityStore.stop()
+            agentsStore.start()
+        case .activity:
+            agentsStore.stop()
+            activityStore.start()
+        case .tail, .sessions, .assistant:
             agentsStore.stop()
             activityStore.stop()
         }
@@ -622,7 +655,14 @@ struct HUDStatusView: View {
         if agentsStore.agents == nil && agentsStore.lastError == nil {
             FleetLoadingView()
         } else {
-            HUDAgentsView(agents: agents, activeAgentId: activeAgentId)
+            HUDAgentsView(
+                agents: agents,
+                activeAgentId: activeAgentId,
+                canLoadMore: agentsStore.canLoadMore,
+                isLoadingMore: agentsStore.isLoadingMore,
+                loadMoreCount: agentsStore.loadMoreCount,
+                onLoadMore: agentsStore.loadMore
+            )
         }
     }
 
@@ -1531,7 +1571,7 @@ private struct AgentExpandedPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             if let ask = agent.pendingAsk {
-                detailBlock(label: "PENDING ASK", body: ask, isAccent: true)
+                detailBlock(label: "PENDING QUESTION", body: ask, isAccent: true)
             }
             detailBlock(label: "LAST TURN", body: agent.lastTurn, isAccent: false)
 

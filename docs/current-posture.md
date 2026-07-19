@@ -86,9 +86,9 @@ That footprint is appropriate for a developer pilot. It is too much to treat as 
 
 ## License And Package Signals
 
-Do not infer public reuse rights from the product name or package availability alone. As of this document, the package manifests use `UNLICENSED` and the repo does not carry a top-level open-source license file.
+OpenScout is licensed under the Apache License 2.0. The repo root carries the `LICENSE` and `NOTICE` files, and every workspace package manifest declares `Apache-2.0`. Packages already on npm pick up the new metadata on their next publish.
 
-Before broader external distribution, the project should make the license posture explicit and consistent across:
+The license posture should stay explicit and consistent across:
 
 - repo root
 - npm package manifests

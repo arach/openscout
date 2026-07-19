@@ -35,19 +35,25 @@ import type { AgentHarness } from "@openscout/protocol";
 import {
   createScoutSession,
   getScoutMobileActivity,
+  getScoutMobileAgents,
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
+  getScoutMobileHome,
+  getScoutMobileServiceBudgets,
+  getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
+  getScoutMobileTerminals,
+  getScoutMobileWorkspaces,
   sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
-import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
+import {
+  provisionMobileTerminalAccess,
+  readMobileTerminalStatus,
+} from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
   queryMobileAgentDetail,
-  queryMobileAgents,
-  queryMobileSessions,
-  queryMobileWorkspaces,
 } from "../../../../server/db-queries.ts";
 import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
 import {
@@ -717,23 +723,13 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      const workspaceLimit = input?.workspaceLimit ?? 6;
-      const agentLimit = input?.agentLimit ?? 6;
-      const sessionLimit = input?.sessionLimit ?? 6;
-      const workspaces = queryMobileWorkspaces(workspaceLimit);
-      const agents = queryMobileAgents(agentLimit);
-      const sessions = queryMobileSessions(sessionLimit);
-      return {
-        workspaces,
-        agents,
-        sessions,
-        totals: {
-          workspaces: workspaces.length,
-          agents: agents.length,
-          sessions: sessions.length,
-        },
-      };
+    .query(async ({ input }) => {
+      return getScoutMobileHome({
+        currentDirectory: resolveMobileCurrentDirectory(),
+        workspaceLimit: input?.workspaceLimit,
+        agentLimit: input?.agentLimit,
+        sessionLimit: input?.sessionLimit,
+      });
     }),
 
   workspaces: procedure
@@ -745,15 +741,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileWorkspaces(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((w) =>
-          w.title.toLowerCase().includes(q) || w.root.toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileWorkspaces(input, resolveMobileCurrentDirectory());
     }),
 
   agents: procedure
@@ -765,17 +754,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileAgents(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((a) =>
-          a.title.toLowerCase().includes(q)
-          || a.id.toLowerCase().includes(q)
-          || (a.workspaceRoot ?? "").toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileAgents(input, resolveMobileCurrentDirectory());
     }),
 
   sessions: procedure
@@ -787,17 +767,8 @@ const mobileRouter = t.router({
         })
         .optional(),
     )
-    .query(({ input }) => {
-      let results = queryMobileSessions(input?.limit ?? 50);
-      if (input?.query) {
-        const q = input.query.toLowerCase();
-        results = results.filter((s) =>
-          s.title.toLowerCase().includes(q)
-          || (s.agentName ?? "").toLowerCase().includes(q)
-          || (s.preview ?? "").toLowerCase().includes(q),
-        );
-      }
-      return results;
+    .query(async ({ input }) => {
+      return getScoutMobileSessions(input, resolveMobileCurrentDirectory());
     }),
 
   sessionSnapshot: procedure
@@ -972,6 +943,14 @@ const mobileRouter = t.router({
       return getScoutMobileActivity(input);
     }),
 
+  serviceBudgets: procedure
+    .input(z.object({}).optional())
+    .query(async () => getScoutMobileServiceBudgets()),
+
+  terminalSessions: procedure
+    .input(z.object({}).optional())
+    .query(async () => getScoutMobileTerminals()),
+
   agentDetail: procedure
     .input(z.object({ agentId: z.string() }))
     .query(async ({ input }) => {
@@ -1081,6 +1060,16 @@ const mobileRouter = t.router({
       }
       return await provisionMobileTerminalAccess(input.sshPublicKey, ctx.deviceId);
     }),
+
+  terminalStatus: procedure.query(async ({ ctx }) => {
+    if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Terminal status requires a trusted paired device over the encrypted bridge.",
+      });
+    }
+    return await readMobileTerminalStatus();
+  }),
 });
 
 // -- Workspace --------------------------------------------------------------
