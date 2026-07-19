@@ -50,6 +50,7 @@ scout up / session start → runtime creates or attaches session → broker regi
 | Target form | Session behavior |
 |---|---|
 | `--to <label>` / `--to <agentId>` | fresh session for new ask work |
+| `--to target:<handle>` | resolve a saved situated Scout target for convenient follow-up |
 | `--to session:<id>` | continue exact harness context |
 | `--to session:<harness>:<native-id>` | continue an exact broker-known native harness session when the id needs harness scope |
 | `--project <path> --harness <rt>` | broker/runtime pick or create concrete worker+session for project/capability |
@@ -59,8 +60,10 @@ Mismatch example: Codex-targeted ask + only Claude endpoint attached → `harnes
 
 Fresh capability work should be project-routed first. The broker returns durable
 follow-up handles (`ref`, flight, conversation, work, session) and may return a
-friendly worker handle. Exact session routing is only for continuity; card/name
-promotion happens after the worker is known good.
+situated target handle. Humans type saved situated targets as `target:<handle>`;
+agents and compact UI may render the same target as `⌖handle`. Exact session
+routing is only for raw continuity; card/name promotion happens after the worker
+is known good.
 
 Fresh broker-created Claude project sessions use `tmux` by default so operators
 can inspect and attach to the live terminal. `claude_stream_json` remains a

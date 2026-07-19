@@ -74,6 +74,11 @@ const scoutRouteTargetSchema: z.ZodType<ScoutRouteTarget> = z.discriminatedUnion
     ...routeTargetValueSchema,
   }).passthrough(),
   z.object({
+    kind: z.literal("target_handle"),
+    handle: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
     kind: z.literal("session_id"),
     sessionId: nonEmptyString,
     ...routeTargetValueSchema,

@@ -43,6 +43,7 @@ import {
   type ScoutReturnAddress,
   type ScoutRouteTarget,
   epochMs,
+  parseScoutComposerRouteTarget,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
@@ -976,15 +977,55 @@ function renderScoutTargetLabel(targetLabel: string): string {
   if (!trimmed) {
     return "";
   }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return `@${trimmed}`;
+}
+
+function routeTargetForTargetLabel(
+  targetLabel: string,
+  targetRef?: string,
+): { target: ScoutRouteTarget; renderedTarget: string; isBindingRef: boolean } {
+  const requestedTargetRef = targetRef?.trim()
+    || (targetLabel.trim().startsWith("ref:") ? targetLabel.trim().slice("ref:".length) : "");
+  if (requestedTargetRef) {
+    return {
+      target: { kind: "binding_ref", ref: requestedTargetRef },
+      renderedTarget: `ref:${requestedTargetRef}`,
+      isBindingRef: true,
+    };
+  }
+
+  const parsed = parseScoutComposerRouteTarget(targetLabel);
+  if (parsed?.kind === "target_handle" || parsed?.kind === "binding_ref") {
+    return {
+      target: parsed,
+      renderedTarget: parsed.value ?? targetLabel.trim(),
+      isBindingRef: parsed.kind === "binding_ref",
+    };
+  }
+
+  return {
+    target: { kind: "agent_label", label: targetLabel },
+    renderedTarget: targetLabel,
+    isBindingRef: false,
+  };
 }
 
 function scoutTargetDiagnosticFromDeliveryFailure(
   delivery: Exclude<ScoutDeliverResponse, { kind: "delivery" }>,
 ): ScoutTargetDiagnostic | undefined {
-  const dispatch: ScoutDispatchRecord = delivery.kind === "question"
+  const dispatch = (delivery.kind === "question"
     ? delivery.question
-    : delivery.rejection;
+    : delivery.rejection) as ScoutDispatchRecord | undefined;
+  if (!dispatch) {
+    return undefined;
+  }
 
   if (dispatch.kind === "ambiguous") {
     return {
@@ -2947,13 +2988,12 @@ export async function sendScoutMessage(input: {
   );
 
   const requestedTargetLabel = input.targetLabel?.trim();
-  const requestedTargetRef = input.targetRef?.trim()
-    || (requestedTargetLabel?.startsWith("ref:") ? requestedTargetLabel.slice("ref:".length) : "");
+  const requestedTargetRef = input.targetRef?.trim();
   if (requestedTargetLabel || requestedTargetRef) {
-    const target = requestedTargetRef
-      ? { kind: "binding_ref" as const, ref: requestedTargetRef }
-      : { kind: "agent_label" as const, label: requestedTargetLabel! };
-    const renderedTarget = requestedTargetRef ? `ref:${requestedTargetRef}` : requestedTargetLabel!;
+    const { target, renderedTarget, isBindingRef } = routeTargetForTargetLabel(
+      requestedTargetLabel ?? "",
+      requestedTargetRef,
+    );
     const delivery = await brokerPostDeliver(broker.baseUrl, {
       caller: {
         actorId: senderId,
@@ -2971,7 +3011,7 @@ export async function sendScoutMessage(input: {
       execution: wake
         ? {
             ...wakeExecution,
-            session: requestedTargetRef ? "existing" : "new",
+            session: isBindingRef || target.kind === "target_handle" ? "existing" : "new",
           }
         : undefined,
       ensureAwake: wake ? true : undefined,
@@ -3808,6 +3848,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "target_handle":
+      return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
       return target.value?.trim() || `session:${target.sessionId.trim()}`;
     case "binding_ref":
@@ -3832,7 +3874,7 @@ function directSessionIdForAskTarget(target: ScoutRouteTarget): string | undefin
 function defaultAskExecutionSession(
   target: ScoutRouteTarget,
 ): "new" | "existing" {
-  return target.kind === "binding_ref" || target.kind === "session_id"
+  return target.kind === "binding_ref" || target.kind === "session_id" || target.kind === "target_handle"
     ? "existing"
     : "new";
 }
@@ -3986,12 +4028,8 @@ export async function askScoutQuestion(input: {
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
-  const targetRef = input.targetRef?.trim()
-    || (input.targetLabel.trim().startsWith("ref:") ? input.targetLabel.trim().slice("ref:".length) : "");
-  const target = input.target
-    ?? (targetRef
-      ? { kind: "binding_ref" as const, ref: targetRef }
-      : { kind: "agent_label" as const, label: input.targetLabel });
+  const fallbackTarget = routeTargetForTargetLabel(input.targetLabel, input.targetRef);
+  const target = input.target ?? fallbackTarget.target;
   return deliverScoutAsk({
     senderId: input.senderId,
     target,

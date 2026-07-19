@@ -187,6 +187,8 @@ function renderedAskTarget(target: ScoutRouteTarget): string {
       return target.agentId;
     case "agent_label":
       return target.label;
+    case "target_handle":
+      return target.value ?? `target:${target.handle}`;
     case "session_id":
       return target.value ?? `session:${target.sessionId}`;
     case "binding_ref":
@@ -210,6 +212,9 @@ function askTargetFor(to: string): ScoutRouteTarget | null {
   }
   if (parsed.kind === "binding_ref") {
     return { kind: "binding_ref", ref: parsed.ref };
+  }
+  if (parsed.kind === "target_handle") {
+    return { kind: "target_handle", handle: parsed.handle, ...(parsed.value ? { value: parsed.value } : {}) };
   }
   if (parsed.kind === "session_id") {
     return {

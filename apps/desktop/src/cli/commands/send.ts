@@ -20,6 +20,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Routing:",
     "  --to <agent>                      -> DM; body @mentions stay text",
+    "  --to target:<name> or --to ⌖name   -> saved situated target",
     "  one explicit @agent + no channel   -> DM",
     "  --channel <name>                   -> named group thread",
     "  no target + no channel             -> error",
@@ -37,6 +38,7 @@ export function renderSendCommandHelp(): string {
     "",
     "Examples:",
     '  scout send --to hudson "ready for review; literal @codex stays text"',
+    '  scout send --to target:mw-talkie "status update for that worker"',
     '  scout send --ref 7f3a9c21 "follow-up for that bound session"',
     '  scout send --to lattices#codex?5.5 "ready for review"',
     '  scout send --to hudson --wake "please apply the chrome feedback; no reply needed"',
@@ -52,10 +54,14 @@ function renderTargetLabel(label: string): string {
   if (!trimmed) {
     return "";
   }
-  if (trimmed.startsWith("ref:")) {
+  if (
+    trimmed.startsWith("@")
+    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^broadcast$/i.test(trimmed)
+  ) {
     return trimmed;
   }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+  return `@${trimmed}`;
 }
 
 function renderAmbiguousCandidate(label: string): string {

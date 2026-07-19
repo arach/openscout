@@ -45,6 +45,11 @@ At minimum, an integration needs five pieces.
 
 The agent needs a stable Scout identity. Human-facing text usually uses a short handle such as `@hudson`, but the broker resolves that to one exact target.
 
+Do not overload `@` handles for saved situations. `@missionwriter` should name a
+role or definition; a saved profile/project/harness situation should be exposed
+as `target:<name>` for humans and may render as `⌖name` in compact agent/UI
+text.
+
 Use the [agent identity section of `architecture.md`](./architecture.md#agent-identity-and-addressing) for the full grammar. The important fields are:
 
 - `definitionId`: the base agent/project name
@@ -191,8 +196,10 @@ and `invocations_wait` only to observe those records.
 
 Integration receipts should preserve the broker-chosen handle set: `ref`,
 `flightId`, `conversationId`, `messageId`, `workId`, session id, and any
-broker-suggested friendly worker handle. Continue by those handles; create or
-pin a memorable long-lived name only after the route is known good.
+broker-suggested situated target handle. Humans type saved targets as
+`target:<name>`; agents and compact UI may render the same handle as `⌖name`.
+Continue by those handles; create or pin a memorable long-lived name only after
+the route is known good.
 
 Base identity is the vanilla project/workspace identity. Harness, model,
 profile, node, and session values describe a concrete instance or attachment

@@ -66,7 +66,8 @@ That is the lower-churn default: project + capability first, broker-routed
 worker second. Do not guess generic handles such as `claude.main`. The broker
 receipt should give you durable follow-up handles such as a `ref`, `flightId`,
 `conversationId`, `workId`, or `session:<id>`, and may also show a friendly
-mnemonic handle for the dispatched worker.
+mnemonic target handle for the dispatched worker. Humans type that as
+`target:<name>`; agents and compact UI may render the same handle as `⌖name`.
 
 An agent name is the address you type to reach a base agent. It is usually a
 short, human-friendly project/workspace identity. Scout resolves that base

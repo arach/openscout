@@ -3,6 +3,7 @@ import { AGENT_HARNESSES, type AgentHarness } from "./actors.js";
 import type { ScoutRouteTarget } from "./scout-dispatch.js";
 
 export const SCOUT_COMPOSER_ROUTE_OPERATOR = ">>" as const;
+export const SCOUT_TARGET_HANDLE_SHORTHAND = "⌖" as const;
 
 export type ScoutComposerRouteDiagnosticCode =
   | "missing_target"
@@ -85,6 +86,14 @@ function parseAgentLabelTarget(value: string): ScoutRouteTarget | null {
   return { kind: "agent_label", label, value };
 }
 
+function parseTargetHandleTarget(rawValue: string): ScoutRouteTarget | null {
+  const handle = rawValue.replace(/^[@⌖]+/, "");
+  if (!isRouteValue(handle)) {
+    return null;
+  }
+  return { kind: "target_handle", handle, value: `target:${handle}` };
+}
+
 function parseSessionRouteTarget(rawValue: string): ScoutRouteTarget | null {
   const value = rawValue.replace(/^@+/, "");
   if (!isRouteValue(value)) {
@@ -117,6 +126,9 @@ function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteT
   if (prefix === "agent" || prefix === "a") {
     return parseAgentLabelTarget(value);
   }
+  if (prefix === "target" || prefix === "target-handle" || prefix === "target_handle") {
+    return parseTargetHandleTarget(rawValue);
+  }
   if (prefix === "ref" || prefix === "binding" || prefix === "binding-ref") {
     return { kind: "binding_ref", ref: value, value: `ref:${value}` };
   }
@@ -144,6 +156,10 @@ export function parseScoutComposerRouteTarget(value: string): ScoutRouteTarget |
 
   if (token === "broadcast") {
     return { kind: "broadcast", value: token };
+  }
+
+  if (token.startsWith(SCOUT_TARGET_HANDLE_SHORTHAND)) {
+    return parseTargetHandleTarget(token);
   }
 
   const separatorIndex = token.indexOf(":");

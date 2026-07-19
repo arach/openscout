@@ -2694,6 +2694,100 @@ describe("sendScoutMessage", () => {
     });
   }, 15000);
 
+  test("uses target handles as typed send route intent", async () => {
+    useIsolatedOpenScoutHome();
+
+    const captured = {
+      delivery: null as {
+        target?: unknown;
+        targetLabel?: string;
+        body?: string;
+        intent?: string;
+        execution?: unknown;
+      } | null,
+    };
+
+    globalThis.fetch = (async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/actors") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        captured.delivery = await request.json() as NonNullable<typeof captured.delivery>;
+        return jsonResponse({
+          kind: "delivery",
+          accepted: true,
+          routeKind: "dm",
+          conversation: {
+            id: "dm.operator.session",
+            kind: "direct",
+            title: "Mission Writer Talkie",
+            visibility: "private",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "session-mw-talkie"],
+          },
+          message: {
+            id: "msg-1",
+            conversationId: "dm.operator.session",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: captured.delivery.body,
+            audience: {
+              notify: ["session-mw-talkie"],
+              reason: "direct_message",
+            },
+            visibility: "private",
+            policy: "durable",
+            createdAt: Date.now(),
+          },
+          targetAgentId: "session-mw-talkie",
+          targetSessionId: "session-mw-talkie",
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutMessage({
+      senderId: "operator",
+      targetLabel: "target:mw-talkie",
+      body: "status update for that worker",
+      currentDirectory: "/worktree/project",
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.invokedTargets).toEqual(["session-mw-talkie"]);
+    expect(captured.delivery?.target).toEqual({
+      kind: "target_handle",
+      handle: "mw-talkie",
+      value: "target:mw-talkie",
+    });
+    expect(captured.delivery?.targetLabel).toBe("target:mw-talkie");
+    expect(captured.delivery?.body).toBe("status update for that worker");
+    expect(captured.delivery?.intent).toBe("tell");
+    expect(captured.delivery?.execution).toBeUndefined();
+  }, 15000);
+
   test("routes a single explicit target id through broker delivery", async () => {
     useIsolatedOpenScoutHome();
 
@@ -2929,7 +3023,7 @@ describe("sendScoutMessage", () => {
   }, 15000);
 
   test("fails closed when a mention target is unresolved", async () => {
-    useIsolatedOpenScoutHome();
+    const currentDirectory = useIsolatedOpenScoutHome();
 
     const requests: Array<{ method: string; path: string }> = [];
     globalThis.fetch = (async (input, init) => {
@@ -2980,7 +3074,7 @@ describe("sendScoutMessage", () => {
     const result = await sendScoutMessage({
       senderId: "operator",
       body: "@missing hello",
-      currentDirectory: process.cwd(),
+      currentDirectory,
     });
 
     expect(result.usedBroker).toBe(true);

@@ -300,7 +300,7 @@ export class BrokerDeliveryAcceptanceService {
     const execution = executionWithRouteParams(payload);
     const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
     const attachments = normalizeDeliveryAttachments(payload.attachments, this.options.createId);
-    const targetSessionId =
+    const requestedTargetSessionId =
       payload.target?.kind === "session_id"
         ? payload.target.sessionId.trim()
         : payload.targetSessionId?.trim()
@@ -318,6 +318,7 @@ export class BrokerDeliveryAcceptanceService {
     const hasAgentTarget = Boolean(
       payload.target?.kind === "agent_id"
         || payload.target?.kind === "agent_label"
+        || payload.target?.kind === "target_handle"
         || payload.target?.kind === "session_id"
         || payload.target?.kind === "project_path",
     ) || (!payload.target && Boolean(payload.targetSessionId?.trim() || payload.targetAgentId?.trim() || payload.targetLabel?.trim()));
@@ -593,7 +594,7 @@ export class BrokerDeliveryAcceptanceService {
       Boolean(projectPath)
       && payload.intent === "consult"
       && !payload.targetAgentId?.trim()
-      && !targetSessionId
+      && !requestedTargetSessionId
       && ((execution?.session ?? "new") === "new" || execution?.session === "fork")
       && Boolean(this.options.createCardlessProjectSession);
     const resolved = shouldCreateCardlessProjectSession
@@ -664,14 +665,14 @@ export class BrokerDeliveryAcceptanceService {
           label: resolved.session.label,
           endpoint: resolved.session.endpoint as AgentEndpoint | undefined,
         };
-    const receiptSessionId = targetSessionId
+    const receiptSessionId = requestedTargetSessionId
       ?? (resolved.kind === "resolved_session" ? resolved.session.sessionId : undefined);
 
     const unavailable = resolved.kind === "resolved"
       ? this.options.describeUnavailableDeliveryTarget(
           this.options.runtimeSnapshot(),
           resolved.agent,
-          targetSessionId,
+          requestedTargetSessionId,
         )
       : describeUnavailableSessionEndpoint(resolved.session.endpoint);
     if (unavailable) {
@@ -743,7 +744,7 @@ export class BrokerDeliveryAcceptanceService {
       metadata: {
         ...(payload.messageMetadata ?? {}),
         ...(labels.length ? { labels } : {}),
-        ...(targetSessionId ? { targetSessionId } : {}),
+        ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
         targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
@@ -813,7 +814,7 @@ export class BrokerDeliveryAcceptanceService {
         ? { source: payload.messageMetadata.source }
         : {}),
       ...(payload.invocationMetadata ?? {}),
-      ...(targetSessionId ? { targetSessionId } : {}),
+      ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
       ...(payload.intent === "tell" && payload.invocationMetadata?.sourceIntent === undefined
         ? { sourceIntent: "direct_message" }
         : {}),
@@ -828,8 +829,8 @@ export class BrokerDeliveryAcceptanceService {
       ...(spawnedHarness && baseInvocationExecution.harness && spawnedHarness !== baseInvocationExecution.harness
         ? { harness: spawnedHarness }
         : {}),
-      ...(targetSessionId
-        ? { session: "existing" as const, targetSessionId }
+      ...(receiptSessionId
+        ? { session: "existing" as const, targetSessionId: receiptSessionId }
         : baseInvocationExecution.session
         ? {}
         : { session: "new" as const }),
@@ -852,7 +853,7 @@ export class BrokerDeliveryAcceptanceService {
       metadata: {
         ...invocationMetadata,
         ...(labels.length ? { labels } : {}),
-        ...(targetSessionId ? { targetSessionId } : {}),
+        ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
         targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),

@@ -76,7 +76,10 @@ finalized; package manifests currently use `UNLICENSED`.
 - Follow-up should use the durable broker handle returned by the ask (`ref`,
   `flightId`, `conversationId`, `workId`, or `session:<id>`). Promote a worker
   to a memorable name only after Scout has routed a known-good worker, ideally
-  using a broker-suggested handle.
+  using a broker-suggested situated target handle.
+- When Scout promotes a routed worker or situation to a memorable target, humans
+  type `target:<name>`. Agent prompts and compact UI may render the same handle
+  as `⌖name`; `⌖` is shorthand, not a separate routing authority.
 - Treat the base agent identity as the vanilla project/workspace identity.
   Harness, model, profile, node, and session details are instance constraints
   layered onto that identity only when the caller needs them.

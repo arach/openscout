@@ -328,6 +328,54 @@ describe("BrokerDeliveryAcceptanceService", () => {
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
   });
 
+  test("resolved target handles continue the resolved session", async () => {
+    const sessionEndpoint = testEndpoint({
+      id: "endpoint-session",
+      agentId: "session-agent",
+      sessionId: "session-mw-talkie",
+    });
+    const harness = createHarness({
+      now: 20_250,
+      resolution: {
+        kind: "resolved_session",
+        session: {
+          sessionId: "session-mw-talkie",
+          actorId: "session-agent",
+          endpoint: sessionEndpoint,
+          label: "target:mw-talkie",
+          nodeId: "node-1",
+        },
+      },
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-target-handle",
+      body: "continue the editorial pass",
+      intent: "consult",
+      target: { kind: "target_handle", handle: "mw-talkie", value: "target:mw-talkie" },
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result).toEqual(expect.objectContaining({
+      targetAgentId: "session-agent",
+      targetSessionId: "session-mw-talkie",
+    }));
+    expect(harness.postedMessages[0]?.metadata).toEqual(expect.objectContaining({
+      targetSessionId: "session-mw-talkie",
+    }));
+    expect(harness.acceptedInvocations[0]).toEqual(expect.objectContaining({
+      targetAgentId: "session-agent",
+      execution: expect.objectContaining({
+        session: "existing",
+        targetSessionId: "session-mw-talkie",
+      }),
+      metadata: expect.objectContaining({
+        targetSessionId: "session-mw-talkie",
+      }),
+    }));
+  });
+
   test("project-path consult with an explicit agent target does not synthesize a cardless session", async () => {
     const harness = createHarness({ now: 20_500 });
 
