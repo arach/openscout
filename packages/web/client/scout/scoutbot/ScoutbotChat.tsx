@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, CheckCircle2, ChevronDown, ChevronUp, Copy, History, Loader2, Mic, SendHorizontal, Square } from "lucide-react";
+import { Archive, CheckCircle2, ChevronDown, ChevronUp, Copy, History, Loader2, Mic, Plus, SendHorizontal, Square } from "lucide-react";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { AgentMentionTextarea, type AgentMentionTextareaHandle } from "../../lib/agent-autocomplete.tsx";
 import {
@@ -21,6 +21,8 @@ export function ChatHistory({
   onToggleExpanded,
   sessionPickerOpen,
   onToggleSessionPicker,
+  onStartNewChat,
+  startingNewChat,
   onSwitchSession,
   switchingSessionId,
   sending,
@@ -37,6 +39,8 @@ export function ChatHistory({
   onToggleExpanded: () => void;
   sessionPickerOpen: boolean;
   onToggleSessionPicker: () => void;
+  onStartNewChat: () => void;
+  startingNewChat: boolean;
   onSwitchSession: (id: string) => void;
   switchingSessionId: string | null;
   sending: boolean;
@@ -56,6 +60,11 @@ export function ChatHistory({
   const sessionsCount = state.sessions.length;
   const retention = state.retention;
   const isEmptySession = messages.length === 0 && !pendingAsk && !sending && !briefing;
+  const chatActionsBusy = startingNewChat
+    || sending
+    || briefing
+    || Boolean(switchingSessionId)
+    || Boolean(archivingSessionId);
   const startedAt = state.session.createdAt
     ? formatClockTimestamp(state.session.createdAt)
     : null;
@@ -91,8 +100,19 @@ export function ChatHistory({
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            title={`Switch session (${sessionsCount} total)`}
-            aria-label="Switch session"
+            title="Start a new chat (keeps this chat in Chats)"
+            aria-label="Start new chat"
+            onClick={onStartNewChat}
+            disabled={chatActionsBusy}
+            className="flex items-center gap-1 rounded border border-lime-300/30 bg-lime-300/[0.06] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] text-lime-100 transition-colors hover:border-lime-300/50 hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {startingNewChat ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+            <span>{startingNewChat ? "Starting" : "New chat"}</span>
+          </button>
+          <button
+            type="button"
+            title={`Switch chat (${sessionsCount} total)`}
+            aria-label="Switch chat"
             onClick={onToggleSessionPicker}
             className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] transition-colors ${
               sessionPickerOpen
@@ -101,7 +121,7 @@ export function ChatHistory({
             }`}
           >
             <History size={10} />
-            <span>Sessions</span>
+            <span>Chats</span>
             <span className="text-[var(--scout-chrome-ink-ghost)]">{sessionsCount}</span>
             <ChevronDown size={9} className={sessionPickerOpen ? "rotate-180 transition-transform" : "transition-transform"} />
           </button>
@@ -123,7 +143,7 @@ export function ChatHistory({
       {sessionPickerOpen && (
         <div className="shrink-0 border-b border-[var(--scout-chrome-border-soft)] px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between gap-2 px-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            <span>Recent sessions</span>
+            <span>Recent chats</span>
             {retention && retention.archivedCount > 0 && (
               <span>{retention.archivedCount} archived</span>
             )}
@@ -255,10 +275,10 @@ function ScoutbotZeroState({
     <div className="flex min-h-full flex-1 flex-col justify-center gap-2 px-1 py-2.5">
       <div className="max-w-[30rem]">
         <div className="font-sans text-[13px] font-semibold leading-tight text-[var(--scout-chrome-ink)]">
-          Coordinate from here.
+          Start with a question.
         </div>
         <p className="mt-0.5 font-sans text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
-          Tag agents, ask Scout to route work, or have it watch the active lanes.
+          Paste a failed result or ask about what you are seeing. Scout replies when you ask.
         </p>
       </div>
       {suggestedPrompts.length > 0 ? (
@@ -354,7 +374,7 @@ export function ChatInput({
         onSubmit={() => {
           if (draft.trim() && !sending) onSubmit();
         }}
-        placeholder={prominent ? "Message Scout to watch, route, or coordinate with @agents…" : "Message Scout…"}
+        placeholder={prominent ? "Ask Scout about what you are seeing…" : "Ask Scout…"}
         rows={prominent ? 4 : 2}
         disabled={sending}
         submitOnEnter
