@@ -425,6 +425,7 @@ function AgentLaneColumn({
   onWidthResizeStart,
   widthResizing,
   focusProps,
+  operatorName,
 }: {
   lane: AgentLane;
   widthPx: number;
@@ -452,6 +453,8 @@ function AgentLaneColumn({
     ref: (node: HTMLElement | null) => void;
     onFocus: () => void;
   };
+  /** Operator display name for the chat-style user-request head in the trace. */
+  operatorName?: string;
 }) {
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
@@ -503,6 +506,7 @@ function AgentLaneColumn({
             traceWindowLabel={traceWindowLabel}
             laneCollapseTechnicalEvents={collapseTechnicalEvents}
             onLaneCollapseTechnicalEventsChange={setCollapseTechnicalEvents}
+            laneOperatorName={operatorName}
             onLaneEventSelect={(event) => onTraceEventSelect(lane, event)}
           />
         ) : (
@@ -571,8 +575,9 @@ export function AgentLanesView({
   harnessFilter?: string | null;
   projectFilter?: string | null;
 }) {
-  const { agents: contextAgents } = useScout();
+  const { agents: contextAgents, onboarding } = useScout();
   const scoutAgents = agentsProp ?? contextAgents;
+  const laneOperatorName = onboarding?.operatorName?.trim() || undefined;
   const profileId = profileIdProp ?? readLaneDeckProfileId();
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
@@ -856,6 +861,7 @@ export function AgentLanesView({
         onWidthResizeStart={(event) => beginWidthResize(lane.id, event, column.widthPx)}
         widthResizing={resizingLaneId === lane.id}
         focusProps={getLaneFocusProps(index, lane.id)}
+        operatorName={laneOperatorName}
       />
     );
   }, [
@@ -868,6 +874,7 @@ export function AgentLanesView({
     inspectLane,
     openTraceSheet,
     isPinned,
+    laneOperatorName,
     newLaneIds,
     now,
     pinLane,
@@ -1057,7 +1064,7 @@ export function AgentLanesView({
           />
         )
       ) : floorMode ? (
-        <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} railLedger />
+        <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} railLedger operatorName={laneOperatorName} />
       ) : (
         <div className="s-agent-lanes-body">
           {layout.pinnedLeft.length > 0 ? (

@@ -636,6 +636,7 @@ function FloorTracePanel({
   onConciseChange,
   onClose,
   onOpenFull,
+  operatorName,
 }: {
   series: FloorLaneSeries;
   now: number;
@@ -643,6 +644,8 @@ function FloorTracePanel({
   onConciseChange: (value: boolean) => void;
   onClose: () => void;
   onOpenFull: () => void;
+  /** Operator display name for the chat-style user-request head in the trace. */
+  operatorName?: string;
 }) {
   const { agent, observe, source } = series.lane;
   const name = lanePrimaryLabel(agent, source);
@@ -668,6 +671,7 @@ function FloorTracePanel({
             traceWindowLabel="30m"
             laneCollapseTechnicalEvents={concise}
             onLaneCollapseTechnicalEventsChange={onConciseChange}
+            laneOperatorName={operatorName}
             onLaneEventSelect={onOpenFull}
           />
         ) : (
@@ -715,12 +719,14 @@ function FloorZoomControls({
   );
 }
 
-export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: {
+export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false, operatorName }: {
   lanes: AgentLane[];
   now: number;
   onOpenTrace: (lane: AgentLane) => void;
   /** Publish the ledger into the host's left rail instead of embedding it. */
   railLedger?: boolean;
+  /** Operator display name for the chat-style user-request head in the trace panel. */
+  operatorName?: string;
 }) {
   const [orientation, setOrientation] = useState<FloorOrientation>(readStoredOrientation);
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
@@ -1121,6 +1127,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
               onConciseChange={setTraceConcise}
               onClose={() => setPinnedId(null)}
               onOpenFull={() => onOpenTrace(pinnedSeries.lane)}
+              operatorName={operatorName}
             />
           ) : null}
         </div>
