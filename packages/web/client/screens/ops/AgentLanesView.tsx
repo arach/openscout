@@ -12,6 +12,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
+import type { TailFeedLoadPhase, TailFeedLoadState } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
@@ -236,26 +237,94 @@ function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
   );
 }
 
-function AgentLanesLoadingState({ horizonLabel }: { horizonLabel: string }) {
+function loadingStepState(phase: TailFeedLoadPhase): "RUN" | "OK" | "WARN" {
+  if (phase === "ready") return "OK";
+  if (phase === "error") return "WARN";
+  return "RUN";
+}
+
+function AgentLanesLoadingState({
+  eventCount,
+  horizonLabel,
+  loadState,
+  sourceCount,
+}: {
+  eventCount: number;
+  horizonLabel: string;
+  loadState: TailFeedLoadState;
+  sourceCount: number;
+}) {
+  const discoveryDetail = loadState.discovery === "ready"
+    ? `${sourceCount.toLocaleString()} session source${sourceCount === 1 ? "" : "s"} indexed`
+    : loadState.discovery === "error"
+      ? "session source scan unavailable"
+      : "scanning local transcripts and harness processes";
+  const recentDetail = loadState.recent === "ready"
+    ? `${eventCount.toLocaleString()} recent event${eventCount === 1 ? "" : "s"} merged`
+    : loadState.recent === "error"
+      ? "history replay unavailable; live signals remain enabled"
+      : `reading turns and tool output for the ${horizonLabel} view`;
+
   return (
     <div className="s-agent-lanes-loading" role="status" aria-live="polite" aria-busy="true">
-      <div className="s-agent-lanes-loading-head">
-        <span className="s-agent-lanes-loading-kicker">Materializing lanes</span>
-        <span className="s-agent-lanes-loading-meta">trace {horizonLabel}</span>
-      </div>
-      <div className="s-agent-lanes-loading-grid" aria-hidden="true">
-        {Array.from({ length: 3 }, (_, index) => (
-          <div className="s-agent-lanes-loading-lane" key={index}>
-            <div className="s-agent-lanes-loading-card">
-              <span className="s-agent-lanes-loading-avatar" />
-              <span className="s-agent-lanes-loading-line s-agent-lanes-loading-line--name" />
-              <span className="s-agent-lanes-loading-line s-agent-lanes-loading-line--meta" />
-            </div>
-            <span className="s-agent-lanes-loading-rule" />
-            <span className="s-agent-lanes-loading-event" />
-            <span className="s-agent-lanes-loading-event s-agent-lanes-loading-event--short" />
+      <div className="s-agent-lanes-loading-console">
+        <div className="s-agent-lanes-loading-head">
+          <span className="s-agent-lanes-loading-signal" aria-hidden="true" />
+          <div>
+            <span className="s-agent-lanes-loading-kicker">Starting agent tail</span>
+            <h2>Loading live lanes</h2>
           </div>
-        ))}
+          <span className="s-agent-lanes-loading-meta">lookback {horizonLabel}</span>
+        </div>
+        <p className="s-agent-lanes-loading-intro">
+          Scout is collecting recent local agent signals before it draws the lane deck.
+        </p>
+        <div className="s-agent-lanes-loading-log" aria-label="Agent tail loading progress">
+          <div className={`s-agent-lanes-loading-step s-agent-lanes-loading-step--${loadState.discovery}`}>
+            <span>{loadingStepState(loadState.discovery)}</span>
+            <strong>discover sessions</strong>
+            <code>{discoveryDetail}</code>
+          </div>
+          <div className={`s-agent-lanes-loading-step s-agent-lanes-loading-step--${loadState.recent}`}>
+            <span>{loadingStepState(loadState.recent)}</span>
+            <strong>replay recent tail</strong>
+            <code>{recentDetail}</code>
+          </div>
+          <div className="s-agent-lanes-loading-step s-agent-lanes-loading-step--assembling">
+            <span>LIVE</span>
+            <strong>assemble lanes</strong>
+            <code>building the roster as signals arrive</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentLanesUnavailableState({
+  loadState,
+  onRetry,
+}: {
+  loadState: TailFeedLoadState;
+  onRetry: () => void;
+}) {
+  const failures = [
+    loadState.discovery === "error" ? "session discovery" : "",
+    loadState.recent === "error" ? "recent history" : "",
+  ].filter(Boolean).join(" and ");
+  return (
+    <div className="s-agent-lanes-empty s-agent-lanes-empty--degraded" role="alert">
+      <div className="s-agent-lanes-empty-card">
+        <div className="s-agent-lanes-empty-rail" aria-hidden="true"><span /><span /><span /></div>
+        <div className="s-agent-lanes-empty-copy">
+          <span className="s-agent-lanes-empty-kicker">Tail incomplete</span>
+          <h2>Recent activity could not be loaded</h2>
+          <p>Scout could not finish {failures || "the tail scan"}, so this is not being treated as a quiet interval.</p>
+          <p className="s-agent-lanes-empty-secondary">Live events can still arrive while Scout retries.</p>
+        </div>
+        <div className="s-agent-lanes-empty-actions">
+          <button type="button" onClick={onRetry}>Retry tail scan</button>
+        </div>
       </div>
     </div>
   );
@@ -269,6 +338,8 @@ function AgentLanesEmptyState({
   onHorizonChange,
   onAddAttentionLane,
   onAddCodexLane,
+  sourceCount,
+  eventCount,
 }: {
   activeFilterLabel: string;
   horizon: AgentLaneHorizonKey;
@@ -277,21 +348,23 @@ function AgentLanesEmptyState({
   onHorizonChange: (horizon: AgentLaneHorizonKey) => void;
   onAddAttentionLane: () => void;
   onAddCodexLane: () => void;
+  sourceCount: number;
+  eventCount: number;
 }) {
   const filtered = Boolean(activeFilterLabel);
   const title = filtered
     ? "No matching lanes"
     : showAutoLanes
-      ? "Quiet window"
+      ? `No activity in the last ${horizonLabel}`
       : "No pinned lanes";
   const detail = filtered
     ? `${activeFilterLabel} has no activity in the last ${horizonLabel}.`
     : showAutoLanes
-      ? `No live agent work in the last ${horizonLabel}.`
-      : "The deck is waiting for pinned lanes.";
+      ? `Scout checked ${sourceCount.toLocaleString()} session source${sourceCount === 1 ? "" : "s"} and ${eventCount.toLocaleString()} recent tail event${eventCount === 1 ? "" : "s"}; nothing is active in this interval.`
+      : "Automatic lanes are off, and this deck has no pinned sessions.";
   const secondary = showAutoLanes
-    ? "Tail is connected; new turns and tool output will slide in here."
-    : "Pinned lanes stay visible even when the active window is quiet.";
+    ? "Scout will keep listening. New turns and tool output will appear here automatically."
+    : "Pin a session lane or turn automatic lanes back on to populate the deck.";
   const nextHorizon: AgentLaneHorizonKey | null = horizon === "5m"
     ? "30m"
     : horizon === "24h"
@@ -307,7 +380,7 @@ function AgentLanesEmptyState({
           <span />
         </div>
         <div className="s-agent-lanes-empty-copy">
-          <span className="s-agent-lanes-empty-kicker">Fleet idle</span>
+          <span className="s-agent-lanes-empty-kicker">{filtered ? "Filter checked" : showAutoLanes ? "Tail scanned" : "Lane deck ready"}</span>
           <h2>{title}</h2>
           <p>{detail}</p>
           <p className="s-agent-lanes-empty-secondary">{secondary}</p>
@@ -315,14 +388,14 @@ function AgentLanesEmptyState({
         <div className="s-agent-lanes-empty-actions">
           {nextHorizon ? (
             <button type="button" onClick={() => onHorizonChange(nextHorizon)}>
-              Widen to {agentLaneHorizonLabel(nextHorizon)}
+              Look back {agentLaneHorizonLabel(nextHorizon)}
             </button>
           ) : null}
           <button type="button" onClick={onAddAttentionLane}>
-            Needs attention
+            Show attention
           </button>
           <button type="button" onClick={onAddCodexLane}>
-            Codex sessions
+            Pin Codex sessions
           </button>
         </div>
       </div>
@@ -518,7 +591,7 @@ export function AgentLanesView({
   );
   const tailRecentLimit = agentLaneTailRecentLimit(effectiveHorizon);
   const traceWindowMs = agentLaneHorizonWindowMs(effectiveHorizon);
-  const { discovery, events: tailEvents } = useTailFeed({
+  const { discovery, events: tailEvents, loadState, retryInitialLoad } = useTailFeed({
     includeTranscriptReplay: true,
     hydrateOnDiscovery: true,
     discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
@@ -594,7 +667,9 @@ export function AgentLanesView({
     idleIntervalMs: embedded ? EMBEDDED_OBSERVE_IDLE_INTERVAL_MS : undefined,
     pauseWhenHidden: true,
   });
-  const tailLoading = discovery === null && tailEvents.length === 0;
+  const tailLoading = loadState.discovery === "loading" || loadState.recent === "loading";
+  const tailUnavailable = loadState.discovery === "error" || loadState.recent === "error";
+  const tailSourceCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
 
   useEffect(() => {
     if (newLaneIds.size === 0) return;
@@ -957,7 +1032,17 @@ export function AgentLanesView({
       ) : null}
       {(floorMode ? filteredLanes.length : visibleColumns.length) === 0 ? (
         tailLoading ? (
-          <AgentLanesLoadingState horizonLabel={horizonLabel} />
+          <AgentLanesLoadingState
+            eventCount={tailEvents.length}
+            horizonLabel={horizonLabel}
+            loadState={loadState}
+            sourceCount={tailSourceCount}
+          />
+        ) : tailUnavailable ? (
+          <AgentLanesUnavailableState
+            loadState={loadState}
+            onRetry={() => void retryInitialLoad()}
+          />
         ) : (
           <AgentLanesEmptyState
             activeFilterLabel={activeFilterLabel}
@@ -967,6 +1052,8 @@ export function AgentLanesView({
             onHorizonChange={setHorizon}
             onAddAttentionLane={addAttentionLane}
             onAddCodexLane={() => addHarnessLane("codex", "Codex sessions")}
+            sourceCount={tailSourceCount}
+            eventCount={tailEvents.length}
           />
         )
       ) : floorMode ? (

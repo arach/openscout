@@ -1,6 +1,15 @@
 import "./agent-floor.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { agentSpriteProps, SpriteAvatar } from "../../components/SpriteAvatar.tsx";
@@ -8,6 +17,7 @@ import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { laneSnippetText, observeEventWallMs } from "../../lib/lane-observe.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { ObserveEvent } from "../../lib/types.ts";
+import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import {
   isAgentLaneLive,
   lanePrimaryLabel,
@@ -32,8 +42,8 @@ import {
  * lane's glanceable signals (momentum, cadence, signature, activity mix)
  * while you hover. CLICKING pins the dock to that lane (click again for the full
  * timeline, Esc releases). Hovering a tower projects that slot's window
- * readout in-scene. Lane order matches the ledger top-to-bottom: the most
- * recent agent is the topmost lane on the plane and the top row of the list.
+ * readout in-scene. Lane order matches the ledger top-to-bottom: recency seeds
+ * the initial order, then existing agents hold position while newcomers append.
  *
  * The ledger lives in one of two places: embedded beside the plane (default,
  * used by the scope surface), or published into the host app's left rail via
@@ -54,6 +64,20 @@ const TOTAL_SLOTS = MINTED_SLOTS + 1;
 const SLOT_MAX_BLOCKS = 8;
 const MAX_FLOOR_LANES = 8;
 const STRIP_BLOCKS = 10;
+const FLOOR_TRACE_WINDOW_MS = 30 * 60_000;
+const FLOOR_ZOOM_MIN = 0.65;
+const FLOOR_ZOOM_MAX = 1.45;
+const FLOOR_ZOOM_STEP = 0.1;
+const FLOOR_PAN_X_MAX = 360;
+const FLOOR_PAN_Y_MAX = 260;
+
+function clampFloorZoom(value: number): number {
+  return Math.round(Math.min(FLOOR_ZOOM_MAX, Math.max(FLOOR_ZOOM_MIN, value)) * 100) / 100;
+}
+
+function clampFloorPan(value: number, limit: number): number {
+  return Math.round(Math.min(limit, Math.max(-limit, value)));
+}
 
 const LANE_PITCH = 164;
 const STACK_SIZE = 56;
@@ -74,6 +98,7 @@ const FLAG_LIFT = 38;
 type FloorOrientation = "past-left" | "past-right";
 
 const FLOOR_ORIENT_STORAGE_KEY = "openscout:agent-floor-orient";
+const FLOOR_LANE_ORDER_STORAGE_KEY = "openscout:agent-floor-lane-order";
 
 function readStoredOrientation(): FloorOrientation {
   try {
@@ -83,6 +108,15 @@ function readStoredOrientation(): FloorOrientation {
     // ignore storage failures
   }
   return "past-left";
+}
+
+function readStoredLaneOrder(): string[] {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(FLOOR_LANE_ORDER_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function fmtSlotClock(ts: number): string {
@@ -549,7 +583,6 @@ function FloorDock({ focus, pinned, ledger, liveCount, now }: {
             mix={totals}
           />
         </span>
-        <span className="agent-floor__dock-hint">hover a lane for signals · click to pin</span>
       </div>
     );
   }
@@ -592,10 +625,92 @@ function FloorDock({ focus, pinned, ledger, liveCount, now }: {
           mix={focus.counts}
         />
       </span>
+    </div>
+  );
+}
 
-      <span className="agent-floor__dock-hint">
-        {pinned ? "click again for the timeline · esc releases" : "click to pin"}
-      </span>
+function FloorTracePanel({
+  series,
+  now,
+  concise,
+  onConciseChange,
+  onClose,
+  onOpenFull,
+}: {
+  series: FloorLaneSeries;
+  now: number;
+  concise: boolean;
+  onConciseChange: (value: boolean) => void;
+  onClose: () => void;
+  onOpenFull: () => void;
+}) {
+  const { agent, observe, source } = series.lane;
+  const name = lanePrimaryLabel(agent, source);
+
+  return (
+    <aside className="agent-floor__trace-panel" aria-label={`${name} selected lane trace`}>
+      <button
+        type="button"
+        className="agent-floor__trace-close"
+        onClick={onClose}
+        aria-label="Close selected lane trace"
+      >×</button>
+      <div className="agent-floor__trace-body">
+        {observe ? (
+          <SessionObserve
+            data={observe}
+            agentId={source === "scout" ? agent.id : undefined}
+            sessionId={agent.harnessSessionId}
+            showRail={false}
+            variant="lane"
+            nowMs={now}
+            traceWindowMs={FLOOR_TRACE_WINDOW_MS}
+            traceWindowLabel="30m"
+            laneCollapseTechnicalEvents={concise}
+            onLaneCollapseTechnicalEventsChange={onConciseChange}
+            onLaneEventSelect={onOpenFull}
+          />
+        ) : (
+          <div className="agent-floor__trace-empty">Waiting for trace activity…</div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function FloorZoomControls({
+  zoom,
+  fit,
+  onZoomChange,
+  onReset,
+}: {
+  zoom: number;
+  fit: boolean;
+  onZoomChange: (value: number) => void;
+  onReset: () => void;
+}) {
+  const percent = Math.round(zoom * 100);
+  return (
+    <div className="agent-floor__zoom" role="group" aria-label="Floor zoom">
+      <button
+        type="button"
+        aria-label="Zoom out"
+        disabled={zoom <= FLOOR_ZOOM_MIN}
+        onClick={() => onZoomChange(clampFloorZoom(zoom - FLOOR_ZOOM_STEP))}
+      >−</button>
+      <button
+        type="button"
+        className="agent-floor__zoom-reset"
+        aria-label="Reset floor zoom to fit"
+        title="Reset zoom and position to automatic fit"
+        onClick={onReset}
+      >{fit ? "fit" : `${percent}%`}</button>
+      <button
+        type="button"
+        aria-label="Zoom in"
+        disabled={zoom >= FLOOR_ZOOM_MAX}
+        onClick={() => onZoomChange(clampFloorZoom(zoom + FLOOR_ZOOM_STEP))}
+      >+</button>
     </div>
   );
 }
@@ -611,7 +726,19 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   const [focusLaneId, setFocusLaneId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [peek, setPeek] = useState<{ laneId: string; slot: number } | null>(null);
+  const [traceConcise, setTraceConcise] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [laneOrder, setLaneOrder] = useState<string[]>(readStoredLaneOrder);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
   const [viewportSize, setViewportSize] = useState<{ w: number; h: number } | null>(null);
   const flip = orientation === "past-right";
 
@@ -653,6 +780,53 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
     else setPinnedId(lane.id);
   }, [pinnedId, onOpenTrace]);
 
+  const resetFloorView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+  const handleViewportWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(".agent-floor__trace-panel, .agent-floor__zoom")) return;
+    event.preventDefault();
+    if (event.metaKey || event.ctrlKey) {
+      setZoom((current) => clampFloorZoom(current - event.deltaY * 0.002));
+      return;
+    }
+    setPan((current) => ({
+      x: clampFloorPan(current.x - event.deltaX, FLOOR_PAN_X_MAX),
+      y: clampFloorPan(current.y - event.deltaY, FLOOR_PAN_Y_MAX),
+    }));
+  }, []);
+  const handleViewportPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.button !== 0 || target?.closest("button, .agent-floor__trace-panel")) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  }, [pan]);
+  const handleViewportPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPan({
+      x: clampFloorPan(drag.panX + event.clientX - drag.startX, FLOOR_PAN_X_MAX),
+      y: clampFloorPan(drag.panY + event.clientY - drag.startY, FLOOR_PAN_Y_MAX),
+    });
+  }, []);
+  const stopViewportDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragging(false);
+  }, []);
+
   useEffect(() => {
     if (pinnedId === null) return;
     const onKey = (event: KeyboardEvent) => {
@@ -666,11 +840,37 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   // everything shifts one slot only when a new period mints.
   const periodStart = Math.floor(now / BUCKET_MS) * BUCKET_MS;
 
+  const orderedLanes = useMemo(() => {
+    const lanesById = new Map(lanes.map((lane) => [lane.id, lane]));
+    const known = laneOrder.flatMap((laneId) => {
+      const lane = lanesById.get(laneId);
+      return lane ? [lane] : [];
+    });
+    const knownIds = new Set(known.map((lane) => lane.id));
+    const newcomers = lanes
+      .filter((lane) => !knownIds.has(lane.id))
+      .sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+    return known.concat(newcomers);
+  }, [lanes, laneOrder]);
+
+  useEffect(() => {
+    const nextOrder = orderedLanes.map((lane) => lane.id);
+    setLaneOrder((current) => (
+      current.length === nextOrder.length && current.every((laneId, index) => laneId === nextOrder[index])
+        ? current
+        : nextOrder
+    ));
+    try {
+      sessionStorage.setItem(FLOOR_LANE_ORDER_STORAGE_KEY, JSON.stringify(nextOrder));
+    } catch {
+      // ignore storage failures
+    }
+  }, [orderedLanes]);
+
   const { series, hidden, planeW, planeD, lanesStartY } = useMemo(() => {
-    const sorted = [...lanes].sort((left, right) => right.lastActiveAt - left.lastActiveAt);
-    const built = sorted.map((lane) => buildFloorLane(lane, periodStart));
-    // Lane order mirrors the ledger: most recent is the TOP lane on the plane
-    // and the top row of the list, descending together.
+    const built = orderedLanes.map((lane) => buildFloorLane(lane, periodStart));
+    // Initial order is seeded by recency; after that, each agent holds its
+    // physical lane while newly discovered agents join at the end.
     const shown = built.slice(0, MAX_FLOOR_LANES);
     const stripsH = shown.length * LANE_PITCH;
     const depth = Math.max(MIN_PLANE_D, stripsH + EDGE_MARGIN * 2);
@@ -681,7 +881,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
       planeD: depth,
       lanesStartY: (depth - stripsH) / 2,
     };
-  }, [lanes, periodStart]);
+  }, [orderedLanes, periodStart]);
 
   const ledger = useMemo(() => series.concat(hidden), [series, hidden]);
   const liveCount = ledger.filter((entry) => entry.live).length;
@@ -689,6 +889,9 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   const focusSeries = effectiveFocus === null
     ? null
     : ledger.find((entry) => entry.lane.id === effectiveFocus) ?? null;
+  const pinnedSeries = pinnedId === null
+    ? null
+    : ledger.find((entry) => entry.lane.id === pinnedId) ?? null;
 
   // A pinned lane can age out of the roster — release the pin with it.
   useEffect(() => {
@@ -696,6 +899,10 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
       setPinnedId(null);
     }
   }, [ledger, pinnedId]);
+
+  useEffect(() => {
+    setTraceConcise(false);
+  }, [pinnedId]);
 
   // Rail mode: the host's left rail is the ledger. Publish compact rows,
   // register the hover/select handlers rail rows call, and mirror the focus.
@@ -749,7 +956,7 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
   // Fill whatever screen we're given: scale the whole scene so the projected
   // isometric footprint uses the viewport, growing on large displays and
   // shrinking instead of clipping on small ones.
-  const stageScale = useMemo(() => {
+  const stageFitScale = useMemo(() => {
     if (!viewportSize) return 1;
     const span = planeW + planeD;
     const projectedW = 0.708 * span + 60;
@@ -757,9 +964,14 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
     const fit = Math.min(viewportSize.w / projectedW, viewportSize.h / projectedH);
     return Math.round(Math.min(1.6, Math.max(0.7, fit)) * 100) / 100;
   }, [viewportSize, planeW, planeD]);
+  const stageScale = Math.round(stageFitScale * zoom * 100) / 100;
 
   return (
-    <div className="agent-floor" data-live-count={liveCount} data-floor-orient={orientation}>
+    <div
+      className={`agent-floor${railLedger ? " is-rail-ledger" : ""}`}
+      data-live-count={liveCount}
+      data-floor-orient={orientation}
+    >
       <div className="agent-floor__body">
         {railLedger ? null : (
           <aside className="agent-floor__ledger" aria-label="Fleet ledger">
@@ -809,10 +1021,24 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
           </aside>
         )}
 
-        <div className="agent-floor__viewport" ref={viewportRef}>
+        <div
+          className={`agent-floor__viewport${pinnedSeries ? " is-inspecting" : ""}${dragging ? " is-dragging" : ""}`}
+          ref={viewportRef}
+          onWheel={handleViewportWheel}
+          onPointerDown={handleViewportPointerDown}
+          onPointerMove={handleViewportPointerMove}
+          onPointerUp={stopViewportDrag}
+          onPointerCancel={stopViewportDrag}
+        >
+          <FloorZoomControls
+            zoom={zoom}
+            fit={zoom === 1 && pan.x === 0 && pan.y === 0}
+            onZoomChange={setZoom}
+            onReset={resetFloorView}
+          />
           <div
             className="agent-floor__stage"
-            style={{ transform: `scale(${stageScale}) rotateX(57deg) rotateZ(45deg)` }}
+            style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${stageScale}) rotateX(57deg) rotateZ(45deg)` }}
           >
             <div
               className="agent-floor__field"
@@ -887,6 +1113,16 @@ export function AgentFloorView({ lanes, now, onOpenTrace, railLedger = false }: 
               ) : null}
             </div>
           </div>
+          {pinnedSeries ? (
+            <FloorTracePanel
+              series={pinnedSeries}
+              now={now}
+              concise={traceConcise}
+              onConciseChange={setTraceConcise}
+              onClose={() => setPinnedId(null)}
+              onOpenFull={() => onOpenTrace(pinnedSeries.lane)}
+            />
+          ) : null}
         </div>
       </div>
 

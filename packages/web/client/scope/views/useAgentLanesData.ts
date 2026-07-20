@@ -68,7 +68,7 @@ export function useAgentLanesData({
   const traceWindowMs = agentLaneHorizonWindowMs(horizon);
   const horizonLabel = agentLaneHorizonLabel(horizon);
 
-  const { discovery, events: tailEvents } = useTailFeed({
+  const { discovery, events: tailEvents, loadState } = useTailFeed({
     includeTranscriptReplay: true,
     discoveryIntervalMs: 5_000,
     recentLimit: tailRecentLimit,
@@ -111,7 +111,7 @@ export function useAgentLanesData({
     [scoutAgents, now, horizon],
   );
   const observeCache = useObservePolling(observeAgents);
-  const tailLoading = discovery === null && tailEvents.length === 0;
+  const tailLoading = loadState.discovery === "loading" || loadState.recent === "loading";
 
   useEffect(() => {
     if (newLaneIds.size === 0) return;
