@@ -1110,15 +1110,21 @@ const operatorSignalResultSchema = z.object({
   currentDirectory: z.string(),
   senderId: z.string(),
   kind: z.enum(["notify", "consult"]),
-  status: z.enum(["sent", "not_sent"]),
+  status: z.enum(["recorded", "not_recorded"]),
   blocking: z.literal(false),
-  responseOptional: z.boolean(),
+  replyExpectation: z.enum(["none", "optional"]),
+  notificationDelivery: z.enum(["unconfirmed", "not_attempted"]),
   defaultAction: z.string().nullable(),
   conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
   signalId: z.string().nullable(),
   routingError: z.string().nullable(),
 });
+
+const nonBlankToolStringSchema = z.string().refine(
+  (value) => value.trim().length > 0,
+  { message: "Must contain non-whitespace text" },
+).transform((value) => value.trim());
 
 const replyContextSchema = z.object({
   mode: z.literal("broker_reply"),
@@ -4017,11 +4023,11 @@ export function createScoutMcpServer(options: {
       resolvedCurrentDirectory,
       env,
     );
-    const responseOptional = input.kind === "consult";
+    const replyExpectation = input.kind === "consult" ? "optional" as const : "none" as const;
     const defaultAction = input.defaultAction?.trim() || null;
     const body = input.kind === "consult" && defaultAction
-      ? `${input.body.trim()}\n\nDefault if there is no reply: ${defaultAction}`
-      : input.body.trim();
+      ? `${input.body}\n\nDefault if there is no reply: ${defaultAction}`
+      : input.body;
     const result = await deps.sendMessage({
       senderId: resolvedSenderId,
       body,
@@ -4030,10 +4036,18 @@ export function createScoutMcpServer(options: {
       source: "scout-mcp",
       wake: false,
       operatorSignal: {
-        kind: input.kind,
-        blocking: false,
-        responseOptional,
-        ...(defaultAction ? { defaultAction } : {}),
+        ...(input.kind === "consult"
+          ? {
+              kind: "consult" as const,
+              blocking: false as const,
+              replyExpectation: "optional" as const,
+              defaultAction: defaultAction!,
+            }
+          : {
+              kind: "notify" as const,
+              blocking: false as const,
+              replyExpectation: "none" as const,
+            }),
       },
     });
     const messageId = result.messageId ?? null;
@@ -4047,20 +4061,23 @@ export function createScoutMcpServer(options: {
       currentDirectory: resolvedCurrentDirectory,
       senderId: resolvedSenderId,
       kind: input.kind,
-      status: routingError || !result.usedBroker ? "not_sent" as const : "sent" as const,
+      status: routingError || !result.usedBroker ? "not_recorded" as const : "recorded" as const,
       blocking: false as const,
-      responseOptional,
+      replyExpectation,
+      notificationDelivery: routingError || !result.usedBroker
+        ? "not_attempted" as const
+        : "unconfirmed" as const,
       defaultAction,
       conversationId: result.conversationId ?? null,
       messageId,
       signalId: messageId,
       routingError: routingError ?? (!result.usedBroker ? "broker_unreachable" : null),
     };
-    const summary = structuredContent.status === "sent"
+    const summary = structuredContent.status === "recorded"
       ? input.kind === "consult"
-        ? `Optional consultation sent (${messageId}); continue with the declared default unless the operator replies.`
-        : `Operator notified (${messageId}); continue working.`
-      : `Operator signal was not sent: ${structuredContent.routingError}.`;
+        ? `Optional consultation recorded (${messageId}); notification delivery is unconfirmed. Continue with the declared default unless the operator replies.`
+        : `Operator signal recorded (${messageId}); notification delivery is unconfirmed. Continue working.`
+      : `Operator signal was not recorded: ${structuredContent.routingError}.`;
     return {
       content: createPlainTextContent(summary),
       structuredContent,
@@ -4074,7 +4091,7 @@ export function createScoutMcpServer(options: {
       description:
         "Send the human operator a useful, non-blocking FYI and continue working. This creates a durable broker message for delivery and correlation, but it does not create a flight, request a reply, or change task lifecycle. Do not use it for routine progress chatter or when work cannot safely continue.",
       inputSchema: z.object({
-        message: z.string().min(1),
+        message: nonBlankToolStringSchema,
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
       }),
@@ -4083,7 +4100,7 @@ export function createScoutMcpServer(options: {
         readOnlyHint: false,
         idempotentHint: false,
         destructiveHint: false,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
     async ({ message, currentDirectory, senderId }) =>
@@ -4102,8 +4119,8 @@ export function createScoutMcpServer(options: {
       description:
         "Ask the human operator for optional advice while continuing the current task. Always declare the safe default action you will take if no reply arrives. This creates a durable, replyable broker message but no invocation, flight, waiting state, or lifecycle transition. Use a blocking human-input mechanism instead when there is no responsible default.",
       inputSchema: z.object({
-        question: z.string().min(1),
-        defaultAction: z.string().min(1),
+        question: nonBlankToolStringSchema,
+        defaultAction: nonBlankToolStringSchema,
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
       }),
@@ -4112,7 +4129,7 @@ export function createScoutMcpServer(options: {
         readOnlyHint: false,
         idempotentHint: false,
         destructiveHint: false,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
     async ({ question, defaultAction, currentDirectory, senderId }) =>

@@ -251,21 +251,42 @@ describe("createBrokerHttpRouter", () => {
     } as Partial<BrokerHttpRouterDeps>);
 
     const delivery = await requestRouter(harness, "POST", "/v1/deliver", {
-      body: { target: "agent-1", body: "hello" },
+      body: { target: "agent-1", body: "hello", intent: "tell" },
     });
     const question = await requestRouter(harness, "POST", "/v1/deliver", {
-      body: { target: "agent-2", body: "need input" },
+      body: { target: "agent-2", body: "need input", intent: "tell" },
     });
     const unavailable = await requestRouter(harness, "POST", "/v1/deliver", {
-      body: { target: "agent-3", body: "wake" },
+      body: { target: "agent-3", body: "wake", intent: "tell" },
     });
 
     expect(delivery.response.status).toBe(202);
     expect(question.response.status).toBe(409);
     expect(unavailable.response.status).toBe(422);
     expect(harness.deliverCalls).toHaveLength(3);
-    expect(harness.deliverCalls[0]?.payload).toEqual({ target: "agent-1", body: "hello" });
+    expect(harness.deliverCalls[0]?.payload).toEqual({
+      target: "agent-1",
+      body: "hello",
+      intent: "tell",
+    });
     expect(harness.deliverCalls[0]?.signal).toBeInstanceOf(AbortSignal);
+
+    const malformedSignal = await requestRouter(harness, "POST", "/v1/deliver", {
+      body: {
+        targetLabel: "@operator",
+        body: "Optional input",
+        intent: "tell",
+        operatorSignal: {
+          kind: "consult",
+          blocking: false,
+          replyExpectation: "optional",
+          defaultAction: " ",
+        },
+      },
+    });
+    expect(malformedSignal.response.status).toBe(400);
+    expect(malformedSignal.body).toMatchObject({ error: "invalid_request" });
+    expect(harness.deliverCalls).toHaveLength(3);
   });
 
   test("validates invocation requests before dispatch", async () => {

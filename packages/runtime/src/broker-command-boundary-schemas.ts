@@ -5,6 +5,8 @@ import {
   validateInvocationExecutionPreference,
   type AgentHarness,
   type InvocationRequest,
+  type ScoutDeliverRequest,
+  type ScoutOperatorSignal,
   type ScoutRouteTarget,
 } from "@openscout/protocol";
 
@@ -48,6 +50,8 @@ const nonEmptyString = z.string().refine((value) => value.trim().length > 0, {
 });
 
 const optionalNonEmptyString = nonEmptyString.optional();
+
+const trimmedNonEmptyString = nonEmptyString.transform((value) => value.trim());
 
 const metadataMapSchema = z.record(z.string(), z.unknown());
 
@@ -135,6 +139,27 @@ const invocationExecutionPreferenceSchema = z.object({
     ctx.addIssue({ code: "custom", message });
   }
 });
+
+export const brokerOperatorSignalSchema: z.ZodType<ScoutOperatorSignal> =
+  z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("notify"),
+      blocking: z.literal(false),
+      replyExpectation: z.literal("none"),
+    }).strict(),
+    z.object({
+      kind: z.literal("consult"),
+      blocking: z.literal(false),
+      replyExpectation: z.literal("optional"),
+      defaultAction: trimmedNonEmptyString,
+    }).strict(),
+  ]);
+
+export const brokerDeliverRequestSchema: z.ZodType<ScoutDeliverRequest> = z.object({
+  body: trimmedNonEmptyString,
+  intent: z.enum(["tell", "consult"]),
+  operatorSignal: brokerOperatorSignalSchema.optional(),
+}).passthrough();
 
 export const brokerInvocationRequestSchema: z.ZodType<
   InvocationRequest & BrokerRouteTargetInput

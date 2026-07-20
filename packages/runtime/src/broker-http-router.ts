@@ -22,7 +22,10 @@ import type {
 
 import type { ActiveScoutBrokerService } from "./broker-api.js";
 import { a2aJsonRpcError, type BrokerA2AService } from "./broker-a2a-service.js";
-import { brokerInvocationRequestSchema } from "./broker-command-boundary-schemas.js";
+import {
+  brokerDeliverRequestSchema,
+  brokerInvocationRequestSchema,
+} from "./broker-command-boundary-schemas.js";
 import {
   parseInboxReasons,
   parseInboxStatuses,
@@ -997,7 +1000,7 @@ export function createBrokerHttpRouter(
   if (method === "POST" && url.pathname === "/v1/deliver") {
     const signal = requestAbortSignal(request, response);
     try {
-      const payload = await readRequestBody<ScoutDeliverRequest>(request);
+      const payload = await readValidatedRequestBody(request, brokerDeliverRequestSchema);
       const result = brokerService.deliver
         ? await brokerService.deliver(payload, { signal })
         : await deliveryAcceptanceService.accept(payload, { signal });

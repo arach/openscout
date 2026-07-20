@@ -219,7 +219,9 @@ Operator signals are convenience projections, not collaboration lifecycle.
 messages and return their message ids for correlation, but do not create flights
 or transfer next-move ownership. If an agent cannot continue safely, it must use
 the blocking human-input or work-item waiting path instead. A non-blocking
-consultation always declares what the agent will do if no answer arrives.
+consultation always declares what the agent will do if no answer arrives. A
+successful tool receipt means the message was recorded; notification delivery
+is best-effort and remains unconfirmed by the MCP call.
 
 ## Collaboration Semantics
 

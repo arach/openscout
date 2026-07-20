@@ -17,6 +17,9 @@ import {
 } from "@openscout/protocol";
 
 import {
+  brokerOperatorSignalSchema,
+} from "./broker-command-boundary-schemas.js";
+import {
   buildDeliveryReceipt,
   callerContextForDelivery,
   executionWithRouteParams,
@@ -293,8 +296,6 @@ export class BrokerDeliveryAcceptanceService {
     options: { signal?: AbortSignal } = {},
   ): Promise<ScoutDeliverResponse> {
     throwIfAborted(options.signal);
-    await this.options.syncRegisteredLocalAgentsIfChanged("delivery");
-    throwIfAborted(options.signal);
     const requestId = payload.id?.trim() || this.options.createId("deliver");
     const createdAt = typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
       ? payload.createdAt
@@ -303,6 +304,36 @@ export class BrokerDeliveryAcceptanceService {
       operatorActorId: this.options.operatorActorId,
       nodeId: this.options.nodeId,
     });
+    const operatorSignal = payload.operatorSignal
+      ? brokerOperatorSignalSchema.parse(payload.operatorSignal)
+      : undefined;
+    if (operatorSignal) {
+      if (!this.options.isOperatorDeliveryTarget(payload)) {
+        throw new Error("operator signals must target the operator directly");
+      }
+      if (payload.intent !== "tell") {
+        throw new Error("operator signals must use tell intent");
+      }
+      if (
+        payload.channel?.trim()
+        || payload.target?.kind === "channel"
+        || payload.target?.kind === "broadcast"
+      ) {
+        throw new Error("operator signals cannot use channels or broadcast routing");
+      }
+      if (
+        payload.ensureAwake !== undefined
+        || payload.execution !== undefined
+        || payload.workItem !== undefined
+        || payload.collaborationRecordId !== undefined
+        || payload.projectAgent !== undefined
+        || payload.invocationMetadata !== undefined
+      ) {
+        throw new Error("operator signals cannot carry work or invocation lifecycle fields");
+      }
+    }
+    await this.options.syncRegisteredLocalAgentsIfChanged("delivery");
+    throwIfAborted(options.signal);
     const askedLabel = askedLabelForRouteTarget(payload);
     const execution = executionWithRouteParams(payload);
     const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
@@ -429,8 +460,8 @@ export class BrokerDeliveryAcceptanceService {
         metadata: {
           ...(payload.messageMetadata ?? {}),
           ...(labels.length ? { labels } : {}),
-          ...(payload.operatorSignal
-            ? { operatorSignal: payload.operatorSignal, operatorSignalId: messageId }
+          ...(operatorSignal
+            ? { operatorSignal, operatorSignalId: messageId }
             : {}),
           relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
           relayTarget: this.options.operatorActorId,
@@ -444,9 +475,9 @@ export class BrokerDeliveryAcceptanceService {
         },
       };
       await this.options.postConversationMessage(message);
-      if (payload.operatorSignal) {
+      if (operatorSignal) {
         this.options.queueOperatorSignal({
-          signal: payload.operatorSignal,
+          signal: operatorSignal,
           messageId,
           conversationId: conversation.id,
           requesterId,

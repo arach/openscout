@@ -268,7 +268,7 @@ describe("BrokerDeliveryAcceptanceService", () => {
       operatorSignal: {
         kind: "notify",
         blocking: false,
-        responseOptional: false,
+        replyExpectation: "none",
       },
     });
 
@@ -285,7 +285,7 @@ describe("BrokerDeliveryAcceptanceService", () => {
         operatorSignal: {
           kind: "notify",
           blocking: false,
-          responseOptional: false,
+          replyExpectation: "none",
         },
         operatorSignalId: "msg-1",
       }),
@@ -294,13 +294,46 @@ describe("BrokerDeliveryAcceptanceService", () => {
       signal: {
         kind: "notify",
         blocking: false,
-        responseOptional: false,
+        replyExpectation: "none",
       },
       messageId: "msg-1",
       conversationId: "dm.agent.operator",
       requesterId: "agent-1",
       requesterNodeId: "node-1",
     }]);
+  });
+
+  test("rejects malformed or lifecycle-bearing operator signals before writing", async () => {
+    const harness = createHarness({ isOperatorTarget: () => true });
+    const base = {
+      body: "Optional input requested.",
+      intent: "tell" as const,
+      targetLabel: "@operator",
+      caller: { actorId: "agent-1", nodeId: "node-1" },
+    };
+
+    await expect(harness.service.accept({
+      ...base,
+      operatorSignal: {
+        kind: "consult",
+        blocking: false,
+        replyExpectation: "optional",
+        defaultAction: " ",
+      },
+    })).rejects.toThrow();
+
+    await expect(harness.service.accept({
+      ...base,
+      ensureAwake: false,
+      operatorSignal: {
+        kind: "notify",
+        blocking: false,
+        replyExpectation: "none",
+      },
+    })).rejects.toThrow("cannot carry work or invocation lifecycle fields");
+
+    expect(harness.postedMessages).toEqual([]);
+    expect(harness.operatorSignals).toEqual([]);
   });
 
   test("routes channel tells without creating an invocation", async () => {

@@ -170,7 +170,7 @@ describe("BrokerOperatorAttentionService", () => {
       signal: {
         kind: "consult",
         blocking: false,
-        responseOptional: true,
+        replyExpectation: "optional",
         defaultAction: "Keep the restrained HUD animation.",
       },
       messageId: "msg-consult",

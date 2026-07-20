@@ -23,12 +23,18 @@ export type ScoutOperatorSignalKind = "notify" | "consult";
  * conversational side effects, not task lifecycle transitions: they never
  * create a flight and they never imply that the agent is waiting.
  */
-export interface ScoutOperatorSignal {
-  kind: ScoutOperatorSignalKind;
-  blocking: false;
-  responseOptional: boolean;
-  defaultAction?: string;
-}
+export type ScoutOperatorSignal =
+  | {
+      kind: "notify";
+      blocking: false;
+      replyExpectation: "none";
+    }
+  | {
+      kind: "consult";
+      blocking: false;
+      replyExpectation: "optional";
+      defaultAction: string;
+    };
 
 export type ScoutDeliverRouteKind = "dm" | "channel" | "broadcast";
 
