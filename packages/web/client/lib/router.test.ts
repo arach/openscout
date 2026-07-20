@@ -14,7 +14,7 @@ const {
   SCOPE_PATH_PREFIX,
   SCOPE_ROUTE_SEGMENTS,
 } = await import("../scope/paths.ts");
-const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
+const { clearRouteMachineScope, canonicalHrefForRoute, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
 const { normalizeRoute } = await import("./synthetic-agent-routing.ts");
 const { resolveRoutedSessionId, resolveSelectedSessionId, sortSessionsByRecency } = await import("./session-catalog.ts");
 
@@ -37,6 +37,24 @@ describe("scope route parsing", () => {
       view: "sessions",
       sessionId: "sess-legacy",
     });
+  });
+
+  test("legacy scout-prefixed routes canonicalize to /scope/*", () => {
+    expect(canonicalHrefForRoute("/scout/sessions/sess-legacy", "", "")).toBe(
+      "/scope/sessions/sess-legacy",
+    );
+    expect(canonicalHrefForRoute("/scout", "", "")).toBe("/scope");
+    expect(canonicalHrefForRoute("/scout/tail", "?q=codex", "")).toBe("/scope/tail?q=codex");
+    // Already-canonical scope URLs are left alone.
+    expect(canonicalHrefForRoute("/scope/sessions/sess-legacy", "", "")).toBeNull();
+  });
+
+  test("trailing slashes canonicalize without a redirect round-trip", () => {
+    // The canonical router owns slash normalization (this used to ping-pong
+    // against a second redirect in the retired router layer).
+    expect(canonicalHrefForRoute("/projects/", "", "")).toBe("/projects");
+    expect(canonicalHrefForRoute("/fleet/", "", "")).toBe("/fleet");
+    expect(canonicalHrefForRoute("/projects", "", "")).toBeNull();
   });
 
   test("scope tail and sessions routes round-trip", () => {
@@ -63,13 +81,23 @@ describe("scope route parsing", () => {
     });
   });
 
-  test("preserveLocationSearch keeps query params when rewriting to scope paths", () => {
-    expect(preserveLocationSearch("/scope", "?ffBundle=scope-instrument&layout=grid"))
-      .toBe("/scope?ffBundle=scope-instrument&layout=grid");
+  test("preserveLocationSearch carries only whitelisted global params", () => {
+    // Whitelisted feature-flag keys follow the navigation…
+    expect(preserveLocationSearch("/scope", "?ffBundle=scope-instrument&no-ops"))
+      .toBe("/scope?ffBundle=scope-instrument&no-ops=");
     expect(preserveLocationSearch("/scope/tail?q=codex", "?ffBundle=scope-instrument"))
       .toBe("/scope/tail?q=codex&ffBundle=scope-instrument");
+    expect(preserveLocationSearch("/mesh", "?ff.ops.control=off&ffAudience=power"))
+      .toBe("/mesh?ff.ops.control=off&ffAudience=power");
+    // …route-local params (layout, select, tab, q) never leak across…
+    expect(preserveLocationSearch("/scope", "?ffBundle=scope-instrument&layout=grid"))
+      .toBe("/scope?ffBundle=scope-instrument");
+    expect(preserveLocationSearch("/messages", "?tab=observe&q=thread-1&select=a-1"))
+      .toBe("/messages");
+    // …and machineId is not whitelisted: it propagates only via the
+    // MACHINE_SCOPED_VIEWS route rules, so generic preservation drops it.
     expect(preserveLocationSearch("/projects/pomo/sessions/s1", "?select=pomo.main&machineId=node-a"))
-      .toBe("/projects/pomo/sessions/s1?machineId=node-a");
+      .toBe("/projects/pomo/sessions/s1");
   });
 
   test("sessions route stays under /scope when the browser is in the scope namespace", () => {
@@ -388,7 +416,7 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "search", mode: "indexer" })).toBe("/search/indexer");
   });
 
-  test("briefings routes round-trip (TanStack adoption pilot prefix)", () => {
+  test("briefings routes round-trip", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/briefings")).toEqual({
       view: "briefings",
     });
@@ -400,8 +428,8 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "briefings", briefingId: "brief-42" })).toBe(
       "/briefings/brief-42",
     );
-    // Encoded ids survive the round trip — the TanStack $briefingId param and
-    // the canonical parser must agree on decoding.
+    // Encoded ids survive the round trip — parse and serialization must agree
+    // on decoding.
     expect(routeFromUrl("http://127.0.0.1:43120/briefings/b%2F1")).toEqual({
       view: "briefings",
       briefingId: "b/1",
@@ -411,9 +439,8 @@ describe("agents route parsing", () => {
     );
   });
 
-  test("round-2 adopted prefixes round-trip (TanStack adoption)", () => {
-    // Simple static views: URL and Route must round-trip exactly — these pin
-    // the contract behind EXPECTED_SCOUT_VIEW_BY_ROUTE_ID in route-tree.ts.
+  test("static view prefixes round-trip", () => {
+    // Simple static views: URL and Route must round-trip exactly.
     for (const view of [
       "fleet",
       "conversations",
@@ -438,7 +465,7 @@ describe("agents route parsing", () => {
       workId: "w-1",
     });
     expect(routePath({ view: "work", workId: "w-1" })).toBe("/work/w-1");
-    // Bare /work is NOT adopted: the parser sends it to the inbox default.
+    // Bare /work has no route: the parser sends it to the inbox default.
     expect(routeFromUrl("http://127.0.0.1:43120/work")).toEqual({ view: "inbox" });
     expect(routeFromUrl("http://127.0.0.1:43120/settings/agents/a-1")).toEqual({
       view: "settings",
@@ -450,7 +477,7 @@ describe("agents route parsing", () => {
     );
   });
 
-  test("round-3 adopted prefixes round-trip (TanStack adoption)", () => {
+  test("nested resource prefixes round-trip", () => {
     // Sessions surface: bare + session-scoped, both view "sessions".
     expect(routeFromUrl("http://127.0.0.1:43120/sessions")).toEqual({ view: "sessions" });
     expect(routePath({ view: "sessions" })).toBe("/sessions");
@@ -597,8 +624,7 @@ describe("agents route parsing", () => {
       sessionId: "sess-1",
     });
 
-    // ops and repo-diff are deliberately NOT adopted: their view is not a
-    // function of the path prefix alone.
+    // ops and repo-diff views are not a function of the path prefix alone.
     // /ops/* can resolve to "inbox" when the ops gate is off or ?no-ops is set.
     expect(routeFromUrl("http://127.0.0.1:43120/ops/control?no-ops")).toEqual({ view: "inbox" });
     // /repo-diff without ?path falls through to the inbox default.

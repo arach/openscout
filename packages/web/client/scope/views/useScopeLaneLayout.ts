@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { updateLocation } from "../../lib/router.ts";
+
 export type ScopeLaneLayoutMode = "swim" | "grid" | "floor";
 
 import { scopeStorageKey } from "../../../shared/scope-integration.js";
@@ -42,10 +44,10 @@ export function useScopeLaneLayout(): {
       // ignore storage failures
     }
     if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (mode === "swim") url.searchParams.delete("layout");
-    else url.searchParams.set("layout", mode);
-    window.history.replaceState(window.history.state, "", url);
+    updateLocation({
+      searchPatch: { layout: mode === "swim" ? null : mode },
+      replace: true,
+    });
   }, []);
 
   useEffect(() => {

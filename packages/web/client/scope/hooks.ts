@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useLocation } from "@tanstack/react-router";
+import { useBrowserLocation } from "../lib/router.ts";
 import type { Route } from "../lib/types.ts";
 import { isScopePath } from "./paths.ts";
 import { isScopePresentation, scopePresentationAttrs } from "./presentation.ts";
@@ -7,7 +7,7 @@ import { SCOPE_BRAND_LABEL } from "./paths.ts";
 import { scopePresentationTitle } from "./nav.ts";
 
 export function useScopePresentation(): boolean {
-  const { pathname } = useLocation();
+  const { pathname } = useBrowserLocation();
   return isScopePath(pathname);
 }
 

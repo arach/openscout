@@ -13,6 +13,7 @@ import {
   deriveContextBudgetGauge,
 } from "../../lib/context-budget.ts";
 import { requestSessionCompaction } from "../../lib/session-compaction.ts";
+import { updateLocation } from "../../lib/router.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { ObserveData, ObserveEvent, ObserveFile, PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { bashDisplaySpans, splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
@@ -650,9 +651,10 @@ export function AgentLaneDetailSheet({
 
   const setLocationHash = useCallback((id: LaneSheetSectionId) => {
     if (typeof window === "undefined") return;
-    const next = `${window.location.pathname}${window.location.search}#${id}`;
     if (window.location.hash === `#${id}`) return;
-    window.history.pushState(null, "", next);
+    // Section anchors are real history entries (Back unwinds them); the
+    // location store keeps the router's entry state instead of discarding it.
+    updateLocation({ hash: id, replace: false });
   }, []);
 
   const scrollToSection = useCallback((

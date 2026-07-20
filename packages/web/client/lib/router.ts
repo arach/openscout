@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import {
   parseScopeRouteFromUrl,
@@ -24,7 +24,7 @@ import type {
 
 const APP_URL_BASE = typeof window !== "undefined" ? window.location.href : "http://scout.local/";
 
-/** TanStack location.href is often path-only; resolve against the active document. */
+/** Accepts full URLs or path-only hrefs; resolves against the active document. */
 function resolveAppUrl(hrefOrPath: string | URL): URL {
   const value = hrefOrPath.toString();
   return new URL(value, APP_URL_BASE);
@@ -846,7 +846,8 @@ export function routePath(r: Route, pathname?: string): string {
   }
 }
 
-function routeKey(r: Route): string {
+/** Scroll-memory key for a route; exported for tests. Sole owner: useRouter's scrollMap. */
+export function routeKey(r: Route): string {
   const scope = routeScopeKey(r);
   switch (r.view) {
     case "conversation":
@@ -911,26 +912,16 @@ function routeFromLocation(pathname: string, searchStr: string): Route {
   return normalizeRoute(routeFromUrl(`${pathname}${searchStr}`));
 }
 
-/** Canonical URL → Route parse for a TanStack ParsedLocation (pathname + searchStr). */
-export function scoutRouteFromLocation(pathname: string, searchStr: string): Route {
-  return routeFromLocation(pathname, searchStr);
-}
+/* ── Browser location store ── */
 
-/* ── TanStack navigation bridge (router adoption, Phase A) ── */
-
-type ScoutNavigationAdapter = (href: string, replace: boolean) => void;
-
-let scoutNavigationAdapter: ScoutNavigationAdapter | null = null;
-
-/**
- * When the TanStack router is live it registers its history here, so
- * hand-rolled navigate() calls flow through TanStack's history and its store
- * updates natively. Replaces the synthetic PopStateEvent broadcast this module
- * used to fire to keep TanStack's useLocation consumers fresh.
- */
-export function registerScoutNavigationAdapter(adapter: ScoutNavigationAdapter): void {
-  scoutNavigationAdapter = adapter;
-}
+export type BrowserLocationState = {
+  pathname: string;
+  searchStr: string;
+  /** Location hash without the leading "#". */
+  hash: string;
+  /** history.state for the active entry. */
+  state: unknown;
+};
 
 function locationHashSuffix(hash: string): string {
   return hash ? `#${hash}` : "";
@@ -940,14 +931,6 @@ function isStandaloneEmbedPath(pathname: string): boolean {
   return pathname.startsWith("/embed/") || pathname === "/ops/lanes/embed";
 }
 
-type BrowserLocationState = {
-  pathname: string;
-  searchStr: string;
-  hash: string;
-};
-
-const SCOUT_LOCATION_EVENT = "scout:locationchange";
-
 function readBrowserLocation(): BrowserLocationState {
   if (typeof window === "undefined") {
     const url = new URL(APP_URL_BASE);
@@ -955,63 +938,206 @@ function readBrowserLocation(): BrowserLocationState {
       pathname: url.pathname,
       searchStr: url.search,
       hash: url.hash.replace(/^#/, ""),
+      state: null,
     };
   }
   return {
     pathname: window.location.pathname,
     searchStr: window.location.search,
     hash: window.location.hash.replace(/^#/, ""),
+    state: window.history.state,
   };
 }
 
 function isSameBrowserLocation(a: BrowserLocationState, b: BrowserLocationState): boolean {
-  return a.pathname === b.pathname && a.searchStr === b.searchStr && a.hash === b.hash;
+  return a.pathname === b.pathname
+    && a.searchStr === b.searchStr
+    && a.hash === b.hash
+    && Object.is(a.state, b.state);
 }
 
-function useBrowserLocationState(): BrowserLocationState {
-  const [locationState, setLocationState] = useState(readBrowserLocation);
+/** Platform hooks the location store needs; injectable so tests can drive it headlessly. */
+export type BrowserLocationEnv = {
+  read: () => BrowserLocationState;
+  push: (href: string, state: unknown) => void;
+  replace: (href: string, state: unknown) => void;
+  /** Observe browser-driven location changes (popstate / hashchange). */
+  observe: (onChange: () => void) => () => void;
+};
 
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const refreshLocation = () => {
-      setLocationState((current) => {
-        const next = readBrowserLocation();
-        return isSameBrowserLocation(current, next) ? current : next;
-      });
-    };
-    window.addEventListener("popstate", refreshLocation);
-    window.addEventListener("hashchange", refreshLocation);
-    window.addEventListener(SCOUT_LOCATION_EVENT, refreshLocation);
-    return () => {
-      window.removeEventListener("popstate", refreshLocation);
-      window.removeEventListener("hashchange", refreshLocation);
-      window.removeEventListener(SCOUT_LOCATION_EVENT, refreshLocation);
-    };
-  }, []);
+export type BrowserLocationStore = {
+  getSnapshot: () => BrowserLocationState;
+  subscribe: (listener: () => void) => () => void;
+  navigateTo: (href: string, options?: { replace?: boolean; state?: unknown }) => void;
+};
 
-  return locationState;
+/**
+ * Single reactive owner of the browser location. Internal push/replace
+ * operations publish synchronously; popstate/hashchange are observed through
+ * the env. Subscribers read an immutable snapshot via useSyncExternalStore.
+ */
+export function createBrowserLocationStore(env: BrowserLocationEnv): BrowserLocationStore {
+  let snapshot = env.read();
+  const listeners = new Set<() => void>();
+  let stopObserving: (() => void) | null = null;
+
+  const syncFromEnv = () => {
+    const next = env.read();
+    if (isSameBrowserLocation(snapshot, next)) return;
+    snapshot = next;
+    for (const listener of listeners) listener();
+  };
+
+  return {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      if (!stopObserving) stopObserving = env.observe(syncFromEnv);
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    navigateTo(href, options = {}) {
+      const state = options.state === undefined ? snapshot.state : options.state;
+      if (options.replace) {
+        env.replace(href, state);
+      } else {
+        env.push(href, state);
+      }
+      syncFromEnv();
+    },
+  };
 }
 
-function navigateBrowser(href: string, replace = false): void {
-  if (typeof window === "undefined") return;
-  const emitLocationChange = () => window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
-  if (scoutNavigationAdapter) {
-    scoutNavigationAdapter(href, replace);
-    // TanStack's history push can update window.location after this call stack.
-    // The Scout route model still reads window.location, so notify it after the
-    // browser has had a chance to apply the new URL.
-    window.queueMicrotask(emitLocationChange);
-    window.requestAnimationFrame(emitLocationChange);
-    return;
-  } else if (replace) {
-    window.history.replaceState(window.history.state, "", href);
-  } else {
-    window.history.pushState(window.history.state, "", href);
+function windowLocationEnv(): BrowserLocationEnv {
+  if (typeof window === "undefined") {
+    return {
+      read: readBrowserLocation,
+      push: () => {},
+      replace: () => {},
+      observe: () => () => {},
+    };
   }
-  emitLocationChange();
+  return {
+    read: readBrowserLocation,
+    push: (href, state) => window.history.pushState(state, "", href),
+    replace: (href, state) => window.history.replaceState(state, "", href),
+    observe: (onChange) => {
+      window.addEventListener("popstate", onChange);
+      window.addEventListener("hashchange", onChange);
+      return () => {
+        window.removeEventListener("popstate", onChange);
+        window.removeEventListener("hashchange", onChange);
+      };
+    },
+  };
 }
 
-function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
+const browserLocationStore = createBrowserLocationStore(windowLocationEnv());
+
+/** Reactive browser location for any component (shell or scope namespace). */
+export function useBrowserLocation(): BrowserLocationState {
+  return useSyncExternalStore(
+    browserLocationStore.subscribe,
+    browserLocationStore.getSnapshot,
+    browserLocationStore.getSnapshot,
+  );
+}
+
+function navigateBrowser(href: string, options: { replace?: boolean; state?: unknown } = {}): void {
+  browserLocationStore.navigateTo(href, options);
+}
+
+/* ── URL policy: search params, hash, history entry state ── */
+
+export type NavigateOptions = {
+  /** Replace the current history entry instead of pushing a new one. */
+  replace?: boolean;
+  /**
+   * Hash for the destination (with or without "#"). Hashes clear by default on
+   * navigation — pass one explicitly to retain or set it.
+   */
+  hash?: string | null;
+  /** history.state for the destination entry; defaults to the current entry's. */
+  state?: unknown;
+  /**
+   * Carry whitelisted global search params (feature flags) onto the
+   * destination. Default true; route-local params never carry either way.
+   */
+  preserveSearch?: boolean;
+};
+
+function normalizeHashOption(hash: string | null | undefined): string {
+  return hash ? hash.replace(/^#/, "") : "";
+}
+
+/**
+ * Pure navigation planner: applies the machine-scope propagation rules and the
+ * search/hash policy to produce the destination href. The hash defaults to
+ * cleared; only whitelisted global params survive from the current search
+ * (route serialization owns route-local params; machineId rides the Route).
+ */
+export function planNavigation(
+  current: Pick<BrowserLocationState, "pathname" | "searchStr">,
+  requestedRoute: Route,
+  options: NavigateOptions = {},
+): { route: Route; href: string } {
+  const currentRoute = routeFromLocation(current.pathname, current.searchStr);
+  const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
+  const preservedSearch = options.preserveSearch === false ? "" : current.searchStr;
+  const canonicalPath = preserveLocationSearch(routePath(nextRoute, current.pathname), preservedSearch);
+  const hash = normalizeHashOption(options.hash);
+  return { route: nextRoute, href: `${canonicalPath}${hash ? `#${hash}` : ""}` };
+}
+
+export type LocationUpdate = {
+  /** Set a key to a value, or null to remove it. Applied over the current search. */
+  searchPatch?: Record<string, string | null>;
+  /** Set the hash (with or without "#"); null clears it; undefined leaves it. */
+  hash?: string | null;
+  /** Default true — URL UI-state patches replace rather than push. */
+  replace?: boolean;
+  /** history.state for the entry; defaults to the current entry's. */
+  state?: unknown;
+};
+
+/** Pure href computation for updateLocation; exported for tests. */
+export function applyLocationUpdate(
+  current: Pick<BrowserLocationState, "pathname" | "searchStr" | "hash">,
+  update: LocationUpdate,
+): string {
+  const params = new URLSearchParams(current.searchStr);
+  for (const [key, value] of Object.entries(update.searchPatch ?? {})) {
+    if (value === null) params.delete(key);
+    else params.set(key, value);
+  }
+  const search = params.toString();
+  const hash = update.hash === undefined ? current.hash : normalizeHashOption(update.hash);
+  return `${current.pathname}${search ? `?${search}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
+/**
+ * Narrow escape hatch for URL UI state that is not a product Route (lane-sheet
+ * section hashes, dev-only query cleanup, scope layout toggles). Publishes
+ * through the same location store as navigate(). Product navigation must use
+ * navigate(); the terminal embed keeps its own isolated local router.
+ */
+export function updateLocation(update: LocationUpdate): void {
+  const current = browserLocationStore.getSnapshot();
+  const href = applyLocationUpdate(current, update);
+  const currentHref = `${current.pathname}${current.searchStr}${locationHashSuffix(current.hash)}`;
+  if (href === currentHref) return;
+  navigateBrowser(href, { replace: update.replace ?? true, state: update.state });
+}
+
+/**
+ * Canonical href for a location, or null when already canonical. Handles the
+ * legacy /scout → /scope rewrite and trailing-slash/alias normalization that
+ * used to race with the TanStack beforeLoad redirect; the replace here is now
+ * the only canonicalizer. The current hash is retained (same logical location);
+ * only whitelisted global search params carry over.
+ */
+export function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
   if (isStandaloneEmbedPath(pathname)) return null;
   const routeUrl = `${pathname}${searchStr}`;
   const raw = routeFromUrl(routeUrl);
@@ -1027,7 +1153,7 @@ function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string
 }
 
 export function useRouter() {
-  const { pathname, searchStr, hash } = useBrowserLocationState();
+  const { pathname, searchStr, hash } = useBrowserLocation();
   const routeUrl = `${pathname}${searchStr}`;
   const route = useMemo(() => routeFromLocation(pathname, searchStr), [pathname, searchStr]);
   const scrollMap = useRef<Record<string, number>>({});
@@ -1036,7 +1162,7 @@ export function useRouter() {
   useEffect(() => {
     const canonicalHref = canonicalHrefForRoute(pathname, searchStr, hash);
     if (canonicalHref) {
-      navigateBrowser(canonicalHref, true);
+      navigateBrowser(canonicalHref, { replace: true });
     }
   }, [pathname, searchStr, hash]);
 
@@ -1049,21 +1175,20 @@ export function useRouter() {
     prevRouteUrl.current = routeUrl;
   }, [routeUrl, pathname, searchStr]);
 
-  const navigate = useCallback((r: Route) => {
+  const navigate = useCallback((r: Route, options: NavigateOptions = {}) => {
     const requestedRoute: Route = normalizeRoute(
       r.view === "ops" && !isOpsEnabled() && !isUngatedOpsSurface(r.mode)
         ? { view: "inbox" }
         : r,
     );
     const currentRoute = routeFromLocation(pathname, searchStr);
-    const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
+    const { route: nextRoute, href } = planNavigation({ pathname, searchStr }, requestedRoute, options);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
-    const canonicalPath = preserveLocationSearch(routePath(nextRoute, pathname), searchStr);
-    navigateBrowser(`${canonicalPath}${locationHashSuffix(hash)}`);
+    navigateBrowser(href, { replace: options.replace, state: options.state });
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });
-  }, [pathname, searchStr, hash]);
+  }, [pathname, searchStr]);
 
   return { route, navigate };
 }

@@ -1,10 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 
 import { createScoutApp } from "./scout";
-import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
-import { scoutTanstackRouter } from "./router/tanstack/router.ts";
+import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
@@ -44,7 +42,6 @@ const useDiscoveredEmbed = shouldBootstrapDiscoveredEmbed(pathname);
 
 const scoutApp = createScoutApp({ initialTheme });
 wireScopeOntoScout(scoutApp);
-registerScoutShellApp(scoutApp);
 
 function renderShell() {
   createRoot(el).render(
@@ -54,27 +51,21 @@ function renderShell() {
       ) : isEmbeddableSurfacesLab ? (
         <EmbeddableSurfacesLab />
       ) : observeEmbedMatch ? (
-        <RouterContextProvider router={scoutTanstackRouter}>
-          <scoutApp.Provider>
-            <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-          </scoutApp.Provider>
-        </RouterContextProvider>
+        <scoutApp.Provider>
+          <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+        </scoutApp.Provider>
       ) : isRepoDiffEmbed ? (
-        <RouterContextProvider router={scoutTanstackRouter}>
-          <scoutApp.Provider>
-            <RepoDiffEmbedScreen />
-          </scoutApp.Provider>
-        </RouterContextProvider>
+        <scoutApp.Provider>
+          <RepoDiffEmbedScreen />
+        </scoutApp.Provider>
       ) : isSessionEmbed ? (
-        <RouterContextProvider router={scoutTanstackRouter}>
-          <scoutApp.Provider>
-            <SessionEmbedScreen />
-          </scoutApp.Provider>
-        </RouterContextProvider>
+        <scoutApp.Provider>
+          <SessionEmbedScreen />
+        </scoutApp.Provider>
       ) : isTerminalEmbed ? (
         <TerminalEmbedScreen />
       ) : (
-        <RouterProvider router={scoutTanstackRouter} />
+        <OpenScoutAppShell app={scoutApp} />
       )}
       {import.meta.env.DEV ? <DevErrorOverlay /> : null}
     </StrictMode>,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { updateLocation } from "../lib/router.ts";
 import {
   resolveStudioInjectionState,
   type StudioInjectionMode,
@@ -63,23 +64,16 @@ function oppositeMode(mode: StudioInjectionMode): StudioInjectionMode {
 
 function clearStudioUrlParams(studyId: string): void {
   if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  const keys = [
-    "studio",
-    `studio.${studyId}`,
-    "studioInjection",
-    "studioMode",
-    `studioMode.${studyId}`,
-  ];
-  let changed = false;
-  for (const key of keys) {
-    if (!url.searchParams.has(key)) continue;
-    url.searchParams.delete(key);
-    changed = true;
-  }
-  if (changed) {
-    window.history.replaceState(window.history.state, "", url);
-  }
+  updateLocation({
+    searchPatch: {
+      studio: null,
+      [`studio.${studyId}`]: null,
+      studioInjection: null,
+      studioMode: null,
+      [`studioMode.${studyId}`]: null,
+    },
+    replace: true,
+  });
 }
 
 export function useStudioInjection(studyId: string, aliases: string[] = []): StudioInjectionController {

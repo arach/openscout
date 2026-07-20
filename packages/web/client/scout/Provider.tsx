@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter } from "../lib/router.ts";
+import { useRouter, type NavigateOptions } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
 import { friendlyApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
@@ -61,7 +61,7 @@ export interface OnboardingState {
 
 export interface ScoutContextValue {
   route: Route;
-  navigate: (r: Route) => void;
+  navigate: (r: Route, options?: NavigateOptions) => void;
 
   agents: Agent[];
   onlineCount: number;
