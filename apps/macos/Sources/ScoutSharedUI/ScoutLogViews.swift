@@ -25,12 +25,12 @@ public struct ScoutLogPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 0) {
                         ForEach(store.entries.reversed()) { entry in
                             ScoutLogEntryRow(entry: entry)
                         }
                     }
-                    .padding(12)
+                    .padding(.vertical, 4)
                 }
             }
         }
@@ -108,33 +108,55 @@ private struct ScoutLogEntryRow: View {
     let entry: HudLogEntry
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(tint)
-                .frame(width: 3)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(entry.formattedTime)
+                .foregroundStyle(.tertiary)
+                .frame(width: 76, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(entry.level.rawValue.uppercased())
-                        .font(.system(.caption2, design: .monospaced).weight(.bold))
-                        .foregroundStyle(tint)
-                    Text(entry.category)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Text(entry.formattedTime)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                }
-                Text(entry.message)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(4)
-                    .textSelection(.enabled)
-            }
+            Text(levelLabel)
+                .fontWeight(.semibold)
+                .foregroundStyle(tint)
+                .frame(width: 24, alignment: .leading)
+
+            Text(entry.category)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 78, alignment: .leading)
+
+            Text(entry.message)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .font(.system(.caption2, design: .monospaced))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .help("\(entry.formattedTime) \(levelLabel) [\(entry.category)] \(entry.message)")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(entry.formattedTime), \(entry.level.rawValue), \(entry.category), \(entry.message)")
+    }
+
+    private var levelLabel: String {
+        switch entry.level {
+        case .debug:
+            "DBG"
+        case .info:
+            "INF"
+        case .notice:
+            "NTC"
+        case .warning:
+            "WRN"
+        case .error:
+            "ERR"
+        case .fault:
+            "FLT"
+        }
     }
 
     private var tint: Color {
