@@ -43,6 +43,10 @@ not task state.
 - The broker writes a durable operator message and uses its `messageId` as the
   signal correlation id. A reply stays in that conversation and points back to
   the signal message.
+- The wire contract is discriminated: notify declares no reply expectation;
+  consult declares an optional reply expectation and a nonblank default action.
+- `status: "recorded"` confirms only the durable broker write. Push or other
+  notification delivery is best-effort and reported as unconfirmed.
 - A late reply is steering input. It does not retroactively rewrite work state.
 
 If an agent cannot responsibly continue, these tools are the wrong mechanism.

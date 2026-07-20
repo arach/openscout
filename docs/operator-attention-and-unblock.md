@@ -29,7 +29,9 @@ block. Scout exposes two MCP tools for that attention-plane traffic:
 Both are broker-backed durable messages to the operator. The broker message id
 is also the signal id, so ordinary threaded replies provide correlation without
 creating a second consultation state machine. Neither tool creates a flight,
-changes a work item, or marks the agent waiting.
+changes a work item, or marks the agent waiting. The tool confirms when that
+message is recorded; mobile or desktop notification delivery remains
+best-effort and unconfirmed at call time.
 
 The boundary is strict: if there is no responsible default, the agent must use
 a real human-input or waiting path. Only `needs_input` may block. A late reply
@@ -81,7 +83,8 @@ Implemented now:
 - Scout MCP exposes `notify_operator` and `consult_operator`; the latter
   requires a safe default. Both write operator messages without creating a
   flight, and the broker can fan out a generic APNs alert without putting agent
-  content in the push payload.
+  content in the push payload. The relay preserves opaque conversation/message
+  correlation and keeps these non-blocking alerts quiet.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.

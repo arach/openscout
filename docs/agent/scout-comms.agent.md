@@ -62,7 +62,10 @@ transcripts.
   that default.
 - neither tool creates an invocation, flight, question, work item, or waiting
   transition
+- notify has `replyExpectation: "none"`; consult has
+  `replyExpectation: "optional"` plus a nonblank `defaultAction`
 - the durable broker `messageId` is the signal id and reply correlation point
+- MCP reports `recorded` separately from unconfirmed notification delivery
 - a late reply is steering, not a retroactive lifecycle transition
 - when no responsible default exists, use the blocking human-input or
   `work_item.waiting` path instead

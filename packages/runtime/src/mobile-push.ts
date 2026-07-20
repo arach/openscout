@@ -55,6 +55,7 @@ export type MobilePushAlert = {
   title: string;
   body: string;
   sound?: string | null;
+  urgency?: "interrupt" | "badge" | "silent";
   threadId?: string | null;
   payload?: Record<string, unknown>;
 };
@@ -261,15 +262,17 @@ async function broadcastPushRelayAlert(alert: MobilePushAlert): Promise<MobilePu
       failures: [],
     };
   }
+  const opaquePayload = opaqueMobilePushPayload(alert.payload);
+  const itemId = opaquePayload.itemId ?? opaquePayload.messageId;
   const response = await fetchPushRelay("POST", "/v1/push", {
     meshId: config.meshId ?? undefined,
-    itemId: typeof alert.payload?.itemId === "string" ? alert.payload.itemId : undefined,
-    kind: typeof alert.payload?.kind === "string" ? alert.payload.kind : undefined,
-    urgency: "interrupt",
+    itemId,
+    kind: opaquePayload.kind,
+    urgency: alert.urgency ?? (alert.sound ? "interrupt" : "silent"),
     payload: {
       destination: "inbox",
-      itemId: alert.payload?.itemId,
-      kind: alert.payload?.kind,
+      ...opaquePayload,
+      ...(itemId ? { itemId } : {}),
     },
   });
   if (response.status === 429) {
@@ -329,6 +332,34 @@ async function broadcastPushRelayAlert(alert: MobilePushAlert): Promise<MobilePu
     configMissing: false,
     failures,
   };
+}
+
+const OPAQUE_MOBILE_PUSH_PAYLOAD_KEYS = [
+  "itemId",
+  "kind",
+  "signalKind",
+  "messageId",
+  "conversationId",
+  "sessionId",
+  "turnId",
+  "blockId",
+  "requestId",
+  "flightId",
+  "invocationId",
+  "workId",
+] as const;
+
+function opaqueMobilePushPayload(
+  payload: Record<string, unknown> | undefined,
+): Partial<Record<(typeof OPAQUE_MOBILE_PUSH_PAYLOAD_KEYS)[number], string>> {
+  return Object.fromEntries(
+    OPAQUE_MOBILE_PUSH_PAYLOAD_KEYS.flatMap((key) => {
+      const value = payload?.[key];
+      return typeof value === "string" && value.trim()
+        ? [[key, value.trim()] as const]
+        : [];
+    }),
+  ) as Partial<Record<(typeof OPAQUE_MOBILE_PUSH_PAYLOAD_KEYS)[number], string>>;
 }
 
 function tokenSuffix(token: string): string {
@@ -637,7 +668,7 @@ async function sendApnsAlertToRegistration(
       authorization: `bearer ${jwt}`,
       "apns-topic": registration.appBundleId,
       "apns-push-type": "alert",
-      "apns-priority": "10",
+      "apns-priority": alert.urgency === "silent" ? "5" : "10",
       "content-type": "application/json",
       "content-length": Buffer.byteLength(payload).toString(),
     });

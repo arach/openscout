@@ -48,6 +48,9 @@ async function connectTestServer(
       OPENSCOUT_BROKER_URL: "http://broker.test",
       CODEX_THREAD_ID: "019ddb1b-test-thread",
       OPENSCOUT_EXPOSE_DEPRECATED_INVOCATIONS_ASK: "1",
+      OPENSCOUT_AGENT: "",
+      OPENSCOUT_REPLY_CONTEXT: "",
+      OPENSCOUT_REPLY_CONTEXT_FILE: "",
       ...envOverrides,
     },
     dependencies,
@@ -160,10 +163,14 @@ describe("createScoutMcpServer", () => {
       targetLabel?: string;
       wake?: boolean;
       operatorSignal?: {
-        kind: "notify" | "consult";
+        kind: "notify";
         blocking: false;
-        responseOptional: boolean;
-        defaultAction?: string;
+        replyExpectation: "none";
+      } | {
+        kind: "consult";
+        blocking: false;
+        replyExpectation: "optional";
+        defaultAction: string;
       };
     }> = [];
     const { client } = await connectTestServer({
@@ -204,7 +211,7 @@ describe("createScoutMcpServer", () => {
         operatorSignal: {
           kind: "notify",
           blocking: false,
-          responseOptional: false,
+          replyExpectation: "none",
         },
       }),
       expect.objectContaining({
@@ -215,31 +222,72 @@ describe("createScoutMcpServer", () => {
         operatorSignal: {
           kind: "consult",
           blocking: false,
-          responseOptional: true,
+          replyExpectation: "optional",
           defaultAction: "Continue with the quieter animation.",
         },
       }),
     ]);
     expect(notifyResult.structuredContent).toEqual(expect.objectContaining({
       kind: "notify",
-      status: "sent",
+      status: "recorded",
       blocking: false,
-      responseOptional: false,
+      replyExpectation: "none",
+      notificationDelivery: "unconfirmed",
       conversationId: "dm.action.operator",
       messageId: "msg-1",
       signalId: "msg-1",
     }));
     expect(consultResult.structuredContent).toEqual(expect.objectContaining({
       kind: "consult",
-      status: "sent",
+      status: "recorded",
       blocking: false,
-      responseOptional: true,
+      replyExpectation: "optional",
+      notificationDelivery: "unconfirmed",
       defaultAction: "Continue with the quieter animation.",
       messageId: "msg-2",
       signalId: "msg-2",
     }));
     const consultContent = consultResult.content as Array<{ text?: string }>;
-    expect(consultContent[0]?.text).toContain("continue with the declared default");
+    expect(consultContent[0]?.text).toContain("notification delivery is unconfirmed");
+  });
+
+  test("rejects blank operator signals and records explicit sender overrides", async () => {
+    let sendCount = 0;
+    let requestedSenderId: string | null | undefined;
+    const { client } = await connectTestServer({
+      resolveSenderId: async (senderId) => {
+        requestedSenderId = senderId;
+        return senderId ?? "operator";
+      },
+      sendMessage: async () => {
+        sendCount += 1;
+        return {
+          usedBroker: true,
+          conversationId: "dm.operator.operator",
+          messageId: "msg-self",
+          invokedTargets: [],
+          unresolvedTargets: [],
+        };
+      },
+    });
+
+    const blank = await client.callTool({
+      name: "consult_operator",
+      arguments: { question: " ", defaultAction: "\t" },
+    });
+    expect(blank.isError).toBe(true);
+
+    const overridden = await client.callTool({
+      name: "notify_operator",
+      arguments: { message: "A real update", senderId: "local-helper" },
+    });
+    expect(overridden.structuredContent).toEqual(expect.objectContaining({
+      status: "recorded",
+      senderId: "local-helper",
+      notificationDelivery: "unconfirmed",
+    }));
+    expect(requestedSenderId).toBe("local-helper");
+    expect(sendCount).toBe(1);
   });
 
   test("returns a compact label brief", async () => {

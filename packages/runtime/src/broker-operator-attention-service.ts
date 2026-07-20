@@ -87,9 +87,11 @@ export class BrokerOperatorAttentionService {
       title: isConsult ? "An agent would value your input" : "Agent update",
       body: "Open Scout for details.",
       sound: null,
+      urgency: "silent",
       threadId: "scout.agent-signal",
       payload: {
         destination: "inbox",
+        itemId: input.messageId,
         kind: "operator_signal",
         signalKind: input.signal.kind,
         messageId: input.messageId,
@@ -142,6 +144,7 @@ export class BrokerOperatorAttentionService {
       title: "Scout delivery needs attention",
       body: "Open Scout for details.",
       sound: "default",
+      urgency: "interrupt",
       threadId: "scout.delivery",
       payload: {
         destination: "inbox",

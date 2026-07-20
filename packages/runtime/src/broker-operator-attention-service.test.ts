@@ -134,9 +134,10 @@ describe("BrokerOperatorAttentionService", () => {
     ]);
     expect(harness.alerts).toEqual([
       expect.objectContaining({
-        title: "Scout delivery needs attention",
-        body: "Open Scout for details.",
-        sound: "default",
+      title: "Scout delivery needs attention",
+      body: "Open Scout for details.",
+      sound: "default",
+      urgency: "interrupt",
         threadId: "scout.delivery",
         payload: expect.objectContaining({
           destination: "inbox",
@@ -170,7 +171,7 @@ describe("BrokerOperatorAttentionService", () => {
       signal: {
         kind: "consult",
         blocking: false,
-        responseOptional: true,
+        replyExpectation: "optional",
         defaultAction: "Keep the restrained HUD animation.",
       },
       messageId: "msg-consult",
@@ -184,9 +185,11 @@ describe("BrokerOperatorAttentionService", () => {
       title: "An agent would value your input",
       body: "Open Scout for details.",
       sound: null,
+      urgency: "silent",
       threadId: "scout.agent-signal",
       payload: {
         destination: "inbox",
+        itemId: "msg-consult",
         kind: "operator_signal",
         signalKind: "consult",
         messageId: "msg-consult",
