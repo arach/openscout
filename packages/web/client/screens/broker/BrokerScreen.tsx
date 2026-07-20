@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, LoaderCircle, Sparkles, TriangleAlert } from "lucide-react";
+import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, LoaderCircle, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";

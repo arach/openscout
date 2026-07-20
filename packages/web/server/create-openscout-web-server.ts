@@ -2501,7 +2501,7 @@ function inferDirectTargetAgentId(
   conversationId: string | undefined,
   session: {
     kind: string;
-    agentId: string | null;
+    agentId?: string | null;
     participantIds: string[];
   } | null,
   senderId: string,
@@ -2621,8 +2621,8 @@ function resolveChatMessagePlacement(
 
 function semanticSessionForChat(
   chatId: string,
-  session: NonNullable<ReturnType<typeof querySessionById>>,
-): NonNullable<ReturnType<typeof querySessionById>> {
+  session: { kind: string; participantIds: string[] },
+): { kind: string; participantIds: string[] } {
   // A direct Chat may be visually anchored beneath another message while
   // retaining its own direct-work semantics. Only a generic thread Chat needs
   // to inherit the parent Chat's delivery mode.
@@ -2826,14 +2826,22 @@ function inferChannelName(
   return null;
 }
 
-function resolveConversationRouting(conversationId: string | undefined): {
+function resolveConversationRouting(
+  conversationId: string | undefined,
+  sessionOverride?: {
+    kind: string;
+    agentId?: string | null;
+    participantIds: string[];
+  } | null,
+): {
   directAgentId: string | null;
   channel: string | null;
   conversationId: string | null;
   senderId: string;
 } {
   const fallbackSenderId = "operator";
-  const session = conversationId ? querySessionById(conversationId) : null;
+  const session = sessionOverride
+    ?? (conversationId ? querySessionById(conversationId) : null);
   const senderId = inferDirectSenderId(
     session,
     fallbackSenderId,
@@ -6634,14 +6642,23 @@ export async function createOpenScoutWebServer(
   const dispatchOperatorChatMessage = async (
     input: ChatMessageDispatchInput,
   ): Promise<ChatMessageDispatchOutcome> => {
-    const routeSession = querySessionById(input.chatId);
+    // Conversation reads already fall back to the live broker snapshot while
+    // the SQLite projection catches up. Sends must resolve through the same
+    // source or a newly-created broker Chat can render but reject its composer.
+    const projectedSession = querySessionById(input.chatId);
+    const broker = projectedSession
+      ? null
+      : await loadScoutBrokerContext();
+    const routeSession = projectedSession
+      ?? broker?.snapshot.conversations[input.chatId]
+      ?? null;
     if (!routeSession) {
       return { ok: false, status: 404, error: "chat not found" };
     }
 
     const semanticSession = semanticSessionForChat(input.chatId, routeSession);
     const { conversationId: routedConversationId, senderId } =
-      resolveConversationRouting(input.chatId);
+      resolveConversationRouting(input.chatId, routeSession);
     if (!routedConversationId) {
       return { ok: false, status: 404, error: "chat not found" };
     }
