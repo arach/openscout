@@ -1,8 +1,10 @@
 import type { Route } from "./types.ts";
 
 /**
- * Slot = the kind of content view whose "back" affordance reads from this store.
- * Add a new slot here when you wire BackToPicker into a new screen.
+ * Slot = the kind of content view whose "back" affordance was historically
+ * keyed in sessionStorage. Slots remain as BackToPicker call-site labels;
+ * return destinations now live on the history entry via
+ * `navigate(..., { returnTo })` (SCO-082 Phase B).
  */
 export type NavReturnSlot =
   | "agents"
@@ -13,58 +15,24 @@ export type NavReturnSlot =
   | "agent-info"
   | "channels";
 
-const KEY_PREFIX = "openscout.navReturn.v1.";
-const _memory = new Map<NavReturnSlot, Route>();
-
-function storageKey(slot: NavReturnSlot): string {
-  return KEY_PREFIX + slot;
+/**
+ * @deprecated No-op. Prefer `navigate(route, { returnTo })` or `openContent`.
+ * Kept so any residual callers compile; the sessionStorage side channel is gone.
+ */
+export function setNavReturn(_slot: NavReturnSlot, _route: Route): void {
+  /* history-state returnTo supersedes the sessionStorage channel */
 }
 
-function tryParse(raw: string): Route | null {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && typeof (parsed as { view?: unknown }).view === "string") {
-      return parsed as Route;
-    }
-  } catch {
-    /* ignore */
-  }
+/**
+ * @deprecated Always returns null. BackToPicker reads history.state.returnTo.
+ */
+export function getNavReturn(_slot: NavReturnSlot): Route | null {
   return null;
 }
 
-export function setNavReturn(slot: NavReturnSlot, route: Route): void {
-  _memory.set(slot, route);
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(storageKey(slot), JSON.stringify(route));
-  } catch {
-    /* quota / privacy mode; ignore */
-  }
-}
-
-export function getNavReturn(slot: NavReturnSlot): Route | null {
-  const cached = _memory.get(slot);
-  if (cached) return cached;
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(storageKey(slot));
-    if (raw) {
-      const parsed = tryParse(raw);
-      if (parsed) _memory.set(slot, parsed);
-      return parsed;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-export function clearNavReturn(slot: NavReturnSlot): void {
-  _memory.delete(slot);
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.removeItem(storageKey(slot));
-  } catch {
-    /* ignore */
-  }
+/**
+ * @deprecated No-op. History entry state is managed by the router.
+ */
+export function clearNavReturn(_slot: NavReturnSlot): void {
+  /* no-op */
 }

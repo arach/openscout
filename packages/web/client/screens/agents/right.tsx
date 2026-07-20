@@ -1281,7 +1281,7 @@ function observeTabRoute(route: Route | undefined, agentId: string): Route {
   if (route?.view === "agents-v2") {
     return { ...route, view: "agents-v2", agentId, tab: "observe" };
   }
-  return { view: "agents", agentId, tab: "observe" };
+  return { view: "agents-v2", agentId, tab: "observe" };
 }
 
 function SessionActivity({
@@ -1686,7 +1686,7 @@ function InspectorAsks({
             onClick={() => {
               if (ask.conversationId) {
                 navigate({
-                  view: "agents",
+                  view: "agents-v2",
                   agentId,
                   conversationId: ask.conversationId,
                 });

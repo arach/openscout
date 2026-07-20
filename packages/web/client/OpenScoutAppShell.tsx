@@ -25,6 +25,7 @@ import { useScopeShellChrome } from "./scope/index.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
+import { useBrowserLocation } from "./lib/router.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
 import {
@@ -52,6 +53,7 @@ const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
 const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
 // Agent + session detail is a core flow; give it a wider pane when it slides in.
 const AGENTS_RIGHT_PANEL_MIN_WIDTH = 480;
+const DISPATCH_SHEET_MIN_WIDTH = 520;
 const CENTER_CONTENT_MIN_WIDTH = 560;
 const GO_SHORTCUT_TIMEOUT_MS = 1500;
 
@@ -251,7 +253,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route, agents, openContextCapture, apiConnection, navigate } = useScout();
+  const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
+  const browserLocation = useBrowserLocation();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -282,7 +285,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const [sidePanelMaxWidth, setSidePanelMaxWidth] = useState(() =>
     computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
   );
-  const isSearchRoute = typeof window !== "undefined" && window.location.pathname === "/search";
+  const isSearchRoute = route.view === "search" || browserLocation.pathname === "/search";
 
   useEffect(() => {
     const update = () => {
@@ -318,13 +321,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     && !route.sessionId
     && Boolean(route.selectedAgentId);
   const agentDetailOpen =
-    (route.view === "agents" && Boolean(route.agentId))
-    || agentsV2Peek
+    agentsV2Peek
     || (route.view === "agents-v2" && Boolean(route.agentId));
   useEffect(() => {
     if (!agentDetailOpen || rightCollapsed || rightOverlay) return;
     setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, AGENTS_RIGHT_PANEL_MIN_WIDTH)));
   }, [agentDetailOpen, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
+
+  const dispatchSheetOpen = route.view === "broker" && Boolean(selectedBrokerAttempt);
+  useEffect(() => {
+    if (!dispatchSheetOpen) return;
+    setRightCollapsed(false);
+    setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, DISPATCH_SHEET_MIN_WIDTH)));
+  }, [dispatchSheetOpen, setRightCollapsed, setRightWidth, sidePanelMaxWidth]);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -541,17 +550,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   }, [agents, assistantEnabled, clearGoShortcut, keyboardHelp.open, navigate, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, startGoShortcut, takeoverActive]);
 
   useEffect(() => {
-    const handler = () => {
-      setActiveTab("terminal");
-      setShowTerminal(true);
-      // Reset height if stuck at full-screen
-      setTerminalHeight((h) => (h > window.innerHeight * 0.8 ? 420 : h));
-    };
-    window.addEventListener("scout:open-terminal", handler);
-    return () => window.removeEventListener("scout:open-terminal", handler);
-  }, [setActiveTab, setTerminalHeight]);
-
-  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ width?: unknown }>).detail;
       const width = typeof detail?.width === "number" ? detail.width : 420;
@@ -656,16 +654,21 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   // the inspector loads minimized there and opens itself when a concrete agent,
   // thread, or session enters context. This only overrides the rendered collapse
   // — the stored preference is untouched, so engaged views keep their state.
-  const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
+  const inspectorHasNothingInContext = route.view === "agents-v2" && !route.agentId;
   const projectsHaveNothingInContext = route.view === "agents-v2"
     && !route.agentId
     && !route.selectedAgentId
     && !route.sessionId;
+  const dispatchHasNothingInContext = route.view === "broker" && !selectedBrokerAttempt;
   const agentsV2Route = route.view === "agents-v2";
-  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext || projectsHaveNothingInContext;
+  const effectiveRightCollapsed = rightCollapsed
+    || inspectorHasNothingInContext
+    || projectsHaveNothingInContext
+    || dispatchHasNothingInContext;
+  const showRightPanel = route.view !== "broker" || dispatchSheetOpen;
 
   const leftPushInset = leftCollapsed ? 0 : leftWidth;
-  const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
+  const rightPushInset = effectiveRightCollapsed || rightOverlay || dispatchSheetOpen ? 0 : rightWidth;
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
@@ -677,7 +680,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     leftPushInset > 0 &&
     viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH;
   const leftPanelOverlaysContent = autoOverlayLeft;
-  const rightPanelOverlaysContent = rightOverlay || autoOverlayRight;
+  const rightPanelOverlaysContent = dispatchSheetOpen || rightOverlay || autoOverlayRight;
   const leftInset = leftPanelOverlaysContent ? 0 : leftPushInset;
   const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
@@ -699,13 +702,20 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     : autoOverlayRight
       ? "Keep inspector floating when there is room"
       : "Float inspector (overlay content)";
-  const panelOverlayStyle = useCallback((side: "left" | "right"): React.CSSProperties => ({
+  const panelOverlayStyle = useCallback((side: "left" | "right", sheet = false): React.CSSProperties => ({
     backgroundColor: "rgba(13, 14, 16, 0.72)",
     backdropFilter: "blur(24px) saturate(140%)",
     WebkitBackdropFilter: "blur(24px) saturate(140%)",
     boxShadow: side === "left"
       ? "18px 0 48px -12px rgba(0,0,0,0.7), inset -1px 0 0 0 rgba(255,255,255,0.06)"
       : "-18px 0 48px -12px rgba(0,0,0,0.7), inset 1px 0 0 0 rgba(255,255,255,0.06)",
+    ...(sheet ? {
+      right: 12,
+      bottom: 40,
+      border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 12,
+      boxShadow: "-24px 18px 72px -18px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.025)",
+    } : {}),
   }), []);
 
   return (
@@ -731,7 +741,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 title={
                   agentsV2Route
                     ? "Browse"
-                    : route.view === "agents" || route.view === "agent-info"
+                    : route.view === "agents-v2" || route.view === "agent-info"
                       ? "Projects"
                       : app.leftPanel?.title ?? "Navigation"
                 }
@@ -751,40 +761,45 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
               {leftCollapsed ? floatingCanvasMinimapNode : null}
 
-              <SidePanel
-                side="right"
-                title={agentsV2Route ? "Detail" : app.rightPanel?.title ?? "Inspector"}
-                icon={app.rightPanel?.icon}
-                isCollapsed={effectiveRightCollapsed}
-                onToggleCollapse={() => {
-                  // Nothing to inspect on an unselected directory, so the expand
-                  // affordance is inert there — don't flip the stored preference.
-                  if (inspectorHasNothingInContext || projectsHaveNothingInContext) return;
-                  setRightCollapsed(!rightCollapsed);
-                }}
-                width={rightWidth}
-                onResizeStart={handleResizeStart("right")}
-                style={rightPanelOverlaysContent ? panelOverlayStyle("right") : undefined}
-                footer={rightFooter}
-                headerActions={
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setRightOverlay((o) => (autoOverlayRight && !o ? true : !o))}
-                      title={rightOverlayControlTitle}
-                      aria-label={rightOverlayControlTitle}
-                      className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    >
-                      {rightPanelOverlaysContent ? <PinOff size={12} /> : <Pin size={12} />}
-                    </button>
-                    {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
-                  </>
-                }
-              >
-                <div data-pane="right" style={{ display: "contents" }}>
-                  {rightContent}
-                </div>
-              </SidePanel>
+              {showRightPanel && (
+                <SidePanel
+                  side="right"
+                  title={dispatchSheetOpen ? "Dispatch detail" : agentsV2Route ? "Detail" : app.rightPanel?.title ?? "Inspector"}
+                  icon={app.rightPanel?.icon}
+                  isCollapsed={effectiveRightCollapsed}
+                  onToggleCollapse={() => {
+                    // Nothing to inspect on an unselected directory, so the expand
+                    // affordance is inert there — don't flip the stored preference.
+                    if (inspectorHasNothingInContext || projectsHaveNothingInContext) return;
+                    setRightCollapsed(!rightCollapsed);
+                  }}
+                  width={rightWidth}
+                  onResizeStart={handleResizeStart("right")}
+                  floating={rightPanelOverlaysContent}
+                  style={rightPanelOverlaysContent ? panelOverlayStyle("right", dispatchSheetOpen) : undefined}
+                  footer={rightFooter}
+                  headerActions={
+                    <>
+                      {!dispatchSheetOpen && (
+                        <button
+                          type="button"
+                          onClick={() => setRightOverlay((o) => (autoOverlayRight && !o ? true : !o))}
+                          title={rightOverlayControlTitle}
+                          aria-label={rightOverlayControlTitle}
+                          className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
+                          {rightPanelOverlaysContent ? <PinOff size={12} /> : <Pin size={12} />}
+                        </button>
+                      )}
+                      {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
+                    </>
+                  }
+                >
+                  <div data-pane="right" style={{ display: "contents" }}>
+                    {rightContent}
+                  </div>
+                </SidePanel>
+              )}
 
               <StatusBar
                 status={statusBar.status}

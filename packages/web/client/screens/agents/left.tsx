@@ -22,8 +22,8 @@ export function AgentsLeft() {
     [agents, machineId],
   );
   const { projects } = useAgentDirectory();
-  const selectedProjectSlug = route.view === "agents" ? route.projectSlug : undefined;
-  const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
+  const selectedProjectSlug = route.view === "agents-v2" ? route.projectSlug : undefined;
+  const selectedAgentId = route.view === "agents-v2" ? route.agentId : undefined;
   // The detail pane falls back to the first project when the route carries no
   // slug; mirror that here so the rail highlights whatever the content shows.
   const effectiveSlug = selectedProjectSlug ?? projects[0]?.slice.slug;
@@ -47,7 +47,7 @@ export function AgentsLeft() {
                 data-live={working > 0 || undefined}
                 data-needs={needs || undefined}
                 title={project.slice.root ?? undefined}
-                onClick={() => navigate({ view: "agents", projectSlug: project.slice.slug })}
+                onClick={() => navigate({ view: "agents-v2", projectSlug: project.slice.slug })}
               >
                 <AgentAvatar name={project.slice.title} size={22} tile presence={false} />
                 <span className="s-rail-proj-name" data-idle={working === 0 || undefined}>

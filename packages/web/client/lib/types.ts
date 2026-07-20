@@ -1265,13 +1265,6 @@ export type Route =
     } & MachineScopedRoute)
   | { view: "agent-info"; conversationId: string }
   | ({
-      view: "agents";
-      agentId?: string;
-      conversationId?: string;
-      tab?: AgentTab;
-      projectSlug?: string;
-    } & MachineScopedRoute)
-  | ({
       view: "agents-v2";
       /** Path engagement — opens the full profile in the center pane. */
       agentId?: string;
@@ -1288,8 +1281,6 @@ export type Route =
       stateFilter?: ProjectStateFilter;
       showEphemeral?: boolean;
     } & MachineScopedRoute)
-  | ({ view: "fleet" } & MachineScopedRoute)
-  | ({ view: "conversations" } & MachineScopedRoute)
   | ({
       view: "messages";
       conversationId?: string;
@@ -1314,15 +1305,19 @@ export type Route =
       agentId?: string;
       include?: "changed" | "all";
     }
-  | { view: "search"; mode?: SearchMode }
+  | { view: "search"; mode?: SearchMode; hitId?: string }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
-  | { view: "broker" }
+  | { view: "broker"; attemptId?: string }
   | { view: "code"; root?: string; file?: string; project?: string; path?: string; wt?: string }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)
   | ({ view: "work"; workId: string } & MachineScopedRoute)
-  | { view: "settings"; section?: "agents"; agentId?: string }
+  | {
+      view: "settings";
+      section?: SettingsSection;
+      agentId?: string;
+    }
   | {
       view: "ops";
       mode?: OpsMode;
@@ -1361,6 +1356,15 @@ export type Route =
 export type AgentTab = "profile" | "config" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
+/** URL-addressable settings surface sections (SCO-082 Phase B). */
+export type SettingsSection =
+  | "pairing"
+  | "agents"
+  | "operator"
+  | "comms"
+  | "credentials"
+  | "voice"
+  | "devices";
 
 export type FollowTarget = {
   flightId: string | null;

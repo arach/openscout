@@ -373,7 +373,7 @@ export function AgentInfoScreen({
         <button
           type="button"
           className="s-btn"
-          onClick={() => navigate({ view: "agents", agentId: agent.id })}
+          onClick={() => navigate({ view: "agents-v2", agentId: agent.id })}
         >
           Open in Agents
         </button>

@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Compass, FileText, GitBranch, House, ScrollText, Search, Send, Terminal } from "lucide-react";
+import { useEffect, useState, createElement } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
+import { projectJumpDockItems } from "../nav-destinations.ts";
 import type { Route } from "../../lib/types.ts";
 import "./global-jump-dock.css";
 
@@ -88,35 +88,29 @@ export function GlobalJumpDock() {
   );
 }
 
-const JUMPS: { id: string; label: string; icon: ReactNode; route: Route; opsGated?: boolean }[] = [
-  { id: "sessions", label: "Sessions", icon: <FileText size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
-  { id: "terminals", label: "Terminals", icon: <Terminal size={13} strokeWidth={1.6} />, route: { view: "terminal" } },
-  { id: "repos", label: "Repos", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "repos" } },
-  { id: "search", label: "Search", icon: <Search size={13} strokeWidth={1.6} />, route: { view: "search" } },
-  { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
-  // Mission control bounces to Home when the ops cluster is off — only offer
-  // the jump when it actually resolves.
-  { id: "ops", label: "Ops", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" }, opsGated: true },
-  { id: "home", label: "Home", icon: <House size={13} strokeWidth={1.6} />, route: { view: "inbox" } },
-  { id: "dispatch", label: "Dispatch", icon: <Send size={13} strokeWidth={1.6} />, route: { view: "broker" } },
-];
+const JUMPS = projectJumpDockItems();
 
 function JumpPanel({ navigate }: { navigate: (route: Route) => void }) {
   const opsEnabled = useOptionalFlag("ops.control", true);
   const jumps = JUMPS.filter((j) => !j.opsGated || opsEnabled);
   return (
     <div className="gjd-jumps">
-      {jumps.map((j) => (
-        <button
-          key={j.id}
-          type="button"
-          className="gjd-jump"
-          onClick={() => navigate(j.route)}
-        >
-          <span className="gjd-jump-icon">{j.icon}</span>
-          <span className="gjd-jump-label">{j.label}</span>
-        </button>
-      ))}
+      {jumps.map((j) => {
+        const Icon = j.icon;
+        return (
+          <button
+            key={j.id}
+            type="button"
+            className="gjd-jump"
+            onClick={() => navigate(j.route)}
+          >
+            <span className="gjd-jump-icon">
+              {createElement(Icon, { size: 13, strokeWidth: 1.6 })}
+            </span>
+            <span className="gjd-jump-label">{j.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

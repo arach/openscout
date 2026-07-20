@@ -3590,7 +3590,7 @@ async function buildOperatorAttentionState(
       actions: [
         ...(ask.conversationId
           ? [{ kind: "open" as const, label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
-          : [{ kind: "open" as const, label: "Open agent", route: { view: "agents", agentId: ask.agentId } }]),
+          : [{ kind: "open" as const, label: "Open agent", route: { view: "agents-v2", agentId: ask.agentId } }]),
         ...(ask.flightId ? [{ kind: "dismiss" as const, label: "Dismiss", flightId: ask.flightId }] : []),
       ],
     });

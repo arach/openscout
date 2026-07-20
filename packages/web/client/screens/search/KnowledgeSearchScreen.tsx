@@ -74,10 +74,13 @@ async function indexSessions(force = false): Promise<IndexResponse> {
 
 export function KnowledgeSearchScreen({
   navigate,
+  hitId,
 }: {
   navigate: (route: Route) => void;
   /** Kept for route compatibility; search is one surface now. */
   mode?: string;
+  /** Deep-linked hit selection from `?hit=` (SCO-082 Phase B). */
+  hitId?: string;
 }) {
   const { selectedKnowledgeHit, inspectKnowledgeHit, clearKnowledgeHit } = useScout();
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
@@ -98,8 +101,12 @@ export function KnowledgeSearchScreen({
   const applySearchResponse = (trimmed: string, response: SearchResponse) => {
     setHits(response.hits);
     setStatus(response.status);
-    if (response.hits[0]) {
-      inspectKnowledgeHit(response.hits[0], trimmed);
+    const deepLinked = hitId
+      ? response.hits.find((hit) => hit.id === hitId)
+      : undefined;
+    const nextHit = deepLinked ?? response.hits[0];
+    if (nextHit) {
+      inspectKnowledgeHit(nextHit, trimmed);
     } else {
       clearKnowledgeHit();
     }

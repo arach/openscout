@@ -1,37 +1,25 @@
 import type { Route } from "../lib/types.ts";
+import {
+  projectTopNavItems,
+  type TopNavItem,
+  type TopNavKey,
+} from "./nav-destinations.ts";
 
-export type TopNavKey =
-  | "home"
-  | "agents"
-  | "chat"
-  | "sessions"
-  | "system";
-
-export type TopNavItem = {
-  key: TopNavKey;
-  label: string;
-  route: Route;
-};
+export type { TopNavItem, TopNavKey };
 
 // Single-personality nav (Model B · Work nouns): Home · Projects · Sessions ·
 // Chat. The ops/retrieval cluster (Search, Terminals, Tail, Dispatch, and the
 // ops surfaces) lives one level down in the System dropdown
 // (nav-system-menu.tsx). There is no lean/full switch — `nav.clean` is gone.
-export const TOP_NAV_ITEMS: TopNavItem[] = [
-  { key: "home", label: "Home", route: { view: "inbox" } },
-  { key: "agents", label: "Projects", route: { view: "agents-v2" } },
-  { key: "sessions", label: "Sessions", route: { view: "sessions" } },
-  { key: "chat", label: "Chat", route: { view: "messages" } },
-];
+//
+// Tab rows are projected from the destination catalog (nav-destinations.ts).
+export const TOP_NAV_ITEMS: TopNavItem[] = projectTopNavItems();
 
 export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   inbox: "Home",
   conversation: "Conversation",
   "agent-info": "Agent",
-  agents: "Agents .deprecated",
   "agents-v2": "Projects",
-  fleet: "Home",
-  conversations: "Chat",
   messages: "Chat",
   sessions: "Sessions",
   terminal: "Terminals",
@@ -63,6 +51,7 @@ const SYSTEM_VIEWS = new Set<Route["view"]>([
 
 /** True for the chrome/ops surfaces that live under the System dropdown. */
 export function isSystemRoute(route: Route): boolean {
+  // Agent config lives under the Projects tab, not System.
   if (route.view === "settings" && route.section === "agents") return false;
   return SYSTEM_VIEWS.has(route.view);
 }
@@ -77,13 +66,11 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
   }
   switch (route.view) {
     case "agents-v2":
-    case "agents":
     case "agent-info":
       return "agents";
     case "sessions":
       return "sessions";
     case "conversation":
-    case "conversations":
     case "messages":
     case "channels":
       return "chat";
@@ -100,7 +87,6 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
     case "settings":
       return "system";
     case "inbox":
-    case "fleet":
     case "activity":
     case "briefings":
     default:

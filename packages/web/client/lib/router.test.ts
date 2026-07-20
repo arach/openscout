@@ -53,7 +53,7 @@ describe("scope route parsing", () => {
     // The canonical router owns slash normalization (this used to ping-pong
     // against a second redirect in the retired router layer).
     expect(canonicalHrefForRoute("/projects/", "", "")).toBe("/projects");
-    expect(canonicalHrefForRoute("/fleet/", "", "")).toBe("/fleet");
+    expect(canonicalHrefForRoute("/fleet/", "", "")).toBe("/");
     expect(canonicalHrefForRoute("/projects", "", "")).toBeNull();
   });
 
@@ -108,11 +108,11 @@ describe("scope route parsing", () => {
 });
 
 describe("agents route parsing", () => {
-  test("conversations routes round-trip", () => {
+  test("legacy conversations path canonicalizes to messages", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/conversations")).toEqual({
-      view: "conversations",
+      view: "messages",
     });
-    expect(routePath({ view: "conversations" })).toBe("/conversations");
+    expect(routePath({ view: "messages" })).toBe("/messages");
   });
 
   test("agent chat routes preserve opaque chat ids", () => {
@@ -160,10 +160,10 @@ describe("agents route parsing", () => {
 
   test("machine-scoped routes round-trip through URLs", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/fleet?machineId=node-b")).toEqual({
-      view: "fleet",
+      view: "inbox",
       machineId: "node-b",
     });
-    expect(routePath({ view: "fleet", machineId: "node-b" })).toBe("/fleet?machineId=node-b");
+    expect(routePath({ view: "inbox", machineId: "node-b" })).toBe("/?machineId=node-b");
 
     expect(routeFromUrl("http://127.0.0.1:43120/mesh?machineId=node-b")).toEqual({
       view: "mesh",
@@ -221,11 +221,10 @@ describe("agents route parsing", () => {
   });
 
   test("machine scope helpers set and explicitly clear scoped routes", () => {
-    expect(setRouteMachineScope({ view: "agents" }, "node-b")).toEqual({
-      view: "agents",
+    expect(setRouteMachineScope({ view: "agents-v2" }, "node-b")).toEqual({
+      view: "agents-v2",
       machineId: "node-b",
     });
-    expect(routePath(clearRouteMachineScope({ view: "agents", machineId: "node-b" }))).toBe("/agents.deprecated");
     expect(routePath(clearRouteMachineScope({ view: "agents-v2", machineId: "node-b" }))).toBe("/projects");
     expect(setRouteMachineScope({ view: "settings" }, "node-b")).toEqual({ view: "settings" });
   });
@@ -442,8 +441,6 @@ describe("agents route parsing", () => {
   test("static view prefixes round-trip", () => {
     // Simple static views: URL and Route must round-trip exactly.
     for (const view of [
-      "fleet",
-      "conversations",
       "repos",
       "harnesses",
       "mesh",
@@ -452,6 +449,11 @@ describe("agents route parsing", () => {
       expect(routeFromUrl(`http://127.0.0.1:43120/${view}`)).toEqual({ view });
       expect(routePath({ view })).toBe(`/${view}`);
     }
+    // Removed legacy aliases still parse, but serialize to their canonical destinations.
+    expect(routeFromUrl("http://127.0.0.1:43120/fleet")).toEqual({ view: "inbox" });
+    expect(routePath({ view: "inbox" })).toBe("/");
+    expect(routeFromUrl("http://127.0.0.1:43120/conversations")).toEqual({ view: "messages" });
+    expect(routePath({ view: "messages" })).toBe("/messages");
     expect(routeFromUrl("http://127.0.0.1:43120/dispatch")).toEqual({ view: "broker" });
     expect(routeFromUrl("http://127.0.0.1:43120/broker")).toEqual({ view: "broker" });
     expect(routePath({ view: "broker" })).toBe("/dispatch");
@@ -599,23 +601,23 @@ describe("agents route parsing", () => {
       sessionId: "sess-9",
     });
 
-    // Legacy /agents.deprecated/* — view is fixed per shape.
-    expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated")).toEqual({ view: "agents" });
-    expect(routePath({ view: "agents" })).toBe("/agents.deprecated");
+    // Legacy /agents.deprecated/* → agents-v2 (canonical /projects / /agents/:id).
+    expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated")).toEqual({ view: "agents-v2" });
+    expect(routePath({ view: "agents-v2" })).toBe("/projects");
     expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main")).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "hudson.main",
     });
-    expect(routePath({ view: "agents", agentId: "hudson.main" })).toBe(
-      "/agents.deprecated/hudson.main",
+    expect(routePath({ view: "agents-v2", agentId: "hudson.main" })).toBe(
+      "/agents/hudson.main",
     );
     expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main/c/c.foo")).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "hudson.main",
       conversationId: "c.foo",
       tab: "message",
     });
-    // The session-resource shape is a session observe surface, not "agents".
+    // The session-resource shape is a session observe surface, not agents-v2.
     expect(
       routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main/sessions/sess-1"),
     ).toEqual({
@@ -721,11 +723,11 @@ describe("agents route parsing", () => {
 
     const legacyRoute = routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main?tab=definitions");
     expect(legacyRoute).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "hudson.main",
       tab: "config",
     });
-    expect(routePath(legacyRoute)).toBe("/agents.deprecated/hudson.main?tab=config");
+    expect(routePath(legacyRoute)).toBe("/agents/hudson.main?tab=config");
   });
 
   test("agent configuration settings routes round-trip", () => {
@@ -810,7 +812,7 @@ describe("session catalog selection", () => {
     ).toBe("scope-catalog-session");
   });
 
-  test("falls back to focused session when routed session is invalid", () => {
+  test("falls back to active session when routed session is invalid (no parallel focus)", () => {
     const sorted = sortSessionsByRecency(sessions, "active-session");
 
     expect(
@@ -821,6 +823,6 @@ describe("session catalog selection", () => {
         sorted,
         "missing-session",
       ),
-    ).toBe("focused-session");
+    ).toBe("active-session");
   });
 });

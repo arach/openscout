@@ -78,7 +78,7 @@ export function AgentsScreen({
   // primary object (projectSlug) and no tab is engaged, so the center stays the
   // directory even with an agent picked — that agent only drives the REAL right
   // inspector. A tab (profile/message/observe) means the agent owns the center.
-  const routeProjectSlug = route.view === "agents" ? route.projectSlug : undefined;
+  const routeProjectSlug = route.view === "agents-v2" ? route.projectSlug : undefined;
   const directorySelection = Boolean(routeProjectSlug && !activeTab);
 
   const { conversationByAgentId, sessionByAgentId } =
@@ -87,7 +87,7 @@ export function AgentsScreen({
   useEffect(() => {
     if (!selectedAgentId || !selectedAgent || !selectedAgentWasAliased) return;
     navigate({
-      view: "agents",
+      view: "agents-v2",
       agentId: selectedAgent.id,
       // Preserve the directory-selection route through the alias rewrite so the
       // master-detail stays put instead of jumping to the full profile.

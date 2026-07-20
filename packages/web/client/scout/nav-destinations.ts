@@ -1,0 +1,652 @@
+/**
+ * Canonical navigation destination catalog + surface projections.
+ *
+ * Identity (id, label, route, active, capability) lives here once.
+ * Surface-specific concerns — tab keys, breadcrumb text, shortcut keys,
+ * palette ids/subtitles, dock icons — live in the projections below.
+ *
+ * See docs/eng/sco-082-web-navigation-later-phases.md (Phase A).
+ */
+import type { LucideIcon } from "lucide-react";
+import {
+  Compass,
+  FileText,
+  GitBranch,
+  House,
+  ScrollText,
+  Search,
+  Send,
+  Terminal,
+} from "lucide-react";
+import type { CommandOption } from "@hudsonkit";
+import type { SecondaryNavGroup } from "../components/SecondaryNav.tsx";
+import type { Route } from "../lib/types.ts";
+
+/** Top-tab keys used by chrome; `system` is a dropdown, not a catalog destination. */
+export type TopNavKey =
+  | "home"
+  | "agents"
+  | "chat"
+  | "sessions"
+  | "system";
+
+export type TopNavItem = {
+  key: TopNavKey;
+  label: string;
+  route: Route;
+};
+
+/* ── Catalog ──────────────────────────────────────────────────────────── */
+
+export type NavCapability = "ops.control";
+
+export type NavDestinationId =
+  | "home"
+  | "projects"
+  | "sessions"
+  | "chat"
+  | "channels"
+  | "search"
+  | "terminals"
+  | "tail"
+  | "dispatch"
+  | "activity"
+  | "mesh"
+  | "mission-control"
+  | "lanes"
+  | "repos"
+  | "code"
+  | "providers"
+  | "runtime"
+  | "plans"
+  | "agent-config";
+
+export type NavDestination = {
+  id: NavDestinationId;
+  /** Canonical product label for this destination. */
+  label: string;
+  /** Default route opened when navigating to this destination. */
+  route: Route;
+  /** Whether the current route is "on" this destination. */
+  active: (route: Route) => boolean;
+  /** When set, surfaces must hide this destination unless the flag is on. */
+  capability?: NavCapability;
+};
+
+function isOpsMission(route: Route): boolean {
+  return (
+    route.view === "ops" &&
+    (route.mode === undefined || route.mode === "mission" || route.mode === "issues")
+  );
+}
+
+/**
+ * Single source of truth for every navigable product destination.
+ * Projections pick rows from this table; they do not redefine routes/active.
+ */
+export const NAV_DESTINATIONS: readonly NavDestination[] = [
+  {
+    id: "home",
+    label: "Home",
+    route: { view: "inbox" },
+    active: (route) => route.view === "inbox",
+  },
+  {
+    id: "projects",
+    label: "Projects",
+    route: { view: "agents-v2" },
+    active: (route) =>
+      route.view === "agents-v2" ||
+      route.view === "agent-info",
+  },
+  {
+    id: "sessions",
+    label: "Sessions",
+    route: { view: "sessions" },
+    active: (route) => route.view === "sessions",
+  },
+  {
+    id: "chat",
+    label: "Chat",
+    route: { view: "messages" },
+    active: (route) =>
+      route.view === "messages" ||
+      route.view === "conversation",
+  },
+  {
+    id: "channels",
+    label: "Channels",
+    route: { view: "channels" },
+    active: (route) => route.view === "channels",
+  },
+  {
+    id: "search",
+    label: "Search",
+    route: { view: "search" },
+    active: (route) => route.view === "search",
+  },
+  {
+    id: "terminals",
+    label: "Terminals",
+    route: { view: "terminal" },
+    active: (route) => route.view === "terminal",
+  },
+  {
+    id: "tail",
+    label: "Tail",
+    route: { view: "ops", mode: "tail" },
+    active: (route) => route.view === "ops" && route.mode === "tail",
+  },
+  {
+    id: "dispatch",
+    label: "Dispatch",
+    route: { view: "broker" },
+    active: (route) => route.view === "broker",
+  },
+  {
+    id: "activity",
+    label: "Activity",
+    route: { view: "activity" },
+    active: (route) => route.view === "activity",
+  },
+  {
+    id: "mesh",
+    label: "Mesh",
+    route: { view: "mesh" },
+    active: (route) => route.view === "mesh",
+  },
+  {
+    id: "mission-control",
+    label: "Mission Control",
+    route: { view: "ops", mode: "mission" },
+    active: isOpsMission,
+    capability: "ops.control",
+  },
+  {
+    id: "lanes",
+    label: "Lanes",
+    route: { view: "ops", mode: "lanes" },
+    active: (route) => route.view === "ops" && route.mode === "lanes",
+  },
+  {
+    id: "repos",
+    label: "Repos",
+    route: { view: "repos" },
+    active: (route) => route.view === "repos",
+  },
+  {
+    id: "code",
+    label: "Code",
+    route: { view: "code" },
+    active: (route) => route.view === "code",
+  },
+  {
+    id: "providers",
+    label: "Providers",
+    route: { view: "harnesses" },
+    active: (route) => route.view === "harnesses",
+  },
+  {
+    id: "runtime",
+    label: "Runtime",
+    route: { view: "ops", mode: "atop" },
+    active: (route) => route.view === "ops" && route.mode === "atop",
+    capability: "ops.control",
+  },
+  {
+    id: "plans",
+    label: "Plans",
+    route: { view: "ops", mode: "plan" },
+    active: (route) => route.view === "ops" && route.mode === "plan",
+  },
+  {
+    id: "agent-config",
+    label: "Config",
+    route: { view: "settings", section: "agents" },
+    active: (route) => route.view === "settings" && route.section === "agents",
+  },
+] as const;
+
+const DESTINATION_BY_ID: ReadonlyMap<NavDestinationId, NavDestination> = new Map(
+  NAV_DESTINATIONS.map((destination) => [destination.id, destination]),
+);
+
+export function getDestination(id: NavDestinationId): NavDestination {
+  const destination = DESTINATION_BY_ID.get(id);
+  if (!destination) {
+    throw new Error(`Unknown nav destination: ${id}`);
+  }
+  return destination;
+}
+
+export function requireDestination(id: NavDestinationId): NavDestination {
+  return getDestination(id);
+}
+
+/* ── Shared projection helpers ────────────────────────────────────────── */
+
+function project(
+  id: NavDestinationId,
+  overrides?: Partial<Pick<NavDestination, "label" | "route">>,
+): {
+  id: NavDestinationId;
+  label: string;
+  route: Route;
+  active: (route: Route) => boolean;
+  capability?: NavCapability;
+} {
+  const destination = getDestination(id);
+  return {
+    id: destination.id,
+    label: overrides?.label ?? destination.label,
+    route: overrides?.route ?? destination.route,
+    active: destination.active,
+    capability: destination.capability,
+  };
+}
+
+/* ── Projection: top tabs ─────────────────────────────────────────────── */
+
+type TopTabProjection = {
+  destinationId: NavDestinationId;
+  key: TopNavKey;
+  label?: string;
+};
+
+const TOP_TAB_PROJECTION: readonly TopTabProjection[] = [
+  { destinationId: "home", key: "home" },
+  { destinationId: "projects", key: "agents", label: "Projects" },
+  { destinationId: "sessions", key: "sessions" },
+  { destinationId: "chat", key: "chat", label: "Chat" },
+];
+
+export function projectTopNavItems(): TopNavItem[] {
+  return TOP_TAB_PROJECTION.map((entry) => {
+    const destination = getDestination(entry.destinationId);
+    return {
+      key: entry.key,
+      label: entry.label ?? destination.label,
+      route: destination.route,
+    };
+  });
+}
+
+/* ── Projection: System menu ──────────────────────────────────────────── */
+
+export type SystemMenuEntry = {
+  key: string;
+  label: string;
+  route: Route;
+  active: (route: Route) => boolean;
+  destinationId: NavDestinationId;
+  capability?: NavCapability;
+};
+
+type SystemMenuProjection = {
+  destinationId: NavDestinationId;
+  key: string;
+  label?: string;
+};
+
+const CORE_SYSTEM_MENU_PROJECTION: readonly SystemMenuProjection[] = [
+  { destinationId: "search", key: "search" },
+  { destinationId: "terminals", key: "terminals" },
+  { destinationId: "tail", key: "tail" },
+  { destinationId: "dispatch", key: "dispatch" },
+];
+
+const OPS_SYSTEM_MENU_PROJECTION: readonly SystemMenuProjection[] = [
+  { destinationId: "mission-control", key: "control" },
+  { destinationId: "lanes", key: "lanes" },
+  { destinationId: "repos", key: "repos" },
+  { destinationId: "code", key: "code" },
+  { destinationId: "providers", key: "providers" },
+  { destinationId: "mesh", key: "mesh" },
+  { destinationId: "runtime", key: "runtime" },
+  { destinationId: "plans", key: "plans" },
+];
+
+function projectSystemMenuEntry(entry: SystemMenuProjection): SystemMenuEntry {
+  const projected = project(entry.destinationId, { label: entry.label });
+  return {
+    key: entry.key,
+    label: projected.label,
+    route: projected.route,
+    active: projected.active,
+    destinationId: projected.id,
+    capability: projected.capability,
+  };
+}
+
+export function projectCoreSystemMenuEntries(): SystemMenuEntry[] {
+  return CORE_SYSTEM_MENU_PROJECTION.map(projectSystemMenuEntry);
+}
+
+export function projectOpsSystemMenuEntries(): SystemMenuEntry[] {
+  return OPS_SYSTEM_MENU_PROJECTION.map(projectSystemMenuEntry);
+}
+
+/* ── Projection: secondary nav ────────────────────────────────────────── */
+
+type SecondaryItemProjection = {
+  destinationId: NavDestinationId;
+  id: string;
+  label?: string;
+};
+
+function projectSecondaryGroup(
+  items: readonly SecondaryItemProjection[],
+): SecondaryNavGroup {
+  return {
+    items: items.map((entry) => {
+      const projected = project(entry.destinationId, { label: entry.label });
+      return {
+        id: entry.id,
+        label: projected.label,
+        route: projected.route,
+        active: projected.active,
+      };
+    }),
+  };
+}
+
+export function projectAgentsSecondaryNav(): SecondaryNavGroup[] {
+  return [
+    projectSecondaryGroup([
+      { destinationId: "agent-config", id: "config", label: "Config" },
+    ]),
+  ];
+}
+
+export function projectChatSecondaryNav(): SecondaryNavGroup[] {
+  return [
+    projectSecondaryGroup([
+      { destinationId: "chat", id: "messages", label: "Messages" },
+      { destinationId: "channels", id: "channels" },
+    ]),
+  ];
+}
+
+export function projectSearchSecondaryNav(): SecondaryNavGroup[] {
+  return [
+    projectSecondaryGroup([
+      { destinationId: "search", id: "knowledge", label: "Search" },
+    ]),
+  ];
+}
+
+/** Ops cluster secondary strip — same destinations as System ops + core ops. */
+export function projectOpsSecondaryNav(): SecondaryNavGroup[] {
+  return [
+    projectSecondaryGroup([
+      { destinationId: "lanes", id: "lanes" },
+      { destinationId: "mission-control", id: "control" },
+      { destinationId: "dispatch", id: "dispatch" },
+      { destinationId: "repos", id: "repos" },
+      { destinationId: "code", id: "code" },
+      { destinationId: "providers", id: "harnesses", label: "Providers" },
+      { destinationId: "mesh", id: "mesh" },
+      { destinationId: "tail", id: "tail" },
+      { destinationId: "runtime", id: "runtime" },
+      { destinationId: "plans", id: "plans" },
+    ]),
+  ];
+}
+
+/* ── Projection: go-shortcuts ─────────────────────────────────────────── */
+
+export type GoShortcutProjection = {
+  key: string;
+  label: string;
+  destinationId: NavDestinationId;
+  /** Override route when the shortcut intentionally differs from catalog default. */
+  route?: Route;
+};
+
+/**
+ * Curated g+key sequences. Keys and labels are surface-specific; destination
+ * identity and default route come from the catalog.
+ */
+export const GO_SHORTCUT_PROJECTION: readonly GoShortcutProjection[] = [
+  { key: "h", label: "Go home", destinationId: "home" },
+  { key: "i", label: "Go to chat inbox", destinationId: "chat" },
+  { key: "c", label: "Go to chat", destinationId: "chat" },
+  { key: "p", label: "Go to projects", destinationId: "projects" },
+  { key: "s", label: "Go to sessions", destinationId: "sessions" },
+  { key: "t", label: "Go to terminals", destinationId: "terminals" },
+  { key: "r", label: "Go to repos", destinationId: "repos" },
+  { key: "f", label: "Go to search", destinationId: "search" },
+  { key: "l", label: "Go to tail", destinationId: "tail" },
+  // Default ops entry uses bare `{ view: "ops" }` (mode undefined), matching
+  // the historical shortcut — not the explicit mission mode in the catalog.
+  { key: "o", label: "Go to ops", destinationId: "mission-control", route: { view: "ops" } },
+  { key: "d", label: "Go to dispatch", destinationId: "dispatch" },
+  { key: "m", label: "Go to mesh", destinationId: "mesh" },
+  { key: "a", label: "Go to activity", destinationId: "activity" },
+];
+
+export type GoShortcut = {
+  key: string;
+  label: string;
+  route: Route;
+  destinationId: NavDestinationId;
+};
+
+export function projectGoShortcuts(): readonly GoShortcut[] {
+  return GO_SHORTCUT_PROJECTION.map((entry) => {
+    const destination = getDestination(entry.destinationId);
+    return {
+      key: entry.key,
+      label: entry.label,
+      route: entry.route ?? destination.route,
+      destinationId: entry.destinationId,
+    };
+  });
+}
+
+/* ── Projection: jump dock ────────────────────────────────────────────── */
+
+export type JumpDockItem = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  route: Route;
+  destinationId: NavDestinationId;
+  opsGated?: boolean;
+};
+
+type JumpDockProjection = {
+  destinationId: NavDestinationId;
+  id: string;
+  label?: string;
+  icon: LucideIcon;
+  route?: Route;
+  /** Explicit ops gate independent of catalog capability (mission control uses both). */
+  opsGated?: boolean;
+};
+
+const JUMP_DOCK_PROJECTION: readonly JumpDockProjection[] = [
+  { destinationId: "sessions", id: "sessions", icon: FileText },
+  { destinationId: "terminals", id: "terminals", icon: Terminal },
+  { destinationId: "repos", id: "repos", icon: GitBranch },
+  { destinationId: "search", id: "search", icon: Search },
+  { destinationId: "tail", id: "tail", icon: ScrollText },
+  // Mission control bounces to Home when the ops cluster is off — only offer
+  // the jump when it actually resolves.
+  {
+    destinationId: "mission-control",
+    id: "ops",
+    label: "Ops",
+    icon: Compass,
+    route: { view: "ops", mode: "mission" },
+    opsGated: true,
+  },
+  { destinationId: "home", id: "home", icon: House },
+  { destinationId: "dispatch", id: "dispatch", icon: Send },
+];
+
+export function projectJumpDockItems(): JumpDockItem[] {
+  return JUMP_DOCK_PROJECTION.map((entry) => {
+    const destination = getDestination(entry.destinationId);
+    return {
+      id: entry.id,
+      label: entry.label ?? destination.label,
+      icon: entry.icon,
+      route: entry.route ?? destination.route,
+      destinationId: entry.destinationId,
+      opsGated: entry.opsGated ?? destination.capability === "ops.control",
+    };
+  });
+}
+
+/* ── Projection: command palette (static nav subset) ──────────────────── */
+
+export type PaletteNavCommand = {
+  id: string;
+  label: string;
+  destinationId: NavDestinationId;
+  route: Route;
+  shortcut?: string;
+  capability?: NavCapability;
+};
+
+type PaletteNavProjection = {
+  id: string;
+  label: string;
+  destinationId: NavDestinationId;
+  route?: Route;
+  shortcut?: string;
+  capability?: NavCapability;
+};
+
+/**
+ * Static navigate-to-destination palette rows. Overlay actions (settings
+ * drawer), Scoutbot, reload, capture, and dynamic per-agent commands stay in
+ * `useScoutCommands` — they are not pure destinations.
+ */
+const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
+  { id: "nav:home", label: "Go to Home", destinationId: "home", shortcut: "Cmd+1" },
+  { id: "nav:agents", label: "Go to Projects", destinationId: "projects", shortcut: "Cmd+2" },
+  { id: "nav:messages", label: "Go to Chat", destinationId: "chat", shortcut: "Cmd+3" },
+  {
+    id: "nav:messages-dms",
+    label: "Go to Chat — Private",
+    destinationId: "chat",
+    route: { view: "messages", filter: "dm" },
+  },
+  {
+    id: "nav:messages-channels",
+    label: "Go to Chat — Shared",
+    destinationId: "chat",
+    route: { view: "messages", filter: "channel" },
+  },
+  { id: "nav:sessions", label: "Open Sessions", destinationId: "sessions" },
+  { id: "nav:terminals", label: "Open Terminals", destinationId: "terminals" },
+  { id: "nav:search", label: "Go to Search", destinationId: "search", shortcut: "Cmd+4" },
+  { id: "nav:activity", label: "Open Activity", destinationId: "activity" },
+  { id: "nav:mesh", label: "Open Mesh", destinationId: "mesh" },
+  { id: "nav:dispatch", label: "Open Dispatch", destinationId: "dispatch" },
+  { id: "nav:repos", label: "Open Repos", destinationId: "repos" },
+  { id: "nav:harnesses", label: "Open Providers", destinationId: "providers" },
+  { id: "nav:ops-lanes", label: "Open Agent Lanes", destinationId: "lanes" },
+  {
+    id: "nav:ops",
+    label: "Go to Ops",
+    destinationId: "mission-control",
+    route: { view: "ops" },
+    shortcut: "Cmd+5",
+    capability: "ops.control",
+  },
+  {
+    id: "nav:ops-atop",
+    label: "Open Runtime",
+    destinationId: "runtime",
+    capability: "ops.control",
+  },
+  {
+    id: "nav:agent-config",
+    label: "Open Agent Configuration",
+    destinationId: "agent-config",
+  },
+];
+
+export function projectPaletteNavCommands(options?: {
+  opsEnabled?: boolean;
+}): PaletteNavCommand[] {
+  const opsEnabled = options?.opsEnabled ?? true;
+  return PALETTE_NAV_PROJECTION
+    .filter((entry) => {
+      const capability = entry.capability ?? getDestination(entry.destinationId).capability;
+      if (capability === "ops.control" && !opsEnabled) return false;
+      return true;
+    })
+    .map((entry) => {
+      const destination = getDestination(entry.destinationId);
+      return {
+        id: entry.id,
+        label: entry.label,
+        destinationId: entry.destinationId,
+        route: entry.route ?? destination.route,
+        shortcut: entry.shortcut,
+        capability: entry.capability ?? destination.capability,
+      };
+    });
+}
+
+/** Build CommandOption rows for the static nav subset of the palette. */
+export function paletteNavCommandOptions(
+  navigate: (route: Route) => void,
+  options?: { opsEnabled?: boolean },
+): CommandOption[] {
+  return projectPaletteNavCommands(options).map((command) => ({
+    id: command.id,
+    label: command.label,
+    action: () => navigate(command.route),
+    shortcut: command.shortcut,
+  }));
+}
+
+/* ── Integrity helpers (tests) ────────────────────────────────────────── */
+
+/** Every destination id referenced by any projection. */
+export function allProjectedDestinationIds(): NavDestinationId[] {
+  const ids = new Set<NavDestinationId>();
+  for (const entry of TOP_TAB_PROJECTION) ids.add(entry.destinationId);
+  for (const entry of CORE_SYSTEM_MENU_PROJECTION) ids.add(entry.destinationId);
+  for (const entry of OPS_SYSTEM_MENU_PROJECTION) ids.add(entry.destinationId);
+  for (const entry of GO_SHORTCUT_PROJECTION) ids.add(entry.destinationId);
+  for (const entry of JUMP_DOCK_PROJECTION) ids.add(entry.destinationId);
+  for (const entry of PALETTE_NAV_PROJECTION) ids.add(entry.destinationId);
+  for (const group of [
+    ...projectAgentsSecondaryNav(),
+    ...projectChatSecondaryNav(),
+    ...projectSearchSecondaryNav(),
+    ...projectOpsSecondaryNav(),
+  ]) {
+    for (const item of group.items) {
+      // Secondary items don't carry destinationId on the public shape; resolve
+      // by matching route/active against the catalog in tests instead.
+      void item;
+    }
+  }
+  // Explicit secondary destination ids for integrity checks:
+  for (const id of [
+    "agent-config",
+    "chat",
+    "channels",
+    "search",
+    "lanes",
+    "mission-control",
+    "dispatch",
+    "repos",
+    "code",
+    "providers",
+    "mesh",
+    "tail",
+    "runtime",
+    "plans",
+  ] as const) {
+    ids.add(id);
+  }
+  return [...ids];
+}

@@ -13,12 +13,16 @@ import type { BrowserLocationEnv, BrowserLocationState } from "./router.ts";
 
 const {
   applyLocationUpdate,
+  buildNavigateState,
   canonicalHrefForRoute,
   createBrowserLocationStore,
+  isSettingsHistoryEntry,
   planNavigation,
+  readReturnToFromState,
   routeFromUrl,
   routeKey,
   routePath,
+  shouldUseHistoryBack,
 } = await import("./router.ts");
 
 const ORIGIN = "http://127.0.0.1:43120";
@@ -39,17 +43,17 @@ describe("route fixtures", () => {
       canonical: "/agent/c.hudson-chat",
     },
     {
-      url: "/agents.deprecated/hudson.main",
-      route: { view: "agents", agentId: "hudson.main" },
-      canonical: "/agents.deprecated/hudson.main",
+      url: "/agents/hudson.main",
+      route: { view: "agents-v2", agentId: "hudson.main" },
+      canonical: "/agents/hudson.main",
     },
     {
       url: "/projects/lattices/agents/lattices.main",
       route: { view: "agents-v2", projectSlug: "lattices", agentId: "lattices.main" },
       canonical: "/projects/lattices/agents/lattices.main",
     },
-    { url: "/fleet", route: { view: "fleet" }, canonical: "/fleet" },
-    { url: "/conversations", route: { view: "conversations" }, canonical: "/conversations" },
+    { url: "/fleet", route: { view: "inbox" }, canonical: "/" },
+    { url: "/conversations", route: { view: "messages" }, canonical: "/messages" },
     {
       url: "/messages/c.foo?filter=dm",
       route: { view: "messages", conversationId: "c.foo", filter: "dm" },
@@ -117,8 +121,8 @@ describe("route fixtures", () => {
     },
   ];
 
-  test("fixtures cover all 24 view variants", () => {
-    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(24);
+  test("fixtures cover all 21 view variants", () => {
+    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(21);
   });
 
   for (const { url, route, canonical } of fixtures) {
@@ -149,6 +153,11 @@ describe("route fixtures", () => {
     { url: "/ops/command", canonical: "/ops/control" },
     // Legacy deprecated-agents session resource → canonical session observe.
     { url: "/agents.deprecated/h.main/sessions/s-1", canonical: "/sessions/s-1?agentId=h.main" },
+    // Legacy fleet / conversations aliases → home / messages.
+    { url: "/fleet", canonical: "/" },
+    { url: "/conversations", canonical: "/messages" },
+    { url: "/agents.deprecated", canonical: "/projects" },
+    { url: "/agents.deprecated/hudson.main", canonical: "/agents/hudson.main" },
   ];
 
   for (const { url, canonical } of aliases) {
@@ -212,7 +221,7 @@ describe("planNavigation URL policy", () => {
   test("machineId follows the MACHINE_SCOPED_VIEWS propagation rules only", () => {
     // scoped → scoped: machineId carries through the route.
     const carried = planNavigation(
-      { pathname: "/fleet", searchStr: "?machineId=node-b" },
+      { pathname: "/", searchStr: "?machineId=node-b" },
       { view: "sessions" },
     );
     expect(carried.route).toEqual({ view: "sessions", machineId: "node-b" });
@@ -220,7 +229,7 @@ describe("planNavigation URL policy", () => {
 
     // scoped → unscoped: machineId drops.
     const dropped = planNavigation(
-      { pathname: "/fleet", searchStr: "?machineId=node-b" },
+      { pathname: "/", searchStr: "?machineId=node-b" },
       { view: "settings" },
     );
     expect(dropped.href).toBe("/settings");
@@ -229,20 +238,20 @@ describe("planNavigation URL policy", () => {
     // model, so it cannot reappear on a later scoped navigation.
     const stray = planNavigation(
       { pathname: "/settings", searchStr: "?machineId=node-b" },
-      { view: "fleet" },
+      { view: "inbox" },
     );
-    expect(stray.href).toBe("/fleet");
+    expect(stray.href).toBe("/");
 
     // explicit machineId on the destination wins over the current scope.
     const overridden = planNavigation(
-      { pathname: "/fleet", searchStr: "?machineId=node-b" },
+      { pathname: "/", searchStr: "?machineId=node-b" },
       { view: "sessions", machineId: "node-c" },
     );
     expect(overridden.href).toBe("/sessions?machineId=node-c");
 
     // explicit empty machineId clears the scope.
     const clearedScope = planNavigation(
-      { pathname: "/fleet", searchStr: "?machineId=node-b" },
+      { pathname: "/", searchStr: "?machineId=node-b" },
       { view: "sessions", machineId: "" },
     );
     expect(clearedScope.href).toBe("/sessions");
@@ -416,9 +425,9 @@ describe("routeKey scroll ownership", () => {
   });
 
   test("machine scope variants scroll independently", () => {
-    expect(routeKey({ view: "fleet", machineId: "node-a" }))
-      .not.toBe(routeKey({ view: "fleet", machineId: "node-b" }));
-    expect(routeKey({ view: "fleet" })).not.toBe(routeKey({ view: "fleet", machineId: "node-a" }));
+    expect(routeKey({ view: "inbox", machineId: "node-a" }))
+      .not.toBe(routeKey({ view: "inbox", machineId: "node-b" }));
+    expect(routeKey({ view: "inbox" })).not.toBe(routeKey({ view: "inbox", machineId: "node-a" }));
   });
 
   test("identical routes share a scroll key", () => {
@@ -445,5 +454,117 @@ describe("canonicalHrefForRoute", () => {
   test("embed paths are never canonicalized", () => {
     expect(canonicalHrefForRoute("/embed/terminal", "?route=/terminal", "")).toBeNull();
     expect(canonicalHrefForRoute("/ops/lanes/embed", "?profile=macos.lanes", "")).toBeNull();
+  });
+});
+
+/* ── SCO-082 Phase B: selection params + returnTo ── */
+
+describe("Phase B selection state in the URL", () => {
+  test("broker attemptId round-trips and does not leak off dispatch", () => {
+    const route = routeFromUrl("http://127.0.0.1:43120/dispatch?attempt=att-1");
+    expect(route).toEqual({ view: "broker", attemptId: "att-1" });
+    expect(routePath(route)).toBe("/dispatch?attempt=att-1");
+
+    const away = planNavigation(
+      { pathname: "/dispatch", searchStr: "?attempt=att-1" },
+      { view: "sessions" },
+    );
+    expect(away.href).toBe("/sessions");
+    expect(away.href).not.toContain("attempt=");
+  });
+
+  test("search hitId round-trips and does not leak off search", () => {
+    const route = routeFromUrl("http://127.0.0.1:43120/search?hit=hit-9");
+    expect(route).toEqual({ view: "search", hitId: "hit-9" });
+    expect(routePath(route)).toBe("/search?hit=hit-9");
+
+    const away = planNavigation(
+      { pathname: "/search", searchStr: "?hit=hit-9" },
+      { view: "inbox" },
+    );
+    expect(away.href).toBe("/");
+    expect(away.href).not.toContain("hit=");
+  });
+
+  test("settings sections round-trip", () => {
+    expect(routeFromUrl("http://127.0.0.1:43120/settings")).toEqual({ view: "settings" });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/operator")).toEqual({
+      view: "settings",
+      section: "operator",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/comms")).toEqual({
+      view: "settings",
+      section: "comms",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/communications")).toEqual({
+      view: "settings",
+      section: "comms",
+    });
+    expect(routePath({ view: "settings", section: "voice" })).toBe("/settings/voice");
+    expect(routePath({ view: "settings", section: "pairing" })).toBe("/settings");
+    expect(routePath({ view: "settings", section: "agents" })).toBe("/settings/agents");
+  });
+
+  test("returnTo is readable from history state and deep-link falls back to null", () => {
+    const origin: Route = { view: "mesh" };
+    expect(readReturnToFromState({ returnTo: origin, returnUseHistory: true })).toEqual(origin);
+    expect(shouldUseHistoryBack({ returnTo: origin, returnUseHistory: true })).toBe(true);
+    expect(readReturnToFromState(null)).toBeNull();
+    expect(readReturnToFromState({})).toBeNull();
+    expect(shouldUseHistoryBack({})).toBe(false);
+  });
+
+  test("history entry state carries returnTo through the location store", () => {
+    const { env, calls } = createFakeEnv("/mesh");
+    const store = createBrowserLocationStore(env);
+    const returnTo: Route = { view: "mesh" };
+    store.navigateTo("/agents/hudson.main", {
+      state: { returnTo, returnUseHistory: true },
+    });
+    expect(calls.at(-1)?.state).toEqual({ returnTo, returnUseHistory: true });
+    expect(readReturnToFromState(store.getSnapshot().state)).toEqual(returnTo);
+  });
+
+  test("returnTo does not propagate to a subsequent plain navigate", () => {
+    const origin: Route = { view: "mesh" };
+    // openAgent-style navigate: entry state records the origin.
+    const detailEntry = buildNavigateState(null, { returnTo: origin });
+    expect(readReturnToFromState(detailEntry)).toEqual(origin);
+    expect(shouldUseHistoryBack(detailEntry)).toBe(true);
+
+    // A later unrelated navigate from that entry must NOT inherit the origin,
+    // or BackToPicker would history.back() toward the wrong entry.
+    const nextEntry = buildNavigateState(detailEntry, {});
+    expect(readReturnToFromState(nextEntry)).toBeNull();
+    expect(shouldUseHistoryBack(nextEntry)).toBe(false);
+
+    // replace keeps the same history entry, so the origin stays accurate.
+    const replaced = buildNavigateState(detailEntry, { replace: true });
+    expect(readReturnToFromState(replaced)).toEqual(origin);
+    expect(shouldUseHistoryBack(replaced)).toBe(true);
+
+    // Explicit state passes through untouched.
+    const explicit = buildNavigateState(detailEntry, { state: { keep: 1 } });
+    expect(explicit).toEqual({ keep: 1 });
+
+    // Unrelated custom keys still carry forward; only entry-scoped keys strip.
+    const carried = buildNavigateState(
+      { returnTo: origin, returnUseHistory: true, scroll: 42 },
+      {},
+    );
+    expect(carried).toEqual({ scroll: 42 });
+  });
+
+  test("settings entry marker round-trips and does not propagate", () => {
+    const marked = buildNavigateState(null, { state: { settingsEntry: true } });
+    expect(isSettingsHistoryEntry(marked)).toBe(true);
+    // Section rail replace keeps the marker (same entry).
+    const sectionEntry = buildNavigateState(marked, { replace: true });
+    expect(isSettingsHistoryEntry(sectionEntry)).toBe(true);
+    // A plain navigate away strips the marker like returnTo.
+    const away = buildNavigateState(sectionEntry, {});
+    expect(isSettingsHistoryEntry(away)).toBe(false);
+    expect(isSettingsHistoryEntry(null)).toBe(false);
+    expect(isSettingsHistoryEntry({})).toBe(false);
   });
 });

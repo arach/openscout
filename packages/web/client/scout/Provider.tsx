@@ -9,7 +9,12 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter, type NavigateOptions } from "../lib/router.ts";
+import {
+  isSettingsHistoryEntry,
+  useBrowserLocation,
+  useRouter,
+  type NavigateOptions,
+} from "../lib/router.ts";
 import { api } from "../lib/api.ts";
 import { friendlyApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
@@ -245,6 +250,7 @@ export function ScoutProvider({
   initialTheme?: ScoutTheme;
 }) {
   const { route, navigate } = useRouter();
+  const locationState = useBrowserLocation().state;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
     status: "checking",
@@ -253,35 +259,123 @@ export function ScoutProvider({
   });
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
-  const [selectedKnowledgeHit, setSelectedKnowledgeHit] = useState<KnowledgeHit | null>(null);
+  // Selection objects are cached for immediate inspector payload; the URL is
+  // the durable source of truth for attempt/hit/session ids (SCO-082 Phase B).
+  const [brokerAttemptCache, setBrokerAttemptCache] = useState<BrokerRouteAttempt | null>(null);
+  const [knowledgeHitCache, setKnowledgeHitCache] = useState<KnowledgeHit | null>(null);
   const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
-  const [focusedSession, setFocusedSession] = useState<FocusedSession | null>(null);
   const [contextCaptureRequest, setContextCaptureRequest] = useState<ContextCaptureRequest | null>(null);
+
+  const settingsOpen = route.view === "settings"
+    && route.section !== "agents"
+    && route.section !== "pairing"
+    && route.section !== undefined;
+
+  const selectedBrokerAttempt = useMemo(() => {
+    if (route.view !== "broker" || !route.attemptId) return null;
+    if (brokerAttemptCache?.id === route.attemptId) return brokerAttemptCache;
+    // Deep-link stub until the diagnostics feed resolves the full attempt.
+    return { id: route.attemptId } as BrokerRouteAttempt;
+  }, [brokerAttemptCache, route]);
+
+  const selectedKnowledgeHit = useMemo(() => {
+    if (route.view !== "search" || !route.hitId) return null;
+    if (knowledgeHitCache?.id === route.hitId) return knowledgeHitCache;
+    return null;
+  }, [knowledgeHitCache, route]);
+
+  // Session selection is routed sessionId only — no parallel memory fallback.
+  const focusedSession = useMemo<FocusedSession | null>(() => {
+    if (route.view === "agents-v2" && route.agentId && route.sessionId) {
+      return { agentId: route.agentId, sessionId: route.sessionId };
+    }
+    if (route.view === "sessions" && route.sessionId) {
+      return {
+        agentId: route.agentId ?? "",
+        sessionId: route.sessionId,
+      };
+    }
+    return null;
+  }, [route]);
+
   const focusSession = useCallback((agentId: string, sessionId: string) => {
-    setFocusedSession({ agentId, sessionId });
-  }, []);
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+    if (route.view === "agents-v2" && route.agentId === agentId) {
+      navigate({ ...route, sessionId }, { replace: true });
+      return;
+    }
+    if (route.view === "sessions") {
+      navigate({ view: "sessions", sessionId, agentId }, { replace: true });
+      return;
+    }
+    navigate({ view: "agents-v2", agentId, sessionId }, { replace: true });
+  }, [navigate, route]);
+
+  const openSettings = useCallback(() => {
+    navigate(
+      { view: "settings", section: "operator" },
+      // Mark the pushed entry so closeSettings can restore the user's place
+      // via history.back() instead of dumping them on Home.
+      { state: { settingsEntry: true } },
+    );
+  }, [navigate]);
+  const closeSettings = useCallback(() => {
+    if (route.view !== "settings") return;
+    // Closing the settings entry the app pushed returns to wherever the user
+    // was; a deep link straight into /settings/* has no prior entry to trust,
+    // so fall back to inbox.
+    if (
+      isSettingsHistoryEntry(locationState)
+      && typeof window !== "undefined"
+      && window.history.length > 1
+    ) {
+      window.history.back();
+      return;
+    }
+    navigate({ view: "inbox" });
+  }, [navigate, route.view, locationState]);
   const openContextCapture = useCallback((request: ContextCaptureRequest = {}) => {
     setContextCaptureRequest(request);
   }, []);
   const closeContextCapture = useCallback(() => setContextCaptureRequest(null), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
-    setSelectedBrokerAttempt(attempt);
-  }, []);
-  const clearBrokerAttempt = useCallback(() => setSelectedBrokerAttempt(null), []);
+    setBrokerAttemptCache(attempt);
+    if (route.view === "broker" && route.attemptId === attempt.id) return;
+    navigate(
+      { view: "broker", attemptId: attempt.id },
+      { replace: route.view === "broker" },
+    );
+  }, [navigate, route]);
+  const clearBrokerAttempt = useCallback(() => {
+    setBrokerAttemptCache(null);
+    if (route.view === "broker" && route.attemptId) {
+      navigate({ view: "broker" }, { replace: true });
+    }
+  }, [navigate, route]);
   const inspectKnowledgeHit = useCallback((hit: KnowledgeHit, query?: string) => {
-    setSelectedKnowledgeHit(hit);
+    setKnowledgeHitCache(hit);
     if (typeof query === "string") {
       setSelectedKnowledgeQuery(query.trim());
     }
-  }, []);
+    if (route.view === "search" && route.hitId === hit.id) return;
+    navigate(
+      {
+        view: "search",
+        ...(route.view === "search" && route.mode ? { mode: route.mode } : {}),
+        hitId: hit.id,
+      },
+      { replace: route.view === "search" },
+    );
+  }, [navigate, route]);
   const clearKnowledgeHit = useCallback(() => {
-    setSelectedKnowledgeHit(null);
+    setKnowledgeHitCache(null);
     setSelectedKnowledgeQuery("");
-  }, []);
+    if (route.view === "search" && route.hitId) {
+      navigate({
+        view: "search",
+        ...(route.mode ? { mode: route.mode } : {}),
+      }, { replace: true });
+    }
+  }, [navigate, route]);
   // Base web light/dark vars, with the native app's resolved palette layered on
   // top when hosted in the macOS embed (so the viewer matches the app exactly).
   const nativeThemeVars = useMemo(() => resolveScoutNativeThemeVars(), []);
@@ -484,7 +578,28 @@ export function ScoutProvider({
         <ContextMenuProvider>
           <ScoutbotStateProvider>
             {children}
-            <SettingsDrawer open={settingsOpen} onClose={closeSettings} />
+            {/* Drawer presentation for operator/comms/credentials/voice/devices.
+                Pairing + agents stay full routed SettingsScreen. URL is SoT. */}
+            <SettingsDrawer
+              open={settingsOpen}
+              onClose={closeSettings}
+              section={
+                route.view === "settings"
+                  && route.section
+                  && route.section !== "agents"
+                  && route.section !== "pairing"
+                  ? route.section
+                  : undefined
+              }
+              onSectionChange={(section) => {
+                // Section switching is chrome state, not a new destination:
+                // replace so rail clicks don't stack history entries. The
+                // settings-entry marker rides along (replace preserves entry
+                // state), so close still returns via Back only when the entry
+                // was app-pushed.
+                navigate({ view: "settings", section }, { replace: true });
+              }}
+            />
             <FilePreviewOverlay
               path={filePreviewPath}
               onOpenPath={openFilePreview}

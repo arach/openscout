@@ -35,7 +35,7 @@ export function resolveCaptureRouteContext(
     };
   }
 
-  if (route.view === "agents" && route.agentId) {
+  if (route.view === "agents-v2" && route.agentId) {
     const agent = agentById(agents, route.agentId);
     const conversationId = route.conversationId ?? agent?.conversationId ?? null;
     return {

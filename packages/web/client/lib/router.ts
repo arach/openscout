@@ -18,6 +18,7 @@ import type {
   ProjectStateFilter,
   Route,
   SearchMode,
+  SettingsSection,
 } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
@@ -94,6 +95,24 @@ function parseSearchMode(value: string | undefined): SearchMode | undefined {
   return value === "indexer" || value === "knowledge" ? value : undefined;
 }
 
+function parseSettingsSection(value: string | undefined): SettingsSection | undefined {
+  switch (value) {
+    case "pairing":
+    case "agents":
+    case "operator":
+    case "comms":
+    case "credentials":
+    case "voice":
+    case "devices":
+      return value;
+    // Alias for the communications section label used in chrome.
+    case "communications":
+      return "comms";
+    default:
+      return undefined;
+  }
+}
+
 function parseFollowPreferredView(value: string | null): FollowPreferredView | undefined {
   switch (value) {
     case "tail":
@@ -165,10 +184,7 @@ const MACHINE_SCOPE_PARAM = "machineId";
 const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "inbox",
   "conversation",
-  "agents",
   "agents-v2",
-  "fleet",
-  "conversations",
   "messages",
   "sessions",
   "repos",
@@ -403,7 +419,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...agentsV2Common,
     });
   }
-  // /agents/{agentId}/sessions/{sessionId} → session observe scoped to an exact agent/session pair.
+  // Legacy /agents.deprecated/* → agents-v2 (canonical /projects / /agents/:id).
   if (parts[0] === "agents.deprecated" && parts[1] && parts[2] === "sessions" && parts[3]) {
     return scoped({
       view: "sessions",
@@ -411,22 +427,18 @@ export function routeFromUrl(urlLike: string | URL): Route {
       sessionId: decodeURIComponent(parts[3]),
     });
   }
-  // /agents/{agentId}/c/{conversationId} → agent detail with inline conversation
   if (parts[0] === "agents.deprecated" && parts[1] && parts[2] === "c" && parts[3]) {
     return scoped({
-      view: "agents",
+      view: "agents-v2",
       agentId: decodeURIComponent(parts[1]),
       conversationId: decodeURIComponent(parts[3]),
       tab: agentTab ?? "message",
     });
   }
-  // /agents/{agentId} → agents view with selected agent. With ?project=… and no
-  // tab it is a directory-selection (master-detail): the project stays the
-  // primary object and the agent only drives the right inspector.
   if (parts[0] === "agents.deprecated" && parts[1]) {
     const agentId = decodeURIComponent(parts[1]);
     return scoped({
-      view: "agents",
+      view: "agents-v2",
       agentId,
       ...(agentTab ? { tab: agentTab } : {}),
       ...(!agentTab && agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
@@ -434,11 +446,12 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "agents.deprecated") {
     return scoped({
-      view: "agents",
+      view: "agents-v2",
       ...(agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
     });
   }
-  if (parts[0] === "fleet") return scoped({ view: "fleet" });
+  // Legacy /fleet → Home (inbox).
+  if (parts[0] === "fleet") return scoped({ view: "inbox" });
   // /c/{conversationId} always opens the conversation surface directly.
   if (parts[0] === "c" && parts[1]) {
     return scoped({
@@ -453,7 +466,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(sessionAgentId ? { agentId: sessionAgentId } : {}),
     });
   }
-  if (parts[0] === "conversations") return scoped({ view: "conversations" });
+  // Legacy /conversations → Chat messages index.
+  if (parts[0] === "conversations") return scoped({ view: "messages" });
   if (parts[0] === "messages") {
     const filter = parseMessagesFilter(url.searchParams.get("filter"));
     const sort = parseMessagesSort(url.searchParams.get("sort"));
@@ -503,14 +517,22 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "search") {
     const mode = parseSearchMode(parts[1]);
-    return { view: "search", ...(mode && mode !== "knowledge" ? { mode } : {}) };
+    const hitId = url.searchParams.get("hit")?.trim() || undefined;
+    return {
+      view: "search",
+      ...(mode && mode !== "knowledge" ? { mode } : {}),
+      ...(hitId ? { hitId } : {}),
+    };
   }
   if (parts[0] === "channels" && parts[1]) {
     return scoped({ view: "channels", channelId: decodeURIComponent(parts[1]) });
   }
   if (parts[0] === "channels") return scoped({ view: "channels" });
   if (parts[0] === "mesh") return scoped({ view: "mesh" });
-  if (parts[0] === "dispatch" || parts[0] === "broker") return { view: "broker" };
+  if (parts[0] === "dispatch" || parts[0] === "broker") {
+    const attemptId = url.searchParams.get("attempt")?.trim() || undefined;
+    return { view: "broker", ...(attemptId ? { attemptId } : {}) };
+  }
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
     if (parts[1]) {
@@ -566,7 +588,11 @@ export function routeFromUrl(urlLike: string | URL): Route {
         ...(parts[2] ? { agentId: decodeURIComponent(parts[2]) } : {}),
       };
     }
-    return { view: "settings" };
+    const section = parseSettingsSection(parts[1]);
+    return {
+      view: "settings",
+      ...(section ? { section } : {}),
+    };
   }
   if (parts[0] === "terminal") {
     const mode = parseTerminalMode(url.searchParams.get("mode"));
@@ -651,28 +677,6 @@ export function routePath(r: Route, pathname?: string): string {
     }
     case "agent-info":
       return `/agent/${encodeURIComponent(r.conversationId)}`;
-    case "agents": {
-      const params = new URLSearchParams();
-      const defaultTab = r.conversationId
-          ? "message"
-          : "profile";
-      if (r.tab && r.tab !== defaultTab) {
-        params.set("tab", r.tab);
-      }
-      // The project rides the URL whenever no tab is engaged — both the bare
-      // directory (no agent) and a directory-selection (agent in the inspector,
-      // center still the directory). A tab means the agent owns the center.
-      if (r.projectSlug && !r.tab) {
-        params.set("project", r.projectSlug);
-      }
-      appendMachineScope(params, r);
-      const path = r.agentId
-        ? r.conversationId
-            ? `/agents.deprecated/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
-            : `/agents.deprecated/${encodeURIComponent(r.agentId)}`
-        : "/agents.deprecated";
-      return `${path}${searchSuffix(params)}`;
-    }
     case "agents-v2": {
       const params = new URLSearchParams();
       if (r.harness) params.set("harness", r.harness);
@@ -711,10 +715,6 @@ export function routePath(r: Route, pathname?: string): string {
             : "/projects";
       return `${path}${searchSuffix(params)}`;
     }
-    case "fleet":
-      return pathWithMachineScope("/fleet", r);
-    case "conversations":
-      return pathWithMachineScope("/conversations", r);
     case "messages": {
       const params = new URLSearchParams();
       if (r.filter && r.filter !== "all") params.set("filter", r.filter);
@@ -752,16 +752,23 @@ export function routePath(r: Route, pathname?: string): string {
       if (r.include) params.set("include", r.include);
       return `/repo-diff${searchSuffix(params)}`;
     }
-    case "search":
-      return r.mode === "indexer" ? "/search/indexer" : "/search";
+    case "search": {
+      const base = r.mode === "indexer" ? "/search/indexer" : "/search";
+      const params = new URLSearchParams();
+      if (r.hitId) params.set("hit", r.hitId);
+      return `${base}${searchSuffix(params)}`;
+    }
     case "channels":
       return pathWithMachineScope(r.channelId
         ? `/channels/${encodeURIComponent(r.channelId)}`
         : "/channels", r);
     case "mesh":
       return pathWithMachineScope("/mesh", r);
-    case "broker":
-      return "/dispatch";
+    case "broker": {
+      const params = new URLSearchParams();
+      if (r.attemptId) params.set("attempt", r.attemptId);
+      return `/dispatch${searchSuffix(params)}`;
+    }
     case "code": {
       if (r.project) {
         const segments = [encodeURIComponent(r.project)];
@@ -790,7 +797,9 @@ export function routePath(r: Route, pathname?: string): string {
           ? `/settings/agents/${encodeURIComponent(r.agentId)}`
           : "/settings/agents";
       }
-      return "/settings";
+      if (r.section === "pairing" || !r.section) return "/settings";
+      if (r.section === "comms") return "/settings/comms";
+      return `/settings/${r.section}`;
     case "ops":
       if (!r.mode) return "/ops";
       if (r.mode === "tail" || r.mode === "plan") {
@@ -855,20 +864,7 @@ export function routeKey(r: Route): string {
     case "agent-info":
       return `agent-info:${r.conversationId}`;
     case "settings":
-      return r.section === "agents"
-        ? `settings:agents:${r.agentId ?? ""}`
-        : "settings";
-    case "agents":
-      // Directory-selection (projectSlug, no tab) shares the directory's scroll
-      // key whether or not an agent is picked, so selecting agents into the
-      // inspector never jumps the master list's scroll.
-      return r.conversationId
-        ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
-        : r.projectSlug && !r.tab
-          ? `agents-project:${r.projectSlug}${scope}`
-          : r.agentId
-            ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
-            : `agents${scope}`;
+      return `settings:${r.section ?? "pairing"}:${r.agentId ?? ""}`;
     case "agents-v2":
       return [
         "agents-v2",
@@ -894,7 +890,9 @@ export function routeKey(r: Route): string {
     case "ops":
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}:${r.flightId ?? ""}:${r.invocationId ?? ""}:${r.workId ?? ""}:${r.conversationId ?? ""}:${r.sessionId ?? ""}:${r.targetAgentId ?? ""}`;
     case "search":
-      return `search:${r.mode ?? "knowledge"}`;
+      return `search:${r.mode ?? "knowledge"}:${r.hitId ?? ""}`;
+    case "broker":
+      return `broker:${r.attemptId ?? ""}`;
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
@@ -1050,6 +1048,23 @@ function navigateBrowser(href: string, options: { replace?: boolean; state?: unk
 
 /* ── URL policy: search params, hash, history entry state ── */
 
+/** Typed history-entry payload owned by the Scout router. */
+export type ScoutHistoryState = {
+  /** Origin route for BackToPicker (set by navigate with `returnTo`). */
+  returnTo?: Route;
+  /**
+   * When true, the previous history entry is the recorded origin of this
+   * navigation, so BackToPicker may prefer `history.back()`.
+   */
+  returnUseHistory?: boolean;
+  /**
+   * Marks a /settings/* entry pushed by openSettings, so closeSettings may
+   * prefer `history.back()` and restore wherever the user came from.
+   */
+  settingsEntry?: boolean;
+  [key: string]: unknown;
+};
+
 export type NavigateOptions = {
   /** Replace the current history entry instead of pushing a new one. */
   replace?: boolean;
@@ -1061,11 +1076,75 @@ export type NavigateOptions = {
   /** history.state for the destination entry; defaults to the current entry's. */
   state?: unknown;
   /**
+   * Origin route stored on the destination history entry for BackToPicker.
+   * Replaces the former sessionStorage nav-return side channel.
+   */
+  returnTo?: Route;
+  /**
    * Carry whitelisted global search params (feature flags) onto the
    * destination. Default true; route-local params never carry either way.
    */
   preserveSearch?: boolean;
 };
+
+export function readReturnToFromState(state: unknown): Route | null {
+  if (!state || typeof state !== "object") return null;
+  const returnTo = (state as ScoutHistoryState).returnTo;
+  if (!returnTo || typeof returnTo !== "object") return null;
+  if (typeof (returnTo as Route).view !== "string") return null;
+  return returnTo as Route;
+}
+
+export function shouldUseHistoryBack(state: unknown): boolean {
+  if (!state || typeof state !== "object") return false;
+  return (state as ScoutHistoryState).returnUseHistory === true;
+}
+
+export function isSettingsHistoryEntry(state: unknown): boolean {
+  if (!state || typeof state !== "object") return false;
+  return (state as ScoutHistoryState).settingsEntry === true;
+}
+
+/**
+ * Entry-scoped keys (returnTo/returnUseHistory/settingsEntry) describe how the
+ * user ARRIVED at an entry; they must never be inherited by the next entry a
+ * plain navigate pushes, or BackToPicker/closeSettings would act on a stale
+ * origin. Strip them unless this navigate call sets them explicitly.
+ */
+function stripEntryScopedState(state: unknown): unknown {
+  if (!state || typeof state !== "object") return state;
+  const {
+    returnTo: _returnTo,
+    returnUseHistory: _returnUseHistory,
+    settingsEntry: _settingsEntry,
+    ...rest
+  } = state as ScoutHistoryState;
+  return rest;
+}
+
+/** Exported for tests. */
+export function buildNavigateState(
+  currentState: unknown,
+  options: NavigateOptions,
+): unknown {
+  if (options.returnTo !== undefined) {
+    const base =
+      options.state !== undefined
+        ? options.state
+        : stripEntryScopedState(currentState);
+    const merged: ScoutHistoryState =
+      base && typeof base === "object" ? { ...(base as ScoutHistoryState) } : {};
+    merged.returnTo = options.returnTo;
+    merged.returnUseHistory = true;
+    return merged;
+  }
+  if (options.state !== undefined) return options.state;
+  // replace keeps the same history entry, so entry-scoped state (returnTo,
+  // settingsEntry) stays accurate and is preserved; only a pushed entry is a
+  // new arrival that must not inherit its predecessor's origin.
+  if (options.replace) return currentState;
+  return stripEntryScopedState(currentState);
+}
 
 function normalizeHashOption(hash: string | null | undefined): string {
   return hash ? hash.replace(/^#/, "") : "";
@@ -1145,7 +1224,6 @@ export function canonicalHrefForRoute(pathname: string, searchStr: string, hash:
   const canonicalPath = preserveLocationSearch(routePath(normalized, pathname), searchStr);
   const shouldCanonicalize =
     routeKey(raw) !== routeKey(normalized)
-    || raw.view === "agents"
     || normalized.view === "agents-v2"
     || routeUrl !== canonicalPath;
   if (!shouldCanonicalize || routeUrl === canonicalPath) return null;
@@ -1184,7 +1262,9 @@ export function useRouter() {
     const currentRoute = routeFromLocation(pathname, searchStr);
     const { route: nextRoute, href } = planNavigation({ pathname, searchStr }, requestedRoute, options);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
-    navigateBrowser(href, { replace: options.replace, state: options.state });
+    const currentState = browserLocationStore.getSnapshot().state;
+    const state = buildNavigateState(currentState, options);
+    navigateBrowser(href, { replace: options.replace, state });
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });

@@ -1384,10 +1384,7 @@ export function ConversationScreen({
                             title="Copy link to message"
                             onClick={() => {
                               const url = new URL(window.location.href);
-                              if (
-                                route.view === "agents" ||
-                                route.view === "agents-v2"
-                              ) {
+                              if (route.view === "agents-v2") {
                                 url.searchParams.set("tab", "message");
                               }
                               url.hash = `msg-${message.id}`;

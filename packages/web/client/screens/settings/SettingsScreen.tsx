@@ -86,7 +86,7 @@ export function SettingsScreen({
   agentId,
 }: {
   navigate: (r: Route) => void;
-  section?: "agents";
+  section?: import("../../lib/types.ts").SettingsSection;
   agentId?: string;
 }) {
   if (section === "agents" && agentId) {
@@ -96,6 +96,19 @@ export function SettingsScreen({
     return <AgentConfigurationScreen navigate={navigate} selectedAgentId={agentId} />;
   }
 
+  // Operator / comms / credentials / voice / devices render via SettingsDrawer
+  // (shell overlay policy) driven by the same /settings/:section URL.
+  if (
+    section === "operator"
+    || section === "comms"
+    || section === "credentials"
+    || section === "voice"
+    || section === "devices"
+  ) {
+    return null;
+  }
+
+  // pairing (default /settings) — full routed screen.
   return <PairingSettingsScreen />;
 }
 

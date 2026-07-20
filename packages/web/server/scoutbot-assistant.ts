@@ -1182,7 +1182,7 @@ function briefFromMarkdown(
     || fallbackSummary
     || "Scoutbot prepared a current control-plane brief.";
 
-  const stepRoute = mode === "fleet-home" ? { view: "fleet" } : { view: "fleet" };
+  const stepRoute = { view: "inbox" };
   const stepLabel = mode === "fleet-home" ? "Fleet" : "Fleet";
   const stepId = mode === "fleet-home" ? "fleet-home" : "fleet";
 
@@ -1318,8 +1318,8 @@ function routeForHref(href: string): Record<string, unknown> | null {
   switch (head) {
     case "agents":
       return rest.length > 0
-        ? { view: "agents", agentId: rest.join("/") }
-        : { view: "agents" };
+        ? { view: "agents-v2", agentId: rest.join("/") }
+        : { view: "agents-v2" };
     case "conversation":
       return rest.length > 0
         ? { view: "conversation", conversationId: rest.join("/") }
@@ -1342,6 +1342,7 @@ function routeForHref(href: string): Record<string, unknown> | null {
     case "mesh":
     case "fleet":
     case "inbox":
+      return { view: "inbox" };
     case "settings":
       return { view: head };
     default:
@@ -1476,7 +1477,7 @@ function fallbackBriefSteps(summary: string, capturedAt: number, expiresAt: numb
     {
       id: "fleet",
       label: "Fleet",
-      route: { view: "fleet" },
+      route: { view: "inbox" },
       narration,
       durationMs: estimateNarrationDuration(narration),
       snapshot: { capturedAt, expiresAt, source: "prepared" },
@@ -1511,14 +1512,19 @@ function sanitizeBriefRoute(raw: unknown): Record<string, unknown> | null {
   const record = raw as Record<string, unknown>;
   const view = typeof record.view === "string" ? record.view : "";
   switch (view) {
+    // Legacy fleet alias → home (inbox). Accept both from model output.
     case "fleet":
+    case "inbox":
+      return { view: "inbox" };
     case "broker":
     case "mesh":
     case "activity":
       return { view };
+    // Legacy agents alias → projects (agents-v2).
     case "agents":
+    case "agents-v2":
       return {
-        view,
+        view: "agents-v2",
         ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
         ...(record.tab === "observe" || record.tab === "message" || record.tab === "profile" ? { tab: record.tab } : {}),
       };

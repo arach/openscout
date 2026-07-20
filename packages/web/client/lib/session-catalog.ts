@@ -108,21 +108,23 @@ export function resolveRoutedSessionId(
   return uniqueIds.size === 1 ? relayMatches[0]?.id ?? null : null;
 }
 
-/** The session the profile is exploring: an explicit center selection (when it
+/** The session the profile is exploring: a routed `sessionId` (when it
  *  still belongs to this agent and exists) wins, else the active session, else
- *  the most recent. `sorted` is the output of {@link sortSessionsByRecency}. */
+ *  the most recent. Routed selection is the single source of truth — there is
+ *  no parallel in-memory focus fallback (SCO-082 Phase B).
+ *  `sorted` is the output of {@link sortSessionsByRecency}.
+ *
+ *  The `focusedSession` argument is retained for call-site compatibility but
+ *  ignored; pass `null`. */
 export function resolveSelectedSessionId(
-  agentId: string,
-  focusedSession: FocusedSession | null,
+  _agentId: string,
+  _focusedSession: FocusedSession | null,
   activeSessionId: string | null,
   sorted: SessionCatalogEntry[],
   routedSessionId?: string | null,
 ): string | null {
   const routed = resolveRoutedSessionId(routedSessionId, sorted);
   if (routed) return routed;
-  const focused =
-    focusedSession?.agentId === agentId ? focusedSession.sessionId : null;
-  if (focused && sorted.some((s) => s.id === focused)) return focused;
   return activeSessionId ?? sorted[0]?.id ?? null;
 }
 
