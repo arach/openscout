@@ -1199,6 +1199,7 @@ const deliveryAcceptanceService = new BrokerDeliveryAcceptanceService({
   acceptInvocation: acceptInvocationDurably,
   dispatchAcceptedInvocation,
   queueOperatorDeliveryIssue: (input) => operatorAttentionService.queueDeliveryIssue(input),
+  queueOperatorSignal: (input) => operatorAttentionService.queueOperatorSignal(input),
   warn: (message, detail) => console.warn(message, detail),
 });
 

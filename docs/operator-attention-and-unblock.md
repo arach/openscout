@@ -15,6 +15,27 @@ The operator-attention model should make that boundary explicit:
 - Record durable broker unblock requests for anything that can outlive a single session frame.
 - Route notifications from the broker/session attention model, with dedupe and clear ownership.
 
+## Agent-Originated Non-Blocking Signals
+
+Long-running agents also need a way to communicate without manufacturing a
+block. Scout exposes two MCP tools for that attention-plane traffic:
+
+- `notify_operator({ message })`: a useful one-way FYI. The agent continues and
+  does not request a response.
+- `consult_operator({ question, defaultAction })`: optional advice. The agent
+  continues with the declared default unless the operator replies soon enough
+  to influence later work.
+
+Both are broker-backed durable messages to the operator. The broker message id
+is also the signal id, so ordinary threaded replies provide correlation without
+creating a second consultation state machine. Neither tool creates a flight,
+changes a work item, or marks the agent waiting.
+
+The boundary is strict: if there is no responsible default, the agent must use
+a real human-input or waiting path. Only `needs_input` may block. A late reply
+to a non-blocking consultation is steering; it does not retroactively change
+the task lifecycle.
+
 ## Alertable Events
 
 Session attention already covers:
@@ -57,6 +78,10 @@ Implemented now:
 - Non-approval attention items provide `Open Session` and local `Dismiss`, following the no-dead-end UI rule in `docs/eng/no-dead-end-ui.md`.
 - The iOS tRPC route map includes `question/answer`, so timeline question blocks can use the existing answer-question bridge path.
 - Scout MCP `ask` supports `replyMode: "notify"` and emits `notifications/scout/reply`.
+- Scout MCP exposes `notify_operator` and `consult_operator`; the latter
+  requires a safe default. Both write operator messages without creating a
+  flight, and the broker can fan out a generic APNs alert without putting agent
+  content in the push payload.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.
@@ -71,6 +96,8 @@ Not done yet:
   path, including Codex, non-tmux Claude, and MCP permission prompts.
 - Desktop/web notification sinks for operator attention.
 - Cross-device read/dismiss/decision synchronization beyond the current inbox item refresh. Current non-approval dismiss is intentionally local-only.
+- Dedicated desktop/web signal presentation, coalescing, and per-agent signal
+  policy beyond the existing push-relay rate limits.
 
 ## Practical Recovery Guidance
 

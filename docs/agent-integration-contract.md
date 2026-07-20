@@ -177,6 +177,8 @@ Agents connected through Scout's MCP server should prefer:
 - `whoami` to identify the current sender and broker context
 - `agents_resolve` before sending to an ambiguous handle
 - `messages_send` for durable messages and updates
+- `notify_operator` for an agent-authored FYI that must not pause work
+- `consult_operator` for optional operator advice with a required safe default
 - `broker_feed` to inspect one agent's broker-native messages, status, delivery,
   dispatch, unblock, and error records
 - `tail_events` to inspect recent observed harness activity without treating
@@ -211,6 +213,13 @@ pinning/naming belong to the pro integration layer. They are appropriate for
 hosts and Scout-native agents that
 need to manage durable return addresses or explicit session attachments, but they
 are not the default way to ask another agent for work.
+
+Operator signals are convenience projections, not collaboration lifecycle.
+`notify_operator` and `consult_operator` create durable, replyable broker
+messages and return their message ids for correlation, but do not create flights
+or transfer next-move ownership. If an agent cannot continue safely, it must use
+the blocking human-input or work-item waiting path instead. A non-blocking
+consultation always declares what the agent will do if no answer arrives.
 
 ## Collaboration Semantics
 

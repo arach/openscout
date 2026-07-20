@@ -118,6 +118,8 @@ describe("createScoutMcpServer", () => {
       "agents_search",
       "agents_resolve",
       "ask",
+      "notify_operator",
+      "consult_operator",
       "messages_send",
       "invocations_get",
       "invocations_wait",
@@ -129,6 +131,10 @@ describe("createScoutMcpServer", () => {
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)
       .toContain("For new agent-to-agent work, use ask instead.");
+    expect(result.tools.find((tool) => tool.name === "notify_operator")?.description)
+      .toContain("non-blocking FYI");
+    expect(result.tools.find((tool) => tool.name === "consult_operator")?.description)
+      .toContain("Always declare the safe default action");
     expect(result.tools.find((tool) => tool.name === "messages_inbox")?.description)
       .toContain("instead of curling broker HTTP endpoints");
     expect(result.tools.find((tool) => tool.name === "messages_channel")?.description)
@@ -145,6 +151,95 @@ describe("createScoutMcpServer", () => {
       .toContain("sharing a Scout label");
     expect(result.tools.find((tool) => tool.name === "labels_feed")?.description)
       .toContain("normalized firehose-style event backlog");
+  });
+
+  test("sends notify and consult operator signals without creating work lifecycle", async () => {
+    const sent: Array<{
+      senderId: string;
+      body: string;
+      targetLabel?: string;
+      wake?: boolean;
+      operatorSignal?: {
+        kind: "notify" | "consult";
+        blocking: false;
+        responseOptional: boolean;
+        defaultAction?: string;
+      };
+    }> = [];
+    const { client } = await connectTestServer({
+      resolveSenderId: async () => "action.main",
+      sendMessage: async (input) => {
+        sent.push(input);
+        return {
+          usedBroker: true,
+          conversationId: "dm.action.operator",
+          messageId: `msg-${sent.length}`,
+          invokedTargets: ["operator"],
+          unresolvedTargets: [],
+          routeKind: "dm",
+        };
+      },
+    });
+
+    const notifyResult = await client.callTool({
+      name: "notify_operator",
+      arguments: {
+        message: "The HUD pass is ready for visual review.",
+      },
+    });
+    const consultResult = await client.callTool({
+      name: "consult_operator",
+      arguments: {
+        question: "Would you prefer the quieter animation?",
+        defaultAction: "Continue with the quieter animation.",
+      },
+    });
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        senderId: "action.main",
+        body: "The HUD pass is ready for visual review.",
+        targetLabel: "@operator",
+        wake: false,
+        operatorSignal: {
+          kind: "notify",
+          blocking: false,
+          responseOptional: false,
+        },
+      }),
+      expect.objectContaining({
+        senderId: "action.main",
+        body: "Would you prefer the quieter animation?\n\nDefault if there is no reply: Continue with the quieter animation.",
+        targetLabel: "@operator",
+        wake: false,
+        operatorSignal: {
+          kind: "consult",
+          blocking: false,
+          responseOptional: true,
+          defaultAction: "Continue with the quieter animation.",
+        },
+      }),
+    ]);
+    expect(notifyResult.structuredContent).toEqual(expect.objectContaining({
+      kind: "notify",
+      status: "sent",
+      blocking: false,
+      responseOptional: false,
+      conversationId: "dm.action.operator",
+      messageId: "msg-1",
+      signalId: "msg-1",
+    }));
+    expect(consultResult.structuredContent).toEqual(expect.objectContaining({
+      kind: "consult",
+      status: "sent",
+      blocking: false,
+      responseOptional: true,
+      defaultAction: "Continue with the quieter animation.",
+      messageId: "msg-2",
+      signalId: "msg-2",
+    }));
+    const consultContent = consultResult.content as Array<{ text?: string }>;
+    expect(consultContent[0]?.text).toContain("continue with the declared default");
   });
 
   test("returns a compact label brief", async () => {

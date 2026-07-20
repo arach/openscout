@@ -1,6 +1,7 @@
 import type {
   ConversationDefinition,
   MessageRecord,
+  ScoutOperatorSignal,
 } from "@openscout/protocol";
 
 import type {
@@ -17,6 +18,14 @@ export type OperatorDeliveryIssueInput = {
   requesterNodeId: string;
   targetLabel: string;
   detail: string;
+};
+
+export type OperatorSignalInput = {
+  signal: ScoutOperatorSignal;
+  messageId: string;
+  conversationId: string;
+  requesterId: string;
+  requesterNodeId: string;
 };
 
 export type BrokerOperatorAttentionServiceOptions = {
@@ -40,7 +49,7 @@ export type BrokerOperatorAttentionServiceOptions = {
 };
 
 export class BrokerOperatorAttentionService {
-  private loggedMissingOperatorDeliveryApnsCredentials = false;
+  private loggedMissingOperatorApnsCredentials = false;
 
   constructor(private readonly options: BrokerOperatorAttentionServiceOptions) {}
 
@@ -56,6 +65,41 @@ export class BrokerOperatorAttentionService {
         }`,
       );
     });
+  }
+
+  queueOperatorSignal(input: OperatorSignalInput): void {
+    if (input.requesterId === this.options.operatorActorId) {
+      return;
+    }
+
+    void this.sendOperatorSignalAlert(input).catch((error) => {
+      this.options.warn?.(
+        `[openscout-runtime] failed to notify operator about agent signal: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }
+
+  async sendOperatorSignalAlert(input: OperatorSignalInput): Promise<void> {
+    const isConsult = input.signal.kind === "consult";
+    const result = await this.options.broadcastApnsAlertToActiveMobileDevices({
+      title: isConsult ? "An agent would value your input" : "Agent update",
+      body: "Open Scout for details.",
+      sound: null,
+      threadId: "scout.agent-signal",
+      payload: {
+        destination: "inbox",
+        kind: "operator_signal",
+        signalKind: input.signal.kind,
+        messageId: input.messageId,
+        conversationId: input.conversationId,
+        requesterId: input.requesterId,
+        requesterNodeId: input.requesterNodeId,
+      },
+    });
+
+    this.warnForBroadcastResult(result);
   }
 
   async recordDeliveryIssue(input: OperatorDeliveryIssueInput): Promise<void> {
@@ -115,9 +159,9 @@ export class BrokerOperatorAttentionService {
   }
 
   private warnForBroadcastResult(result: MobilePushBroadcastResult): void {
-    if (result.configMissing && !this.loggedMissingOperatorDeliveryApnsCredentials) {
-      this.loggedMissingOperatorDeliveryApnsCredentials = true;
-      this.options.warn?.("[openscout-runtime] mobile push credentials are missing; operator delivery issue was recorded without APNS.");
+    if (result.configMissing && !this.loggedMissingOperatorApnsCredentials) {
+      this.loggedMissingOperatorApnsCredentials = true;
+      this.options.warn?.("[openscout-runtime] mobile push credentials are missing; operator attention was recorded without APNS.");
     }
     if (result.rateLimited) {
       this.options.warn?.(

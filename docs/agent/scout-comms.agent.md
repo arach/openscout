@@ -51,6 +51,21 @@ transcripts.
 | exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `scout ask --to session:<harness>:<native-id>`, `ask({ targetSessionId })` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
+| operator FYI | agent-authored, no reply or lifecycle expected | `notify_operator` |
+| optional operator advice | agent continues with a required default | `consult_operator` |
+
+## Operator Signals
+
+- `notify_operator` and `consult_operator` are attention-plane messages, not
+  lifecycle states.
+- `consult_operator` requires `defaultAction`; silence means the agent follows
+  that default.
+- neither tool creates an invocation, flight, question, work item, or waiting
+  transition
+- the durable broker `messageId` is the signal id and reply correlation point
+- a late reply is steering, not a retroactive lifecycle transition
+- when no responsible default exists, use the blocking human-input or
+  `work_item.waiting` path instead
 
 ## Spec-Backed Handoffs
 

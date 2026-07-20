@@ -11,6 +11,7 @@ import {
   type AgentIdentityCandidate,
   type AgentState,
   type ScoutAgentCard,
+  type ScoutDeliverRequest,
   type ScoutReplyContext,
 } from "@openscout/protocol";
 import {
@@ -470,6 +471,7 @@ type ScoutMcpDependencies = {
     currentDirectory: string;
     source?: string;
     wake?: boolean;
+    operatorSignal?: ScoutDeliverRequest["operatorSignal"];
   }) => Promise<ScoutMessagePostResult>;
   sendMessageToAgentIds: (input: {
     senderId: string;
@@ -1102,6 +1104,20 @@ const sendResultSchema = z.object({
   ids: followIdsSchema.optional(),
   links: followLinksSchema.optional(),
   followUrl: z.string().nullable().optional(),
+});
+
+const operatorSignalResultSchema = z.object({
+  currentDirectory: z.string(),
+  senderId: z.string(),
+  kind: z.enum(["notify", "consult"]),
+  status: z.enum(["sent", "not_sent"]),
+  blocking: z.literal(false),
+  responseOptional: z.boolean(),
+  defaultAction: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  signalId: z.string().nullable(),
+  routingError: z.string().nullable(),
 });
 
 const replyContextSchema = z.object({
@@ -2826,6 +2842,7 @@ function defaultScoutMcpDependencies(
       currentDirectory,
       source,
       wake,
+      operatorSignal,
     }) =>
       sendScoutMessage({
         senderId,
@@ -2836,6 +2853,7 @@ function defaultScoutMcpDependencies(
         currentDirectory,
         source,
         wake,
+        operatorSignal,
       }),
     sendMessageToAgentIds: ({
       senderId,
@@ -3980,6 +3998,131 @@ export function createScoutMcpServer(options: {
         structuredContent,
       };
     },
+  );
+
+  const sendOperatorSignal = async (input: {
+    kind: "notify" | "consult";
+    body: string;
+    defaultAction?: string;
+    currentDirectory?: string;
+    senderId?: string;
+  }) => {
+    const resolvedCurrentDirectory = resolveToolCurrentDirectory(
+      input.currentDirectory,
+      options.defaultCurrentDirectory,
+    );
+    const resolvedSenderId = await resolveMcpSenderId(
+      deps,
+      input.senderId,
+      resolvedCurrentDirectory,
+      env,
+    );
+    const responseOptional = input.kind === "consult";
+    const defaultAction = input.defaultAction?.trim() || null;
+    const body = input.kind === "consult" && defaultAction
+      ? `${input.body.trim()}\n\nDefault if there is no reply: ${defaultAction}`
+      : input.body.trim();
+    const result = await deps.sendMessage({
+      senderId: resolvedSenderId,
+      body,
+      targetLabel: "@operator",
+      currentDirectory: resolvedCurrentDirectory,
+      source: "scout-mcp",
+      wake: false,
+      operatorSignal: {
+        kind: input.kind,
+        blocking: false,
+        responseOptional,
+        ...(defaultAction ? { defaultAction } : {}),
+      },
+    });
+    const messageId = result.messageId ?? null;
+    const routingError = result.routingError
+      ?? (result.unresolvedTargets.length > 0
+        ? "operator_unavailable"
+        : result.usedBroker && !messageId
+        ? "missing_broker_receipt"
+        : null);
+    const structuredContent = {
+      currentDirectory: resolvedCurrentDirectory,
+      senderId: resolvedSenderId,
+      kind: input.kind,
+      status: routingError || !result.usedBroker ? "not_sent" as const : "sent" as const,
+      blocking: false as const,
+      responseOptional,
+      defaultAction,
+      conversationId: result.conversationId ?? null,
+      messageId,
+      signalId: messageId,
+      routingError: routingError ?? (!result.usedBroker ? "broker_unreachable" : null),
+    };
+    const summary = structuredContent.status === "sent"
+      ? input.kind === "consult"
+        ? `Optional consultation sent (${messageId}); continue with the declared default unless the operator replies.`
+        : `Operator notified (${messageId}); continue working.`
+      : `Operator signal was not sent: ${structuredContent.routingError}.`;
+    return {
+      content: createPlainTextContent(summary),
+      structuredContent,
+    };
+  };
+
+  server.registerTool(
+    "notify_operator",
+    {
+      title: "Notify Operator",
+      description:
+        "Send the human operator a useful, non-blocking FYI and continue working. This creates a durable broker message for delivery and correlation, but it does not create a flight, request a reply, or change task lifecycle. Do not use it for routine progress chatter or when work cannot safely continue.",
+      inputSchema: z.object({
+        message: z.string().min(1),
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+      }),
+      outputSchema: operatorSignalResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ message, currentDirectory, senderId }) =>
+      sendOperatorSignal({
+        kind: "notify",
+        body: message,
+        currentDirectory,
+        senderId,
+      }),
+  );
+
+  server.registerTool(
+    "consult_operator",
+    {
+      title: "Consult Operator Without Blocking",
+      description:
+        "Ask the human operator for optional advice while continuing the current task. Always declare the safe default action you will take if no reply arrives. This creates a durable, replyable broker message but no invocation, flight, waiting state, or lifecycle transition. Use a blocking human-input mechanism instead when there is no responsible default.",
+      inputSchema: z.object({
+        question: z.string().min(1),
+        defaultAction: z.string().min(1),
+        currentDirectory: z.string().optional(),
+        senderId: z.string().optional(),
+      }),
+      outputSchema: operatorSignalResultSchema,
+      annotations: {
+        readOnlyHint: false,
+        idempotentHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ question, defaultAction, currentDirectory, senderId }) =>
+      sendOperatorSignal({
+        kind: "consult",
+        body: question,
+        defaultAction,
+        currentDirectory,
+        senderId,
+      }),
   );
 
   server.registerTool(

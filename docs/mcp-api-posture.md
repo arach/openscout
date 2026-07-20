@@ -18,6 +18,8 @@ These are the tools normal agents should learn first:
 | `messages_send` | Send a durable tell/update when no owned work or reply is expected. |
 | `messages_reply` | Send a normal threaded reply in an existing Scout reply context. |
 | `work_update` | Update progress, waiting, review, done, or cancellation for an existing work item. |
+| `notify_operator` | Give the human operator a useful FYI without pausing or creating lifecycle. |
+| `consult_operator` | Ask for optional advice, declare the safe default, and keep working. |
 
 `ask` may create message, invocation, flight, delivery, card, session, and work
 records as side effects. Those records are broker-owned implementation details
@@ -26,6 +28,31 @@ unless the caller is explicitly observing or managing them.
 Timeout-style fields on MCP tools are caller wait budgets only. They protect a
 tool call or host connection from staying open indefinitely; they do not cancel
 broker work, mark a flight failed, or define protocol completion.
+
+## Non-Blocking Operator Signals
+
+`notify_operator` and `consult_operator` are agent-to-operator communication,
+not task state.
+
+- `notify_operator` is a one-way FYI. No reply is requested.
+- `consult_operator` requests optional advice and requires `defaultAction`.
+  The agent continues with that default unless a reply arrives in time to steer
+  later work.
+- Neither tool creates an invocation, flight, question, waiting state, or work
+  transition.
+- The broker writes a durable operator message and uses its `messageId` as the
+  signal correlation id. A reply stays in that conversation and points back to
+  the signal message.
+- A late reply is steering input. It does not retroactively rewrite work state.
+
+If an agent cannot responsibly continue, these tools are the wrong mechanism.
+That dependency belongs in the existing blocking human-input, approval,
+question, or `work_item.waiting` path. Only a real `needs_input` condition may
+hand the next move to the operator.
+
+The tool names are deliberately namespaced. Bare `notify` already describes
+delivery and MCP reply modes inside Scout, while bare `consult` already names
+the tracked `ask` delivery intent.
 
 When the caller knows the project but not the concrete agent, use
 `ask({ projectPath })`; add `harness` when the desired capability matters. The

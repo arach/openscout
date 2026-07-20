@@ -127,6 +127,13 @@ function createHarness(input: {
     targetLabel: string;
     detail: string;
   }> = [];
+  const operatorSignals: Array<{
+    signal: NonNullable<ScoutDeliverRequest["operatorSignal"]>;
+    messageId: string;
+    conversationId: string;
+    requesterId: string;
+    requesterNodeId: string;
+  }> = [];
   let idCounter = 0;
 
   const service = new BrokerDeliveryAcceptanceService({
@@ -222,6 +229,7 @@ function createHarness(input: {
       dispatchedInvocations.push(invocation);
     },
     queueOperatorDeliveryIssue: (issue) => operatorIssues.push(issue),
+    queueOperatorSignal: (signal) => operatorSignals.push(signal),
     now: () => input.now ?? 10_000,
   });
 
@@ -232,6 +240,7 @@ function createHarness(input: {
     dispatchedInvocations,
     ensuredActors,
     operatorIssues,
+    operatorSignals,
     postedMessages,
     recordedDispatches,
     service,
@@ -239,6 +248,61 @@ function createHarness(input: {
 }
 
 describe("BrokerDeliveryAcceptanceService", () => {
+  test("records an operator signal without creating an invocation", async () => {
+    const conversation = testConversation({
+      id: "dm.agent.operator",
+      participantIds: ["agent-1", "operator"],
+    });
+    const harness = createHarness({
+      conversation,
+      isOperatorTarget: () => true,
+      now: 11_000,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-signal",
+      body: "I found the root cause and am continuing with the fix.",
+      intent: "tell",
+      targetLabel: "@operator",
+      caller: { actorId: "agent-1", nodeId: "node-1" },
+      operatorSignal: {
+        kind: "notify",
+        blocking: false,
+        responseOptional: false,
+      },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result.accepted).toBe(true);
+    expect(harness.acceptedInvocations).toEqual([]);
+    expect(harness.dispatchedInvocations).toEqual([]);
+    expect(harness.postedMessages[0]).toEqual(expect.objectContaining({
+      id: "msg-1",
+      conversationId: "dm.agent.operator",
+      actorId: "agent-1",
+      body: "I found the root cause and am continuing with the fix.",
+      metadata: expect.objectContaining({
+        operatorSignal: {
+          kind: "notify",
+          blocking: false,
+          responseOptional: false,
+        },
+        operatorSignalId: "msg-1",
+      }),
+    }));
+    expect(harness.operatorSignals).toEqual([{
+      signal: {
+        kind: "notify",
+        blocking: false,
+        responseOptional: false,
+      },
+      messageId: "msg-1",
+      conversationId: "dm.agent.operator",
+      requesterId: "agent-1",
+      requesterNodeId: "node-1",
+    }]);
+  });
+
   test("routes channel tells without creating an invocation", async () => {
     const conversation = testConversation({
       id: "channel.shared",

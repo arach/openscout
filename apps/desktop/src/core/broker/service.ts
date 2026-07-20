@@ -34,6 +34,7 @@ import {
   type MessageAttachment,
   type MessageRecord,
   type ScoutDeliverResponse,
+  type ScoutDeliverRequest,
   type ScoutDispatchRecord,
   type ScoutCapabilityMatrixSnapshot,
   type ScoutProjectAgentSpec,
@@ -2957,6 +2958,7 @@ export async function sendScoutMessage(input: {
   currentDirectory?: string;
   source?: string;
   wake?: boolean;
+  operatorSignal?: ScoutDeliverRequest["operatorSignal"];
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -3021,6 +3023,7 @@ export async function sendScoutMessage(input: {
         ...(wake ? { wake } : {}),
       },
       invocationMetadata: wakeInvocationMetadata,
+      operatorSignal: input.operatorSignal,
     });
     if (delivery.kind !== "delivery") {
       return {
@@ -3079,6 +3082,7 @@ export async function sendScoutMessage(input: {
         ...(wake ? { wake } : {}),
       },
       invocationMetadata: wakeInvocationMetadata,
+      operatorSignal: input.operatorSignal,
     });
     if (delivery.kind !== "delivery") {
       return {

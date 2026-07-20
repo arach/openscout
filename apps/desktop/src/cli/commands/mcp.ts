@@ -62,6 +62,8 @@ export function renderMcpCommandHelp(): string {
     "  agents_resolve   pin one exact target when needed",
     "  ask              broker front door for agent-to-agent work/replies",
     "  messages_send    tell / update with explicit target fields or channel",
+    "  notify_operator  useful FYI to the human operator; agent keeps working",
+    "  consult_operator optional advice with a required default action",
     "  invocations_get  fetch current state for an existing ask flight",
     "  invocations_wait bounded wait for an existing ask flight",
     "  work_update      progress / waiting / review / done for existing work",

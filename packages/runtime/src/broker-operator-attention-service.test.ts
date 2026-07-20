@@ -163,6 +163,40 @@ describe("BrokerOperatorAttentionService", () => {
     expect(harness.warnings).toEqual([]);
   });
 
+  test("pushes a generic non-blocking alert for an agent-authored operator signal", async () => {
+    const harness = createHarness();
+
+    await harness.service.sendOperatorSignalAlert({
+      signal: {
+        kind: "consult",
+        blocking: false,
+        responseOptional: true,
+        defaultAction: "Keep the restrained HUD animation.",
+      },
+      messageId: "msg-consult",
+      conversationId: "dm.agent.operator",
+      requesterId: "agent-1",
+      requesterNodeId: "node-1",
+    });
+
+    expect(harness.messages).toEqual([]);
+    expect(harness.alerts).toEqual([{
+      title: "An agent would value your input",
+      body: "Open Scout for details.",
+      sound: null,
+      threadId: "scout.agent-signal",
+      payload: {
+        destination: "inbox",
+        kind: "operator_signal",
+        signalKind: "consult",
+        messageId: "msg-consult",
+        conversationId: "dm.agent.operator",
+        requesterId: "agent-1",
+        requesterNodeId: "node-1",
+      },
+    }]);
+  });
+
   test("warns once for missing credentials and reports rate limits and failures", async () => {
     const harness = createHarness({
       broadcastResult: broadcastResult({
@@ -183,7 +217,7 @@ describe("BrokerOperatorAttentionService", () => {
     await harness.service.recordDeliveryIssue(issue({ requestId: "deliver-2" }));
 
     expect(harness.warnings).toEqual([
-      "[openscout-runtime] mobile push credentials are missing; operator delivery issue was recorded without APNS.",
+      "[openscout-runtime] mobile push credentials are missing; operator attention was recorded without APNS.",
       "[openscout-runtime] push relay rate-limited (minute); retry in 12s.",
       "[openscout-runtime] failed to send operator delivery issue push to device-1 (abcd): 500",
       "[openscout-runtime] push relay rate-limited (minute); retry in 12s.",

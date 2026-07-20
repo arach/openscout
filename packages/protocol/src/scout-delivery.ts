@@ -16,6 +16,20 @@ import type {
 
 export type ScoutDeliverIntent = "tell" | "consult";
 
+export type ScoutOperatorSignalKind = "notify" | "consult";
+
+/**
+ * An agent-authored signal for its human operator. Operator signals are
+ * conversational side effects, not task lifecycle transitions: they never
+ * create a flight and they never imply that the agent is waiting.
+ */
+export interface ScoutOperatorSignal {
+  kind: ScoutOperatorSignalKind;
+  blocking: false;
+  responseOptional: boolean;
+  defaultAction?: string;
+}
+
 export type ScoutDeliverRouteKind = "dm" | "channel" | "broadcast";
 
 export type ScoutProjectAgentPersistence = "one_time" | "sticky";
@@ -77,6 +91,7 @@ export interface ScoutDeliverRequest {
   };
   messageMetadata?: MetadataMap;
   invocationMetadata?: MetadataMap;
+  operatorSignal?: ScoutOperatorSignal;
 }
 
 export interface ScoutDeliveryReceipt {

@@ -153,6 +153,13 @@ export type BrokerDeliveryAcceptanceServiceOptions = {
   acceptInvocation: (invocation: InvocationRequest) => Promise<FlightRecord>;
   dispatchAcceptedInvocation: (invocation: InvocationRequest) => Promise<void>;
   queueOperatorDeliveryIssue: (input: OperatorDeliveryIssueInput) => void;
+  queueOperatorSignal: (input: {
+    signal: NonNullable<ScoutDeliverRequest["operatorSignal"]>;
+    messageId: string;
+    conversationId: string;
+    requesterId: string;
+    requesterNodeId: string;
+  }) => void;
   warn?: (message: string, detail?: unknown) => void;
   now?: () => number;
 };
@@ -422,6 +429,9 @@ export class BrokerDeliveryAcceptanceService {
         metadata: {
           ...(payload.messageMetadata ?? {}),
           ...(labels.length ? { labels } : {}),
+          ...(payload.operatorSignal
+            ? { operatorSignal: payload.operatorSignal, operatorSignalId: messageId }
+            : {}),
           relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
           relayTarget: this.options.operatorActorId,
           relayTargetIds: notifyTargets,
@@ -434,6 +444,15 @@ export class BrokerDeliveryAcceptanceService {
         },
       };
       await this.options.postConversationMessage(message);
+      if (payload.operatorSignal) {
+        this.options.queueOperatorSignal({
+          signal: payload.operatorSignal,
+          messageId,
+          conversationId: conversation.id,
+          requesterId,
+          requesterNodeId,
+        });
+      }
       throwIfAborted(options.signal);
       return {
         kind: "delivery",
