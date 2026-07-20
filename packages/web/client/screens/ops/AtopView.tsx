@@ -35,6 +35,7 @@ import {
 } from "react";
 
 import { DataTable, type DataTableColumn } from "../../components/DataTable/DataTable.tsx";
+import { HarnessMark, harnessLabel } from "../../components/HarnessMark.tsx";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { api } from "../../lib/api.ts";
 import { formatClockTimestamp, timeAgoWithSuffix } from "../../lib/time.ts";
@@ -885,7 +886,8 @@ function SummaryStrip({
           {summary.harnesses.length > 0 ? (
             summary.harnesses.slice(0, 4).map((entry) => (
               <span key={entry.harness} className={harnessChipClass(entry.harness)}>
-                {entry.harness} {entry.count}
+                <HarnessMark harness={entry.harness} size={11} title={null} />
+                {harnessLabel(entry.harness)} {entry.count}
               </span>
             ))
           ) : (
@@ -975,7 +977,8 @@ function FilterBar({
                 className={`s-atop-pill s-atop-pill--harness${on ? " s-atop-pill--on" : ""}`}
                 onClick={() => onToggleHarness(harness)}
               >
-                {harness}
+                <HarnessMark harness={harness} size={11} title={null} />
+                {harnessLabel(harness)}
                 <span className="s-atop-pill-ct">{harnessCount(harness)}</span>
               </button>
             );
@@ -1040,7 +1043,8 @@ const COLUMNS: DataTableColumn<AtopRow, SortKey>[] = [
           className={harnessChipClass(row.harness)}
           title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
         >
-          {row.harness}
+          <HarnessMark harness={row.harness} size={11} title={null} />
+          {harnessLabel(row.harness)}
         </span>
         <span className="s-atop-agent-id" title={row.sessionId ?? `pid ${row.pid}`}>
           {shortSession(row.sessionId)}
@@ -1234,7 +1238,8 @@ function DetailPanel({
               className={harnessChipClass(row.harness)}
               title={`origin: ${ATTRIBUTION_LABEL[row.attribution]}`}
             >
-              {row.harness}
+              <HarnessMark harness={row.harness} size={11} title={null} />
+              {harnessLabel(row.harness)}
             </span>
             <span className="s-atop-drawer-session">session {shortSession(row.sessionId)}</span>
           </div>

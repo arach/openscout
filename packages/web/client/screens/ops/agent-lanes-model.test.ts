@@ -402,6 +402,35 @@ describe("isAgentLaneWorking", () => {
     expect(lanes[0]?.agent.harness).toBe("codex");
   });
 
+  test("maps a recent Kimi transcript and tool activity into a native lane", () => {
+    const sessionId = "session_a8ddc351-12b4-42e4-bb3d-ea3d975fafa4";
+    const { lanes } = buildAgentLanes({
+      transcripts: [{
+        source: "kimi",
+        transcriptPath: `/Users/art/.kimi-code/sessions/wd_openscout/session/${sessionId}/agents/main/wire.jsonl`,
+        sessionId,
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 20_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent(sessionId, NOW - 10_000, "tool", {
+        source: "kimi",
+        summary: "Read packages/web/client/components/HarnessMark.tsx",
+      })],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.id).toBe(`native:kimi:${sessionId}`);
+    expect(lanes[0]?.source).toBe("native");
+    expect(lanes[0]?.agent.harness).toBe("kimi");
+    expect(lanes[0]?.agent.harnessSessionId).toBe(sessionId);
+    expect(lanes[0]?.observe?.events[0]?.kind).toBe("tool");
+  });
+
   test("includes native codex lanes with recent task lifecycle activity", () => {
     const { lanes } = buildAgentLanes({
       transcripts: [{

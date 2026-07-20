@@ -1212,6 +1212,16 @@ private struct ScoutHarnessMark: View {
                 p.move(to: pt(11, 20)); p.addLine(to: pt(21, 8))
                 ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.4 * s, lineCap: .round))
 
+            case "kimi":
+                // Angular K + orbit dot — Kimi / Moonshot.
+                var p = Path()
+                p.move(to: pt(5.5, 3)); p.addLine(to: pt(5.5, 21))
+                p.move(to: pt(18, 3)); p.addLine(to: pt(6, 12)); p.addLine(to: pt(18.5, 21))
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 3.2 * s, lineCap: .square, lineJoin: .miter))
+                var dot = Path()
+                dot.addEllipse(in: CGRect(x: 18.4 * s, y: 1.8 * s, width: 3.8 * s, height: 3.8 * s))
+                ctx.fill(dot, with: shading)
+
             case "opencode":
                 // Square ring — OpenCode.
                 var p = Path()
@@ -1262,6 +1272,7 @@ private struct ScoutHarnessMark: View {
             "anthropic": "claude", "claude": "claude", "claudecode": "claude", "sonnet": "claude", "opus": "claude",
             "openai": "codex", "codex": "codex", "gpt": "codex", "chatgpt": "codex", "oai": "codex",
             "xai": "grok", "grok": "grok",
+            "kimi": "kimi", "moonshot": "kimi",
             "google": "gemini", "gemini": "gemini", "vertex": "gemini",
             "cursor": "cursor", "github": "github", "opencode": "opencode", "oc": "opencode",
         ]

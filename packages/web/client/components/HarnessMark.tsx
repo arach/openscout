@@ -12,7 +12,7 @@ import type { CSSProperties, ReactNode } from "react";
  */
 
 /** Canonical harness key after alias folding (anthropic → claude, etc.). */
-function normalizeHarnessKey(harness: string | null | undefined): string {
+export function normalizeHarnessKey(harness: string | null | undefined): string {
   const raw = harness?.trim().toLowerCase();
   if (!raw) return "unknown";
   // Strip common decorations: "claude-code", "claude_code", "claude (sonnet)".
@@ -30,6 +30,8 @@ function normalizeHarnessKey(harness: string | null | undefined): string {
     oai: "codex",
     xai: "grok",
     grok: "grok",
+    kimi: "kimi",
+    moonshot: "kimi",
     google: "gemini",
     gemini: "gemini",
     vertex: "gemini",
@@ -53,6 +55,7 @@ const HARNESS_LABEL: Record<string, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
+  kimi: "Kimi",
   gemini: "Gemini",
   cursor: "Cursor",
   github: "GitHub",
@@ -129,6 +132,15 @@ const openaiGlyph = (
   />
 );
 
+/** Angular K with the small orbit dot used by Kimi's current identity. The
+ * shared mark stays monochrome so it can inherit state and surface tint. */
+const kimiGlyph = (
+  <g fill="currentColor">
+    <path d="M4.5 3h3.4v7.4L14.7 3h4.5l-7.9 8.5L19.8 21h-4.6l-7.3-8.2V21H4.5Z" />
+    <circle cx="20.2" cy="3.8" r="1.8" />
+  </g>
+);
+
 /** π — Pi. */
 const piGlyph = (
   <g {...S.line} strokeWidth={2}>
@@ -175,6 +187,7 @@ const clawGlyph = (
 const HARNESS_GLYPHS: Record<string, ReactNode> = {
   claude: brandGlyph(BRAND_PATHS.claude),
   codex: openaiGlyph,
+  kimi: kimiGlyph,
   gemini: brandGlyph(BRAND_PATHS.gemini),
   cursor: brandGlyph(BRAND_PATHS.cursor),
   github: brandGlyph(BRAND_PATHS.github),

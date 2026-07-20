@@ -13,6 +13,7 @@ import ScoutCapabilities
 /// themselves. Shares the broker client; reloads when the bridge connects.
 struct CommsSurface: View {
     let model: AppModel
+    let isActive: Bool
     var reloadToken: Int = 0
     var notificationRoute: AppModel.NotificationRoute? = nil
 
@@ -26,6 +27,8 @@ struct CommsSurface: View {
     /// Lowercased display names of agents the broker reports as live — drives the
     /// row's "working" spinner. A real signal, refreshed on every load.
     @State private var liveAgents: Set<String> = []
+    @StateObject private var entrance = CockpitEntrancePhase()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct MachineCommsConversation: Identifiable {
         let id: String
@@ -60,6 +63,7 @@ struct CommsSurface: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, HudSpacing.huge)
                 .padding(HudSpacing.xxl)
+                .cockpitEntrance(index: 0, phase: entrance)
             } else {
                 // One list: channels and DMs interleave by recency. The `#`
                 // glyph is the only thing that says "channel" — no section split.
@@ -67,10 +71,12 @@ struct CommsSurface: View {
                     brokerCommsHeader
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.lg)
+                        .cockpitEntrance(index: 0, phase: entrance)
                     HudField("Search conversations", text: $searchText, icon: "magnifyingglass")
                         .padding(.horizontal, HudSpacing.xxl)
                         .padding(.top, HudSpacing.md)
                         .padding(.bottom, HudSpacing.lg)
+                        .cockpitEntrance(index: 1, phase: entrance)
                     ForEach(Array(filtered.enumerated()), id: \.element.id) { index, row in
                         CommsRow(
                             conversation: row.conversation,
@@ -82,12 +88,17 @@ struct CommsSurface: View {
                             routeRowId = row.id
                             route = row.conversation
                         }
+                        .cockpitEntrance(index: index + 2, phase: entrance)
                     }
                 }
             }
         }
-        .refreshable { await load() }
-        .task(id: reloadKey) { await load() }
+        .refreshable { if isActive { await load() } }
+        .task(id: "\(reloadKey)|\(isActive)") {
+            guard isActive else { return }
+            await load()
+            await entrance.reveal(when: isActive, animated: !reduceMotion)
+        }
         .navigationDestination(item: $route) { convo in
             CommsThreadView(
                 client: routeClient ?? model.client,
@@ -146,7 +157,6 @@ struct CommsSurface: View {
     }
 
     private func load() async {
-        isLoading = true
         let machines = model.agentMachines()
         var rows: [MachineCommsConversation] = []
         var liveNames = Set<String>()

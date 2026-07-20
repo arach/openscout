@@ -25,6 +25,7 @@ struct NewSessionSurface: View {
     /// load so the machine-backed harness list fills in once connected, not just
     /// on first appear (which can land before the connection is up).
     var reloadToken: Int = 0
+    let isActive: Bool
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
@@ -63,6 +64,7 @@ struct NewSessionSurface: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scoutLayout) private var layout
     @State private var micPulse = false
+    @StateObject private var entrance = CockpitEntrancePhase()
 
     /// Definite content width inside the surface padding — the same discipline
     /// Home uses so wide rows (the agent row, the Start button) fit and truncate
@@ -221,16 +223,20 @@ struct NewSessionSurface: View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 topRow
+                    .cockpitEntrance(index: 0, phase: entrance)
                 instructionsSection
                     .frame(maxHeight: .infinity)
+                    .cockpitEntrance(index: 1, phase: entrance)
                 if let errorText {
                     Text(errorText)
                         .font(HudFont.mono(HudTextSize.xs))
                         .foregroundStyle(HudPalette.statusError)
                         .fixedSize(horizontal: false, vertical: true)
+                        .cockpitEntrance(index: 2, phase: entrance)
                 }
                 if let result {
                     resultCard(result)
+                        .cockpitEntrance(index: 3, phase: entrance)
                 }
             }
             .frame(width: laneWidth, alignment: .leading)
@@ -259,7 +265,11 @@ struct NewSessionSurface: View {
                 addFiles(result)
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images)
-            .task(id: reloadToken) { await loadWorkspaces() }
+            .task(id: "\(reloadToken)|\(isActive)") {
+                guard isActive else { return }
+                await entrance.reveal(when: isActive, animated: !reduceMotion)
+                await loadWorkspaces()
+            }
         // When the project changes, adopt that machine workspace's harnesses.
         .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
         // Picking a different Mac re-reads its workspaces (the project list + the
@@ -267,7 +277,7 @@ struct NewSessionSurface: View {
         // re-picks a valid default on that host.
         .onChange(of: selectedMachineId) { _, _ in
             projectPath = ""
-            Task { await loadWorkspaces() }
+            if isActive { Task { await loadWorkspaces() } }
         }
     }
 
