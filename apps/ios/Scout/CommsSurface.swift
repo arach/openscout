@@ -14,6 +14,7 @@ import ScoutCapabilities
 struct CommsSurface: View {
     let model: AppModel
     var reloadToken: Int = 0
+    var notificationRoute: AppModel.NotificationRoute? = nil
 
     @State private var conversations: [MachineCommsConversation] = []
     @State private var isLoading = true
@@ -21,6 +22,7 @@ struct CommsSurface: View {
     @State private var route: CommsConversation?
     @State private var routeClient: (any ScoutBrokerClient)?
     @State private var routeRowId: String?
+    @State private var routeMessageId: String?
     /// Lowercased display names of agents the broker reports as live — drives the
     /// row's "working" spinner. A real signal, refreshed on every load.
     @State private var liveAgents: Set<String> = []
@@ -90,9 +92,13 @@ struct CommsSurface: View {
             CommsThreadView(
                 client: routeClient ?? model.client,
                 conversation: convo,
+                initialMessageId: routeMessageId,
                 onClose: { route = nil },
                 onRead: { await markRead(rowId: routeRowId, conversationId: convo.id, client: routeClient) }
             )
+        }
+        .onChange(of: notificationRoute) { _, _ in
+            openNotificationRouteIfPossible()
         }
     }
 
@@ -169,6 +175,24 @@ struct CommsSurface: View {
         // counterpart against agents the broker currently reports as live.
         liveAgents = liveNames
         isLoading = false
+        openNotificationRouteIfPossible()
+    }
+
+    private func openNotificationRouteIfPossible() {
+        guard let notificationRoute else { return }
+        guard let conversationId = notificationRoute.conversationId else {
+            model.consumeNotificationRoute(notificationRoute)
+            return
+        }
+        guard let row = conversations.first(where: { $0.conversation.id == conversationId }) else {
+            return
+        }
+
+        routeClient = row.client
+        routeRowId = row.id
+        routeMessageId = notificationRoute.messageId ?? notificationRoute.itemId
+        route = row.conversation
+        model.consumeNotificationRoute(notificationRoute)
     }
 }
 
@@ -567,6 +591,7 @@ private final class PopGestureController: UIViewController, UIGestureRecognizerD
 struct CommsThreadView: View {
     let client: any ScoutBrokerClient
     let conversation: CommsConversation
+    var initialMessageId: String? = nil
     let onClose: () -> Void
     /// Called once the thread is on screen so the list can clear the unread badge
     /// and the broker can advance the operator's read cursor. Defaults to a no-op.
@@ -681,9 +706,18 @@ struct CommsThreadView: View {
                     .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottomLeading)
                 }
                 .onChange(of: messages.count) { _, _ in
+                    guard !isLoading else { return }
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
-                .onChange(of: isLoading) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: isLoading) { _, loading in
+                    guard !loading else { return }
+                    if let initialMessageId,
+                       messages.contains(where: { $0.id == initialMessageId }) {
+                        proxy.scrollTo(initialMessageId, anchor: .center)
+                    } else {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
             }
         }
     }

@@ -205,6 +205,11 @@
 				TargetAttributes = {
 					07224840A05C2ED61F3A31AF = {
 						DevelopmentTeam = 2U83JFPW66;
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -338,6 +343,7 @@
 		B759D5C473BE677A6A43DFF2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Scout/Scout.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -429,6 +435,7 @@
 		CA8D3323D866545C5D2407CE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Scout/Scout.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

@@ -91,12 +91,14 @@ targets:
         NSLocalNetworkUsageDescription: Scout connects to your Mac over your local network when both devices are nearby.
         NSCameraUsageDescription: Scout uses the camera to scan the pairing QR code shown on your Mac.
     # Sign in with Apple (OSN native auth). Requires the matching capability on
-    # the App ID in the Apple Developer portal for runtime to succeed.
+    # the App ID in the Apple Developer portal for runtime to succeed. Push uses
+    # the matching APNs environment for each build configuration.
     entitlements:
       path: Scout/Scout.entitlements
       properties:
         com.apple.developer.applesignin:
           - Default
+        aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
         PRODUCT_NAME: Scout
@@ -114,3 +116,8 @@ targets:
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         MARKETING_VERSION: "0.2.70"
         CURRENT_PROJECT_VERSION: "1"
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production

@@ -125,7 +125,12 @@ struct RootView: View {
                                 )
                             case .tail:
                                 TailSurface(model: model, reloadToken: model.fleetDataReadyToken)
-                            case .comms:    CommsSurface(model: model, reloadToken: model.fleetDataReadyToken)
+                            case .comms:
+                                CommsSurface(
+                                    model: model,
+                                    reloadToken: model.fleetDataReadyToken,
+                                    notificationRoute: model.pendingNotificationRoute
+                                )
                             case .lanes:    MissionControlSurface(model: model, kind: .lanes)
                             case .dispatch: MissionControlSurface(model: model, kind: .dispatch)
                             case .terminal: TerminalSurface(
@@ -225,6 +230,17 @@ struct RootView: View {
             }
         }
         #endif
+        .onChange(of: model.pendingNotificationRoute) { _, route in
+            guard route != nil else { return }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                surface = .comms
+            }
+        }
+        .onAppear {
+            if model.pendingNotificationRoute != nil {
+                surface = .comms
+            }
+        }
         .onChange(of: surface) { _, _ in sessionStatusContext = nil }
     }
 

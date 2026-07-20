@@ -1,6 +1,87 @@
 import HudsonObservability
 import SwiftUI
 import HudsonUI
+import UIKit
+import UserNotifications
+
+private struct ScoutPushRoute: Sendable {
+    let destination: String?
+    let conversationId: String?
+    let messageId: String?
+    let itemId: String?
+}
+
+@MainActor
+final class ScoutAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private weak var model: AppModel?
+    private var pendingNotificationRoute: ScoutPushRoute?
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    func bind(to model: AppModel) {
+        self.model = model
+        if let pendingNotificationRoute {
+            deliver(pendingNotificationRoute)
+            self.pendingNotificationRoute = nil
+        }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        model?.didRegisterForRemoteNotifications(deviceToken: deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: any Error
+    ) {
+        model?.didFailToRegisterForRemoteNotifications(error: error)
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .badge, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let scout = response.notification.request.content.userInfo["scout"] as? [String: Any]
+        let route = ScoutPushRoute(
+            destination: scout?["destination"] as? String,
+            conversationId: scout?["conversationId"] as? String,
+            messageId: scout?["messageId"] as? String,
+            itemId: scout?["itemId"] as? String
+        )
+        await MainActor.run { [weak self] in
+            self?.deliver(route)
+        }
+    }
+
+    private func deliver(_ route: ScoutPushRoute) {
+        guard route.destination == nil || route.destination == "inbox" else { return }
+        if let model {
+            model.handleRemoteNotification(
+                conversationId: route.conversationId,
+                messageId: route.messageId,
+                itemId: route.itemId
+            )
+        } else {
+            pendingNotificationRoute = route
+        }
+    }
+}
 
 /// Scout (SCO-061) — the next-gen, Hudson-first iOS app. Surfaces consume
 /// the shared `ScoutCapabilities` layer through a `ScoutBrokerClient`. The
@@ -8,6 +89,7 @@ import HudsonUI
 /// pairing already in the keychain); a Mock source remains for offline UI work.
 @main
 struct ScoutApp: App {
+    @UIApplicationDelegateAdaptor(ScoutAppDelegate.self) private var appDelegate
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -44,7 +126,11 @@ struct ScoutApp: App {
             .onChange(of: scenePhase) { _, phase in
                 model.setScenePhase(phase)
             }
-            .task { await model.start() }
+            .task {
+                appDelegate.bind(to: model)
+                await model.refreshPushNotificationAuthorization()
+                await model.start()
+            }
         }
     }
 }

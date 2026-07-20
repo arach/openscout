@@ -34,7 +34,6 @@ struct AppSettingsView: View {
 
     @State private var tab: String
     @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
-    @State private var approvalsAlert = true
     @State private var renamingMachine: AppModel.PairedMachine?
     @State private var renameText = ""
     @State private var copiedLogs = false
@@ -80,6 +79,8 @@ struct AppSettingsView: View {
         .task(id: tab) {
             if tab == "ROUTES" {
                 await model.refreshTailnetPairTargets()
+            } else if tab == "ALERTS" {
+                await model.refreshPushNotificationAuthorization()
             }
         }
         .task(id: context) {
@@ -542,8 +543,25 @@ struct AppSettingsView: View {
     private var alertsPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Notifications") {
-                HudInspectorToggleRow("Approval alerts", isOn: $approvalsAlert, valueOn: "On", valueOff: "Off", hint: "ping on a decision")
-                HudInspectorFieldRow("Push", value: "Soon", hint: "needs entitlement")
+                HudInspectorFieldRow(
+                    "Authorization",
+                    value: model.notificationAuthorizationLabel,
+                    hint: model.notificationAuthorizationHint
+                )
+                HudInspectorFieldRow(
+                    "APNs",
+                    value: model.pushRegistrationStatus,
+                    hint: model.pushRegistrationError
+                )
+                HudInspectorActionRow(
+                    model.notificationAuthorizationStatus == .denied
+                        ? "Open notification settings"
+                        : "Push notifications",
+                    value: model.notificationAuthorizationActionLabel,
+                    tone: .accent
+                ) {
+                    Task { await model.requestPushNotificationAuthorization() }
+                }
             }
         }
     }
