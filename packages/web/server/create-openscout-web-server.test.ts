@@ -4205,9 +4205,17 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         targetAgentId: "agent-2",
         targetLabel: "Talkie",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            fileName: "context.md",
+            url: "/api/blobs/blob-1",
+          },
+        ],
         execution: {
           harness: "codex",
           model: "gpt-test",
+          reasoningEffort: "high",
         },
       }),
     });
@@ -4228,6 +4236,14 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         executionHarness: "codex",
         executionModel: "gpt-test",
+        executionReasoningEffort: "high",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            fileName: "context.md",
+            url: "/api/blobs/blob-1",
+          },
+        ],
         source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },

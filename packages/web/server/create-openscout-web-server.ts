@@ -6937,9 +6937,11 @@ export async function createOpenScoutWebServer(
       targetAgentId?: unknown;
       targetLabel?: unknown;
       metadata?: unknown;
+      attachments?: unknown;
       execution?: {
         harness?: unknown;
         model?: unknown;
+        reasoningEffort?: unknown;
       };
     };
     const message = optionalString(requestBody.body)?.trim();
@@ -6985,6 +6987,11 @@ export async function createOpenScoutWebServer(
       optionalString(requestBody.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
+    const executionReasoningEffort = optionalString(requestBody.execution?.reasoningEffort)?.trim();
+    if (requestBody.attachments !== undefined && !Array.isArray(requestBody.attachments)) {
+      return c.json({ error: "attachments must be an array" }, 400);
+    }
+    const attachments = requestBody.attachments as OutgoingAttachmentInput[] | undefined;
     const requestMetadata = recordInput(requestBody.metadata);
     const source = metadataStringValue(requestMetadata, "source") ?? "scout-web";
 
@@ -6995,6 +7002,8 @@ export async function createOpenScoutWebServer(
       body: message,
       ...(executionHarness ? { executionHarness } : {}),
       ...(executionModel ? { executionModel } : {}),
+      ...(executionReasoningEffort ? { executionReasoningEffort } : {}),
+      ...(attachments?.length ? { attachments } : {}),
       source,
       ...(requestMetadata ? {
         messageMetadata: requestMetadata,
