@@ -174,7 +174,17 @@ function launch(): void {
     return;
   }
 
-  spawn("open", [bundlePath], { detached: true, stdio: "ignore" }).unref();
+  // A bundle opened through LaunchServices starts with `/` as its working
+  // directory. Give repo-built apps an explicit workspace context and opt into
+  // the repo's target/{release,debug}/scoutd candidates so broker controls do
+  // not fall through to a runtime wrapper that cannot locate the daemon.
+  const env = {
+    ...process.env,
+    OPENSCOUT_SETUP_CWD: process.env.OPENSCOUT_SETUP_CWD?.trim() || repoRoot,
+    OPENSCOUT_ALLOW_WORKSPACE_SCOUTD:
+      process.env.OPENSCOUT_ALLOW_WORKSPACE_SCOUTD?.trim() || "1",
+  };
+  spawn("open", [bundlePath], { detached: true, stdio: "ignore", env }).unref();
   console.log(`Launched ${bundleName}.`);
 }
 

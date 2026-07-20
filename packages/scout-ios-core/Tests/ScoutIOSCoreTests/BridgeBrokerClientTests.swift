@@ -48,10 +48,32 @@ final class BridgeBrokerClientTests: XCTestCase {
             "mobile/comms/conversations", "mobile/comms/messages",
             "mobile/comms/send", "mobile/comms/read", "mobile/attachments/upload",
             "mobile/terminal/provision", "mobile/terminal/status",
+            "mobile/push/sync",
             "question/answer", "action/decide", "turn/interrupt",
         ] {
             XCTAssertNotNil(trpcRouteMap[method], "missing route for \(method)")
         }
+    }
+
+    func testMobilePushRegistrationEncodesBrokerContract() throws {
+        let registration = MobilePushRegistration(
+            pushToken: "abc123",
+            authorizationStatus: .authorized,
+            appBundleId: "app.openscout.scout",
+            apnsEnvironment: .development,
+            appVersion: "0.2.70",
+            buildNumber: "1",
+            deviceModel: "iPhone",
+            systemVersion: "26.0"
+        )
+
+        let data = try JSONEncoder().encode(registration)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["pushToken"] as? String, "abc123")
+        XCTAssertEqual(json["authorizationStatus"] as? String, "authorized")
+        XCTAssertEqual(json["appBundleId"] as? String, "app.openscout.scout")
+        XCTAssertEqual(json["apnsEnvironment"] as? String, "development")
+        XCTAssertEqual(json["deviceModel"] as? String, "iPhone")
     }
 
     // MARK: - Metadata-only request observability

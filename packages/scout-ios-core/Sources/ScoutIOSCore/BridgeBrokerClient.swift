@@ -455,6 +455,14 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     public func mobileMeshStatus() async throws -> MobileMeshStatusResponse {
         try await connection.rpc("mobile/mesh/status", params: nil)
     }
+
+    // MARK: - MobilePushRegistrationCapability
+
+    public func syncMobilePushRegistration(
+        _ registration: MobilePushRegistration
+    ) async throws -> MobilePushRegistrationResult {
+        try await connection.rpc("mobile/push/sync", params: registration)
+    }
 }
 
 func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String? = nil) -> MobileCommsSendParams {

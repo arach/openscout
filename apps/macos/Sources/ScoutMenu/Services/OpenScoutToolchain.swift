@@ -168,8 +168,7 @@ struct OpenScoutToolchain {
             return fromPath
         }
 
-        if resolver.environmentFlag("OPENSCOUT_ALLOW_WORKSPACE_SCOUTD"),
-           let repoRoot = resolver.resolveRepoRoot() {
+        if let repoRoot = resolver.resolveRepoRoot() {
             let candidates = [
                 repoRoot.appending(path: "target/release/scoutd"),
                 repoRoot.appending(path: "target/debug/scoutd"),

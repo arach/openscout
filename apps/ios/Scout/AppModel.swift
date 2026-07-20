@@ -6,6 +6,7 @@ import HudsonVoice
 import ScoutCapabilities
 import ScoutIOSCore
 import AuthenticationServices
+import UserNotifications
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -32,6 +33,12 @@ extension HudDictation {
 @MainActor
 @Observable
 final class AppModel {
+    struct NotificationRoute: Equatable, Hashable {
+        let conversationId: String?
+        let messageId: String?
+        let itemId: String?
+    }
+
     enum ConnectionState: Equatable {
         case idle
         case connecting
@@ -69,6 +76,10 @@ final class AppModel {
     var connectionState: ConnectionState = .idle
     var showPairing = false
     var machineFilter: MachineFilter = .all
+    var notificationAuthorizationStatus: MobilePushAuthorizationStatus = .notDetermined
+    var pushRegistrationStatus = "Not enabled"
+    var pushRegistrationError: String?
+    var pendingNotificationRoute: NotificationRoute?
 
     private let fleet: FleetConnectionManager
     let connectionLog: ConnectionLog
@@ -226,6 +237,7 @@ final class AppModel {
     private let networkMonitor = NWPathMonitor()
     private let networkMonitorQueue = DispatchQueue(label: "Scout.NetworkPath")
     private var networkAvailable = true
+    private var remotePushToken: String?
 
     private static let voicePrefKey = "scout.voicePreference"
     private static let reconnectBaseDelayMs = 700
@@ -284,12 +296,205 @@ final class AppModel {
         UserDefaults.standard.set(pref.rawValue, forKey: Self.voicePrefKey)
     }
 
+    var notificationAuthorizationLabel: String {
+        switch notificationAuthorizationStatus {
+        case .notDetermined: return "Not requested"
+        case .denied: return "Off"
+        case .authorized: return "Allowed"
+        case .provisional: return "Provisional"
+        case .ephemeral: return "Temporary"
+        }
+    }
+
+    var notificationAuthorizationHint: String {
+        switch notificationAuthorizationStatus {
+        case .notDetermined: return "enable alerts, badges, and sounds"
+        case .denied: return "allow notifications in iOS Settings"
+        case .authorized, .provisional, .ephemeral: return pushRegistrationStatus
+        }
+    }
+
+    var notificationAuthorizationActionLabel: String {
+        switch notificationAuthorizationStatus {
+        case .notDetermined: return "Allow"
+        case .denied: return "Settings"
+        case .authorized, .provisional, .ephemeral: return "Refresh"
+        }
+    }
+
+    /// Refresh authorization without prompting. Authorized installs re-register
+    /// with APNs on every launch/foreground so Apple can rotate their token.
+    func refreshPushNotificationAuthorization() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthorizationStatus = Self.mobilePushStatus(settings.authorizationStatus)
+        pushRegistrationError = nil
+
+        if notificationAuthorizationStatus.allowsRemoteNotifications {
+            UIApplication.shared.registerForRemoteNotifications()
+        } else {
+            remotePushToken = nil
+            await syncMobilePushRegistration()
+        }
+    }
+
+    /// The only authorization prompt in Scout. It is called from the explicit
+    /// Settings action, never opportunistically during launch or pairing.
+    func requestPushNotificationAuthorization() async {
+        if notificationAuthorizationStatus == .denied {
+            openNotificationSettings()
+            return
+        }
+        if notificationAuthorizationStatus.allowsRemoteNotifications {
+            await refreshPushNotificationAuthorization()
+            return
+        }
+
+        do {
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.alert, .badge, .sound]
+            )
+            await refreshPushNotificationAuthorization()
+        } catch {
+            pushRegistrationError = error.localizedDescription
+            pushRegistrationStatus = "Authorization failed"
+        }
+    }
+
+    func didRegisterForRemoteNotifications(deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        guard !token.isEmpty else { return }
+        remotePushToken = token
+        pushRegistrationError = nil
+        Task { await syncMobilePushRegistration() }
+    }
+
+    func didFailToRegisterForRemoteNotifications(error: Error) {
+        pushRegistrationError = error.localizedDescription
+        pushRegistrationStatus = "APNs registration failed"
+    }
+
+    func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) {
+        let scout = userInfo["scout"] as? [String: Any]
+        let destination = scout?["destination"] as? String
+        guard destination == nil || destination == "inbox" else { return }
+
+        handleRemoteNotification(
+            conversationId: scout?["conversationId"] as? String,
+            messageId: scout?["messageId"] as? String,
+            itemId: scout?["itemId"] as? String
+        )
+    }
+
+    func handleRemoteNotification(
+        conversationId: String?,
+        messageId: String?,
+        itemId: String?
+    ) {
+        let conversationId = Self.nonEmptyString(conversationId)
+        let messageId = Self.nonEmptyString(messageId)
+        let itemId = Self.nonEmptyString(itemId)
+        guard conversationId != nil || messageId != nil || itemId != nil else { return }
+        pendingNotificationRoute = NotificationRoute(
+            conversationId: conversationId,
+            messageId: messageId,
+            itemId: itemId
+        )
+    }
+
+    func consumeNotificationRoute(_ route: NotificationRoute) {
+        if pendingNotificationRoute == route {
+            pendingNotificationRoute = nil
+        }
+    }
+
+    private func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private static func mobilePushStatus(
+        _ status: UNAuthorizationStatus
+    ) -> MobilePushAuthorizationStatus {
+        switch status {
+        case .notDetermined: return .notDetermined
+        case .denied: return .denied
+        case .authorized: return .authorized
+        case .provisional: return .provisional
+        case .ephemeral: return .ephemeral
+        @unknown default: return .notDetermined
+        }
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func syncMobilePushRegistration() async {
+        let clients = fleet.connectedClients()
+        guard !clients.isEmpty else {
+            pushRegistrationStatus = notificationAuthorizationStatus.allowsRemoteNotifications
+                ? "Waiting for a Mac"
+                : "Not enabled"
+            return
+        }
+        if notificationAuthorizationStatus.allowsRemoteNotifications, remotePushToken == nil {
+            pushRegistrationStatus = "Waiting for APNs"
+            return
+        }
+
+        let info = Bundle.main.infoDictionary
+        let registration = MobilePushRegistration(
+            pushToken: notificationAuthorizationStatus.allowsRemoteNotifications ? remotePushToken : nil,
+            authorizationStatus: notificationAuthorizationStatus,
+            appBundleId: Bundle.main.bundleIdentifier ?? "app.openscout.scout",
+            apnsEnvironment: Self.currentMobilePushEnvironment,
+            appVersion: info?["CFBundleShortVersionString"] as? String,
+            buildNumber: info?["CFBundleVersion"] as? String,
+            deviceModel: UIDevice.current.model,
+            systemVersion: UIDevice.current.systemVersion
+        )
+
+        var results: [MobilePushRegistrationResult] = []
+        var failures: [Error] = []
+        for client in clients {
+            do {
+                results.append(try await client.syncMobilePushRegistration(registration))
+            } catch {
+                failures.append(error)
+            }
+        }
+
+        if let firstFailure = failures.first {
+            pushRegistrationError = firstFailure.localizedDescription
+        }
+        if results.isEmpty {
+            pushRegistrationStatus = "Sync failed"
+        } else if results.contains(where: { $0.relayConfigured == false }) {
+            pushRegistrationStatus = "Broker saved · relay unavailable"
+        } else if notificationAuthorizationStatus.allowsRemoteNotifications {
+            pushRegistrationStatus = failures.isEmpty ? "Registered" : "Partially registered"
+        } else {
+            pushRegistrationStatus = "Not enabled"
+        }
+    }
+
+    private static var currentMobilePushEnvironment: MobilePushEnvironment {
+        #if DEBUG
+        return .development
+        #else
+        return .production
+        #endif
+    }
+
     func setScenePhase(_ phase: ScenePhase) {
         guard scenePhase != phase else { return }
         scenePhase = phase
         switch phase {
         case .active:
             connectionLog.log("App active; reconnect policy resumed", event: .lifecycle, level: .info)
+            Task { await refreshPushNotificationAuthorization() }
             if shouldReconnectAfterBackground {
                 shouldReconnectAfterBackground = false
                 Task { await connectIfNeeded() }
@@ -1762,6 +1967,7 @@ final class AppModel {
             event: .connected,
             level: connectedIds.count == machineIds.count ? .success : (connectedIds.isEmpty ? .error : .warning)
         )
+        await syncMobilePushRegistration()
     }
 
     func reconnect() async {
@@ -1806,13 +2012,17 @@ final class AppModel {
         if case .connected = existingState {
             connectionState = existingState
             dataRevision += 1
+            await syncMobilePushRegistration()
             return
         }
 
         connectionState = .connecting
         let state = await fleet.connect(machineId: machineId)
         connectionState = state
-        if case .connected = state { dataRevision += 1 }
+        if case .connected = state {
+            dataRevision += 1
+            await syncMobilePushRegistration()
+        }
     }
 
     /// Pair from a scanned QR string, then stay connected. Returns true on success.
@@ -1936,6 +2146,7 @@ final class AppModel {
                 dataRevision += 1
             }
             connectionState = .connected(route)
+            await syncMobilePushRegistration()
             connectionLog.log("Paired & connected via \(route.label)", event: .connected, level: .success, route: route)
             phase = .shell
             showPairing = false

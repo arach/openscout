@@ -20,5 +20,6 @@ public protocol ScoutBrokerClient:
     ControlCapability,
     AttachmentHostingCapability,
     CommsCapability,
+    MobilePushRegistrationCapability,
     Sendable
 {}
