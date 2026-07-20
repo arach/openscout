@@ -117,14 +117,17 @@ export function ScoutInspector() {
   const clampedScoutbotHeight = inspectorHeight > 0
     ? clampScoutbotHeight(scoutbotHeight, inspectorHeight)
     : scoutbotHeight;
+  // Dispatch owns its own bottom-anchored forwarding composer. Mounting the
+  // global Scout panel here would create a second competing composer.
+  const showScoutbot = scoutbotEnabled && route.view !== "broker";
 
   return (
     <div ref={containerRef} className="flex h-full flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-hidden">
         {content}
       </div>
-      {scoutbotEnabled && !scoutbotAsInspector && !scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
-      {scoutbotEnabled && !scoutbotAsInspector && <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />}
+      {showScoutbot && !scoutbotAsInspector && !scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
+      {showScoutbot && !scoutbotAsInspector && <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />}
     </div>
   );
 }
