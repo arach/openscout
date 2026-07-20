@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const DEFAULT_BROKER_HOST: &str = "127.0.0.1";
 const DEFAULT_BROKER_HOST_MESH: &str = "0.0.0.0";
 const DEFAULT_BROKER_PORT: u16 = 43_110;
+const DEFAULT_OPENSCOUT_PUSH_RELAY_URL: &str = "https://mesh.oscout.net";
 const RESTART_MIN_DELAY: Duration = Duration::from_secs(1);
 const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 // Existing control-plane datasets can take well over 15 seconds to open before
@@ -777,6 +778,9 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         if let Some(value) = env_nonempty(key) {
             command.env(key, value);
         }
+    }
+    for (key, value) in push_relay_child_environment() {
+        command.env(key, value);
     }
     if let Some(core_agents) = env_nonempty("OPENSCOUT_CORE_AGENTS") {
         command.env("OPENSCOUT_CORE_AGENTS", core_agents);
@@ -2086,6 +2090,65 @@ fn env_nonempty(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn push_relay_child_environment() -> Vec<(&'static str, String)> {
+    resolve_push_relay_child_environment(
+        env_nonempty("OPENSCOUT_PUSH_RELAY_URL"),
+        env_nonempty("OPENSCOUT_PUSH_RELAY_SESSION"),
+        env_nonempty("OPENSCOUT_PUSH_RELAY_MESH_ID"),
+        macos_open_scout_network_session(),
+    )
+}
+
+fn resolve_push_relay_child_environment(
+    explicit_url: Option<String>,
+    explicit_session: Option<String>,
+    explicit_mesh_id: Option<String>,
+    keychain_session: Option<String>,
+) -> Vec<(&'static str, String)> {
+    let Some(session) = explicit_session.or(keychain_session) else {
+        return Vec::new();
+    };
+
+    let mut environment = vec![
+        (
+            "OPENSCOUT_PUSH_RELAY_URL",
+            explicit_url.unwrap_or_else(|| DEFAULT_OPENSCOUT_PUSH_RELAY_URL.to_string()),
+        ),
+        ("OPENSCOUT_PUSH_RELAY_SESSION", session),
+    ];
+    if let Some(mesh_id) = explicit_mesh_id {
+        environment.push(("OPENSCOUT_PUSH_RELAY_MESH_ID", mesh_id));
+    }
+    environment
+}
+
+#[cfg(target_os = "macos")]
+fn macos_open_scout_network_session() -> Option<String> {
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-s",
+            "net.oscout.session",
+            "-a",
+            "session",
+            "-w",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_open_scout_network_session() -> Option<String> {
+    None
+}
+
 fn open_scout_network_discovery_enabled(support_directory: &Path) -> bool {
     if let Some(value) = bool_env("OPENSCOUT_NETWORK_DISCOVERY_ENABLED")
         .or_else(|| bool_env("OPENSCOUT_OSN_DISCOVERY_ENABLED"))
@@ -2930,16 +2993,71 @@ mod tests {
         health_body_reports_ok, legacy_service_labels, legacy_service_targets,
         parse_daemon_state_telemetry, parse_health_response, parse_http_status_code,
         process_snapshot_filter, read_last_log_line_from, resolve_advertise_scope_value,
-        resolve_broker_host_value, resolve_broker_url_value, restart_telemetry_warnings,
-        rotate_child_log_if_needed, rotated_child_log_path, running_runtime_artifact,
-        scoutd_owned_child_log_path, Config, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
-        DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, LEGACY_DAEMON_NAME,
-        LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
+        resolve_broker_host_value, resolve_broker_url_value, resolve_push_relay_child_environment,
+        restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
+        running_runtime_artifact, scoutd_owned_child_log_path, Config, BUILD_VERSION,
+        CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH,
+        DEFAULT_BROKER_PORT, DEFAULT_OPENSCOUT_PUSH_RELAY_URL, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+        REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn push_relay_uses_keychain_session_without_persisting_it_in_launchd_config() {
+        let environment = resolve_push_relay_child_environment(
+            None,
+            None,
+            None,
+            Some("osn_session_private".to_string()),
+        );
+
+        assert_eq!(
+            environment,
+            vec![
+                (
+                    "OPENSCOUT_PUSH_RELAY_URL",
+                    DEFAULT_OPENSCOUT_PUSH_RELAY_URL.to_string(),
+                ),
+                (
+                    "OPENSCOUT_PUSH_RELAY_SESSION",
+                    "osn_session_private".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn push_relay_explicit_environment_overrides_keychain_defaults() {
+        let environment = resolve_push_relay_child_environment(
+            Some("https://push.example.test".to_string()),
+            Some("explicit-session".to_string()),
+            Some("mesh-private".to_string()),
+            Some("keychain-session".to_string()),
+        );
+
+        assert_eq!(
+            environment,
+            vec![
+                (
+                    "OPENSCOUT_PUSH_RELAY_URL",
+                    "https://push.example.test".to_string(),
+                ),
+                (
+                    "OPENSCOUT_PUSH_RELAY_SESSION",
+                    "explicit-session".to_string(),
+                ),
+                ("OPENSCOUT_PUSH_RELAY_MESH_ID", "mesh-private".to_string(),),
+            ]
+        );
+    }
+
+    #[test]
+    fn push_relay_is_disabled_without_a_session() {
+        assert!(resolve_push_relay_child_environment(None, None, None, None).is_empty());
+    }
 
     #[test]
     fn health_body_reports_ok_accepts_compact_and_pretty_json() {
