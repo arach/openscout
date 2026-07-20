@@ -48,7 +48,10 @@ public struct ScoutLogPanel: View {
             Button("Clear") {
                 store.clear()
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
             .disabled(store.entries.isEmpty)
+            .accessibilityHint("Removes all visible log entries")
             Button {
                 onClose()
             } label: {
