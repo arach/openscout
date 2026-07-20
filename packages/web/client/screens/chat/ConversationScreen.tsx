@@ -103,6 +103,7 @@ import {
   type MentionSuggestState,
   type MotionTone,
   type SendResult,
+  type SendReceipt,
   type SlashCommand,
   type SlashSuggestState,
 } from "./conversation-model.ts";
@@ -301,6 +302,7 @@ export function ConversationScreen({
 
   const [draft, setDraft] = useState(() => initialDraft ?? "");
   const [sending, setSending] = useState(false);
+  const [sendReceipt, setSendReceipt] = useState<SendReceipt | null>(null);
   const [operatorName, setOperatorName] = useState("operator");
   const [slashState, setSlashState] = useState<SlashSuggestState>({
     open: false,
@@ -338,9 +340,36 @@ export function ConversationScreen({
     requestAnimationFrame(() => composeRef.current?.focus());
   }, [conversationId, initialDraft]);
 
+  const participantMetaById = useMemo(() => {
+    const entries = new Map<
+      string,
+      NonNullable<SessionEntry["participants"]>[number]
+    >();
+    for (const participant of sessionMeta?.participants ?? []) {
+      entries.set(participant.actorId, participant);
+      if (participant.agentId) entries.set(participant.agentId, participant);
+    }
+    return entries;
+  }, [sessionMeta]);
+
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     const seen = new Set<string>();
     const list: MentionCandidate[] = [];
+    for (const participantId of sessionMeta?.participantIds ?? []) {
+      if (participantId === "operator") continue;
+      const participant = participantMetaById.get(participantId);
+      const handleRaw = participant?.scopedAlias?.trim().replace(/^@+/, "");
+      if (!handleRaw) continue;
+      const key = handleRaw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        id: participantId,
+        label: participant?.label ?? participant?.displayName ?? handleRaw,
+        name: participant?.displayName ?? handleRaw,
+        handle: handleRaw,
+      });
+    }
     for (const a of scopedAgents) {
       const handleRaw = a.handle?.trim().replace(/^@+/, "") ?? compactAgentId(a.id) ?? a.id;
       if (!handleRaw) continue;
@@ -355,7 +384,7 @@ export function ConversationScreen({
       });
     }
     return list.sort((a, b) => a.handle.localeCompare(b.handle));
-  }, [scopedAgents]);
+  }, [participantMetaById, scopedAgents, sessionMeta]);
 
   const filteredSlashCommands = useMemo(() => {
     if (!slashState.open) return [];
@@ -376,7 +405,8 @@ export function ConversationScreen({
       .filter(
         (c) =>
           c.handle.toLowerCase().includes(q) ||
-          c.name.toLowerCase().includes(q),
+          c.name.toLowerCase().includes(q) ||
+          c.label.toLowerCase().includes(q),
       )
       .slice(0, 8);
   }, [mentionState.open, mentionState.query, mentionCandidates]);
@@ -661,14 +691,6 @@ export function ConversationScreen({
     return isDm;
   }, [isDm, sessionMeta]);
   const headerParticipants = useMemo<ConversationHeaderParticipant[]>(() => {
-    const participantMeta = new Map<
-      string,
-      NonNullable<SessionEntry["participants"]>[number]
-    >();
-    for (const entry of sessionMeta?.participants ?? []) {
-      participantMeta.set(entry.actorId, entry);
-      if (entry.agentId) participantMeta.set(entry.agentId, entry);
-    }
     const participantIds = sessionMeta
       ? sessionMeta.participantIds.filter((id) => id !== "operator")
       : agentId
@@ -676,17 +698,17 @@ export function ConversationScreen({
         : [];
     return participantIds.map((id) => {
       const participantAgent = resolveAgentByIdentity(scopedAgents, [id]);
-      const meta = participantMeta.get(id);
+      const meta = participantMetaById.get(id);
       return {
         id,
-        name: participantAgent?.name ?? meta?.displayName ?? compactAgentId(id) ?? id,
-        title: participantAgent?.id ?? id,
+        name: meta?.scopedAlias ?? participantAgent?.name ?? meta?.displayName ?? compactAgentId(id) ?? id,
+        title: meta?.label ?? participantAgent?.id ?? id,
         agent: participantAgent,
         harness: participantAgent?.harness ?? meta?.harness ?? null,
         model: participantAgent?.model ?? null,
       } satisfies ConversationHeaderParticipant;
     });
-  }, [agentId, scopedAgents, sessionMeta]);
+  }, [agentId, participantMetaById, scopedAgents, sessionMeta]);
   const visibleHeaderParticipants = headerParticipants.slice(0, 4);
   const hiddenHeaderParticipantCount = Math.max(
     headerParticipants.length - visibleHeaderParticipants.length,
@@ -928,6 +950,7 @@ export function ConversationScreen({
     };
 
     setSending(true);
+    setSendReceipt(null);
     if (action !== "message") {
       setAwaitingResponseSince(optimisticCreatedAt);
     }
@@ -960,6 +983,24 @@ export function ConversationScreen({
       } else if (action !== "message") {
         setAwaitingResponseSince(null);
       }
+      const unresolvedTargets = result.unresolvedTargets ?? [];
+      const deliveredTargetIds = result.invokedTargets?.length
+        ? result.invokedTargets
+        : result.notifiedTargets ?? [];
+      if (unresolvedTargets.length > 0) {
+        setSendReceipt({
+          tone: "warning",
+          text: `Posted, but not delivered to ${unresolvedTargets.join(", ")}`,
+        });
+      } else if (deliveredTargetIds.length > 0) {
+        const labels = deliveredTargetIds.map((targetId) => {
+          const participant = participantMetaById.get(targetId);
+          return `@${participant?.scopedAlias?.trim() || participant?.displayName?.trim() || targetId}`;
+        });
+        setSendReceipt({ tone: "success", text: `Sent to ${labels.join(", ")}` });
+      } else {
+        setSendReceipt({ tone: "success", text: "Posted to this room" });
+      }
     } catch (cause) {
       setMessages((previous) =>
         previous.filter((message) => message.id !== optimisticMessage.id),
@@ -977,6 +1018,17 @@ export function ConversationScreen({
     setDraft("");
     await sendText(text);
   };
+
+  const replyToHandle = useCallback((handle: string) => {
+    const normalized = handle.trim().replace(/^@+/, "");
+    if (!normalized) return;
+    const token = `@${normalized}`;
+    setDraft((current) => {
+      if (current.toLowerCase().includes(token.toLowerCase())) return current;
+      return current.trim() ? `${current.trimEnd()} ${token} ` : `${token} `;
+    });
+    requestAnimationFrame(() => composeRef.current?.focus());
+  }, []);
 
   const interrupt = async () => {
     if (!agentId) return;
@@ -1244,9 +1296,14 @@ export function ConversationScreen({
                 !isYou
                   ? resolveMessageAgent(message, scopedAgents, agentId)
                   : null;
+              const messageParticipant = participantMetaById.get(message.actorId);
+              const scopedReplyHandle = messageParticipant?.scopedAlias?.trim() || null;
+              const displayActorName = !isYou && scopedReplyHandle
+                ? scopedReplyHandle
+                : message.actorName;
               const actorHandle = isYou
                 ? operatorName.toLowerCase()
-                : messageAgent?.handle ?? null;
+                : scopedReplyHandle ?? messageAgent?.handle ?? null;
               const askReply = parseAskReplyTag(message.body);
               const replyContext = askReply
                 ? resolveAskReplyContext({
@@ -1313,7 +1370,7 @@ export function ConversationScreen({
                                 : null;
                               const avatarName = isYou
                                 ? operatorName
-                                : message.actorName ?? "?";
+                                : displayActorName ?? "?";
                               const avatar = (
                                 <AgentAvatar
                                   agent={messageAgent ?? undefined}
@@ -1353,11 +1410,11 @@ export function ConversationScreen({
                                 }
                                 title={`View profile for ${message.actorName}`}
                               >
-                                {message.actorName}
+                                {displayActorName}
                               </button>
                             ) : (
                               <span className="s-thread-msg-actor">
-                                {isYou ? operatorName : message.actorName}
+                                {isYou ? operatorName : displayActorName}
                               </span>
                             )}
                             {actorHandle && (
@@ -1377,6 +1434,17 @@ export function ConversationScreen({
                           >
                             {timeAgo(message.createdAt)}
                           </span>
+                          {!isYou && actorHandle && (
+                            <button
+                              type="button"
+                              className="s-thread-msg-permalink"
+                              aria-label={`Reply to @${actorHandle}`}
+                              title={`Reply to @${actorHandle}`}
+                              onClick={() => replyToHandle(actorHandle)}
+                            >
+                              <ReplyGlyph />
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="s-thread-msg-permalink"
@@ -1611,6 +1679,7 @@ export function ConversationScreen({
           composeAction={composeAction}
           onSend={() => void send()}
           onInterrupt={() => void interrupt()}
+          sendReceipt={sendReceipt}
         />
       </div>
 

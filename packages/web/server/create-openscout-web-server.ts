@@ -6646,12 +6646,27 @@ export async function createOpenScoutWebServer(
     // the SQLite projection catches up. Sends must resolve through the same
     // source or a newly-created broker Chat can render but reject its composer.
     const projectedSession = querySessionById(input.chatId);
-    const broker = projectedSession
-      ? null
-      : await loadScoutBrokerContext();
-    const routeSession = projectedSession
-      ?? broker?.snapshot.conversations[input.chatId]
-      ?? null;
+    const broker = await loadScoutBrokerContext();
+    const liveConversation = broker?.snapshot.conversations[input.chatId] ?? null;
+    let routeSession = liveConversation ?? projectedSession ?? null;
+    if (broker && liveConversation?.kind === "channel") {
+      const naturalKey = channelNaturalKeyFromMetadata(liveConversation.metadata);
+      const siblingConversations = naturalKey
+        ? Object.values(broker.snapshot.conversations).filter((conversation) =>
+            conversation.kind === liveConversation.kind
+            && channelNaturalKeyFromMetadata(conversation.metadata) === naturalKey
+          )
+        : [liveConversation];
+      const participantIds = [...new Set(
+        siblingConversations.flatMap((conversation) => conversation.participantIds),
+      )].sort();
+      if (participantIds.join("\u0000") !== [...liveConversation.participantIds].sort().join("\u0000")) {
+        const reconciledConversation = { ...liveConversation, participantIds };
+        await upsertScoutConversation(reconciledConversation, broker.baseUrl);
+        broker.snapshot.conversations[input.chatId] = reconciledConversation;
+        routeSession = reconciledConversation;
+      }
+    }
     if (!routeSession) {
       return { ok: false, status: 404, error: "chat not found" };
     }

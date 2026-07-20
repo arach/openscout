@@ -612,6 +612,65 @@ function unreadCountForConversation(
   return count;
 }
 
+function equivalentNamedConversationIds(
+  snapshot: ScoutBrokerSnapshot,
+  conversationId: string,
+): Set<string> {
+  const conversation = snapshot.conversations[conversationId];
+  const naturalKey = conversation
+    ? channelNaturalKeyFromMetadata(conversation.metadata)
+    : null;
+  if (!conversation || !naturalKey || conversation.kind !== "channel") {
+    return new Set([conversationId]);
+  }
+  return new Set(
+    Object.values(snapshot.conversations)
+      .filter((candidate) =>
+        candidate.kind === conversation.kind
+        && channelNaturalKeyFromMetadata(candidate.metadata) === naturalKey
+      )
+      .map((candidate) => candidate.id),
+  );
+}
+
+function coalesceDuplicateNamedChannels(
+  summaries: ScoutConversationSummary[],
+  snapshot: ScoutBrokerSnapshot,
+  preferredId?: string | null,
+): ScoutConversationSummary[] {
+  const groups = new Map<string, ScoutConversationSummary[]>();
+  for (const summary of summaries) {
+    const key = summary.kind === "channel" && summary.naturalKey
+      ? `channel:${summary.naturalKey}`
+      : `id:${summary.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(summary);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0]!;
+    const sorted = [...group].sort((left, right) =>
+      (right.lastMessageAt ?? 0) - (left.lastMessageAt ?? 0)
+      || right.messageCount - left.messageCount
+      || left.id.localeCompare(right.id)
+    );
+    const canonical = group.find((summary) => summary.id === preferredId) ?? sorted[0]!;
+    const latest = sorted[0]!;
+    const participantIds = [...new Set(group.flatMap((summary) => summary.participantIds))].sort();
+    return {
+      ...canonical,
+      participantIds,
+      participants: buildScopedParticipants(snapshot, canonical.id, participantIds),
+      preview: latest.preview,
+      lastMessageAt: latest.lastMessageAt,
+      sessionId: latest.sessionId ?? canonical.sessionId,
+      messageCount: group.reduce((total, summary) => total + summary.messageCount, 0),
+      unreadCount: group.reduce((total, summary) => total + summary.unreadCount, 0),
+    };
+  });
+}
+
 export async function getScoutConversations(
   filters: ScoutConversationListFilters = {},
 ): Promise<ScoutConversationSummary[]> {
@@ -631,10 +690,13 @@ export async function getScoutConversations(
   const readAtByConversation = operatorReadAtByConversation(snapshot);
 
   const conversationIdFilter = filters.conversationId?.trim() || null;
+  const conversationIdFilterIds = conversationIdFilter
+    ? equivalentNamedConversationIds(snapshot, conversationIdFilter)
+    : null;
 
   const summaries = Object.values(snapshot.conversations)
     .flatMap((conversation): ScoutConversationSummary[] => {
-      if (conversationIdFilter && conversation.id !== conversationIdFilter) {
+      if (conversationIdFilterIds && !conversationIdFilterIds.has(conversation.id)) {
         return [];
       }
 
@@ -756,10 +818,19 @@ export async function getScoutConversations(
       || left.title.localeCompare(right.title)
     ));
 
+  const coalesced = coalesceDuplicateNamedChannels(
+    summaries,
+    snapshot,
+    conversationIdFilter,
+  ).sort((left, right) => (
+    (right.lastMessageAt ?? 0) - (left.lastMessageAt ?? 0)
+    || right.messageCount - left.messageCount
+    || left.title.localeCompare(right.title)
+  ));
   const limit = typeof filters.limit === "number" && filters.limit > 0
     ? Math.floor(filters.limit)
     : null;
-  return limit ? summaries.slice(0, limit) : summaries;
+  return limit ? coalesced.slice(0, limit) : coalesced;
 }
 
 /// Read a conversation transcript from the same broker snapshot that powers
@@ -781,8 +852,14 @@ export async function getScoutConversationMessages(
 
   const snapshot = broker.snapshot;
   const messagesByConversation = latestMessageByConversation(snapshot);
-  const messages = (messagesByConversation.get(normalizedId) ?? [])
+  const equivalentIds = equivalentNamedConversationIds(snapshot, normalizedId);
+  const messages = [...equivalentIds]
+    .flatMap((id) => messagesByConversation.get(id) ?? [])
     .filter((message) => !isTransientBrokerWaitStatusMessage(message));
+  messages.sort((left, right) =>
+    (normalizeTimestampMs(left.createdAt) ?? 0) - (normalizeTimestampMs(right.createdAt) ?? 0)
+    || left.id.localeCompare(right.id)
+  );
   const resolvedLimit = Number.isFinite(limit) && limit > 0
     ? Math.min(500, Math.floor(limit))
     : 80;
@@ -794,7 +871,7 @@ export async function getScoutConversationMessages(
     const threadSummary = threadSummaryForMessage(snapshot, messagesByConversation, message);
     return {
       id: message.id,
-      conversationId: message.conversationId,
+      conversationId: normalizedId,
       actorId: message.actorId,
       actorName: messageActorName(snapshot, message.actorId),
       body: message.body,

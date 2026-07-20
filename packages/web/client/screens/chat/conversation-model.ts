@@ -108,12 +108,20 @@ export type SendResult = {
   messageId?: string;
   runIds?: string[];
   flight?: EventFlightRecord | null;
+  invokedTargets?: string[];
+  notifiedTargets?: string[];
+  unresolvedTargets?: string[];
   placement?: {
     kind: "root" | "inline_reply" | "thread_reply";
     replyToMessageId?: string;
     parentConversationId?: string;
     anchorMessageId?: string;
   };
+};
+
+export type SendReceipt = {
+  tone: "success" | "warning";
+  text: string;
 };
 
 export type ComposeAction = "message" | "invoke" | "steer";

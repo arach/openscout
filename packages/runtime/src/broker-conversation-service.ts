@@ -1,6 +1,7 @@
 import {
   directChannelNaturalKey,
   namedChannelNaturalKey,
+  stableChannelId,
   systemChannelNaturalKey,
   type ActorIdentity,
   type ConversationDefinition,
@@ -188,7 +189,7 @@ export class BrokerConversationService {
       const naturalKey = namedChannelNaturalKey("voice");
       const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? this.deps.createChannelId(),
+        id: existing?.id ?? stableChannelId(naturalKey),
         kind: "channel",
         title: "voice",
         visibility: "workspace",
@@ -207,7 +208,7 @@ export class BrokerConversationService {
       const naturalKey = systemChannelNaturalKey("system");
       const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? this.deps.createChannelId(),
+        id: existing?.id ?? stableChannelId(naturalKey),
         kind: "system",
         title: "system",
         visibility: "system",
@@ -226,7 +227,7 @@ export class BrokerConversationService {
       const naturalKey = namedChannelNaturalKey("shared");
       const existing = findConversationByIdentity(snapshot, naturalKey);
       return {
-        id: existing?.id ?? this.deps.createChannelId(),
+        id: existing?.id ?? stableChannelId(naturalKey),
         kind: "channel",
         title: "shared-channel",
         visibility: "workspace",
@@ -244,7 +245,7 @@ export class BrokerConversationService {
     const naturalKey = namedChannelNaturalKey(input.channel);
     const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? this.deps.createChannelId(),
+      id: existing?.id ?? stableChannelId(naturalKey),
       kind: "channel",
       title: input.channel,
       visibility: "workspace",

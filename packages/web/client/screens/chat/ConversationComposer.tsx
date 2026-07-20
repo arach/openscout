@@ -7,6 +7,7 @@ import type {
   ComposeAction,
   MentionCandidate,
   MentionSuggestState,
+  SendReceipt,
   SlashCommand,
   SlashSuggestState,
 } from "./conversation-model.ts";
@@ -31,6 +32,7 @@ export function ConversationComposer({
   composeAction,
   onSend,
   onInterrupt,
+  sendReceipt,
 }: {
   composeRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
@@ -51,6 +53,7 @@ export function ConversationComposer({
   composeAction: ComposeAction;
   onSend: () => void;
   onInterrupt: () => void;
+  sendReceipt: SendReceipt | null;
 }) {
   const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
   const showVoiceStatus = voiceStatus?.message;
@@ -278,6 +281,11 @@ export function ConversationComposer({
             </button>
           )}
         </div>
+        {sendReceipt ? (
+          <div className="s-thread-compose-receipt" data-tone={sendReceipt.tone} role="status">
+            {sendReceipt.text}
+          </div>
+        ) : null}
         {showVoiceStatus ? (
           <div
             className={[

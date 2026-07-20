@@ -10,6 +10,24 @@ export function mintChannelId(randomUuid: () => string): ScoutId {
   return `${CHAT_ID_PREFIX}${randomUuid().toLowerCase().replace(/-/g, "")}`;
 }
 
+/**
+ * Mint the opaque id for a named/system channel from its canonical identity.
+ * Every concurrent creator therefore arrives at the same broker record even
+ * when each caller began from a stale snapshot.
+ */
+export function stableChannelId(naturalKey: string): ScoutId {
+  const normalized = naturalKey.trim().toLowerCase();
+  const hash = (seed: bigint): string => {
+    let value = seed;
+    for (let index = 0; index < normalized.length; index += 1) {
+      value ^= BigInt(normalized.charCodeAt(index));
+      value = BigInt.asUintN(64, value * 0x100000001b3n);
+    }
+    return value.toString(16).padStart(16, "0");
+  };
+  return `${CHAT_ID_PREFIX}${hash(0xcbf29ce484222325n)}${hash(0x84222325cbf29ce4n)}`;
+}
+
 export function isOpaqueChannelId(value: string | null | undefined): value is ScoutId {
   if (typeof value !== "string") return false;
   return (

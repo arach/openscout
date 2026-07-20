@@ -11,6 +11,7 @@ import {
   extractAgentSelectors,
   formatMinimalAgentIdentity,
   mintChannelId,
+  stableChannelId,
   systemChannelNaturalKey,
   normalizeAgentSelectorSegment,
   withAgentReferenceAliases,
@@ -1136,7 +1137,7 @@ function conversationDefinition(
     const naturalKey = namedChannelNaturalKey("voice");
     const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? mintChannelId(randomUUID),
+      id: existing?.id ?? stableChannelId(naturalKey),
       kind: "channel",
       title: "voice",
       visibility: "workspace",
@@ -1155,7 +1156,7 @@ function conversationDefinition(
     const naturalKey = systemChannelNaturalKey("system");
     const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? mintChannelId(randomUUID),
+      id: existing?.id ?? stableChannelId(naturalKey),
       kind: "system",
       title: "system",
       visibility: "system",
@@ -1174,7 +1175,7 @@ function conversationDefinition(
     const naturalKey = namedChannelNaturalKey("shared");
     const existing = findConversationByIdentity(snapshot, naturalKey);
     return {
-      id: existing?.id ?? mintChannelId(randomUUID),
+      id: existing?.id ?? stableChannelId(naturalKey),
       kind: "channel",
       title: "shared-channel",
       visibility: "workspace",
@@ -1192,7 +1193,7 @@ function conversationDefinition(
   const naturalKey = namedChannelNaturalKey(normalizedChannel);
   const existing = findConversationByIdentity(snapshot, naturalKey);
   return {
-    id: existing?.id ?? mintChannelId(randomUUID),
+    id: existing?.id ?? stableChannelId(naturalKey),
     kind: "channel",
     title: normalizedChannel,
     visibility: "workspace",
