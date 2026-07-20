@@ -1135,7 +1135,11 @@ export function buildNavigateState(
     const merged: ScoutHistoryState =
       base && typeof base === "object" ? { ...(base as ScoutHistoryState) } : {};
     merged.returnTo = options.returnTo;
-    merged.returnUseHistory = true;
+    // history.back() only lands on the recorded origin when this navigation
+    // pushed a fresh entry on top of it; a replace keeps the current entry, so
+    // the predecessor is whatever was there before — BackToPicker must fall
+    // back to navigating to returnTo instead.
+    merged.returnUseHistory = options.replace !== true;
     return merged;
   }
   if (options.state !== undefined) return options.state;

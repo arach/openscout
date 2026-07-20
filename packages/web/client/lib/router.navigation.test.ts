@@ -27,7 +27,7 @@ const {
 
 const ORIGIN = "http://127.0.0.1:43120";
 
-/* ── URL → Route → canonical path fixtures: all 24 view variants ── */
+/* ── URL → Route → canonical path fixtures: all 21 view variants ── */
 
 describe("route fixtures", () => {
   const fixtures: Array<{ url: string; route: Route; canonical: string }> = [
