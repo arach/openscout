@@ -729,6 +729,7 @@ async function sendApns(
 ): Promise<{ delivered: boolean; status: number | null; apnsId: string | null; reason: string | null }> {
   const jwt = await apnsJwt(env);
   if (!jwt.ok) return { delivered: false, status: null, apnsId: null, reason: jwt.reason };
+  const urgency = input.urgency ?? "interrupt";
 
   const authority = row.apns_environment === "production"
     ? "https://api.push.apple.com"
@@ -736,11 +737,11 @@ async function sendApns(
   const payload = {
     aps: {
       alert: {
-        title: DEFAULT_PUSH_TITLE,
-        body: bodyForKind(input.kind),
+        title: titleForInput(input),
+        body: bodyForInput(input),
       },
-      ...(input.urgency === "silent" ? {} : { sound: "default" }),
-      "thread-id": "scout.inbox",
+      ...(urgency === "interrupt" ? { sound: "default" } : {}),
+      "thread-id": input.kind === "operator_signal" ? "scout.agent-signal" : "scout.inbox",
     },
     scout: sanitizeCustomPayload(input),
   };
@@ -749,7 +750,7 @@ async function sendApns(
     authorization: `bearer ${jwt.value}`,
     "apns-topic": row.app_bundle_id,
     "apns-push-type": "alert",
-    "apns-priority": input.urgency === "silent" ? "5" : "10",
+    "apns-priority": urgency === "interrupt" ? "10" : "5",
     "content-type": "application/json",
   };
   if (collapseId) headers["apns-collapse-id"] = collapseId;
@@ -771,8 +772,16 @@ async function sendApns(
   };
 }
 
-function bodyForKind(kind: string | null | undefined): string {
-  switch (kind) {
+function titleForInput(input: SendPushInput): string {
+  return input.kind === "operator_signal" ? "Scout" : DEFAULT_PUSH_TITLE;
+}
+
+function bodyForInput(input: SendPushInput): string {
+  switch (input.kind) {
+    case "operator_signal":
+      return input.payload?.signalKind === "consult"
+        ? "An agent would value your input."
+        : "An agent shared an update.";
     case "failed_turn":
     case "failed_action":
     case "delivery_issue":
@@ -788,11 +797,28 @@ function bodyForKind(kind: string | null | undefined): string {
 
 function sanitizeCustomPayload(input: SendPushInput): Record<string, unknown> {
   const payload = input.payload && typeof input.payload === "object" ? input.payload : {};
-  return {
-    destination: payload.destination === "inbox" ? "inbox" : "inbox",
-    itemId: trimOrNull(input.itemId) ?? trimOrNull(payload.itemId),
-    kind: trimOrNull(input.kind) ?? trimOrNull(payload.kind),
-  };
+  const result: Record<string, unknown> = { destination: "inbox" };
+  const opaqueKeys = [
+    "signalKind",
+    "messageId",
+    "conversationId",
+    "sessionId",
+    "turnId",
+    "blockId",
+    "requestId",
+    "flightId",
+    "invocationId",
+    "workId",
+  ] as const;
+  const itemId = trimOrNull(input.itemId) ?? trimOrNull(payload.itemId);
+  const kind = trimOrNull(input.kind) ?? trimOrNull(payload.kind);
+  if (itemId) result.itemId = itemId;
+  if (kind) result.kind = kind;
+  for (const key of opaqueKeys) {
+    const value = trimOrNull(payload[key]);
+    if (value) result[key] = value;
+  }
+  return result;
 }
 
 function customPayloadSize(input: SendPushInput): number {

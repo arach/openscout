@@ -83,7 +83,8 @@ Implemented now:
 - Scout MCP exposes `notify_operator` and `consult_operator`; the latter
   requires a safe default. Both write operator messages without creating a
   flight, and the broker can fan out a generic APNs alert without putting agent
-  content in the push payload.
+  content in the push payload. The relay preserves opaque conversation/message
+  correlation and keeps these non-blocking alerts quiet.
 - Web operator attention reads active broker unblock requests.
 - Managed Claude sessions rely on host or companion permission capture; Scout
   does not install Claude project hooks.

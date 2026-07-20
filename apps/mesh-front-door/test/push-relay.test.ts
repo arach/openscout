@@ -409,6 +409,68 @@ describe("OpenScout Push Relay (session-scoped)", () => {
     await expect(response?.json()).resolves.toMatchObject({ attemptedCount: 1, deliveredCount: 1 });
     expect(calls).toHaveLength(1);
     expect(JSON.stringify(calls[0])).toContain("Scout needs attention");
+    expect(calls[0]).toMatchObject({ aps: { sound: "default" } });
+  });
+
+  test("keeps operator signals quiet and preserves exact message correlation", async () => {
+    const db = new FakeD1Database();
+    await handleOpenScoutPushRelayRequest(
+      await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
+        deviceId: "phone-a",
+        platform: "ios",
+        appBundleId: "app.openscout.scout",
+        apnsEnvironment: "production",
+        authorizationStatus: "authorized",
+        pushToken: hexToken("a1"),
+      }),
+      env(db),
+    );
+
+    let apnsBody: Record<string, unknown> | null = null;
+    let apnsHeaders: HeadersInit | undefined;
+    const response = await handleOpenScoutPushRelayRequest(
+      await jsonRequestAs("alice", "https://push.oscout.net/v1/push", {
+        itemId: "msg-1",
+        kind: "operator_signal",
+        urgency: "silent",
+        payload: {
+          destination: "inbox",
+          itemId: "msg-1",
+          kind: "operator_signal",
+          signalKind: "consult",
+          messageId: "msg-1",
+          conversationId: "dm.agent.operator",
+          body: "must be discarded",
+        },
+      }),
+      env(db),
+      async (_input, init) => {
+        apnsBody = JSON.parse(String(init?.body));
+        apnsHeaders = init?.headers;
+        return new Response("", { status: 200, headers: { "apns-id": "apns-1" } });
+      },
+    );
+
+    expect(response?.status).toBe(200);
+    expect(apnsHeaders).toMatchObject({ "apns-priority": "5" });
+    expect(apnsBody).toEqual({
+      aps: {
+        alert: {
+          title: "Scout",
+          body: "An agent would value your input.",
+        },
+        "thread-id": "scout.agent-signal",
+      },
+      scout: {
+        destination: "inbox",
+        itemId: "msg-1",
+        kind: "operator_signal",
+        signalKind: "consult",
+        messageId: "msg-1",
+        conversationId: "dm.agent.operator",
+      },
+    });
+    expect(JSON.stringify(apnsBody)).not.toContain("must be discarded");
   });
 
   test("targeting another user's deviceId returns 404 and does not call APNs", async () => {
