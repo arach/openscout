@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
 import { existsSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(binDir, "..");
@@ -66,48 +66,35 @@ function runServiceEntrypoint(entry, entryArgs) {
   process.exit(result.status ?? 0);
 }
 
-function runLongLivedEntrypoint(entry, entryArgs) {
-  const child = spawn(process.execPath, [entry, ...entryArgs], {
-    argv0: processName,
-    stdio: "inherit",
-  });
-
-  let forwardingSignal = false;
-  let childExited = false;
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.once(signal, () => {
-      forwardingSignal = true;
-      if (!child.killed) {
-        child.kill(signal);
-      }
-      setTimeout(() => {
-        if (!childExited) {
-          child.kill("SIGKILL");
-        }
-      }, 10_000).unref();
-    });
-  }
-
-  child.on("error", (error) => {
-    console.error(error.message);
+async function runInProcessEntrypoint(entry, entryArgs) {
+  // Long-lived commands (base/broker/discover) run in-process: this wrapper
+  // BECOMES the daemon instead of spawning a second runtime, which removes one
+  // redundant supervision layer per hop (scoutd → scout-base → scout-broker is
+  // three processes instead of five). The daemon entries install their own
+  // SIGINT/SIGTERM handlers (base-daemon.ts / broker-daemon.ts), and the
+  // supervisors above already escalate TERM → wait → KILL, so the wrapper must
+  // not register competing signal handlers or SIGKILL timers here.
+  //
+  // Rewrite argv so entries that parse process.argv (mesh-discover.ts reads
+  // process.argv.slice(2) for seeds) see the same shape as when they were
+  // spawned directly: [execPath, entry, ...entryArgs].
+  process.argv = [process.argv[0], entry, ...entryArgs];
+  try {
+    await import(pathToFileURL(entry).href);
+  } catch (error) {
+    // A top-level throw during daemon startup must surface as a non-zero exit
+    // so the parent supervisor sees the real failure.
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
     process.exit(1);
-  });
-  child.on("exit", (code, signal) => {
-    childExited = true;
-    if (signal && !forwardingSignal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code ?? (signal ? 0 : 1));
-  });
+  }
 }
 
-function runEntrypoint(entry, entryArgs) {
+async function runEntrypoint(entry, entryArgs) {
   if (command === "service") {
     runServiceEntrypoint(entry, entryArgs);
     return;
   }
-  runLongLivedEntrypoint(entry, entryArgs);
+  await runInProcessEntrypoint(entry, entryArgs);
 }
 
 function canRunTypeScriptSource() {
@@ -128,9 +115,9 @@ function shouldPreferSourceEntry() {
 const distEntry = distMain[command];
 const sourceEntry = sourceMain[command];
 if (canRunTypeScriptSource() && shouldPreferSourceEntry() && existsSync(sourceEntry)) {
-  runEntrypoint(sourceEntry, args);
+  await runEntrypoint(sourceEntry, args);
 } else if (existsSync(distEntry)) {
-  runEntrypoint(distEntry, args);
+  await runEntrypoint(distEntry, args);
 } else {
   const buildResult = spawnSync(npmCommand, ["run", "build"], {
     cwd: packageDir,
@@ -147,5 +134,5 @@ if (canRunTypeScriptSource() && shouldPreferSourceEntry() && existsSync(sourceEn
     process.exit(1);
   }
 
-  runEntrypoint(rebuiltEntry, args);
+  await runEntrypoint(rebuiltEntry, args);
 }

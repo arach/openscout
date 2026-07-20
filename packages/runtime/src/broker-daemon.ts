@@ -1437,7 +1437,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-if (Number.isFinite(parentPid) && parentPid > 0) {
+if (Number.isFinite(parentPid) && parentPid > 0 && parentPid !== process.pid) {
   parentWatcher = setInterval(() => {
     try {
       process.kill(parentPid, 0);

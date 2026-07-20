@@ -40,12 +40,16 @@ Legacy binary name `openscout-supervisor` is compatibility-only; doctor still re
 launchd
   → scoutd supervise
       → scoutd probes serve        (probes + native read projection/socket)
-      → bun openscout-runtime.mjs base   (scout-base)
-          → scout-broker-run → broker
+      → scout-base   (openscout-runtime.mjs base — daemon runs in-process)
+          → scout-broker   (openscout-runtime.mjs broker — daemon runs in-process)
           → scout-web
           → scout-edge (caddy)
           → OpenScoutMenu (optional)
 ```
+
+`openscout-runtime.mjs` imports the long-lived daemon entry in-process (no
+second bun child per hop), so scoutd → scout-base → scout-broker is three
+processes, not five.
 
 Operator path: `scout` CLI → shells out to `scoutd` for service commands when available.
 
