@@ -992,6 +992,18 @@ export function AgentLanesView({
                 <button
                   type="button"
                   role="menuitem"
+                  className="s-agent-lanes-deck-item"
+                  onClick={() => {
+                    addHarnessLane("kimi", "Kimi sessions");
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={hasHarnessLane(deck, "kimi")}
+                >
+                  Kimi sessions
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
                   className="s-agent-lanes-deck-item s-agent-lanes-deck-item--danger"
                   onClick={() => {
                     clearPins();

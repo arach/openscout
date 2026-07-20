@@ -86,6 +86,9 @@
 }
 
 .s-tail-status-src {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -382,7 +385,15 @@
 }
 
 .s-tail-token--harness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
   color: var(--muted);
+}
+
+.s-tail-harness-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .s-tail-token--origin {
@@ -663,6 +674,13 @@
 
 .s-tail-sheet-val--mono {
   font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.s-tail-sheet-val--harness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   color: var(--muted);
 }
 
