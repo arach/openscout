@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api.ts";
 import { useTailEvents } from "./tail-events.ts";
@@ -9,6 +9,13 @@ const DEFAULT_RECENT_LIMIT = 500;
 const DEFAULT_DISCOVERY_INTERVAL_MS = 30_000;
 
 type TailDiscoveryScope = "hot" | "shallow" | "deep";
+
+export type TailFeedLoadPhase = "loading" | "ready" | "error";
+
+export type TailFeedLoadState = {
+  discovery: TailFeedLoadPhase;
+  recent: TailFeedLoadPhase;
+};
 
 function emptyTailDiscoverySnapshot(): TailDiscoverySnapshot {
   return {
@@ -64,7 +71,9 @@ export function useTailFeed(options?: {
 }): {
   discovery: TailDiscoverySnapshot | null;
   events: TailEvent[];
-  refreshDiscovery: () => Promise<void>;
+  loadState: TailFeedLoadState;
+  refreshDiscovery: (showLoading?: boolean) => Promise<void>;
+  retryInitialLoad: () => Promise<void>;
 } {
   const recentLimit = options?.recentLimit ?? DEFAULT_RECENT_LIMIT;
   const discoveryIntervalMs = options?.discoveryIntervalMs ?? DEFAULT_DISCOVERY_INTERVAL_MS;
@@ -76,27 +85,73 @@ export function useTailFeed(options?: {
 
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [events, setEvents] = useState<TailEvent[]>([]);
+  const [loadState, setLoadState] = useState<TailFeedLoadState>({
+    discovery: "loading",
+    recent: "loading",
+  });
+  const recentRequestRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const recentRequestSequenceRef = useRef(0);
 
   useTailEvents((event) => {
     setEvents((previous) => appendLiveTailEvent(previous, event, recentLimit));
   });
 
-  const refreshDiscovery = useCallback(async () => {
+  const refreshRecent = useCallback((showLoading = false): Promise<void> => {
+    if (pauseWhenHidden && documentIsHidden()) return Promise.resolve();
+    if (showLoading) {
+      setLoadState((previous) => ({ ...previous, recent: "loading" }));
+    }
+    const requestKey = `${recentLimit}:${includeTranscriptReplay ? "replay" : "live"}`;
+    const inFlight = recentRequestRef.current;
+    if (inFlight?.key === requestKey) return inFlight.promise;
+
+    const sequence = ++recentRequestSequenceRef.current;
+    let request: Promise<void>;
+    request = fetchRecentTailEvents(recentLimit, includeTranscriptReplay)
+      .then((hydrated) => {
+        setEvents((previous) => mergeHydratedTailEvents(previous, hydrated, recentLimit));
+        if (sequence === recentRequestSequenceRef.current) {
+          setLoadState((previous) => ({ ...previous, recent: "ready" }));
+        }
+      })
+      .catch(() => {
+        if (sequence === recentRequestSequenceRef.current) {
+          setLoadState((previous) => ({ ...previous, recent: "error" }));
+        }
+      })
+      .finally(() => {
+        if (recentRequestRef.current?.promise === request) {
+          recentRequestRef.current = null;
+        }
+      });
+    recentRequestRef.current = { key: requestKey, promise: request };
+    return request;
+  }, [includeTranscriptReplay, pauseWhenHidden, recentLimit]);
+
+  const refreshDiscovery = useCallback(async (showLoading = false) => {
     if (pauseWhenHidden && documentIsHidden()) return;
+    if (showLoading) {
+      setLoadState((previous) => ({ ...previous, discovery: "loading" }));
+    }
     try {
       const snap = await api<TailDiscoverySnapshot>(tailDiscoveryPath(discoveryScope, discoveryLimit));
       setDiscovery(snap);
+      setLoadState((previous) => ({ ...previous, discovery: "ready" }));
       if (hydrateOnDiscovery && ((snap.transcripts?.length ?? 0) > 0 || snap.processes.length > 0)) {
-        void fetchRecentTailEvents(recentLimit, includeTranscriptReplay)
-          .then((hydrated) => {
-            setEvents((previous) => mergeHydratedTailEvents(previous, hydrated, recentLimit));
-          })
-          .catch(() => {});
+        void refreshRecent();
       }
     } catch {
       setDiscovery((previous) => previous ?? emptyTailDiscoverySnapshot());
+      setLoadState((previous) => ({ ...previous, discovery: "error" }));
     }
-  }, [discoveryLimit, discoveryScope, hydrateOnDiscovery, includeTranscriptReplay, pauseWhenHidden, recentLimit]);
+  }, [discoveryLimit, discoveryScope, hydrateOnDiscovery, pauseWhenHidden, refreshRecent]);
+
+  const retryInitialLoad = useCallback(async () => {
+    await Promise.all([
+      refreshDiscovery(true),
+      refreshRecent(true),
+    ]);
+  }, [refreshDiscovery, refreshRecent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,24 +176,25 @@ export function useTailFeed(options?: {
   }, [discoveryIntervalMs, pauseWhenHidden, refreshDiscovery]);
 
   useEffect(() => {
-    if (pauseWhenHidden && documentIsHidden()) return;
     let cancelled = false;
-    void fetchRecentTailEvents(recentLimit, includeTranscriptReplay)
-      .then((hydrated) => {
-        if (!cancelled) {
-          // One-shot hydration of history. Merge (not replace) so any live event
-          // that streamed in during the fetch survives, and dedupe the overlap.
-          setEvents((previous) => mergeHydratedTailEvents(previous, hydrated, recentLimit));
-        }
-      })
-      .catch(() => {
-        // Keep live events already streamed through the firehose; tail history is
-        // an enrichment path and should not blank the lane UI when unavailable.
-      });
+    let started = false;
+    const hydrate = () => {
+      if (cancelled || started || (pauseWhenHidden && documentIsHidden())) return;
+      started = true;
+      void refreshRecent(true);
+    };
+    const handleVisibilityChange = () => hydrate();
+    hydrate();
+    if (pauseWhenHidden && typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
     return () => {
       cancelled = true;
+      if (pauseWhenHidden && typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
-  }, [includeTranscriptReplay, pauseWhenHidden, recentLimit]);
+  }, [pauseWhenHidden, refreshRecent]);
 
-  return { discovery, events, refreshDiscovery };
+  return { discovery, events, loadState, refreshDiscovery, retryInitialLoad };
 }

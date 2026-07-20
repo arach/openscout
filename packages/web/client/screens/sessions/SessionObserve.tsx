@@ -1011,7 +1011,7 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
   const previewText = ask.preview === ask.title ? "" : ask.preview;
   return (
     <div className={`s-observe-ask s-observe-block${laneMode ? " s-observe-ask--lane" : ""}`}>
-      <div className="s-observe-ask-label">{ask.label}</div>
+      <div className="s-observe-ask-label">{laneMode ? "you" : ask.label}</div>
       <div className="s-observe-ask-title">{ask.title}</div>
       {previewText ? (
         <LaneExpandableText

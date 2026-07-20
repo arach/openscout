@@ -15,6 +15,9 @@
   --floor-mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   --floor-shadow: rgba(0, 0, 0, 0.42);
   --floor-shadow-strong: rgba(0, 0, 0, 0.62);
+  --floor-dock-id-width: 210px;
+  --floor-dock-gap: 18px;
+  --floor-dock-pad: 16px;
 
   /* derived */
   --floor-face-1: color-mix(in oklab, var(--floor-ink) 4%, var(--floor-bg));
@@ -32,6 +35,7 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
+  container-type: inline-size;
 }
 
 /* Light theme: black-based shadows read heavy on paper — soften them. */
@@ -209,9 +213,19 @@
   flex: 1 1 auto;
   min-height: 480px;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
   background:
     radial-gradient(1100px 540px at 50% -10%, color-mix(in oklab, var(--floor-ink) 4%, transparent), transparent 62%),
     radial-gradient(150% 125% at 50% 26%, transparent 48%, var(--floor-shadow) 82%, var(--floor-shadow) 100%);
+}
+
+.agent-floor__viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.agent-floor__viewport.is-dragging .agent-floor__stage {
+  transition: none;
 }
 
 .agent-floor__viewport::before {
@@ -234,6 +248,185 @@
   top: 54%;
   transform: rotateX(57deg) rotateZ(45deg);
   transform-style: preserve-3d;
+  transition: top 240ms ease, transform 180ms ease;
+}
+
+.agent-floor__viewport.is-inspecting .agent-floor__stage {
+  top: 43%;
+}
+
+/* ── Zoom — a multiplier on top of the automatic fit scale ── */
+
+.agent-floor__zoom {
+  position: absolute;
+  z-index: 8;
+  top: 14px;
+  right: 14px;
+  display: inline-grid;
+  grid-template-columns: 28px 46px 28px;
+  border: 1px solid var(--floor-line-2);
+  border-radius: 7px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--floor-bg) 92%, transparent);
+  box-shadow: 0 12px 28px -18px var(--floor-shadow-strong);
+  backdrop-filter: blur(10px);
+  opacity: 0.52;
+  transition: opacity 140ms ease;
+}
+
+.agent-floor__viewport:hover .agent-floor__zoom,
+.agent-floor__zoom:focus-within {
+  opacity: 1;
+}
+
+.agent-floor__zoom button {
+  appearance: none;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--floor-line-soft);
+  background: transparent;
+  color: var(--floor-muted);
+  font-family: var(--floor-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-floor__zoom button:first-child {
+  border-left: 0;
+}
+
+.agent-floor__zoom button:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--floor-ink) 6%, transparent);
+  color: var(--floor-ink);
+}
+
+.agent-floor__zoom button:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
+.agent-floor__zoom .agent-floor__zoom-reset {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── Selected lane trace — card-lane detail in the lower-right quadrant ── */
+
+.agent-floor__trace-panel {
+  position: absolute;
+  z-index: 7;
+  right: var(--floor-dock-pad);
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  width: min(47%, 680px);
+  height: clamp(390px, 60%, 680px);
+  min-width: 420px;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--floor-ink) 14%, transparent);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--floor-ink) 3.5%, transparent), transparent 22%),
+    color-mix(in oklab, var(--floor-bg) 97%, var(--floor-face-1));
+  box-shadow:
+    0 24px 56px -30px var(--floor-shadow-strong),
+    inset 0 1px 0 color-mix(in oklab, var(--floor-ink) 6%, transparent);
+  backdrop-filter: blur(18px);
+  animation: agent-floor-trace-in 220ms ease-out both;
+}
+
+.agent-floor.is-rail-ledger .agent-floor__trace-panel {
+  width: calc((100% - var(--floor-dock-pad) - var(--floor-dock-pad) - var(--floor-dock-id-width) - var(--floor-dock-gap)) / 2);
+  min-width: 0;
+}
+
+.agent-floor__trace-close {
+  appearance: none;
+  position: absolute;
+  z-index: 9;
+  top: 8px;
+  right: 8px;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid var(--floor-line-2);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--floor-bg) 88%, transparent);
+  color: var(--floor-muted);
+  font-family: var(--floor-mono);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.agent-floor__trace-close:hover {
+  border-color: color-mix(in oklab, var(--floor-ink) 30%, transparent);
+  color: var(--floor-ink);
+  background: color-mix(in oklab, var(--floor-ink) 7%, var(--floor-bg));
+}
+
+.agent-floor__trace-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-floor__trace-body > .s-observe,
+.agent-floor__trace-body .s-observe-main {
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-floor__trace-body .s-observe--lane .s-observe-main {
+  padding-top: 0;
+  background: transparent;
+}
+
+.agent-floor__trace-body .s-observe-lane-trace-meta {
+  background: color-mix(in oklab, var(--floor-bg) 94%, transparent);
+  backdrop-filter: blur(10px);
+  padding-right: 44px;
+}
+
+.agent-floor__trace-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: var(--floor-mono);
+  font-size: 10px;
+  color: var(--floor-muted);
+}
+
+@keyframes agent-floor-trace-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@container (max-width: 900px) {
+  .agent-floor__trace-panel,
+  .agent-floor.is-rail-ledger .agent-floor__trace-panel {
+    left: 14px;
+    right: 14px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .agent-floor__viewport.is-inspecting .agent-floor__stage {
+    top: 38%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-floor__stage,
+  .agent-floor__trace-panel {
+    transition: none;
+    animation: none;
+  }
 }
 
 .agent-floor__field {
@@ -680,24 +873,24 @@
 
 .agent-floor__dock {
   display: grid;
-  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(170px, var(--floor-dock-id-width)) minmax(0, 1fr);
   align-items: center;
-  gap: 18px;
+  gap: var(--floor-dock-gap);
   box-sizing: border-box;
   block-size: 96px;
   min-block-size: 96px;
   max-block-size: 96px;
   flex: 0 0 96px;
   overflow: hidden;
-  padding: 10px 16px;
+  padding: 10px var(--floor-dock-pad);
   border-top: 1px solid var(--floor-line-soft);
   background: color-mix(in oklab, var(--floor-ink) 2%, transparent);
   transition: border-color 0.14s ease;
 }
 
 .agent-floor__dock.is-pinned {
-  border-top-color: var(--floor-accent-line);
-  background: color-mix(in oklab, var(--floor-ink) 3.5%, transparent);
+  border-top-color: var(--floor-line-2);
+  background: color-mix(in oklab, var(--floor-ink) 3%, transparent);
 }
 
 .agent-floor__dock.is-resting {
@@ -715,15 +908,6 @@
   font-weight: 700;
   color: var(--floor-ink);
   font-size: 11px;
-}
-
-.agent-floor__dock-hint {
-  font-family: var(--floor-mono);
-  font-size: 9px;
-  letter-spacing: 0.05em;
-  color: color-mix(in oklab, var(--floor-muted) 65%, transparent);
-  white-space: nowrap;
-  flex: none;
 }
 
 .agent-floor__dock-id {
