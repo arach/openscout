@@ -107,9 +107,42 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
   const { dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const { navTotalHeight } = usePlatformLayout();
   const isFiltered = Boolean(search?.value);
+  const barRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const centerRef = useRef<HTMLDivElement>(null);
+
+  // The center strip shifts itself to stay centered over the content area
+  // (see .scout-nav-tabs transform). Publish the real widths of the bar's
+  // left/right groups and the strip so the CSS clamp can keep the strip from
+  // sliding under either absolutely-positioned side group.
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const update = () => {
+      const leftW = (leftRef.current?.offsetWidth ?? 0) + 16;
+      const rightW = (rightRef.current?.offsetWidth ?? 0) + 16;
+      const stripW = centerRef.current?.firstElementChild?.clientWidth ?? 0;
+      bar.style.setProperty("--scout-nav-left-w", `${leftW}px`);
+      bar.style.setProperty("--scout-nav-right-w", `${rightW}px`);
+      bar.style.setProperty("--scout-nav-strip-w", `${stripW}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    const strip = centerRef.current?.firstElementChild;
+    for (const el of [leftRef.current, rightRef.current, strip]) {
+      if (el) observer.observe(el);
+    }
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   return (
     <div
+      ref={barRef}
       data-frame-panel="navigation"
       className="fixed top-0 left-0 right-0 z-50 pointer-events-auto"
       {...dragRegionProps}
@@ -119,6 +152,7 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
         style={{ height: navTotalHeight, borderColor: "var(--hud-chrome-border, oklch(var(--border) / 0.8))" }}
       >
         <div
+          ref={leftRef}
           className="absolute left-4 bottom-0 h-12 z-10 flex items-center gap-2.5 select-none"
           onMouseDown={onInteractiveMouseDown}
         >
@@ -134,12 +168,12 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
         </div>
 
         {center && (
-          <div className="flex-1 flex justify-center h-12 items-center" onMouseDown={onInteractiveMouseDown}>
+          <div ref={centerRef} className="flex-1 flex justify-center h-12 items-center" onMouseDown={onInteractiveMouseDown}>
             {center}
           </div>
         )}
 
-        <div className="absolute right-4 bottom-0 h-12 z-10 flex items-center gap-3" onMouseDown={onInteractiveMouseDown}>
+        <div ref={rightRef} className="absolute right-4 bottom-0 h-12 z-10 flex items-center gap-3" onMouseDown={onInteractiveMouseDown}>
           {actions}
 
           {search && (
