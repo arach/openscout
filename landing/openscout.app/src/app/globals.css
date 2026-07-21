@@ -543,6 +543,256 @@ html[data-site-theme="dark"] .dot-grid {
    (its live thread), one scale jump (the headline / the readouts).
    ────────────────────────────────────────────────────────── */
 
+/* Mission sheet — one full compositional field, with the generated plot held
+   behind a lightweight flight-plan scaffold. The scaffold keeps the texture
+   from reading as a picture parked behind the console. */
+#main {
+  --mission-ruler-x: clamp(1.2rem, 3.2vw, 3.5rem);
+}
+
+.mission-hero {
+  --mission-wash: #fff;
+  position: relative;
+  isolation: isolate;
+  background: var(--site-page-bg);
+}
+
+.mission-hero__field {
+  position: absolute;
+  inset: -2.5rem 0 -5rem;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--site-border) 54%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 48%, transparent) 1px, transparent 1px);
+  background-size: 100% 9.5rem, 12.5rem 100%;
+}
+
+.mission-hero__field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(
+      ellipse 43% 64% at 27% 54%,
+      color-mix(in srgb, var(--mission-wash) 86%, transparent) 0%,
+      color-mix(in srgb, var(--mission-wash) 68%, transparent) 45%,
+      color-mix(in srgb, var(--mission-wash) 18%, transparent) 76%,
+      transparent 100%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--site-page-bg) 44%, transparent) 0%,
+      transparent 18%,
+      transparent 72%,
+      color-mix(in srgb, var(--site-page-bg) 78%, transparent) 100%
+    );
+}
+
+.mission-hero__layer {
+  position: absolute;
+  inset: 0;
+  background-image: url("/visuals/mission-sheet-field.webp");
+  background-repeat: no-repeat;
+  mix-blend-mode: multiply;
+  will-change: transform;
+}
+
+.mission-hero__layer--far {
+  z-index: 1;
+  background-position: 50% 46%;
+  background-size: max(100%, 92rem) auto;
+  opacity: 0.27;
+  transform: translateY(-0.75rem) scale(1.015);
+}
+
+.mission-hero__rail,
+.mission-hero__revision,
+.mission-page-ruler {
+  position: absolute;
+  z-index: 3;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  color: color-mix(in srgb, var(--site-muted) 80%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.mission-hero__rail {
+  top: 3.5rem;
+  left: clamp(10rem, 20vw, 24rem);
+  right: clamp(2rem, 5vw, 6rem);
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 0.8fr;
+  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 52%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--site-border) 52%, transparent);
+  font-size: 8px;
+}
+
+.mission-hero__rail span {
+  padding: 0.4rem 0.65rem;
+  border-left: 1px solid color-mix(in srgb, var(--site-border) 58%, transparent);
+}
+
+.mission-page-ruler {
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: var(--mission-ruler-x);
+  width: 5.8rem;
+  z-index: 20;
+  font-size: 8px;
+  pointer-events: none;
+}
+
+.mission-page-ruler::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -1px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--site-border-strong) 82%, transparent) 0 43rem,
+    color-mix(in srgb, var(--site-border-strong) 28%, transparent) 50rem 96%,
+    transparent 100%
+  );
+}
+
+.mission-page-ruler::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto -1px;
+  width: 0.7rem;
+  height: 43rem;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--site-border-strong) 74%, transparent) 0 1px,
+    transparent 1px 9.5rem
+  );
+  background-position: 0 2.65rem;
+}
+
+.mission-page-ruler span {
+  position: absolute;
+  left: 1rem;
+  white-space: nowrap;
+}
+
+.mission-page-ruler span:not(.mission-page-ruler__title)::before {
+  content: "";
+  position: absolute;
+  left: -1rem;
+  top: 0.5em;
+  width: 0.7rem;
+  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 92%, transparent);
+}
+
+.mission-page-ruler__title {
+  top: 0;
+}
+
+.mission-page-ruler span:nth-child(2) { top: 2.6rem; }
+.mission-page-ruler span:nth-child(3) { top: 12.1rem; }
+.mission-page-ruler span:nth-child(4) { top: 21.6rem; }
+.mission-page-ruler span:nth-child(5) { top: 31.1rem; }
+.mission-page-ruler span:nth-child(6) { top: 40.6rem; }
+
+.mission-hero__revision {
+  top: 5.7rem;
+  right: clamp(1.5rem, 3vw, 3.5rem);
+  display: flex;
+  gap: 1.1rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--site-border) 58%, transparent);
+  font-size: 7.5px;
+}
+
+@media (max-width: 1399px) and (min-width: 921px) {
+  #main {
+    --mission-ruler-x: 1.15rem;
+  }
+
+  .mission-page-ruler {
+    width: 4.5rem;
+  }
+
+  .mission-hero__content {
+    padding-left: 4.75rem;
+  }
+
+  .mission-page-ruler span {
+    left: 0.9rem;
+  }
+
+  .mission-page-ruler span:not(.mission-page-ruler__title)::before {
+    left: -0.9rem;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .mission-hero__layer--far {
+    animation: mission-sheet-drift-far linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 56rem;
+  }
+
+}
+
+@keyframes mission-sheet-drift-far {
+  from { transform: translateY(-0.9rem) scale(1.015); }
+  to { transform: translateY(1.7rem) scale(1.015); }
+}
+
+html[data-site-theme="dark"] .mission-hero__layer {
+  filter: grayscale(1) invert(1);
+  mix-blend-mode: screen;
+}
+
+html[data-site-theme="dark"] .mission-hero {
+  --mission-wash: color-mix(in srgb, var(--site-page-bg) 88%, #26313b 12%);
+}
+
+html[data-site-theme="dark"] .mission-hero__layer--far {
+  opacity: 0.1;
+}
+
+@media (max-width: 920px) {
+  .mission-hero__layer--far {
+    background-position: 62% 38%;
+    background-size: auto 92%;
+    opacity: 0.17;
+  }
+
+  .mission-page-ruler,
+  .mission-hero__revision {
+    display: none;
+  }
+
+  .mission-hero__field::after {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--site-page-bg) 74%, transparent) 0%,
+      color-mix(in srgb, var(--site-page-bg) 90%, transparent) 46%,
+      color-mix(in srgb, var(--site-page-bg) 62%, transparent) 100%
+    );
+  }
+}
+
+@media (max-width: 640px) {
+  .mission-hero__rail {
+    left: 1.5rem;
+    right: 1.5rem;
+    opacity: 0.52;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-hero__layer {
+    animation: none;
+    will-change: auto;
+  }
+}
+
 .hero-split {
   display: grid;
   /* The console is the live artifact of the fold and needs room to breathe:
@@ -558,6 +808,32 @@ html[data-site-theme="dark"] .dot-grid {
 
 .hero-editorial {
   min-width: 0;
+  position: relative;
+  isolation: isolate;
+}
+
+/* A translucent briefing wash, not an opaque card. It lightly neutralizes
+   the plotted field behind the copy and introduces the warm filtered paper
+   tone from the concept render without drawing a rectangular container. */
+.hero-editorial::before {
+  content: "";
+  position: absolute;
+  inset: -3.1rem -3.8rem -2.6rem -2.6rem;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 76% 68% at 46% 48%,
+    color-mix(in srgb, var(--mission-wash) 94%, transparent) 0%,
+    color-mix(in srgb, var(--mission-wash) 84%, transparent) 58%,
+    color-mix(in srgb, var(--mission-wash) 46%, transparent) 80%,
+    transparent 100%
+  );
+  -webkit-backdrop-filter: blur(2.5px) saturate(0.72);
+  backdrop-filter: blur(2.5px) saturate(0.72);
+}
+
+html[data-site-theme="dark"] .hero-editorial::before {
+  opacity: 0.82;
 }
 
 .hero-console-col {
@@ -1041,6 +1317,137 @@ html[data-site-theme="dark"] .dot-grid {
 
 main > .section-band {
   border-top: 1px solid var(--site-border);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Each sheet registers itself on the persistent mission spine. The compact
+   index gives the line a job and makes section changes feel procedural rather
+   than like unrelated decorative backgrounds. */
+main > .section-band::after {
+  content: attr(data-mission);
+  position: absolute;
+  top: 1.15rem;
+  left: var(--mission-ruler-x);
+  z-index: 3;
+  width: 6.5rem;
+  padding: 0.38rem 0 0 0.9rem;
+  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 54%, transparent);
+  pointer-events: none;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 7.5px;
+  line-height: 1.25;
+  color: color-mix(in srgb, var(--site-muted) 72%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.075em;
+}
+
+@media (max-width: 1499px) and (min-width: 921px) {
+  main > .section-band > .mx-auto {
+    padding-left: 7.25rem;
+  }
+}
+
+/* Every band is another crop from the same operational sheet. The base layer
+   is deliberately quiet; individual sections move the contour mass around so
+   the page keeps one visual language without repeating one obvious picture. */
+main > .section-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--site-border) 34%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 42%, transparent) 1px, transparent 1px),
+    url("/visuals/mission-sheet-field.webp");
+  background-position: 0 0, 0 0, 50% 50%;
+  background-repeat: repeat, repeat, no-repeat;
+  background-size: 100% 10rem, 12.5rem 100%, max(100%, 96rem) auto;
+  opacity: 0.08;
+  mix-blend-mode: multiply;
+  -webkit-mask-image: radial-gradient(ellipse 72% 58% at 78% 25%, #000 0%, rgba(0, 0, 0, 0.68) 42%, transparent 100%);
+  mask-image: radial-gradient(ellipse 72% 58% at 78% 25%, #000 0%, rgba(0, 0, 0, 0.68) 42%, transparent 100%);
+}
+
+main > .section-band > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Why Scout is the bridge from the denser hero into the quieter page field. */
+main > .mission-briefing::before {
+  background-position: 0 0, 0 0, 50% 82%;
+  opacity: 0.115;
+  -webkit-mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.72) 38%, transparent 92%);
+  mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.72) 38%, transparent 92%);
+}
+
+/* Apps: contour field gathers behind the image gallery. */
+main > .section-band:nth-of-type(3)::before {
+  background-position: 0 0, 0 0, 112% 20%;
+  opacity: 0.105;
+  -webkit-mask-image: radial-gradient(ellipse 62% 70% at 92% 25%, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 70% at 92% 25%, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 100%);
+}
+
+/* Integrations: invert the visual weight to the editorial side. */
+main > .section-band:nth-of-type(4)::before {
+  background-position: 0 0, 0 0, -16rem 52%;
+  opacity: 0.09;
+  -webkit-mask-image: radial-gradient(ellipse 58% 72% at 8% 46%, #000 0%, rgba(0, 0, 0, 0.62) 45%, transparent 100%);
+  mask-image: radial-gradient(ellipse 58% 72% at 8% 46%, #000 0%, rgba(0, 0, 0, 0.62) 45%, transparent 100%);
+}
+
+/* Getting started: a lower-right plot echoes the terminal's dark mass. */
+main > .section-band:nth-of-type(5)::before {
+  background-position: 0 0, 0 0, 108% 78%;
+  opacity: 0.1;
+  -webkit-mask-image: radial-gradient(ellipse 68% 68% at 88% 72%, #000 0%, rgba(0, 0, 0, 0.68) 46%, transparent 100%);
+  mask-image: radial-gradient(ellipse 68% 68% at 88% 72%, #000 0%, rgba(0, 0, 0, 0.68) 46%, transparent 100%);
+}
+
+/* FAQ and the final posture section keep only traces of the system. */
+main > .section-band:nth-of-type(6)::before {
+  background-position: 0 0, 0 0, -8rem 28%;
+  opacity: 0.07;
+  -webkit-mask-image: radial-gradient(ellipse 62% 58% at 12% 24%, #000 0%, rgba(0, 0, 0, 0.58) 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 58% at 12% 24%, #000 0%, rgba(0, 0, 0, 0.58) 40%, transparent 100%);
+}
+
+main > .section-band:nth-of-type(7)::before {
+  background-position: 0 0, 0 0, 54% 90%;
+  opacity: 0.09;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
+}
+
+html[data-site-theme="dark"] main > .section-band::before {
+  filter: grayscale(1) invert(1);
+  mix-blend-mode: screen;
+  opacity: 0.032;
+}
+
+html[data-site-theme="dark"] main > .mission-briefing::before {
+  opacity: 0.052;
+}
+
+@media (max-width: 720px) {
+  main > .section-band:nth-of-type(n + 2)::before {
+    background-size: 100% 9rem, 10rem 100%, auto 80%;
+    opacity: 0.05;
+  }
+
+  main > .mission-briefing:nth-of-type(2)::before {
+    opacity: 0.065;
+  }
+}
+
+@media (max-width: 920px) {
+  main > .section-band::after {
+    display: none;
+  }
 }
 
 /* Eyebrow: a quiet label attached to the title, not a competing banner.
