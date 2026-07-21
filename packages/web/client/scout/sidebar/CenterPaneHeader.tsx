@@ -14,7 +14,7 @@
  *
  * One shell slot — do not hand-edit every screen for breadcrumb/subnav.
  */
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { routeBreadcrumbForRoute } from "../route-breadcrumb.ts";
 import {
   areaSubNavForRoute,
@@ -71,20 +71,38 @@ export function AreaSubNavStrip({
  */
 export function CenterPaneHeader({
   rightUtility,
+  variant,
+  onInteractiveMouseDown,
 }: {
   /** Right-aligned utility slot for screen-level header actions. */
   rightUtility?: ReactNode;
+  /**
+   * "top-row" renders the header as the fixed app-wide top row (SCO-087):
+   * always mounted, no sticky, sits inside a drag-region wrapper.
+   */
+  variant?: "top-row";
+  /** Marks interactive groups no-drag when hosted inside a drag region. */
+  onInteractiveMouseDown?: (event: MouseEvent) => void;
 } = {}) {
   const { route, navigate } = useScout();
   const breadcrumb = routeBreadcrumbForRoute(route);
   const subNav = areaSubNavForRoute(route);
   const secondaryKind = secondaryNavKindForRoute(route);
+  const isTopRow = variant === "top-row";
 
-  if (!breadcrumb && !subNav && !secondaryKind && !rightUtility) return null;
+  // The top row is the app frame: it always mounts (it hosts machine scope +
+  // utilities + the drag region), even on flush landings with no crumb/sub-nav.
+  if (!isTopRow && !breadcrumb && !subNav && !secondaryKind && !rightUtility) {
+    return null;
+  }
 
   return (
-    <div className="scout-center-pane-header" data-scout-center-pane-header="">
-      <div className="scout-center-pane-header-main">
+    <div
+      className={`scout-center-pane-header${isTopRow ? " scout-center-pane-header--top-row" : ""}`}
+      data-scout-center-pane-header=""
+      data-scout-top-row={isTopRow ? "" : undefined}
+    >
+      <div className="scout-center-pane-header-main" onMouseDown={onInteractiveMouseDown}>
         {breadcrumb ? (
           <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
             <span className="scout-nav-crumb">{breadcrumb}</span>
@@ -109,7 +127,11 @@ export function CenterPaneHeader({
         ) : null}
       </div>
       {rightUtility ? (
-        <div className="scout-center-pane-header-utility" data-scout-header-utility="">
+        <div
+          className="scout-center-pane-header-utility"
+          data-scout-header-utility=""
+          onMouseDown={onInteractiveMouseDown}
+        >
           {rightUtility}
         </div>
       ) : null}

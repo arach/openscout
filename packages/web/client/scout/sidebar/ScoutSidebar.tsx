@@ -2,17 +2,20 @@
  * Scout primary navigation chrome (SCO-084 / SCO-085) — shadcn Sidebar composition.
  *
  * PURE NAVIGATION only (Requirement 7 revised 2026-07-20 / SCO-086):
- * destinations, scope items, broker status, edge RailToggle, machine scope,
- * ⌘K palette trigger. Per-area context content lives in the left HudsonKit
- * SidePanel (side rail), not here — do not re-introduce a Context group.
+ * destinations, scope items, broker status. Per-area context content lives in
+ * the left HudsonKit SidePanel (side rail), not here — do not re-introduce a
+ * Context group.
  *
  * SCO-085 full-height: brand strip at window top (titleBarInset padding),
- * drag region on the brand strip, no top bar. MachineScopeControl is the only
- * instance (footer). Settings is a primary area — no top-bar Settings button.
+ * drag region on the brand strip. Settings is a primary area.
  *
- * SCO-086: logo is static (click → Home, never a toggle). Collapse is the
- * shared edge chevron (RailToggle) bound to useSidebar().toggleSidebar —
- * no brand-row or footer SidebarTrigger.
+ * SCO-087: the app-wide top row (right of the sidebar) owns machine scope, the
+ * ⌘K trigger and the settings accelerator — they are NOT in the sidebar footer
+ * anymore (machine scope: exactly one instance, in the top row). The sidebar
+ * edge chevron (RailToggle) is also rendered by the shell so it can ride the
+ * ghost edge during drag-resize; the sidebar body is pure presentation.
+ *
+ * SCO-086: logo is static (click → Home, never a toggle).
  *
  * Gated by nav.sidebar; renders exactly one chrome tree vs legacy left panel.
  * State (open/collapsed) is owned by useSidebarCollapse via SidebarProvider;
@@ -21,9 +24,8 @@
  * HudsonKit SidePanel is intentionally separate (side rail / right inspector /
  * legacy left). Do not route this chrome through SidePanel.
  */
-import type { CSSProperties, HTMLAttributes, MouseEvent } from "react";
+import type { CSSProperties, HTMLAttributes } from "react";
 import { usePlatform } from "@hudsonkit";
-import { Command } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -40,8 +42,6 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "../../components/ui/sidebar.tsx";
-import { RailToggle } from "../../components/RailToggle.tsx";
-import { MachineScopeControl } from "../../components/MachineScopeControl.tsx";
 import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
@@ -187,74 +187,14 @@ function BrokerStatusLine() {
   );
 }
 
-function CommandPaletteButton({ onOpen }: { onOpen: () => void }) {
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          type="button"
-          tooltip="Command palette (⌘K)"
-          aria-label="Open command palette"
-          title="Command palette (⌘K)"
-          className="font-mono text-[11px] font-medium"
-          onClick={onOpen}
-          data-sidebar="command-palette"
-        >
-          <Command size={16} strokeWidth={1.6} aria-hidden />
-          <span>Command</span>
-          <span className="ml-auto font-mono text-[9px] tracking-wider text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden">
-            ⌘K
-          </span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
-/**
- * Machine scope in the sidebar footer.
- * Expanded: full select. Collapsed 48px rail: icon that opens a compact popover
- * with the same select (never omit entirely — machine-scoped routes need a path).
- */
-function SidebarMachineScope() {
-  const { state } = useSidebar();
-  return (
-    <MachineScopeControl
-      variant={state === "collapsed" ? "rail" : "sidebar"}
-    />
-  );
-}
-
-/** Edge chevron on the sidebar boundary at header height (SCO-086). */
-function SidebarEdgeToggle({
-  onInteractiveMouseDown,
-}: {
-  onInteractiveMouseDown?: (event: MouseEvent) => void;
-}) {
-  const { state, toggleSidebar } = useSidebar();
-  return (
-    <RailToggle
-      side="left"
-      collapsed={state === "collapsed"}
-      label="Sidebar"
-      onToggle={toggleSidebar}
-      className="scout-rail-toggle--sidebar"
-      onMouseDown={onInteractiveMouseDown}
-    />
-  );
-}
-
 export function ScoutSidebar({
   brandLabel = "Scout",
-  onOpenCommandPalette,
 }: {
   /**
    * Fixed product brand (usually app.name / "Scout"). Scope's active section
    * label is NOT a brand — scope destinations live in the model body.
    */
   brandLabel?: string;
-  /** Shell-owned command palette open callback (new ⌘K footer entry). */
-  onOpenCommandPalette?: () => void;
 }) {
   const { route, navigate } = useScout();
   const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
@@ -324,7 +264,6 @@ export function ScoutSidebar({
           </div>
         ) : null}
       </SidebarHeader>
-      <SidebarEdgeToggle onInteractiveMouseDown={onInteractiveMouseDown} />
 
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
@@ -399,12 +338,8 @@ export function ScoutSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border gap-1.5">
-        <SidebarMachineScope />
-        {onOpenCommandPalette ? (
-          <div onMouseDown={onInteractiveMouseDown}>
-            <CommandPaletteButton onOpen={onOpenCommandPalette} />
-          </div>
-        ) : null}
+        {/* SCO-087: machine scope + ⌘K moved to the app-wide top row. Only the
+            broker status indicator remains in the footer. */}
         <div
           className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center"
           onMouseDown={onInteractiveMouseDown}

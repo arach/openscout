@@ -47,6 +47,7 @@ import {
   sideRailHasContent,
 } from "./scout/sidebar/ScoutSideRail.tsx";
 import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
+import { TopRowUtilities } from "./scout/sidebar/TopRowUtilities.tsx";
 import {
   RAIL_COLLAPSED_WIDTH,
   SIDEBAR_COLLAPSED_WIDTH,
@@ -76,6 +77,18 @@ const AGENTS_RIGHT_PANEL_MIN_WIDTH = 480;
 const DISPATCH_SHEET_MIN_WIDTH = 520;
 const CENTER_CONTENT_MIN_WIDTH = 560;
 const GO_SHORTCUT_TIMEOUT_MS = 1500;
+
+// SCO-087: slim app-wide top row in the sidebar-chrome path. Sits right of the
+// full-height sidebar; the side rail, inspector, center pane and collapsed rails
+// all start below it. The rail edge chevrons sit one band lower (panel-header
+// height) so they never collide with the top row's utilities.
+const SIDEBAR_TOP_ROW_HEIGHT = 40;
+/** Rail edge chevron height (see .scout-rail-toggle). */
+const RAIL_TOGGLE_HEIGHT = 28;
+/** SidePanel header band height (see app.css manifest/inspector header rule). */
+const RAIL_HEADER_HEIGHT = 44;
+/** Chevron top so it centers in each rail's panel-header band. */
+const RAIL_TOGGLE_HEADER_TOP = Math.round((RAIL_HEADER_HEIGHT - RAIL_TOGGLE_HEIGHT) / 2);
 
 interface ScoutNavigationBarProps {
   title: string;
@@ -305,7 +318,7 @@ function OpenScoutStatusBarRight({
 
 function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; assistantEnabled: boolean }) {
   const { navTotalHeight } = usePlatformLayout();
-  const { titleBarInset, dragRegionProps } = usePlatform();
+  const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
   const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
@@ -314,6 +327,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const sidebarChrome = useOptionalFlag("nav.sidebar", false);
   // SCO-085: full-height sidebar — content/panels use titlebar-safe top (0 on web).
   const chromeTopOffset = sidebarChrome ? titleBarInset : navTotalHeight;
+  // SCO-087: the slim app-wide top row lives in the sidebar-chrome path only.
+  // Everything right of the sidebar starts below it; the legacy top bar path
+  // (?ff.nav.sidebar=off) is unaffected and keeps chromeTopOffset = navTotalHeight.
+  const topRowActive = sidebarChrome;
+  const contentTopOffset = chromeTopOffset + (topRowActive ? SIDEBAR_TOP_ROW_HEIGHT : 0);
+  const railToggleTop = contentTopOffset + RAIL_TOGGLE_HEADER_TOP;
   const scoutbotPublic = useScoutbotState();
 
   const appCommands = app.hooks.useCommands();
@@ -903,19 +922,18 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
-    top: chromeTopOffset,
+    top: contentTopOffset,
     bottom: 28,
     left: leftInset,
     right: rightInset,
     overflow: "auto",
-    // Suppress width/left transitions while the sidebar is live-drag resized.
-    transition: sidebarCollapse.isSidebarResizing
-      ? "none"
-      : "left 200ms ease, right 200ms ease",
+    // SCO-087: insets commit in a single write — no left/right transition, so the
+    // (often heavy) center pane reflows at most once per rail toggle / resize
+    // instead of every animation frame. The rail animates its own light subtree.
   } : {};
-  // Side panels: zero/titlebar-safe top in sidebar mode (style overrides SidePanel default).
+  // Side panels: start below the top row in sidebar mode (style overrides SidePanel default).
   const panelTopStyle: React.CSSProperties = sidebarChrome
-    ? { top: chromeTopOffset }
+    ? { top: contentTopOffset }
     : {};
   const shellChromeStyle = {
     display: "contents",
@@ -987,11 +1005,32 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       sidebarCollapse.isSidebarResizing ? "" : undefined
                     }
                   >
-                    <ScoutSidebar
-                      brandLabel={app.name}
-                      onOpenCommandPalette={() => setShowCommandPalette(true)}
-                    />
+                    <ScoutSidebar brandLabel={app.name} />
                   </SidebarProvider>
+
+                  {/* SCO-087: sidebar edge chevron rendered by the shell (not the
+                      sidebar body) so it can ride the ghost edge during resize and
+                      align to the same panel-header band as the side rail /
+                      inspector chevrons. Rides the ghost width while dragging. */}
+                  <RailToggle
+                    side="left"
+                    collapsed={sidebarCollapse.effectiveCollapsed}
+                    label="Sidebar"
+                    onToggle={sidebarCollapse.toggleCollapsed}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="scout-rail-toggle--sidebar-edge"
+                    style={{
+                      position: "fixed",
+                      left:
+                        sidebarCollapse.isSidebarResizing &&
+                        sidebarCollapse.dragGhostWidth != null
+                          ? sidebarCollapse.dragGhostWidth
+                          : sidebarCollapse.width,
+                      top: railToggleTop,
+                      zIndex: 46,
+                      transform: "translateX(-50%)",
+                    }}
+                  />
 
                   {/* Shell-level resize handle at the sidebar edge (z > 40 so it
                       wins hit-testing over the side rail at the same x). Not
@@ -1015,14 +1054,36 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       style={{
                         position: "fixed",
                         left: Math.max(0, sidebarCollapse.width - 3),
-                        // Leave header-height free for the edge RailToggle.
-                        top: chromeTopOffset + 40,
+                        // Leave the panel-header band free for the edge RailToggle.
+                        top: contentTopOffset + RAIL_HEADER_HEIGHT,
                         bottom: 28,
                         width: 6,
                         zIndex: 50,
                         cursor: "ew-resize",
                         pointerEvents: "auto",
                         touchAction: "none",
+                      }}
+                    />
+                  ) : null}
+
+                  {/* SCO-087: ghost edge during drag — the committed width stays
+                      pinned (no center-pane relayout); this 2px line previews the
+                      target, and the width commits once on pointer-up. */}
+                  {sidebarCollapse.isSidebarResizing &&
+                  sidebarCollapse.dragGhostWidth != null ? (
+                    <div
+                      data-scout-sidebar-resize-ghost=""
+                      aria-hidden="true"
+                      className="scout-sidebar-resize-ghost"
+                      style={{
+                        position: "fixed",
+                        left: sidebarCollapse.dragGhostWidth,
+                        top: contentTopOffset,
+                        bottom: 28,
+                        width: 2,
+                        transform: "translateX(-50%)",
+                        zIndex: 55,
+                        pointerEvents: "none",
                       }}
                     />
                   ) : null}
@@ -1072,6 +1133,45 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 </>
               )}
 
+              {/* SCO-087: single app-wide top row (sidebar-chrome path only).
+                  Right of the full-height sidebar; consolidates the page
+                  title/breadcrumb + secondary nav (CenterPaneHeader) with the
+                  machine scope + settings + ⌘K utilities. Owns the top drag
+                  region so frameless/macOS window drag keeps working. */}
+              {topRowActive ? (
+                <div
+                  data-scout-top-row-frame=""
+                  className="scout-top-row-frame"
+                  // Merge the platform drag-region style INTO ours (macOS sets
+                  // -webkit-app-region on style); spreading dragRegionProps raw
+                  // would clobber our fixed positioning.
+                  style={{
+                    position: "fixed",
+                    top: chromeTopOffset,
+                    left: sidebarCollapse.width,
+                    right: 0,
+                    height: SIDEBAR_TOP_ROW_HEIGHT,
+                    zIndex: 30,
+                    ...((dragRegionProps as { style?: React.CSSProperties } | undefined)?.style ?? {}),
+                  }}
+                  {...(Object.fromEntries(
+                    Object.entries((dragRegionProps ?? {}) as Record<string, unknown>).filter(
+                      ([key]) => key !== "style",
+                    ),
+                  ) as React.HTMLAttributes<HTMLDivElement>)}
+                >
+                  <CenterPaneHeader
+                    variant="top-row"
+                    onInteractiveMouseDown={onInteractiveMouseDown}
+                    rightUtility={
+                      <TopRowUtilities
+                        onOpenCommandPalette={() => setShowCommandPalette(true)}
+                      />
+                    }
+                  />
+                </div>
+              ) : null}
+
               {showRightPanel && (() => {
                 const inspectorTitle = dispatchSheetOpen
                   ? "Dispatch detail"
@@ -1108,7 +1208,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       title={inspectorTitle}
                       onToggle={handleRightToggle}
                       edgeOffset={0}
-                      top={chromeTopOffset}
+                      top={contentTopOffset}
                       style={panelTopStyle}
                     />
                   );
@@ -1163,7 +1263,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                         style={{
                           position: "fixed",
                           right: rightWidth,
-                          top: chromeTopOffset + 8,
+                          top: railToggleTop,
                           zIndex: 45,
                           transform: "translateX(50%)",
                         }}
@@ -1201,9 +1301,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   bottom: 0,
                   top: 0,
                   zIndex: 45,
-                  transition: sidebarCollapse.isSidebarResizing
-                    ? "none"
-                    : "left 200ms ease, right 200ms ease",
+                  // SCO-087: insets commit once (no left/right layout transition).
                   transform: "translateZ(0)",
                 }}
               >
@@ -1246,8 +1344,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           }
         >
           <div style={contentStyle} className="frame-scrollbar" data-pane="center">
-            {/* SCO-085: one shared center-pane header seam (breadcrumb + AREA_SUB_NAV). */}
-            {sidebarChrome ? <CenterPaneHeader /> : null}
+            {/* SCO-087: the breadcrumb / sub-nav seam now lives in the fixed
+                app-wide top row above (CenterPaneHeader variant="top-row"), not
+                inside the scrolling center pane. */}
             <app.slots.Content />
           </div>
         </Frame>
