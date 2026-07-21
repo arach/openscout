@@ -43,67 +43,94 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
 
 ## Requirements
 
+0. **Upstream source and dependency reality (Codex blocker):** pin an exact
+   upstream revision of the shadcn Base UI sidebar
+   (`apps/v4/registry/bases/base/ui/sidebar.tsx` in shadcn-ui/ui) and record
+   the commit hash in the copied file header. That source imports
+   `@base-ui/react` (the renamed package), `class-variance-authority`, and
+   a `cn()` backed by `clsx` + `tailwind-merge` — none resolvable here
+   today. Resolution:
+   - `@base-ui/react` imports → port to the installed
+     `@base-ui-components/react@1.0.0-rc.0` APIs (do NOT add the renamed
+     package alongside the old one — same library, would duplicate).
+   - `clsx`, `tailwind-merge`, `class-variance-authority` MAY be added as
+     direct `packages/web` deps (small, standard for shadcn). A trivial
+     class joiner is NOT sufficient where HUD overrides conflict with
+     upstream layout classes (`inset-y-0`, `h-svh`, z-index) — use
+     `tailwind-merge` via a proper `cn()` in `client/lib/utils.ts`.
+   - Tailwind v4: mapping `--sidebar*` in `app.css` alone does not make
+     classes like `bg-sidebar` resolve. Register the color namespace via
+     `@theme inline` in Tailwind-processed CSS (`--color-sidebar:
+     var(--sidebar)`, `--color-sidebar-foreground`, etc.) per shadcn's
+     Tailwind v4 guidance.
+
 1. **Copy in the real component family** as
    `packages/web/client/components/ui/sidebar.tsx` (plus any small ui
-   helpers it needs, e.g. `button`, `tooltip` wrappers, `use-mobile`),
-   keeping upstream file structure so future `shadcn` CLI diffs stay
-   reviewable. Preserve upstream comments/attribution.
-2. **Base UI, not Radix.** Where the copied source uses Radix primitives
-   (`Slot`, `Collapsible`, `Tooltip`, `Dialog` for the mobile sheet):
-   - Tooltip → `@base-ui-components/react/tooltip` (already a direct dep).
-   - Collapsible → `@base-ui-components/react/collapsible`.
-   - `Slot` → replace with Base UI's render-prop pattern or a ~20-line
-     local `Slot` equivalent; do NOT add a Radix dependency.
-   - Mobile sheet/off-canvas → **delete** (`collapsible="offcanvas"` and
-     the `isMobile` sheet path). This product is desktop-first; the icon
-     rail is the only collapsed mode. Document the deletion in the file.
-3. **HUD tokens.** Map shadcn's `--sidebar`, `--sidebar-foreground`,
+   helpers it needs, e.g. `button`, `tooltip` wrappers — `use-mobile` is
+   NOT needed, see 2), keeping upstream file structure and attribution so
+   future `shadcn` CLI diffs stay reviewable.
+2. **Base UI, not Radix, and no mobile sheet.** Tooltip → installed Base
+   UI tooltip; Collapsible → installed Base UI collapsible; `Slot` → Base
+   UI render-prop pattern or a ~20-line local equivalent; NO Radix
+   dependency. Delete the offcanvas/mobile path completely: `openMobile`,
+   `isMobile`, `use-mobile`, the `"offcanvas"` type/default, the sheet
+   Dialog, and upstream `hidden md:block` / `hidden md:flex` gating.
+   `collapsible` supports `"icon"` (default) and `"none"` only. Document
+   the deletion in the file header.
+3. **HUD tokens.** Map `--sidebar`, `--sidebar-foreground`,
    `--sidebar-accent`, `--sidebar-border`, `--sidebar-ring`,
-   `--sidebar-width` (260px), `--sidebar-width-icon` (48px) onto the
-   existing oklch HUD token set in `app.css`. The sidebar keeps the current
-   mono HUD skin — component anatomy changes, aesthetics don't.
-4. **State integration (the delicate part):**
-   - `SidebarProvider` runs CONTROLLED: `open`/`onOpenChange` bound to
-     `useSidebarCollapse`, so the persisted manual preference vs derived
-     auto-collapse (<1024px, never overwrites manual) semantics are
-     preserved exactly. Add tests proving provider state and
-     `useSidebarCollapse` can't diverge (e.g. window resize while manually
-     collapsed).
-   - `Cmd+B`: shadcn's provider ships this shortcut; the shell's existing
-     keyboard handler also maps `Cmd+B`. Keep exactly one binding — remove
-     the shell's duplicate and let the provider own it (verify it doesn't
-     fire in editable/terminal targets; if the provider's guard is weaker
-     than the shell's, keep the shell's and disable the provider's).
-   - The shell's `leftInset` arithmetic (`sidebarCollapse.width`) must be
-     driven from provider state so content, sidebar, and rail never
-     disagree. Frame/HUD overlay behavior (pointer-events, z-order,
-     StatusBar 28px bottom inset) must be preserved — the sco-083
-     pointer-events bug must not regress: sidebar items must win
-     `elementFromPoint` over the content pane (add a test or documented
-     manual check).
-5. **Composition mapping (preserve current UX):**
+   `--sidebar-width` (260px), `--sidebar-width-icon` (48px) onto the HUD
+   oklch tokens (registered per 0). Mono HUD skin preserved.
+4. **Shell geometry (Codex blocker):**
+   - The Frame HUD layer is full-screen `pointer-events-none`. Apply
+     `pointer-events-auto` ONLY to the actual sidebar container/controls —
+     never to the full-screen `SidebarProvider` wrapper, which would
+     intercept the content pane.
+   - Replace upstream `inset-y-0 h-svh` with explicit `top`/`bottom: 28px`
+     geometry so the footer is not hidden beneath the StatusBar.
+   - Resolve the top edge explicitly: today the fixed z-50 nav bar covers
+     the sidebar header (the sco-083 brand is unreachable). Either start
+     the sidebar below `navTotalHeight`, or layer it above the nav and
+     inset the nav — pick one, document it, and verify the brand is
+     clickable.
+5. **Controlled state (Codex correction):** `useSidebarCollapse` stays
+   canonical. Drive `SidebarProvider open={!effectiveCollapsed}` AND the
+   shell `leftInset`/width from it. Add an idempotent
+   `setCollapsed(next)` on the hook: wide viewport → updates
+   `manualCollapsed`; auto-collapse viewport → updates session-only
+   `forceExpanded`. Do NOT wire `onOpenChange` as
+   `setManualCollapsed(!open)` — that breaks narrow-screen expansion.
+   Delete shadcn's `sidebar_state` cookie write (usePersistentState owns
+   persistence). Extract the state-transition logic into a pure function
+   and test it (current tests cover only constants).
+6. **Keyboard:** the SHELL owns `Cmd+B` — disable/remove shadcn's provider
+   listener entirely (it has no editable/terminal guard; leaving both
+   double-toggles because the shell doesn't stop propagation).
+7. **Composition mapping (preserve current UX):**
    - `SidebarHeader`: Scout mark + product name (click → Home).
-   - `SidebarContent`: `SidebarGroup` "Navigate" (Home, Projects, Sessions,
-     Chat, Dispatch, Search) and `SidebarGroup` "System" (Ops, Settings)
-     rendered from `PRIMARY_AREAS` via `SidebarMenu*`;
-     `SidebarMenuButton` gets `isActive` from
-     `primaryAreaForRoute(route)`; tooltips on collapsed rail via the
+   - `SidebarContent`: "Navigate" group (Home, Projects, Sessions, Chat,
+     Dispatch, Search) and "System" group (Ops, Settings) from
+     `PRIMARY_AREAS` via `SidebarMenu*`; `SidebarMenuButton isActive` from
+     `primaryAreaForRoute(route)`; collapsed-rail tooltips via the
      component's built-in tooltip path.
-   - Context section: `resolveSidebarContext(route)` output renders as a
-     third `SidebarGroup` (label "Context") — the component must accept
-     arbitrary children here, not just `SidebarMenu`.
+   - Context section: `resolveSidebarContext(route)` output as a third
+     `SidebarGroup` ("Context") accepting arbitrary children, not just
+     `SidebarMenu`. **Preserve `resolveSidebarContext().footer` as pinned
+     UI OUTSIDE the scrolling `SidebarContent`** (current Mesh footer
+     behavior must not change).
    - `SidebarFooter`: broker status + `SidebarTrigger`.
-   - `SidebarRail`: omit (fixed 260/48 widths for now).
-6. **Keep everything presentation-agnostic:** `primary-areas.ts`,
-   `ROUTE_AREA_BY_VIEW`, `resolveSidebarContext`, `useSidebarModel`
-   (scope seam — scope keeps supplying its model; the scope sidebar also
-   renders through the shadcn tree), the `nav.sidebar` flag (now default
-   on; `?ff.nav.sidebar=off` falls back to legacy chrome), breadcrumbs,
-   machine scope in the top bar.
-7. **Delete** `scout/sidebar/ScoutSidebar.tsx`'s custom markup and
+   - `SidebarRail`: omit (fixed 260/48 widths).
+   - Scope rail: `useSidebarModel` scope items have no icons — preserve the
+     current initial-letter fallback (or add icons) so the collapsed scope
+     rail isn't blank.
+8. **Keep everything presentation-agnostic:** `primary-areas.ts`,
+   `ROUTE_AREA_BY_VIEW`, `resolveSidebarContext`, `useSidebarModel`, the
+   `nav.sidebar` flag (default on; `?ff.nav.sidebar=off` → legacy chrome),
+   breadcrumbs, machine scope in the top bar.
+9. **Delete** `scout/sidebar/ScoutSidebar.tsx`'s custom markup and
    `scout-sidebar.css` once the shadcn tree is live (keep
-   `useSidebarCollapse`/`useSidebarModel` — they're state, not markup).
-   The legacy left panel stays untouched behind the flag-off path.
+   `useSidebarCollapse`/`useSidebarModel` — state, not markup). The legacy
+   left panel stays untouched behind the flag-off path.
 
 ## Constraints
 
@@ -116,8 +143,10 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
   and, until the flag-off path is deleted, the legacy left rail. Shared
   concerns (collapse persistence, inset arithmetic) integrate through shell
   state/CSS vars, not through component coupling.
-- No Radix dependency. No new npm dependency beyond what's already present
-  (`@base-ui-components/react`, `lucide-react`, tailwind).
+- No Radix dependency. `clsx`, `tailwind-merge`,
+  `class-variance-authority` are permitted (see Requirement 0); nothing
+  else new. Do NOT add the renamed `@base-ui/react` package — port to the
+  installed `@base-ui-components/react@1.0.0-rc.0`.
 - Embeds unchanged (no sidebar). Scope remains path-driven.
 - Auto-collapse remains derived; manual preference never overwritten.
 - Do not git commit.
