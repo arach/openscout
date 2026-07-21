@@ -1,14 +1,18 @@
 /**
  * Scout primary navigation chrome (SCO-084 / SCO-085) — shadcn Sidebar composition.
  *
- * PURE NAVIGATION only (Requirement 7 revised 2026-07-20):
- * destinations, scope items, broker status, collapse trigger, machine scope,
+ * PURE NAVIGATION only (Requirement 7 revised 2026-07-20 / SCO-086):
+ * destinations, scope items, broker status, edge RailToggle, machine scope,
  * ⌘K palette trigger. Per-area context content lives in the left HudsonKit
  * SidePanel (side rail), not here — do not re-introduce a Context group.
  *
  * SCO-085 full-height: brand strip at window top (titleBarInset padding),
  * drag region on the brand strip, no top bar. MachineScopeControl is the only
  * instance (footer). Settings is a primary area — no top-bar Settings button.
+ *
+ * SCO-086: logo is static (click → Home, never a toggle). Collapse is the
+ * shared edge chevron (RailToggle) bound to useSidebar().toggleSidebar —
+ * no brand-row or footer SidebarTrigger.
  *
  * Gated by nav.sidebar; renders exactly one chrome tree vs legacy left panel.
  * State (open/collapsed) is owned by useSidebarCollapse via SidebarProvider;
@@ -17,7 +21,7 @@
  * HudsonKit SidePanel is intentionally separate (side rail / right inspector /
  * legacy left). Do not route this chrome through SidePanel.
  */
-import type { CSSProperties, HTMLAttributes } from "react";
+import type { CSSProperties, HTMLAttributes, MouseEvent } from "react";
 import { usePlatform } from "@hudsonkit";
 import { Command } from "lucide-react";
 import {
@@ -34,9 +38,9 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarTrigger,
   useSidebar,
 } from "../../components/ui/sidebar.tsx";
+import { RailToggle } from "../../components/RailToggle.tsx";
 import { MachineScopeControl } from "../../components/MachineScopeControl.tsx";
 import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
@@ -221,6 +225,25 @@ function SidebarMachineScope() {
   );
 }
 
+/** Edge chevron on the sidebar boundary at header height (SCO-086). */
+function SidebarEdgeToggle({
+  onInteractiveMouseDown,
+}: {
+  onInteractiveMouseDown?: (event: MouseEvent) => void;
+}) {
+  const { state, toggleSidebar } = useSidebar();
+  return (
+    <RailToggle
+      side="left"
+      collapsed={state === "collapsed"}
+      label="Sidebar"
+      onToggle={toggleSidebar}
+      className="scout-rail-toggle--sidebar"
+      onMouseDown={onInteractiveMouseDown}
+    />
+  );
+}
+
 export function ScoutSidebar({
   brandLabel = "Scout",
   onOpenCommandPalette,
@@ -270,6 +293,7 @@ export function ScoutSidebar({
         ) as HTMLAttributes<HTMLDivElement>)}
         data-sidebar-drag-region=""
       >
+        {/* Static logo — click → Home, never a collapse toggle (SCO-086). */}
         <div className="flex items-center gap-0.5">
           <SidebarMenu className="min-w-0 flex-1">
             <SidebarMenuItem>
@@ -290,11 +314,6 @@ export function ScoutSidebar({
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          {/* Collapse trigger in brand row (also in footer). */}
-          <SidebarTrigger
-            className="shrink-0"
-            onMouseDown={onInteractiveMouseDown}
-          />
         </div>
         {model.kind === "scope" ? (
           <div
@@ -305,6 +324,7 @@ export function ScoutSidebar({
           </div>
         ) : null}
       </SidebarHeader>
+      <SidebarEdgeToggle onInteractiveMouseDown={onInteractiveMouseDown} />
 
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
@@ -390,7 +410,6 @@ export function ScoutSidebar({
           onMouseDown={onInteractiveMouseDown}
         >
           <BrokerStatusLine />
-          <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:ml-0" />
         </div>
       </SidebarFooter>
     </Sidebar>

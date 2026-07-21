@@ -46,6 +46,9 @@ export function resolveLanesContextCollapsed(options: {
 /**
  * Toggle transition for the empty-panel override.
  * Returns the next forceOpen / rightCollapsed pair without mutating inputs.
+ *
+ * SCO-086: expand-while-empty sets forceOpen only — never rewrites the stored
+ * rightCollapsed preference (temporary open override).
  */
 export function nextLanesContextToggle(options: {
   empty: boolean;
@@ -58,7 +61,8 @@ export function nextLanesContextToggle(options: {
   if (collapsedNow) {
     return {
       forceOpen: true,
-      rightCollapsed: false,
+      // Temporary open while empty must preserve the stored pref.
+      rightCollapsed: options.empty ? options.rightCollapsed : false,
     };
   }
   return {

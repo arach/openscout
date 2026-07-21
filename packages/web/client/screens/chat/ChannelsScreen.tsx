@@ -20,7 +20,8 @@ import {
 } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { DictationMic } from "../../components/DictationMic.tsx";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
+import { MessageComposer } from "../../components/MessageComposer/index.ts";
 import { MessageEmbeds } from "../../components/MessageEmbeds.tsx";
 import { useAgentHovercard } from "../../components/AgentHoverCard.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../../lib/types.ts";
@@ -563,38 +564,31 @@ function ChannelFeed({
       {error && <div className="ch-compose-error">{error}</div>}
 
       <div className="ch-compose-wrap">
-        <form
-          className="ch-compose"
-          onSubmit={(e) => { e.preventDefault(); void send(); }}
-        >
-          <AgentMentionTextarea
-            agents={agents}
-            value={draft}
-            onChange={setDraft}
-            onSubmit={() => void send()}
-            placeholder={`Message #${channelName}…`}
-            rows={1}
-            disabled={sending}
-            textareaClassName="ch-compose-input"
-          />
-          <DictationMic
-            onAppend={(text) =>
-              setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
-            }
-          />
-          <button
-            type="submit"
-            className="ch-compose-send"
-            disabled={!draft.trim() || sending}
-            aria-label="Send message (Cmd+Enter)"
-            title="Send (Cmd+Enter)"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="2" y1="8" x2="14" y2="8" />
-              <polyline points="8 2 14 8 8 14" />
-            </svg>
-          </button>
-        </form>
+        <MessageComposer
+          density="bare"
+          value={draft}
+          onChange={setDraft}
+          onSend={() => void send()}
+          sending={sending}
+          placeholder={`Message #${channelName}…`}
+          input={(
+            <AgentMentionTextarea
+              agents={agents}
+              value={draft}
+              onChange={setDraft}
+              onSubmit={() => void send()}
+              placeholder={`Message #${channelName}…`}
+              rows={1}
+              disabled={sending}
+              textareaClassName="s-msg-compose-input"
+            />
+          )}
+          tools={(
+            <span className="s-msg-compose-tools-hint">
+              <kbd className="s-kbd">@</kbd> agents
+            </span>
+          )}
+        />
       </div>
     </div>
   );
@@ -676,6 +670,7 @@ export function ChannelsScreen({
   navigate: (r: Route) => void;
 }) {
   const { agents, route } = useScout();
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [operatorName, setOperatorName] = useState("operator");
   const machineId = routeMachineId(route);
@@ -730,6 +725,10 @@ export function ChannelsScreen({
       />
     );
 
+    if (!contentOwnsSecondaryNav) {
+      return content;
+    }
+
     return (
       <div className="s-secondary-nav-shell">
         <div className="s-secondary-nav-bar">
@@ -776,6 +775,10 @@ export function ChannelsScreen({
       )}
     </div>
   );
+
+  if (!contentOwnsSecondaryNav) {
+    return content;
+  }
 
   return (
     <div className="s-secondary-nav-shell">

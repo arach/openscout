@@ -21,6 +21,7 @@ import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Route, SessionEntry } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
@@ -35,6 +36,7 @@ export function MessagesScreen({
   navigate: (route: Route) => void;
 }) {
   const { route } = useScout();
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
   const content = !conversationId ? (
     <MessagesEmptyState navigate={navigate} />
   ) : (
@@ -44,6 +46,10 @@ export function MessagesScreen({
       showBackNav={false}
     />
   );
+
+  if (!contentOwnsSecondaryNav) {
+    return content;
+  }
 
   return (
     <div className="s-secondary-nav-shell">

@@ -15,17 +15,21 @@
  *   Sheet dialog, SIDEBAR_WIDTH_MOBILE, "offcanvas" collapsible type/default,
  *   and hidden md:block / hidden md:flex gating. collapsible is "icon" | "none" only.
  * - SidebarRail kept in the family for completeness but Scout chrome omits it
- *   (fixed 260/48 widths via shell leftInset).
+ *   (SCO-086: shell owns a fixed resize handle at z>40; RailToggle owns collapse).
+ * - Continuous expanded width via --sidebar-width from the shell (min 200 /
+ *   max 360 / default 260); icon rail via --sidebar-width-icon / RAIL_COLLAPSED_WIDTH.
  *
- * HUD geometry (Requirement 4 / SCO-085):
+ * HUD geometry (Requirement 4 / SCO-085 / SCO-086):
  * - Frame HUD layer is full-screen pointer-events-none. Apply pointer-events-auto
  *   ONLY on the sidebar container (data-slot=sidebar-container), never the
  *   SidebarProvider wrapper (uses `contents` so it does not form a hit box).
  * - Top edge: full-height sidebar mode uses --scout-sidebar-top: 0 (brand at
  *   window top with titleBarInset padding). Legacy dual-chrome (if any) may
- *   still pass 48px. Brand is clickable.
+ *   still pass 48px. Brand is clickable (static logo — never a toggle).
  * - Bottom edge: bottom: 28px for StatusBar clearance (not inset-y-0 / h-svh).
  * - Shell owns leftInset / content push; no desktop gap spacer is rendered.
+ * - During live resize, shell sets data-sidebar-resizing / data-scout-sidebar-resizing
+ *   to suppress width transitions so the pane tracks the pointer.
  */
 
 import * as React from "react";
