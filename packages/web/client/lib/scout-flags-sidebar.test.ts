@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { scoutFlags } from "./scout-flags.ts";
 
 describe("nav.sidebar flag (SCO-083)", () => {
-  test("is registered, default off, and not an ops/surface bundle key", () => {
+  test("is registered, default on since the sco-083 soak, and not an ops/surface bundle key", () => {
     expect(scoutFlags["nav.sidebar"]).toBeDefined();
-    expect(scoutFlags["nav.sidebar"].defaultEnabled).toBe(false);
+    expect(scoutFlags["nav.sidebar"].defaultEnabled).toBe(true);
     expect(scoutFlags["nav.sidebar"].tier).toBe("everyone");
-    expect(scoutFlags["nav.sidebar"].tags).toContain("experiment");
+    expect(scoutFlags["nav.sidebar"].tags).not.toContain("experiment");
   });
 
   test("max-pro and light-prod bundle helpers do not force-enable nav.sidebar", async () => {
