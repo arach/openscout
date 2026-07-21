@@ -82,6 +82,19 @@
   --color-success: var(--hud-status-ok);
   --color-warning: var(--hud-status-warn);
   --color-destructive: var(--hud-status-error);
+
+  /* SCO-084: shadcn sidebar tokens mapped onto HUD oklch chrome (mono skin). */
+  --sidebar: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+  --sidebar-foreground: var(--hud-ink);
+  --sidebar-primary: var(--hud-ink);
+  --sidebar-primary-foreground: var(--hud-bg);
+  --sidebar-accent: color-mix(in srgb, var(--hud-ink) 7%, transparent);
+  --sidebar-accent-foreground: var(--hud-ink);
+  --sidebar-border: color-mix(in srgb, var(--hud-ink) 8%, transparent);
+  --sidebar-ring: var(--hud-accent);
+  --sidebar-width: 260px;
+  --sidebar-width-icon: 48px;
+
   color: var(--ink);
 }
 
@@ -3367,4 +3380,13 @@ a.s-inline-link {
     scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/*
+ * SCO-084: side-rail expand control sits beside the nav icon/expanded rail.
+ * SidePanel's collapsed affordance hardcodes left-3; offset it past the nav rail.
+ * Expanded side rail uses inline style.left = navRailWidth from ScoutSideRail.
+ */
+html[data-scout-sidebar-chrome] button.left-3[title^="Expand "] {
+  left: calc(var(--scout-nav-rail-width, 48px) + 12px);
 }
