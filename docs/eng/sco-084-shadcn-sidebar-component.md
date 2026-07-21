@@ -142,6 +142,18 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
    `useSidebarCollapse`/`useSidebarModel` — state, not markup). The legacy
    left panel stays untouched behind the flag-off path.
 
+## Target end state (after the flag-off path is deleted)
+
+The sidebar becomes the full-height left edge of the window (brand at the
+very top) and **the top bar is removed entirely**. Its remaining contents
+relocate: breadcrumb → center-pane header per screen, machine scope control
+→ sidebar footer (next to broker status), ⌘K command trigger → sidebar
+footer or status bar, settings → already a sidebar area. Sequenced WITH or
+AFTER step 6 (legacy chrome deletion), because the top bar still carries
+the flag-off chrome's title and nav actions today. Intermediate state
+(this spec's implementation) keeps the slim top bar and starts the sidebar
+below it (`top: var(--scout-sidebar-top)`).
+
 ## Constraints
 
 - URLs unchanged; router/nav suites green unmodified.
