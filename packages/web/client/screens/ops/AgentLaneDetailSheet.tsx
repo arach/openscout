@@ -13,6 +13,7 @@ import {
   deriveContextBudgetGauge,
 } from "../../lib/context-budget.ts";
 import { requestSessionCompaction } from "../../lib/session-compaction.ts";
+import { updateLocation } from "../../lib/router.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { ObserveData, ObserveEvent, ObserveFile, PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { bashDisplaySpans, splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
@@ -650,26 +651,24 @@ export function AgentLaneDetailSheet({
 
   const setLocationHash = useCallback((id: LaneSheetSectionId) => {
     if (typeof window === "undefined") return;
-    const next = `${window.location.pathname}${window.location.search}#${id}`;
     if (window.location.hash === `#${id}`) return;
-    window.history.pushState(null, "", next);
+    // Section anchors are real history entries (Back unwinds them); the
+    // location store keeps the router's entry state instead of discarding it.
+    updateLocation({ hash: id, replace: false });
   }, []);
 
-  const scrollToSection = useCallback((
-    id: LaneSheetSectionId,
-    behavior: ScrollBehavior = "smooth",
-  ) => {
+  const scrollToSection = useCallback((id: LaneSheetSectionId) => {
     const body = bodyRef.current;
     const target = body?.querySelector<HTMLElement>(`#${id}`);
     if (!body || !target) return false;
     const bodyTop = body.getBoundingClientRect().top;
     const targetTop = target.getBoundingClientRect().top;
-    const reducedMotion = typeof window !== "undefined"
-      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    body.scrollTo({
-      top: Math.max(0, body.scrollTop + targetTop - bodyTop),
-      behavior: reducedMotion ? "auto" : behavior,
-    });
+    // This panel owns its own scroll port. `scrollTo({ behavior: "smooth" })`
+    // can update the selected anchor without moving that nested port in embedded
+    // webviews, which makes the navigation look inert. Assigning `scrollTop`
+    // moves the actual port synchronously and keeps the selected section and
+    // visible content in lockstep.
+    body.scrollTop = Math.max(0, body.scrollTop + targetTop - bodyTop);
     setActiveSectionId(id);
     return true;
   }, []);
@@ -919,7 +918,7 @@ export function AgentLaneDetailSheet({
       const id = currentLaneSheetHash();
       if (!id) return;
       window.requestAnimationFrame(() => {
-        scrollToSection(id, "auto");
+        scrollToSection(id);
       });
     };
     syncFromHash();

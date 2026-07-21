@@ -139,6 +139,7 @@ export function usePlatform() {
   return {
     apiBaseUrl: "",
     serviceApiUrl: "",
+    titleBarInset: 0,
     dragRegionProps: {},
     onInteractiveMouseDown,
   };

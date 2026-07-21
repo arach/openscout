@@ -155,6 +155,7 @@ struct TerminalSurface: View {
     /// A full-screen Settings cover should not tear down the session it is
     /// actively diagnosing.
     var isPresentingSettings = false
+    let isActive: Bool
 
     @State private var workspace: TerminiSSHWorkspace?
     @State private var phase: Phase = .preparing
@@ -176,8 +177,10 @@ struct TerminalSurface: View {
     /// app root). The terminal keyboard's mic toggles it; transcripts land at the
     /// prompt. Engine is Parakeet (Vox) when warm, Apple Speech otherwise.
     @Environment(HudDictation.self) private var voice
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Ticks once per delivered transcript so the keyboard flashes a success check.
     @State private var dictationSuccessPulse = 0
+    @StateObject private var entrance = CockpitEntrancePhase()
 
     /// Terminal presentation. Font size is the single knob here; it will move to
     /// a per-terminal setting (small/standard presets). 8pt ≈ 70 cols on this
@@ -233,13 +236,21 @@ struct TerminalSurface: View {
 
     var body: some View {
         content
+        .cockpitEntrance(index: 0, phase: entrance)
         .background(HudPalette.bg)
         // The hosted keyboard IS the keyboard now (no system QWERTY underneath);
         // it rides the bottom safe area and the terminal lays out above it.
         .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
         .overlay(alignment: .bottomTrailing) { keyboardLauncher }
-        .task(id: preparationToken) { await prepare() }
-        .task(id: workspace.map(ObjectIdentifier.init)) {
+        .task(id: isActive) {
+            await entrance.reveal(when: isActive, animated: !reduceMotion)
+        }
+        .task(id: "\(preparationToken)|\(isActive)") {
+            guard isActive else { return }
+            await prepare()
+        }
+        .task(id: "\(workspace.map { ObjectIdentifier($0).hashValue } ?? 0)|\(isActive)") {
+            guard isActive else { return }
             guard let observedWorkspace = workspace else { return }
             while !Task.isCancelled, workspace === observedWorkspace {
                 diagnostics.sample(observedWorkspace, keyboardHeight: presentedKeyboardHeight)
@@ -254,6 +265,18 @@ struct TerminalSurface: View {
             guard !text.isEmpty else { return }
             workspace?.controller.onTransportWrite?(Data(text.utf8))
             dictationSuccessPulse += 1
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                diagnostics.begin(targetID: terminalTargetID, routeHost: connectedHost)
+            } else {
+                // Stop surface-owned sampling/provision work, but deliberately
+                // retain the live PTY so returning never reconnects or reattaches.
+                preparationGeneration &+= 1
+                if voice.isListening { voice.cancel() }
+                if let workspace { diagnostics.sample(workspace, keyboardHeight: presentedKeyboardHeight) }
+                diagnostics.surfaceState = .hidden
+            }
         }
         .onDisappear {
             preparationGeneration &+= 1
@@ -515,6 +538,7 @@ struct TerminalSurface: View {
     // MARK: - Provision + connect
 
     private func prepare(force: Bool = false) async {
+        guard isActive else { return }
         diagnostics.begin(targetID: terminalTargetID, routeHost: connectedHost)
         let identityToken = terminalIdentityToken
         let phaseIsLive: Bool

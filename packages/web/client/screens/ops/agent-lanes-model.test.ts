@@ -91,6 +91,28 @@ describe("agent lane card model", () => {
     expect(model.tokens).toBe("249.2k");
     expect(model.tokenUsage?.total).toBe(14_744_037);
   });
+
+  test("labels a child lane with its observed Scout parent", () => {
+    const agent = stubAgent("claude subagent worker123");
+    agent.agentClass = "organic";
+    agent.role = "subagent";
+    agent.harness = "claude";
+    agent.harnessSessionId = "worker123";
+
+    const model = agentLaneToCardModel(lane({
+      source: "native",
+      agent,
+      facts: {
+        touchedFiles: [],
+        parentSessionId: "parent-session-123456",
+        parentAgentName: "fable",
+      },
+    }), { isLive: true, nowMs: NOW });
+
+    expect(model.name).toBe("claude subagent worker123");
+    expect(model.parentSessionId).toBe("parent-session-123456");
+    expect(model.parentSessionLabel).toBe("fable · parent-s");
+  });
 });
 
 describe("isAgentLaneWorking", () => {
@@ -400,6 +422,35 @@ describe("isAgentLaneWorking", () => {
     expect(lanes).toHaveLength(1);
     expect(lanes[0]?.source).toBe("native");
     expect(lanes[0]?.agent.harness).toBe("codex");
+  });
+
+  test("maps a recent Kimi transcript and tool activity into a native lane", () => {
+    const sessionId = "session_a8ddc351-12b4-42e4-bb3d-ea3d975fafa4";
+    const { lanes } = buildAgentLanes({
+      transcripts: [{
+        source: "kimi",
+        transcriptPath: `/Users/art/.kimi-code/sessions/wd_openscout/session/${sessionId}/agents/main/wire.jsonl`,
+        sessionId,
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 20_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent(sessionId, NOW - 10_000, "tool", {
+        source: "kimi",
+        summary: "Read packages/web/client/components/HarnessMark.tsx",
+      })],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.id).toBe(`native:kimi:${sessionId}`);
+    expect(lanes[0]?.source).toBe("native");
+    expect(lanes[0]?.agent.harness).toBe("kimi");
+    expect(lanes[0]?.agent.harnessSessionId).toBe(sessionId);
+    expect(lanes[0]?.observe?.events[0]?.kind).toBe("tool");
   });
 
   test("includes native codex lanes with recent task lifecycle activity", () => {
@@ -1265,6 +1316,30 @@ describe("sortLanesWithStableOrder", () => {
     const result = sortLanesWithStableOrder([alpha], order);
     expect(result.lanes.map((item) => item.id)).toEqual(["agent:alpha"]);
     expect(result.newLaneIds).toEqual(["agent:alpha"]);
+  });
+
+  test("keeps observed child lanes directly after their parent", () => {
+    const order = createStableLaneOrder();
+    const parentAgent = stubAgent("fable");
+    parentAgent.harnessSessionId = "parent-session";
+    const parent = lane({ agent: parentAgent });
+    const unrelated = lane({ agent: stubAgent("other") });
+    const childAgent = stubAgent("claude subagent worker");
+    childAgent.agentClass = "organic";
+    childAgent.role = "subagent";
+    childAgent.harnessSessionId = "worker";
+    const child = lane({
+      agent: childAgent,
+      source: "native",
+      facts: { touchedFiles: [], parentSessionId: "parent-session" },
+    });
+
+    const result = sortLanesWithStableOrder([parent, unrelated, child], order);
+    expect(result.lanes.map((item) => item.id)).toEqual([
+      "agent:fable",
+      "agent:claude subagent worker",
+      "agent:other",
+    ]);
   });
 });
 

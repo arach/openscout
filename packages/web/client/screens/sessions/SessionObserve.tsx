@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Plus, Wrench } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Plus, Tag, Wrench } from "lucide-react";
 
 import type {
   ObserveData,
@@ -53,6 +53,7 @@ import {
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
 import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
+import { actorColor } from "../../lib/colors.ts";
 import { api } from "../../lib/api.ts";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
 import { renderWithMentions } from "../../lib/mentions.tsx";
@@ -1006,12 +1007,56 @@ function ToolBlock({
   return block;
 }
 
-function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+function AskLine({
+  event,
+  laneMode = false,
+  operatorName = "you",
+  wallLabel,
+  wallTitle,
+}: {
+  event: SessionEvent;
+  laneMode?: boolean;
+  /** Lane mode: display name on the chat-style request head. */
+  operatorName?: string;
+  /** Lane mode: relative time for the request head (the row's clock). */
+  wallLabel?: string;
+  wallTitle?: string;
+}) {
   const ask = buildLaneAskDisplay(event);
   const previewText = ask.preview === ask.title ? "" : ask.preview;
+  const initial = (operatorName.trim()[0] ?? "y").toUpperCase();
   return (
     <div className={`s-observe-ask s-observe-block${laneMode ? " s-observe-ask--lane" : ""}`}>
-      <div className="s-observe-ask-label">{laneMode ? "you" : ask.label}</div>
+      {laneMode ? (
+        <div className="s-observe-ask-head">
+          <span
+            className="s-observe-ask-avatar"
+            style={{ background: actorColor(operatorName) }}
+            aria-hidden="true"
+          >
+            {initial}
+          </span>
+          <span className="s-observe-ask-author">{operatorName}</span>
+          {wallLabel ? (
+            <span className="s-observe-ask-time" title={wallTitle}>{wallLabel}</span>
+          ) : null}
+        </div>
+      ) : (
+        <div className="s-observe-ask-label">{ask.label}</div>
+      )}
+      {ask.contextTags.length > 0 && (
+        <div className="s-observe-ask-tags" aria-label="Attached context">
+          {ask.contextTags.map((tag) => (
+            <span key={tag.name} className="s-observe-ask-tag" title={tag.raw}>
+              <Tag size={10} strokeWidth={2} aria-hidden="true" />
+              <span className="s-observe-ask-tag-name">{tag.name}</span>
+              {tag.detail ? (
+                <span className="s-observe-ask-tag-detail">{tag.detail}</span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="s-observe-ask-title">{ask.title}</div>
       {previewText ? (
         <LaneExpandableText
@@ -1331,6 +1376,7 @@ function StreamRow({
   simpleTool = false,
   stackedTool = false,
   laneGutter = "time",
+  laneOperatorName,
   onLaneEventSelect,
   laneToolHover,
   hoverPreviewActive = false,
@@ -1352,6 +1398,7 @@ function StreamRow({
   simpleTool?: boolean;
   stackedTool?: boolean;
   laneGutter?: "time" | "label-time";
+  laneOperatorName?: string;
   onLaneEventSelect?: (event: SessionEvent) => void;
   laneToolHover?: (event: SessionEvent, meta: {
     wallLabel?: string;
@@ -1425,7 +1472,15 @@ function StreamRow({
               wallTitle={simpleTool ? rowTime.title : undefined}
             />
           )}
-          {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
+          {event.kind === "ask" && (
+            <AskLine
+              event={event}
+              laneMode={laneMode}
+              operatorName={laneOperatorName}
+              wallLabel={laneMode ? rowTime.label : undefined}
+              wallTitle={laneMode ? rowTime.title : undefined}
+            />
+          )}
           {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
           {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
           {(event.kind === "system" || event.kind === "boot") && (
@@ -1515,6 +1570,7 @@ function ReplayStream({
   laneGutter = "time",
   richSimpleTools = false,
   collapseTechnicalEvents = false,
+  laneOperatorName,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
@@ -1529,6 +1585,7 @@ function ReplayStream({
   laneGutter?: "time" | "label-time";
   richSimpleTools?: boolean;
   collapseTechnicalEvents?: boolean;
+  laneOperatorName?: string;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -1653,6 +1710,7 @@ function ReplayStream({
         preferWallAge={preferWallAge}
         highlighted={!laneMode && focusEventId === row.event.id}
         focusAnchor={isInlineFocus}
+        laneOperatorName={laneOperatorName}
         onLaneEventSelect={onLaneEventSelect}
         laneToolHover={laneMode ? laneToolHover.bind : undefined}
         hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
@@ -2775,6 +2833,7 @@ export function SessionObserve({
   richSimpleTools,
   laneCollapseTechnicalEvents,
   onLaneCollapseTechnicalEventsChange,
+  laneOperatorName,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -2792,6 +2851,8 @@ export function SessionObserve({
   laneCollapseTechnicalEvents?: boolean;
   /** Lane mode: update the per-lane trace density preference. */
   onLaneCollapseTechnicalEventsChange?: (enabled: boolean) => void;
+  /** Lane mode: operator display name on the chat-style user-request head. */
+  laneOperatorName?: string;
   /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
@@ -3034,6 +3095,7 @@ export function SessionObserve({
           laneGutter={effectiveLaneGutter}
           richSimpleTools={effectiveRichSimpleTools}
           collapseTechnicalEvents={laneMode && Boolean(laneCollapseTechnicalEvents)}
+          laneOperatorName={laneOperatorName}
         />
       </main>
 

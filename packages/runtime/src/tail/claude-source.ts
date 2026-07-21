@@ -33,6 +33,12 @@ type TranscriptMetadata = {
   lastEventAt: number | null;
 };
 
+type ClaudeTranscriptFile = TranscriptFileStat & {
+  parentSessionId?: string;
+  subagentId?: string;
+  cwd?: string | null;
+};
+
 const metadataCache = new Map<string, TranscriptFileStat & TranscriptMetadata>();
 
 function rememberMetadata(file: TranscriptFileStat, metadata: TranscriptMetadata): TranscriptMetadata {
@@ -65,6 +71,16 @@ function listJsonlFiles(dir: string): string[] {
     return [];
   }
   return entries.filter((entry) => entry.endsWith(".jsonl"));
+}
+
+function listClaudeSubagentFiles(dir: string): string[] {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries.filter((entry) => /^agent-[a-zA-Z0-9]+\.jsonl$/u.test(entry));
 }
 
 function pickMostRecentJsonl(dir: string): string | null {
@@ -223,13 +239,18 @@ function fallbackCwdForPath(filePath: string): string | null {
   return dirName ? decodeProjectDir(dirName) : null;
 }
 
-/** Session transcripts live directly under each encoded project dir — not nested paths. */
+/**
+ * Session transcripts live directly under each encoded project dir. Claude's
+ * child workers live under `<session>/subagents/agent-*.jsonl`; they are
+ * distinct active harness sessions and must be surfaced independently rather
+ * than being folded into their parent's lane.
+ */
 function listRecentClaudeProjectTranscripts(
   root: string,
   scope: TailDiscoveryScope,
-): TranscriptFileStat[] {
+): ClaudeTranscriptFile[] {
   const cutoff = Date.now() - discoveryWindowMs(scope);
-  const found: TranscriptFileStat[] = [];
+  const found: ClaudeTranscriptFile[] = [];
   let projectDirs: string[] = [];
   try {
     projectDirs = readdirSync(root);
@@ -248,8 +269,43 @@ function listRecentClaudeProjectTranscripts(
       const path = join(projectDir, file);
       try {
         const stats = statSync(path);
-        if (stats.mtimeMs < cutoff) continue;
-        found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
+        const subagentsDir = join(projectDir, basename(path, ".jsonl"), "subagents");
+        const activeSubagents: Array<{ path: string; mtimeMs: number; size: number; id: string }> = [];
+        for (const subagentFile of listClaudeSubagentFiles(subagentsDir)) {
+          const subagentPath = join(subagentsDir, subagentFile);
+          try {
+            const subagentStats = statSync(subagentPath);
+            if (subagentStats.mtimeMs < cutoff) continue;
+            activeSubagents.push({
+              path: subagentPath,
+              mtimeMs: subagentStats.mtimeMs,
+              size: subagentStats.size,
+              id: subagentFile.slice("agent-".length, -".jsonl".length),
+            });
+          } catch {
+            continue;
+          }
+        }
+        if (stats.mtimeMs < cutoff && activeSubagents.length === 0) continue;
+
+        // Reading a Claude transcript head is comparatively expensive. Do it
+        // only after the parent or a child has passed the activity window.
+        const parentMeta = readClaudeMetadata({ path, mtimeMs: stats.mtimeMs, size: stats.size });
+        const parentSessionId = parentMeta.sessionId ?? basename(path).replace(/\.jsonl$/u, "");
+        const cwd = parentMeta.cwd ?? fallbackCwdForPath(path);
+        if (stats.mtimeMs >= cutoff) {
+          found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size, cwd });
+        }
+        for (const subagent of activeSubagents) {
+          found.push({
+            path: subagent.path,
+            mtimeMs: subagent.mtimeMs,
+            size: subagent.size,
+            parentSessionId,
+            subagentId: subagent.id,
+            cwd,
+          });
+        }
       } catch {
         continue;
       }
@@ -407,7 +463,15 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
       ? obj.session_id
       : "";
 
-  const ts = pickTimestamp(obj);
+  // Claude's child-agent journals omit wall-clock timestamps entirely. Their
+  // file mtime is still a trustworthy observation time; give each record a
+  // stable, ordered instant near it so the lane can render the actual prompt,
+  // tool work, and reply instead of a blank mtime-only card.
+  const inferredSubagentTimestamp = ctx.transcript.subagentId
+    && Number.isFinite(ctx.transcript.mtimeMs)
+    ? ctx.transcript.mtimeMs + ctx.lineOffset
+    : null;
+  const ts = pickTimestamp(obj) ?? inferredSubagentTimestamp;
   if (ts === null) return null;
   const kind = classifyKind(rawType, blocks);
   const summary = summaryForType(rawType, obj, blocks)
@@ -446,12 +510,16 @@ export const ClaudeSource: TranscriptSource = {
     if (!existsSync(root)) return [];
     return listRecentClaudeProjectTranscripts(root, scope).map((file) => {
       const meta = readClaudeMetadata(file);
-      const cwd = meta.cwd ?? fallbackCwdForPath(file.path);
-      const sessionId = meta.sessionId ?? basename(file.path).replace(/\.jsonl$/, "");
+      const cwd = file.cwd ?? meta.cwd ?? fallbackCwdForPath(file.path);
+      const sessionId = file.subagentId
+        ?? meta.sessionId
+        ?? basename(file.path).replace(/\.jsonl$/, "");
       return {
         source: SOURCE_NAME,
         transcriptPath: file.path,
         sessionId,
+        parentSessionId: file.parentSessionId ?? null,
+        subagentId: file.subagentId ?? null,
         cwd,
         project: cwd ? basename(cwd) : projectDirNameForPath(file.path) ?? "(unknown)",
         harness: "unattributed",

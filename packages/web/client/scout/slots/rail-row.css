@@ -189,7 +189,8 @@
 .rr-row-sub {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  color: var(--dim);
+  /* SCO-085: secondary text ~55–60% */
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
   letter-spacing: var(--tracking-sm);
   white-space: nowrap;
   overflow: hidden;
@@ -275,7 +276,8 @@
   flex: 0 0 auto;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  color: var(--dim);
+  /* SCO-085: secondary meta ~55–60% opacity */
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
   letter-spacing: var(--tracking-sm);
 }
 

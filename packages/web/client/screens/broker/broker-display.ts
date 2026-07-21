@@ -252,7 +252,9 @@ export function brokerAttemptContextJson(attempt: BrokerRouteAttempt): Record<st
 export function brokerAttemptContextText(attempt: BrokerRouteAttempt): string {
   const context = brokerAttemptContextJson(attempt);
   const lines = [
-    "OpenScout dispatch failure context",
+    brokerAttemptIsFailure(attempt)
+      ? "OpenScout dispatch failure context"
+      : "OpenScout dispatch context",
     "",
     `id: ${attempt.id}`,
     `kind: ${attempt.kind}`,

@@ -28,7 +28,7 @@ export function sessionRefFromSyntheticAgent(
 
 /** Agents-directory routes cannot resolve synthetic ids — send them to session observe. */
 export function redirectSyntheticAgentRoute(route: Route): Route {
-  if ((route.view !== "agents" && route.view !== "agents-v2") || !route.agentId) return route;
+  if (route.view !== "agents-v2" || !route.agentId) return route;
   if (!isSyntheticAgentId(route.agentId)) return route;
   const sessionId = sessionRefFromSyntheticAgentId(route.agentId);
   if (!sessionId) return route;

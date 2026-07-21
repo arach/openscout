@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import type { Route } from "../../lib/types.ts";
 import {
-  clearNavReturn,
-  getNavReturn,
-  type NavReturnSlot,
-} from "../../lib/nav-return.ts";
+  readReturnToFromState,
+  shouldUseHistoryBack,
+  useBrowserLocation,
+} from "../../lib/router.ts";
+import type { NavReturnSlot } from "../../lib/nav-return.ts";
 import "./back-to-picker.css";
 
 type Props = {
@@ -24,8 +25,6 @@ function defaultLabel(route: Route): string {
       return "Back to mesh";
     case "ops":
       return "Back to ops";
-    case "agents":
-      return route.agentId ? "Back to agent" : "All agents";
     case "agents-v2":
       return route.agentId ? "Registry" : "All agents";
     case "messages":
@@ -40,8 +39,6 @@ function defaultLabel(route: Route): string {
       return "Terminal Control";
     case "channels":
       return "Back to conversations";
-    case "fleet":
-      return "Back to fleet";
     case "work":
       return "Back to work";
     case "broker":
@@ -53,16 +50,28 @@ function defaultLabel(route: Route): string {
   }
 }
 
-export function BackToPicker({ slot, fallback, navigate, className, label }: Props) {
-  const returnTo = useMemo(() => getNavReturn(slot), [slot]);
+export function BackToPicker({ slot: _slot, fallback, navigate, className, label }: Props) {
+  // Slot is retained for call-site compatibility; returnTo now lives on the
+  // history entry (SCO-082 Phase B) rather than a per-slot sessionStorage map.
+  void _slot;
+  const location = useBrowserLocation();
+  const returnTo = useMemo(
+    () => readReturnToFromState(location.state),
+    [location.state],
+  );
   const target: Route = returnTo ?? fallback;
   const resolvedLabel = label ?? defaultLabel(target);
+  const useHistory = shouldUseHistoryBack(location.state) && Boolean(returnTo);
+
   return (
     <button
       type="button"
       className={`s-back-pill${className ? ` ${className}` : ""}`}
       onClick={() => {
-        clearNavReturn(slot);
+        if (useHistory && typeof window !== "undefined" && window.history.length > 1) {
+          window.history.back();
+          return;
+        }
         navigate(target);
       }}
     >

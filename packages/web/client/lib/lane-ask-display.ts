@@ -5,6 +5,17 @@ export type LaneAskDisplayField = {
   value: string;
 };
 
+/** An injected-context wrapper (`<in-app-browser-context …>`, `<system-reminder …>`)
+ *  lifted out of the request prose so it can render as a chip instead of raw markup. */
+export type LaneAskContextTag = {
+  /** Element name, lower-cased (e.g. "in-app-browser-context"). */
+  name: string;
+  /** Most identifying attribute value (`source` preferred, else the first one). */
+  detail?: string;
+  /** Verbatim opening token, for tooltips. */
+  raw: string;
+};
+
 export type LaneAskDisplayModel = {
   label: string;
   title: string;
@@ -13,6 +24,7 @@ export type LaneAskDisplayModel = {
   fullText: string;
   copyText: string;
   fields: LaneAskDisplayField[];
+  contextTags: LaneAskContextTag[];
   answer?: {
     label: string;
     text: string;
@@ -152,6 +164,59 @@ function softClip(value: string, max: number): string {
   return `${soft.trimEnd()}...`;
 }
 
+/* Injected context wrappers (ambient UI state, reminders, environment blocks)
+   are custom-element-like: their names always carry a dash or underscore.
+   Requiring one keeps prose mentions like `<Task>` or `<b>` out of the chip row. */
+const CONTEXT_TAG_TOKEN = /<\/?([a-zA-Z][\w.-]*)(\s[^<>]*?)?\s*\/?>/g;
+const CONTEXT_TAG_NAME = /[-_]/;
+const TAG_ATTR = /([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+
+function extractContextTags(value: string): { tags: LaneAskContextTag[]; text: string } {
+  const tags: LaneAskContextTag[] = [];
+  const byName = new Map<string, LaneAskContextTag>();
+
+  const text = value.replace(CONTEXT_TAG_TOKEN, (raw, name: string, attrs?: string) => {
+    if (!CONTEXT_TAG_NAME.test(name)) return raw;
+
+    const key = name.toLowerCase();
+    let detail: string | undefined;
+    if (attrs && !raw.startsWith("</")) {
+      let firstValue: string | undefined;
+      for (const match of attrs.matchAll(TAG_ATTR)) {
+        const attrValue = match[2] ?? match[3] ?? match[4] ?? "";
+        if (firstValue === undefined) firstValue = attrValue;
+        if (match[1]?.toLowerCase() === "source") {
+          detail = attrValue;
+          break;
+        }
+      }
+      detail ??= firstValue;
+    }
+
+    const existing = byName.get(key);
+    if (existing) {
+      if (!existing.detail && detail) {
+        existing.detail = detail;
+        existing.raw = raw;
+      }
+    } else {
+      const tag: LaneAskContextTag = { name: key, raw };
+      if (detail) tag.detail = detail;
+      byName.set(key, tag);
+      tags.push(tag);
+    }
+    return "";
+  });
+
+  const tidied = text
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[ \t]+|[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { tags, text: tidied };
+}
+
 function compactParagraph(value: string): string {
   return value
     .split("\n")
@@ -183,10 +248,12 @@ export function buildLaneAskDisplay(event: Pick<ObserveEvent, "text" | "to" | "a
   const requestText = requestSection(strippedText)
     ?? requestSection(fullText)
     ?? strippedText;
-  const compactRequest = compactParagraph(requestText) || fullText || "Request";
-  const title = labeledRequest(requestText)
+  const { tags: contextTags, text: requestBody } = extractContextTags(requestText);
+  const displayText = requestBody || requestText;
+  const compactRequest = compactParagraph(displayText) || fullText || "Request";
+  const title = labeledRequest(displayText)
     ?? labeledRequest(fullText)
-    ?? firstMeaningfulLine(requestText)
+    ?? firstMeaningfulLine(displayText)
     ?? firstMeaningfulLine(fullText)
     ?? "Request";
   const label = targetLabel(event);
@@ -207,6 +274,7 @@ export function buildLaneAskDisplay(event: Pick<ObserveEvent, "text" | "to" | "a
     fullText,
     copyText,
     fields,
+    contextTags,
     answer: answer
       ? {
           label: delay ? `answered after ${delay}` : "answered",

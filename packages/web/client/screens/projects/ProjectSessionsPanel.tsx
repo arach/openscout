@@ -116,10 +116,8 @@ export function ProjectSessionsPanel({
     takeoverTerminal();
   };
   const selectSession = (sessionId: string) => {
+    // Routed sessionId is the selection source of truth (SCO-082 Phase B).
     focusSession(agent.id, sessionId);
-    if (route.agentId === agent.id) {
-      navigate({ ...route, sessionId });
-    }
   };
 
   return (

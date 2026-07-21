@@ -89,7 +89,7 @@ export function ChatLeft() {
     route.view === "conversation" ? route.conversationId :
     route.view === "channels" ? route.channelId :
     route.view === "agent-info" ? route.conversationId :
-    route.view === "agents" ? route.conversationId :
+    route.view === "agents-v2" ? route.conversationId :
     undefined;
 
   const load = useCallback(async () => {

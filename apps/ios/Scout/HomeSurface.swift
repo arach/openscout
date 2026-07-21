@@ -5,24 +5,24 @@ import ScoutCapabilities
 import ScoutIOSCore
 
 /// Home — the ambient fleet dashboard. A faithful native port of the
-/// `Scout Mobile.html` canvas: a rounded vitals card with a live sparkline, an
+/// `Scout Mobile.html` canvas: a compact vitals strip with a live sparkline, an
 /// attention band (Needs you), the Working strip, the broker Activity log, the
-/// Detected roster, and a docked "Ask the fleet" composer.
+/// recent terminal readout, and a docked "Ask the fleet" composer.
 ///
-/// Data provenance: Working / Detected / Activity / the vitals counts / the
-/// sparkline are all **real** broker reads. The **Needs you** band and the
-/// **Ask the fleet** dock are visual placeholders — the iOS bridge has no
-/// attention feed or fleet-broadcast primitive yet — and are marked as previews
-/// so they read as scaffolding, not shipped affordances.
+/// Data provenance: Needs you / Working / Activity / the sparkline are real
+/// broker reads. The dock opens the real New-session composer.
 struct HomeSurface: View {
     let model: AppModel
+    let motionEnabled: Bool
+    let identityEnabled: Bool
+    let isActive: Bool
     @Environment(\.scoutLayout) private var layout
-    var onSelectMachine: (AppModel.PairedMachine) -> Void = { _ in }
-    var onSelectAll: () -> Void = {}
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onConversationStatusContext: (String?) -> Void = { _ in }
     var onSeeAllAgents: () -> Void = {}
     var onSeeAllActivity: () -> Void = {}
     var onCompose: () -> Void = {}
+    var onConnect: () -> Void = {}
     var reloadToken: Int = 0
 
     @State private var agents: [HomeAgent] = []
@@ -32,6 +32,9 @@ struct HomeSurface: View {
     @State private var activity: [HomeActivity] = []
     @State private var agentsScopeKey: String?
     @State private var activityScopeKey: String?
+    @State private var lastActivityReadFailed = false
+    @StateObject private var entrance = CockpitEntrancePhase()
+    @AppStorage("scout.home.terminals.expanded") private var terminalsExpanded = false
 
     private enum HomeConversationRoute: Hashable, Identifiable {
         case session(id: String, title: String)
@@ -66,22 +69,31 @@ struct HomeSurface: View {
             HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: HudSpacing.xl) {
                 if isLoading {
-                    HudEmptyState(title: "Loading fleet", subtitle: "Reading agents from the broker.", icon: "antenna.radiowaves.left.and.right")
-                        .padding(.top, HudSpacing.huge)
+                    HomeLoadingSkeleton()
+                        .transition(.opacity)
+                } else if showsQuietFleetEmblem {
+                    quietFleetEmblem
+                        .cockpitEntrance(index: 1, phase: entrance, motionEnabled: motionEnabled)
                 } else {
                     FleetVitals(
                         live: liveAgents.count,
-                        agents: agents.count,
-                        online: onlineMachineCount,
-                        machines: totalMachineCount,
                         samples: activityPulseSamples,
-                        budgets: model.serviceBudgets
+                        budgets: model.serviceBudgets,
+                        motionEnabled: instrumentMotionIsActive
                     )
-                    if model.pairedMachines.count > 1 { machineRail }
+                    .cockpitEntrance(index: 0, phase: entrance, motionEnabled: motionEnabled)
                     needsYouSection
+                        .cockpitEntrance(index: 1, phase: entrance, motionEnabled: motionEnabled)
                     workingSection
-                    if !recentActivity.isEmpty { activitySection }
-                    if isFleetEmpty { notConnectedHint }
+                        .cockpitEntrance(index: 2, phase: entrance, motionEnabled: motionEnabled)
+                    if !recentActivity.isEmpty || lastActivityReadFailed {
+                        activitySection
+                            .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
+                    }
+                    if isNotConnected {
+                        notConnectedState
+                            .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
+                    }
                 }
             }
             .frame(width: laneWidth, alignment: .leading)
@@ -92,8 +104,10 @@ struct HomeSurface: View {
             .padding(.bottom, HudSpacing.md)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomDock }
-        .refreshable { await load() }
-        .task(id: reloadKey) {
+        .animation(.easeOut(duration: 0.22), value: isLoading)
+        .refreshable { if isActive { await load() } }
+        .task(id: "\(reloadKey)|\(isActive)") {
+            guard isActive else { return }
             await load()
             guard reloadToken != 0 else { return }
             while !Task.isCancelled {
@@ -124,7 +138,24 @@ struct HomeSurface: View {
         }
     }
 
-    private var isFleetEmpty: Bool { agents.isEmpty && activity.isEmpty }
+    private var isNotConnected: Bool {
+        agents.isEmpty && activity.isEmpty && !model.pairedMachines.contains(where: \.isOnline)
+    }
+
+    private var instrumentMotionIsActive: Bool { motionEnabled && !reduceMotion }
+    private var isFleetLive: Bool { model.activeAgentCount > 0 }
+
+    /// The emblem is intentionally stricter than a merely sparse snapshot: the
+    /// bridge must be online, every content lane empty, and Activity must have
+    /// completed successfully. A failed read never masquerades as "all clear."
+    private var showsQuietFleetEmblem: Bool {
+        identityEnabled
+            && model.pairedMachines.contains(where: \.isOnline)
+            && needsYouRows.isEmpty
+            && workingRows.isEmpty
+            && recentActivity.isEmpty
+            && !lastActivityReadFailed
+    }
 
     /// The definite width of a full-bleed lane inside the surface padding — the
     /// same width the content column is pinned to. Derived from the design frame's
@@ -133,18 +164,67 @@ struct HomeSurface: View {
     /// column past the screen edge.
     private var laneWidth: CGFloat { max(0, layout.designWidth - layout.surfacePadding * 2) }
 
-    private var notConnectedHint: some View {
-        Text("Not connected — connect a Mac from the status bar to fill the fleet. Needs-you and Ask-the-fleet above are previews.")
-            .font(HudFont.mono(HudTextSize.micro))
-            .foregroundStyle(ScoutInk.dim)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, HudSpacing.sm)
+    private var notConnectedState: some View {
+        VStack(spacing: HudSpacing.md) {
+            Image(systemName: "macbook.and.iphone")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(ScoutInk.muted)
+            Text("Connect a Mac to bring your fleet online.")
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(ScoutInk.muted)
+                .multilineTextAlignment(.center)
+            Button(action: onConnect) {
+                HStack(spacing: HudSpacing.xs) {
+                    Image(systemName: "link")
+                    Text("Connect")
+                }
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(HudPalette.bg)
+                .padding(.horizontal, HudSpacing.lg)
+                .padding(.vertical, HudSpacing.sm)
+                .background(Capsule().fill(ScoutVibe.accent))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Connect a Mac")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, HudSpacing.xxl)
+        .background(
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                .fill(ScoutVibe.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                .stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    private var quietFleetEmblem: some View {
+        VStack(spacing: HudSpacing.lg) {
+            Glyphic(kind: .home, size: 70)
+                .foregroundStyle(ScoutSignalSurface.neutralSignal)
+            HStack(spacing: HudSpacing.xs) {
+                Rectangle()
+                    .fill(ScoutVibe.accent)
+                    .frame(width: 46, height: HudStrokeWidth.standard)
+                Circle()
+                    .fill(ScoutVibe.accent)
+                    .frame(width: 3, height: 3)
+            }
+            Text("ALL CLEAR — THE FLEET IS QUIET.")
+                .font(HudFont.mono(10.5, weight: .medium))
+                .tracking(1.4)
+                .foregroundStyle(ScoutInk.dim)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 72)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("All clear. The fleet is quiet.")
     }
 
     // MARK: - Vitals
-
-    private var onlineMachineCount: Int { model.pairedMachines.filter(\.isOnline).count }
-    private var totalMachineCount: Int { model.pairedMachines.count }
 
     /// Real activity sparkline: bucket loaded broker events by recency. Empty
     /// (the card hides the spark) until there are a few events to plot.
@@ -187,36 +267,6 @@ struct HomeSurface: View {
                 }
                 .frame(width: laneWidth, alignment: .leading)
             }
-        }
-    }
-
-    // MARK: - Machine rail
-
-    private var machineRail: some View {
-        HStack(spacing: HudSpacing.md) {
-            Text("MACHINES")
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(ScoutInk.dim)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: HudSpacing.sm) {
-                    AllMachinesChip(isSelected: model.machineFilter == .all) { onSelectAll() }
-                    ForEach(model.pairedMachines) { machine in
-                        MachineChip(machine: machine, isSelected: isFilterSelected(machine)) {
-                            onSelectMachine(machine)
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func isFilterSelected(_ machine: AppModel.PairedMachine) -> Bool {
-        switch model.machineFilter {
-        case .all: return false
-        case .machine(let id): return id == machine.id
         }
     }
 
@@ -288,24 +338,39 @@ struct HomeSurface: View {
     private var terminalsStrip: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                HStack(spacing: HudSpacing.xs) {
-                    Text("TERMINALS")
-                        .font(HudFont.mono(9, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(ScoutInk.dim)
-                    Text("\(model.recentTerminals.count)")
-                        .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                        .foregroundStyle(ScoutInk.dim)
-                        .monospacedDigit()
-                    Spacer(minLength: 0)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: HudSpacing.sm) {
-                        ForEach(model.recentTerminals) { terminal in
-                            TerminalTile(terminal: terminal)
-                        }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        terminalsExpanded.toggle()
                     }
-                    .padding(.vertical, 1)
+                } label: {
+                    HStack(spacing: HudSpacing.xs) {
+                        Text("TERMINALS")
+                            .font(HudFont.mono(9, weight: .bold))
+                            .tracking(1.5)
+                        Text("\(model.recentTerminals.count)")
+                            .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                            .monospacedDigit()
+                        Spacer(minLength: 0)
+                        Image(systemName: terminalsExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .foregroundStyle(ScoutInk.dim)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Terminals, \(model.recentTerminals.count)")
+                .accessibilityValue(terminalsExpanded ? "Expanded" : "Collapsed")
+
+                if terminalsExpanded {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: HudSpacing.sm) {
+                            ForEach(model.recentTerminals) { terminal in
+                                TerminalTile(terminal: terminal)
+                            }
+                        }
+                        .padding(.vertical, 1)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             .frame(width: laneWidth, alignment: .leading)
@@ -323,8 +388,7 @@ struct HomeSurface: View {
                     Image(systemName: "mic")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(ScoutInk.dim)
-                        .frame(width: 26, height: 26)
-                        .overlay(Circle().stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
+                        .frame(width: 20, height: 26)
                     Text("Ask the fleet…")
                         .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(ScoutInk.dim)
@@ -340,8 +404,15 @@ struct HomeSurface: View {
                 .padding(.vertical, HudSpacing.xs)
                 .background(
                     Capsule().fill(ScoutVibe.card)
-                        .overlay(Capsule().stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
                 )
+                .overlay(
+                    Capsule().stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
+                )
+                .overlay {
+                    if identityEnabled {
+                        FleetLampEdge(isLive: isFleetLive)
+                    }
+                }
                 .frame(width: laneWidth)
                 .contentShape(Capsule())
             }
@@ -355,10 +426,8 @@ struct HomeSurface: View {
 
     // MARK: - Activity
 
-    private static let activityPreviewCap = 12
+    private static let activityPreviewCap = 5
     private static let activityRetainedCap = 24
-    private static let activityViewportRows = 8
-    private static let activityRowHeight: CGFloat = 38
 
     private var recentActivity: [HomeActivity] { Array(activity.prefix(Self.activityPreviewCap)) }
 
@@ -366,15 +435,25 @@ struct HomeSurface: View {
         // Activity reads as a bare timeline directly on the canvas — no card box —
         // so it feels like the surface's own log rather than another panel.
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            laneHeader("Activity", detail: activitySpanLabel, onAll: onSeeAllActivity)
-            ScrollView(.vertical, showsIndicators: recentActivity.count > Self.activityViewportRows) {
-                VStack(spacing: 0) {
-                    ForEach(recentActivity) { row in
-                        ActivityRow(event: row.event, onOpen: tapActivity(row))
-                    }
+            laneHeader("Activity", detail: activitySpanLabel, allLabel: "Comms", onAll: onSeeAllActivity)
+            if lastActivityReadFailed {
+                Text("Activity unavailable — retrying")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutInk.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, HudSpacing.xs)
+            }
+            VStack(spacing: 0) {
+                ForEach(recentActivity) { row in
+                    ActivityRow(event: row.event, onOpen: tapActivity(row))
+                        .transition(
+                            .asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .identity
+                            )
+                        )
                 }
             }
-            .frame(maxHeight: CGFloat(Self.activityViewportRows) * Self.activityRowHeight)
         }
     }
 
@@ -398,6 +477,7 @@ struct HomeSurface: View {
         signal: Color? = nil,
         attention: Bool = false,
         trailing: String? = nil,
+        allLabel: String = "All",
         onAll: (() -> Void)? = nil
     ) -> some View {
         let tint = attention ? ScoutVibe.amber : signal
@@ -434,14 +514,14 @@ struct HomeSurface: View {
             if let onAll {
                 Button(action: onAll) {
                     HStack(spacing: 1) {
-                        Text("All").font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                        Text(allLabel).font(HudFont.mono(HudTextSize.xs, weight: .medium))
                         Glyphic.chevron(.trailing, size: 10)
                     }
                     .foregroundStyle(ScoutVibe.accent)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("See all \(title.lowercased())")
+                .accessibilityLabel("See \(allLabel.lowercased()) — \(title.lowercased()) continues there")
             }
         }
     }
@@ -495,13 +575,16 @@ struct HomeSurface: View {
     }
 
     private func sortedActivity(_ incoming: [HomeActivity]) -> [HomeActivity] {
-        Array(incoming.sorted { $0.event.tsMs > $1.event.tsMs }.prefix(Self.activityRetainedCap))
+        var seenEventIDs = Set<String>()
+        let unique = incoming
+            .sorted { $0.event.tsMs > $1.event.tsMs }
+            .filter { seenEventIDs.insert($0.event.id).inserted }
+        return Array(unique.prefix(Self.activityRetainedCap))
     }
 
     // MARK: - Load
 
     private func load() async {
-        if agents.isEmpty && activity.isEmpty { isLoading = true }
         let loadKey = reloadKey
         let scopeKey = filterKey
         let machines = model.agentMachines()
@@ -537,14 +620,58 @@ struct HomeSurface: View {
             agentsScopeKey = scopeKey
         }
         if sawActivityRead {
-            activity = sortedActivity(freshActivity)
+            let updated = sortedActivity(freshActivity)
+            let oldIDs = Set(activity.map(\.id))
+            let previousNewest = activity.map(\.event.tsMs).max() ?? .min
+            let addedNewerRow = !isLoading
+                && activityScopeKey == scopeKey
+                && updated.contains { !oldIDs.contains($0.id) && $0.event.tsMs > previousNewest }
+            if instrumentMotionIsActive && addedNewerRow {
+                withAnimation(.easeOut(duration: 0.3)) { activity = updated }
+            } else {
+                activity = updated
+            }
             activityScopeKey = scopeKey
+            lastActivityReadFailed = false
         } else if noReadableMachines || activityScopeKey != scopeKey {
             activity = []
             activityScopeKey = scopeKey
+            lastActivityReadFailed = !noReadableMachines
+        } else {
+            // Keep a same-scope successful snapshot on screen, but make the failed
+            // leg explicit. The next 30-second cycle independently retries it.
+            lastActivityReadFailed = true
         }
         await model.refreshFleetStats()
         isLoading = false
+        await entrance.reveal(when: isActive, animated: instrumentMotionIsActive)
+    }
+}
+
+/// A low-amplitude fleet lamp around the Ask dock. The phase is derived from
+/// wall-clock time rather than a repeating state mutation, so live/idle remains
+/// a direct function of fleet state and Reduce Motion can pause it statically.
+private struct FleetLampEdge: View {
+    let isLive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(
+            .animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !isLive)
+        ) { context in
+            let phase = reduceMotion
+                ? 0.35
+                : (sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 2.8) + 1) / 2
+            let alpha = isLive ? 0.18 + phase * 0.22 : 0
+            Capsule()
+                .stroke(ScoutVibe.accent.opacity(alpha), lineWidth: HudStrokeWidth.standard)
+                .shadow(
+                    color: ScoutVibe.accent.opacity(isLive ? 0.08 + phase * 0.12 : 0),
+                    radius: 2 + phase * 3
+                )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -590,63 +717,120 @@ private func needKindTint(_ kind: PendingAsk.Kind) -> Color {
     }
 }
 
+// MARK: - First-load skeleton
+
+/// A quiet first-read placeholder shaped like Home itself. Solid Scout surfaces
+/// keep it in the cockpit palette; redaction avoids presenting invented data.
+private struct HomeLoadingSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xl) {
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                .fill(ScoutVibe.card)
+                .frame(height: 58)
+
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                skeletonHeader("Working")
+                HStack(spacing: HudSpacing.sm) {
+                    skeletonCard
+                    skeletonCard
+                }
+            }
+
+            VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                skeletonHeader("Activity")
+                ForEach(0..<3, id: \.self) { index in
+                    HStack(spacing: HudSpacing.md) {
+                        Circle().fill(ScoutInk.dim).frame(width: 6, height: 6)
+                        Text(index == 0 ? "Agent activity" : "Broker event")
+                            .font(HudFont.mono(HudTextSize.xs))
+                        Spacer(minLength: 0)
+                        Text("now").font(HudFont.mono(HudTextSize.micro))
+                    }
+                    .frame(height: 28)
+                }
+            }
+        }
+        .foregroundStyle(ScoutInk.dim)
+        .redacted(reason: .placeholder)
+        .opacity(0.46)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading fleet")
+    }
+
+    private func skeletonHeader(_ title: String) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text(title.uppercased())
+                .font(HudFont.mono(10.5, weight: .medium))
+                .tracking(2)
+            Rectangle().fill(ScoutVibe.hairline).frame(height: HudStrokeWidth.standard)
+        }
+    }
+
+    private var skeletonCard: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            Text("Agent name").font(HudFont.ui(HudTextSize.sm, weight: .medium))
+            Text("Current goal across the fleet").font(HudFont.ui(HudTextSize.xs))
+            Text("project/branch").font(HudFont.mono(10.5))
+        }
+        .padding(HudSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                .fill(ScoutVibe.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                .stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+}
+
 // MARK: - FleetVitals
 
 /// The top strip: a compact activity mini-chart + each subscription's spent quota
-/// windows (Claude · Codex) — the two glance-values that actually help. Falls back
-/// to agent/machine counts until the quota gauges arrive. Inspired by the studio
-/// `FleetLogSurface` strip.
+/// windows (Claude · Codex) — the two glance-values that actually help. If neither
+/// is available, the strip disappears rather than repeating the status bar.
 private struct FleetVitals: View {
     let live: Int
-    let agents: Int
-    let online: Int
-    let machines: Int
     let samples: [Double]
     let budgets: [ServiceBudget]
+    let motionEnabled: Bool
 
     /// Claude + Codex lead the strip; GitHub's hourly cap isn't a glance-value here.
     private var quotaSegments: [ServiceBudget] {
         budgets.filter { $0.provider == "claude" || $0.provider == "codex" }
     }
 
+    private var hasPulse: Bool { samples.count >= 3 }
+
+    @ViewBuilder
     var body: some View {
-        HStack(alignment: .top, spacing: HudSpacing.md) {
-            chartSegment
-            if quotaSegments.isEmpty {
-                divider
-                statSegment(value: "\(agents)", label: "Agents")
-                divider
-                statSegment(value: machines > 0 ? "\(online)/\(machines)" : "—", label: "Machines")
-            } else {
-                ForEach(quotaSegments) { budget in
-                    divider
+        if hasPulse || !quotaSegments.isEmpty {
+            HStack(alignment: .top, spacing: HudSpacing.md) {
+                if hasPulse { chartSegment }
+                ForEach(Array(quotaSegments.enumerated()), id: \.offset) { index, budget in
+                    if hasPulse || index > 0 { divider }
                     quotaSegment(budget)
                 }
             }
-        }
-        .padding(.horizontal, 2)
-        .padding(.top, HudSpacing.xs)
-        .padding(.bottom, HudSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // A flat strip, the studio way — no card outline; a single hairline
-        // rules it off from the log beneath.
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(ScoutVibe.hairline).frame(height: HudStrokeWidth.thin)
+            .padding(.horizontal, 2)
+            .padding(.top, HudSpacing.xs)
+            .padding(.bottom, HudSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // A flat strip, the studio way — no card outline; a single hairline
+            // rules it off from the log beneath.
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(ScoutVibe.hairline).frame(height: HudStrokeWidth.thin)
+            }
         }
     }
 
     private var chartSegment: some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
             segHead(live > 0 ? "Live" : "Activity", detail: live > 0 ? "\(live) now" : "1d", accent: live > 0)
-            if samples.count >= 3 {
-                FleetSparkline(samples: samples)
-                    .frame(height: 30)
-                    .accessibilityHidden(true)
-            } else {
-                Rectangle().fill(ScoutVibe.hairline)
-                    .frame(height: HudStrokeWidth.standard)
-                    .frame(maxHeight: 30, alignment: .center)
-            }
+            FleetSparkline(samples: samples, motionEnabled: motionEnabled)
+                .frame(height: 30)
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -656,49 +840,13 @@ private struct FleetVitals: View {
             segHead(b.label, detail: b.plan)
             VStack(alignment: .leading, spacing: HudSpacing.xs) {
                 ForEach(Array(b.windows.prefix(2).enumerated()), id: \.offset) { _, window in
-                    windowMeter(window)
+                    QuotaWindowMeter(window: window, motionEnabled: motionEnabled)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(quotaAccessibilityLabel(b))
-    }
-
-    private func windowMeter(_ w: ServiceBudget.Window) -> some View {
-        // Calm by default: a neutral fill/percent, reserving colour for the one
-        // state that wants the eye — amber once a window is nearly spent (≥80%).
-        let hot = w.usedPercent >= 80
-        let tint = hot ? ScoutVibe.amber : ScoutInk.muted
-        return HStack(spacing: HudSpacing.xs) {
-            Text(w.label)
-                .font(HudFont.mono(8.5, weight: .semibold))
-                .foregroundStyle(ScoutInk.dim)
-                .frame(width: 15, alignment: .leading)
-            GeometryReader { g in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(ScoutVibe.hairline)
-                    Capsule().fill(tint).frame(width: max(0, g.size.width * min(1, w.usedPercent / 100)))
-                }
-            }
-            .frame(height: 3)
-            Text("\(Int(w.usedPercent.rounded()))%")
-                .font(HudFont.mono(9, weight: .semibold))
-                .foregroundStyle(tint)
-                .monospacedDigit()
-                .frame(minWidth: 22, alignment: .trailing)
-        }
-    }
-
-    private func statSegment(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(HudFont.ui(19, weight: .semibold))
-                .foregroundStyle(ScoutVibe.ink)
-                .monospacedDigit()
-            caption(label)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func segHead(_ label: String, detail: String, accent: Bool = false) -> some View {
@@ -718,14 +866,6 @@ private struct FleetVitals: View {
         }
     }
 
-    private func caption(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(HudFont.mono(9.5, weight: .medium))
-            .tracking(1.3)
-            .foregroundStyle(ScoutInk.dim)
-            .fixedSize()
-    }
-
     private func quotaAccessibilityLabel(_ b: ServiceBudget) -> String {
         let windows = b.windows.prefix(2).map { "\($0.label) \(Int($0.usedPercent.rounded())) percent used" }
         return "\(b.label) quota: " + windows.joined(separator: ", ")
@@ -736,22 +876,124 @@ private struct FleetVitals: View {
     }
 }
 
+/// One quota window with a shared animatable scalar driving both the fill and
+/// the monospaced percentage. That keeps the readout and instrument physically
+/// in sync instead of snapping the text to its destination.
+private struct QuotaWindowMeter: View {
+    let window: ServiceBudget.Window
+    let motionEnabled: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayedPercent = 0.0
+
+    private var targetPercent: Double { min(100, max(0, window.usedPercent)) }
+    private var tint: Color { window.usedPercent >= 80 ? ScoutVibe.amber : ScoutInk.muted }
+    private var shouldAnimate: Bool { motionEnabled && !reduceMotion }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xs) {
+            Text(window.label)
+                .font(HudFont.mono(8.5, weight: .semibold))
+                .foregroundStyle(ScoutInk.dim)
+                .frame(width: 15, alignment: .leading)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(ScoutVibe.hairline)
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: max(0, geometry.size.width * displayedPercent / 100))
+                }
+            }
+            .frame(height: 3)
+            AnimatedPercentText(value: displayedPercent, tint: tint)
+                .frame(minWidth: 22, alignment: .trailing)
+        }
+        .onAppear { setInitialPercent() }
+        .onChange(of: window.usedPercent) { _, _ in setUpdatedPercent() }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { withAnimation(nil) { displayedPercent = targetPercent } }
+        }
+    }
+
+    private func setInitialPercent() {
+        guard shouldAnimate else {
+            displayedPercent = targetPercent
+            return
+        }
+        displayedPercent = 0
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                displayedPercent = targetPercent
+            }
+        }
+    }
+
+    private func setUpdatedPercent() {
+        guard shouldAnimate else {
+            withAnimation(nil) { displayedPercent = targetPercent }
+            return
+        }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            displayedPercent = targetPercent
+        }
+    }
+}
+
+private struct AnimatedPercentText: View, @MainActor Animatable {
+    var value: Double
+    let tint: Color
+
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View {
+        Text("\(Int(min(100, max(0, value)).rounded()))%")
+            .font(HudFont.mono(9, weight: .semibold))
+            .foregroundStyle(tint)
+            .monospacedDigit()
+    }
+}
+
 /// Real activity pulse — thin accent stroke over a soft vertical fade + end mark.
 private struct FleetSparkline: View {
     let samples: [Double]
+    let motionEnabled: Bool
+    @State private var reveal = 0.0
 
     var body: some View {
         GeometryReader { geo in
             let points = points(in: geo.size)
             ZStack {
-                area(points, height: geo.size.height)
+                SparklineShape(samples: samples, closesArea: true)
                     .fill(LinearGradient(colors: [ScoutVibe.accent.opacity(0.24), ScoutVibe.accent.opacity(0)], startPoint: .top, endPoint: .bottom))
-                line(points)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: geo.size.width * reveal)
+                    }
+                SparklineShape(samples: samples, closesArea: false)
+                    .trim(from: 0, to: reveal)
                     .stroke(ScoutVibe.accent, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
                 if let end = points.last {
-                    Circle().fill(ScoutVibe.accent).frame(width: 4, height: 4).position(end)
+                    Circle()
+                        .fill(ScoutVibe.accent)
+                        .frame(width: 4, height: 4)
+                        .position(end)
+                        .opacity(reveal > 0.96 ? (reveal - 0.96) / 0.04 : 0)
                 }
             }
+            .animation(motionEnabled ? .easeOut(duration: 0.45) : nil, value: samples)
+        }
+        .task {
+            guard motionEnabled else {
+                reveal = 1
+                return
+            }
+            reveal = 0
+            await Task.yield()
+            withAnimation(.easeOut(duration: 0.9)) { reveal = 1 }
+        }
+        .onChange(of: motionEnabled) { _, enabled in
+            if !enabled { withAnimation(nil) { reveal = 1 } }
         }
     }
 
@@ -765,22 +1007,86 @@ private struct FleetSparkline: View {
         }
     }
 
-    private func line(_ points: [CGPoint]) -> Path {
-        Path { path in
+}
+
+/// Array-backed VectorArithmetic lets SwiftUI interpolate the broker's 16 pulse
+/// buckets when a poll changes their shape. It also tolerates a future bucket
+/// count change by padding the shorter side with zero during the transition.
+private struct SparklineVector: VectorArithmetic {
+    var values: [Double]
+
+    static var zero: SparklineVector { SparklineVector(values: []) }
+
+    static func + (lhs: SparklineVector, rhs: SparklineVector) -> SparklineVector {
+        combine(lhs, rhs, +)
+    }
+
+    static func - (lhs: SparklineVector, rhs: SparklineVector) -> SparklineVector {
+        combine(lhs, rhs, -)
+    }
+
+    mutating func scale(by rhs: Double) {
+        for index in values.indices { values[index] *= rhs }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { $0 + $1 * $1 }
+    }
+
+    private static func combine(
+        _ lhs: SparklineVector,
+        _ rhs: SparklineVector,
+        _ operation: (Double, Double) -> Double
+    ) -> SparklineVector {
+        let count = max(lhs.values.count, rhs.values.count)
+        return SparklineVector(values: (0..<count).map { index in
+            operation(
+                index < lhs.values.count ? lhs.values[index] : 0,
+                index < rhs.values.count ? rhs.values[index] : 0
+            )
+        })
+    }
+}
+
+private struct SparklineShape: Shape {
+    var samples: [Double]
+    let closesArea: Bool
+
+    var animatableData: SparklineVector {
+        get { SparklineVector(values: samples) }
+        set { samples = newValue.values }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let points = normalizedPoints(in: rect.size)
+        return Path { path in
             guard let first = points.first else { return }
-            path.move(to: first)
+            if closesArea {
+                path.move(to: CGPoint(x: first.x, y: rect.maxY))
+                path.addLine(to: first)
+            } else {
+                path.move(to: first)
+            }
             for point in points.dropFirst() { path.addLine(to: point) }
+            if closesArea, let last = points.last {
+                path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+                path.closeSubpath()
+            }
         }
     }
 
-    private func area(_ points: [CGPoint], height: CGFloat) -> Path {
-        Path { path in
-            guard let first = points.first, let last = points.last else { return }
-            path.move(to: CGPoint(x: first.x, y: height))
-            path.addLine(to: first)
-            for point in points.dropFirst() { path.addLine(to: point) }
-            path.addLine(to: CGPoint(x: last.x, y: height))
-            path.closeSubpath()
+    private func normalizedPoints(in size: CGSize) -> [CGPoint] {
+        guard !samples.isEmpty else { return [] }
+        let maxValue = max(samples.max() ?? 1, 1)
+        let usableHeight = max(size.height - 4, 1)
+        return samples.enumerated().map { index, value in
+            let x = samples.count > 1
+                ? CGFloat(index) / CGFloat(samples.count - 1) * size.width
+                : size.width / 2
+            return CGPoint(
+                x: x,
+                y: size.height - 2 - CGFloat(value / maxValue) * usableHeight
+            )
         }
     }
 }
@@ -837,9 +1143,9 @@ private struct NeedCard: View {
             .frame(width: 212, alignment: .leading)
             // A small refined chip (studio `.iNotif`): rounded well, hairline, the
             // tinted kind tag carries the signal — no left bar on a rounded box.
-            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ScoutSurface.raised))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
-            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(ScoutSurface.raised))
+            .overlay(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
+            .contentShape(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -857,7 +1163,6 @@ private struct WorkingCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: HudSpacing.sm) {
                 HStack(spacing: HudSpacing.sm) {
-                    AgentAvatar(title: agent.title, harness: agent.harness, state: agent.state, size: 24, cornerRadius: 5)
                     Text(agent.title)
                         .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                         .foregroundStyle(ScoutVibe.ink)
@@ -894,9 +1199,9 @@ private struct WorkingCard: View {
             }
             .padding(HudSpacing.md)
             .frame(width: 172, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(ScoutVibe.card))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
-            .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(ScoutVibe.card))
+            .overlay(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
+            .contentShape(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -987,9 +1292,9 @@ private struct TerminalTile: View {
         .padding(.vertical, HudSpacing.sm)
         .frame(width: 190, alignment: .leading)
         // A dark, recessed terminal well — no accent; the shell reads on its own.
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.black.opacity(0.40)))
+        .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(Color.black.opacity(0.40)))
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
                 .stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
         )
         .accessibilityElement(children: .combine)
@@ -1006,11 +1311,6 @@ private struct ActivityRow: View {
     var body: some View {
         Button(action: { onOpen?() }) {
             HStack(alignment: .center, spacing: HudSpacing.md) {
-                Text(clockLabel)
-                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                    .foregroundStyle(ScoutInk.dim)
-                    .monospacedDigit()
-                    .frame(width: 34, alignment: .trailing)
                 Circle().fill(kindColor).frame(width: 6, height: 6)
                 Text(event.source)
                     .font(HudFont.mono(HudTextSize.xs, weight: .medium))
@@ -1023,6 +1323,13 @@ private struct ActivityRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
+                if let ageLabel {
+                    Text(ageLabel)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                        .foregroundStyle(ScoutInk.dim)
+                        .monospacedDigit()
+                        .fixedSize()
+                }
             }
             .padding(.vertical, HudSpacing.xs + 1)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1034,136 +1341,15 @@ private struct ActivityRow: View {
         .accessibilityLabel("\(event.source) \(event.summary)")
     }
 
-    private var clockLabel: String {
-        guard let date = ScoutTimestamp.date(fromEpoch: TimeInterval(event.tsMs)) else { return "" }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "H:mm"
-        return formatter.string(from: date)
+    private var ageLabel: String? {
+        guard let date = ScoutTimestamp.date(fromEpoch: TimeInterval(event.tsMs)) else { return nil }
+        return ScoutTimestamp.relativeAge(since: date)
     }
 
     private var kindColor: Color { homeActivitySignalColor(event.kind) }
 }
 
-// MARK: - AgentAvatar
-
-/// A compact identity tile: mono initials on a neutral lifted square, with an
-/// optional state dot. Deliberately NOT colored by harness — Scout rations color
-/// to one accent and signals through contrast, so identity is carried by the
-/// initials and only *state* (live) earns the accent. `harness` is retained on
-/// the API for callers/accessibility, not for tint.
-private struct AgentAvatar: View {
-    let title: String
-    let harness: String?
-    var state: AgentSummary.State? = nil
-    var size: CGFloat = 34
-    var cornerRadius: CGFloat = 8
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(ScoutVibe.card)
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
-            .frame(width: size, height: size)
-            .overlay(
-                Text(agentInitials(title))
-                    .font(HudFont.mono(size * 0.34, weight: .medium))
-                    .foregroundStyle(state == .live ? ScoutVibe.ink : ScoutInk.muted)
-            )
-            .overlay(alignment: .bottomTrailing) {
-                if let state, let dot = stateColor(state) {
-                    Circle()
-                        .fill(dot)
-                        .frame(width: size * 0.32, height: size * 0.32)
-                        .overlay(Circle().stroke(HudPalette.bg, lineWidth: 2))
-                        .offset(x: size * 0.08, y: size * 0.08)
-                }
-            }
-    }
-
-    private func stateColor(_ state: AgentSummary.State) -> Color? {
-        switch state {
-        case .live: return ScoutVibe.accent
-        case .unknown: return ScoutVibe.amber
-        case .idle, .offline: return nil
-        }
-    }
-}
-
-// MARK: - MachineChip
-
-private struct MachineChip: View {
-    let machine: AppModel.PairedMachine
-    let isSelected: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: HudSpacing.xs) {
-                HudStatusDot(color: statusColor, size: 6, pulses: false)
-                Text(machine.name)
-                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                    .tracking(0.3)
-                    .foregroundStyle(isSelected ? ScoutVibe.ink : (machine.isOnline ? ScoutVibe.ink.opacity(0.82) : ScoutInk.dim))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, HudSpacing.sm)
-            .padding(.vertical, HudSpacing.xs)
-            .background(Capsule().fill(ScoutSurface.inset))
-            .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(ScoutVibe.accent) : ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
-            .opacity(machine.isOnline || isSelected ? 1 : 0.58)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(machine.name), \(accessibilityState)")
-    }
-
-    private var statusColor: Color {
-        switch machine.connectionState {
-        case .connected:  return ScoutVibe.accent
-        case .connecting: return ScoutVibe.amber
-        case .failed, .idle: return ScoutInk.dim
-        }
-    }
-
-    private var accessibilityState: String {
-        var parts: [String] = []
-        if machine.isOnline { parts.append("online") }
-        if isSelected { parts.append("selected") }
-        if parts.isEmpty { parts.append("paired") }
-        return parts.joined(separator: ", ")
-    }
-}
-
-private struct AllMachinesChip: View {
-    let isSelected: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            Text("All")
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .tracking(0.4)
-                .foregroundStyle(isSelected ? ScoutVibe.ink : ScoutVibe.ink.opacity(0.82))
-                .padding(.horizontal, HudSpacing.sm)
-                .padding(.vertical, HudSpacing.xs)
-                .background(Capsule().fill(ScoutSurface.inset))
-                .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(ScoutVibe.accent) : ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("All machines\(isSelected ? ", selected" : "")")
-    }
-}
-
 // MARK: - Shared helpers
-
-private func agentInitials(_ name: String) -> String {
-    let parts = name.lowercased().split { !($0.isLetter || $0.isNumber) }.map(String.init).filter { !$0.isEmpty }
-    let first = parts.first?.first
-    let second = parts.count > 1 ? parts[1].first : parts.first.flatMap { $0.dropFirst().first }
-    let letters = [first, second].compactMap { $0 }
-    return letters.isEmpty ? "·" : String(letters)
-}
 
 private func homeActivitySignalColor(_ kind: TailEvent.Kind) -> Color {
     switch kind {

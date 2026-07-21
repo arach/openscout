@@ -16,6 +16,7 @@ import {
   topNavItems,
   topNavKeyForRoute,
 } from "./topNavConfig.ts";
+import { paletteNavCommandOptions } from "./nav-destinations.ts";
 import { renderNavCenter } from "./nav-center.tsx";
 import { SystemMenu } from "./nav-system-menu.tsx";
 
@@ -60,100 +61,16 @@ export function useScoutCommands(): CommandOption[] {
         },
         shortcut: NEW_CHAT_SHORTCUT_LABEL,
       },
-      {
-        id: "nav:home",
-        label: "Go to Home",
-        action: () => navigate({ view: "inbox" }),
-        shortcut: "Cmd+1",
-      },
-      {
-        id: "nav:agents",
-        label: "Go to Projects",
-        action: () => navigate({ view: "agents-v2" }),
-        shortcut: "Cmd+2",
-      },
-      {
-        id: "nav:messages",
-        label: "Go to Chat",
-        action: () => navigate({ view: "messages" }),
-        shortcut: "Cmd+3",
-      },
-      {
-        id: "nav:messages-dms",
-        label: "Go to Chat — Private",
-        action: () => navigate({ view: "messages", filter: "dm" }),
-      },
-      {
-        id: "nav:messages-channels",
-        label: "Go to Chat — Shared",
-        action: () => navigate({ view: "messages", filter: "channel" }),
-      },
-      {
-        id: "nav:sessions",
-        label: "Open Sessions",
-        action: () => navigate({ view: "sessions" }),
-      },
-      {
-        id: "nav:terminals",
-        label: "Open Terminals",
-        action: () => navigate({ view: "terminal" }),
-      },
-      {
-        id: "nav:search",
-        label: "Go to Search",
-        action: () => navigate({ view: "search" }),
-        shortcut: "Cmd+4",
-      },
-      {
-        id: "nav:activity",
-        label: "Open Activity",
-        action: () => navigate({ view: "activity" }),
-      },
-      {
-        id: "nav:mesh",
-        label: "Open Mesh",
-        action: () => navigate({ view: "mesh" }),
-      },
-      {
-        id: "nav:dispatch",
-        label: "Open Dispatch",
-        action: () => navigate({ view: "broker" }),
-      },
-      {
-        id: "nav:repos",
-        label: "Open Repos",
-        action: () => navigate({ view: "repos" }),
-      },
-      {
-        id: "nav:harnesses",
-        label: "Open Providers",
-        action: () => navigate({ view: "harnesses" }),
-      },
-      {
-        id: "nav:ops-lanes",
-        label: "Open Agent Lanes",
-        action: () => navigate({ view: "ops", mode: "lanes" }),
-      },
-      ...(opsEnabled ? [{
-        id: "nav:ops",
-        label: "Go to Ops",
-        action: () => navigate({ view: "ops" }),
-        shortcut: "Cmd+5",
-      }, {
-        id: "nav:ops-atop",
-        label: "Open Runtime",
-        action: () => navigate({ view: "ops", mode: "atop" }),
-      }] : []),
+      // Static nav destinations projected from the catalog.
+      ...paletteNavCommandOptions(navigate, { opsEnabled }),
       {
         id: "nav:settings",
         label: "Open Settings",
-        action: () => openSettings(),
+        action: () => navigate(
+          { view: "settings", section: "operator" },
+          { state: { settingsEntry: true } },
+        ),
         shortcut: "Cmd+,",
-      },
-      {
-        id: "nav:agent-config",
-        label: "Open Agent Configuration",
-        action: () => navigate({ view: "settings", section: "agents" }),
       },
       ...(scoutbotEnabled ? [{
         id: "scoutbot:open",
@@ -300,9 +217,18 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
   return useScoutStatusBarState().status;
 }
 
-/* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
+/* ── useNavCenter — tab bar + breadcrumb (legacy top bar only) ─────────── */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+
+  // SCO-085: ScoutNavigationBar is unmounted in sidebar mode. Breadcrumb lives
+  // in the shared center-pane header seam (CenterPaneHeader), not a hidden bar.
+  // Generic app.hooks.useSearch is intentionally unsupported in sidebar mode
+  // (createScoutApp never wires one).
+  if (sidebarChrome) {
+    return null;
+  }
 
   return renderNavCenter({
     items: topNavItems(),
@@ -315,6 +241,14 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+
+  // SCO-085: MachineScopeControl + Settings live in the sidebar footer / areas
+  // when sidebar chrome is on. Never render-and-hide both (duplicate ids).
+  if (sidebarChrome) {
+    return null;
+  }
+
   return createElement("div", { className: "scout-nav-actions" },
     createElement(SystemMenu),
     createElement(MachineScopeControl, { variant: "nav" }),

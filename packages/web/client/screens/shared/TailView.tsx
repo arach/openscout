@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
+import { HarnessMark, harnessLabel } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
 import {
   formatClockTimestamp,
@@ -277,7 +278,7 @@ function tailMetadataText(event: TailEvent): string {
     ["project", event.project],
     ["cwd", event.cwd || "—"],
     ["session", event.sessionId || "—"],
-    ["source", displayHarness(event.source)],
+    ["source", harnessLabel(event.source)],
     ["origin", ATTRIBUTION_LABEL[event.harness]],
     ["pid", event.parentPid != null ? `${event.pid} <- ${event.parentPid}` : String(event.pid)],
   ];
@@ -285,7 +286,7 @@ function tailMetadataText(event: TailEvent): string {
 }
 
 function tailDetailSnapshot(event: TailEvent) {
-  const harnessLabel = displayHarness(event.source);
+  const sourceLabel = harnessLabel(event.source);
   const originLabel = ATTRIBUTION_LABEL[event.harness];
   const raw = safeJson(event.raw ?? event);
   const metadata = [
@@ -294,7 +295,7 @@ function tailDetailSnapshot(event: TailEvent) {
     { label: "Project", value: event.project },
     { label: "Cwd", value: event.cwd || "—" },
     { label: "Session", value: event.sessionId || "—" },
-    { label: "Source", value: harnessLabel },
+    { label: "Source", value: sourceLabel },
     { label: "Origin", value: originLabel },
     {
       label: "Pid",
@@ -304,7 +305,7 @@ function tailDetailSnapshot(event: TailEvent) {
   return {
     source: "tail",
     focus: "item",
-    title: `${event.kind} · ${harnessLabel}`,
+    title: `${event.kind} · ${sourceLabel}`,
     meta: `${formatFullTime(event.ts)} · ${event.project} · ${shortSession(event.sessionId)}`,
     body: event.summary,
     metadata,
@@ -621,7 +622,8 @@ export function TailView({
             {harnessCounts.length > 0 ? (
               harnessCounts.slice(0, 4).map((entry) => (
                 <span key={entry.source} className="s-tail-status-src">
-                  {entry.source}:{entry.count}
+                  <HarnessMark harness={entry.source} size={10} title={null} />
+                  <span>{harnessLabel(entry.source)}:{entry.count}</span>
                 </span>
               ))
             ) : (
@@ -765,7 +767,7 @@ function TailRow({
   onSessionClick?: (sessionId: string) => void;
 }) {
   const attributionLabel = ATTRIBUTION_LABEL[event.harness];
-  const harnessLabel = displayHarness(event.source);
+  const sourceLabel = harnessLabel(event.source);
   const issueClass = issueSeverity ? ` s-tail-row--issue s-tail-row--issue-${issueSeverity}` : "";
   return (
     <div
@@ -781,8 +783,9 @@ function TailRow({
       }}
     >
       <span className="s-tail-cell-time">{formatTime(event.ts)}</span>
-      <span className="s-tail-token s-tail-token--harness" title={`source: ${harnessLabel}`}>
-        {harnessLabel}
+      <span className="s-tail-token s-tail-token--harness" title={`source: ${sourceLabel}`}>
+        <HarnessMark harness={event.source} size={11} title={null} />
+        <span className="s-tail-harness-label">{sourceLabel}</span>
       </span>
       <span
         className="s-tail-token s-tail-token--origin"
@@ -938,7 +941,7 @@ function TailDetailSheet({
 }) {
   const [showRaw, setShowRaw] = useState(true);
   const attributionLabel = ATTRIBUTION_LABEL[event.harness];
-  const harnessLabel = displayHarness(event.source);
+  const sourceLabel = harnessLabel(event.source);
   const issueSeverity = classifyTailIssue(event);
   const blocks = getContentBlocks(event.raw);
 
@@ -962,7 +965,10 @@ function TailDetailSheet({
               {issueSeverity === "error" ? "✕" : "△"}
             </span>
           )}
-          <span className="s-tail-token s-tail-token--harness">{harnessLabel}</span>
+          <span className="s-tail-token s-tail-token--harness">
+            <HarnessMark harness={event.source} size={12} title={null} />
+            <span className="s-tail-harness-label">{sourceLabel}</span>
+          </span>
           <span className="s-tail-token s-tail-token--origin" title={`origin: ${attributionLabel}`}>
             {ORIGIN_ABBR[event.harness]}
           </span>
@@ -1003,7 +1009,10 @@ function TailDetailSheet({
                 </TailLink>
               </span>
               <span className="s-tail-sheet-key">harness</span>
-              <span className="s-tail-sheet-val s-tail-sheet-val--mono">{harnessLabel}</span>
+              <span className="s-tail-sheet-val s-tail-sheet-val--harness">
+                <HarnessMark harness={event.source} size={13} title={null} />
+                <span>{sourceLabel}</span>
+              </span>
               <span className="s-tail-sheet-key">origin</span>
               <span className="s-tail-sheet-val s-tail-sheet-val--mono">{attributionLabel}</span>
               <span className="s-tail-sheet-key">pid</span>

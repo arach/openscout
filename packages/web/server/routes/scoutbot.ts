@@ -163,7 +163,12 @@ function persistBriefing(
 }
 
 function buildFleetHomeBrief(brief: ScoutbotBrief): FleetHomeBrief {
-  const fleetStep = brief.steps.find((step) => step.route?.view === "fleet");
+  const fleetStep = brief.steps.find((step) =>
+    step.route?.view === "inbox"
+    || step.route?.view === "fleet"
+    || step.id === "fleet"
+    || step.id === "fleet-home"
+  );
   const statement = (fleetStep?.narration ?? brief.steps[0]?.narration ?? brief.summary).trim();
   const observations = buildFleetHomeBriefObservations(statement || brief.summary, fleetStep?.observations ?? []);
   return {
@@ -248,7 +253,7 @@ function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
         id: `agent:${agent.id}`,
         kind: "agent",
         label: agent.name,
-        route: { view: "agents", agentId: agent.id, tab: "observe" },
+        route: { view: "agents-v2", agentId: agent.id, tab: "observe" },
         ...(agent.handle ? { detail: `@${agent.handle}` } : {}),
       });
     }
@@ -277,7 +282,7 @@ function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
         label: ask.agentName ?? ask.task,
         route: ask.conversationId
           ? { view: "conversation", conversationId: ask.conversationId }
-          : { view: "agents", agentId: ask.agentId, tab: "observe" },
+          : { view: "agents-v2", agentId: ask.agentId, tab: "observe" },
         detail: ask.statusLabel,
       });
     }
@@ -763,7 +768,7 @@ export async function createScoutbotWebServices(
     }
     let captured: ScoutbotBriefCapture | null = null;
     fleetHomeBriefInFlight = scoutbotAssistant.createBrief({
-      route: { view: "fleet" },
+      route: { view: "inbox" },
       ttlMs: FLEET_HOME_BRIEF_TTL_MS,
       mode: "fleet-home",
       onCaptured: (c) => { captured = c; },

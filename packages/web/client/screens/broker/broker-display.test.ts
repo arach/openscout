@@ -37,6 +37,7 @@ describe("broker dispatch display", () => {
   test("flags failed deliveries as failures", () => {
     expect(brokerAttemptIsFailure(attempt({ kind: "failed_delivery", status: "failed" }))).toBe(true);
     expect(brokerAttemptIsFailure(attempt())).toBe(false);
+    expect(brokerAttemptContextText(attempt())).toContain("OpenScout dispatch context");
   });
 
   test("presents one message row with its linked delivery failure folded in", () => {

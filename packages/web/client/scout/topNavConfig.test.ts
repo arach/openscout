@@ -23,17 +23,15 @@ describe("top nav config", () => {
 
   test("maps work surfaces to their own tabs", () => {
     expect(topNavKeyForRoute({ view: "inbox" })).toBe("home");
-    expect(topNavKeyForRoute({ view: "fleet" })).toBe("home");
+    expect(topNavKeyForRoute({ view: "inbox" })).toBe("home");
     expect(topNavKeyForRoute({ view: "activity" })).toBe("home");
     expect(topNavKeyForRoute({ view: "briefings" })).toBe("home");
     expect(topNavKeyForRoute({ view: "agents-v2" })).toBe("agents");
-    expect(topNavKeyForRoute({ view: "agents" })).toBe("agents");
-    expect(topNavKeyForRoute({ view: "agent-info", conversationId: "c1" })).toBe("agents");
+        expect(topNavKeyForRoute({ view: "agent-info", conversationId: "c1" })).toBe("agents");
     expect(topNavKeyForRoute({ view: "settings", section: "agents" })).toBe("agents");
     expect(topNavKeyForRoute({ view: "sessions" })).toBe("sessions");
     expect(topNavKeyForRoute({ view: "conversation", conversationId: "c1" })).toBe("chat");
-    expect(topNavKeyForRoute({ view: "conversations" })).toBe("chat");
-    expect(topNavKeyForRoute({ view: "messages" })).toBe("chat");
+        expect(topNavKeyForRoute({ view: "messages" })).toBe("chat");
     expect(topNavKeyForRoute({ view: "channels" })).toBe("chat");
   });
 

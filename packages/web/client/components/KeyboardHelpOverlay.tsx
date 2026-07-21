@@ -16,7 +16,7 @@ const GROUPS: Group[] = [
     bindings: [
       { chords: [NEW_CHAT_SHORTCUT_KEYS, NEW_CHAT_LEGACY_SHORTCUT_KEYS], label: "New chat" },
       { chords: [chord("⌘", "K")], label: "Command palette" },
-      { chords: [chord("⌘", "[")], label: "Toggle left panel" },
+      { chords: [chord("⌘", "["), chord("⌘", "B")], label: "Toggle sidebar / left panel" },
       { chords: [chord("⌘", "]")], label: "Toggle right panel" },
       { chords: [chord("⌘", "⇧", "]")], label: "Toggle inspector overlay" },
       { chords: [chord("Ctrl", "`")], label: "Toggle terminal drawer" },

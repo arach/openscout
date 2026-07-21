@@ -36,6 +36,8 @@ export function SidePanel({
   onToggleCollapse?: () => void;
   width?: number;
   onResizeStart?: (event: MouseEvent) => void;
+  /** Pass-through chrome hint: panel floats over content instead of pushing it. */
+  floating?: boolean;
   style?: CSSProperties;
   footer?: ReactNode;
   headerActions?: ReactNode;

@@ -1,49 +1,31 @@
 import type { Route } from "../lib/types.ts";
+import {
+  projectTopNavItems,
+  type TopNavItem,
+  type TopNavKey,
+} from "./nav-destinations.ts";
+import {
+  ROUTE_VIEW_LABELS,
+  routeBreadcrumbForRoute,
+} from "./route-breadcrumb.ts";
 
-export type TopNavKey =
-  | "home"
-  | "agents"
-  | "chat"
-  | "sessions"
-  | "system";
-
-export type TopNavItem = {
-  key: TopNavKey;
-  label: string;
-  route: Route;
-};
+export type { TopNavItem, TopNavKey };
+export { ROUTE_VIEW_LABELS, routeBreadcrumbForRoute };
 
 // Single-personality nav (Model B · Work nouns): Home · Projects · Sessions ·
 // Chat. The ops/retrieval cluster (Search, Terminals, Tail, Dispatch, and the
 // ops surfaces) lives one level down in the System dropdown
 // (nav-system-menu.tsx). There is no lean/full switch — `nav.clean` is gone.
-export const TOP_NAV_ITEMS: TopNavItem[] = [
-  { key: "home", label: "Home", route: { view: "inbox" } },
-  { key: "agents", label: "Projects", route: { view: "agents-v2" } },
-  { key: "sessions", label: "Sessions", route: { view: "sessions" } },
-  { key: "chat", label: "Chat", route: { view: "messages" } },
-];
+//
+// Tab rows are projected from the destination catalog (nav-destinations.ts).
+// Breadcrumb labels live in route-breadcrumb.ts (SCO-083) so they survive
+// top-tab deletion.
+export const TOP_NAV_ITEMS: TopNavItem[] = projectTopNavItems();
 
+/** @deprecated Prefer ROUTE_VIEW_LABELS from route-breadcrumb.ts */
 export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
-  inbox: "Home",
-  conversation: "Conversation",
-  "agent-info": "Agent",
-  agents: "Agents .deprecated",
-  "agents-v2": "Projects",
-  fleet: "Home",
-  conversations: "Chat",
-  messages: "Chat",
-  sessions: "Sessions",
-  terminal: "Terminals",
-  repos: "Repos",
-  harnesses: "Providers",
-  search: "Search",
-  channels: "Channels",
-  activity: "Activity",
-  mesh: "Mesh",
-  broker: "Dispatch",
-  settings: "Settings",
-  work: "Work",
+  ...ROUTE_VIEW_LABELS,
+  // Historical chrome label for ops under the System dropdown.
   ops: "System",
 };
 
@@ -63,6 +45,7 @@ const SYSTEM_VIEWS = new Set<Route["view"]>([
 
 /** True for the chrome/ops surfaces that live under the System dropdown. */
 export function isSystemRoute(route: Route): boolean {
+  // Agent config lives under the Projects tab, not System.
   if (route.view === "settings" && route.section === "agents") return false;
   return SYSTEM_VIEWS.has(route.view);
 }
@@ -77,13 +60,11 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
   }
   switch (route.view) {
     case "agents-v2":
-    case "agents":
     case "agent-info":
       return "agents";
     case "sessions":
       return "sessions";
     case "conversation":
-    case "conversations":
     case "messages":
     case "channels":
       return "chat";
@@ -100,7 +81,6 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
     case "settings":
       return "system";
     case "inbox":
-    case "fleet":
     case "activity":
     case "briefings":
     default:
@@ -108,7 +88,16 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
   }
 }
 
+/**
+ * Breadcrumb for the current route. Delegates to the neutral route-breadcrumb
+ * module; preserves the historical agents-config "Configuration" crumb and
+ * the prior sparse set used by top-tab chrome tests.
+ *
+ * For new callers prefer `routeBreadcrumbForRoute` (complete for all areas).
+ */
 export function topNavBreadcrumbForRoute(route: Route): string | null {
+  // Keep the legacy sparse contract for top-tab chrome: only detail-ish routes
+  // that the old strip showed. The fuller map lives in routeBreadcrumbForRoute.
   if (route.view === "settings" && route.section === "agents") {
     return "Configuration";
   }

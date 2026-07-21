@@ -188,17 +188,13 @@
 }
 
 .hs-harness-mark {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: var(--radius-pill);
-  border: 1px solid color-mix(in srgb, var(--muted) 42%, transparent);
-  background: transparent;
+  display: inline-flex;
+  flex: 0 0 15px;
+  color: var(--muted);
 }
 
 .hs-harness-mark--live {
-  border-color: color-mix(in srgb, var(--accent) 64%, transparent);
-  background: var(--accent);
+  color: var(--accent);
 }
 
 .hs-harness-main,

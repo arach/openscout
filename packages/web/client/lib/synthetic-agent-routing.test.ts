@@ -41,7 +41,7 @@ describe("synthetic agent routing", () => {
   test("redirects broken agents observe routes to session observe", () => {
     expect(
       normalizeRoute({
-        view: "agents",
+        view: "agents-v2",
         agentId: "native:claude:1e753cef-92ae-4e22-a365-0f5d23a07652",
         tab: "observe",
       }),

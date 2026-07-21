@@ -37,7 +37,8 @@ import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissions
 import "./settings-drawer.css";
 import "./voice-permissions-panel.css";
 
-type Section = "operator" | "comms" | "credentials" | "voice" | "devices";
+export type DrawerSettingsSection = "operator" | "comms" | "credentials" | "voice" | "devices";
+type Section = DrawerSettingsSection;
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
 
@@ -782,10 +783,26 @@ const DEFAULT_PROFILE: OperatorProfile = {
   provisionalAgentNamesSource: "default",
 };
 
-export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SettingsDrawer({
+  open,
+  onClose,
+  section: controlledSection,
+  onSectionChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** When set, the rail is controlled by the URL (SCO-082 Phase B). */
+  section?: Section;
+  onSectionChange?: (section: Section) => void;
+}) {
   const { refreshOnboarding } = useScout();
   const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open);
-  const [section, setSection] = useState<Section>("operator");
+  const [uncontrolledSection, setUncontrolledSection] = useState<Section>("operator");
+  const section = controlledSection ?? uncontrolledSection;
+  const setSection = useCallback((next: Section) => {
+    if (onSectionChange) onSectionChange(next);
+    else setUncontrolledSection(next);
+  }, [onSectionChange]);
   const [profile, setProfile] = useState<OperatorProfile>(DEFAULT_PROFILE);
   const [pairing, setPairing] = useState<PairingState | null>(null);
   const [clientCredentials, setClientCredentials] = useState<ClientCredentialState | null>(null);

@@ -847,8 +847,7 @@
 }
 
 .s-observe--lane .s-observe-think-label,
-.s-observe--lane .s-observe-message-label,
-.s-observe--lane .s-observe-ask-label {
+.s-observe--lane .s-observe-message-label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -860,8 +859,7 @@
   color: var(--dim);
 }
 
-.s-observe--lane .s-observe-message-label::before,
-.s-observe--lane .s-observe-ask-label::before {
+.s-observe--lane .s-observe-message-label::before {
   content: "";
   width: 5px;
   height: 5px;
@@ -911,7 +909,8 @@
 
 /* Human turns interrupt the technical stream without reading as a warning.
    The spine keeps its continuity, while the request becomes a full-width,
-   chat-like band across the content column. */
+   chat-like band across the content column — avatar + name + time up top,
+   like a message from the operator, lifted by a whisper of accent. */
 .s-observe--lane .s-observe-row--kind-ask {
   padding-top: var(--space-sm);
   padding-bottom: var(--space-xl);
@@ -923,54 +922,60 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--ink) 52%, var(--dim));
+  background: color-mix(in srgb, var(--accent) 62%, var(--dim));
   box-shadow: 0 0 0 4px var(--bg);
 }
 
 .s-observe--lane .s-observe-row.s-observe-row--kind-ask > .s-observe-ask--lane {
-  position: relative;
-  overflow: hidden;
   width: calc(100% + var(--space-sm) + var(--space-md));
   max-width: none;
   margin-left: calc(-1 * var(--space-sm));
   margin-right: calc(-1 * var(--space-md));
-  border-block: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  border-block: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-inline: 0;
   border-radius: 0;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--ink) 4.5%, transparent), transparent 72%),
-    color-mix(in srgb, var(--surface) 52%, var(--bg));
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 58%),
+    color-mix(in srgb, var(--surface) 55%, var(--bg));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent),
     inset 0 -1px 0 color-mix(in srgb, var(--bg) 60%, transparent);
   padding: var(--space-lg) var(--space-xl);
 }
 
-.s-observe--lane .s-observe-ask--lane::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(120% 100% at 0% 50%, color-mix(in srgb, var(--ink) 3%, transparent), transparent 62%);
-}
-
-.s-observe--lane .s-observe-ask--lane > * {
-  position: relative;
-  z-index: 1;
-}
-
-.s-observe--lane .s-observe-ask--lane .s-observe-ask-label {
-  width: fit-content;
+.s-observe--lane .s-observe-ask-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
   margin-bottom: var(--space-sm);
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
+}
+
+.s-observe--lane .s-observe-ask-avatar {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--scout-chrome-avatar-ink);
+}
+
+.s-observe--lane .s-observe-ask-author {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+}
+
+.s-observe--lane .s-observe-ask-time {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  font-weight: 650;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--ink) 58%, var(--dim));
+  color: var(--dim);
 }
 
 .s-observe--lane .s-observe-ask--lane .s-observe-ask-title {
@@ -1335,6 +1340,14 @@
   background: transparent;
   border-left: 0;
   padding: 0;
+}
+
+/* SCO-085: subtle background on command/code rows for glanceability. */
+.s-observe--lane .s-observe-row:has(.s-observe-tool--fam-bash),
+.s-observe--lane .s-observe-row:has(.s-observe-tool--fam-code),
+.s-observe--lane .s-observe-row:has(.s-observe-bash) {
+  background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  border-radius: var(--radius-sm);
 }
 /* give the pill a definite width to truncate against (the row's content box) */
 .s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-header,
@@ -2003,6 +2016,54 @@
   border-radius: 50%;
   background: currentColor;
   opacity: 0.8;
+}
+
+/* Injected-context wrappers (`<in-app-browser-context …>` and friends), lifted
+   out of the request prose and shown as chips — acknowledged, not rendered. */
+.s-observe-ask-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.s-observe-ask-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--dim) 84%, var(--muted));
+}
+
+.s-observe-ask-tag svg {
+  flex: none;
+  opacity: 0.7;
+}
+
+.s-observe-ask-tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-observe-ask-tag-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--ink) 62%, var(--dim));
+}
+
+.s-observe-ask-tag-detail::before {
+  content: "·";
+  margin-right: 5px;
+  opacity: 0.6;
 }
 
 .s-observe-ask-title {

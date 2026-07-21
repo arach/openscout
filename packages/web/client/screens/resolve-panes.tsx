@@ -29,7 +29,6 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
       return <OpsLeft />;
     case "agents-v2":
       return <ProjectsRail route={route} navigate={navigate} />;
-    case "agents":
     case "agent-info":
       return <AgentsLeft />;
     case "messages":
@@ -40,7 +39,6 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
       return <MeshLeft />;
     case "terminal":
       return <TerminalLeft />;
-    case "fleet":
     case "inbox":
     default:
       return <HomeLeft />;
@@ -57,16 +55,13 @@ export function resolveContentPane(
     case "conversation":
     case "messages":
     case "channels":
-    case "conversations":
       return <ChatContent route={route} navigate={navigate} />;
     case "agents-v2":
       return <ProjectsScreen route={route} navigate={navigate} />;
     case "agent-info":
-    case "agents":
       return <AgentsContent route={route} navigate={navigate} />;
     case "settings":
       return <SettingsContent route={route} navigate={navigate} />;
-    case "fleet":
     case "inbox":
       return <HomeContent navigate={navigate} />;
     case "sessions":
@@ -105,7 +100,6 @@ export function resolveContentPane(
 export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
   switch (route.view) {
     case "inbox":
-    case "fleet":
       return <HomeRight />;
     case "agents-v2": {
       if (!route.agentId) {
@@ -118,10 +112,6 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
       // right rail = session snapshot, files, transcript tail, Observe/Take over.
       return <AgentsRight />;
     }
-    case "agents":
-      // Inspector only when an agent is engaged — the directory/list view has no
-      // one specific thing to inspect, so the panel stays empty there.
-      return route.agentId ? <AgentsRight /> : null;
     case "agent-info":
       return <AgentsRight />;
     case "sessions":
@@ -131,7 +121,6 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
     case "conversation":
       return <ChatRight />;
     case "messages":
-    case "conversations":
       return <ChatRight />;
     case "terminal":
       return <TerminalRight />;

@@ -25,6 +25,7 @@ import { useScopeShellChrome } from "./scope/index.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
+import { useBrowserLocation } from "./lib/router.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
 import {
@@ -39,6 +40,28 @@ import {
   NEW_CHAT_SHORTCUT_LABEL,
 } from "./lib/new-chat-shortcut.ts";
 import { goShortcutForKey } from "./lib/go-shortcuts.ts";
+import { SidebarProvider } from "./components/ui/sidebar.tsx";
+import { ScoutSidebar } from "./scout/sidebar/ScoutSidebar.tsx";
+import {
+  ScoutSideRail,
+  sideRailHasContent,
+} from "./scout/sidebar/ScoutSideRail.tsx";
+import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
+import { hasSecondaryNavRow } from "./scout/sidebar/center-pane-header-state.ts";
+import { TopRowUtilities } from "./scout/sidebar/TopRowUtilities.tsx";
+import {
+  RAIL_COLLAPSED_WIDTH,
+  SIDEBAR_COLLAPSED_WIDTH,
+  useSidebarCollapse,
+} from "./scout/sidebar/useSidebarCollapse.ts";
+import { CollapsedRail } from "./scout/sidebar/CollapsedRail.tsx";
+import { RailToggle } from "./components/RailToggle.tsx";
+import { useScoutbotState } from "./scout/scoutbot/ScoutbotStateContext.tsx";
+import {
+  isLanesContextEmpty,
+  nextLanesContextToggle,
+  resolveLanesContextCollapsed,
+} from "./scout/sidebar/empty-context-collapse.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -52,8 +75,27 @@ const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
 const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
 // Agent + session detail is a core flow; give it a wider pane when it slides in.
 const AGENTS_RIGHT_PANEL_MIN_WIDTH = 480;
+const DISPATCH_SHEET_MIN_WIDTH = 520;
 const CENTER_CONTENT_MIN_WIDTH = 560;
 const GO_SHORTCUT_TIMEOUT_MS = 1500;
+
+// SCO-087: slim app-wide top row in the sidebar-chrome path. Sits right of the
+// full-height sidebar. SCO-087b: it is now TWO stacked rows — the title band
+// (breadcrumb + utilities) and, when the route has content nav, a secondary-nav
+// row directly below it (Ops/Chat strips, area sub-nav). The title band height
+// matches the SidePanel header band so the SCOUT brand, the side-rail header and
+// the title bar share one clean top grid line; the side rail rises to that line.
+/** SidePanel header band height (see app.css manifest/inspector header rule). */
+const RAIL_HEADER_HEIGHT = 44;
+/** Title band height — one grid line with the SCOUT brand + side-rail header. */
+const SIDEBAR_TOP_ROW_HEIGHT = RAIL_HEADER_HEIGHT;
+/** SCO-087b: second stacked row holding the content secondary nav. */
+const SECONDARY_NAV_ROW_HEIGHT = 38;
+/** Rail edge chevron height (see .scout-rail-toggle). */
+const RAIL_TOGGLE_HEIGHT = 28;
+/** Chevron top so it centers in a header band (title band and rail header band
+ *  are the same height, so one offset serves both). */
+const RAIL_TOGGLE_HEADER_TOP = Math.round((RAIL_HEADER_HEIGHT - RAIL_TOGGLE_HEIGHT) / 2);
 
 interface ScoutNavigationBarProps {
   title: string;
@@ -105,9 +147,42 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
   const { dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const { navTotalHeight } = usePlatformLayout();
   const isFiltered = Boolean(search?.value);
+  const barRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const centerRef = useRef<HTMLDivElement>(null);
+
+  // The center strip shifts itself to stay centered over the content area
+  // (see .scout-nav-tabs transform). Publish the real widths of the bar's
+  // left/right groups and the strip so the CSS clamp can keep the strip from
+  // sliding under either absolutely-positioned side group.
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const update = () => {
+      const leftW = (leftRef.current?.offsetWidth ?? 0) + 16;
+      const rightW = (rightRef.current?.offsetWidth ?? 0) + 16;
+      const stripW = centerRef.current?.firstElementChild?.clientWidth ?? 0;
+      bar.style.setProperty("--scout-nav-left-w", `${leftW}px`);
+      bar.style.setProperty("--scout-nav-right-w", `${rightW}px`);
+      bar.style.setProperty("--scout-nav-strip-w", `${stripW}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    const strip = centerRef.current?.firstElementChild;
+    for (const el of [leftRef.current, rightRef.current, strip]) {
+      if (el) observer.observe(el);
+    }
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
 
   return (
     <div
+      ref={barRef}
       data-frame-panel="navigation"
       className="fixed top-0 left-0 right-0 z-50 pointer-events-auto"
       {...dragRegionProps}
@@ -117,6 +192,7 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
         style={{ height: navTotalHeight, borderColor: "var(--hud-chrome-border, oklch(var(--border) / 0.8))" }}
       >
         <div
+          ref={leftRef}
           className="absolute left-4 bottom-0 h-12 z-10 flex items-center gap-2.5 select-none"
           onMouseDown={onInteractiveMouseDown}
         >
@@ -132,12 +208,12 @@ function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationB
         </div>
 
         {center && (
-          <div className="flex-1 flex justify-center h-12 items-center" onMouseDown={onInteractiveMouseDown}>
+          <div ref={centerRef} className="flex-1 flex justify-center h-12 items-center" onMouseDown={onInteractiveMouseDown}>
             {center}
           </div>
         )}
 
-        <div className="absolute right-4 bottom-0 h-12 z-10 flex items-center gap-3" onMouseDown={onInteractiveMouseDown}>
+        <div ref={rightRef} className="absolute right-4 bottom-0 h-12 z-10 flex items-center gap-3" onMouseDown={onInteractiveMouseDown}>
           {actions}
 
           {search && (
@@ -249,9 +325,33 @@ function OpenScoutStatusBarRight({
 
 function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; assistantEnabled: boolean }) {
   const { navTotalHeight } = usePlatformLayout();
+  const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route, agents, openContextCapture, apiConnection, navigate } = useScout();
+  const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
+  const browserLocation = useBrowserLocation();
+  // SCO-083: exactly one chrome tree — sidebar experiment vs legacy left panel.
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+  // SCO-085: full-height sidebar — content/panels use titlebar-safe top (0 on web).
+  const chromeTopOffset = sidebarChrome ? titleBarInset : navTotalHeight;
+  // SCO-087: the slim app-wide top row lives in the sidebar-chrome path only.
+  // Everything right of the sidebar starts below it; the legacy top bar path
+  // (?ff.nav.sidebar=off) is unaffected and keeps chromeTopOffset = navTotalHeight.
+  const topRowActive = sidebarChrome;
+  // SCO-087b: the top row stacks a title band + (when the route has content nav)
+  // a secondary-nav row. contentTopOffset accounts for both so the center pane,
+  // side rail and inspector stay consistent. Empty state → no second row.
+  const secondaryNavRowActive = topRowActive && hasSecondaryNavRow(route);
+  const topRowHeight = topRowActive
+    ? SIDEBAR_TOP_ROW_HEIGHT + (secondaryNavRowActive ? SECONDARY_NAV_ROW_HEIGHT : 0)
+    : 0;
+  const contentTopOffset = chromeTopOffset + topRowHeight;
+  // SCO-087b: the sidebar edge + side-rail chevrons ride the TITLE band (one grid
+  // line with the SCOUT brand + side-rail header); the inspector chevron centers
+  // in its own header band, which sits below the full top row.
+  const titleBandToggleTop = chromeTopOffset + RAIL_TOGGLE_HEADER_TOP;
+  const inspectorToggleTop = contentTopOffset + RAIL_TOGGLE_HEADER_TOP;
+  const scoutbotPublic = useScoutbotState();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -270,6 +370,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const canvasMinimap = useCanvasMinimap();
   const [showActivityLog, setShowActivityLog] = useState(false);
 
+  // Legacy left-panel key — kept during soak; sidebar uses its own key.
   const [leftCollapsed, setLeftCollapsed] = usePersistentState(`appshell.${app.id}.left`, false);
   const [rightCollapsed, setRightCollapsed] = usePersistentState(`appshell.${app.id}.right`, false);
   const [rightOverlay, setRightOverlay] = usePersistentState(`appshell.${app.id}.rightOverlay`, false);
@@ -282,7 +383,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const [sidePanelMaxWidth, setSidePanelMaxWidth] = useState(() =>
     computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
   );
-  const isSearchRoute = typeof window !== "undefined" && window.location.pathname === "/search";
+  const isSearchRoute = route.view === "search" || browserLocation.pathname === "/search";
+  const sidebarCollapse = useSidebarCollapse(app.id, viewportWidth);
 
   useEffect(() => {
     const update = () => {
@@ -294,11 +396,38 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Path-driven Scope presentation — never mutates persisted collapse prefs.
   const { active: scopePresentation, brandLabel: scopeBrandLabel } = useScopeShellChrome({
     route,
-    setLeftCollapsed,
-    setRightCollapsed,
   });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--scout-rail-collapsed-width",
+      `${RAIL_COLLAPSED_WIDTH}px`,
+    );
+    if (sidebarChrome) {
+      document.documentElement.setAttribute("data-scout-sidebar-chrome", "");
+      document.documentElement.style.setProperty(
+        "--scout-nav-rail-width",
+        `${sidebarCollapse.width}px`,
+      );
+      if (sidebarCollapse.isSidebarResizing) {
+        document.documentElement.setAttribute("data-scout-sidebar-resizing", "");
+      } else {
+        document.documentElement.removeAttribute("data-scout-sidebar-resizing");
+      }
+    } else {
+      document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+      document.documentElement.removeAttribute("data-scout-sidebar-resizing");
+      document.documentElement.style.removeProperty("--scout-nav-rail-width");
+    }
+    return () => {
+      document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+      document.documentElement.removeAttribute("data-scout-sidebar-resizing");
+      document.documentElement.style.removeProperty("--scout-nav-rail-width");
+    };
+  }, [sidebarChrome, sidebarCollapse.width, sidebarCollapse.isSidebarResizing]);
 
   useEffect(() => {
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
@@ -318,13 +447,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     && !route.sessionId
     && Boolean(route.selectedAgentId);
   const agentDetailOpen =
-    (route.view === "agents" && Boolean(route.agentId))
-    || agentsV2Peek
+    agentsV2Peek
     || (route.view === "agents-v2" && Boolean(route.agentId));
   useEffect(() => {
     if (!agentDetailOpen || rightCollapsed || rightOverlay) return;
     setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, AGENTS_RIGHT_PANEL_MIN_WIDTH)));
   }, [agentDetailOpen, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
+
+  const dispatchSheetOpen = route.view === "broker" && Boolean(selectedBrokerAttempt);
+  useEffect(() => {
+    if (!dispatchSheetOpen) return;
+    setRightCollapsed(false);
+    setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, DISPATCH_SHEET_MIN_WIDTH)));
+  }, [dispatchSheetOpen, setRightCollapsed, setRightWidth, sidePanelMaxWidth]);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -407,13 +542,48 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     document.addEventListener("mouseup", onMouseUp);
   }, [leftWidth, rightWidth, setLeftWidth, setRightWidth, sidePanelMaxWidth]);
 
+  /** Shell-level sidebar drag-resize handle (SCO-086) — not stock SidebarRail. */
+  const handleSidebarResizePointerDown = useCallback((e: React.PointerEvent) => {
+    if (sidebarCollapse.effectiveCollapsed) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = sidebarCollapse.expandedWidth;
+    sidebarCollapse.beginResize(startWidth);
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const delta = ev.clientX - startX;
+      sidebarCollapse.updateResize(startWidth + delta);
+    };
+    const onPointerUp = () => {
+      sidebarCollapse.endResize();
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+    };
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+  }, [sidebarCollapse]);
+
   const shellCommands: CommandOption[] = useMemo(() => {
+    const toggleLeft = () => {
+      if (sidebarChrome) {
+        sidebarCollapse.toggleCollapsed();
+      } else {
+        setLeftCollapsed((collapsed) => !collapsed);
+      }
+    };
     const commands: CommandOption[] = [
       {
         id: "shell:toggle-left",
-        label: "Toggle Left Panel",
+        label: sidebarChrome ? "Toggle Sidebar" : "Toggle Left Panel",
         shortcut: "Cmd+[",
-        action: () => setLeftCollapsed((collapsed) => !collapsed),
+        action: toggleLeft,
+      },
+      {
+        id: "shell:toggle-sidebar-b",
+        label: "Toggle Sidebar",
+        shortcut: "Cmd+B",
+        action: toggleLeft,
       },
       {
         id: "shell:toggle-right",
@@ -461,7 +631,20 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       });
     }
     return commands;
-  }, [agents, assistantEnabled, activeTab, openContextCapture, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel]);
+  }, [
+    agents,
+    assistantEnabled,
+    activeTab,
+    openContextCapture,
+    route,
+    setActiveTab,
+    setLeftCollapsed,
+    setRightCollapsed,
+    setRightOverlay,
+    setShowFlagPanel,
+    sidebarChrome,
+    sidebarCollapse,
+  ]);
 
   const allCommands = useMemo(() => [...appCommands, ...shellCommands], [appCommands, shellCommands]);
 
@@ -503,9 +686,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         const context = resolveCaptureRouteContext(route, agents);
         openContextCapture({ agentId: context.agentId ?? undefined });
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "[") {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key.toLowerCase() === "b")) {
+        // Cmd+[ and Cmd+B retarget the primary left chrome (sidebar or legacy panel).
+        // Skip Cmd+B inside editable/terminal targets (handled by outer guards partially;
+        // re-check editable for B so typing "b" with accidental meta is less risky).
+        if (e.key.toLowerCase() === "b" && typing) return;
         e.preventDefault();
-        setLeftCollapsed((collapsed) => !collapsed);
+        if (sidebarChrome) {
+          sidebarCollapse.toggleCollapsed();
+        } else {
+          setLeftCollapsed((collapsed) => !collapsed);
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "]") {
         e.preventDefault();
@@ -538,18 +729,25 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [agents, assistantEnabled, clearGoShortcut, keyboardHelp.open, navigate, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, startGoShortcut, takeoverActive]);
-
-  useEffect(() => {
-    const handler = () => {
-      setActiveTab("terminal");
-      setShowTerminal(true);
-      // Reset height if stuck at full-screen
-      setTerminalHeight((h) => (h > window.innerHeight * 0.8 ? 420 : h));
-    };
-    window.addEventListener("scout:open-terminal", handler);
-    return () => window.removeEventListener("scout:open-terminal", handler);
-  }, [setActiveTab, setTerminalHeight]);
+  }, [
+    agents,
+    assistantEnabled,
+    clearGoShortcut,
+    keyboardHelp.open,
+    navigate,
+    openContextCapture,
+    resolvedTab,
+    route,
+    setActiveTab,
+    setLeftCollapsed,
+    setRightCollapsed,
+    setRightOverlay,
+    setShowFlagPanel,
+    sidebarChrome,
+    sidebarCollapse,
+    startGoShortcut,
+    takeoverActive,
+  ]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -656,56 +854,140 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   // the inspector loads minimized there and opens itself when a concrete agent,
   // thread, or session enters context. This only overrides the rendered collapse
   // — the stored preference is untouched, so engaged views keep their state.
-  const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
+  const inspectorHasNothingInContext = route.view === "agents-v2" && !route.agentId;
   const projectsHaveNothingInContext = route.view === "agents-v2"
     && !route.agentId
     && !route.selectedAgentId
     && !route.sessionId;
+  const dispatchHasNothingInContext = route.view === "broker" && !selectedBrokerAttempt;
   const agentsV2Route = route.view === "agents-v2";
-  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext || projectsHaveNothingInContext;
 
-  const leftPushInset = leftCollapsed ? 0 : leftWidth;
-  const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
+  // SCO-085 empty CONTEXT on /ops/lanes: expose message count/loading ABOVE the
+  // panel (ScoutbotStateContext) so we never depend on mounted panel children
+  // (collapsed SidePanel unmounts them → deadlock). Emptiness derives collapse;
+  // expand sets a TEMPORARY route-scoped open override — never flips stored prefs.
+  const lanesContextRoute = route.view === "ops" && route.mode === "lanes";
+  const [lanesContextForceOpen, setLanesContextForceOpen] = useState(false);
+  const scoutbotConversation = scoutbotPublic.state.conversation;
+  const lanesContextEmpty = isLanesContextEmpty(route, scoutbotConversation);
+  useEffect(() => {
+    if (!lanesContextRoute) setLanesContextForceOpen(false);
+  }, [lanesContextRoute]);
+  useEffect(() => {
+    if (!lanesContextEmpty) setLanesContextForceOpen(false);
+  }, [lanesContextEmpty]);
+  const baseRightCollapsed = rightCollapsed
+    || inspectorHasNothingInContext
+    || projectsHaveNothingInContext
+    || dispatchHasNothingInContext
+    || scopePresentation;
+  const effectiveRightCollapsed = resolveLanesContextCollapsed({
+    empty: lanesContextEmpty,
+    forceOpen: lanesContextForceOpen,
+    baseCollapsed: baseRightCollapsed,
+  });
+  const showRightPanel = !scopePresentation && (route.view !== "broker" || dispatchSheetOpen);
+
+  // Scope presentation: legacy chrome collapses left/right as derived state
+  // (never written to prefs). New sidebar chrome keeps a path-aware Scope model.
+  const scopeHidesLegacyLeft = scopePresentation && !sidebarChrome;
+  const scopeHidesRight = scopePresentation;
+
+  // Side rail (context SidePanel) only when sidebar chrome is on and the route
+  // has resolveSidebarContext content. Scope has no Scout context pane.
+  // SCO-086: collapsed side rail reserves RAIL_COLLAPSED_WIDTH (not 0); HIDDEN
+  // (inactive / no content) stays 0 — no rail, no toggle.
+  const sideRailActive =
+    sidebarChrome && sideRailHasContent(route, scopePresentation);
+  const sideRailPushWidth = sideRailActive
+    ? (leftCollapsed ? RAIL_COLLAPSED_WIDTH : leftWidth)
+    : 0;
+
+  // Sidebar chrome: left inset = nav sidebar width + side-rail width.
+  // Nav sidebar always reserves rail width (expanded or 48px icon rail).
+  // SCO-086: collapsed side rail / inspector push RAIL_COLLAPSED_WIDTH.
+  // Legacy SidePanel still collapses to zero width with a floating expand control.
+  // HIDDEN right (scope / no panel / overlay / dispatch sheet) stays 0.
+  const leftPushInset = sidebarChrome
+    ? sidebarCollapse.width + sideRailPushWidth
+    : (leftCollapsed || scopeHidesLegacyLeft ? 0 : leftWidth);
+  const rightPushInset =
+    !showRightPanel || rightOverlay || dispatchSheetOpen || scopeHidesRight
+      ? 0
+      : effectiveRightCollapsed
+        ? (sidebarChrome ? RAIL_COLLAPSED_WIDTH : 0)
+        : rightWidth;
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
     pushedContentWidth < CENTER_CONTENT_MIN_WIDTH &&
     (leftPushInset > 0 || rightPushInset > 0);
   const autoOverlayRight = shouldAutoOverlayPanels && rightPushInset > 0;
+  // Side rail (not the icon nav rail) may overlay when center content is squeezed.
   const autoOverlayLeft =
     shouldAutoOverlayPanels &&
-    leftPushInset > 0 &&
-    viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH;
+    (sidebarChrome
+      ? sideRailPushWidth > 0 &&
+        viewportWidth - sidebarCollapse.width - sideRailPushWidth < CENTER_CONTENT_MIN_WIDTH
+      : leftPushInset > 0 &&
+        viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH);
   const leftPanelOverlaysContent = autoOverlayLeft;
-  const rightPanelOverlaysContent = rightOverlay || autoOverlayRight;
-  const leftInset = leftPanelOverlaysContent ? 0 : leftPushInset;
+  const rightPanelOverlaysContent = dispatchSheetOpen || rightOverlay || autoOverlayRight;
+  // When the side rail overlays, keep the nav rail inset so content starts after icons.
+  const leftInset = leftPanelOverlaysContent
+    ? (sidebarChrome ? sidebarCollapse.width : 0)
+    : leftPushInset;
   const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
-    top: navTotalHeight,
+    top: contentTopOffset,
     bottom: 28,
     left: leftInset,
     right: rightInset,
     overflow: "auto",
-    transition: "left 200ms ease, right 200ms ease",
+    // SCO-087: insets commit in a single write — no left/right transition, so the
+    // (often heavy) center pane reflows at most once per rail toggle / resize
+    // instead of every animation frame. The rail animates its own light subtree.
   } : {};
+  // Side panels: start below the top row in sidebar mode (style overrides SidePanel default).
+  const panelTopStyle: React.CSSProperties = sidebarChrome
+    ? { top: contentTopOffset }
+    : {};
+  // SCO-087b: the side rail rises to the TITLE band so its header (HOME / OPS /…)
+  // shares one clean top grid line with the SCOUT brand and the title bar; its
+  // body then sits above the secondary-nav row. The title-bar frame starts to the
+  // right of the rail (see below) so the rail header is never overpainted.
+  const railTopStyle: React.CSSProperties = sidebarChrome
+    ? { top: chromeTopOffset }
+    : {};
   const shellChromeStyle = {
     display: "contents",
     "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
     "--scout-shell-right-inset": `${layoutMode === "panel" ? rightInset : 0}px`,
+    // Side-rail expand control offsets against the nav icon/expanded rail width.
+    ...(sidebarChrome
+      ? { "--scout-nav-rail-width": `${sidebarCollapse.width}px` }
+      : {}),
   } as React.CSSProperties;
   const rightOverlayControlTitle = rightOverlay
     ? "Pin inspector (push content)"
     : autoOverlayRight
       ? "Keep inspector floating when there is room"
       : "Float inspector (overlay content)";
-  const panelOverlayStyle = useCallback((side: "left" | "right"): React.CSSProperties => ({
+  const panelOverlayStyle = useCallback((side: "left" | "right", sheet = false): React.CSSProperties => ({
     backgroundColor: "rgba(13, 14, 16, 0.72)",
     backdropFilter: "blur(24px) saturate(140%)",
     WebkitBackdropFilter: "blur(24px) saturate(140%)",
     boxShadow: side === "left"
       ? "18px 0 48px -12px rgba(0,0,0,0.7), inset -1px 0 0 0 rgba(255,255,255,0.06)"
       : "-18px 0 48px -12px rgba(0,0,0,0.7), inset 1px 0 0 0 rgba(255,255,255,0.06)",
+    ...(sheet ? {
+      right: 12,
+      bottom: 40,
+      border: "1px solid rgba(255,255,255,0.09)",
+      borderRadius: 12,
+      boxShadow: "-24px 18px 72px -18px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.025)",
+    } : {}),
   }), []);
 
   return (
@@ -719,72 +1001,305 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           onZoom={handleZoom}
           hud={
             <>
-              <ScoutNavigationBar
-                title={scopePresentation ? scopeBrandLabel : app.name}
-                search={scopePresentation ? undefined : (appSearch ?? undefined)}
-                center={appNavCenter}
-                actions={appNavActions}
-              />
+              {/* SCO-085: ScoutNavigationBar is conditionally UNMOUNTED in sidebar
+                  mode (not CSS-hidden) so duplicate controls/IDs never exist. */}
+              {!sidebarChrome ? (
+                <ScoutNavigationBar
+                  title={scopePresentation ? scopeBrandLabel : app.name}
+                  search={scopePresentation ? undefined : (appSearch ?? undefined)}
+                  center={appNavCenter}
+                  actions={appNavActions}
+                />
+              ) : null}
 
-              <SidePanel
-                side="left"
-                title={
-                  agentsV2Route
-                    ? "Browse"
-                    : route.view === "agents" || route.view === "agent-info"
-                      ? "Projects"
-                      : app.leftPanel?.title ?? "Navigation"
-                }
-                icon={app.leftPanel?.icon}
-                isCollapsed={leftCollapsed}
-                onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
-                width={leftWidth}
-                onResizeStart={handleResizeStart("left")}
-                style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
-                footer={!leftCollapsed ? canvasMinimapNode : undefined}
-                headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
-              >
-                <div data-pane="left" style={{ display: "contents" }}>
-                  {app.slots.LeftPanel && <app.slots.LeftPanel />}
+              {sidebarChrome ? (
+                <>
+                  <SidebarProvider
+                    open={!sidebarCollapse.effectiveCollapsed}
+                    onOpenChange={(open) => sidebarCollapse.setCollapsed(!open)}
+                    style={
+                      {
+                        // Live expanded width (SCO-086 continuous resize).
+                        "--sidebar-width": `${sidebarCollapse.expandedWidth}px`,
+                        "--sidebar-width-icon": `${SIDEBAR_COLLAPSED_WIDTH}px`,
+                        // Full-height: brand at window top (titleBarInset is padding, not offset).
+                        "--scout-sidebar-top": "0px",
+                      } as React.CSSProperties
+                    }
+                    data-sidebar-resizing={
+                      sidebarCollapse.isSidebarResizing ? "" : undefined
+                    }
+                  >
+                    <ScoutSidebar brandLabel={app.name} />
+                  </SidebarProvider>
+
+                  {/* SCO-087: sidebar edge chevron rendered by the shell (not the
+                      sidebar body) so it can ride the ghost edge during resize and
+                      align to the same panel-header band as the side rail /
+                      inspector chevrons. Rides the ghost width while dragging. */}
+                  <RailToggle
+                    side="left"
+                    collapsed={sidebarCollapse.effectiveCollapsed}
+                    label="Sidebar"
+                    onToggle={sidebarCollapse.toggleCollapsed}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="scout-rail-toggle--sidebar-edge"
+                    style={{
+                      position: "fixed",
+                      left:
+                        sidebarCollapse.isSidebarResizing &&
+                        sidebarCollapse.dragGhostWidth != null
+                          ? sidebarCollapse.dragGhostWidth
+                          : sidebarCollapse.width,
+                      top: titleBandToggleTop,
+                      zIndex: 46,
+                      transform: "translateX(-50%)",
+                    }}
+                  />
+
+                  {/* Shell-level resize handle at the sidebar edge (z > 40 so it
+                      wins hit-testing over the side rail at the same x). Not
+                      stock SidebarRail (that toggles on click). */}
+                  {!sidebarCollapse.effectiveCollapsed ? (
+                    <div
+                      data-scout-sidebar-resize-handle=""
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Resize sidebar"
+                      title="Drag to resize · double-click to reset"
+                      onPointerDown={handleSidebarResizePointerDown}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        sidebarCollapse.resetExpandedWidth();
+                      }}
+                      onMouseDown={(e) => {
+                        // Exempt from native window drag region.
+                        e.stopPropagation();
+                      }}
+                      style={{
+                        position: "fixed",
+                        left: Math.max(0, sidebarCollapse.width - 3),
+                        // Leave the title band free for the edge RailToggle.
+                        top: chromeTopOffset + SIDEBAR_TOP_ROW_HEIGHT,
+                        bottom: 28,
+                        width: 6,
+                        zIndex: 50,
+                        cursor: "ew-resize",
+                        pointerEvents: "auto",
+                        touchAction: "none",
+                      }}
+                    />
+                  ) : null}
+
+                  {/* SCO-087: ghost edge during drag — the committed width stays
+                      pinned (no center-pane relayout); this 2px line previews the
+                      target, and the width commits once on pointer-up. */}
+                  {sidebarCollapse.isSidebarResizing &&
+                  sidebarCollapse.dragGhostWidth != null ? (
+                    <div
+                      data-scout-sidebar-resize-ghost=""
+                      aria-hidden="true"
+                      className="scout-sidebar-resize-ghost"
+                      style={{
+                        position: "fixed",
+                        left: sidebarCollapse.dragGhostWidth,
+                        top: chromeTopOffset,
+                        bottom: 28,
+                        width: 2,
+                        transform: "translateX(-50%)",
+                        zIndex: 55,
+                        pointerEvents: "none",
+                      }}
+                    />
+                  ) : null}
+
+                  {/* Side rail: per-area context in a LEFT HudsonKit SidePanel.
+                      Distinct shell slot from the nav sidebar and legacy LeftPanel. */}
+                  {sideRailActive ? (
+                    <ScoutSideRail
+                      navRailWidth={sidebarCollapse.width}
+                      isCollapsed={leftCollapsed}
+                      onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+                      width={leftWidth}
+                      onResizeStart={handleResizeStart("left")}
+                      style={{
+                        ...railTopStyle,
+                        ...(leftPanelOverlaysContent ? panelOverlayStyle("left") : {}),
+                      }}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <SidePanel
+                    side="left"
+                    title={
+                      agentsV2Route
+                        ? "Browse"
+                        : route.view === "agents-v2" || route.view === "agent-info"
+                          ? "Projects"
+                          : app.leftPanel?.title ?? "Navigation"
+                    }
+                    icon={app.leftPanel?.icon}
+                    isCollapsed={leftCollapsed || scopeHidesLegacyLeft}
+                    onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+                    width={leftWidth}
+                    onResizeStart={handleResizeStart("left")}
+                    style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
+                    footer={!leftCollapsed && !scopeHidesLegacyLeft ? canvasMinimapNode : undefined}
+                    headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
+                  >
+                    <div data-pane="left" style={{ display: "contents" }}>
+                      {app.slots.LeftPanel && <app.slots.LeftPanel />}
+                    </div>
+                  </SidePanel>
+
+                  {(leftCollapsed || scopeHidesLegacyLeft) ? floatingCanvasMinimapNode : null}
+                </>
+              )}
+
+              {/* SCO-087: single app-wide top row (sidebar-chrome path only).
+                  Right of the full-height sidebar; consolidates the page
+                  title/breadcrumb + secondary nav (CenterPaneHeader) with the
+                  machine scope + settings + ⌘K utilities. Owns the top drag
+                  region so frameless/macOS window drag keeps working. */}
+              {topRowActive ? (
+                <div
+                  data-scout-top-row-frame=""
+                  className="scout-top-row-frame"
+                  // Merge the platform drag-region style INTO ours (macOS sets
+                  // -webkit-app-region on style); spreading dragRegionProps raw
+                  // would clobber our fixed positioning.
+                  // SCO-087b: starts to the RIGHT of the side rail so the risen
+                  // rail header keeps the top grid line; height stacks the title
+                  // band + (when present) the secondary-nav row.
+                  style={{
+                    position: "fixed",
+                    top: chromeTopOffset,
+                    left: sidebarCollapse.width + sideRailPushWidth,
+                    right: 0,
+                    height: topRowHeight,
+                    zIndex: 30,
+                    ...((dragRegionProps as { style?: React.CSSProperties } | undefined)?.style ?? {}),
+                  }}
+                  {...(Object.fromEntries(
+                    Object.entries((dragRegionProps ?? {}) as Record<string, unknown>).filter(
+                      ([key]) => key !== "style",
+                    ),
+                  ) as React.HTMLAttributes<HTMLDivElement>)}
+                >
+                  <CenterPaneHeader
+                    variant="top-row"
+                    onInteractiveMouseDown={onInteractiveMouseDown}
+                    rightUtility={
+                      <TopRowUtilities
+                        onOpenCommandPalette={() => setShowCommandPalette(true)}
+                      />
+                    }
+                  />
                 </div>
-              </SidePanel>
+              ) : null}
 
-              {leftCollapsed ? floatingCanvasMinimapNode : null}
-
-              <SidePanel
-                side="right"
-                title={agentsV2Route ? "Detail" : app.rightPanel?.title ?? "Inspector"}
-                icon={app.rightPanel?.icon}
-                isCollapsed={effectiveRightCollapsed}
-                onToggleCollapse={() => {
+              {showRightPanel && (() => {
+                const inspectorTitle = dispatchSheetOpen
+                  ? "Dispatch detail"
+                  : agentsV2Route
+                    ? "Detail"
+                    : app.rightPanel?.title ?? "Inspector";
+                const handleRightToggle = () => {
                   // Nothing to inspect on an unselected directory, so the expand
                   // affordance is inert there — don't flip the stored preference.
                   if (inspectorHasNothingInContext || projectsHaveNothingInContext) return;
+                  // SCO-085: /ops/lanes empty CONTEXT uses a temporary route-scoped
+                  // open override — never permanently flip stored rightCollapsed for emptiness.
+                  if (lanesContextRoute) {
+                    const next = nextLanesContextToggle({
+                      empty: lanesContextEmpty,
+                      forceOpen: lanesContextForceOpen,
+                      rightCollapsed,
+                    });
+                    setLanesContextForceOpen(next.forceOpen);
+                    if (next.rightCollapsed !== rightCollapsed) {
+                      setRightCollapsed(next.rightCollapsed);
+                    }
+                    return;
+                  }
                   setRightCollapsed(!rightCollapsed);
-                }}
-                width={rightWidth}
-                onResizeStart={handleResizeStart("right")}
-                style={rightPanelOverlaysContent ? panelOverlayStyle("right") : undefined}
-                footer={rightFooter}
-                headerActions={
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setRightOverlay((o) => (autoOverlayRight && !o ? true : !o))}
-                      title={rightOverlayControlTitle}
-                      aria-label={rightOverlayControlTitle}
-                      className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    >
-                      {rightPanelOverlaysContent ? <PinOff size={12} /> : <Pin size={12} />}
-                    </button>
-                    {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
-                  </>
+                };
+
+                // SCO-086: sidebar chrome uses OpenScout CollapsedRail at 48px;
+                // legacy path keeps HudsonKit's 0-width floating expand button.
+                if (sidebarChrome && effectiveRightCollapsed) {
+                  return (
+                    <CollapsedRail
+                      side="right"
+                      title={inspectorTitle}
+                      onToggle={handleRightToggle}
+                      edgeOffset={0}
+                      top={contentTopOffset}
+                      style={panelTopStyle}
+                    />
+                  );
                 }
-              >
-                <div data-pane="right" style={{ display: "contents" }}>
-                  {rightContent}
-                </div>
-              </SidePanel>
+
+                return (
+                  <>
+                    <SidePanel
+                      side="right"
+                      title={inspectorTitle}
+                      icon={app.rightPanel?.icon}
+                      isCollapsed={sidebarChrome ? false : effectiveRightCollapsed}
+                      onToggleCollapse={sidebarChrome ? undefined : handleRightToggle}
+                      width={rightWidth}
+                      onResizeStart={handleResizeStart("right")}
+                      floating={rightPanelOverlaysContent}
+                      style={{
+                        ...panelTopStyle,
+                        ...(rightPanelOverlaysContent
+                          ? panelOverlayStyle("right", dispatchSheetOpen)
+                          : {}),
+                      }}
+                      footer={rightFooter}
+                      headerActions={
+                        <>
+                          {!dispatchSheetOpen && (
+                            <button
+                              type="button"
+                              onClick={() => setRightOverlay((o) => (autoOverlayRight && !o ? true : !o))}
+                              title={rightOverlayControlTitle}
+                              aria-label={rightOverlayControlTitle}
+                              className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                            >
+                              {rightPanelOverlaysContent ? <PinOff size={12} /> : <Pin size={12} />}
+                            </button>
+                          )}
+                          {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
+                        </>
+                      }
+                    >
+                      <div data-pane="right" style={{ display: "contents" }}>
+                        {rightContent}
+                      </div>
+                    </SidePanel>
+                    {sidebarChrome && !effectiveRightCollapsed ? (
+                      <RailToggle
+                        side="right"
+                        collapsed={false}
+                        label={inspectorTitle}
+                        onToggle={handleRightToggle}
+                        className="scout-rail-toggle--panel scout-rail-toggle--inspector"
+                        style={{
+                          position: "fixed",
+                          right: rightWidth,
+                          top: inspectorToggleTop,
+                          zIndex: 45,
+                          transform: "translateX(50%)",
+                        }}
+                      />
+                    ) : null}
+                  </>
+                );
+              })()}
 
               <StatusBar
                 status={statusBar.status}
@@ -814,7 +1329,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   bottom: 0,
                   top: 0,
                   zIndex: 45,
-                  transition: "left 200ms ease, right 200ms ease",
+                  // SCO-087: insets commit once (no left/right layout transition).
                   transform: "translateZ(0)",
                 }}
               >
@@ -857,6 +1372,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           }
         >
           <div style={contentStyle} className="frame-scrollbar" data-pane="center">
+            {/* SCO-087: the breadcrumb / sub-nav seam now lives in the fixed
+                app-wide top row above (CenterPaneHeader variant="top-row"), not
+                inside the scrolling center pane. */}
             <app.slots.Content />
           </div>
         </Frame>
@@ -869,6 +1387,26 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           aria-modal="true"
           style={{ position: "fixed", inset: 0, zIndex: 80, outline: "none" }}
         >
+          {/* SCO-085: onboarding is outside the inert tree; sidebar drag is covered.
+              Equivalent drag strip at the top of the takeover. */}
+          <div
+            data-scout-takeover-drag-region=""
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: Math.max(28, titleBarInset || 28),
+              zIndex: 1,
+              ...((dragRegionProps as { style?: React.CSSProperties } | undefined)?.style ?? {}),
+            }}
+            {...(Object.fromEntries(
+              Object.entries((dragRegionProps ?? {}) as Record<string, unknown>).filter(
+                ([key]) => key !== "style",
+              ),
+            ) as React.HTMLAttributes<HTMLDivElement>)}
+          />
           <TakeoverSlot />
         </div>
       ) : null}

@@ -14,7 +14,7 @@ export function AgentsContent({ route, navigate }: { route: Route; navigate: Nav
       />
     );
   }
-  if (route.view === "agents") {
+  if (route.view === "agents-v2") {
     return (
       <AgentsScreen
         navigate={navigate}

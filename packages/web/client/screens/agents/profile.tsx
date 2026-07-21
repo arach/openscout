@@ -394,7 +394,7 @@ export function AgentProfileSessionsCenter({
   navigate: (r: Route) => void;
   route: Route;
   /** Registry surface that owns this profile — drives Message / New session navigation. */
-  homeView?: Extract<Route, { view: "agents" } | { view: "agents-v2" }>["view"];
+  homeView?: Extract<Route, { view: "agents-v2" }>["view"];
 }) {
   const { focusedSession, focusSession } = useScout();
   const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
@@ -504,10 +504,8 @@ export function AgentProfileSessionsCenter({
   const resumeSession = (s: SessionCatalogEntry) =>
     openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
   const selectSession = (sessionId: string) => {
+    // Routed sessionId is the selection source of truth (SCO-082 Phase B).
     focusSession(agent.id, sessionId);
-    if (route.view === "agents-v2" && route.agentId === agent.id) {
-      navigate({ ...route, sessionId });
-    }
   };
 
   return (
@@ -869,10 +867,10 @@ function SessionProfileCenter({
       ? name
       : [agent.project ? `/${agent.project}` : null, agent.branch, modelShort].filter(Boolean).join(" · ");
 
-  const agentRoute = (patch: Partial<Extract<Route, { view: "agents" } | { view: "agents-v2" }>>): Route =>
+  const agentRoute = (patch: Partial<Extract<Route, { view: "agents-v2" }>>): Route =>
     route.view === "agents-v2"
       ? { ...route, ...patch, view: "agents-v2" }
-      : { view: "agents", agentId: agent.id, ...patch };
+      : { view: "agents-v2", agentId: agent.id, ...patch };
 
   const openMessage = async () => {
     try {
@@ -910,10 +908,8 @@ function SessionProfileCenter({
   const takeover = () =>
     openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
   const selectSession = (sessionId: string) => {
+    // Routed sessionId is the selection source of truth (SCO-082 Phase B).
     focusSession(agent.id, sessionId);
-    if (route.view === "agents-v2" && route.agentId === agent.id) {
-      navigate({ ...route, sessionId });
-    }
   };
 
   return (
@@ -1256,7 +1252,7 @@ function StartAgentChatPane({
       navigate(
         route.view === "agents-v2"
           ? { ...route, view: "agents-v2", agentId: agent.id, conversationId, tab: "message" }
-          : { view: "agents", agentId: agent.id, conversationId, tab: "message" },
+          : { view: "agents-v2", agentId: agent.id, conversationId, tab: "message" },
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open chat.");
@@ -1305,7 +1301,7 @@ export function AgentProfileBar({
   ];
   const navigateToTab = (tab: AgentTab) =>
     navigate({
-      view: "agents",
+      view: "agents-v2",
       agentId: agent.id,
       ...(conversationId ? { conversationId } : {}),
       tab,
@@ -1314,7 +1310,7 @@ export function AgentProfileBar({
     <div className="s-agent-bar">
       <BackToPicker
         slot="agents"
-        fallback={{ view: "agents" }}
+        fallback={{ view: "agents-v2" }}
         navigate={navigate}
         className="s-agent-bar-back"
       />

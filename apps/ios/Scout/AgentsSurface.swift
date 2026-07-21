@@ -19,6 +19,7 @@ import ScoutCapabilities
 /// crosses wires with another.
 struct AgentsSurface: View {
     let model: AppModel
+    let isActive: Bool
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
@@ -34,6 +35,8 @@ struct AgentsSurface: View {
     @State private var projectSheet: ProjectNode?
     @State private var sheetClient: (any ScoutBrokerClient)?
     @State private var didDebugOpen = false
+    @StateObject private var entrance = CockpitEntrancePhase()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum SortMode: String, CaseIterable, Identifiable {
         case project, recent
@@ -97,19 +100,24 @@ struct AgentsSurface: View {
                     .padding(.horizontal, HudSpacing.xxl)
                     .padding(.top, HudSpacing.lg)
                     .padding(.bottom, HudSpacing.md)
+                    .cockpitEntrance(index: 0, phase: entrance)
 
                 if isLoading {
                     HudEmptyState(title: "Loading agents", icon: "person.2")
                         .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
                 } else {
-                    if !allAgents.isEmpty { summaryBar }
+                    if !allAgents.isEmpty {
+                        summaryBar.cockpitEntrance(index: 1, phase: entrance)
+                    }
                     content
                 }
             }
         }
-        .refreshable { await load() }
-        .task(id: reloadKey) {
+        .refreshable { if isActive { await load() } }
+        .task(id: "\(reloadKey)|\(isActive)") {
+            guard isActive else { return }
             await load()
+            await entrance.reveal(when: isActive, animated: !reduceMotion)
             openDebugProjectIfRequested()
             guard model.fleetDataReadyToken != 0 else { return }
             while !Task.isCancelled {
@@ -165,6 +173,7 @@ struct AgentsSurface: View {
         if allVisibleAgents.isEmpty && !allAgents.isEmpty {
             HudEmptyState(title: "No matches", subtitle: "Nothing matches “\(searchText)”.", icon: "magnifyingglass")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
+                .cockpitEntrance(index: 2, phase: entrance)
         } else if sort == .recent {
             fleetRecentContent
         } else if sections.count > 1 {
@@ -174,6 +183,7 @@ struct AgentsSurface: View {
         } else {
             HudEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
+                .cockpitEntrance(index: 2, phase: entrance)
         }
     }
 
@@ -193,6 +203,7 @@ struct AgentsSurface: View {
             ) {
                 tapAgent(row.agent, in: row.machine)
             }
+            .cockpitEntrance(index: index + 2, phase: entrance)
             if index < rows.count - 1 { rowDivider }
         }
     }
@@ -202,7 +213,7 @@ struct AgentsSurface: View {
     /// about, just out of the way). A search collapses to matching Macs only.
     @ViewBuilder
     private var stackedContent: some View {
-        ForEach(onlineSections) { section in
+        ForEach(Array(onlineSections.enumerated()), id: \.element.id) { index, section in
             Section {
                 machineBody(section)
             } header: {
@@ -212,9 +223,11 @@ struct AgentsSurface: View {
                     liveCount: filtered(section.agents).filter { $0.state == .live }.count
                 )
             }
+            .cockpitEntrance(index: index + 2, phase: entrance)
         }
-        ForEach(offlineSections) { section in
+        ForEach(Array(offlineSections.enumerated()), id: \.element.id) { index, section in
             OfflineMachineRow(name: section.name, state: section.connectionState, lastSeen: section.lastSeen)
+                .cockpitEntrance(index: onlineSections.count + index + 2, phase: entrance)
         }
     }
 
@@ -224,12 +237,13 @@ struct AgentsSurface: View {
     private func machineBody(_ section: MachineAgents) -> some View {
         let agents = filtered(section.agents)
         if sort == .project {
-            ForEach(projects(from: agents)) { project in
+            ForEach(Array(projects(from: agents).enumerated()), id: \.element.id) { index, project in
                 ProjectSection(
                     project: project,
                     onOpenProject: { node in sheetClient = section.client; projectSheet = node },
                     onTapAgent: { agent in tapAgent(agent, in: section) }
                 )
+                .cockpitEntrance(index: index + 2, phase: entrance)
             }
         } else {
             // Most-recent: a flat list, newest first. The name + harness + age is
@@ -240,6 +254,7 @@ struct AgentsSurface: View {
                 AgentRow(agent: agent, connector: nil, showProject: false) {
                     tapAgent(agent, in: section)
                 }
+                .cockpitEntrance(index: idx + 2, phase: entrance)
                 if idx < ordered.count - 1 { rowDivider }
             }
         }
@@ -350,7 +365,6 @@ struct AgentsSurface: View {
     /// come through agent-less for a collapsed row. Queried in series — the fleet
     /// is small, and series keeps the `any ScoutBrokerClient` reads on-actor.
     private func load() async {
-        if sections.isEmpty { isLoading = true }
         let expectedReloadKey = reloadKey
         var result: [MachineAgents] = []
         for machine in model.agentMachines() {

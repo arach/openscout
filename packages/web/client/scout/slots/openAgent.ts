@@ -3,7 +3,7 @@ import {
   sessionRefFromSyntheticAgent,
 } from "../../lib/synthetic-agent-routing.ts";
 import type { Agent, AgentTab, Route } from "../../lib/types.ts";
-import { setNavReturn } from "../../lib/nav-return.ts";
+import type { NavigateOptions } from "../../lib/router.ts";
 import { openContent } from "./openContent.ts";
 
 /**
@@ -31,7 +31,7 @@ type OpenAgentOptions = {
 };
 
 export function openAgent(
-  navigate: (route: Route) => void,
+  navigate: (route: Route, options?: NavigateOptions) => void,
   agent: Agent,
   options: OpenAgentOptions = {},
 ): void {
@@ -42,11 +42,15 @@ export function openAgent(
     }
     return;
   }
-  if (options.returnTo) setNavReturn("agents", options.returnTo);
   const tab = options.tab ?? (options.observe ? "observe" : undefined);
-  navigate({
+  const target: Route = {
     view: "agents-v2",
     agentId: agent.id,
     ...(tab ? { tab } : {}),
-  });
+  };
+  if (options.returnTo) {
+    navigate(target, { returnTo: options.returnTo });
+    return;
+  }
+  navigate(target);
 }

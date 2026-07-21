@@ -1,8 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterContextProvider } from "@tanstack/react-router";
 import type { createScoutApp } from "../scout";
-import { scoutTanstackRouter } from "../router/tanstack/router.ts";
 import { DiscoveredEmbedHost } from "./EmbedHost.tsx";
 import { resolveEmbeddableSurface } from "./discover.ts";
 
@@ -15,11 +13,9 @@ export function mountDiscoveredEmbed(
 
   createRoot(el).render(
     <StrictMode>
-      <RouterContextProvider router={scoutTanstackRouter}>
-        <scoutApp.Provider>
-          <DiscoveredEmbedHost surface={surface} />
-        </scoutApp.Provider>
-      </RouterContextProvider>
+      <scoutApp.Provider>
+        <DiscoveredEmbedHost surface={surface} />
+      </scoutApp.Provider>
     </StrictMode>,
   );
   return true;

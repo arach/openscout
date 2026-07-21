@@ -3598,7 +3598,7 @@ async function buildOperatorAttentionState(
       actions: [
         ...(ask.conversationId
           ? [{ kind: "open" as const, label: "Open thread", route: { view: "conversation", conversationId: ask.conversationId } }]
-          : [{ kind: "open" as const, label: "Open agent", route: { view: "agents", agentId: ask.agentId } }]),
+          : [{ kind: "open" as const, label: "Open agent", route: { view: "agents-v2", agentId: ask.agentId } }]),
         ...(ask.flightId ? [{ kind: "dismiss" as const, label: "Dismiss", flightId: ask.flightId }] : []),
       ],
     });
@@ -6969,9 +6969,11 @@ export async function createOpenScoutWebServer(
       targetAgentId?: unknown;
       targetLabel?: unknown;
       metadata?: unknown;
+      attachments?: unknown;
       execution?: {
         harness?: unknown;
         model?: unknown;
+        reasoningEffort?: unknown;
       };
     };
     const message = optionalString(requestBody.body)?.trim();
@@ -7017,6 +7019,11 @@ export async function createOpenScoutWebServer(
       optionalString(requestBody.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
+    const executionReasoningEffort = optionalString(requestBody.execution?.reasoningEffort)?.trim();
+    if (requestBody.attachments !== undefined && !Array.isArray(requestBody.attachments)) {
+      return c.json({ error: "attachments must be an array" }, 400);
+    }
+    const attachments = requestBody.attachments as OutgoingAttachmentInput[] | undefined;
     const requestMetadata = recordInput(requestBody.metadata);
     const source = metadataStringValue(requestMetadata, "source") ?? "scout-web";
 
@@ -7027,6 +7034,8 @@ export async function createOpenScoutWebServer(
       body: message,
       ...(executionHarness ? { executionHarness } : {}),
       ...(executionModel ? { executionModel } : {}),
+      ...(executionReasoningEffort ? { executionReasoningEffort } : {}),
+      ...(attachments?.length ? { attachments } : {}),
       source,
       ...(requestMetadata ? {
         messageMetadata: requestMetadata,

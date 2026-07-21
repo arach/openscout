@@ -1,5 +1,71 @@
 import SwiftUI
+import Foundation
 import HudsonUI
+
+// MARK: - Shared surface entrance
+
+/// One launch-lifetime entrance latch owned by a top-level surface. Keeping the
+/// phase outside individual rows means data inserted by later polls renders in
+/// place instead of replaying the screen's first-activation choreography.
+final class CockpitEntrancePhase: ObservableObject {
+    @Published private(set) var hasEntered = false
+    @Published private(set) var isVisible = false
+
+    @MainActor
+    func reveal(when isActive: Bool, animated: Bool) async {
+        guard isActive, !Task.isCancelled, !hasEntered else { return }
+        hasEntered = true
+        guard animated else {
+            isVisible = true
+            return
+        }
+
+        // Let the loaded hierarchy commit once at its settled-from origin.
+        try? await Task.sleep(for: .milliseconds(20))
+        // If a very fast tab switch cancelled this beat, finish the latch rather
+        // than leaving the surface transparent on its next activation.
+        isVisible = true
+    }
+}
+
+extension View {
+    /// Scout's single first-activation language: a quiet 7pt vertical settle and
+    /// fade, staggered by 35ms with the same spring on every top-level surface.
+    func cockpitEntrance(
+        index: Int,
+        phase: CockpitEntrancePhase,
+        motionEnabled: Bool = true
+    ) -> some View {
+        modifier(
+            CockpitEntranceModifier(
+                index: index,
+                phase: phase,
+                motionEnabled: motionEnabled
+            )
+        )
+    }
+}
+
+private struct CockpitEntranceModifier: ViewModifier {
+    let index: Int
+    @ObservedObject var phase: CockpitEntrancePhase
+    let motionEnabled: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let animates = motionEnabled && !reduceMotion
+        let delay = Double(min(max(index, 0), 8)) * 0.035
+        content
+            .opacity(animates ? (phase.isVisible ? 1 : 0) : 1)
+            .offset(y: animates && !phase.isVisible ? 7 : 0)
+            .animation(
+                animates
+                    ? .spring(response: 0.34, dampingFraction: 0.82).delay(delay)
+                    : nil,
+                value: phase.isVisible
+            )
+    }
+}
 
 // MARK: - Cockpit canvas
 //
@@ -101,6 +167,15 @@ struct ScoutToneTokens {
     var cardEdgeBottom: Color { HudPalette.border }
 }
 
+/// Round-two Home experiments live behind one compact set of defaults keys so
+/// the entire pass can be A/B'd from the simulator without a settings surface.
+/// RootView owns the three `@AppStorage` reads and passes the resolved flags on.
+enum ScoutHomeFX {
+    static let grainKey = "scout.home.fx.grain"
+    static let motionKey = "scout.home.fx.motion"
+    static let identityKey = "scout.home.fx.identity"
+}
+
 /// App-level surface fills that carry the active canvas tone. Resolved at access
 /// time from `scout.tone`; use these in place of hudson's neutral white-alpha
 /// `HudSurface.inset` / `.raised` so recessed and raised surfaces warm or cool
@@ -115,8 +190,14 @@ enum ScoutSurface {
 }
 
 struct ScoutCanvas: View {
+    var isFleetLive = false
+    var grainEnabled = true
+    var motionEnabled = true
+
     @AppStorage(ScoutTone.storageKey) private var toneRaw = ScoutTone.default.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var tone: ScoutToneTokens { ScoutTone.resolve(toneRaw).tokens }
+    private var reactiveLightIsLive: Bool { grainEnabled && isFleetLive }
 
     var body: some View {
         ZStack {
@@ -137,13 +218,70 @@ struct ScoutCanvas: View {
             // cold white / neutral). Over `.screen` on the dark canvas it resolves
             // to a faint lit glow that de-greys the upper third.
             RadialGradient(
-                colors: [tone.keyLight.opacity(0.06), tone.keyLight.opacity(0.0)],
+                colors: [
+                    tone.keyLight.opacity(reactiveLightIsLive ? 0.082 : 0.06),
+                    tone.keyLight.opacity(0.0)
+                ],
                 center: UnitPoint(x: 0.5, y: 0.0),
-                startRadius: 0, endRadius: 360
+                startRadius: 0,
+                endRadius: reactiveLightIsLive ? 392 : 360
             )
             .blendMode(.screen)
+
+            if grainEnabled {
+                ScoutFilmGrain()
+            }
         }
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: motionEnabled ? 1.4 : 1.6),
+            value: reactiveLightIsLive
+        )
         .allowsHitTesting(false)
+    }
+}
+
+/// A cached, deterministic 48px monochrome tile. The texture is generated once
+/// for the process, then composited by the GPU as an ImagePaint; there is no
+/// TimelineView and no per-frame noise work while the key-light animates.
+private struct ScoutFilmGrain: View {
+    private static let tile: CGImage = {
+        let side = 48
+        var state: UInt32 = 0x5C0A_7E11
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        for index in pixels.indices {
+            state = 1_664_525 &* state &+ 1_013_904_223
+            // A narrow mid-grey distribution keeps the soft-light result fine,
+            // rather than turning individual pixels into visible stars.
+            pixels[index] = UInt8(82 + ((state >> 24) % 93))
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        return CGImage(
+            width: side,
+            height: side,
+            bitsPerComponent: 8,
+            bitsPerPixel: 8,
+            bytesPerRow: side,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )!
+    }()
+
+    var body: some View {
+        Rectangle()
+            .fill(
+                ImagePaint(
+                    image: Image(decorative: Self.tile, scale: 3, orientation: .up),
+                    scale: 1
+                )
+            )
+            .blendMode(.softLight)
+            .opacity(0.028)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -190,6 +328,9 @@ enum ScoutInk {
 /// a lime signal and more luminous status hues that pop against the dark canvas,
 /// for a higher-contrast, more energetic read than the app's default emerald set.
 enum ScoutVibe {
+    /// Home's compact operational cards share one continuous corner treatment.
+    /// Capsules and chips keep their own geometry.
+    static let cardRadius: CGFloat = 8
     /// Lime accent (#9ce86b) — the canvas signature, brighter than emerald.
     static let accent = Color(red: 156.0/255, green: 232.0/255, blue: 107.0/255)
     /// Warm amber (#f2b34d) — permission / confirm.

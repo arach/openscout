@@ -43,6 +43,15 @@ export type ScoutbotPublicState = {
     title: string | null;
     lastActivityAt: number | null;
   };
+  /**
+   * SCO-085: conversation emptiness/loading exposed ABOVE the right panel so
+   * the shell can auto-collapse empty CONTEXT without mounting panel children
+   * (collapsed SidePanel unmounts them — direct /ops/lanes must not deadlock).
+   */
+  conversation: {
+    messageCount: number;
+    loading: boolean;
+  };
 };
 
 export type ScoutbotActionApi = {
@@ -63,6 +72,7 @@ export const DEFAULT_SCOUTBOT_STATE: ScoutbotPublicState = {
   voice: { available: null, setupBlocked: false, replies: false },
   error: null,
   session: { title: null, lastActivityAt: null },
+  conversation: { messageCount: 0, loading: true },
 };
 
 const noop = () => {};
@@ -158,7 +168,9 @@ function scoutbotStateEqual(a: ScoutbotPublicState, b: ScoutbotPublicState): boo
     a.voice.replies === b.voice.replies &&
     a.error === b.error &&
     a.session.title === b.session.title &&
-    a.session.lastActivityAt === b.session.lastActivityAt
+    a.session.lastActivityAt === b.session.lastActivityAt &&
+    a.conversation.messageCount === b.conversation.messageCount &&
+    a.conversation.loading === b.conversation.loading
   );
 }
 

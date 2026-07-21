@@ -262,7 +262,7 @@ export function NewChatComposer({
           attachments,
         });
         navigate({
-          view: "agents",
+          view: "agents-v2",
           agentId: result.agentId,
           conversationId: result.conversationId,
           tab: "message",

@@ -63,7 +63,7 @@ mock.module(new URL("./scout/Provider.tsx", import.meta.url).pathname, () => ({
 }));
 
 const { ScoutTerminal } = await import("./scout/slots/Terminal.tsx");
-const { TerminalScreen } = await import("./screens/TerminalScreen.tsx");
+const { TerminalScreen } = await import("./screens/terminal/Terminal.tsx");
 
 function installWindow(bootstrap?: {
   routes?: {

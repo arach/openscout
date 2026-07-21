@@ -82,6 +82,21 @@
   --color-success: var(--hud-status-ok);
   --color-warning: var(--hud-status-warn);
   --color-destructive: var(--hud-status-error);
+
+  /* SCO-084: shadcn sidebar tokens mapped onto HUD oklch chrome (mono skin). */
+  --sidebar: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+  --sidebar-foreground: var(--hud-ink);
+  --sidebar-primary: var(--hud-ink);
+  --sidebar-primary-foreground: var(--hud-bg);
+  --sidebar-accent: color-mix(in srgb, var(--hud-ink) 7%, transparent);
+  --sidebar-accent-foreground: var(--hud-ink);
+  --sidebar-border: color-mix(in srgb, var(--hud-ink) 8%, transparent);
+  --sidebar-ring: var(--hud-accent);
+  --sidebar-width: 260px;
+  /* SCO-086: one shared collapsed rail width across sidebar / side rail / inspector. */
+  --scout-rail-collapsed-width: 48px;
+  --sidebar-width-icon: var(--scout-rail-collapsed-width);
+
   color: var(--ink);
 }
 
@@ -132,6 +147,15 @@
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--hud-surface) 74%, transparent), transparent),
     color-mix(in srgb, var(--hud-bg) 72%, transparent);
+}
+
+/* SCO-087b: in sidebar chrome the side-rail + inspector headers now sit on a
+   panel boundary that carries the edge chevron (on the top grid line). Give the
+   title extra left clearance so it reads as its own label, not glued to the
+   chevron ("‹ OPS" / "› CONTEXT"). Scoped to sidebar chrome — legacy untouched. */
+html[data-scout-sidebar-chrome] [data-frame-panel="manifest"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child,
+html[data-scout-sidebar-chrome] [data-frame-panel="inspector"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child {
+  padding-left: 24px !important;
 }
 
 [data-scout-theme] [data-frame-panel="manifest"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child span,
@@ -207,7 +231,13 @@ body { margin: 0; }
   display: flex;
   align-items: center;
   gap: var(--space-2xs);
-  transform: translateX(calc((var(--scout-shell-left-inset, 0px) - var(--scout-shell-right-inset, 0px)) / 2));
+  /* Center the strip over the content area between the rails, but never let
+     the shift push it under the nav bar's absolutely-positioned side groups
+     (widths published by ScoutNavigationBar as --scout-nav-*-w). */
+  --scout-nav-shift: calc((var(--scout-shell-left-inset, 0px) - var(--scout-shell-right-inset, 0px)) / 2);
+  --scout-nav-shift-max: max(0px, calc(50vw - var(--scout-nav-right-w, 460px) - 8px - var(--scout-nav-strip-w, 280px) / 2));
+  --scout-nav-shift-min: min(0px, calc(var(--scout-nav-left-w, 120px) + 8px + var(--scout-nav-strip-w, 280px) / 2 - 50vw));
+  transform: translateX(clamp(var(--scout-nav-shift-min), var(--scout-nav-shift), var(--scout-nav-shift-max)));
   transition: transform var(--motion-duration-state) var(--motion-ease-standard);
 }
 
@@ -250,6 +280,337 @@ body { margin: 0; }
 .scout-nav-crumb {
   font-size: var(--text-lg);
   color: var(--scout-chrome-ink);
+}
+
+/* SCO-085 / SCO-086: shared center-pane header / page title bar. */
+.scout-center-pane-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--hud-surface) 55%, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.scout-center-pane-header-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.scout-center-pane-header-utility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.scout-center-pane-secondary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.scout-center-pane-breadcrumb {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.scout-center-pane-header .scout-nav-crumb {
+  font-family: var(--hud-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--scout-chrome-ink-soft);
+}
+
+/* SCO-087: CenterPaneHeader promoted to the fixed app-wide top row. It fills the
+   .scout-top-row-frame wrapper (which owns fixed positioning + the drag region),
+   so it drops sticky and paints an opaque seam. */
+.scout-top-row-frame {
+  pointer-events: auto;
+}
+
+/* SCO-087b: the top row is two STACKED rows — a title band (breadcrumb +
+   utilities only, "empty of tabs") and, below it, the secondary content-nav row.
+   The container is a column; each row owns its own horizontal layout. */
+.scout-center-pane-header--top-row {
+  position: static;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  height: 100%;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg));
+}
+
+/* Title band — one clean grid line with the SCOUT brand + side-rail header.
+   Height matches SIDEBAR_TOP_ROW_HEIGHT (44) in OpenScoutAppShell. */
+.scout-center-pane-header--top-row .scout-center-pane-header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 44px;
+  gap: 8px 12px;
+  padding: 0 12px 0 14px;
+  min-width: 0;
+}
+
+.scout-center-pane-header--top-row .scout-center-pane-header-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.scout-center-pane-header--top-row .scout-center-pane-header-utility {
+  flex-wrap: nowrap;
+}
+
+/* Secondary content-nav row — the "tabs" (area sub-nav / Ops / Chat strips),
+   directly below the title band. Fills the frame's remaining height
+   (SECONDARY_NAV_ROW_HEIGHT). */
+.scout-center-pane-header--top-row .scout-center-pane-header-secondary-row {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 0 12px 0 14px;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--hud-ink) 5%, transparent);
+}
+
+.scout-center-pane-header--top-row .scout-center-pane-header-secondary-row .scout-center-pane-secondary {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Top-row settings / ⌘K accelerators (compact chrome buttons). */
+.scout-top-row-util {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--scout-chrome-border-soft, color-mix(in srgb, var(--hud-ink) 11%, transparent));
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--hud-bg) 82%, transparent);
+  color: var(--scout-chrome-ink-faint);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.scout-top-row-util:hover {
+  color: var(--scout-chrome-ink);
+  background: var(--scout-chrome-hover);
+  border-color: color-mix(in srgb, var(--hud-ink) 16%, transparent);
+}
+
+.scout-top-row-util-kbd {
+  font-family: var(--hud-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--scout-chrome-ink-ghost);
+}
+
+/* SCO-087b: pin the SCOUT brand band to the shared 44px top grid line so it
+   lines up with the risen side-rail header and the title bar. The inline style
+   still supplies macOS titleBarInset as top padding (traffic-light clearance). */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-header"] {
+  padding-bottom: 0;
+  gap: 0;
+}
+
+html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] {
+  height: 44px;
+  align-items: center;
+}
+
+/* Expanded brand button fills the band (collapsed icon rail keeps its 32px
+   square via the important size-8 utility). */
+html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-menu-button"] {
+  height: 44px;
+}
+
+/* SCO-086: unified edge chevron for all rails. */
+.scout-rail-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--hud-ink) 12%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--hud-surface) 92%, transparent);
+  color: var(--scout-chrome-ink-soft, var(--hud-ink));
+  font-family: var(--hud-font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 45;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.scout-rail-toggle:hover {
+  color: var(--scout-chrome-ink, var(--hud-ink));
+  background: color-mix(in srgb, var(--hud-ink) 8%, var(--hud-surface));
+  border-color: color-mix(in srgb, var(--hud-ink) 22%, transparent);
+}
+
+.scout-rail-toggle:focus-visible {
+  outline: 2px solid var(--hud-accent, oklch(0.86 0.17 125));
+  outline-offset: 1px;
+}
+
+.scout-rail-toggle-glyph {
+  display: block;
+  transform: translateY(-0.5px);
+}
+
+/* SCO-087: sidebar edge chevron — shell-rendered fixed element on the sidebar
+   boundary, in the panel-header band (aligned with the side rail / inspector
+   chevrons). Position/left ride is set inline so it tracks the ghost edge. */
+.scout-rail-toggle--sidebar-edge {
+  z-index: 46;
+}
+
+/* SCO-087: ghost edge painted during a sidebar drag-resize. The committed width
+   stays pinned (center pane does not relayout); this line previews the target. */
+.scout-sidebar-resize-ghost {
+  background: color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 22%, transparent);
+}
+
+/* Collapsed OpenScout rails (side rail + inspector). */
+.scout-collapsed-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+  border-color: color-mix(in srgb, var(--hud-ink) 8%, transparent);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: auto;
+}
+
+.scout-collapsed-rail[data-side="left"] {
+  border-right-width: 1px;
+}
+
+.scout-collapsed-rail[data-side="right"] {
+  border-left-width: 1px;
+}
+
+.scout-collapsed-rail-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--scout-chrome-ink-faint, color-mix(in srgb, var(--hud-ink) 45%, transparent));
+  font-family: var(--hud-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+/* SCO-087: rail collapse/expand + resize commit layout in ONE write. The center
+   pane (data-pane="center") and its insets carry no left/right transition, so a
+   heavy page reflows at most once per toggle instead of every frame. The sidebar
+   rail itself no longer eases width/left either — that drove a transient gap
+   against the instantly-committed center pane; the shadcn label opacity/margin
+   fades remain as the single composited motion. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] {
+  transition: none !important;
+}
+
+/* SCO-087 (review fix): the container override above does NOT reach descendants.
+   shadcn animates layout props on collapse — transition-[margin,opacity] on the
+   group label, transition-[width,height,padding] on menu buttons — which relays
+   out the sidebar subtree per frame. Restrict every descendant transition to
+   compositor-only opacity+transform so those layout props snap; the opacity
+   label fade (the single intended motion) is preserved. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
+  transition-property: opacity, transform !important;
+}
+
+/* prefers-reduced-motion: everything commits instantly, no fades. */
+@media (prefers-reduced-motion: reduce) {
+  [data-scout-theme] [data-slot="sidebar-container"],
+  [data-scout-theme] [data-slot="sidebar-container"] *,
+  [data-scout-theme] [data-scout-collapsed-rail],
+  [data-scout-theme] .scout-rail-toggle {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+[data-scout-sidebar-resize-handle] {
+  /* Hit target only — no visual chrome by default; subtle hover affordance. */
+  background: transparent;
+}
+
+[data-scout-sidebar-resize-handle]:hover,
+[data-scout-sidebar-resize-handle]:active {
+  background: color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 35%, transparent);
+}
+
+.scout-area-subnav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scout-area-subnav-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm, 4px);
+  padding: 4px 10px;
+  font-family: var(--hud-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--scout-chrome-ink-faint);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.scout-area-subnav-item:hover {
+  color: var(--scout-chrome-ink);
+  background: var(--scout-chrome-hover);
+}
+
+.scout-area-subnav-item--active {
+  color: var(--scout-chrome-ink-strong);
+  background: var(--scout-chrome-active);
+  box-shadow: inset 0 -2px 0 0 var(--hud-accent);
 }
 
 @keyframes scout-pulse {
@@ -3361,4 +3722,13 @@ a.s-inline-link {
     scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/*
+ * SCO-084 / legacy: SidePanel collapsed affordance hardcodes left-3.
+ * Sidebar chrome (SCO-086) uses OpenScout CollapsedRail instead; this offset
+ * only matters for the legacy left panel path when still present.
+ */
+html[data-scout-sidebar-chrome] button.left-3[title^="Expand "] {
+  left: calc(var(--scout-nav-rail-width, var(--scout-rail-collapsed-width, 48px)) + 12px);
 }

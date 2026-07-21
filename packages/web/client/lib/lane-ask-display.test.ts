@@ -105,4 +105,43 @@ also let's have a filter on the lanes that collapses technical events in turns (
     expect(model.preview).not.toContain("DerivedData");
     expect(model.preview).not.toContain("Talkie Capture");
   });
+
+  test("lifts injected context tags into chips instead of raw markup", () => {
+    const model = buildLaneAskDisplay(ask(`<in-app-browser-context source="ambient-ui-state"> This block is automatically supplied ambient UI state, not part of the user's request.
+</in-app-browser-context>
+
+Ship the chat-style request card.`));
+
+    expect(model.contextTags).toEqual([
+      {
+        name: "in-app-browser-context",
+        detail: "ambient-ui-state",
+        raw: '<in-app-browser-context source="ambient-ui-state">',
+      },
+    ]);
+    expect(model.title).toBe("This block is automatically supplied ambient UI state, not part of the user's request.");
+    expect(model.preview).toContain("Ship the chat-style request card.");
+    expect(model.preview).not.toContain("<in-app-browser-context");
+    expect(model.fullText).toContain("<in-app-browser-context");
+  });
+
+  test("dedupes repeated context tags and keeps the attributed variant", () => {
+    const model = buildLaneAskDisplay(ask(`<system-reminder>one</system-reminder>
+<system-reminder source="clock">two</system-reminder>
+Do the thing.`));
+
+    expect(model.contextTags).toEqual([
+      { name: "system-reminder", detail: "clock", raw: '<system-reminder source="clock">' },
+    ]);
+    expect(model.preview).toContain("one");
+    expect(model.preview).toContain("Do the thing.");
+    expect(model.preview).not.toContain("</system-reminder>");
+  });
+
+  test("leaves prose angle-bracket mentions in place", () => {
+    const model = buildLaneAskDisplay(ask("Use the <Task> tool and keep <b> intact."));
+
+    expect(model.contextTags).toEqual([]);
+    expect(model.title).toBe("Use the <Task> tool and keep <b> intact.");
+  });
 });

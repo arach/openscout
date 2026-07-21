@@ -79,7 +79,7 @@ export function AgentsLibrary({
   selectedAgentId?: string;
 }) {
   const { route, reload, openContextCapture } = useScout();
-  const selectedSlug = route.view === "agents" ? route.projectSlug : undefined;
+  const selectedSlug = route.view === "agents-v2" ? route.projectSlug : undefined;
 
   const activeAsksByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk[]>();
@@ -125,17 +125,17 @@ export function AgentsLibrary({
   const gestures: Gestures = {
     selectAgent: (row) =>
       navigate({
-        view: "agents",
+        view: "agents-v2",
         agentId: row.agent.id,
         ...(projectSlug ? { projectSlug } : {}),
       }),
     openAgentPage: (row) =>
-      navigate({ view: "agents", agentId: row.agent.id, tab: "profile" }),
+      navigate({ view: "agents-v2", agentId: row.agent.id, tab: "profile" }),
     startSession: (row) => openContextCapture({ agentId: row.agent.id }),
     openSession: (sessionRoute) => navigate(sessionRoute),
     // Retarget reuses the existing agent config editor (model/cwd/harness/…).
     configureAgent: (row) =>
-      navigate({ view: "agents", agentId: row.agent.id, tab: "config" }),
+      navigate({ view: "agents-v2", agentId: row.agent.id, tab: "config" }),
     restartAgent: (row) => {
       void api(`/api/agents/${encodeURIComponent(row.agent.id)}/config`, {
         method: "POST",

@@ -20,11 +20,20 @@ struct MissionControlSurface: View {
 
     let model: AppModel
     let kind: Kind
+    let isActive: Bool
 
     @State private var webState = HudWebViewState()
     @State private var reloadGeneration = 0
+    @StateObject private var entrance = CockpitEntrancePhase()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var sourceURL: URL? {
+        // Re-resolve on connection changes: `webAccessHost` is nil while the
+        // bridge handshake settles, and keep-alive mounting evaluates this long
+        // before that. Reading `connectionState` subscribes the surface so the
+        // embed appears once the route lands (previously the surface only
+        // mounted on tap, when everything was already warm).
+        _ = model.connectionState
         guard let base = model.missionControlURL(path: kind.embedPath),
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
             return nil
@@ -36,8 +45,13 @@ struct MissionControlSurface: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+                .cockpitEntrance(index: 0, phase: entrance)
             Group {
-                if let sourceURL {
+                // Create each WKWebView lazily on first activation, then leave it
+                // mounted and warm across every subsequent tab switch.
+                if !entrance.hasEntered {
+                    Color.clear
+                } else if let sourceURL {
                     HudWebSurface(
                         HudWebSurfaceDescriptor(
                             id: "scout.ios.\(kind.rawValue.lowercased())",
@@ -69,6 +83,10 @@ struct MissionControlSurface: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(HudPalette.bg)
+            .cockpitEntrance(index: 1, phase: entrance)
+        }
+        .task(id: isActive) {
+            await entrance.reveal(when: isActive, animated: !reduceMotion)
         }
     }
 

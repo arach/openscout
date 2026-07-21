@@ -919,6 +919,19 @@ export const STUDIO_PAGES: StudioPage[] = [
       "The sprite, productized — the curated crew as one set, dropped into rows · card · tree · iOS · comms at true size, a 16→160px legibility ramp, and deterministic-ish controls (blessed · auto · harness · reroll).",
   },
   {
+    href: "/studies/fleet-deck",
+    label: "Fleet Deck",
+    bucket: "studies",
+    surface: "cross",
+    status: "concept",
+    source: [
+      "design/studio/views/fleet-deck.tsx",
+      "design/studio/views/fleet-deck.module.css",
+    ],
+    blurb:
+      "v2.2 of the multi-machine Deck (voice · remote control), master-detail: a segmented channel-assign bar sized to the real fleet (one host = thin strip), and below it the selected host in two views — AGENT (pending ask with inline Approve/Reply, agents + activity log in a drag-resizable split) and WINDOW (the machine's live windows as a joystick-navigable list), switched from the panel title bar. The control row is a keyboard line — clipboard cluster left, enter/backspace right, press-and-hold joystick center: hold ↑↓ to walk windows, center-tap to focus on the machine. Composer docked-universal or host-scoped (MSG DECK/HOST). Amber reserved for attention; offline hosts show last-known windows and queue for reconnect. FLEET 1/3/4 study toggle, scripted push-to-talk demo, film-grain console texture.",
+  },
+  {
     href: "/studies/comms-mobile",
     label: "Comms Mobile",
     bucket: "studies",

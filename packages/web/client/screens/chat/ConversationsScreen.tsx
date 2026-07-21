@@ -11,6 +11,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import type { ConversationEntry, Route } from "../../lib/types.ts";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import { ChatSubnav } from "./ChatSubnav.tsx";
 import "./conversations-screen.css";
 
@@ -206,6 +207,12 @@ export function ConversationsScreen({
       </div>
     </div>
   );
+
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
+
+  if (!contentOwnsSecondaryNav) {
+    return <div className="s-secondary-nav-body s-secondary-nav-body--scroll">{content}</div>;
+  }
 
   return (
     <div className="s-secondary-nav-shell">

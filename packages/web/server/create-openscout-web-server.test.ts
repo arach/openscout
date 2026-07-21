@@ -4267,9 +4267,17 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         targetAgentId: "agent-2",
         targetLabel: "Talkie",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            fileName: "context.md",
+            url: "/api/blobs/blob-1",
+          },
+        ],
         execution: {
           harness: "codex",
           model: "gpt-test",
+          reasoningEffort: "high",
         },
       }),
     });
@@ -4290,6 +4298,14 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         executionHarness: "codex",
         executionModel: "gpt-test",
+        executionReasoningEffort: "high",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            fileName: "context.md",
+            url: "/api/blobs/blob-1",
+          },
+        ],
         source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
@@ -5116,7 +5132,7 @@ describe("createOpenScoutWebServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         body: "what's going on?",
-        route: { view: "fleet" },
+        route: { view: "inbox" },
       }),
     });
 
@@ -5163,7 +5179,7 @@ describe("createOpenScoutWebServer", () => {
             {
               id: "fleet",
               label: "Fleet",
-              route: { view: "fleet" },
+              route: { view: "inbox" },
               narration: "Fleet is quiet: no active work and available agents are standing by.",
             },
             {
@@ -5194,7 +5210,7 @@ describe("createOpenScoutWebServer", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        route: { view: "fleet" },
+        route: { view: "inbox" },
         ttlMs: 180_000,
       }),
     });
@@ -5213,7 +5229,7 @@ describe("createOpenScoutWebServer", () => {
     expect(json.steps).toEqual([
       expect.objectContaining({
         label: "Fleet",
-        route: { view: "fleet" },
+        route: { view: "inbox" },
         snapshot: expect.objectContaining({ expiresAt: json.expiresAt }),
       }),
       expect.objectContaining({
@@ -5253,7 +5269,7 @@ describe("createOpenScoutWebServer", () => {
             {
               id: "fleet",
               label: "Fleet",
-              route: { view: "fleet" },
+              route: { view: "inbox" },
               narration: "Fleet is steady: no blocked asks, and organic sessions are visible in the recent tail.",
             },
           ],
@@ -5316,7 +5332,7 @@ describe("createOpenScoutWebServer", () => {
       body: JSON.stringify({
         body: "check lattices status",
         delayMs: 180_000,
-        context: { route: { view: "fleet" } },
+        context: { route: { view: "inbox" } },
       }),
     });
 

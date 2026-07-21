@@ -1,22 +1,22 @@
-import { ArrowRight, Bot, Check, CheckCircle2, Copy, ExternalLink, LoaderCircle, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowRight, AtSign, Bot, Check, ChevronDown, Copy, ExternalLink, Hash, LoaderCircle, MessageSquare, Paperclip, Plus, Radio, RefreshCw, SendHorizontal, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DictationMic } from "../../components/DictationMic.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
-import { StatusPill } from "../../components/StatusPill.tsx";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { isRoutableMediaFile, uploadMediaFiles } from "../../lib/media-blobs.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { brokerAttemptTone } from "../../lib/status-tone.ts";
 import { fullTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
-import type { BrokerDiagnostics, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../../lib/types.ts";
+import type { Agent, BrokerDiagnostics, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
-import { OpsSubnav } from "../ops/OpsSubnav.tsx";
+
 import {
   brokerAttemptDetailLimit,
   brokerAttemptErrorSummary,
   brokerAttemptIsFailure,
   brokerAttemptContextText,
-  brokerScoutbotTriageRequest,
   brokerMessageFeedRows,
   brokerMetadataJson,
   clippedText,
@@ -33,7 +33,7 @@ const BROKER_TABS: BrokerTab[] = ["all", "successful", "failed"];
 
 const TAB_LABELS: Record<BrokerTab, string> = {
   all: "All",
-  successful: "Successful",
+  successful: "Delivered",
   failed: "Failed",
 };
 
@@ -50,21 +50,90 @@ function attemptKindLabel(kind: BrokerRouteAttempt["kind"]): string {
   }
 }
 
-function attemptOutcomeLabel(attempt: BrokerRouteAttempt): string {
-  if (attempt.kind === "success") return attempt.status || "sent";
-  if (attempt.kind === "failed_delivery" && attempt.status === "cancelled") return "cancelled";
-  if (brokerAttemptIsFailure(attempt)) return "failed";
-  return attempt.status || "unknown";
-}
-
 function brokerAttemptReference(attempt: BrokerRouteAttempt): string {
   return attempt.messageId ?? attempt.deliveryId ?? attempt.invocationId ?? attempt.id;
 }
 
-function routeKindLabel(route: string | null): string {
+/** Dispatch-wire status word: the dot carries the color, the word stays terse. */
+function dispatchStateLabel(attempt: BrokerRouteAttempt): string {
+  const tone = brokerAttemptTone(attempt.kind, attempt.status);
+  switch (tone) {
+    case "success":
+      return "Delivered";
+    case "danger":
+      return "Failed";
+    case "working":
+      return "Pending";
+    case "warning":
+      return "Held";
+    default:
+      return attempt.status ? attempt.status.charAt(0).toUpperCase() + attempt.status.slice(1) : "Queued";
+  }
+}
+
+/** Two-glyph sender badge: trailing number for numbered agents, else initials. */
+function dispatchActorInitials(name: string | null): string {
+  if (!name) return "··";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "··";
+  const last = parts[parts.length - 1]!;
+  if (/^\d+$/.test(last)) return last.slice(-2);
+  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  return name.trim().slice(0, 2).toUpperCase();
+}
+
+/** Wall-clock stamp (e.g. "12:20 AM") to sit under the relative time. */
+function dispatchClock(ts: number): string {
+  const ms = normalizeTimestampMs(ts) ?? 0;
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function dispatchClockWithSeconds(ts: number | string | null | undefined): string {
+  const ms = normalizeTimestampMs(ts);
+  if (ms === null) return "—";
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function metadataLeaf(
+  value: unknown,
+  keys: readonly string[],
+  depth = 0,
+): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key];
+  }
+  for (const nested of Object.values(record)) {
+    const result = metadataLeaf(nested, keys, depth + 1);
+    if (result !== undefined) return result;
+  }
+  return undefined;
+}
+
+function metadataText(attempt: BrokerRouteAttempt, ...keys: string[]): string | null {
+  const value = metadataLeaf(attempt.metadata, keys);
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function metadataTimestamp(attempt: BrokerRouteAttempt, ...keys: string[]): number | null {
+  const value = metadataLeaf(attempt.metadata, keys);
+  return typeof value === "number" || typeof value === "string"
+    ? normalizeTimestampMs(value)
+    : null;
+}
+
+function dispatchChannelLabel(route: string | null): string {
   switch (route) {
     case "dm":
-      return "Direct message";
+      return "Direct · agent";
     case "channel":
       return "Channel";
     case "broadcast":
@@ -72,8 +141,146 @@ function routeKindLabel(route: string | null): string {
     case null:
       return "No route";
     default:
-      return route;
+      return route.replaceAll("_", " ");
   }
+}
+
+function dispatchPartyKind(attempt: BrokerRouteAttempt, side: "from" | "to"): string {
+  if (side === "to") {
+    if (attempt.route === "channel") return "Channel";
+    if (attempt.route === "broadcast") return "Broadcast";
+    return attempt.target?.toLowerCase().includes("operator") ? "Operator" : "Agent lane";
+  }
+  const actorClass = metadataText(attempt, "class", "actorClass")?.toLowerCase();
+  if (actorClass === "operator" || actorClass === "human") return "Operator";
+  if (actorClass === "agent") return "Agent";
+  return attempt.actorName?.toLowerCase().includes("operator") ? "Operator" : "Sender";
+}
+
+function dispatchLatencyLabel(attempt: BrokerRouteAttempt): string {
+  const rawDuration = metadataLeaf(attempt.metadata, ["latencyMs", "durationMs"]);
+  if (typeof rawDuration === "number" && Number.isFinite(rawDuration) && rawDuration >= 0) {
+    if (rawDuration < 1_000) return `${Math.round(rawDuration)}ms`;
+    return `${(rawDuration / 1_000).toFixed(rawDuration < 10_000 ? 1 : 0)}s`;
+  }
+  const sentAt = metadataTimestamp(attempt, "sentAt", "createdAt") ?? normalizeTimestampMs(attempt.ts);
+  const deliveredAt = metadataTimestamp(attempt, "deliveredAt", "completedAt");
+  if (sentAt === null || deliveredAt === null || deliveredAt < sentAt) return "—";
+  const duration = deliveredAt - sentAt;
+  return duration < 1_000 ? `${duration}ms` : `${(duration / 1_000).toFixed(duration < 10_000 ? 1 : 0)}s`;
+}
+
+/** Route-kind encoded as the address glyph next to the target id. */
+function RouteGlyph({ route }: { route: string | null }) {
+  switch (route) {
+    case "channel":
+      return <Hash size={12} aria-hidden="true" />;
+    case "broadcast":
+      return <Radio size={12} aria-hidden="true" />;
+    case "dm":
+      return <AtSign size={12} aria-hidden="true" />;
+    default:
+      return <MessageSquare size={12} aria-hidden="true" />;
+  }
+}
+
+function dispatchEndpointAgent(agents: Agent[], value: string | null): Agent | null {
+  if (!value) return null;
+  const needle = value.trim().replace(/^@/, "").toLowerCase();
+  return agents.find((agent) => [
+    agent.id,
+    agent.name,
+    agent.handle,
+    agent.selector,
+    agent.defaultSelector,
+    agent.conversationId,
+    agent.harnessSessionId,
+  ].some((candidate) => candidate?.trim().replace(/^@/, "").toLowerCase() === needle)) ?? null;
+}
+
+function dispatchEndpointFields(
+  attempt: BrokerRouteAttempt,
+  side: "from" | "to",
+  agent: Agent | null,
+): Array<{ label: string; value: string }> {
+  const machine = agent?.authorityNodeName
+    ?? agent?.homeNodeName
+    ?? agent?.authorityNodeId
+    ?? agent?.homeNodeId
+    ?? metadataText(attempt, "machine", "machineName", "nodeName");
+  const fields = agent
+    ? [
+        { label: "Status", value: agent.state },
+        { label: "Handle", value: agent.handle ? `@${agent.handle.replace(/^@/, "")}` : null },
+        { label: "Project", value: agent.project },
+        { label: "Branch", value: agent.branch },
+        { label: "Harness", value: [agent.harness, agent.model].filter(Boolean).join(" · ") || null },
+        { label: "Machine", value: machine },
+        { label: "Working dir", value: agent.cwd ?? agent.projectRoot },
+        { label: "Session", value: agent.harnessSessionId },
+        { label: "Conversation", value: agent.conversationId ?? attempt.conversationId },
+      ]
+    : [
+        { label: "Kind", value: side === "to" && attempt.conversationId ? "Session route" : dispatchPartyKind(attempt, side) },
+        { label: "Channel", value: dispatchChannelLabel(attempt.route) },
+        { label: "Session", value: side === "to" ? attempt.target : metadataText(attempt, "sessionId", "harnessSessionId") },
+        { label: "Conversation", value: attempt.conversationId },
+        { label: "Harness", value: metadataText(attempt, "harness") },
+        { label: "Model", value: metadataText(attempt, "model") },
+        { label: "Project", value: metadataText(attempt, "project", "projectName") },
+        { label: "Branch", value: metadataText(attempt, "branch") },
+        { label: "Machine", value: machine },
+      ];
+  return fields.filter((field): field is { label: string; value: string } => Boolean(field.value));
+}
+
+function DispatchEndpoint({
+  attempt,
+  agents,
+  side,
+}: {
+  attempt: BrokerRouteAttempt;
+  agents: Agent[];
+  side: "from" | "to";
+}) {
+  const rawValue = side === "from" ? attempt.actorName : attempt.target;
+  const agent = dispatchEndpointAgent(agents, rawValue);
+  const label = agent?.name ?? rawValue ?? (side === "from" ? "Unknown" : "No target");
+  const kind = agent ? "Agent" : side === "to" && attempt.conversationId ? "Session" : dispatchPartyKind(attempt, side);
+  const fields = dispatchEndpointFields(attempt, side, agent);
+  const descriptionId = `dispatch-endpoint-${attempt.id}-${side}`;
+
+  return (
+    <span
+      className={`sys-broker-endpoint sys-broker-endpoint--${side}`}
+      tabIndex={0}
+      aria-describedby={descriptionId}
+    >
+      <span className="sys-broker-avatar sys-broker-endpoint-avatar" aria-hidden="true">
+        {agent || side === "from" ? dispatchActorInitials(label) : <RouteGlyph route={attempt.route} />}
+      </span>
+      <span className="sys-broker-endpoint-name" title={label}>{label}</span>
+      <span className="sys-broker-endpoint-card" id={descriptionId} role="tooltip">
+        <span className="sys-broker-endpoint-card-head">
+          <span className="sys-broker-avatar" aria-hidden="true">
+            {agent || side === "from" ? dispatchActorInitials(label) : <RouteGlyph route={attempt.route} />}
+          </span>
+          <span>
+            <strong>{label}</strong>
+            <small>{kind}</small>
+          </span>
+        </span>
+        <span className="sys-broker-endpoint-card-body">
+          {fields.map((field) => (
+            <span className="sys-broker-endpoint-card-field" key={field.label}>
+              <small>{field.label}</small>
+              <code title={field.value}>{field.value}</code>
+            </span>
+          ))}
+        </span>
+      </span>
+    </span>
+  );
 }
 
 function dispatchDayKey(ts: number): string {
@@ -132,7 +339,7 @@ export function BrokerScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
-  const { selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
+  const { agents, selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("all");
   const [loading, setLoading] = useState(true);
@@ -266,7 +473,7 @@ export function BrokerScreen({
     if (!attempt) return;
     inspectBrokerAttempt(attempt);
     window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
-      detail: { width: 420 },
+      detail: { width: 520 },
     }));
   }, [activeRows, inspectBrokerAttempt]);
 
@@ -289,14 +496,9 @@ export function BrokerScreen({
     setActiveTab(BROKER_TABS[next]!);
   }, [activeTab]);
 
+  // SCO-083: Dispatch is its own primary area — do not render OpsSubnav here.
   return (
     <div className={`s-ops${embedded ? " s-ops--embedded" : ""}`}>
-      {!embedded && (
-        <div className="s-ops-header">
-          <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
-        </div>
-      )}
-
       <div className="s-ops-body">
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">
           <div className="sys-ledger-toolbar" aria-label="Dispatch controls">
@@ -403,7 +605,7 @@ export function BrokerScreen({
             <>
               <BrokerAttemptList
                 attempts={activeRows}
-                navigate={navigate}
+                agents={agents}
                 selectedAttemptId={selectedBrokerAttempt?.id ?? null}
                 onInspect={inspectBrokerAttempt}
                 getRowFocusProps={getRowFocusProps}
@@ -432,18 +634,17 @@ type BrokerRowFocusProps = ReturnType<typeof useBrokerLedgerKeyboard>["getRowFoc
 
 function BrokerAttemptList({
   attempts,
-  navigate,
+  agents,
   selectedAttemptId,
   onInspect,
   getRowFocusProps,
 }: {
   attempts: BrokerRouteAttempt[];
-  navigate: (r: Route) => void;
+  agents: Agent[];
   selectedAttemptId: string | null;
   onInspect: (attempt: BrokerRouteAttempt) => void;
   getRowFocusProps: BrokerRowFocusProps;
 }) {
-  const { route } = useScout();
   if (attempts.length === 0) {
     return (
       <EmptyState
@@ -469,84 +670,64 @@ function BrokerAttemptList({
   }, []);
 
   return (
-    <div className="sys-broker-table" aria-label="Dispatch ledger">
+    <div className="sys-broker-wire" aria-label="Dispatch ledger">
+      <div className="sys-broker-wire-head" aria-hidden="true">
+        <span className="sys-broker-col sys-broker-col--status">Status</span>
+        <span className="sys-broker-col sys-broker-col--from">From</span>
+        <span className="sys-broker-col sys-broker-col--to">To</span>
+        <span className="sys-broker-col sys-broker-col--msg">Message</span>
+        <span className="sys-broker-col sys-broker-col--time">Time</span>
+      </div>
       {groups.map((group) => (
         <section className="sys-broker-day" key={group.key} aria-labelledby={`dispatch-day-${group.key}`}>
           <header className="sys-broker-day-head">
             <h2 id={`dispatch-day-${group.key}`}>{group.label}</h2>
             <span>{group.attempts.length} {group.attempts.length === 1 ? "dispatch" : "dispatches"}</span>
           </header>
-          <div className="sys-broker-table-body" role="list">
+          <div className="sys-broker-wire-body" role="list">
             {group.attempts.map(({ attempt, index }) => {
               const tone = brokerAttemptTone(attempt.kind, attempt.status);
-              const outcomeLabel = attemptOutcomeLabel(attempt);
               const isFailure = brokerAttemptIsFailure(attempt);
               const errorSummary = brokerAttemptErrorSummary(attempt);
               const detailSnippet = clippedText(attempt.detail, brokerAttemptDetailLimit(attempt));
+              const stateLabel = dispatchStateLabel(attempt);
               const inspect = () => {
                 onInspect(attempt);
                 window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
-                  detail: { width: 420 },
+                  detail: { width: 520 },
                 }));
               };
               return (
-                <article
+                <div
                   key={attempt.id}
                   role="listitem"
-                  className={`sys-broker-row sys-broker-row--ledger${isFailure ? " sys-broker-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
+                  className={`sys-broker-wire-row${isFailure ? " sys-broker-wire-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-wire-row--selected" : ""}`}
                   aria-label={`Inspect ${attempt.detail}`}
                   onClick={inspect}
                   {...getRowFocusProps(index)}
                 >
-                  <div className="sys-broker-event-rail" aria-hidden="true">
-                    <span className="sys-broker-event-icon">
-                      {isFailure ? <TriangleAlert size={15} /> : <CheckCircle2 size={15} />}
-                    </span>
+                  <div className="sys-broker-cell sys-broker-col--status">
+                    <span className={`sys-broker-dot sys-broker-dot--${tone}`} aria-hidden="true" />
+                    <span className={`sys-broker-state sys-broker-state--${tone}`}>{stateLabel}</span>
                   </div>
-                  <div className="sys-broker-cell sys-broker-cell-detail">
-                    <div className="sys-broker-route-line">
-                      <div className="sys-broker-route-parties">
-                        <span className="sys-broker-actor" title={attempt.actorName ?? "unknown"}>
-                          {attempt.actorName ?? "Unknown sender"}
-                        </span>
-                        <ArrowRight size={13} aria-hidden="true" />
-                        <span className="sys-broker-target" title={attempt.target ?? "none"}>
-                          {attempt.target ?? "No target"}
-                        </span>
-                      </div>
-                      <time title={fullTimestamp(attempt.ts)}>{timeAgo(attempt.ts)}</time>
-                    </div>
-                    <h3 className="sys-broker-title" title={attempt.detail}>{detailSnippet}</h3>
-                    {errorSummary && (
-                      <p className="sys-broker-error-detail" title={errorSummary}>{errorSummary}</p>
-                    )}
-                    <div className="sys-broker-dispatch-footer">
-                      <StatusPill tone={tone} className="sys-broker-outcome">{outcomeLabel}</StatusPill>
-                      <span className="sys-broker-route-kind">{routeKindLabel(attempt.route)}</span>
-                      {attempt.status !== outcomeLabel && (
-                        <span className={`sys-broker-status${isFailure ? " sys-broker-status--error" : ""}`}>
-                          {attempt.status}
-                        </span>
-                      )}
-                    </div>
+                  <div className="sys-broker-cell sys-broker-col--from">
+                    <DispatchEndpoint attempt={attempt} agents={agents} side="from" />
                   </div>
-                  <div className="sys-broker-cell sys-broker-cell-action">
-                    {attempt.conversationId && (
-                      <button
-                        type="button"
-                        className="sys-broker-thread-button"
-                        title="Open thread"
-                        aria-label="Open thread"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route });
-                        }}
-                      >
-                        <ExternalLink size={14} aria-hidden="true" />
-                      </button>
+                  <div className="sys-broker-cell sys-broker-col--to">
+                    <ArrowRight className="sys-broker-route-arrow" size={13} aria-hidden="true" />
+                    <DispatchEndpoint attempt={attempt} agents={agents} side="to" />
+                  </div>
+                  <div className="sys-broker-cell sys-broker-col--msg">
+                    <span className="sys-broker-msg" title={attempt.detail}>{detailSnippet}</span>
+                    {isFailure && errorSummary && (
+                      <span className="sys-broker-msg-error" title={errorSummary}>{errorSummary}</span>
                     )}
                   </div>
-                </article>
+                  <div className="sys-broker-cell sys-broker-col--time">
+                    <time className="sys-broker-time-rel" title={fullTimestamp(attempt.ts)}>{timeAgo(attempt.ts)}</time>
+                    <span className="sys-broker-time-abs">{dispatchClock(attempt.ts)}</span>
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -623,6 +804,15 @@ type DispatchReviewResponse = {
   rootCauseFingerprint: string;
 };
 
+type DispatchAskResponse = {
+  conversationId?: string | null;
+  flightId?: string | null;
+  flight?: { id?: string | null } | null;
+  targetAgentId?: string | null;
+};
+
+type DispatchActionStatus = "idle" | "sending" | "sent" | "failed";
+
 export function BrokerAttemptInspector({
   attempt,
   navigate,
@@ -632,21 +822,80 @@ export function BrokerAttemptInspector({
   navigate: (r: Route) => void;
   onClose: () => void;
 }) {
-  const { route } = useScout();
+  const { route, agents, scoutbotAgentId } = useScout();
   const rows = brokerInspectorRows(attempt);
   const metadata = brokerMetadataJson(attempt.metadata);
   const isFailure = brokerAttemptIsFailure(attempt);
   const errorSummary = brokerAttemptErrorSummary(attempt);
+  const tone = brokerAttemptTone(attempt.kind, attempt.status);
+  const sentAt = metadataTimestamp(attempt, "sentAt", "createdAt") ?? normalizeTimestampMs(attempt.ts);
+  const deliveredAt = metadataTimestamp(attempt, "deliveredAt", "completedAt")
+    ?? (isFailure ? null : normalizeTimestampMs(attempt.ts));
+  const reference = brokerAttemptReference(attempt);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [reviewStatus, setReviewStatus] = useState<"idle" | "running" | "sent" | "failed">("idle");
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [redispatchAgentId, setRedispatchAgentId] = useState("");
+  const [redispatchStatus, setRedispatchStatus] = useState<DispatchActionStatus>("idle");
+  const [redispatchMessage, setRedispatchMessage] = useState<string | null>(null);
+  const [forwardAgentId, setForwardAgentId] = useState("");
+  const [forwardProjectPath, setForwardProjectPath] = useState("");
+  const [forwardModel, setForwardModel] = useState("");
+  const [forwardEffort, setForwardEffort] = useState("medium");
+  const [forwardFiles, setForwardFiles] = useState<File[]>([]);
+  const [forwardStatus, setForwardStatus] = useState<DispatchActionStatus>("idle");
+  const [forwardMessage, setForwardMessage] = useState<string | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const forwardFileInputRef = useRef<HTMLInputElement>(null);
   const contextText = useMemo(() => brokerAttemptContextText(attempt), [attempt]);
+  const routableAgents = useMemo(
+    () => agents
+      .filter((agent) => !agent.retiredFromFleet && !agent.staleLocalRegistration)
+      .slice()
+      .sort((left, right) => {
+        if (left.id === scoutbotAgentId) return -1;
+        if (right.id === scoutbotAgentId) return 1;
+        return (right.updatedAt ?? 0) - (left.updatedAt ?? 0) || left.name.localeCompare(right.name);
+      }),
+    [agents, scoutbotAgentId],
+  );
+  const originalTargetAgentId = useMemo(
+    () => dispatchEndpointAgent(routableAgents, attempt.target)?.id ?? "",
+    [attempt.target, routableAgents],
+  );
+  const defaultForwardAgentId = routableAgents.some((agent) => agent.id === scoutbotAgentId)
+    ? scoutbotAgentId
+    : routableAgents[0]?.id ?? "";
+  const firstRoutableAgentId = routableAgents[0]?.id ?? "";
+  const defaultForwardAgent = routableAgents.find((agent) => agent.id === defaultForwardAgentId) ?? null;
+  const projectOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const agent of routableAgents) {
+      const path = agent.projectRoot?.trim() || agent.cwd?.trim();
+      if (!path) continue;
+      const fallback = path.split("/").filter(Boolean).at(-1) ?? path;
+      options.set(path, agent.project?.trim() || fallback);
+    }
+    return [...options.entries()].map(([path, label]) => ({ path, label }));
+  }, [routableAgents]);
 
   useEffect(() => {
     setCopyStatus("idle");
     setReviewStatus("idle");
     setReviewMessage(null);
-  }, [attempt.id]);
+    setMessageDraft("");
+    setRedispatchAgentId(originalTargetAgentId || firstRoutableAgentId);
+    setRedispatchStatus("idle");
+    setRedispatchMessage(null);
+    setForwardAgentId(defaultForwardAgentId);
+    setForwardProjectPath(defaultForwardAgent?.projectRoot?.trim() || defaultForwardAgent?.cwd?.trim() || "");
+    setForwardModel(defaultForwardAgent?.model?.trim() || "");
+    setForwardEffort(metadataText(attempt, "reasoningEffort", "effort") || "medium");
+    setForwardFiles([]);
+    setForwardStatus("idle");
+    setForwardMessage(null);
+  }, [attempt.id, defaultForwardAgent?.cwd, defaultForwardAgent?.model, defaultForwardAgent?.projectRoot, defaultForwardAgentId, firstRoutableAgentId, originalTargetAgentId]);
 
   const copyEverything = useCallback(async () => {
     const copied = await copyTextToClipboard(contextText);
@@ -654,12 +903,108 @@ export function BrokerAttemptInspector({
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   }, [contextText]);
 
-  const sendToScout = useCallback(() => {
-    const request = brokerScoutbotTriageRequest(attempt);
-    window.dispatchEvent(new CustomEvent(request.eventName, {
-      detail: { body: request.body },
-    }));
-  }, [attempt]);
+  const prepareScoutMessage = useCallback((prompt: string) => {
+    setMessageDraft(prompt);
+    window.requestAnimationFrame(() => messageInputRef.current?.focus());
+  }, []);
+
+  const redispatch = useCallback(async () => {
+    const target = routableAgents.find((agent) => agent.id === redispatchAgentId);
+    if (!target || redispatchStatus === "sending") return;
+    setRedispatchStatus("sending");
+    setRedispatchMessage(null);
+    try {
+      const result = await api<DispatchAskResponse>("/api/ask", {
+        method: "POST",
+        body: JSON.stringify({
+          body: attempt.detail,
+          targetAgentId: target.id,
+          targetLabel: target.name,
+          metadata: {
+            source: "scout-dispatch-redispatch",
+            originalDispatchId: attempt.id,
+            ...(attempt.messageId ? { originalMessageId: attempt.messageId } : {}),
+            ...(attempt.conversationId ? { originalConversationId: attempt.conversationId } : {}),
+          },
+        }),
+      });
+      const flightId = result.flightId ?? result.flight?.id;
+      setRedispatchStatus("sent");
+      setRedispatchMessage(`Sent again to ${target.name}${flightId ? ` · ${flightId}` : ""}`);
+    } catch (error) {
+      setRedispatchStatus("failed");
+      setRedispatchMessage(error instanceof Error ? error.message : String(error));
+    }
+  }, [attempt, redispatchAgentId, redispatchStatus, routableAgents]);
+
+  const forwardDispatch = useCallback(async () => {
+    const note = messageDraft.trim();
+    const target = routableAgents.find((agent) => agent.id === forwardAgentId);
+    if (!note || !target || forwardStatus === "sending") return;
+    setForwardStatus("sending");
+    setForwardMessage(forwardFiles.length > 0 ? `Uploading ${forwardFiles.length} ${forwardFiles.length === 1 ? "attachment" : "attachments"}…` : null);
+    try {
+      const attachments = forwardFiles.length > 0 ? await uploadMediaFiles(forwardFiles) : [];
+      const result = await api<DispatchAskResponse>("/api/ask", {
+        method: "POST",
+        body: JSON.stringify({
+          body: `${note}\n\nForwarded dispatch context:\n${contextText}`,
+          targetAgentId: target.id,
+          targetLabel: target.name,
+          ...(attachments.length > 0 ? { attachments } : {}),
+          execution: {
+            ...(target.harness?.trim() ? { harness: target.harness.trim() } : {}),
+            ...(forwardModel ? { model: forwardModel } : {}),
+            ...(forwardEffort ? { reasoningEffort: forwardEffort } : {}),
+          },
+          metadata: {
+            source: "scout-dispatch-forward",
+            originalDispatchId: attempt.id,
+            ...(forwardProjectPath ? { targetProjectPath: forwardProjectPath } : {}),
+            ...(attempt.messageId ? { originalMessageId: attempt.messageId } : {}),
+            ...(attempt.conversationId ? { originalConversationId: attempt.conversationId } : {}),
+          },
+        }),
+      });
+      const flightId = result.flightId ?? result.flight?.id;
+      setForwardStatus("sent");
+      setForwardMessage(`Forwarded to ${target.name}${flightId ? ` · ${flightId}` : ""}`);
+      setMessageDraft("");
+      setForwardFiles([]);
+    } catch (error) {
+      setForwardStatus("failed");
+      setForwardMessage(error instanceof Error ? error.message : String(error));
+    }
+  }, [attempt, contextText, forwardAgentId, forwardEffort, forwardFiles, forwardModel, forwardProjectPath, forwardStatus, messageDraft, routableAgents]);
+
+  const addForwardFiles = useCallback((files: File[]) => {
+    const accepted = files.filter(isRoutableMediaFile);
+    const rejected = files.length - accepted.length;
+    if (accepted.length > 0) {
+      setForwardFiles((current) => [...current, ...accepted]);
+      setForwardStatus("idle");
+      setForwardMessage(null);
+    }
+    if (rejected > 0) {
+      setForwardStatus("failed");
+      setForwardMessage("Attach markdown, code, an image, or a video clip.");
+    }
+  }, []);
+
+  const scoutPrompts = isFailure
+    ? ["Diagnose this failure", "Suggest a fix", "Draft a follow-up"]
+    : ["Summarize this dispatch", "Draft a follow-up", "What changed?"];
+  const redispatchAgent = routableAgents.find((agent) => agent.id === redispatchAgentId) ?? null;
+  const forwardAgent = routableAgents.find((agent) => agent.id === forwardAgentId) ?? null;
+  const forwardProjectAgents = routableAgents.filter((agent) => {
+    if (!forwardProjectPath) return true;
+    return (agent.projectRoot?.trim() || agent.cwd?.trim()) === forwardProjectPath;
+  });
+  const forwardModelOptions = [...new Set(
+    [forwardModel, forwardAgent?.model, ...forwardProjectAgents.map((agent) => agent.model)]
+      .map((model) => model?.trim())
+      .filter((model): model is string => Boolean(model)),
+  )];
 
   const invokeCodex = useCallback(async () => {
     setReviewStatus("running");
@@ -682,9 +1027,15 @@ export function BrokerAttemptInspector({
   return (
     <aside className="sys-panel sys-broker-inspector" aria-label="Dispatch route inspector">
       <header className="sys-broker-inspector-head">
-        <div className="sys-broker-inspector-topline">
-          <div className="sys-kicker">Inspector</div>
-          <StatusPill tone={brokerAttemptTone(attempt.kind, attempt.status)}>{attempt.status}</StatusPill>
+        <div className="sys-broker-inspector-status">
+          <span className={`sys-broker-dot sys-broker-dot--${tone}`} aria-hidden="true" />
+          <strong className={`sys-broker-state sys-broker-state--${tone}`}>{dispatchStateLabel(attempt)}</strong>
+          <code title={reference}>{reference}</code>
+          <CopyIconButton
+            value={contextText}
+            subject="dispatch context"
+            className="sys-broker-inspector-copy"
+          />
           <button
             type="button"
             className="sys-copy-btn sys-broker-inspector-close"
@@ -695,81 +1046,381 @@ export function BrokerAttemptInspector({
             <X size={14} aria-hidden="true" />
           </button>
         </div>
-        <h3 className="sys-broker-inspector-title">{attempt.detail}</h3>
-        {isFailure && errorSummary && (
-          <div className="sys-broker-inspector-error" role="status">
-            <span className="sys-broker-inspector-error-label">Error</span>
-            <p>{errorSummary}</p>
-          </div>
-        )}
-        {(isFailure || attempt.conversationId) && (
-          <div className="sys-broker-inspector-actions">
-            {isFailure && (
-              <>
-                <button
-                  type="button"
-                  className="s-btn s-btn-sm s-btn-primary"
-                  onClick={sendToScout}
-                  title="Send this failed dispatch to Scout for triage"
-                >
-                  <Sparkles size={12} aria-hidden="true" />
-                  Send to Scout
-                </button>
-                <button
-                  type="button"
-                  className="s-btn s-btn-sm"
-                  disabled={reviewStatus === "running"}
-                  onClick={() => void invokeCodex()}
-                  title="Send this failed dispatch to an OpenScout Codex agent for review"
-                >
-                  <Bot size={12} aria-hidden="true" />
-                  {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
-                </button>
-                <button
-                  type="button"
-                  className="s-btn s-btn-sm"
-                  onClick={() => void copyEverything()}
-                  title="Copy the full dispatch failure context"
-                >
-                  {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
-                  {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy context"}
-                </button>
-              </>
-            )}
+      </header>
+
+      <div className="sys-broker-inspector-body">
+        <section className="sys-broker-route-stack" aria-label="Dispatch route">
+          <div className="sys-broker-route-party">
+            <span className="sys-broker-avatar sys-broker-route-avatar" aria-hidden="true">
+              {dispatchActorInitials(attempt.actorName)}
+            </span>
+            <div className="sys-broker-route-party-copy">
+              <span className="sys-detail-label">From · {dispatchPartyKind(attempt, "from")}</span>
+              <strong>{attempt.actorName ?? "Unknown sender"}</strong>
+            </div>
             {attempt.conversationId && (
               <button
                 type="button"
-                className="s-btn s-btn-sm"
+                className="sys-broker-route-button"
                 onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
               >
-                <ExternalLink size={12} aria-hidden="true" />
-                Open thread
+                <ExternalLink size={11} aria-hidden="true" />
+                Route
               </button>
             )}
           </div>
-        )}
-      </header>
-      {reviewMessage && (
-        <div className={`sys-broker-review-status sys-broker-review-status--${reviewStatus}`} role="status">
-          {reviewMessage}
-        </div>
-      )}
-      <div className="sys-broker-inspector-rows">
-        {rows.map((row) => (
-          <div key={row.label} className="sys-broker-inspector-row">
-            <span className="sys-detail-label">{row.label}</span>
-            <code className="sys-detail-value">{row.value}</code>
-            <CopyIconButton value={row.value} subject={row.label.toLowerCase()} />
+
+          <ArrowDown className="sys-broker-route-down" size={17} aria-hidden="true" />
+
+          <div className="sys-broker-route-party">
+            <span className="sys-broker-route-target-icon" aria-hidden="true">
+              <RouteGlyph route={attempt.route} />
+            </span>
+            <div className="sys-broker-route-party-copy">
+              <span className="sys-detail-label">To · {dispatchPartyKind(attempt, "to")}</span>
+              <code title={attempt.target ?? "No target"}>{attempt.target ?? "No target"}</code>
+            </div>
+            {attempt.conversationId && (
+              <button
+                type="button"
+                className="sys-broker-route-button"
+                onClick={() => openContent(navigate, { view: "conversation", conversationId: attempt.conversationId! }, { returnTo: route })}
+              >
+                <ExternalLink size={11} aria-hidden="true" />
+                Route
+              </button>
+            )}
           </div>
-        ))}
+        </section>
+
+        <dl className="sys-broker-delivery-grid">
+          <div>
+            <dt>Channel</dt>
+            <dd>{dispatchChannelLabel(attempt.route)}</dd>
+          </div>
+          <div>
+            <dt>Latency</dt>
+            <dd className="sys-broker-delivery-accent">{dispatchLatencyLabel(attempt)}</dd>
+          </div>
+          <div>
+            <dt>Sent</dt>
+            <dd>{dispatchClockWithSeconds(sentAt)}</dd>
+          </div>
+          <div>
+            <dt>{isFailure ? "Failed" : "Delivered"}</dt>
+            <dd>{dispatchClockWithSeconds(deliveredAt)}</dd>
+          </div>
+        </dl>
+
+        <section className="sys-broker-payload">
+          <span className="sys-detail-label">Payload</span>
+          <p>{attempt.detail}</p>
+          {isFailure && errorSummary && (
+            <div className="sys-broker-inspector-error" role="status">
+              <span className="sys-broker-inspector-error-label">Error</span>
+              <p>{errorSummary}</p>
+            </div>
+          )}
+        </section>
+
+        <section className="sys-broker-redispatch" aria-labelledby="dispatch-redispatch-title">
+          <div className="sys-broker-action-head">
+            <span className="sys-broker-action-mark" aria-hidden="true"><RefreshCw size={12} /></span>
+            <div>
+              <span id="dispatch-redispatch-title">Redispatch</span>
+              <small>Send the original payload and dispatch metadata again.</small>
+            </div>
+          </div>
+          <div className="sys-broker-redispatch-controls">
+            <label>
+              <span>Destination</span>
+              <select
+                value={redispatchAgentId}
+                disabled={redispatchStatus === "sending" || routableAgents.length === 0}
+                onChange={(event) => {
+                  setRedispatchAgentId(event.target.value);
+                  setRedispatchStatus("idle");
+                  setRedispatchMessage(null);
+                }}
+              >
+                {routableAgents.length === 0 ? (
+                  <option value="">No agents available</option>
+                ) : routableAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.id === scoutbotAgentId ? "Scout" : agent.name}
+                    {agent.project ? ` · ${agent.project}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="sys-broker-redispatch-send"
+              disabled={!redispatchAgent || redispatchStatus === "sending"}
+              onClick={() => void redispatch()}
+            >
+              {redispatchStatus === "sending" ? <LoaderCircle size={13} className="sys-broker-action-spinner" aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
+              {redispatchStatus === "sending" ? "Sending…" : "Send again"}
+            </button>
+          </div>
+          {redispatchAgent && (
+            <div className="sys-broker-action-target-meta">
+              {redispatchAgent.harness && <span>{redispatchAgent.harness}</span>}
+              {redispatchAgent.model && <span>{redispatchAgent.model}</span>}
+              {(redispatchAgent.cwd ?? redispatchAgent.projectRoot) && <code>{redispatchAgent.cwd ?? redispatchAgent.projectRoot}</code>}
+            </div>
+          )}
+          {redispatchMessage && (
+            <div className={`sys-broker-action-status sys-broker-action-status--${redispatchStatus}`} role="status">
+              {redispatchMessage}
+            </div>
+          )}
+        </section>
+
+        <section className="sys-broker-suggestions" aria-labelledby="dispatch-suggestions-title">
+          <div className="sys-broker-action-head">
+            <span className="sys-broker-action-mark" aria-hidden="true">S</span>
+            <div>
+              <span id="dispatch-suggestions-title">Forward with note</span>
+              <small>Start with a suggested note or write your own below.</small>
+            </div>
+          </div>
+          <div className="sys-broker-ask-prompts">
+            {scoutPrompts.map((prompt) => (
+              <button key={prompt} type="button" onClick={() => prepareScoutMessage(prompt)}>
+                <Sparkles size={11} aria-hidden="true" />
+                {prompt}
+              </button>
+            ))}
+            {isFailure && (
+              <button
+                type="button"
+                disabled={reviewStatus === "running"}
+                onClick={() => void invokeCodex()}
+              >
+                <Bot size={11} aria-hidden="true" />
+                {reviewStatus === "running" ? "Invoking Codex…" : "Invoke Codex"}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {reviewMessage && (
+          <div className={`sys-broker-review-status sys-broker-review-status--${reviewStatus}`} role="status">
+            {reviewMessage}
+          </div>
+        )}
+
+        <details className="sys-broker-technical">
+          <summary>
+            <span>Technical details</span>
+            <ChevronDown size={13} aria-hidden="true" />
+          </summary>
+          <div className="sys-broker-inspector-rows">
+            {rows.map((row) => (
+              <div key={row.label} className="sys-broker-inspector-row">
+                <span className="sys-detail-label">{row.label}</span>
+                <code className="sys-detail-value">{row.value}</code>
+                <CopyIconButton value={row.value} subject={row.label.toLowerCase()} />
+              </div>
+            ))}
+          </div>
+          <div className="sys-broker-metadata">
+            <div className="sys-broker-metadata-head">
+              <span className="sys-detail-label">Metadata</span>
+              <CopyIconButton value={metadata} subject="metadata" className="sys-broker-metadata-copy" />
+            </div>
+            <BrokerMetadataPanel metadata={attempt.metadata} rawJson={metadata} />
+          </div>
+        </details>
+
+        <button
+          type="button"
+          className="sys-broker-copy-context"
+          onClick={() => void copyEverything()}
+        >
+          {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+          {copyStatus === "copied" ? "Context copied" : copyStatus === "failed" ? "Copy failed" : "Copy dispatch context"}
+        </button>
       </div>
-      <div className="sys-broker-metadata">
-        <div className="sys-broker-metadata-head">
-          <span className="sys-detail-label">Metadata</span>
-          <CopyIconButton value={metadata} subject="metadata" className="sys-broker-metadata-copy" />
-        </div>
-        <BrokerMetadataPanel metadata={attempt.metadata} rawJson={metadata} />
-      </div>
+
+      <section className="sys-broker-forward" aria-label="Forward with note">
+        <form
+          className="sys-broker-message-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void forwardDispatch();
+          }}
+        >
+          <label htmlFor="dispatch-message-input">Forwarding note</label>
+          <textarea
+            ref={messageInputRef}
+            id="dispatch-message-input"
+            value={messageDraft}
+            rows={3}
+            placeholder={`Ask ${forwardAgent?.id === scoutbotAgentId ? "Scout" : forwardAgent?.name ?? "an agent"} about this dispatch…`}
+            disabled={forwardStatus === "sending"}
+            onChange={(event) => {
+              setMessageDraft(event.target.value);
+              if (forwardStatus !== "idle") {
+                setForwardStatus("idle");
+                setForwardMessage(null);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void forwardDispatch();
+              }
+            }}
+          />
+          {forwardFiles.length > 0 && (
+            <div className="sys-broker-composer-attachments" aria-label="Attachments">
+              {forwardFiles.map((file, index) => (
+                <span key={`${file.name}:${file.size}:${index}`}>
+                  <Paperclip size={10} aria-hidden="true" />
+                  <span title={file.name}>{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setForwardFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X size={10} aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <footer>
+            <div className="sys-broker-composer-left">
+              <input
+                ref={forwardFileInputRef}
+                type="file"
+                multiple
+                hidden
+                disabled={forwardStatus === "sending"}
+                onChange={(event) => {
+                  addForwardFiles([...(event.target.files ?? [])]);
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                className="sys-broker-composer-attach"
+                disabled={forwardStatus === "sending"}
+                onClick={() => forwardFileInputRef.current?.click()}
+                aria-label="Attach files"
+                title="Attach files"
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+              <span className="sys-broker-message-attachment" title={reference}>Dispatch attached</span>
+            </div>
+
+            <div className="sys-broker-composer-targets">
+              <span aria-hidden="true">→</span>
+              <label title="Project target">
+                <span>Project</span>
+                <select
+                  aria-label="Project target"
+                  value={forwardProjectPath}
+                  disabled={forwardStatus === "sending"}
+                  onChange={(event) => {
+                    const projectPath = event.target.value;
+                    const nextAgent = routableAgents.find((agent) => (
+                      !projectPath || (agent.projectRoot?.trim() || agent.cwd?.trim()) === projectPath
+                    )) ?? null;
+                    setForwardProjectPath(projectPath);
+                    if (nextAgent) {
+                      setForwardAgentId(nextAgent.id);
+                      setForwardModel(nextAgent.model?.trim() || "");
+                    }
+                  }}
+                >
+                  <option value="">Any project</option>
+                  {projectOptions.map((project) => (
+                    <option key={project.path} value={project.path}>{project.label}</option>
+                  ))}
+                </select>
+              </label>
+              <span aria-hidden="true">·</span>
+              <label title="Agent target">
+                <span>Agent</span>
+                <select
+                  aria-label="Agent target"
+                  value={forwardAgentId}
+                  disabled={forwardStatus === "sending" || forwardProjectAgents.length === 0}
+                  onChange={(event) => {
+                    const nextAgent = routableAgents.find((agent) => agent.id === event.target.value) ?? null;
+                    setForwardAgentId(event.target.value);
+                    if (nextAgent) {
+                      setForwardProjectPath(nextAgent.projectRoot?.trim() || nextAgent.cwd?.trim() || "");
+                      setForwardModel(nextAgent.model?.trim() || "");
+                    }
+                    setForwardStatus("idle");
+                    setForwardMessage(null);
+                  }}
+                >
+                  {forwardProjectAgents.length === 0 ? (
+                    <option value="">No agents</option>
+                  ) : forwardProjectAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.id === scoutbotAgentId ? "Scout" : agent.name}</option>
+                  ))}
+                </select>
+              </label>
+              <span aria-hidden="true">·</span>
+              <label title="Model target">
+                <span>Model</span>
+                <select
+                  aria-label="Model target"
+                  value={forwardModel}
+                  disabled={forwardStatus === "sending"}
+                  onChange={(event) => setForwardModel(event.target.value)}
+                >
+                  {forwardModelOptions.length === 0 && <option value="">Default model</option>}
+                  {forwardModelOptions.map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+              </label>
+              <span aria-hidden="true">·</span>
+              <label title="Reasoning effort">
+                <span>Effort</span>
+                <select
+                  aria-label="Reasoning effort"
+                  value={forwardEffort}
+                  disabled={forwardStatus === "sending"}
+                  onChange={(event) => setForwardEffort(event.target.value)}
+                >
+                  {['low', 'medium', 'high', 'xhigh'].map((effort) => (
+                    <option key={effort} value={effort}>{effort === 'xhigh' ? 'XHigh' : effort[0]!.toUpperCase() + effort.slice(1)}</option>
+                  ))}
+                </select>
+              </label>
+              <DictationMic
+                className="sys-broker-composer-mic"
+                disabled={forwardStatus === "sending"}
+                onAppend={(text) => setMessageDraft((current) => current.trim() ? `${current.trimEnd()} ${text}` : text)}
+                onError={(message) => {
+                  setForwardStatus("failed");
+                  setForwardMessage(message);
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              className="sys-broker-composer-send"
+              disabled={!messageDraft.trim() || !forwardAgent || forwardStatus === "sending"}
+              aria-label={`Forward dispatch to ${forwardAgent?.name ?? "recipient"}`}
+            >
+              {forwardStatus === "sending" ? <LoaderCircle size={14} className="sys-broker-action-spinner" aria-hidden="true" /> : <SendHorizontal size={14} aria-hidden="true" />}
+            </button>
+          </footer>
+        </form>
+        {forwardMessage && (
+          <div className={`sys-broker-action-status sys-broker-action-status--${forwardStatus}`} role="status">
+            {forwardMessage}
+          </div>
+        )}
+      </section>
     </aside>
   );
 }

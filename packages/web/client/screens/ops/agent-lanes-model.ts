@@ -140,6 +140,10 @@ export type LaneFacts = {
   usage?: ObserveUsageMeta;
   compaction?: LaneCompactionFacts;
   currentTask?: string;
+  /** The observed parent session for a harness-owned child worker. */
+  parentSessionId?: string;
+  /** A Scout card name for the parent when that session is known to Scout. */
+  parentAgentName?: string;
   touchedFiles: ObserveFile[];
 };
 
@@ -223,6 +227,9 @@ export function hasDesignedAgentCard(agent: Agent, source: AgentLaneSource): boo
 }
 
 export function lanePrimaryLabel(agent: Agent, source: AgentLaneSource): string {
+  if (agent.role === "subagent") {
+    return agent.name.trim() || "Subagent";
+  }
   if (hasDesignedAgentCard(agent, source)) {
     return agent.name.trim() || "Agent";
   }
@@ -888,7 +895,10 @@ export function nativeSessionAgent(
   current: boolean,
 ): Agent {
   const sessionId = transcript.sessionId?.trim() || null;
-  const name = `${titleCase(transcript.source)} ${shortId(sessionId)}`;
+  const isSubagent = Boolean(transcript.subagentId);
+  const name = isSubagent
+    ? `${titleCase(transcript.source)} subagent ${shortId(transcript.subagentId)}`
+    : `${titleCase(transcript.source)} ${shortId(sessionId)}`;
   return {
     id: nativeSessionId(transcript),
     definitionId: `native:${transcript.source}`,
@@ -910,7 +920,7 @@ export function nativeSessionAgent(
     capabilities: [],
     project: transcript.project,
     branch: null,
-    role: null,
+    role: isSubagent ? "subagent" : null,
     model: null,
     harnessSessionId: sessionId,
     harnessLogPath: transcript.transcriptPath,
@@ -1211,6 +1221,7 @@ export function buildLaneFacts(
   agent: Agent,
   processes: TailDiscoveredProcess[],
   observe?: ObserveData | null,
+  parentAgent?: Agent,
 ): LaneFacts {
   const session = observe?.metadata?.session;
   const turnContext = latestTurnContext(events);
@@ -1248,6 +1259,10 @@ export function buildLaneFacts(
       ? turnFactsFromTailEvents(events)
       : (observe?.live ? { phase: "started" } : { phase: "idle" }),
     usage,
+    parentSessionId: transcript?.parentSessionId?.trim() || undefined,
+    parentAgentName: transcript?.parentSessionId && parentAgent
+      ? agentLabel(parentAgent)
+      : undefined,
     currentTask: currentTaskFromTailEvents(events, observe),
   };
 
@@ -1630,6 +1645,52 @@ function compareLanesById(a: AgentLane, b: AgentLane): number {
   return a.id.localeCompare(b.id);
 }
 
+function laneSessionRefs(lane: AgentLane): string[] {
+  return [
+    lane.agent.harnessSessionId,
+    lane.agent.conversationId,
+    lane.observe?.metadata?.session?.externalSessionId,
+  ].filter((value): value is string => Boolean(value?.trim()));
+}
+
+/**
+ * Keep harness-owned children beside their observed parent. Stable slots still
+ * decide the order of unrelated lanes and of siblings under the same parent.
+ */
+function sortLanesByObservedLineage(
+  lanes: AgentLane[],
+  order: StableLaneOrder,
+): AgentLane[] {
+  const parentBySession = new Map<string, AgentLane>();
+  for (const lane of lanes) {
+    for (const ref of laneSessionRefs(lane)) parentBySession.set(ref, lane);
+  }
+
+  const parentByChildId = new Map<string, AgentLane>();
+  for (const lane of lanes) {
+    const parentSessionId = lane.facts?.parentSessionId?.trim();
+    const parent = parentSessionId ? parentBySession.get(parentSessionId) : undefined;
+    if (parent && parent.id !== lane.id) parentByChildId.set(lane.id, parent);
+  }
+
+  return [...lanes].sort((left, right) => {
+    const leftParent = parentByChildId.get(left.id);
+    const rightParent = parentByChildId.get(right.id);
+    const leftRoot = leftParent ?? left;
+    const rightRoot = rightParent ?? right;
+    const leftRootSlot = order.slots.get(leftRoot.id) ?? Number.MAX_SAFE_INTEGER;
+    const rightRootSlot = order.slots.get(rightRoot.id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftRootSlot !== rightRootSlot) return leftRootSlot - rightRootSlot;
+    if (leftRoot.id !== rightRoot.id) return compareLanesById(leftRoot, rightRoot);
+    if (left.id === leftRoot.id) return -1;
+    if (right.id === rightRoot.id) return 1;
+    const leftSlot = order.slots.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+    const rightSlot = order.slots.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftSlot !== rightSlot) return leftSlot - rightSlot;
+    return compareLanesById(left, right);
+  });
+}
+
 const SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 function extractSessionUuid(value: string | null | undefined): string | null {
@@ -1667,12 +1728,7 @@ export function sortLanesWithStableOrder(
     if (!activeSlotKeys.has(slotKey)) order.slots.delete(slotKey);
   }
 
-  const sorted = [...lanes].sort((left, right) => {
-    const slotLeft = order.slots.get(left.id) ?? Number.MAX_SAFE_INTEGER;
-    const slotRight = order.slots.get(right.id) ?? Number.MAX_SAFE_INTEGER;
-    if (slotLeft !== slotRight) return slotLeft - slotRight;
-    return compareLanesById(left, right);
-  });
+  const sorted = sortLanesByObservedLineage(lanes, order);
 
   return { lanes: sorted, newLaneIds };
 }
@@ -1957,10 +2013,20 @@ export function buildAgentLanes(input: {
     }
 
     const scoutAgent = scoutAgentForTranscript(transcript, scoutBySession);
+    const parentAgent = transcript.parentSessionId
+      ? scoutBySession.get(transcript.parentSessionId)
+      : undefined;
     if (scoutAgent) representedBoundAgentIds.add(scoutAgent.id);
     const observe = observeDataFromTail(transcript, events, current, { now, windowMs });
     const hasLoadedTailEvents = events.length > 0;
-    const facts = buildLaneFacts(transcript, events, scoutAgent ?? nativeSessionAgent(transcript, lastActiveAt, current), processes, observe);
+    const facts = buildLaneFacts(
+      transcript,
+      events,
+      scoutAgent ?? nativeSessionAgent(transcript, lastActiveAt, current),
+      processes,
+      observe,
+      parentAgent,
+    );
     const sessionSubstantiveAt = lastActiveAt;
     const lane: AgentLane = scoutAgent
       ? {

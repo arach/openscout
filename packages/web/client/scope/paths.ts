@@ -146,14 +146,47 @@ export function parseScopeRouteFromUrl(
   }
 }
 
-const NON_STICKY_QUERY_PARAMS = new Set(["select"]);
+/**
+ * Global search keys allowed to follow the user across navigations — named
+ * feature-flag and dev-only params only. Everything else is route-local:
+ * route serialization (routePath) owns route params, and machineId propagates
+ * exclusively through the MACHINE_SCOPED_VIEWS rules in lib/router.ts, never
+ * through generic search preservation.
+ */
+const GLOBAL_STICKY_SEARCH_KEYS = new Set([
+  // Ops gate shortcut (maps to the ops.control flag; lib/scout-flags.ts).
+  "no-ops",
+  // Feature-flag bundles, persistence, and audience (lib/scout-flags.ts).
+  "ffBundle",
+  "ffVariant",
+  "scoutBundle",
+  "scoutExperience",
+  "ab",
+  "ffGlobal",
+  "scoutGlobalBundle",
+  "ffPersist",
+  "persistBundle",
+  "ffAudience",
+  // Studio dev injection (studio/studio-injection-state.ts).
+  "studio",
+  "studioInjection",
+  "studioMode",
+]);
 
-/** Keep URL query params (flags, layout, etc.) when rewriting to a scope path. */
+/** Key prefixes that are always global: per-flag overrides and per-study studio params. */
+const GLOBAL_STICKY_SEARCH_PREFIXES = ["ff.", "studio.", "studioMode."];
+
+export function isGlobalStickySearchKey(key: string): boolean {
+  return GLOBAL_STICKY_SEARCH_KEYS.has(key)
+    || GLOBAL_STICKY_SEARCH_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/** Carry whitelisted global params (feature flags) when rewriting to a new path. */
 export function preserveLocationSearch(path: string, search = ""): string {
   const target = new URL(path, "http://scout.local");
   const current = new URLSearchParams(search);
   current.forEach((value, key) => {
-    if (NON_STICKY_QUERY_PARAMS.has(key)) return;
+    if (!isGlobalStickySearchKey(key)) return;
     if (!target.searchParams.has(key)) {
       target.searchParams.set(key, value);
     }

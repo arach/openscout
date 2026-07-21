@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { HarnessMark, harnessLabel as sharedHarnessLabel } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
 import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
@@ -17,6 +18,7 @@ import type {
   Route,
 } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import type { ServiceGauge } from "../home/HomeHero.tsx";
 import { OpsSubnav } from "../ops/OpsSubnav.tsx";
 import "./harnesses-screen.css";
@@ -43,6 +45,7 @@ type HarnessRow = {
 const KNOWN_HARNESSES = [
   "codex",
   "claude",
+  "kimi",
   "cursor",
   "native",
   "worker",
@@ -55,6 +58,7 @@ const KNOWN_HARNESSES = [
 const HARNESS_LABELS: Record<string, string> = {
   codex: "Codex",
   claude: "Claude",
+  kimi: "Kimi",
   cursor: "Cursor",
   native: "Native",
   worker: "Worker",
@@ -72,12 +76,13 @@ function canonicalHarnessId(value: string | null | undefined): string {
   if (normalized.includes("claude")) return "claude";
   if (normalized.includes("codex")) return "codex";
   if (normalized.includes("cursor")) return "cursor";
+  if (normalized.includes("kimi") || normalized.includes("moonshot")) return "kimi";
   if (normalized.includes("github")) return "github";
   return normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
 }
 
 function harnessLabel(id: string): string {
-  return HARNESS_LABELS[id] ?? id.replace(/[-_]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return HARNESS_LABELS[id] ?? sharedHarnessLabel(id);
 }
 
 function uniqueValues(values: Array<string | null | undefined>): string[] {
@@ -333,7 +338,12 @@ function HarnessLedger({ rows }: { rows: HarnessRow[] }) {
           return (
             <div key={row.id} className="hs-ledger-row" role="row">
               <div className="hs-harness-cell">
-                <span className={`hs-harness-mark${active > 0 ? " hs-harness-mark--live" : ""}`} aria-hidden="true" />
+                <HarnessMark
+                  harness={row.id}
+                  size={15}
+                  title={null}
+                  className={`hs-harness-mark${active > 0 ? " hs-harness-mark--live" : ""}`}
+                />
                 <span className="hs-harness-main">
                   <strong>{row.label}</strong>
                   <span>{row.gauge ? "budget feed" : row.observations.length > 0 ? "observed" : "catalog"}</span>
@@ -476,11 +486,15 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
   const activeHarnesses = rows.filter((row) => row.agents.length > 0 || row.gauge || row.observations.length > 0).length;
   const workingAgents = scopedAgents.filter((agent) => isAgentBusy(agent.state)).length;
 
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
+
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={{ view: "harnesses", ...(machineId ? { machineId } : {}) }} navigate={navigate} />
-      </div>
+      {contentOwnsSecondaryNav ? (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={{ view: "harnesses", ...(machineId ? { machineId } : {}) }} navigate={navigate} />
+        </div>
+      ) : null}
       <div className="s-ops-body hs-body">
         <div className="hs-page">
           <header className="hs-page-head">
