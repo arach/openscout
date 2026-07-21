@@ -108,6 +108,14 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
 ## Constraints
 
 - URLs unchanged; router/nav suites green unmodified.
+- **The HudsonKit `SidePanel` and the shadcn nav sidebar are separate
+  components with separate jobs.** Do not extend, subclass, wrap, or
+  restyle `SidePanel` into a sidebar, and do not route sidebar rendering
+  through HudsonKit chrome. The shadcn sidebar owns left navigation
+  (destinations + context); HudsonKit `SidePanel` owns the right inspector
+  and, until the flag-off path is deleted, the legacy left rail. Shared
+  concerns (collapse persistence, inset arithmetic) integrate through shell
+  state/CSS vars, not through component coupling.
 - No Radix dependency. No new npm dependency beyond what's already present
   (`@base-ui-components/react`, `lucide-react`, tailwind).
 - Embeds unchanged (no sidebar). Scope remains path-driven.
