@@ -1,97 +1,119 @@
 # SCO-086: Rail consistency — unified expand affordance, sidebar resize, page title bar
 
-Status: draft, ready for review
+Status: revised after Codex review, ready for implementation
 Scope: `packages/web` chrome polish on top of sco-085 (full-height
 sidebar, top bar removed). User-directed design consolidation after
-reviewing the alternative lanes mock.
+reviewing the alternative lanes mock + annotated screenshot.
 
 ## Design directives (from the user, 2026-07-20)
 
-1. **One expand/collapse affordance for all rails.** Sidebar, side rail,
-   and inspector share a single expand/collapse control pattern in a
-   dedicated, consistent place — the floating expand-control pattern the
-   HudsonKit `SidePanel` already uses. Kill the ad-hoc triggers: no
-   collapse glyph on the logo, no duplicate brand-row + footer triggers.
-2. **The logo is static.** Scout mark + name stays at the top-left of the
-   sidebar. It is never a collapse toggle (click → Home is fine).
-3. **Consistent minimized widths.** Sidebar icon rail, collapsed side
-   rail, and collapsed inspector share one collapsed width family (~48px).
-4. **Sidebar is drag-to-resize.** The expanded sidebar gets a drag handle
-   (shadcn `SidebarRail` pattern) with sensible min/max (~200–360px) and a
-   persisted width, like the other panels' `onResizeStart` behavior.
-5. **Top bar remains a top bar.** Keep a slim page-level header bar (per
-   the alternative mock: page title/breadcrumb, utilities at right) —
-   formalize the sco-085 `CenterPaneHeader` seam into this role rather
-   than letting each screen invent its own.
+1. **One expand/collapse affordance for all rails** — an **edge chevron**
+   (`‹`/`›`) on the rail's boundary at header height (per the annotated
+   mock). Same control, same position, same behavior for sidebar, side
+   rail, inspector. No collapse glyph on the logo, no brand-row/footer
+   triggers.
+2. **The logo is static** — Scout mark + name top-left, click → Home,
+   never a toggle.
+3. **Consistent minimized widths** — all collapsed rails share one width
+   (~48px).
+4. **Sidebar drag-to-resize** — expanded sidebar gets a drag handle,
+   min 200 / max 360 / default 260, persisted, double-click resets.
+5. **Top bar remains a top bar** — the sco-085 `CenterPaneHeader` seam
+   becomes the slim page title bar AND owns the page-level secondary nav
+   strips (`OpsSubnav`, `ChatSubnav` move out of the content pane into it).
 
 ## Work items
 
-### 1. Unified rail affordance
+### 1. Unified rail affordance (`components/RailToggle.tsx`)
 
-- Define ONE collapse/expand control: an **edge chevron** (`‹`/`›`) on the
-  rail's boundary at header height — the pattern shown in the user's
-  annotated mock (2026-07-20). Same control, same position, same behavior
-  for sidebar, side rail, and inspector. Extract as a shared component
-  (e.g. `components/RailToggle.tsx`).
-- Sidebar: remove the brand-row trigger and the footer `SidebarTrigger`;
-  the edge chevron handles expand/collapse. In icon-rail mode the chevron
-  sits at the same boundary spot (pointing right to expand).
-- Side rail + inspector: replace the current floating expand glyph with
-  the shared edge chevron (same behavior, one implementation).
-- `⌘B` keeps working (shell-owned) and drives the same control.
+Codex correction: do NOT extract from HudsonKit `SidePanel` — its
+collapsed state is a private fixed button and expanded state has a private
+header button; there is no toggle slot beyond omitting `onToggleCollapse`,
+and the vendored fallback implements no collapse at all.
+
+- Build a pure, app-owned `packages/web/client/components/RailToggle.tsx`:
+  imports neither HudsonKit nor shadcn; props `side`, `collapsed`,
+  label, `onToggle`; renders the edge chevron at the rail boundary at
+  header height.
+- Integration is shell/wrapper-owned:
+  - Sidebar: bind to `useSidebar().toggleSidebar`; remove brand-row and
+    footer triggers.
+  - Expanded Hudson panels: omit `onToggleCollapse` (suppresses the
+    built-in button) and render `RailToggle` externally or via
+    `headerActions`.
+  - Collapsed panels: `SidePanel isCollapsed` always yields HudsonKit's
+    private button — so render an OpenScout-owned collapsed rail wrapper
+    (see work item 3) hosting the shared chevron instead.
+- `⌘B` stays shell-owned, drives the same control.
 
 ### 2. Static logo
 
-- Sidebar brand row: logo + product name, click → Home, no collapse
-  behavior, no minify glyph. Drag-region exemption stays (brand is a
-  click target, not a drag handle, and not a toggle).
+Brand row: logo + name, click → Home, no collapse behavior. Drag-region
+exemption stays.
 
-### 2b. Page title bar owns secondary nav
+### 3. Non-zero collapsed rails (Codex correction: they don't exist today)
 
-- The page title bar (work item 5) also owns the page-level secondary nav
-  strips: `OpsSubnav` (Lanes · Mission Control · Providers · Mesh · Tail ·
-  Runtime · Plans) and `ChatSubnav` move OUT of the content pane and INTO
-  the title bar, per the mock. One shared placement, driven by the
-  existing `secondaryNavConfig` projection.
+Today only the sidebar has a real collapsed rail (48px). The side rail and
+inspector collapse to **0px layout width** — HudsonKit replaces them with
+a ~36px floating button, not a rail.
 
-### 3. Consistent collapsed widths
+- Introduce one exported TS constant `RAIL_COLLAPSED_WIDTH = 48` reflected
+  into `--scout-rail-collapsed-width` (CSS var alone cannot drive the
+  numeric React inset arithmetic).
+- Render OpenScout-owned collapsed rail wrappers for the side rail and
+  inspector at that width (hosting the shared `RailToggle` + minimal
+  state glyphs); update push-inset arithmetic: collapsed →
+  `RAIL_COLLAPSED_WIDTH`, expanded → panel width.
+- Keep HIDDEN distinct from COLLAPSED: `scopeHidesRight`, inactive side
+  rail, broker-without-sheet stay 0px — no rail, no toggle.
 
-- One CSS var (e.g. `--scout-rail-collapsed-width: 48px`) drives the
-  sidebar icon rail, collapsed side rail, and collapsed inspector.
-  Verify the three actually render at the same width at 1280px and 900px.
+### 4. Sidebar drag-resize (Codex corrections)
 
-### 4. Sidebar drag-resize
+- `useSidebarCollapse` goes continuous: persisted
+  `expandedWidth` (key `appshell.${appId}.sidebar.width`), constants
+  DEFAULT 260 / MIN 200 / MAX 360;
+  `width = effectiveCollapsed ? RAIL_COLLAPSED_WIDTH : expandedWidth`.
+- All geometry sources consume the live value — including
+  `SidebarProvider --sidebar-width` (currently hard-coded 260 at
+  `OpenScoutAppShell.tsx:~935`).
+- Drag lifecycle: live React state during drag, persist on pointer-up
+  (no storage write per mousemove); double-click resets to 260.
+- **Transition fight:** both sidebar and center pane animate width/left
+  200ms — during live drag they trail the pointer while the side rail's
+  `left` jumps immediately. Add an `isSidebarResizing` state/data
+  attribute that disables those transitions until pointer-up.
+- **Handle placement:** do NOT use stock `SidebarRail` (it toggles on
+  click; cross-edge hitbox unsuitable). Render the handle only while
+  expanded, as a shell-level fixed overlay at the computed sidebar edge
+  with `z-index > 40` (the side rail sits at `left: navRailWidth`, also
+  z-40, renders later, and would win hit-testing). Exempt the handle
+  from the native drag region like other interactive controls.
+- `titleBarInset` is vertical-only — no change.
 
-- Add a resize handle on the expanded sidebar's right edge (shadcn
-  `SidebarRail` pattern, wired to the shell, not the shadcn default —
-  our shell owns width via `useSidebarCollapse`).
-- Min ~200px, max ~360px; persist width (new key, separate from collapse
-  state); double-click handle resets to 260px default.
-- `leftInset` arithmetic consumes the dynamic width (it already reads
-  `sidebarCollapse.width`).
+### 5. Page title bar (expanded scope)
 
-### 5. Page title bar
+- `CenterPaneHeader` becomes the slim page title bar: define its title
+  resolver API (route → title/breadcrumb) and a RIGHT-UTILITY slot
+  (ReactNode) for screens that need header actions. Document which
+  routes intentionally return `null` (big-header landings).
+- Move `OpsSubnav` and `ChatSubnav` OUT of the content pane INTO the
+  title bar, driven by the existing `secondaryNavConfig` projection.
 
-- Formalize `CenterPaneHeader` as the slim page title bar: page
-  title/breadcrumb, right-side utilities where a screen needs them.
-- Document the pattern in the component header (screens must not render
-  their own competing title bars; big-header landings keep the null
-  behavior from sco-085).
+### 6. Review follow-ups (Codex-confirmed)
 
-### 6. Review follow-ups (from sco-085 PR #404 review)
-
-- `areaSubNavForRoute` must derive from `ROUTE_AREA_BY_VIEW` instead of
-  inlining the area map; add a parity test.
-- Empty-CONTEXT Case C: expanding while empty currently flips stored
-  `rightCollapsed` true→false, which can erase a manual collapse
-  preference — fix so the temporary open override never rewrites the
-  stored pref; extend the transition tests.
+- `areaSubNavForRoute` may import `ROUTE_AREA_BY_VIEW` directly (no real
+  cycle; the "avoid circular import" comment is stale). Do that + parity
+  test.
+- Empty-CONTEXT: `nextLanesContextToggle` (`empty-context-collapse.ts:58-62`)
+  flips stored `rightCollapsed` true→false on expand-while-empty, and the
+  test at `:81-89` codifies that bug. Fix so the temporary open override
+  never rewrites the stored pref; update the test.
 
 ## Constraints
 
 - URLs unchanged; router/nav suites green unmodified.
-- Sidebar and HudsonKit `SidePanel` remain separate components; the
-  shared rail toggle is a control, not a merge of the components.
+- Sidebar and HudsonKit `SidePanel` remain separate components;
+  `RailToggle` is a shared control, not a component merge.
 - `?ff.nav.sidebar=off` legacy path untouched.
 - Collapse semantics (manual persisted vs derived auto-collapse)
   unchanged; resize width persists independently.
@@ -103,14 +125,15 @@ reviewing the alternative lanes mock.
 
 - `bun run --cwd packages/web test` + build green; focused nav/sidebar
   suites green.
-- New tests: rail width var consistency (unit-level where possible),
-  `areaSubNavForRoute` parity with `ROUTE_AREA_BY_VIEW`, empty-CONTEXT
-  pref-preservation transition.
-- Visual matrix: all 8 areas at 1280/900 (rail + expanded), sidebar
-  drag-resize to min and max, double-click reset, one scope surface, one
-  embed, legacy flag-off path.
-- Hit-test: rail toggle clickable in all three rails; resize handle wins
-  `elementFromPoint` at the sidebar edge.
+- New tests: `RailToggle` rendering/behavior, collapsed-width constant
+  consistency, `areaSubNavForRoute` parity, empty-CONTEXT
+  pref-preservation, resize clamp/reset (pure logic where possible).
+- Visual matrix: all 8 areas at 1280/900 (rail + expanded), edge chevron
+  on all three rails in the same spot, sidebar drag to min and max +
+  double-click reset, collapsed side rail/inspector at 48px, one scope
+  surface, one embed, legacy flag-off path.
+- Hit-test: edge chevrons and resize handle win `elementFromPoint`
+  (resize handle specifically over the adjacent side rail).
 
 ## Report back
 
