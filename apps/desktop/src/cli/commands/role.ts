@@ -227,7 +227,7 @@ export async function runRoleCommand(
       "/api/roles/catalog",
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     for (const role of data.roles) {
@@ -248,7 +248,7 @@ export async function runRoleCommand(
       `/api/roles/assignments${qs ? `?${qs}` : ""}`,
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     if (data.assignments.length === 0) {
@@ -289,7 +289,7 @@ export async function runRoleCommand(
       },
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     context.output.writeText(
@@ -305,7 +305,7 @@ export async function runRoleCommand(
       { revokedById: options.revokedById },
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     context.output.writeText(`Revoked ${data.assignment.id}`);
@@ -324,7 +324,7 @@ export async function runRoleCommand(
       `/api/missions/${encodeURIComponent(options.missionId)}/log${qs ? `?${qs}` : ""}`,
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     if (data.entries.length === 0) {
@@ -354,7 +354,7 @@ export async function runRoleCommand(
       },
     );
     if (options.json) {
-      context.output.writeJson(data);
+      context.output.writeText(JSON.stringify(data, null, 2));
       return;
     }
     context.output.writeText(
