@@ -44,6 +44,7 @@ import { BrokerDeliveryAcceptanceService } from "./broker-delivery-acceptance-se
 import { BrokerDeliveryHttpService } from "./broker-delivery-http-service.js";
 import { BrokerDurableActionHttpService } from "./broker-durable-action-http-service.js";
 import { BrokerFlightLifecycleService } from "./broker-flight-lifecycle-service.js";
+import { applyRoleLifecycleForTerminalFlight } from "./role-lifecycle.js";
 import { BrokerRepoTailService } from "./broker-repo-tail-service.js";
 import { BrokerOperatorAttentionService } from "./broker-operator-attention-service.js";
 import { BrokerLocalAgentSyncService } from "./broker-local-agent-sync-service.js";
@@ -701,6 +702,41 @@ const flightLifecycleService = new BrokerFlightLifecycleService({
   promoteInvocationFlightToWork,
   maybeForwardFlightToAuthority: (flight) => meshForwardingService.maybeForwardFlightToAuthority(flight),
   isInvocationActive: (invocationId) => localInvocationService.hasActiveInvocation(invocationId),
+  onTerminalFlight: async ({ flight, invocation }) => {
+    // Role lifecycle (orchestrator post_ask_summary, etc.). Best-effort; never
+    // fail the flight record path. Uses a short-lived SQLite connection so we
+    // don't hold the projection store lock.
+    if (sqliteDisabled) return;
+    try {
+      const { Database } = await import("bun:sqlite");
+      const db = new Database(dbPath);
+      try {
+        db.exec("PRAGMA busy_timeout = 2500;");
+        const result = applyRoleLifecycleForTerminalFlight(db as never, {
+          flight,
+          invocation,
+        });
+        if (result.written > 0) {
+          console.log(
+            `[openscout-runtime] role lifecycle flight ${flight.id}: wrote ${result.written} mission log entr${result.written === 1 ? "y" : "ies"}`,
+          );
+        }
+        if (result.errors.length > 0) {
+          console.warn(
+            `[openscout-runtime] role lifecycle flight ${flight.id} errors:`,
+            result.errors.join("; "),
+          );
+        }
+      } finally {
+        db.close();
+      }
+    } catch (error) {
+      console.warn(
+        `[openscout-runtime] role lifecycle flight ${flight.id} failed:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  },
   warn: (message, detail) => {
     if (detail === undefined) {
       console.warn(message);

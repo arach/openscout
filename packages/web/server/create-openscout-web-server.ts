@@ -14,6 +14,7 @@ import {
   extractAgentSelectors,
   isOpaqueChannelId,
   resolveAgentIdentity,
+  SCOUT_ROLE_CATALOG,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -25,6 +26,13 @@ import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
 } from "@openscout/runtime";
+import {
+  webAppendMissionLog,
+  webAssignRole,
+  webListMissionLog,
+  webListRoleAssignments,
+  webRevokeRole,
+} from "./db/assigned-roles.ts";
 
 import {
   controlScoutWebPairingService,
@@ -5750,6 +5758,140 @@ export async function createOpenScoutWebServer(
   app.get("/api/work/:id/material", handleWorkMaterialContent);
   app.get("/api/work/:id/material/raw", handleWorkMaterialRaw);
   app.get("/api/tasks/:id", handleWorkDetail);
+
+  // Assigned roles + mission log (orchestrator-first).
+  app.get("/api/roles/catalog", (c) => c.json({ roles: SCOUT_ROLE_CATALOG }));
+  app.get("/api/roles/assignments", (c) => {
+    try {
+      return c.json({
+        assignments: webListRoleAssignments({
+          agentId: c.req.query("agentId") || undefined,
+          missionId: c.req.query("missionId") || undefined,
+          roleId: c.req.query("roleId") || undefined,
+          activeOnly: c.req.query("activeOnly") !== "0" && c.req.query("activeOnly") !== "false",
+          includeStanding: c.req.query("includeStanding") !== "0",
+          limit: parseOptionalPositiveInt(c.req.query("limit")),
+        }),
+      });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+  app.post("/api/roles/assignments", async (c) => {
+    try {
+      const body = await c.req.json() as {
+        roleId?: string;
+        agentId?: string;
+        scope?: { kind?: string; missionId?: string; projectRoot?: string };
+        assignedById?: string;
+        enforceSingleOrchestrator?: boolean;
+        metadata?: Record<string, unknown>;
+      };
+      if (!body.roleId?.trim() || !body.agentId?.trim()) {
+        return c.json({ error: "roleId and agentId are required" }, 400);
+      }
+      const kind = body.scope?.kind ?? "agent";
+      let scope: { kind: "mission"; missionId: string } | { kind: "agent" } | { kind: "project"; projectRoot: string };
+      if (kind === "mission") {
+        if (!body.scope?.missionId?.trim()) {
+          return c.json({ error: "scope.missionId is required for mission scope" }, 400);
+        }
+        scope = { kind: "mission", missionId: body.scope.missionId.trim() };
+      } else if (kind === "project") {
+        if (!body.scope?.projectRoot?.trim()) {
+          return c.json({ error: "scope.projectRoot is required for project scope" }, 400);
+        }
+        scope = { kind: "project", projectRoot: body.scope.projectRoot.trim() };
+      } else {
+        scope = { kind: "agent" };
+      }
+      const assignment = webAssignRole({
+        roleId: body.roleId.trim(),
+        agentId: body.agentId.trim(),
+        scope,
+        assignedById: body.assignedById?.trim() || "operator",
+        enforceSingleOrchestrator: body.enforceSingleOrchestrator,
+        metadata: body.metadata,
+      });
+      return c.json({ assignment }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /unknown role|already has orchestrator|required/i.test(message) ? 400 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
+  app.post("/api/roles/assignments/:id/revoke", async (c) => {
+    try {
+      const id = c.req.param("id");
+      if (!id) return c.json({ error: "id is required" }, 400);
+      const body = await c.req.json().catch(() => ({})) as { revokedById?: string };
+      const assignment = webRevokeRole({
+        assignmentId: id,
+        revokedById: body.revokedById?.trim() || "operator",
+      });
+      return c.json({ assignment });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /unknown role assignment/i.test(message) ? 404 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
+  app.get("/api/missions/:missionId/log", (c) => {
+    try {
+      const missionId = c.req.param("missionId");
+      if (!missionId) return c.json({ error: "missionId is required" }, 400);
+      const afterSeq = parseOptionalPositiveInt(c.req.query("afterSeq"));
+      const entries = webListMissionLog({
+        missionId,
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
+        afterSeq: afterSeq ?? undefined,
+      });
+      return c.json({ missionId, entries });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+  app.post("/api/missions/:missionId/log", async (c) => {
+    try {
+      const missionId = c.req.param("missionId");
+      if (!missionId) return c.json({ error: "missionId is required" }, 400);
+      const body = await c.req.json() as {
+        actorId?: string;
+        kind?: string;
+        intent?: string;
+        status?: string;
+        checkpoint?: string;
+        nodeId?: string;
+        note?: string;
+        blockers?: Array<{ label: string; ownerId?: string }>;
+        refs?: Record<string, string>;
+        bypassPermission?: boolean;
+      };
+      if (!body.actorId?.trim() || !body.kind || !body.intent?.trim() || !body.status?.trim()) {
+        return c.json({ error: "actorId, kind, intent, and status are required" }, 400);
+      }
+      const entry = webAppendMissionLog(
+        {
+          missionId,
+          actorId: body.actorId.trim(),
+          kind: body.kind as import("@openscout/protocol").ScoutMissionLogKind,
+          intent: body.intent,
+          status: body.status,
+          checkpoint: body.checkpoint,
+          nodeId: body.nodeId,
+          note: body.note,
+          blockers: body.blockers,
+          refs: body.refs,
+        },
+        { bypassPermission: body.bypassPermission === true },
+      );
+      return c.json({ entry }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /not an assigned|invalid mission log|unknown/i.test(message) ? 400 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
   app.get("/api/runs", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");

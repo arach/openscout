@@ -663,6 +663,56 @@ export const briefingsTable = sqliteTable("briefings", {
   index("idx_briefings_kind_created_at").on(table.kind, desc(table.createdAt)),
 ]);
 
+// -- role_assignments --------------------------------------------------------
+// Explicit assigned roles (orchestrator, later qa/sre). Not agentClass/identity.
+// See docs/proposals/assigned-roles-and-mission-log.md
+export const roleAssignmentsTable = sqliteTable("role_assignments", {
+  id: text("id").primaryKey(),
+  roleId: text("role_id").notNull(),
+  agentId: text("agent_id").notNull(),
+  /** mission | agent | project */
+  scopeKind: text("scope_kind").notNull(),
+  /** work-item id when scope_kind=mission; null for agent; unused for project */
+  missionId: text("mission_id"),
+  /** project root when scope_kind=project */
+  projectRoot: text("project_root"),
+  assignedById: text("assigned_by_id").notNull(),
+  assignedAt: integer("assigned_at").notNull(),
+  active: integer("active").notNull().default(1),
+  revokedAt: integer("revoked_at"),
+  revokedById: text("revoked_by_id"),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull().default(epochMsNow),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_role_assignments_agent_active").on(table.agentId, table.active),
+  index("idx_role_assignments_mission_role_active").on(table.missionId, table.roleId, table.active),
+  index("idx_role_assignments_role_active").on(table.roleId, table.active),
+]);
+
+// -- mission_log_entries -----------------------------------------------------
+// Cheap orchestrator situation log (not chat). mission_id is a work-item id in v0.
+export const missionLogEntriesTable = sqliteTable("mission_log_entries", {
+  id: text("id").primaryKey(),
+  missionId: text("mission_id").notNull(),
+  nodeId: text("node_id"),
+  at: integer("at").notNull(),
+  seq: integer("seq").notNull(),
+  actorId: text("actor_id").notNull(),
+  kind: text("kind").notNull(),
+  intent: text("intent").notNull(),
+  status: text("status").notNull(),
+  checkpoint: text("checkpoint"),
+  blockersJson: text("blockers_json"),
+  refsJson: text("refs_json"),
+  note: text("note"),
+  metadataJson: text("metadata_json"),
+}, (table) => [
+  uniqueIndex("idx_mission_log_entries_mission_seq").on(table.missionId, table.seq),
+  index("idx_mission_log_entries_mission_at").on(table.missionId, desc(table.at)),
+  index("idx_mission_log_entries_actor_at").on(table.actorId, desc(table.at)),
+]);
+
 export const controlPlaneDrizzleSchema = {
   nodes: nodesTable,
   actors: actorsTable,
@@ -696,4 +746,6 @@ export const controlPlaneDrizzleSchema = {
   budgetQuotaWindowSnapshots: budgetQuotaWindowSnapshotsTable,
   mobilePushRegistrations: mobilePushRegistrationsTable,
   briefings: briefingsTable,
+  roleAssignments: roleAssignmentsTable,
+  missionLogEntries: missionLogEntriesTable,
 } as const;

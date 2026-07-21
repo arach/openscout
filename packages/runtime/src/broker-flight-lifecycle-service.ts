@@ -62,6 +62,15 @@ export type BrokerFlightLifecycleServiceOptions = {
   ) => Promise<void>;
   maybeForwardFlightToAuthority: (flight: FlightRecord) => Promise<void>;
   isInvocationActive: (invocationId: string) => boolean;
+  /**
+   * Role lifecycle (e.g. orchestrator post_ask_summary). Fire-and-forget safe;
+   * failures should be warned, not thrown into flight recording.
+   */
+  onTerminalFlight?: (input: {
+    flight: FlightRecord;
+    invocation?: InvocationRequest;
+    previous: FlightRecord | undefined;
+  }) => void | Promise<void>;
   warn?: (message: string, detail?: unknown) => void;
   now?: () => number;
 };
@@ -176,8 +185,10 @@ export class BrokerFlightLifecycleService {
       ?? this.options.runtime.snapshot().invocations[flight.invocationId];
     const flightToRecord = normalizeRecordedFlight(flight, invocation, this.now());
     let didRecordFlight = false;
+    let previousFlight: FlightRecord | undefined;
     await this.options.durableStore.runWrite(async () => {
       const previous = this.options.runtime.snapshot().flights[flightToRecord.id];
+      previousFlight = previous;
       if (previous && shouldIgnoreFlightUpdate(previous, flightToRecord)) {
         this.options.warn?.(
           `[openscout-runtime] ignored stale flight update ${flightToRecord.id}: ${previous.state} -> ${flightToRecord.state}`,
@@ -208,6 +219,27 @@ export class BrokerFlightLifecycleService {
       } catch (error) {
         this.options.warn?.(
           `[openscout-runtime] failed to update work item for flight ${flightToRecord.id}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    // Role lifecycle: post-ask summary when an assigned orchestrator is
+    // target or requester. Only on transition into terminal (not re-writes).
+    if (
+      isTerminalFlightState(flightToRecord.state)
+      && !isTerminalFlightState(previousFlight?.state ?? "queued")
+      && this.options.onTerminalFlight
+    ) {
+      try {
+        await this.options.onTerminalFlight({
+          flight: flightToRecord,
+          invocation,
+          previous: previousFlight,
+        });
+      } catch (error) {
+        this.options.warn?.(
+          `[openscout-runtime] role lifecycle failed for flight ${flightToRecord.id}:`,
           error instanceof Error ? error.message : String(error),
         );
       }
