@@ -10,6 +10,7 @@ import type {
   ComposeAction,
   MentionCandidate,
   MentionSuggestState,
+  SendReceipt,
   SlashCommand,
   SlashSuggestState,
 } from "./conversation-model.ts";
@@ -34,6 +35,7 @@ export function ConversationComposer({
   composeAction,
   onSend,
   onInterrupt,
+  sendReceipt,
 }: {
   composeRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
@@ -54,6 +56,7 @@ export function ConversationComposer({
   composeAction: ComposeAction;
   onSend: () => void;
   onInterrupt: () => void;
+  sendReceipt: SendReceipt | null;
 }) {
   const overlay = (
     <>
