@@ -152,6 +152,15 @@ export function ConversationComposer({
       }
       textareaRef={composeRef}
       overlay={overlay}
+      status={sendReceipt ? (
+        <div
+          className="s-thread-compose-receipt"
+          data-tone={sendReceipt.tone}
+          role="status"
+        >
+          {sendReceipt.text}
+        </div>
+      ) : null}
       tools={(
         <span className="s-thread-compose-hint s-msg-compose-tools-hint">
           <kbd className="s-kbd">/</kbd> commands

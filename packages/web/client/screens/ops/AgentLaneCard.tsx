@@ -44,6 +44,8 @@ export type AgentLaneCardModel = {
   /** Untruncated session id for copy (the header shows a short prefix). */
   sessionIdFull?: string | null;
   parentSessionId?: string | null;
+  /** Human-facing parent card label; the full parent id remains available to copy. */
+  parentSessionLabel?: string | null;
   /** Short relative time of last activity (e.g. "28m"). */
   time: string | null;
   working: boolean;
@@ -412,7 +414,7 @@ export function AgentLaneCard({
 }) {
   const {
     name, harness, model: modelName, effort,
-    cwd, cwdFull, branch, sessionId, sessionIdFull, parentSessionId,
+    cwd, cwdFull, branch, sessionId, sessionIdFull, parentSessionId, parentSessionLabel,
   } = model;
 
   return (
@@ -490,7 +492,7 @@ export function AgentLaneCard({
                 {parentSessionId && (
                   <>
                     <span className="s-lane-card-gchar" aria-hidden="true">↳</span>
-                    <span className="s-lane-card-val s-lane-card-sel">{parentSessionId}</span>
+                    <span className="s-lane-card-val s-lane-card-sel">{parentSessionLabel ?? parentSessionId}</span>
                   </>
                 )}
                 <CopyDot value={sessionIdFull ?? parentSessionId ?? sessionId ?? ""} label="session id" side="lead" />

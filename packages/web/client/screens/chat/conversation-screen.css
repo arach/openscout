@@ -636,6 +636,16 @@ button.s-thread-identity-chip:hover {
   color: var(--ink);
 }
 
+.s-thread-compose-receipt {
+  padding: 0 var(--space-xs);
+  font-size: var(--text-xs);
+  color: var(--green);
+}
+
+.s-thread-compose-receipt[data-tone="warning"] {
+  color: var(--amber);
+}
+
 .s-thread-msg-dismiss {
   display: inline-flex;
   align-items: center;

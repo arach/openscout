@@ -3848,6 +3848,68 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("posts to a broker-backed channel before the SQLite projection catches up", async () => {
+    const chatId = "chn-cfb4a5738b0d4399aa21768ae5987c09";
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1", name: "Test node" },
+      snapshot: {
+        conversations: {
+          [chatId]: {
+            id: chatId,
+            kind: "channel",
+            title: "engineering-ci",
+            visibility: "workspace",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: ["operator", "agent-1", "agent-2"],
+            metadata: { channel: "engineering-ci" },
+          },
+        },
+        messages: {},
+        invocations: {},
+        flights: {},
+        agents: {},
+        actors: {
+          operator: { id: "operator", displayName: "Operator" },
+          "agent-1": { id: "agent-1", displayName: "Agent One" },
+          "agent-2": { id: "agent-2", displayName: "Agent Two" },
+        },
+        endpoints: {},
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request(
+      `http://localhost/api/chats/${chatId}/messages`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body: "Team update" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationMessageCalls).toEqual([{
+      conversationId: chatId,
+      senderId: "operator",
+      body: "Team update",
+      notifyParticipantAgents: true,
+      currentDirectory: "/tmp/openscout",
+      source: "scout-web",
+    }]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    await expect(response.json()).resolves.toMatchObject({
+      chatId,
+      conversationId: chatId,
+      placement: { kind: "root" },
+    });
+  });
+
   test("returns canonical inline-reply placement from the Chat message endpoint", async () => {
     querySessionByIdImpl = () => ({
       kind: "channel",

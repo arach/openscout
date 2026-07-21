@@ -96,6 +96,24 @@ describe("BrokerWebControlService", () => {
     }));
   });
 
+  test("refuses to restart a healthy web server the broker does not own", async () => {
+    const service = new BrokerWebControlService({
+      brokerControlUrl: "http://127.0.0.1:4321",
+      env: { OPENSCOUT_WEB_PORT: "4321" },
+      healthCheck: async () => true,
+      resolveWebPort: () => 4321,
+    });
+
+    const status = await service.restartIfManaged();
+    expect(status).toEqual(expect.objectContaining({
+      ok: false,
+      running: true,
+      managed: false,
+      pid: null,
+    }));
+    expect(status.error).toContain("outside broker management");
+  });
+
   test("deduplicates concurrent starts and passes broker web environment", async () => {
     const child = fakeChild(2468);
     const spawns: Array<{ command: string; args: string[]; options: SpawnOptions }> = [];

@@ -63,6 +63,8 @@ export type MessageComposerProps = {
   input?: ReactNode;
   /** Absolute overlay inside the shell (slash / mention menus). */
   overlay?: ReactNode;
+  /** Send receipt or other feedback rendered below the toolbar. */
+  status?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Extra key handling after the built-in send shortcut. Return true to stop. */
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean | void;
@@ -180,6 +182,7 @@ export function MessageComposer({
   header,
   input,
   overlay,
+  status,
   textareaRef,
   onKeyDown,
   onSelect,
@@ -431,6 +434,8 @@ export function MessageComposer({
           )}
         </div>
       </div>
+
+      {status}
     </div>
   );
 

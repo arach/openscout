@@ -94,6 +94,78 @@ function baseSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe("getScoutConversations", () => {
+  test("coalesces duplicate named channels and preserves their combined history", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.actors["session-gauss"] = {
+      id: "session-gauss",
+      kind: "session",
+      displayName: "openscout-gauss-4",
+    };
+    snapshot.conversations["chn-engineering-a"] = {
+      id: "chn-engineering-a",
+      kind: "channel",
+      title: "engineering-ci",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", "hudson.main.mini"],
+      metadata: { naturalKey: "channel:engineering-ci", channel: "engineering-ci" },
+    };
+    snapshot.conversations["chn-engineering-b"] = {
+      id: "chn-engineering-b",
+      kind: "channel",
+      title: "engineering-ci",
+      visibility: "workspace",
+      shareMode: "local",
+      authorityNodeId: "node-1",
+      participantIds: ["operator", "session-gauss"],
+      metadata: { naturalKey: "channel:engineering-ci", channel: "engineering-ci" },
+    };
+    snapshot.messages["msg-engineering-a"] = {
+      id: "msg-engineering-a",
+      conversationId: "chn-engineering-a",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "Hudson report",
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: 1_779_461_800_000,
+    };
+    snapshot.messages["msg-engineering-b"] = {
+      id: "msg-engineering-b",
+      conversationId: "chn-engineering-b",
+      actorId: "session-gauss",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "OpenScout report",
+      visibility: "workspace",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations();
+    const engineering = conversations.filter((entry) => entry.naturalKey === "channel:engineering-ci");
+    expect(engineering).toHaveLength(1);
+    expect(engineering[0]).toMatchObject({
+      id: "chn-engineering-b",
+      messageCount: 2,
+      preview: "OpenScout report",
+      participantIds: ["hudson.main.mini", "operator", "session-gauss"],
+    });
+
+    const messages = await getScoutConversationMessages("chn-engineering-b", 80);
+    expect(messages?.map((message) => ({ id: message.id, conversationId: message.conversationId }))).toEqual([
+      { id: "msg-engineering-a", conversationId: "chn-engineering-b" },
+      { id: "msg-engineering-b", conversationId: "chn-engineering-b" },
+    ]);
+  });
+
   test("omits legacy structural conversation ids from the live list", async () => {
     const snapshot = baseSnapshot();
     snapshot.conversations["dm.operator.hudson.main.mini"] = {
