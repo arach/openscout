@@ -40,6 +40,8 @@ import {
   NEW_CHAT_SHORTCUT_LABEL,
 } from "./lib/new-chat-shortcut.ts";
 import { goShortcutForKey } from "./lib/go-shortcuts.ts";
+import { ScoutSidebar } from "./scout/sidebar/ScoutSidebar.tsx";
+import { useSidebarCollapse } from "./scout/sidebar/useSidebarCollapse.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -289,6 +291,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   usePaneNav();
   const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
   const browserLocation = useBrowserLocation();
+  // SCO-083: exactly one chrome tree — sidebar experiment vs legacy left panel.
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -307,6 +311,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const canvasMinimap = useCanvasMinimap();
   const [showActivityLog, setShowActivityLog] = useState(false);
 
+  // Legacy left-panel key — kept during soak; sidebar uses its own key.
   const [leftCollapsed, setLeftCollapsed] = usePersistentState(`appshell.${app.id}.left`, false);
   const [rightCollapsed, setRightCollapsed] = usePersistentState(`appshell.${app.id}.right`, false);
   const [rightOverlay, setRightOverlay] = usePersistentState(`appshell.${app.id}.rightOverlay`, false);
@@ -320,6 +325,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
   );
   const isSearchRoute = route.view === "search" || browserLocation.pathname === "/search";
+  const sidebarCollapse = useSidebarCollapse(app.id, viewportWidth);
 
   useEffect(() => {
     const update = () => {
@@ -331,11 +337,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Path-driven Scope presentation — never mutates persisted collapse prefs.
   const { active: scopePresentation, brandLabel: scopeBrandLabel } = useScopeShellChrome({
     route,
-    setLeftCollapsed,
-    setRightCollapsed,
   });
+
+  useEffect(() => {
+    if (sidebarChrome) {
+      document.documentElement.setAttribute("data-scout-sidebar-chrome", "");
+    } else {
+      document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+    }
+    return () => document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+  }, [sidebarChrome]);
 
   useEffect(() => {
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
@@ -451,12 +465,25 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   }, [leftWidth, rightWidth, setLeftWidth, setRightWidth, sidePanelMaxWidth]);
 
   const shellCommands: CommandOption[] = useMemo(() => {
+    const toggleLeft = () => {
+      if (sidebarChrome) {
+        sidebarCollapse.toggleCollapsed();
+      } else {
+        setLeftCollapsed((collapsed) => !collapsed);
+      }
+    };
     const commands: CommandOption[] = [
       {
         id: "shell:toggle-left",
-        label: "Toggle Left Panel",
+        label: sidebarChrome ? "Toggle Sidebar" : "Toggle Left Panel",
         shortcut: "Cmd+[",
-        action: () => setLeftCollapsed((collapsed) => !collapsed),
+        action: toggleLeft,
+      },
+      {
+        id: "shell:toggle-sidebar-b",
+        label: "Toggle Sidebar",
+        shortcut: "Cmd+B",
+        action: toggleLeft,
       },
       {
         id: "shell:toggle-right",
@@ -504,7 +531,20 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       });
     }
     return commands;
-  }, [agents, assistantEnabled, activeTab, openContextCapture, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel]);
+  }, [
+    agents,
+    assistantEnabled,
+    activeTab,
+    openContextCapture,
+    route,
+    setActiveTab,
+    setLeftCollapsed,
+    setRightCollapsed,
+    setRightOverlay,
+    setShowFlagPanel,
+    sidebarChrome,
+    sidebarCollapse,
+  ]);
 
   const allCommands = useMemo(() => [...appCommands, ...shellCommands], [appCommands, shellCommands]);
 
@@ -546,9 +586,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         const context = resolveCaptureRouteContext(route, agents);
         openContextCapture({ agentId: context.agentId ?? undefined });
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "[") {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "[" || e.key.toLowerCase() === "b")) {
+        // Cmd+[ and Cmd+B retarget the primary left chrome (sidebar or legacy panel).
+        // Skip Cmd+B inside editable/terminal targets (handled by outer guards partially;
+        // re-check editable for B so typing "b" with accidental meta is less risky).
+        if (e.key.toLowerCase() === "b" && typing) return;
         e.preventDefault();
-        setLeftCollapsed((collapsed) => !collapsed);
+        if (sidebarChrome) {
+          sidebarCollapse.toggleCollapsed();
+        } else {
+          setLeftCollapsed((collapsed) => !collapsed);
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "]") {
         e.preventDefault();
@@ -581,7 +629,25 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [agents, assistantEnabled, clearGoShortcut, keyboardHelp.open, navigate, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, startGoShortcut, takeoverActive]);
+  }, [
+    agents,
+    assistantEnabled,
+    clearGoShortcut,
+    keyboardHelp.open,
+    navigate,
+    openContextCapture,
+    resolvedTab,
+    route,
+    setActiveTab,
+    setLeftCollapsed,
+    setRightCollapsed,
+    setRightOverlay,
+    setShowFlagPanel,
+    sidebarChrome,
+    sidebarCollapse,
+    startGoShortcut,
+    takeoverActive,
+  ]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -698,11 +764,24 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const effectiveRightCollapsed = rightCollapsed
     || inspectorHasNothingInContext
     || projectsHaveNothingInContext
-    || dispatchHasNothingInContext;
-  const showRightPanel = route.view !== "broker" || dispatchSheetOpen;
+    || dispatchHasNothingInContext
+    || scopePresentation;
+  const showRightPanel = !scopePresentation && (route.view !== "broker" || dispatchSheetOpen);
 
-  const leftPushInset = leftCollapsed ? 0 : leftWidth;
-  const rightPushInset = effectiveRightCollapsed || rightOverlay || dispatchSheetOpen ? 0 : rightWidth;
+  // Scope presentation: legacy chrome collapses left/right as derived state
+  // (never written to prefs). New sidebar chrome keeps a path-aware Scope model.
+  const scopeHidesLegacyLeft = scopePresentation && !sidebarChrome;
+  const scopeHidesRight = scopePresentation;
+
+  // Sidebar chrome always reserves rail width (expanded or 48px icon rail).
+  // Legacy SidePanel collapses to zero width with a floating expand control.
+  const leftPushInset = sidebarChrome
+    ? sidebarCollapse.width
+    : (leftCollapsed || scopeHidesLegacyLeft ? 0 : leftWidth);
+  const rightPushInset =
+    effectiveRightCollapsed || rightOverlay || dispatchSheetOpen || scopeHidesRight
+      ? 0
+      : rightWidth;
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
@@ -710,6 +789,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     (leftPushInset > 0 || rightPushInset > 0);
   const autoOverlayRight = shouldAutoOverlayPanels && rightPushInset > 0;
   const autoOverlayLeft =
+    !sidebarChrome &&
     shouldAutoOverlayPanels &&
     leftPushInset > 0 &&
     viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH;
@@ -770,30 +850,41 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 actions={appNavActions}
               />
 
-              <SidePanel
-                side="left"
-                title={
-                  agentsV2Route
-                    ? "Browse"
-                    : route.view === "agents-v2" || route.view === "agent-info"
-                      ? "Projects"
-                      : app.leftPanel?.title ?? "Navigation"
-                }
-                icon={app.leftPanel?.icon}
-                isCollapsed={leftCollapsed}
-                onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
-                width={leftWidth}
-                onResizeStart={handleResizeStart("left")}
-                style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
-                footer={!leftCollapsed ? canvasMinimapNode : undefined}
-                headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
-              >
-                <div data-pane="left" style={{ display: "contents" }}>
-                  {app.slots.LeftPanel && <app.slots.LeftPanel />}
-                </div>
-              </SidePanel>
+              {sidebarChrome ? (
+                <ScoutSidebar
+                  collapsed={sidebarCollapse.effectiveCollapsed}
+                  width={sidebarCollapse.width}
+                  onToggleCollapse={sidebarCollapse.toggleCollapsed}
+                  brandLabel={scopePresentation ? scopeBrandLabel : app.name}
+                />
+              ) : (
+                <>
+                  <SidePanel
+                    side="left"
+                    title={
+                      agentsV2Route
+                        ? "Browse"
+                        : route.view === "agents-v2" || route.view === "agent-info"
+                          ? "Projects"
+                          : app.leftPanel?.title ?? "Navigation"
+                    }
+                    icon={app.leftPanel?.icon}
+                    isCollapsed={leftCollapsed || scopeHidesLegacyLeft}
+                    onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+                    width={leftWidth}
+                    onResizeStart={handleResizeStart("left")}
+                    style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
+                    footer={!leftCollapsed && !scopeHidesLegacyLeft ? canvasMinimapNode : undefined}
+                    headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
+                  >
+                    <div data-pane="left" style={{ display: "contents" }}>
+                      {app.slots.LeftPanel && <app.slots.LeftPanel />}
+                    </div>
+                  </SidePanel>
 
-              {leftCollapsed ? floatingCanvasMinimapNode : null}
+                  {(leftCollapsed || scopeHidesLegacyLeft) ? floatingCanvasMinimapNode : null}
+                </>
+              )}
 
               {showRightPanel && (
                 <SidePanel

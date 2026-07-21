@@ -80,6 +80,17 @@ const SURFACE_FLAG_KEYS = [
 ] as const;
 
 export const scoutFlags = createFlagRegistry({
+  // ── nav.* — chrome experiments (default off; not in max-pro) ─────────
+  "nav.sidebar": {
+    label: "Nav · Sidebar",
+    description:
+      "Classic sidebar chrome (8 primary areas + icon rail). Experiment via ?ff.nav.sidebar=on. Not included in max-pro.",
+    defaultEnabled: false,
+    tier: "everyone",
+    owner: "scout-web",
+    tags: ["nav", "chrome", "experiment"],
+  },
+
   // ── ops.* — power surfaces, audience-gated ────────────────────────────
   "ops.control": {
     label: "Ops · Control",

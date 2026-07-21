@@ -24,7 +24,7 @@ import { agoFromMillis, attentionRank, type Tone } from "../../scout/repo-watch/
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../../scout/repo-diff/RepoDiffViewerLazy.tsx";
 import { prefetchRepoDiffSnapshots } from "../../scout/repo-diff/cache.ts";
-import { OpsSubnav } from "../ops/OpsSubnav.tsx";
+
 
 /**
  * Repo Watch / State of Repos (SCO-061) — the live web view.
@@ -244,13 +244,9 @@ function prefetchWorktreePaths(
     .map((item) => item.path);
 }
 
-// Ops-cluster chrome — the same s-ops header + OpsSubnav module every other Ops
-// page (Broker/Mesh/Harnesses) wraps its content in, so Repos navigates
-// consistently with its siblings. The body scrolls itself (s-ops-body is
-// overflow:hidden by default), which also gives the sticky context panel a
-// scroll container.
+// SCO-083: Repos lives under Projects, not Ops — no OpsSubnav. Keep the s-ops
+// body scroll shell so the sticky context panel still has a scroll container.
 function ReposOpsShell({
-  navigate,
   children,
 }: {
   navigate: (route: Route) => void;
@@ -258,9 +254,6 @@ function ReposOpsShell({
 }) {
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={{ view: "repos" }} navigate={navigate} />
-      </div>
       <div className="s-ops-body" style={{ overflowY: "auto" }}>
         {children}
       </div>

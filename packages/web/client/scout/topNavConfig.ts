@@ -4,8 +4,13 @@ import {
   type TopNavItem,
   type TopNavKey,
 } from "./nav-destinations.ts";
+import {
+  ROUTE_VIEW_LABELS,
+  routeBreadcrumbForRoute,
+} from "./route-breadcrumb.ts";
 
 export type { TopNavItem, TopNavKey };
+export { ROUTE_VIEW_LABELS, routeBreadcrumbForRoute };
 
 // Single-personality nav (Model B · Work nouns): Home · Projects · Sessions ·
 // Chat. The ops/retrieval cluster (Search, Terminals, Tail, Dispatch, and the
@@ -13,25 +18,14 @@ export type { TopNavItem, TopNavKey };
 // (nav-system-menu.tsx). There is no lean/full switch — `nav.clean` is gone.
 //
 // Tab rows are projected from the destination catalog (nav-destinations.ts).
+// Breadcrumb labels live in route-breadcrumb.ts (SCO-083) so they survive
+// top-tab deletion.
 export const TOP_NAV_ITEMS: TopNavItem[] = projectTopNavItems();
 
+/** @deprecated Prefer ROUTE_VIEW_LABELS from route-breadcrumb.ts */
 export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
-  inbox: "Home",
-  conversation: "Conversation",
-  "agent-info": "Agent",
-  "agents-v2": "Projects",
-  messages: "Chat",
-  sessions: "Sessions",
-  terminal: "Terminals",
-  repos: "Repos",
-  harnesses: "Providers",
-  search: "Search",
-  channels: "Channels",
-  activity: "Activity",
-  mesh: "Mesh",
-  broker: "Dispatch",
-  settings: "Settings",
-  work: "Work",
+  ...ROUTE_VIEW_LABELS,
+  // Historical chrome label for ops under the System dropdown.
   ops: "System",
 };
 
@@ -94,7 +88,16 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
   }
 }
 
+/**
+ * Breadcrumb for the current route. Delegates to the neutral route-breadcrumb
+ * module; preserves the historical agents-config "Configuration" crumb and
+ * the prior sparse set used by top-tab chrome tests.
+ *
+ * For new callers prefer `routeBreadcrumbForRoute` (complete for all areas).
+ */
 export function topNavBreadcrumbForRoute(route: Route): string | null {
+  // Keep the legacy sparse contract for top-tab chrome: only detail-ish routes
+  // that the old strip showed. The fuller map lives in routeBreadcrumbForRoute.
   if (route.view === "settings" && route.section === "agents") {
     return "Configuration";
   }
