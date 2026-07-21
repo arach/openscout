@@ -127,6 +127,48 @@ describe("assigned-roles-store", () => {
     expect(entry.missionId).toBe("work-99");
   });
 
+  test("project-scoped orchestrator may write when projectRoot matches", () => {
+    const db = openTestDb();
+    assignRole(db, {
+      roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+      agentId: "orch-1",
+      scope: { kind: "project", projectRoot: "/repo" },
+      assignedById: "operator",
+    });
+
+    const entry = appendMissionLogEntry(
+      db,
+      {
+        missionId: "work-proj",
+        actorId: "orch-1",
+        kind: "progress",
+        intent: "Project campaign",
+        status: "Writing from project scope",
+      },
+      { projectRoot: "/repo" },
+    );
+    expect(entry.missionId).toBe("work-proj");
+  });
+
+  test("allow-multiple orchestrators when enforceSingleOrchestrator is false", () => {
+    const db = openTestDb();
+    assignRole(db, {
+      roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+      agentId: "orch-1",
+      scope: { kind: "mission", missionId: "work-1" },
+      assignedById: "operator",
+    });
+    const second = assignRole(db, {
+      roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+      agentId: "orch-2",
+      scope: { kind: "mission", missionId: "work-1" },
+      assignedById: "operator",
+      enforceSingleOrchestrator: false,
+    });
+    expect(second.agentId).toBe("orch-2");
+    expect(second.active).toBe(true);
+  });
+
   test("reactivates matching revoked assignment", () => {
     const db = openTestDb();
     const first = assignRole(db, {

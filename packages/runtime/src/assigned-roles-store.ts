@@ -433,13 +433,16 @@ export function appendMissionLogEntry(
   }
 
   if (!opts?.bypassPermission) {
+    // Load all active assignments for the actor; scope matching (mission /
+    // standing agent / project) happens in agentMayWriteMissionLog via
+    // assignmentAppliesTo. Filtering by missionId here would drop project-scoped
+    // orchestrators that should still be able to write when projectRoot matches.
     const assignments =
       opts?.assignments
       ?? listRoleAssignments(db, {
         agentId: input.actorId,
-        missionId: input.missionId,
         activeOnly: true,
-        includeStanding: true,
+        limit: 100,
       });
     const allowed = agentMayWriteMissionLog({
       agentId: input.actorId,

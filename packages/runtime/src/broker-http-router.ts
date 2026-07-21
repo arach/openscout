@@ -688,15 +688,17 @@ export function createBrokerHttpRouter(
     return;
   }
 
-  const missionLogMatch = url.pathname.match(/^\/v1\/missions\/([^/]+)\/log$/);
-  if (missionLogMatch && method === "GET") {
+  const missionLogGetMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/missions\/([^/]+)\/log$/)
+    : null;
+  if (missionLogGetMatch) {
     try {
       const db = deps.openRolesDb?.() ?? null;
       if (!db) {
         json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
         return;
       }
-      const missionId = decodeURIComponent(missionLogMatch[1] ?? "");
+      const missionId = decodeURIComponent(missionLogGetMatch[1] ?? "");
       const afterSeqRaw = url.searchParams.get("afterSeq");
       const afterSeq = afterSeqRaw ? Number.parseInt(afterSeqRaw, 10) : undefined;
       json(response, 200, brokerListMissionLog(db, {
@@ -710,14 +712,17 @@ export function createBrokerHttpRouter(
     return;
   }
 
-  if (missionLogMatch && method === "POST") {
+  const missionLogPostMatch = method === "POST"
+    ? url.pathname.match(/^\/v1\/missions\/([^/]+)\/log$/)
+    : null;
+  if (missionLogPostMatch) {
     try {
       const db = deps.openRolesDb?.() ?? null;
       if (!db) {
         json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
         return;
       }
-      const missionId = decodeURIComponent(missionLogMatch[1] ?? "");
+      const missionId = decodeURIComponent(missionLogPostMatch[1] ?? "");
       const body = await readRequestBody<{
         actorId?: string;
         kind?: string;

@@ -688,10 +688,6 @@ export const roleAssignmentsTable = sqliteTable("role_assignments", {
   index("idx_role_assignments_agent_active").on(table.agentId, table.active),
   index("idx_role_assignments_mission_role_active").on(table.missionId, table.roleId, table.active),
   index("idx_role_assignments_role_active").on(table.roleId, table.active),
-  // One active mission-scoped orchestrator per mission (partial unique).
-  uniqueIndex("idx_role_assignments_one_orchestrator_per_mission")
-    .on(table.missionId)
-    .where(sql`active = 1 AND role_id = 'orchestrator' AND scope_kind = 'mission' AND mission_id IS NOT NULL`),
 ]);
 
 // -- mission_log_entries -----------------------------------------------------
