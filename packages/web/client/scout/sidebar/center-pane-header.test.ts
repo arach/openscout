@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { routeBreadcrumbForRoute } from "../route-breadcrumb.ts";
 import { areaSubNavForRoute } from "../nav-destinations.ts";
 import { primaryAreaForRoute, ROUTE_AREA_BY_VIEW } from "../primary-areas.ts";
-import { secondaryNavKindForRoute } from "./center-pane-header-state.ts";
+import {
+  hasSecondaryNavRow,
+  secondaryNavKindForRoute,
+} from "./center-pane-header-state.ts";
 
 /**
  * Breadcrumb header seam coverage (SCO-085 / SCO-086).
@@ -85,5 +88,30 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     expect(secondaryNavKindForRoute({ view: "channels" })).toBe("chat");
     expect(secondaryNavKindForRoute({ view: "inbox" })).toBeNull();
     expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
+  });
+
+  // SCO-087b: the second stacked top-row exists when the route has content nav —
+  // either the Ops/Chat strip OR the projects/sessions area sub-nav. The shell
+  // sizes the top-row frame + contentTopOffset off this, so it must agree with
+  // CenterPaneHeader's own second-row render.
+  test("hasSecondaryNavRow is true for Ops/Chat and area-sub-nav routes", () => {
+    // Ops / Chat secondary strips.
+    expect(hasSecondaryNavRow({ view: "ops", mode: "lanes" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "mesh" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "harnesses" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "messages" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "channels" })).toBe(true);
+    // Projects / Sessions area sub-nav (no Ops/Chat kind, but still a second row).
+    expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
+    expect(hasSecondaryNavRow({ view: "agents-v2" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "terminal" })).toBe(true);
+    expect(hasSecondaryNavRow({ view: "code" })).toBe(true);
+  });
+
+  test("hasSecondaryNavRow is false on flush landings — no second row", () => {
+    // Empty-state behaviour: title band stays flush, contentTopOffset omits the
+    // secondary row.
+    expect(hasSecondaryNavRow({ view: "inbox" })).toBe(false);
+    expect(hasSecondaryNavRow({ view: "search" })).toBe(false);
   });
 });

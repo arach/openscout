@@ -219,11 +219,14 @@ export function ScoutSidebar({
       aria-label={model.kind === "scope" ? "Scope navigation" : "Primary navigation"}
       data-sidebar-kind={model.kind}
     >
-      {/* Brand strip: drag region + titleBarInset so macOS traffic lights clear. */}
+      {/* Brand strip: drag region + titleBarInset so macOS traffic lights clear.
+          SCO-087b: the brand band is pinned to the shared 44px top grid line
+          (see app.css brand-row rule); titleBarInset is the only top padding so
+          the SCOUT baseline lines up with the side-rail header + title bar. */}
       <SidebarHeader
         className="border-b border-sidebar-border"
         style={{
-          paddingTop: Math.max(8, titleBarInset || 0),
+          paddingTop: titleBarInset || 0,
           ...((dragRegionProps as { style?: CSSProperties } | undefined)?.style ?? {}),
         }}
         {...(Object.fromEntries(
@@ -234,7 +237,7 @@ export function ScoutSidebar({
         data-sidebar-drag-region=""
       >
         {/* Static logo — click → Home, never a collapse toggle (SCO-086). */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5" data-sidebar="brand-row">
           <SidebarMenu className="min-w-0 flex-1">
             <SidebarMenuItem>
               <SidebarMenuButton

@@ -47,6 +47,7 @@ import {
   sideRailHasContent,
 } from "./scout/sidebar/ScoutSideRail.tsx";
 import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
+import { hasSecondaryNavRow } from "./scout/sidebar/center-pane-header-state.ts";
 import { TopRowUtilities } from "./scout/sidebar/TopRowUtilities.tsx";
 import {
   RAIL_COLLAPSED_WIDTH,
@@ -79,15 +80,21 @@ const CENTER_CONTENT_MIN_WIDTH = 560;
 const GO_SHORTCUT_TIMEOUT_MS = 1500;
 
 // SCO-087: slim app-wide top row in the sidebar-chrome path. Sits right of the
-// full-height sidebar; the side rail, inspector, center pane and collapsed rails
-// all start below it. The rail edge chevrons sit one band lower (panel-header
-// height) so they never collide with the top row's utilities.
-const SIDEBAR_TOP_ROW_HEIGHT = 40;
-/** Rail edge chevron height (see .scout-rail-toggle). */
-const RAIL_TOGGLE_HEIGHT = 28;
+// full-height sidebar. SCO-087b: it is now TWO stacked rows — the title band
+// (breadcrumb + utilities) and, when the route has content nav, a secondary-nav
+// row directly below it (Ops/Chat strips, area sub-nav). The title band height
+// matches the SidePanel header band so the SCOUT brand, the side-rail header and
+// the title bar share one clean top grid line; the side rail rises to that line.
 /** SidePanel header band height (see app.css manifest/inspector header rule). */
 const RAIL_HEADER_HEIGHT = 44;
-/** Chevron top so it centers in each rail's panel-header band. */
+/** Title band height — one grid line with the SCOUT brand + side-rail header. */
+const SIDEBAR_TOP_ROW_HEIGHT = RAIL_HEADER_HEIGHT;
+/** SCO-087b: second stacked row holding the content secondary nav. */
+const SECONDARY_NAV_ROW_HEIGHT = 38;
+/** Rail edge chevron height (see .scout-rail-toggle). */
+const RAIL_TOGGLE_HEIGHT = 28;
+/** Chevron top so it centers in a header band (title band and rail header band
+ *  are the same height, so one offset serves both). */
 const RAIL_TOGGLE_HEADER_TOP = Math.round((RAIL_HEADER_HEIGHT - RAIL_TOGGLE_HEIGHT) / 2);
 
 interface ScoutNavigationBarProps {
@@ -331,8 +338,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   // Everything right of the sidebar starts below it; the legacy top bar path
   // (?ff.nav.sidebar=off) is unaffected and keeps chromeTopOffset = navTotalHeight.
   const topRowActive = sidebarChrome;
-  const contentTopOffset = chromeTopOffset + (topRowActive ? SIDEBAR_TOP_ROW_HEIGHT : 0);
-  const railToggleTop = contentTopOffset + RAIL_TOGGLE_HEADER_TOP;
+  // SCO-087b: the top row stacks a title band + (when the route has content nav)
+  // a secondary-nav row. contentTopOffset accounts for both so the center pane,
+  // side rail and inspector stay consistent. Empty state → no second row.
+  const secondaryNavRowActive = topRowActive && hasSecondaryNavRow(route);
+  const topRowHeight = topRowActive
+    ? SIDEBAR_TOP_ROW_HEIGHT + (secondaryNavRowActive ? SECONDARY_NAV_ROW_HEIGHT : 0)
+    : 0;
+  const contentTopOffset = chromeTopOffset + topRowHeight;
+  // SCO-087b: the sidebar edge + side-rail chevrons ride the TITLE band (one grid
+  // line with the SCOUT brand + side-rail header); the inspector chevron centers
+  // in its own header band, which sits below the full top row.
+  const titleBandToggleTop = chromeTopOffset + RAIL_TOGGLE_HEADER_TOP;
+  const inspectorToggleTop = contentTopOffset + RAIL_TOGGLE_HEADER_TOP;
   const scoutbotPublic = useScoutbotState();
 
   const appCommands = app.hooks.useCommands();
@@ -935,6 +953,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const panelTopStyle: React.CSSProperties = sidebarChrome
     ? { top: contentTopOffset }
     : {};
+  // SCO-087b: the side rail rises to the TITLE band so its header (HOME / OPS /…)
+  // shares one clean top grid line with the SCOUT brand and the title bar; its
+  // body then sits above the secondary-nav row. The title-bar frame starts to the
+  // right of the rail (see below) so the rail header is never overpainted.
+  const railTopStyle: React.CSSProperties = sidebarChrome
+    ? { top: chromeTopOffset }
+    : {};
   const shellChromeStyle = {
     display: "contents",
     "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
@@ -1026,7 +1051,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                         sidebarCollapse.dragGhostWidth != null
                           ? sidebarCollapse.dragGhostWidth
                           : sidebarCollapse.width,
-                      top: railToggleTop,
+                      top: titleBandToggleTop,
                       zIndex: 46,
                       transform: "translateX(-50%)",
                     }}
@@ -1054,8 +1079,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       style={{
                         position: "fixed",
                         left: Math.max(0, sidebarCollapse.width - 3),
-                        // Leave the panel-header band free for the edge RailToggle.
-                        top: contentTopOffset + RAIL_HEADER_HEIGHT,
+                        // Leave the title band free for the edge RailToggle.
+                        top: chromeTopOffset + SIDEBAR_TOP_ROW_HEIGHT,
                         bottom: 28,
                         width: 6,
                         zIndex: 50,
@@ -1078,7 +1103,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       style={{
                         position: "fixed",
                         left: sidebarCollapse.dragGhostWidth,
-                        top: contentTopOffset,
+                        top: chromeTopOffset,
                         bottom: 28,
                         width: 2,
                         transform: "translateX(-50%)",
@@ -1098,7 +1123,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       width={leftWidth}
                       onResizeStart={handleResizeStart("left")}
                       style={{
-                        ...panelTopStyle,
+                        ...railTopStyle,
                         ...(leftPanelOverlaysContent ? panelOverlayStyle("left") : {}),
                       }}
                     />
@@ -1145,12 +1170,15 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   // Merge the platform drag-region style INTO ours (macOS sets
                   // -webkit-app-region on style); spreading dragRegionProps raw
                   // would clobber our fixed positioning.
+                  // SCO-087b: starts to the RIGHT of the side rail so the risen
+                  // rail header keeps the top grid line; height stacks the title
+                  // band + (when present) the secondary-nav row.
                   style={{
                     position: "fixed",
                     top: chromeTopOffset,
-                    left: sidebarCollapse.width,
+                    left: sidebarCollapse.width + sideRailPushWidth,
                     right: 0,
-                    height: SIDEBAR_TOP_ROW_HEIGHT,
+                    height: topRowHeight,
                     zIndex: 30,
                     ...((dragRegionProps as { style?: React.CSSProperties } | undefined)?.style ?? {}),
                   }}
@@ -1263,7 +1291,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                         style={{
                           position: "fixed",
                           right: rightWidth,
-                          top: railToggleTop,
+                          top: inspectorToggleTop,
                           zIndex: 45,
                           transform: "translateX(50%)",
                         }}

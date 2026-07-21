@@ -24,9 +24,15 @@ import { useScout } from "../Provider.tsx";
 import type { Route } from "../../lib/types.ts";
 import { OpsSubnav } from "../../screens/ops/OpsSubnav.tsx";
 import { ChatSubnav } from "../../screens/chat/ChatSubnav.tsx";
-import { secondaryNavKindForRoute } from "./center-pane-header-state.ts";
+import {
+  hasSecondaryNavRow,
+  secondaryNavKindForRoute,
+} from "./center-pane-header-state.ts";
 
-export { secondaryNavKindForRoute } from "./center-pane-header-state.ts";
+export {
+  hasSecondaryNavRow,
+  secondaryNavKindForRoute,
+} from "./center-pane-header-state.ts";
 
 export function AreaSubNavStrip({
   items,
@@ -89,6 +95,7 @@ export function CenterPaneHeader({
   const subNav = areaSubNavForRoute(route);
   const secondaryKind = secondaryNavKindForRoute(route);
   const isTopRow = variant === "top-row";
+  const showSecondaryRow = Boolean(subNav) || secondaryKind !== null;
 
   // The top row is the app frame: it always mounts (it hosts machine scope +
   // utilities + the drag region), even on flush landings with no crumb/sub-nav.
@@ -96,11 +103,76 @@ export function CenterPaneHeader({
     return null;
   }
 
+  // SCO-087b: the secondary content nav (area sub-nav, Ops/Chat strips) is the
+  // "tabs" the user wants OUT of the title bar. Shared by both variants.
+  const secondaryNav = showSecondaryRow ? (
+    <>
+      {subNav ? (
+        <AreaSubNavStrip items={subNav.items} route={route} navigate={navigate} />
+      ) : null}
+      {secondaryKind === "ops" ? (
+        <div className="scout-center-pane-secondary" data-scout-secondary-nav="ops">
+          <OpsSubnav activeRoute={route} navigate={navigate} />
+        </div>
+      ) : null}
+      {secondaryKind === "chat" ? (
+        <div className="scout-center-pane-secondary" data-scout-secondary-nav="chat">
+          <ChatSubnav activeRoute={route} navigate={navigate} />
+        </div>
+      ) : null}
+    </>
+  ) : null;
+
+  // SCO-087b: the top row is now TWO stacked shell-owned rows — the title row
+  // (breadcrumb + right utilities only) and, directly below it, the secondary
+  // content-nav row. No secondary nav → no second row (title row stays flush).
+  if (isTopRow) {
+    return (
+      <div
+        className="scout-center-pane-header scout-center-pane-header--top-row"
+        data-scout-center-pane-header=""
+        data-scout-top-row=""
+        data-scout-has-secondary-row={showSecondaryRow ? "" : undefined}
+      >
+        <div className="scout-center-pane-header-title-row">
+          <div
+            className="scout-center-pane-header-main"
+            onMouseDown={onInteractiveMouseDown}
+          >
+            {breadcrumb ? (
+              <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
+                <span className="scout-nav-crumb">{breadcrumb}</span>
+              </div>
+            ) : null}
+          </div>
+          {rightUtility ? (
+            <div
+              className="scout-center-pane-header-utility"
+              data-scout-header-utility=""
+              onMouseDown={onInteractiveMouseDown}
+            >
+              {rightUtility}
+            </div>
+          ) : null}
+        </div>
+        {showSecondaryRow ? (
+          <div
+            className="scout-center-pane-header-secondary-row"
+            data-scout-secondary-row=""
+            onMouseDown={onInteractiveMouseDown}
+          >
+            {secondaryNav}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Legacy / non-top-row seam (kept single-row for the ?ff.nav.sidebar=off path).
   return (
     <div
-      className={`scout-center-pane-header${isTopRow ? " scout-center-pane-header--top-row" : ""}`}
+      className="scout-center-pane-header"
       data-scout-center-pane-header=""
-      data-scout-top-row={isTopRow ? "" : undefined}
     >
       <div className="scout-center-pane-header-main" onMouseDown={onInteractiveMouseDown}>
         {breadcrumb ? (
@@ -108,23 +180,7 @@ export function CenterPaneHeader({
             <span className="scout-nav-crumb">{breadcrumb}</span>
           </div>
         ) : null}
-        {subNav ? (
-          <AreaSubNavStrip
-            items={subNav.items}
-            route={route}
-            navigate={navigate}
-          />
-        ) : null}
-        {secondaryKind === "ops" ? (
-          <div className="scout-center-pane-secondary" data-scout-secondary-nav="ops">
-            <OpsSubnav activeRoute={route} navigate={navigate} />
-          </div>
-        ) : null}
-        {secondaryKind === "chat" ? (
-          <div className="scout-center-pane-secondary" data-scout-secondary-nav="chat">
-            <ChatSubnav activeRoute={route} navigate={navigate} />
-          </div>
-        ) : null}
+        {secondaryNav}
       </div>
       {rightUtility ? (
         <div
