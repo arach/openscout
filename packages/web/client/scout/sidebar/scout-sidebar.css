@@ -6,6 +6,7 @@
   left: 0;
   bottom: 28px; /* StatusBar */
   z-index: 40;
+  pointer-events: auto; /* the HUD overlay layer is pointer-events:none; re-enable here */
   display: flex;
   flex-direction: column;
   min-height: 0;
