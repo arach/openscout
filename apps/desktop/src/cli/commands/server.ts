@@ -36,6 +36,21 @@ import { ScoutCliError } from "../errors.ts";
 type ScoutServerMode = "openscout-web";
 type ScoutServerAction = "start" | "restart" | "open" | "caddyfile" | "edge" | "trust";
 
+export type ScoutWebControlStatus = {
+  ok: boolean;
+  running: boolean;
+  starting: boolean;
+  managed: boolean;
+  webUrl: string;
+  port: number;
+  pid: number | null;
+  error: string | null;
+};
+
+const SERVER_CONTROL_TIMEOUT_MS = 20_000;
+const SERVER_OPEN_TIMEOUT_MS = 15_000;
+const SERVER_HEALTH_TIMEOUT_MS = 1_500;
+
 type ScoutServerHealth = {
   ok: true;
   surface: "control-plane" | "openscout-web";
@@ -49,9 +64,6 @@ type ScoutServerOpenResult = {
   mode: ScoutServerMode;
   reusedExistingServer: boolean;
 };
-
-const SERVER_OPEN_TIMEOUT_MS = 15_000;
-const SERVER_HEALTH_TIMEOUT_MS = 1_500;
 
 export function renderServerCommandHelp(): string {
   return [
@@ -133,9 +145,11 @@ export function resolveScoutControlPlaneWebServerEntry(): string {
 function parseServerFlags(args: string[]): {
   env: Record<string, string>;
   openPath: string;
+  openPathSpecified: boolean;
 } {
   const env: Record<string, string> = {};
   let openPath = "/";
+  let openPathSpecified = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -219,6 +233,7 @@ function parseServerFlags(args: string[]): {
       const v = args[++i];
       if (!v) throw new ScoutCliError("--path requires a value");
       openPath = v;
+      openPathSpecified = true;
       continue;
     }
     if (a.startsWith("--port=")) {
@@ -271,12 +286,13 @@ function parseServerFlags(args: string[]): {
     }
     if (a.startsWith("--path=")) {
       openPath = a.slice("--path=".length);
+      openPathSpecified = true;
       continue;
     }
     throw new ScoutCliError(`unknown option: ${a}`);
   }
 
-  return { env, openPath };
+  return { env, openPath, openPathSpecified };
 }
 
 function appendEnvList(env: Record<string, string>, key: string, value: string): void {
@@ -302,6 +318,34 @@ function appendEnvListValues(input: string | undefined, values: string[]): strin
     out.push(normalized);
   }
   return out.length > 0 ? out.join(",") : undefined;
+}
+
+function buildServerCommandEnv(flagEnv: Record<string, string>): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...flagEnv } as NodeJS.ProcessEnv;
+  const trustedHosts = appendEnvListValues(
+    env.OPENSCOUT_WEB_TRUSTED_HOSTS,
+    readTailscaleSelfWebHostsSync(),
+  );
+  if (trustedHosts) {
+    env.OPENSCOUT_WEB_TRUSTED_HOSTS = trustedHosts;
+  }
+  return env;
+}
+
+function assertBrokerManagedLifecycleFlags(
+  action: ScoutServerAction,
+  flagEnv: Record<string, string>,
+  openPathSpecified: boolean,
+): void {
+  if (action !== "start" && action !== "restart" && action !== "open") {
+    return;
+  }
+  const unsupported = Object.keys(flagEnv);
+  if (unsupported.length > 0 || (action !== "open" && openPathSpecified)) {
+    throw new ScoutCliError(
+      `${action} is broker-managed and does not accept per-command web configuration. Configure the broker service instead.`,
+    );
+  }
 }
 
 function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): string | null {
@@ -403,55 +447,41 @@ function brokerUrlMatches(actual: string | undefined, expected: string | undefin
 function parseServerSelection(args: string[]): {
   action: ScoutServerAction;
   flagArgs: string[];
-  entry: string;
-  mode: ScoutServerMode;
 } {
   if (args[0] === "start") {
     return {
       action: "start",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "restart") {
     return {
       action: "restart",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "open") {
     return {
       action: "open",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "caddyfile") {
     return {
       action: "caddyfile",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "edge") {
     return {
       action: "edge",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "trust") {
     return {
       action: "trust",
       flagArgs: args.slice(1),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   if (args[0] === "control-plane") {
@@ -459,8 +489,6 @@ function parseServerSelection(args: string[]): {
     return {
       action: sub,
       flagArgs: args.slice(2),
-      entry: resolveScoutControlPlaneWebServerEntry(),
-      mode: "openscout-web",
     };
   }
   throw new ScoutCliError(`unknown subcommand: ${args[0]} (try: scout server open)`);
@@ -897,6 +925,41 @@ async function openScoutServer(options: {
   };
 }
 
+export async function requestScoutWebControl(
+  action: "start" | "restart",
+  options: {
+    brokerUrl?: string;
+    fetchImpl?: typeof fetch;
+  } = {},
+): Promise<ScoutWebControlStatus> {
+  const brokerUrl = options.brokerUrl ?? resolveScoutBrokerUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(new URL(`/v1/web/${action}`, brokerUrl), {
+      method: "POST",
+      headers: { accept: "application/json", connection: "close" },
+      signal: AbortSignal.timeout(SERVER_CONTROL_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new ScoutCliError(
+      `Scout broker did not respond while trying to ${action} the web server: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const status = await response.json().catch(() => null) as ScoutWebControlStatus | null;
+  if (!response.ok || !status?.ok) {
+    throw new ScoutCliError(status?.error ?? `Scout broker could not ${action} the web server (HTTP ${response.status}).`);
+  }
+  return status;
+}
+
+function renderServerControlResult(action: "start" | "restart", status: ScoutWebControlStatus): string {
+  const verb = action === "start" ? "Started" : "Restarted";
+  const ownership = status.managed ? "broker-managed" : "already running outside broker management";
+  return `${verb} Scout web at ${status.webUrl} (${ownership}).`;
+}
+
 export async function runServerCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
   if (args.length === 0 || args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
     context.output.writeText(renderServerCommandHelp());
@@ -904,19 +967,15 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
   }
 
   const selection = parseServerSelection(args);
-  const { env: flagEnv, openPath } = parseServerFlags(selection.flagArgs);
-  const mergedEnv = await withLiveBrokerInternalUrl(
-    buildMergedServerEnv(selection.entry, selection.mode, flagEnv),
-  );
+  const { env: flagEnv, openPath, openPathSpecified } = parseServerFlags(selection.flagArgs);
+  assertBrokerManagedLifecycleFlags(selection.action, flagEnv, openPathSpecified);
+  const mergedEnv = buildServerCommandEnv(flagEnv);
 
   if (selection.action === "open") {
-    const result = await openScoutServer({
-      entry: selection.entry,
-      mode: selection.mode,
-      env: mergedEnv,
-      openPath,
-    });
-    context.output.writeValue(result, renderServerOpenResult);
+    const status = await requestScoutWebControl("start");
+    const browserUrl = resolveServerBrowserUrl(mergedEnv, status.port, openPath);
+    await openBrowser(browserUrl);
+    context.output.writeText(`Opened Scout web at ${browserUrl} (${status.managed ? "broker-managed" : "already running outside broker management"}).`);
     return;
   }
 
@@ -936,46 +995,12 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
   }
 
   if (selection.action === "restart") {
-    const result = await restartScoutWebServer();
-    context.output.writeValue(result, renderServerRestartResult);
+    const status = await requestScoutWebControl("restart");
+    context.output.writeText(renderServerControlResult("restart", status));
     return;
   }
-
-
-  const bunExecutable = resolveBunExecutable(mergedEnv);
-
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    const child = spawn(bunExecutable, ["run", selection.entry], {
-      stdio: "inherit",
-      env: mergedEnv,
-    });
-    child.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT") {
-        rejectPromise(
-          new ScoutCliError(
-            "`bun` was not found on PATH. Install Bun (https://bun.sh) to run scout server.",
-          ),
-        );
-        return;
-      }
-      rejectPromise(err);
-    });
-    child.on("exit", (code, signal) => {
-      if (signal === "SIGINT" || signal === "SIGTERM") {
-        resolvePromise();
-        return;
-      }
-      if (signal) {
-        rejectPromise(new ScoutCliError(`server exited on signal ${signal}`));
-        return;
-      }
-      if (code !== 0 && code !== null) {
-        rejectPromise(new ScoutCliError(`server exited with code ${code}`));
-        return;
-      }
-      resolvePromise();
-    });
-  });
+  const status = await requestScoutWebControl("start");
+  context.output.writeText(renderServerControlResult("start", status));
 }
 
 type ScoutServerWebControlStatus = {

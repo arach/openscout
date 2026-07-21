@@ -276,7 +276,7 @@ export function createBrokerHttpRouter(
   const threadWatchStreamMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
     : null;
-  if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start") && method === "OPTIONS") {
+  if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start" || url.pathname === "/v1/web/restart") && method === "OPTIONS") {
     response.writeHead(204, webControl.corsHeaders(request));
     response.end();
     return;
@@ -346,6 +346,25 @@ export function createBrokerHttpRouter(
         response,
         200,
         await webControl.startIfNeeded(webControl.startContextFromRequest(request)),
+        webControl.corsHeaders(request),
+      );
+    } catch (error) {
+      jsonWithHeaders(
+        response,
+        500,
+        webControl.failureStatus(error),
+        webControl.corsHeaders(request),
+      );
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/web/restart") {
+    try {
+      jsonWithHeaders(
+        response,
+        200,
+        await webControl.restartIfManaged(webControl.startContextFromRequest(request)),
         webControl.corsHeaders(request),
       );
     } catch (error) {

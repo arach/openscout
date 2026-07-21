@@ -167,6 +167,7 @@ const expectedRouteInventory = [
   "GET /v1/thread-watches/:id/stream",
   "GET /v1/topology/snapshot",
   "GET /v1/web/status",
+  "OPTIONS /v1/web/restart",
   "OPTIONS /v1/web/start",
   "OPTIONS /v1/web/status",
   "POST /a2a",
@@ -211,6 +212,7 @@ const expectedRouteInventory = [
   "POST /v1/thread-watches/open",
   "POST /v1/thread-watches/renew",
   "POST /v1/topology/nudge",
+  "POST /v1/web/restart",
   "POST /v1/web/start",
 ];
 

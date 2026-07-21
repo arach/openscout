@@ -17,6 +17,7 @@ export type WebControlStatus = {
   ok: boolean;
   running: boolean;
   starting: boolean;
+  managed: boolean;
   webUrl: string;
   port: number;
   pid: number | null;
@@ -178,6 +179,7 @@ export class BrokerWebControlService {
   private readonly respawnFailures: number[] = [];
   private webServerProcess: RuntimeChildProcessLike | null = null;
   private webStartInFlight: Promise<WebControlStatus> | null = null;
+  private webRestartInFlight: Promise<WebControlStatus> | null = null;
   private stopping = false;
 
   constructor(private readonly options: BrokerWebControlServiceOptions) {
@@ -215,25 +217,29 @@ export class BrokerWebControlService {
 
   async status(error: string | null = null): Promise<WebControlStatus> {
     const running = await this.isHealthy();
+    const managed = isChildProcessRunning(this.webServerProcess);
     return {
       ok: running,
       running,
       starting: Boolean(this.webStartInFlight),
+      managed,
       webUrl: this.url(),
       port: this.port(),
-      pid: this.webServerProcess?.pid ?? null,
+      pid: managed ? this.webServerProcess?.pid ?? null : null,
       error,
     };
   }
 
   failureStatus(error: unknown): WebControlStatus {
+    const managed = isChildProcessRunning(this.webServerProcess);
     return {
       ok: false,
       running: false,
       starting: false,
+      managed,
       webUrl: this.url(),
       port: this.port(),
-      pid: this.webServerProcess?.pid ?? null,
+      pid: managed ? this.webServerProcess?.pid ?? null : null,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -292,7 +298,7 @@ export class BrokerWebControlService {
         if (await this.isHealthy()) {
           return this.status();
         }
-        if (!this.webServerProcess || this.webServerProcess.exitCode !== null) {
+        if (!isChildProcessRunning(this.webServerProcess)) {
           this.webServerProcess = this.spawnWebServer(context);
         }
         const deadline = Date.now() + this.startPollTimeoutMs;
@@ -311,6 +317,74 @@ export class BrokerWebControlService {
     })();
 
     return this.webStartInFlight;
+  }
+
+  /**
+   * Restart only a web process this broker launched. An already-healthy process
+   * with no child handle is deliberately not adopted: it may belong to another
+   * terminal or a previous broker, and killing it would violate process
+   * ownership.
+   */
+  async restartIfManaged(context: WebStartContext = {}): Promise<WebControlStatus> {
+    if (this.webRestartInFlight) {
+      return this.webRestartInFlight;
+    }
+
+    this.webRestartInFlight = (async () => {
+      const child = this.webServerProcess;
+      if (!isChildProcessRunning(child)) {
+        if (await this.isHealthy()) {
+          return {
+            ...await this.status(),
+            ok: false,
+            error: "Scout web is running outside broker management and cannot be restarted safely. Stop that process, then run `scout server start`.",
+          };
+        }
+        return this.startIfNeeded(context);
+      }
+
+      let signalled = false;
+      try {
+        signalled = child.kill("SIGTERM");
+      } catch (error) {
+        return {
+          ...await this.status(),
+          ok: false,
+          error: `Could not signal the broker-managed Scout web process: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+      if (!signalled) {
+        return {
+          ...await this.status(),
+          ok: false,
+          error: "Could not signal the broker-managed Scout web process to stop.",
+        };
+      }
+
+      // Clear the handle only after signalling succeeds, so the child exit
+      // listener cannot schedule an independent respawn alongside this restart.
+      this.webServerProcess = null;
+
+      const deadline = Date.now() + this.startPollTimeoutMs;
+      while (Date.now() < deadline) {
+        if (!await this.isHealthy()) {
+          return this.startIfNeeded(context);
+        }
+        await this.sleep(this.startPollIntervalMs);
+      }
+      if (isChildProcessRunning(child)) {
+        this.webServerProcess = child;
+      }
+      return {
+        ...await this.status(),
+        ok: false,
+        error: "Timed out waiting for the broker-managed Scout web process to stop.",
+      };
+    })().finally(() => {
+      this.webRestartInFlight = null;
+    });
+
+    return this.webRestartInFlight;
   }
 
   stop(): void {

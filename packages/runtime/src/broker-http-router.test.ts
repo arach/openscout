@@ -92,6 +92,7 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
       corsHeaders: () => ({ "access-control-allow-origin": "http://app.test" }),
       status: async () => ({ ok: true }),
       startIfNeeded: async () => ({ ok: true }),
+      restartIfManaged: async () => ({ ok: true }),
       startContextFromRequest: () => ({ from: "test" }),
       failureStatus: (error: unknown) => ({ ok: false, detail: String(error) }),
     },
