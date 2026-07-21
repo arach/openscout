@@ -48,6 +48,10 @@ import { BrokerRepoTailService } from "./broker-repo-tail-service.js";
 import { BrokerOperatorAttentionService } from "./broker-operator-attention-service.js";
 import { BrokerLocalAgentSyncService } from "./broker-local-agent-sync-service.js";
 import {
+  DEFAULT_CARDLESS_SESSION_IDLE_TTL_MS,
+  idleCardlessSessionExpiryCandidates,
+} from "./broker-cardless-session-reaper.js";
+import {
   resolveAgentLabel,
   type BrokerRouteTargetInput,
 } from "./scout-dispatcher.js";
@@ -243,6 +247,14 @@ const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
 const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "60000", 10);
 const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 const localAgentSyncIntervalMs = Number.parseInt(process.env.OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS ?? "5000", 10);
+const cardlessSessionSweepIntervalMs = Number.parseInt(
+  process.env.OPENSCOUT_CARDLESS_SESSION_SWEEP_INTERVAL_MS ?? "300000",
+  10,
+);
+const cardlessSessionIdleTtlMs = Number.parseInt(
+  process.env.OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS ?? String(DEFAULT_CARDLESS_SESSION_IDLE_TTL_MS),
+  10,
+);
 const repoWatchServeCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_CACHE_TTL_MS ?? "1200000", 10);
 const repoWatchRehydrateAfterMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS ?? "30000", 10);
 
@@ -749,6 +761,53 @@ async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
     }).catch((error) => {
       console.error("[openscout-runtime] queued dispatch recovery failed:", error);
     });
+  }
+}
+
+async function sweepIdleCardlessSessions(): Promise<void> {
+  const configuredTtlMs = Number.isFinite(cardlessSessionIdleTtlMs)
+    ? cardlessSessionIdleTtlMs
+    : DEFAULT_CARDLESS_SESSION_IDLE_TTL_MS;
+  const initialCandidates = idleCardlessSessionExpiryCandidates(runtime.snapshot(), {
+    nodeId,
+    idleTtlMs: configuredTtlMs,
+  });
+  let reaped = 0;
+
+  for (const initialCandidate of initialCandidates) {
+    // Re-evaluate immediately before shutdown so a newly assigned flight or work
+    // item wins the race against the periodic reaper.
+    const candidate = idleCardlessSessionExpiryCandidates(runtime.snapshot(), {
+      nodeId,
+      idleTtlMs: configuredTtlMs,
+    }).find((endpoint) => endpoint.id === initialCandidate.id);
+    if (!candidate) continue;
+
+    try {
+      await shutdownLocalSessionEndpoint(candidate);
+    } catch (error) {
+      console.warn(`[openscout-runtime] failed to stop expired cardless session ${candidate.agentId}:`, error);
+      continue;
+    }
+
+    const retiredAt = Date.now();
+    await persistEndpoint({
+      ...candidate,
+      state: "stopped",
+      metadata: {
+        ...(candidate.metadata ?? {}),
+        cardlessSessionExpired: true,
+        staleLocalRegistration: true,
+        retiredAt,
+        lastError: `idle cardless session expired after ${configuredTtlMs}ms`,
+        lastFailedAt: retiredAt,
+      },
+    });
+    reaped += 1;
+  }
+
+  if (reaped > 0) {
+    console.log(`[openscout-runtime] retired ${reaped} idle cardless session${reaped === 1 ? "" : "s"}`);
   }
 }
 
@@ -1384,6 +1443,9 @@ setTimeout(() => {
   reconcileStaleLocalDeliveries().catch((error) => {
     console.error("[openscout-runtime] stale delivery reconciliation failed:", error);
   });
+  sweepIdleCardlessSessions().catch((error) => {
+    console.error("[openscout-runtime] initial cardless session sweep failed:", error);
+  });
 }, 0).unref();
 
 meshDiscoveryService.discoverPeers().catch((error) => {
@@ -1404,6 +1466,14 @@ if (Number.isFinite(localAgentSyncIntervalMs) && localAgentSyncIntervalMs > 0) {
       console.error("[openscout-runtime] periodic local agent sync failed:", error);
     });
   }, localAgentSyncIntervalMs).unref();
+}
+
+if (Number.isFinite(cardlessSessionSweepIntervalMs) && cardlessSessionSweepIntervalMs > 0) {
+  setInterval(() => {
+    sweepIdleCardlessSessions().catch((error) => {
+      console.error("[openscout-runtime] periodic cardless session sweep failed:", error);
+    });
+  }, Math.max(60_000, cardlessSessionSweepIntervalMs)).unref();
 }
 
 async function shutdownBroker(exitCode = 0): Promise<void> {
