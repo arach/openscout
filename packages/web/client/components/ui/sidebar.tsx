@@ -17,12 +17,13 @@
  * - SidebarRail kept in the family for completeness but Scout chrome omits it
  *   (fixed 260/48 widths via shell leftInset).
  *
- * HUD geometry (Requirement 4):
+ * HUD geometry (Requirement 4 / SCO-085):
  * - Frame HUD layer is full-screen pointer-events-none. Apply pointer-events-auto
  *   ONLY on the sidebar container (data-slot=sidebar-container), never the
  *   SidebarProvider wrapper (uses `contents` so it does not form a hit box).
- * - Top edge: sidebar starts below navTotalHeight (48px / --scout-sidebar-top)
- *   so the brand is not covered by the fixed z-50 nav bar. Brand is clickable.
+ * - Top edge: full-height sidebar mode uses --scout-sidebar-top: 0 (brand at
+ *   window top with titleBarInset padding). Legacy dual-chrome (if any) may
+ *   still pass 48px. Brand is clickable.
  * - Bottom edge: bottom: 28px for StatusBar clearance (not inset-y-0 / h-svh).
  * - Shell owns leftInset / content push; no desktop gap spacer is rendered.
  */
@@ -188,7 +189,7 @@ function Sidebar({
         data-side={side}
         className={cn(
           "pointer-events-auto fixed z-40 flex w-(--sidebar-width) flex-col transition-[left,right,width] duration-200 ease-linear",
-          "top-[var(--scout-sidebar-top,48px)] bottom-[28px]",
+          "top-[var(--scout-sidebar-top,0px)] bottom-[28px]",
           "data-[side=left]:left-0 data-[side=right]:right-0",
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+1rem)]"

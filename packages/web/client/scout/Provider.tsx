@@ -186,8 +186,9 @@ export const DARK_THEME_VARS: ThemeVars = {
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 92%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 58%, transparent)",
-  "--scout-chrome-ink-faint": "color-mix(in srgb, var(--hud-ink) 38%, transparent)",
-  "--scout-chrome-ink-ghost": "color-mix(in srgb, var(--hud-ink) 22%, transparent)",
+  /* SCO-085: raise secondary text from ~35% to ~55–60% for sidebar/rail/lanes. */
+  "--scout-chrome-ink-faint": "color-mix(in srgb, var(--hud-ink) 55%, transparent)",
+  "--scout-chrome-ink-ghost": "color-mix(in srgb, var(--hud-ink) 48%, transparent)",
   "--scout-chrome-hover": "color-mix(in srgb, var(--hud-ink) 4%, transparent)",
   "--scout-chrome-active": "color-mix(in srgb, var(--hud-ink) 8%, transparent)",
   "--scout-chrome-border-soft": "color-mix(in srgb, var(--hud-ink) 4%, transparent)",
@@ -224,8 +225,9 @@ export const LIGHT_THEME_VARS: ThemeVars = {
   "--scout-chrome-ink-strong": "color-mix(in srgb, var(--hud-ink) 94%, transparent)",
   "--scout-chrome-ink": "color-mix(in srgb, var(--hud-ink) 78%, transparent)",
   "--scout-chrome-ink-soft": "color-mix(in srgb, var(--hud-ink) 60%, transparent)",
-  "--scout-chrome-ink-faint": "color-mix(in srgb, var(--hud-ink) 40%, transparent)",
-  "--scout-chrome-ink-ghost": "color-mix(in srgb, var(--hud-ink) 24%, transparent)",
+  /* SCO-085: raise secondary text from ~35% to ~55–60% for sidebar/rail/lanes. */
+  "--scout-chrome-ink-faint": "color-mix(in srgb, var(--hud-ink) 56%, transparent)",
+  "--scout-chrome-ink-ghost": "color-mix(in srgb, var(--hud-ink) 50%, transparent)",
   "--scout-chrome-hover": "color-mix(in srgb, var(--hud-ink) 4%, transparent)",
   "--scout-chrome-active": "color-mix(in srgb, var(--hud-ink) 8%, transparent)",
   "--scout-chrome-border-soft": "color-mix(in srgb, var(--hud-border) 80%, transparent)",

@@ -75,6 +75,9 @@ export function OpsLanesLeft() {
             <RailRow
               key={entry.id}
               name={entry.label}
+              // SCO-085: two-line rows — project/machine + harness under the name;
+              // status semantics via tone dot (running/waiting/failed/idle).
+              sub={entry.statusLabel || undefined}
               meta={entry.updatedAt ? timeAgo(entry.updatedAt) : undefined}
               tone={entry.tone}
               title={entry.statusLabel}

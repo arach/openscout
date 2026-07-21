@@ -3,7 +3,9 @@ import {
   GO_SHORTCUT_PROJECTION,
   NAV_DESTINATIONS,
   allProjectedDestinationIds,
+  areaSubNavForRoute,
   getDestination,
+  projectAreaSubNav,
   projectCoreSystemMenuEntries,
   projectGoShortcuts,
   projectJumpDockItems,
@@ -173,5 +175,40 @@ describe("nav destination catalog", () => {
     for (const entry of GO_SHORTCUT_PROJECTION) {
       expect(() => getDestination(entry.destinationId)).not.toThrow();
     }
+  });
+
+  test("AREA_SUB_NAV projection covers repos/code/terminals (SCO-085)", () => {
+    const projects = projectAreaSubNav("projects");
+    expect(projects.map((item) => item.id)).toEqual(["projects", "repos", "code"]);
+    expect(projects.find((item) => item.id === "repos")?.route).toEqual({ view: "repos" });
+    expect(projects.find((item) => item.id === "code")?.route).toEqual({ view: "code" });
+
+    const sessions = projectAreaSubNav("sessions");
+    expect(sessions.map((item) => item.id)).toEqual(["sessions", "terminals"]);
+    expect(sessions.find((item) => item.id === "terminals")?.route).toEqual({
+      view: "terminal",
+    });
+  });
+
+  test("repos.active includes repo-diff (SCO-085)", () => {
+    const repos = getDestination("repos");
+    expect(repos.active({ view: "repos" })).toBe(true);
+    expect(repos.active({ view: "repo-diff" })).toBe(true);
+    expect(repos.active({ view: "code" })).toBe(false);
+
+    const sub = areaSubNavForRoute({ view: "repo-diff" });
+    expect(sub?.areaId).toBe("projects");
+    expect(sub?.items.find((item) => item.id === "repos")?.active({ view: "repo-diff" })).toBe(
+      true,
+    );
+  });
+
+  test("areaSubNavForRoute maps projects and sessions surfaces", () => {
+    expect(areaSubNavForRoute({ view: "agents-v2" })?.areaId).toBe("projects");
+    expect(areaSubNavForRoute({ view: "code" })?.areaId).toBe("projects");
+    expect(areaSubNavForRoute({ view: "sessions" })?.areaId).toBe("sessions");
+    expect(areaSubNavForRoute({ view: "terminal" })?.areaId).toBe("sessions");
+    expect(areaSubNavForRoute({ view: "ops", mode: "lanes" })).toBeNull();
+    expect(areaSubNavForRoute({ view: "inbox" })).toBeNull();
   });
 });

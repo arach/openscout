@@ -13,6 +13,9 @@ export function AgentLaneChrome({
   onWidthChange,
   onResizeStart,
   resizing,
+  /** SCO-085: inline status replaces ornamental loader in the column header. */
+  statusLabel,
+  live,
 }: {
   title: string;
   width: AgentLaneWidthTier | number | undefined;
@@ -22,6 +25,8 @@ export function AgentLaneChrome({
   onWidthChange: (width: AgentLaneWidthTier) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   resizing?: boolean;
+  statusLabel?: string | null;
+  live?: boolean;
 }) {
   const activeTier = typeof width === "string" ? width : defaultWidth;
 
@@ -39,6 +44,15 @@ export function AgentLaneChrome({
             <PinIcon filled={pinned} />
           </button>
           <span className="s-agent-lane-chrome-title" title={title}>{title}</span>
+          {statusLabel ? (
+            <span
+              className={`s-agent-lane-chrome-status${live ? " s-agent-lane-chrome-status--live" : ""}`}
+              title={statusLabel}
+            >
+              <span className="s-agent-lane-chrome-status-dot" aria-hidden="true" />
+              <span className="s-agent-lane-chrome-status-label">{statusLabel}</span>
+            </span>
+          ) : null}
         </div>
         <div className="s-agent-lane-chrome-widths" role="group" aria-label="Lane width">
           {WIDTH_OPTIONS.map((tier) => (

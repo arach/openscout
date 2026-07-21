@@ -622,6 +622,44 @@
   white-space: nowrap;
 }
 
+/* SCO-085: inline status in column header (replaces ornamental loader). */
+.s-agent-lane-chrome-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 7rem;
+  flex: 0 1 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+}
+
+.s-agent-lane-chrome-status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dim) 70%, transparent);
+}
+
+.s-agent-lane-chrome-status--live .s-agent-lane-chrome-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 22%, transparent);
+}
+
+.s-agent-lane-chrome-status--live {
+  color: color-mix(in srgb, var(--green) 72%, var(--ink));
+}
+
+.s-agent-lane-chrome-status-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .s-agent-lane-chrome-widths {
   display: inline-flex;
   align-items: center;
@@ -741,14 +779,22 @@
   display: flex;
   flex-direction: column;
   border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
-  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+  /* SCO-085: stronger separators between lane columns. */
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   transition:
     border-color 180ms ease,
     box-shadow 180ms ease,
     background 180ms ease;
+}
+
+.s-agent-lane + .s-agent-lane {
+  margin-left: 2px;
+  box-shadow:
+    -1px 0 0 color-mix(in srgb, var(--ink) 8%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.1);
 }
 
 @supports (content-visibility: auto) {

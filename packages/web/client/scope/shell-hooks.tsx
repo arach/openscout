@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import type { HudsonApp } from "@hudsonkit";
 import type { TakeoverState } from "@hudsonkit";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { useScout } from "../scout/Provider.tsx";
 import { renderNavCenter } from "../scout/nav-center.tsx";
 import {
@@ -29,12 +30,16 @@ export function useIntegratedNavCenter(): ReactNode | null {
   const scope = useScopePresentation();
   const scoutNav = useScoutNavCenterBase();
   const scopeNav = useScopeNavCenter();
+  // SCO-085: sidebar mode unmounts the top bar; Scope destinations live in
+  // ScoutSidebar via useSidebarModel. Do not project a duplicate nav-center.
+  if (useOptionalFlag("nav.sidebar", false)) return null;
   return scope ? scopeNav : scoutNav;
 }
 
 export function useIntegratedNavActions(): ReactNode | null {
   const scope = useScopePresentation();
   const scoutActions = useScoutNavActionsBase();
+  if (useOptionalFlag("nav.sidebar", false)) return null;
 
   if (!scope) return scoutActions;
 

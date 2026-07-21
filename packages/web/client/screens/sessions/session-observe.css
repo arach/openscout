@@ -1341,6 +1341,14 @@
   border-left: 0;
   padding: 0;
 }
+
+/* SCO-085: subtle background on command/code rows for glanceability. */
+.s-observe--lane .s-observe-row:has(.s-observe-tool--fam-bash),
+.s-observe--lane .s-observe-row:has(.s-observe-tool--fam-code),
+.s-observe--lane .s-observe-row:has(.s-observe-bash) {
+  background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+  border-radius: var(--radius-sm);
+}
 /* give the pill a definite width to truncate against (the row's content box) */
 .s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-header,
 .s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-cmd {

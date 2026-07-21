@@ -659,6 +659,11 @@ export function ScoutbotPanel({
         title: session?.title ?? null,
         lastActivityAt: lastMessage?.createdAt ?? session?.updatedAt ?? null,
       },
+      // SCO-085: shell-readable emptiness (panel children unmount when collapsed).
+      conversation: {
+        messageCount: session?.messages.length ?? 0,
+        loading: sessionState === null,
+      },
     };
   }, [
     speaking,

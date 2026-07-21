@@ -172,7 +172,8 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
     id: "repos",
     label: "Repos",
     route: { view: "repos" },
-    active: (route) => route.view === "repos",
+    // SCO-085: repo-diff is a Repos detail surface — keep Repos sub-nav active.
+    active: (route) => route.view === "repos" || route.view === "repo-diff",
   },
   {
     id: "code",
@@ -610,6 +611,87 @@ export function paletteNavCommandOptions(
   }));
 }
 
+/* ── Projection: area sub-nav (SCO-085) ───────────────────────────────── */
+
+/**
+ * Mouse entry points lost when Repos/Code left Ops and Terminals left the jump
+ * dock path. Projected under the active primary area (sidebar expanded) and as
+ * a shared center-pane strip (icon-rail mode). Not SideRail content.
+ */
+export type AreaSubNavAreaId = "projects" | "sessions";
+
+export type AreaSubNavItem = {
+  id: string;
+  label: string;
+  route: Route;
+  active: (route: Route) => boolean;
+  destinationId: NavDestinationId;
+};
+
+type AreaSubNavProjection = {
+  destinationId: NavDestinationId;
+  id: string;
+  label?: string;
+};
+
+const AREA_SUB_NAV_PROJECTION: Record<
+  AreaSubNavAreaId,
+  readonly AreaSubNavProjection[]
+> = {
+  projects: [
+    { destinationId: "projects", id: "projects", label: "Projects" },
+    { destinationId: "repos", id: "repos" },
+    { destinationId: "code", id: "code" },
+  ],
+  sessions: [
+    { destinationId: "sessions", id: "sessions" },
+    { destinationId: "terminals", id: "terminals" },
+  ],
+};
+
+function projectAreaSubNavItem(entry: AreaSubNavProjection): AreaSubNavItem {
+  const projected = project(entry.destinationId, { label: entry.label });
+  return {
+    id: entry.id,
+    label: projected.label,
+    route: projected.route,
+    active: projected.active,
+    destinationId: projected.id,
+  };
+}
+
+/** Sub-nav items for a primary area, or empty when the area has none. */
+export function projectAreaSubNav(areaId: AreaSubNavAreaId): AreaSubNavItem[] {
+  return AREA_SUB_NAV_PROJECTION[areaId].map(projectAreaSubNavItem);
+}
+
+/**
+ * Resolve area sub-nav for the current route from its primary area.
+ * Returns null when the area has no AREA_SUB_NAV projection.
+ */
+export function areaSubNavForRoute(route: Route): {
+  areaId: AreaSubNavAreaId;
+  items: AreaSubNavItem[];
+} | null {
+  // Inline area map to avoid a circular import with primary-areas.ts.
+  // Keep in sync with ROUTE_AREA_BY_VIEW for projects/sessions members.
+  const view = route.view;
+  let areaId: AreaSubNavAreaId | null = null;
+  if (
+    view === "agents-v2" ||
+    view === "agent-info" ||
+    view === "repos" ||
+    view === "repo-diff" ||
+    view === "code"
+  ) {
+    areaId = "projects";
+  } else if (view === "sessions" || view === "terminal") {
+    areaId = "sessions";
+  }
+  if (!areaId) return null;
+  return { areaId, items: projectAreaSubNav(areaId) };
+}
+
 /* ── Integrity helpers (tests) ────────────────────────────────────────── */
 
 /** Every destination id referenced by any projection. */
@@ -621,6 +703,11 @@ export function allProjectedDestinationIds(): NavDestinationId[] {
   for (const entry of GO_SHORTCUT_PROJECTION) ids.add(entry.destinationId);
   for (const entry of JUMP_DOCK_PROJECTION) ids.add(entry.destinationId);
   for (const entry of PALETTE_NAV_PROJECTION) ids.add(entry.destinationId);
+  for (const areaId of Object.keys(AREA_SUB_NAV_PROJECTION) as AreaSubNavAreaId[]) {
+    for (const entry of AREA_SUB_NAV_PROJECTION[areaId]) {
+      ids.add(entry.destinationId);
+    }
+  }
   for (const group of [
     ...projectAgentsSecondaryNav(),
     ...projectChatSecondaryNav(),
