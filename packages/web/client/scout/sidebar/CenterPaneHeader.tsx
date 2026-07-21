@@ -21,6 +21,7 @@ import {
   type AreaSubNavItem,
 } from "../nav-destinations.ts";
 import { useScout } from "../Provider.tsx";
+import { getPrimaryArea, primaryAreaForRoute } from "../primary-areas.ts";
 import type { Route } from "../../lib/types.ts";
 import { OpsSubnav } from "../../screens/ops/OpsSubnav.tsx";
 import { ChatSubnav } from "../../screens/chat/ChatSubnav.tsx";
@@ -123,11 +124,14 @@ export function CenterPaneHeader({
     </>
   ) : null;
 
-  // SCO-088b: ONE 40px top row (supersedes the sco-087b two-row split). The area
-  // title/breadcrumb and the AREA_SUB_NAV tabs sit inline on the same reading line
-  // (separated by a hairline), utilities pinned right, one bottom hairline. Tabs
-  // never wrap — they condense/clip; utilities stay pinned.
+  // SCO-088b/c: ONE 40px top row. It LEADS with the current section name in title
+  // form (the primary-area label, e.g. "Sessions"), breadcrumb-style: section name
+  // · " / " · the AREA_SUB_NAV tabs. When the area has no sub-nav, only the section
+  // name shows (no slash, no duplication). Using the section label — not the deep
+  // route breadcrumb — avoids a dim leaf that duplicates the active tab (the old
+  // /ops/lanes "Lanes" case). Tabs never wrap; they scroll. Utilities pinned right.
   if (isTopRow) {
+    const sectionName = getPrimaryArea(primaryAreaForRoute(route)).label;
     return (
       <div
         className="scout-center-pane-header scout-center-pane-header--top-row"
@@ -139,13 +143,13 @@ export function CenterPaneHeader({
           className="scout-center-pane-header-main"
           onMouseDown={onInteractiveMouseDown}
         >
-          {breadcrumb ? (
-            <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
-              <span className="scout-nav-crumb">{breadcrumb}</span>
-            </div>
-          ) : null}
-          {breadcrumb && showSecondaryRow ? (
-            <span className="scout-top-row-divider" aria-hidden="true" />
+          <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
+            <span className="scout-nav-crumb">{sectionName}</span>
+          </div>
+          {showSecondaryRow ? (
+            <span className="scout-top-row-sep" aria-hidden="true">
+              /
+            </span>
           ) : null}
           {secondaryNav}
         </div>

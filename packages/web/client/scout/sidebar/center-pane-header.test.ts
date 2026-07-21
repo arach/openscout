@@ -90,10 +90,10 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
   });
 
-  // SCO-087b: the second stacked top-row exists when the route has content nav —
-  // either the Ops/Chat strip OR the projects/sessions area sub-nav. The shell
-  // sizes the top-row frame + contentTopOffset off this, so it must agree with
-  // CenterPaneHeader's own second-row render.
+  // SCO-088b/c: the top row is ONE 40px band (the sco-087b second stacked row is
+  // superseded). hasSecondaryNavRow now gates whether the INLINE tab cluster (and
+  // its slash separator) render beside the section name — either the Ops/Chat
+  // strip OR the projects/sessions area sub-nav.
   test("hasSecondaryNavRow is true for Ops/Chat and area-sub-nav routes", () => {
     // Ops / Chat secondary strips.
     expect(hasSecondaryNavRow({ view: "ops", mode: "lanes" })).toBe(true);
@@ -101,16 +101,15 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     expect(hasSecondaryNavRow({ view: "harnesses" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "messages" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "channels" })).toBe(true);
-    // Projects / Sessions area sub-nav (no Ops/Chat kind, but still a second row).
+    // Projects / Sessions area sub-nav (no Ops/Chat kind, still an inline cluster).
     expect(secondaryNavKindForRoute({ view: "agents-v2" })).toBeNull();
     expect(hasSecondaryNavRow({ view: "agents-v2" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "terminal" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "code" })).toBe(true);
   });
 
-  test("hasSecondaryNavRow is false on flush landings — no second row", () => {
-    // Empty-state behaviour: title band stays flush, contentTopOffset omits the
-    // secondary row.
+  test("hasSecondaryNavRow is false on flush landings — section name only", () => {
+    // No tab cluster: the top row shows just the section name (no slash, no tabs).
     expect(hasSecondaryNavRow({ view: "inbox" })).toBe(false);
     expect(hasSecondaryNavRow({ view: "search" })).toBe(false);
   });

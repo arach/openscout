@@ -26,7 +26,8 @@ function TooltipTrigger({
 function TooltipContent({
   className,
   side = "top",
-  sideOffset = 4,
+  // SCO-088c: a slightly larger, consistent gap from the (48px) rail edge.
+  sideOffset = 8,
   align = "center",
   alignOffset = 0,
   children,
@@ -53,7 +54,10 @@ function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           className={cn(
-            "z-[80] w-fit max-w-xs rounded-md border border-sidebar-border bg-sidebar px-2 py-1 text-xs font-medium text-sidebar-foreground shadow-md",
+            // SCO-088c: dark surface fill + a single low-ink hairline (no light
+            // border); a step larger in type + padding so it doesn't read cramped;
+            // vertically centered on the trigger (align="center").
+            "z-[80] w-fit max-w-xs rounded-md border border-[var(--hud-border)] bg-[var(--hud-surface)] px-2.5 py-1.5 text-[11px] font-medium text-sidebar-foreground shadow-md",
             className,
           )}
           {...props}

@@ -54,7 +54,6 @@ export function ScoutSideRail({
   isCollapsed,
   onToggleCollapse,
   width,
-  dragGhostWidth = null,
   style,
   hideWhenEmpty = true,
 }: {
@@ -64,13 +63,6 @@ export function ScoutSideRail({
   onToggleCollapse: () => void;
   /** Committed (pinned) side-rail width — the panel box never relayouts per drag frame. */
   width: number;
-  /**
-   * SCO-088 §3: live drag target while the side rail is being resized; null when
-   * idle. The chevron rides this ghost edge so it tracks the pointer, while the
-   * committed `width` stays pinned (the shell paints the ghost line + commits the
-   * width once on pointer-up).
-   */
-  dragGhostWidth?: number | null;
   style?: CSSProperties;
   /** When true, render nothing if both body and footer are null. */
   hideWhenEmpty?: boolean;
@@ -110,9 +102,10 @@ export function ScoutSideRail({
 
   // SCO-088 §3: the shell owns the ghost-edge resize (handle + ghost line +
   // one-write commit), so the side rail no longer passes onResizeStart to
-  // HudsonKit (that drove a live, per-frame width update). The panel box stays
-  // pinned at the committed width; only the chevron rides the drag ghost.
-  const chevronEdge = navRailWidth + (dragGhostWidth ?? width);
+  // HudsonKit (that drove a live, per-frame width update). SCO-088c (Codex
+  // blocker 1): the chevron stays pinned at the committed edge during a drag (the
+  // ghost line is the live preview) — no per-frame layout animation.
+  const chevronEdge = navRailWidth + width;
 
   return (
     <>

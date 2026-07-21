@@ -356,18 +356,21 @@ body { margin: 0; }
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  gap: 12px;
-  padding: 0 12px 0 14px;
+  gap: 10px;
+  /* Live feedback: tighten the dead space next to the (collapsed) icon rail —
+     modest left reduction (14→10), rhythm preserved. */
+  padding: 0 12px 0 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 6%, transparent);
   background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg));
 }
 
-/* Main reading group: breadcrumb · hairline · tabs — 12px rhythm, never wraps.
-   Overflows by clipping the tab cluster first; utilities stay pinned right. */
+/* Main reading group: section name · slash · tabs — reads breadcrumb-style. Never
+   wraps; when it overflows, the tab cluster scrolls horizontally (Codex blocker 4:
+   no clipped-but-focusable tabs). Utilities stay pinned right. */
 .scout-center-pane-header--top-row .scout-center-pane-header-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex: 1 1 auto;
   min-width: 0;
   flex-wrap: nowrap;
@@ -379,17 +382,26 @@ body { margin: 0; }
   flex: 0 0 auto;
 }
 
-.scout-center-pane-header--top-row .scout-center-pane-secondary {
+/* The tab cluster scrolls horizontally rather than clipping (thin, unobtrusive). */
+.scout-center-pane-header--top-row .scout-center-pane-secondary,
+.scout-center-pane-header--top-row .scout-area-subnav {
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  /* Live feedback: vertical breathing for the tab cluster inside the 40px row. */
+  padding-top: 4px;
+  padding-bottom: 3px;
 }
 
-/* Vertical hairline between the title/breadcrumb and the inline tab cluster. */
-.scout-top-row-divider {
-  width: 1px;
-  height: 16px;
+/* Slash separator between the section name and the tab cluster (breadcrumb-style). */
+.scout-top-row-sep {
   flex: 0 0 auto;
-  background: color-mix(in srgb, var(--hud-ink) 12%, transparent);
+  font-family: var(--hud-font-mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--scout-chrome-ink-ghost);
+  user-select: none;
 }
 
 /* Top-row settings / ⌘K accelerators (compact chrome buttons). */
@@ -454,6 +466,27 @@ html[data-scout-sidebar-chrome] [data-slot="sidebar-menu-sub-button"] {
   border-radius: 0;
 }
 
+/* SCO-088c §1: bump nav glyphs one step, overriding shadcn's [&_svg]:size-4
+   (1rem ≈ 13px at our root font-size). Nav item icons render 16px (expanded AND
+   collapsed rail); the SCOUT logo mark renders 18px. The 40px brand cell and the
+   one-band alignment are unchanged. Chevrons, top-row utilities and in-content
+   icons are deliberately untouched. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-menu-button"] > svg {
+  width: 16px;
+  height: 16px;
+}
+html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-menu-button"] > svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* SCO-088c bug fix: the collapsed 48px icon rail is ICONS ONLY. Hide nav label
+   text (and the collapsed brand wordmark) in the collapsed state so nothing bleeds
+   past the rail — labels remain available as the hover tooltip. */
+html[data-scout-sidebar-chrome] .group[data-collapsible="icon"] [data-slot="sidebar-menu-button"] > span {
+  display: none;
+}
+
 /* SCO-086: unified edge chevron for all rails.
    SCO-088b addendum: whisper-quiet in ALL modes — no fill, no border, low-ink
    glyph at rest; the 22×28 hit area is unchanged so it stays easy to click. Full
@@ -479,24 +512,14 @@ html[data-scout-sidebar-chrome] [data-slot="sidebar-menu-sub-button"] {
   cursor: pointer;
   pointer-events: auto;
   z-index: 45;
-  /* SCO-088 §2: the chevron glides with its rail's edge on collapse/expand (and
-     on programmatic width changes) instead of jumping. left/right are the only
-     positional props that move; this is a single out-of-flow element so it never
-     relayouts the center pane (SCO-087 P3 holds). During any rail drag-resize the
-     positional transition is suppressed (see [data-scout-rail-resizing]) so the
-     chevron tracks the pointer live. */
+  /* SCO-088c (Codex blocker 1): only compositor-safe properties transition. The
+     chevron no longer eases its left/right position (animating layout props on
+     pointer-move violated P3); it snaps to its committed edge on collapse/expand.
+     Colour/hover remain composited fades. */
   transition:
     background 120ms ease,
     color 120ms ease,
-    border-color 120ms ease,
-    left var(--scout-rail-motion, 160ms) var(--motion-ease-standard),
-    right var(--scout-rail-motion, 160ms) var(--motion-ease-standard);
-}
-
-/* While a handle is being dragged, chevrons ride the ghost edge live — no
-   positional easing (that would lag the pointer). */
-html[data-scout-rail-resizing] .scout-rail-toggle {
-  transition-property: background, color, border-color;
+    border-color 120ms ease;
 }
 
 .scout-rail-toggle:hover {

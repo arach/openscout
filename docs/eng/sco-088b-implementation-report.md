@@ -10,7 +10,7 @@ live user feedback (the "addendum" and the "one-band / squared-nav" polish).
 |---|---|
 | `scout/sidebar/sidebar-collapse-state.ts` | Pure `resolveRailDragGhostWidth` + `resolveRailDragCommit` + drag constants. |
 | `scout/sidebar/useSidebarCollapse.ts` | Raw drag session + `dragStartedCollapsed` + `commitDrag` (same state machinery). |
-| `scout/sidebar/useSidebarCollapse.test.ts` | +25 unit tests (side-rail band, ghost width, commit decision). |
+| `scout/sidebar/useSidebarCollapse.test.ts` | +8 test cases / 25 assertions (side-rail band, ghost width, commit decision). |
 | `scout/sidebar/CenterPaneHeader.tsx` | Merge to one inline row (breadcrumb · hairline · tabs · utilities). |
 | `scout/sidebar/ScoutSideRail.tsx` | (from §3) chevron rides ghost — unchanged this round. |
 | `OpenScoutAppShell.tsx` | Single-row geometry, drag-collapse handlers (both rails/both states), collapsed-edge handles. |
@@ -44,7 +44,7 @@ live user feedback (the "addendum" and the "one-band / squared-nav" polish).
 
 ## Verification
 
-- New pure-fn tests — **+25**, all green.
+- New pure-fn tests — **8 test cases / 25 assertions**, all green.
 - Focused suites (`useSidebarCollapse`, `RailToggle`, `empty-context-collapse`, `useSidebarModel`, `resolve-sidebar-context`, `center-pane-header`, `router.navigation`) — **114 pass / 0 fail**.
 - `bun run --cwd packages/web test` — **903 pass** (main) + isolated server (14/12/4/104/6/8) + node TAP (1), **0 fail**.
 - `bun run --cwd packages/web build` — ✓ built in 11.4s; `dist` gitignored.

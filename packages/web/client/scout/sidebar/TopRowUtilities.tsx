@@ -6,28 +6,19 @@
  * and the ⌘K command trigger. Rendered inside CenterPaneHeader's rightUtility
  * slot; the top row wrapper owns the drag region and marks this group no-drag.
  */
-import { Command, Settings as SettingsIcon } from "lucide-react";
+import { Command } from "lucide-react";
 import { MachineScopeControl } from "../../components/MachineScopeControl.tsx";
-import { useScout } from "../Provider.tsx";
 
+// SCO-088c §2: the Settings gear moved to the sidebar bottom (see ScoutSidebar
+// footer). The top row keeps the machine scope control + the ⌘K command trigger.
 export function TopRowUtilities({
   onOpenCommandPalette,
 }: {
   onOpenCommandPalette: () => void;
 }) {
-  const { openSettings } = useScout();
   return (
     <>
       <MachineScopeControl variant="nav" />
-      <button
-        type="button"
-        className="scout-top-row-util"
-        onClick={() => openSettings()}
-        title="Settings"
-        aria-label="Settings"
-      >
-        <SettingsIcon size={13} strokeWidth={1.6} aria-hidden />
-      </button>
       <button
         type="button"
         className="scout-top-row-util"

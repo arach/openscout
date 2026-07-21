@@ -452,12 +452,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   }, [sidebarChrome, sidebarCollapse.width, sidebarCollapse.isSidebarResizing]);
 
   useEffect(() => {
-    // SCO-088 §3: the side rail (leftWidth) has its own resize band (240–400),
-    // independent of the viewport-derived inspector cap. The inspector (rightWidth)
-    // keeps the shared SIDE_PANEL_MIN..sidePanelMaxWidth clamp.
-    setLeftWidth((current) => clampSideRailWidth(current));
+    // SCO-088c (Codex blocker 3): only clamp leftWidth to the side-rail band when
+    // sidebar chrome is ON. With ?ff.nav.sidebar=off, leftWidth is the LEGACY left
+    // panel width (its own semantics/cap) — clamping+persisting it to 240–400 would
+    // truncate legacy widths, so use the legacy clamp there instead.
+    if (sidebarChrome) {
+      setLeftWidth((current) => clampSideRailWidth(current));
+    } else {
+      setLeftWidth((current) =>
+        Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)),
+      );
+    }
     setRightWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
-  }, [sidePanelMaxWidth, setLeftWidth, setRightWidth]);
+  }, [sidebarChrome, sidePanelMaxWidth, setLeftWidth, setRightWidth]);
 
   useEffect(() => {
     if (!isSearchRoute || rightCollapsed || rightOverlay) return;
@@ -554,35 +561,45 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     const startWidth = side === "left" ? leftWidth : rightWidth;
     const setter = side === "left" ? setLeftWidth : setRightWidth;
     const direction = side === "left" ? 1 : -1;
-    // SCO-088 §2: suppress the chevron positional easing while dragging so it
-    // tracks the pointer live (the inspector resize stays live per SCO-088 note).
-    document.documentElement.setAttribute("data-scout-rail-resizing", "");
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = (ev.clientX - startX) * direction;
       setter(Math.max(SIDE_PANEL_MIN_WIDTH, Math.min(sidePanelMaxWidth, startWidth + delta)));
     };
-    const onMouseUp = () => {
-      document.documentElement.removeAttribute("data-scout-rail-resizing");
+    const cleanup = () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("blur", cleanup);
     };
+    const onMouseUp = () => cleanup();
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("blur", cleanup);
   }, [leftWidth, rightWidth, setLeftWidth, setRightWidth, sidePanelMaxWidth]);
 
-  // SCO-088 §2/§3: leave a fading settle ghost at a committed rail edge (viewport
-  // x). Skipped under reduced motion. Reused by both left-rail handles.
-  const prefersReducedMotion = useCallback(
+  // SCO-088c (Codex blocker 5): reduced-motion is reactive so the render can drop
+  // ALL live drag overlays (not just the settle ghost) — reduced motion = instant,
+  // no moving overlays; the width still commits once on pointer-up.
+  const [reducedMotion, setReducedMotion] = useState(
     () =>
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    [],
   );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReducedMotion(mq.matches);
+    onChange();
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
+  // SCO-088 §2/§3: leave a fading settle ghost at a committed rail edge (viewport
+  // x). Skipped under reduced motion. Reused by both left-rail handles.
   const triggerRailSettle = useCallback(
     (edgeX: number) => {
-      if (prefersReducedMotion()) return;
+      if (reducedMotion) return;
       setSettleGhostX(edgeX);
       if (settleGhostTimerRef.current !== null) {
         window.clearTimeout(settleGhostTimerRef.current);
@@ -592,7 +609,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         settleGhostTimerRef.current = null;
       }, 150);
     },
-    [prefersReducedMotion],
+    [reducedMotion],
   );
   useEffect(
     () => () => {
@@ -621,9 +638,15 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       : sidebarCollapse.expandedWidth;
     sidebarDragTargetRef.current = startWidth;
     sidebarCollapse.beginResize(startWidth, startedCollapsed);
-    // SCO-088 §2: suppress chevron positional easing so it tracks the ghost live.
-    document.documentElement.setAttribute("data-scout-rail-resizing", "");
 
+    // Nit: one cleanup, shared by up/cancel/blur, so the drag session can never
+    // get stuck if the pointer is cancelled or the window loses focus.
+    const cleanup = () => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("blur", onPointerCancel);
+    };
     const onPointerMove = (ev: PointerEvent) => {
       const raw = startWidth + (ev.clientX - startX);
       sidebarDragTargetRef.current = raw;
@@ -632,7 +655,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     const onPointerUp = () => {
       const raw = sidebarDragTargetRef.current ?? startWidth;
       const commit = sidebarCollapse.commitDrag(raw, startedCollapsed);
-      document.documentElement.removeAttribute("data-scout-rail-resizing");
       // Settle at the committed edge (sidebar starts at x=0, so edge x = width).
       const edge =
         commit.kind === "collapse"
@@ -643,11 +665,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               ? commit.width
               : null;
       if (edge != null) triggerRailSettle(edge);
-      document.removeEventListener("pointermove", onPointerMove);
-      document.removeEventListener("pointerup", onPointerUp);
+      cleanup();
+    };
+    const onPointerCancel = () => {
+      // Abort without committing (no width change, no collapse/expand).
+      sidebarCollapse.clearDrag();
+      cleanup();
     };
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("blur", onPointerCancel);
   }, [sidebarCollapse, triggerRailSettle]);
 
   /**
@@ -671,8 +699,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       sideRailDragTargetRef.current = startWidth;
       setSideRailDragWidth(startWidth);
       setSideRailDragStartedCollapsed(startedCollapsed);
-      document.documentElement.setAttribute("data-scout-rail-resizing", "");
 
+      const cleanup = () => {
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerup", onPointerUp);
+        document.removeEventListener("pointercancel", onPointerCancel);
+        window.removeEventListener("blur", onPointerCancel);
+      };
       const onPointerMove = (ev: PointerEvent) => {
         const raw = startWidth + (ev.clientX - startX);
         sideRailDragTargetRef.current = raw;
@@ -691,7 +724,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         else if (commit.kind === "resize") setLeftWidth(commit.width);
         setSideRailDragWidth(null);
         sideRailDragTargetRef.current = null;
-        document.documentElement.removeAttribute("data-scout-rail-resizing");
         const edge =
           commit.kind === "collapse"
             ? navRailWidth + RAIL_COLLAPSED_WIDTH
@@ -701,11 +733,18 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 ? navRailWidth + commit.width
                 : null;
         if (edge != null) triggerRailSettle(edge);
-        document.removeEventListener("pointermove", onPointerMove);
-        document.removeEventListener("pointerup", onPointerUp);
+        cleanup();
+      };
+      const onPointerCancel = () => {
+        // Abort without committing.
+        setSideRailDragWidth(null);
+        sideRailDragTargetRef.current = null;
+        cleanup();
       };
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
+      document.addEventListener("pointercancel", onPointerCancel);
+      window.addEventListener("blur", onPointerCancel);
     },
     [leftWidth, setLeftCollapsed, setLeftWidth, triggerRailSettle],
   );
@@ -1194,9 +1233,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   </SidebarProvider>
 
                   {/* SCO-087: sidebar edge chevron rendered by the shell (not the
-                      sidebar body) so it can ride the ghost edge during resize and
-                      align to the same panel-header band as the side rail /
-                      inspector chevrons. Rides the ghost width while dragging. */}
+                      sidebar body) so it aligns to the same panel-header band as the
+                      side rail / inspector chevrons. SCO-088c (Codex blocker 1): it
+                      stays pinned at the committed edge during drag (the ghost line
+                      is the live preview) and snaps to the new edge on commit — no
+                      per-frame layout animation. */}
                   <RailToggle
                     side="left"
                     collapsed={sidebarCollapse.effectiveCollapsed}
@@ -1206,11 +1247,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     className="scout-rail-toggle--sidebar-edge"
                     style={{
                       position: "fixed",
-                      left:
-                        sidebarCollapse.isSidebarResizing &&
-                        sidebarCollapse.dragGhostWidth != null
-                          ? sidebarCollapse.dragGhostWidth
-                          : sidebarCollapse.width,
+                      left: sidebarCollapse.width,
                       top: railToggleTop,
                       zIndex: 46,
                       transform: "translateX(-50%)",
@@ -1269,8 +1306,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       stays pinned (no center-pane relayout); this 2px line previews
                       the target (continuous toward the 48px collapse target when
                       dragged past threshold), and it commits once on pointer-up.
-                      Spans the column band below the single top row. */}
-                  {sidebarCollapse.isSidebarResizing &&
+                      Codex blocker 5: suppressed entirely under reduced motion (no
+                      moving overlay; the width still commits on pointer-up). */}
+                  {!reducedMotion &&
+                  sidebarCollapse.isSidebarResizing &&
                   sidebarCollapse.dragGhostWidth != null ? (
                     <div
                       data-scout-sidebar-resize-ghost=""
@@ -1297,7 +1336,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       isCollapsed={leftCollapsed}
                       onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
                       width={leftWidth}
-                      dragGhostWidth={sideRailGhostWidth}
                       style={{
                         ...railTopStyle,
                         ...(leftPanelOverlaysContent ? panelOverlayStyle("left") : {}),
@@ -1308,11 +1346,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   {/* SCO-088b §2/§3: side-rail edge drag handle on the side rail's
                       RIGHT edge (side-rail/content boundary) — a different edge from
                       the sidebar handle, so each wins hit-testing on its own edge.
-                      Present in BOTH states (drag to resize/collapse when expanded,
-                      drag out to expand when collapsed). Not shown when overlaying.
-                      Sits below the rail header band so it never collides with the
-                      chevron. */}
-                  {sideRailActive && !leftPanelOverlaysContent ? (
+                      Present in BOTH states AND in overlay mode (Codex blocker 2:
+                      drag-collapse/expand must work at narrow widths too). Sits below
+                      the rail header band so it never collides with the chevron. */}
+                  {sideRailActive ? (
                     <div
                       data-scout-sidebar-resize-handle=""
                       data-scout-side-rail-resize-handle=""
@@ -1367,8 +1404,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   {/* SCO-088b §2/§3: ghost edge during the side-rail drag — committed
                       width stays pinned; this 2px line previews the target (continuous
                       toward 48 on collapse-drag, growing from 48 on expand-drag) and
-                      commits once on pointer-up. Spans the column band below the row. */}
-                  {sideRailActive && isSideRailResizing && sideRailGhostWidth != null ? (
+                      commits once on pointer-up. Codex blocker 5: suppressed under
+                      reduced motion. */}
+                  {!reducedMotion && sideRailActive && isSideRailResizing && sideRailGhostWidth != null ? (
                     <div
                       data-scout-side-rail-resize-ghost=""
                       aria-hidden="true"
