@@ -480,10 +480,11 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
   height: 18px;
 }
 
-/* SCO-088c bug fix: the collapsed 48px icon rail is ICONS ONLY. Hide nav label
-   text (and the collapsed brand wordmark) in the collapsed state so nothing bleeds
-   past the rail — labels remain available as the hover tooltip. */
-html[data-scout-sidebar-chrome] .group[data-collapsible="icon"] [data-slot="sidebar-menu-button"] > span {
+/* SCO-088c bug fix: the collapsed 48px icon rail is ICONS ONLY. Hide the nav label
+   text (the last span — the brand wordmark, area label, or scope label) in the
+   collapsed state so nothing bleeds past the rail. The icon/glyph (svg, or a scope
+   item's first-span initial) is kept; labels remain available as the hover tooltip. */
+html[data-scout-sidebar-chrome] .group[data-collapsible="icon"] [data-slot="sidebar-menu-button"] > span:last-child {
   display: none;
 }
 
