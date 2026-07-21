@@ -1,0 +1,402 @@
+/* Home What's moving — signal-first list + centered glass overlay */
+
+.s-moving-signal-stage {
+  position: relative;
+  min-height: 80px;
+  isolation: isolate;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  overflow: hidden;
+}
+
+.s-moving-signal-list {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+
+.s-moving-signal-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.s-moving-signal-item:last-child {
+  border-bottom: none;
+}
+
+.s-moving-signal-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) minmax(110px, 0.55fr) 48px;
+  gap: 10px 12px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.s-moving-signal-row:hover {
+  background: color-mix(in srgb, var(--ink) 3.5%, transparent);
+}
+
+.s-moving-signal-row.is-selected {
+  background: color-mix(in srgb, var(--accent, #d4f06a) 8%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent, #c8e86a);
+}
+
+.s-moving-signal-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #d4f06a) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.s-moving-signal-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+  flex-shrink: 0;
+}
+
+.s-moving-signal-dot.is-live {
+  background: var(--accent, #c8e86a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #c8e86a) 18%, transparent);
+}
+
+.s-moving-signal-action {
+  min-width: 0;
+  font-size: var(--text-md, 13px);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-moving-signal-who {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 11px);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.s-moving-signal-who strong {
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  font-weight: 600;
+}
+
+.s-moving-signal-age {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs, 11px);
+  color: var(--accent, #c8e86a);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Grouped bands */
+.s-moving-signal-grouped {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 6px;
+}
+
+.s-moving-signal-band {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.s-moving-signal-band span:first-child {
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.s-moving-signal-group .s-moving-signal-list {
+  padding-top: 0;
+  padding-bottom: 2px;
+}
+
+/* Centered glass overlay */
+.s-moving-signal-overlay-root {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: s-moving-signal-scrim-in 0.14s ease-out;
+}
+
+.s-moving-signal-overlay {
+  box-sizing: border-box;
+  width: min(400px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  box-shadow:
+    0 24px 64px color-mix(in srgb, #000 40%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: s-moving-signal-overlay-in 0.16s ease-out;
+}
+
+.s-moving-signal-overlay-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+}
+
+.s-moving-signal-overlay-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+}
+
+.s-moving-signal-overlay-live {
+  color: var(--accent, #c8e86a);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9px;
+}
+
+.s-moving-signal-overlay-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.s-moving-signal-overlay-close:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.s-moving-signal-overlay-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 16px 4px;
+}
+
+.s-moving-signal-overlay-action {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Latest turn/tool line when the scan row shows the ongoing ask instead. */
+.s-moving-signal-overlay-now {
+  margin: -4px 0 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.s-moving-signal-overlay-now-label {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent, #c8e86a);
+  vertical-align: 0.05em;
+}
+
+.s-moving-signal-overlay-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.s-moving-signal-overlay-meta > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.s-moving-signal-overlay-meta dt {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 9px;
+  color: var(--dim);
+  opacity: 0.85;
+}
+
+.s-moving-signal-overlay-meta dd {
+  margin: 0;
+  color: color-mix(in srgb, var(--ink) 84%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-moving-signal-overlay-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
+}
+
+.s-moving-signal-overlay-primary,
+.s-moving-signal-overlay-ghost {
+  appearance: none;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.s-moving-signal-overlay-primary {
+  border-color: color-mix(in srgb, var(--accent, #c8e86a) 45%, transparent);
+  color: var(--accent, #c8e86a);
+  background: color-mix(in srgb, var(--accent, #c8e86a) 8%, transparent);
+}
+
+.s-moving-signal-overlay-ghost {
+  border-color: color-mix(in srgb, var(--border) 85%, transparent);
+  color: var(--dim);
+}
+
+.s-moving-signal-overlay-primary:hover:not(:disabled),
+.s-moving-signal-overlay-ghost:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--border));
+  color: var(--ink);
+}
+
+.s-moving-signal-overlay-primary:hover:not(:disabled) {
+  color: var(--accent, #c8e86a);
+}
+
+.s-moving-signal-overlay-primary:disabled,
+.s-moving-signal-overlay-ghost:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+@keyframes s-moving-signal-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes s-moving-signal-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.s-moving-signal-row--skeleton {
+  pointer-events: none;
+}
+
+.s-moving-signal-skeleton-action,
+.s-moving-signal-skeleton-who,
+.s-moving-signal-skeleton-age {
+  display: block;
+  height: 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  animation: s-moving-signal-shimmer 1.3s linear infinite;
+}
+
+.s-moving-signal-skeleton-action { width: 72%; }
+.s-moving-signal-skeleton-who { width: 70%; justify-self: end; }
+.s-moving-signal-skeleton-age { width: 28px; justify-self: end; }
+
+@keyframes s-moving-signal-shimmer {
+  0% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0.45; }
+}
+
+@media (max-width: 720px) {
+  .s-moving-signal-row {
+    grid-template-columns: 10px minmax(0, 1fr) 44px;
+  }
+
+  .s-moving-signal-who {
+    display: none;
+  }
+
+  .s-moving-signal-overlay-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .s-moving-signal-overlay-root {
+    padding: 14px;
+  }
+}

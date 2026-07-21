@@ -330,6 +330,8 @@ export function NowCard({
     checkpoint: card.checkpoint?.line ?? null,
     fallbackTask: card.task.title,
     observeLive,
+    // Prefer real work over discovery / turn-complete churn on home cards too.
+    skipLifecycleTokens: true,
   });
   const peekEnabled = homeCardPeekEnabled(agent);
   const terminalEnabled = homeCardTerminalEnabled(agent);
