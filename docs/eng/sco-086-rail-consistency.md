@@ -28,16 +28,16 @@ reviewing the alternative lanes mock.
 
 ### 1. Unified rail affordance
 
-- Define ONE collapse/expand control (visual style + placement) used by
-  sidebar, side rail, and inspector. Base it on the existing SidePanel
-  floating expand control; extract it as a shared component
+- Define ONE collapse/expand control: an **edge chevron** (`‹`/`›`) on the
+  rail's boundary at header height — the pattern shown in the user's
+  annotated mock (2026-07-20). Same control, same position, same behavior
+  for sidebar, side rail, and inspector. Extract as a shared component
   (e.g. `components/RailToggle.tsx`).
 - Sidebar: remove the brand-row trigger and the footer `SidebarTrigger`;
-  the shared affordance handles expand/collapse. In icon-rail mode the
-  control sits in the same place the other rails' expand controls sit.
-- Side rail + inspector: adopt the same control (replace the current
-  floating expand glyph with the shared component — same behavior, one
-  implementation).
+  the edge chevron handles expand/collapse. In icon-rail mode the chevron
+  sits at the same boundary spot (pointing right to expand).
+- Side rail + inspector: replace the current floating expand glyph with
+  the shared edge chevron (same behavior, one implementation).
 - `⌘B` keeps working (shell-owned) and drives the same control.
 
 ### 2. Static logo
@@ -45,6 +45,14 @@ reviewing the alternative lanes mock.
 - Sidebar brand row: logo + product name, click → Home, no collapse
   behavior, no minify glyph. Drag-region exemption stays (brand is a
   click target, not a drag handle, and not a toggle).
+
+### 2b. Page title bar owns secondary nav
+
+- The page title bar (work item 5) also owns the page-level secondary nav
+  strips: `OpsSubnav` (Lanes · Mission Control · Providers · Mesh · Tail ·
+  Runtime · Plans) and `ChatSubnav` move OUT of the content pane and INTO
+  the title bar, per the mock. One shared placement, driven by the
+  existing `secondaryNavConfig` projection.
 
 ### 3. Consistent collapsed widths
 
