@@ -782,29 +782,14 @@ export default function Home() {
 
         <>
           <main id="main" ref={scrollRef} className="relative z-10">
-            <div className="mission-page-ruler" aria-hidden="true">
-              <span className="mission-page-ruler__title">mission time</span>
-              <span>00:00</span>
-              <span>00:15</span>
-              <span>00:30</span>
-              <span>00:45</span>
-              <span>01:00</span>
-            </div>
+            {/* Measured margin rule — the mission "sheet edge." Purely a
+                registration line; carries no fabricated readouts. */}
+            <div className="mission-page-ruler" aria-hidden="true" />
 
             {/* ── Hero (editorial column beside the live console) ── */}
             <section className="mission-hero overflow-hidden pb-8 pt-20 md:pt-28 md:pb-10">
               <div className="mission-hero__field" aria-hidden="true">
                 <div className="mission-hero__layer mission-hero__layer--far" />
-                <div className="mission-hero__rail">
-                  <span>flight plan</span>
-                  <span>procedure</span>
-                  <span>verify</span>
-                </div>
-                <div className="mission-hero__revision">
-                  <span>rev 02</span>
-                  <span>session control</span>
-                  <span>live</span>
-                </div>
               </div>
 
               <div className="mission-hero__content relative z-10 mx-auto max-w-7xl px-6">
@@ -906,7 +891,7 @@ export default function Home() {
             </section>
 
             {/* ── Why Scout — head row, problem → solution plates, capability band ── */}
-            <section id="mesh" className="section-band mission-briefing" data-mission="02 / why scout">
+            <section id="mesh" className="section-band mission-briefing" data-mission="02">
               <div className="mx-auto max-w-7xl px-6">
                 {/* Editorial head — split treatment: the pull-quote statement
                     seats left, the no-adoption support line to its right, both
@@ -972,7 +957,7 @@ export default function Home() {
             </section>
 
             {/* ── The apps ── */}
-            <section id="surfaces" className="section-band" data-mission="03 / surfaces">
+            <section id="surfaces" className="section-band" data-mission="03">
               <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-xl">
                   <div className="section-eyebrow">The apps</div>
@@ -1069,7 +1054,7 @@ export default function Home() {
             </section>
 
             {/* ── Works with ── */}
-            <section id="integrations" className="section-band" data-mission="04 / integrations">
+            <section id="integrations" className="section-band" data-mission="04">
               <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
                   <div className="section-eyebrow">Works with</div>
@@ -1136,7 +1121,7 @@ export default function Home() {
             </section>
 
             {/* ── Getting started ── */}
-            <section id="get-started" className="section-band" data-mission="05 / get started">
+            <section id="get-started" className="section-band" data-mission="05">
               <div className="mx-auto max-w-7xl px-6">
                 <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                   <div className="reveal max-w-sm">
@@ -1201,7 +1186,7 @@ export default function Home() {
             </section>
 
             {/* ── Questions ── */}
-            <section id="faq" className="section-band" data-mission="06 / questions">
+            <section id="faq" className="section-band" data-mission="06">
               <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-sm">
                   <div className="section-eyebrow">Questions</div>
@@ -1234,7 +1219,7 @@ export default function Home() {
             </section>
 
             {/* ── Where we are ── */}
-            <section className="section-band" data-mission="07 / posture">
+            <section className="section-band" data-mission="07">
               <div className="mx-auto max-w-7xl px-6">
                 <div className="reveal max-w-2xl">
                   <div className="section-eyebrow">Where we are</div>

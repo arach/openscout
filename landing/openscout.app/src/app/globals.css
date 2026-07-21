@@ -608,103 +608,46 @@ html[data-site-theme="dark"] .dot-grid {
   transform: translateY(-0.75rem) scale(1.015);
 }
 
-.mission-hero__rail,
-.mission-hero__revision,
+/* The persistent left rule — one measured margin line running the height of
+   the page, the "edge of the sheet." Strongest across the establishing hero,
+   settling to a hairline below so the numbered section marks (see
+   main > .section-band::after) read as registration on one continuous spine
+   rather than as scattered decorations. Carries no fabricated readouts. */
 .mission-page-ruler {
   position: absolute;
-  z-index: 3;
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  color: color-mix(in srgb, var(--site-muted) 80%, transparent);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.mission-hero__rail {
-  top: 3.5rem;
-  left: clamp(10rem, 20vw, 24rem);
-  right: clamp(2rem, 5vw, 6rem);
-  display: grid;
-  grid-template-columns: 1.1fr 1fr 0.8fr;
-  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 52%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--site-border) 52%, transparent);
-  font-size: 8px;
-}
-
-.mission-hero__rail span {
-  padding: 0.4rem 0.65rem;
-  border-left: 1px solid color-mix(in srgb, var(--site-border) 58%, transparent);
-}
-
-.mission-page-ruler {
   top: 0.75rem;
-  bottom: 0.75rem;
+  bottom: 2rem;
   left: var(--mission-ruler-x);
-  width: 5.8rem;
-  z-index: 20;
-  font-size: 8px;
+  width: 1px;
+  z-index: 4;
   pointer-events: none;
 }
 
 .mission-page-ruler::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 -1px;
+  inset: 0 auto 0 0;
   width: 1px;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--site-border-strong) 82%, transparent) 0 43rem,
-    color-mix(in srgb, var(--site-border-strong) 28%, transparent) 50rem 96%,
-    transparent 100%
+    color-mix(in srgb, var(--site-border-strong) 68%, transparent) 0 36rem,
+    color-mix(in srgb, var(--site-border) 28%, transparent) 44rem 100%
   );
 }
 
+/* Fine ticks across the hero only — enough to say "measured sheet" without
+   pretending to be a running clock. */
 .mission-page-ruler::after {
   content: "";
   position: absolute;
-  inset: 0 auto auto -1px;
-  width: 0.7rem;
-  height: 43rem;
+  inset: 2.65rem auto auto 0;
+  width: 0.5rem;
+  height: 34rem;
   background: repeating-linear-gradient(
     180deg,
-    color-mix(in srgb, var(--site-border-strong) 74%, transparent) 0 1px,
-    transparent 1px 9.5rem
+    color-mix(in srgb, var(--site-border-strong) 40%, transparent) 0 1px,
+    transparent 1px 2.4rem
   );
-  background-position: 0 2.65rem;
-}
-
-.mission-page-ruler span {
-  position: absolute;
-  left: 1rem;
-  white-space: nowrap;
-}
-
-.mission-page-ruler span:not(.mission-page-ruler__title)::before {
-  content: "";
-  position: absolute;
-  left: -1rem;
-  top: 0.5em;
-  width: 0.7rem;
-  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 92%, transparent);
-}
-
-.mission-page-ruler__title {
-  top: 0;
-}
-
-.mission-page-ruler span:nth-child(2) { top: 2.6rem; }
-.mission-page-ruler span:nth-child(3) { top: 12.1rem; }
-.mission-page-ruler span:nth-child(4) { top: 21.6rem; }
-.mission-page-ruler span:nth-child(5) { top: 31.1rem; }
-.mission-page-ruler span:nth-child(6) { top: 40.6rem; }
-
-.mission-hero__revision {
-  top: 5.7rem;
-  right: clamp(1.5rem, 3vw, 3.5rem);
-  display: flex;
-  gap: 1.1rem;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--site-border) 58%, transparent);
-  font-size: 7.5px;
 }
 
 @media (max-width: 1399px) and (min-width: 921px) {
@@ -712,20 +655,8 @@ html[data-site-theme="dark"] .dot-grid {
     --mission-ruler-x: 1.15rem;
   }
 
-  .mission-page-ruler {
-    width: 4.5rem;
-  }
-
   .mission-hero__content {
     padding-left: 4.75rem;
-  }
-
-  .mission-page-ruler span {
-    left: 0.9rem;
-  }
-
-  .mission-page-ruler span:not(.mission-page-ruler__title)::before {
-    left: -0.9rem;
   }
 }
 
@@ -763,8 +694,7 @@ html[data-site-theme="dark"] .mission-hero__layer--far {
     opacity: 0.17;
   }
 
-  .mission-page-ruler,
-  .mission-hero__revision {
+  .mission-page-ruler {
     display: none;
   }
 
@@ -775,14 +705,6 @@ html[data-site-theme="dark"] .mission-hero__layer--far {
       color-mix(in srgb, var(--site-page-bg) 90%, transparent) 46%,
       color-mix(in srgb, var(--site-page-bg) 62%, transparent) 100%
     );
-  }
-}
-
-@media (max-width: 640px) {
-  .mission-hero__rail {
-    left: 1.5rem;
-    right: 1.5rem;
-    opacity: 0.52;
   }
 }
 
@@ -1322,25 +1244,21 @@ main > .section-band {
   overflow: hidden;
 }
 
-/* Each sheet registers itself on the persistent mission spine. The compact
-   index gives the line a job and makes section changes feel procedural rather
-   than like unrelated decorative backgrounds. */
+/* Registration number on the spine — a page mark, not a label. It rides the
+   left rule as terse wayfinding (01 is the hero) and never restates the
+   section's own eyebrow/title, which remain the content hierarchy. */
 main > .section-band::after {
   content: attr(data-mission);
   position: absolute;
-  top: 1.15rem;
-  left: var(--mission-ruler-x);
-  z-index: 3;
-  width: 6.5rem;
-  padding: 0.38rem 0 0 0.9rem;
-  border-top: 1px solid color-mix(in srgb, var(--site-border-strong) 54%, transparent);
+  top: 1.4rem;
+  left: calc(var(--mission-ruler-x) + 0.55rem);
+  z-index: 4;
   pointer-events: none;
   font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 7.5px;
-  line-height: 1.25;
-  color: color-mix(in srgb, var(--site-muted) 72%, transparent);
-  text-transform: uppercase;
-  letter-spacing: 0.075em;
+  font-size: 9px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--site-muted) 66%, transparent);
+  letter-spacing: 0.14em;
 }
 
 @media (max-width: 1499px) and (min-width: 921px) {
@@ -1349,9 +1267,11 @@ main > .section-band::after {
   }
 }
 
-/* Every band is another crop from the same operational sheet. The base layer
-   is deliberately quiet; individual sections move the contour mass around so
-   the page keeps one visual language without repeating one obvious picture. */
+/* Quiet, uniform graph field — one continuous "sheet" the whole page sits on.
+   Vertical lines share the hero field's 12.5rem rhythm so the grid reads as a
+   single surface rather than a picture re-parked behind each band. The
+   generated mission plot stays the hero's establishing artifact; the bands
+   carry only its measured paper, so nothing competes with the copy. */
 main > .section-band::before {
   content: "";
   position: absolute;
@@ -1359,16 +1279,10 @@ main > .section-band::before {
   z-index: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(color-mix(in srgb, var(--site-border) 34%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 42%, transparent) 1px, transparent 1px),
-    url("/visuals/mission-sheet-field.webp");
-  background-position: 0 0, 0 0, 50% 50%;
-  background-repeat: repeat, repeat, no-repeat;
-  background-size: 100% 10rem, 12.5rem 100%, max(100%, 96rem) auto;
-  opacity: 0.08;
-  mix-blend-mode: multiply;
-  -webkit-mask-image: radial-gradient(ellipse 72% 58% at 78% 25%, #000 0%, rgba(0, 0, 0, 0.68) 42%, transparent 100%);
-  mask-image: radial-gradient(ellipse 72% 58% at 78% 25%, #000 0%, rgba(0, 0, 0, 0.68) 42%, transparent 100%);
+    linear-gradient(color-mix(in srgb, var(--site-border) 20%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 20%, transparent) 1px, transparent 1px);
+  background-size: 100% 10rem, 12.5rem 100%;
+  opacity: 0.7;
 }
 
 main > .section-band > * {
@@ -1376,71 +1290,14 @@ main > .section-band > * {
   z-index: 1;
 }
 
-/* Why Scout is the bridge from the denser hero into the quieter page field. */
-main > .mission-briefing::before {
-  background-position: 0 0, 0 0, 50% 82%;
-  opacity: 0.115;
-  -webkit-mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.72) 38%, transparent 92%);
-  mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.72) 38%, transparent 92%);
-}
-
-/* Apps: contour field gathers behind the image gallery. */
-main > .section-band:nth-of-type(3)::before {
-  background-position: 0 0, 0 0, 112% 20%;
-  opacity: 0.105;
-  -webkit-mask-image: radial-gradient(ellipse 62% 70% at 92% 25%, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 100%);
-  mask-image: radial-gradient(ellipse 62% 70% at 92% 25%, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 100%);
-}
-
-/* Integrations: invert the visual weight to the editorial side. */
-main > .section-band:nth-of-type(4)::before {
-  background-position: 0 0, 0 0, -16rem 52%;
-  opacity: 0.09;
-  -webkit-mask-image: radial-gradient(ellipse 58% 72% at 8% 46%, #000 0%, rgba(0, 0, 0, 0.62) 45%, transparent 100%);
-  mask-image: radial-gradient(ellipse 58% 72% at 8% 46%, #000 0%, rgba(0, 0, 0, 0.62) 45%, transparent 100%);
-}
-
-/* Getting started: a lower-right plot echoes the terminal's dark mass. */
-main > .section-band:nth-of-type(5)::before {
-  background-position: 0 0, 0 0, 108% 78%;
-  opacity: 0.1;
-  -webkit-mask-image: radial-gradient(ellipse 68% 68% at 88% 72%, #000 0%, rgba(0, 0, 0, 0.68) 46%, transparent 100%);
-  mask-image: radial-gradient(ellipse 68% 68% at 88% 72%, #000 0%, rgba(0, 0, 0, 0.68) 46%, transparent 100%);
-}
-
-/* FAQ and the final posture section keep only traces of the system. */
-main > .section-band:nth-of-type(6)::before {
-  background-position: 0 0, 0 0, -8rem 28%;
-  opacity: 0.07;
-  -webkit-mask-image: radial-gradient(ellipse 62% 58% at 12% 24%, #000 0%, rgba(0, 0, 0, 0.58) 40%, transparent 100%);
-  mask-image: radial-gradient(ellipse 62% 58% at 12% 24%, #000 0%, rgba(0, 0, 0, 0.58) 40%, transparent 100%);
-}
-
-main > .section-band:nth-of-type(7)::before {
-  background-position: 0 0, 0 0, 54% 90%;
-  opacity: 0.09;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, #000 28%, #000 78%, transparent 100%);
-}
-
 html[data-site-theme="dark"] main > .section-band::before {
-  filter: grayscale(1) invert(1);
-  mix-blend-mode: screen;
-  opacity: 0.032;
-}
-
-html[data-site-theme="dark"] main > .mission-briefing::before {
-  opacity: 0.052;
+  opacity: 0.4;
 }
 
 @media (max-width: 720px) {
-  main > .section-band:nth-of-type(n + 2)::before {
-    background-size: 100% 9rem, 10rem 100%, auto 80%;
-    opacity: 0.05;
-  }
-
-  main > .mission-briefing:nth-of-type(2)::before {
-    opacity: 0.065;
+  main > .section-band::before {
+    background-size: 100% 9rem, 10rem 100%;
+    opacity: 0.5;
   }
 }
 
