@@ -72,6 +72,40 @@ RailToggle chevron changes collapse state. Add continuous drag through collapse:
 - URLs unchanged; scope stays path-driven.
 - No git commits — leave changes in the working tree.
 
+## §4 Live-review addenda (user feedback during implementation)
+
+### §4.1 RailToggle chevrons: whisper-quiet
+
+The boxed chevron button in the top band reads too loud. Resting state: no
+fill, no border, glyph only at ~35–45% ink, ~14px glyph inside the existing
+22×28 hit area. Hover only: full ink + hairline/faint surface. Same position
+(shared band), same hit area, all three rails, expanded and collapsed.
+
+### §4.2 Resize feel: continuous travel, no dead stops
+
+- Inward drag must not dead-end at min width — ghost continues past min and
+  eases/snaps toward the 48px collapsed target once the pointer crosses the
+  collapse threshold (affordance only; layout still commits once on
+  pointer-up, P3 holds).
+- Outward drag from collapsed: ghost grows from 48 with the pointer; expand
+  commits past the §2 threshold.
+- No intermediate stepping anywhere on either left rail.
+
+### §4.3 Top of the L reads as one band
+
+Sidebar logo row (brand cell) and the content top row: identical 40px height,
+shared text baseline, bottom hairlines on the same y — one continuous band
+from logo to right window edge. Holds in expanded AND collapsed (icon rail
+logo cell) states.
+
+### §4.4 No border-radius on nav chrome highlights
+
+Square off all navigation-chrome active/hover treatments:
+sidebar nav items (flat rectangle or left-accent bar per the option-a mock),
+sidebar sub-items, and the top sub-nav tab active treatment (clean squared
+underline, no pill/box). One-green-accent rule kept. Nav chrome only —
+in-content cards/buttons keep their own styling.
+
 ## Verification
 
 - `bun test packages/web/client/scout/sidebar packages/web/client/components/RailToggle.test.tsx packages/web/client/lib/router.test.ts`
