@@ -367,23 +367,27 @@ export function projectChatSecondaryNav(): SecondaryNavGroup[] {
   ];
 }
 
+/**
+ * Search secondary strip is production-dead (single surface). Kept as an empty
+ * projection only for catalog integrity helpers that still iterate secondary
+ * surfaces; do not reintroduce a Search strip in chrome.
+ * @deprecated SCO-083 — Search has no secondary strip.
+ */
 export function projectSearchSecondaryNav(): SecondaryNavGroup[] {
-  return [
-    projectSecondaryGroup([
-      { destinationId: "search", id: "knowledge", label: "Search" },
-    ]),
-  ];
+  return [];
 }
 
-/** Ops cluster secondary strip — same destinations as System ops + core ops. */
+/**
+ * Ops cluster secondary strip — Ops-area destinations only (SCO-083).
+ * Dispatch, Repos, and Code moved out of Ops (Dispatch is top-level; Repos/Code
+ * are Projects). Do not re-add them here or the sidebar active area will
+ * disagree with the in-content strip.
+ */
 export function projectOpsSecondaryNav(): SecondaryNavGroup[] {
   return [
     projectSecondaryGroup([
       { destinationId: "lanes", id: "lanes" },
       { destinationId: "mission-control", id: "control" },
-      { destinationId: "dispatch", id: "dispatch" },
-      { destinationId: "repos", id: "repos" },
-      { destinationId: "code", id: "code" },
       { destinationId: "providers", id: "harnesses", label: "Providers" },
       { destinationId: "mesh", id: "mesh" },
       { destinationId: "tail", id: "tail" },
@@ -629,17 +633,14 @@ export function allProjectedDestinationIds(): NavDestinationId[] {
       void item;
     }
   }
-  // Explicit secondary destination ids for integrity checks:
+  // Explicit secondary destination ids for integrity checks (SCO-083: Ops strip
+  // no longer includes dispatch/repos/code; Search secondary is empty).
   for (const id of [
     "agent-config",
     "chat",
     "channels",
-    "search",
     "lanes",
     "mission-control",
-    "dispatch",
-    "repos",
-    "code",
     "providers",
     "mesh",
     "tail",

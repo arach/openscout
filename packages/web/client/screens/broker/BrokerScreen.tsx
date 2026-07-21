@@ -11,7 +11,7 @@ import { fullTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts"
 import type { Agent, BrokerDiagnostics, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
-import { OpsSubnav } from "../ops/OpsSubnav.tsx";
+
 import {
   brokerAttemptDetailLimit,
   brokerAttemptErrorSummary,
@@ -496,14 +496,9 @@ export function BrokerScreen({
     setActiveTab(BROKER_TABS[next]!);
   }, [activeTab]);
 
+  // SCO-083: Dispatch is its own primary area — do not render OpsSubnav here.
   return (
     <div className={`s-ops${embedded ? " s-ops--embedded" : ""}`}>
-      {!embedded && (
-        <div className="s-ops-header">
-          <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
-        </div>
-      )}
-
       <div className="s-ops-body">
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">
           <div className="sys-ledger-toolbar" aria-label="Dispatch controls">

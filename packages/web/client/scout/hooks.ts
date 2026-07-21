@@ -16,6 +16,7 @@ import {
   topNavItems,
   topNavKeyForRoute,
 } from "./topNavConfig.ts";
+import { routeBreadcrumbForRoute } from "./route-breadcrumb.ts";
 import { paletteNavCommandOptions } from "./nav-destinations.ts";
 import { renderNavCenter } from "./nav-center.tsx";
 import { SystemMenu } from "./nav-system-menu.tsx";
@@ -217,9 +218,21 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
   return useScoutStatusBarState().status;
 }
 
-/* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
+/* ── useNavCenter — tab bar + breadcrumb (or breadcrumb-only under sidebar) */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+
+  // SCO-083: sidebar owns primary destinations; top bar is a slim utility strip.
+  if (sidebarChrome) {
+    const breadcrumb = routeBreadcrumbForRoute(route);
+    if (!breadcrumb) return null;
+    return createElement(
+      "div",
+      { className: "scout-nav-tabs scout-nav-tabs--breadcrumb-only" },
+      createElement("span", { className: "scout-nav-crumb" }, breadcrumb),
+    );
+  }
 
   return renderNavCenter({
     items: topNavItems(),
@@ -232,6 +245,28 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
+  const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+
+  // Sidebar owns Settings as a primary area; keep the top-bar Settings button
+  // only as an accelerator. System menu is replaced by the sidebar.
+  if (sidebarChrome) {
+    return createElement(
+      "div",
+      { className: "scout-nav-actions" },
+      createElement(MachineScopeControl, { variant: "nav" }),
+      createElement(
+        "button",
+        {
+          onClick: () => openSettings(),
+          className: "scout-nav-action scout-nav-action--settings",
+          title: "Settings",
+        },
+        createElement(Settings, { size: 12, strokeWidth: 1.6, "aria-hidden": true }),
+        createElement("span", null, "Settings"),
+      ),
+    );
+  }
+
   return createElement("div", { className: "scout-nav-actions" },
     createElement(SystemMenu),
     createElement(MachineScopeControl, { variant: "nav" }),

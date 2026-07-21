@@ -18,7 +18,6 @@ import {
   AGENTS_SECONDARY_NAV,
   CHAT_SECONDARY_NAV,
   OPS_SECONDARY_NAV,
-  SEARCH_SECONDARY_NAV,
 } from "./secondaryNavConfig.ts";
 import { GO_SHORTCUTS } from "../lib/go-shortcuts.ts";
 import { TOP_NAV_ITEMS } from "./topNavConfig.ts";
@@ -98,7 +97,22 @@ describe("nav destination catalog", () => {
       "messages",
       "channels",
     ]);
-    expect(SEARCH_SECONDARY_NAV[0]?.items[0]?.id).toBe("knowledge");
+  });
+
+  test("ops secondary nav excludes Dispatch/Repos/Code (SCO-083 area boundaries)", () => {
+    const ids = OPS_SECONDARY_NAV.flatMap((g) => g.items).map((item) => item.id);
+    expect(ids).not.toContain("dispatch");
+    expect(ids).not.toContain("repos");
+    expect(ids).not.toContain("code");
+    expect(ids).toEqual([
+      "lanes",
+      "control",
+      "harnesses",
+      "mesh",
+      "tail",
+      "runtime",
+      "plans",
+    ]);
   });
 
   test("go-shortcuts projection preserves keys and resolves destinations", () => {
