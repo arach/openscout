@@ -267,4 +267,23 @@ describe("applyRoleLifecycleForTerminalFlight", () => {
     const log = listMissionLogEntries(db, { missionId: "work-mission-1" });
     expect(log[0]!.kind).toBe("failed");
   });
+
+  test("uses flight projectPath for a project-scoped orchestrator", () => {
+    const db = openTestDb();
+    assignRole(db, {
+      roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+      agentId: "orch-1",
+      scope: { kind: "project", projectRoot: "/repo" },
+      assignedById: "operator",
+    });
+
+    const result = applyRoleLifecycleForTerminalFlight(db, {
+      flight: flight({ metadata: { projectPath: "/repo" } }),
+      invocation: invocation({ metadata: {} }),
+    });
+
+    expect(result.written).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(listMissionLogEntries(db, { missionId: "work-mission-1" })).toHaveLength(1);
+  });
 });
