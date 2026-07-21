@@ -13,7 +13,7 @@
  * Content: resolveSidebarContext(route) body (scrollable) + footer pinned at
  * the panel bottom (Mesh rack/map behavior unchanged).
  */
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { SidePanel } from "@hudsonkit/chrome";
 import { RailToggle } from "../../components/RailToggle.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -54,7 +54,7 @@ export function ScoutSideRail({
   isCollapsed,
   onToggleCollapse,
   width,
-  onResizeStart,
+  dragGhostWidth = null,
   style,
   hideWhenEmpty = true,
 }: {
@@ -62,8 +62,15 @@ export function ScoutSideRail({
   navRailWidth: number;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  /** Committed (pinned) side-rail width — the panel box never relayouts per drag frame. */
   width: number;
-  onResizeStart?: (event: MouseEvent) => void;
+  /**
+   * SCO-088 §3: live drag target while the side rail is being resized; null when
+   * idle. The chevron rides this ghost edge so it tracks the pointer, while the
+   * committed `width` stays pinned (the shell paints the ghost line + commits the
+   * width once on pointer-up).
+   */
+  dragGhostWidth?: number | null;
   style?: CSSProperties;
   /** When true, render nothing if both body and footer are null. */
   hideWhenEmpty?: boolean;
@@ -101,6 +108,12 @@ export function ScoutSideRail({
     );
   }
 
+  // SCO-088 §3: the shell owns the ghost-edge resize (handle + ghost line +
+  // one-write commit), so the side rail no longer passes onResizeStart to
+  // HudsonKit (that drove a live, per-frame width update). The panel box stays
+  // pinned at the committed width; only the chevron rides the drag ghost.
+  const chevronEdge = navRailWidth + (dragGhostWidth ?? width);
+
   return (
     <>
       <SidePanel
@@ -108,7 +121,6 @@ export function ScoutSideRail({
         title={title}
         isCollapsed={false}
         width={width}
-        onResizeStart={onResizeStart}
         style={{
           // Sit beside the nav icon/expanded rail (SidePanel defaults to left: 0).
           left: navRailWidth,
@@ -120,7 +132,8 @@ export function ScoutSideRail({
           {context.body}
         </div>
       </SidePanel>
-      {/* External edge chevron — omits HudsonKit built-in collapse button. */}
+      {/* External edge chevron — omits HudsonKit built-in collapse button. Rides
+          the drag ghost so it stays on the side rail's trailing edge. */}
       <RailToggle
         side="left"
         collapsed={false}
@@ -129,7 +142,7 @@ export function ScoutSideRail({
         className="scout-rail-toggle--panel scout-rail-toggle--side-rail"
         style={{
           position: "fixed",
-          left: navRailWidth + width,
+          left: chevronEdge,
           top: top + 8,
           zIndex: 45,
           transform: "translateX(-50%)",

@@ -15,6 +15,93 @@ export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 360;
 export const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH = 1023;
 
+/**
+ * Side rail (context panel) drag-resize band (SCO-088 §3).
+ * The side rail gets the same ghost-edge resize as the sidebar, but with its
+ * own band: default 260, min 240 (study: side rail min-width 240), max 400.
+ * Persisted under the shell's `appshell.<id>.leftW` key; double-click resets to
+ * SIDE_RAIL_DEFAULT_WIDTH.
+ */
+export const SIDE_RAIL_DEFAULT_WIDTH = 260;
+export const SIDE_RAIL_MIN_WIDTH = 240;
+export const SIDE_RAIL_MAX_WIDTH = 400;
+
+/** Clamp a side-rail width to the SCO-088 min/max band (rounds; NaN → default). */
+export function clampSideRailWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDE_RAIL_DEFAULT_WIDTH;
+  return Math.max(
+    SIDE_RAIL_MIN_WIDTH,
+    Math.min(SIDE_RAIL_MAX_WIDTH, Math.round(width)),
+  );
+}
+
+/**
+ * Drag-through-collapse thresholds (SCO-088b §2).
+ * - Collapse commits when a live inward drag drops this far below the min width
+ *   (sidebar: 200−40=160, side rail: 240−40=200). Hysteresis avoids an instant
+ *   flip right at min.
+ * - Expand-from-collapsed commits when the collapsed edge is dragged out at least
+ *   this many px (a tiny accidental drag snaps back with no state change).
+ */
+export const RAIL_DRAG_COLLAPSE_MARGIN = 40;
+export const RAIL_DRAG_EXPAND_TRAVEL = 24;
+
+/**
+ * Live ghost width the dragged edge previews (SCO-088b §2 + addendum). Continuous
+ * from the collapsed target (48) up to max — never dead-clamped at min, so an
+ * inward drag flows toward collapse and an outward drag from a collapsed rail
+ * grows from 48. Once an expanded-rail drag passes the collapse threshold the
+ * ghost snaps to the 48px collapsed target as a "release = collapse" affordance.
+ */
+export function resolveRailDragGhostWidth(
+  rawWidth: number,
+  {
+    min,
+    max,
+    startedCollapsed,
+  }: { min: number; max: number; startedCollapsed: boolean },
+): number {
+  if (!Number.isFinite(rawWidth)) {
+    return startedCollapsed ? RAIL_COLLAPSED_WIDTH : min;
+  }
+  const clamped = Math.max(
+    RAIL_COLLAPSED_WIDTH,
+    Math.min(max, Math.round(rawWidth)),
+  );
+  if (startedCollapsed) return clamped;
+  const collapseThreshold = min - RAIL_DRAG_COLLAPSE_MARGIN;
+  return clamped < collapseThreshold ? RAIL_COLLAPSED_WIDTH : clamped;
+}
+
+/** What a rail edge-drag commits on pointer-up (SCO-088b §2). */
+export type RailDragCommit =
+  | { kind: "collapse" }
+  | { kind: "expand" }
+  | { kind: "resize"; width: number }
+  | { kind: "none" };
+
+/**
+ * Decide what a rail drag commits on pointer-up (SCO-088b §2). Uses the RAW live
+ * width (not the snapped ghost) so the collapse/resize boundary is exact.
+ * - started collapsed → `expand` past the outward-travel threshold, else `none`.
+ * - started expanded → `collapse` below `min − margin`, else `resize` clamped to
+ *   [min, max] (so between the collapse threshold and min it settles at min).
+ */
+export function resolveRailDragCommit(
+  { startedCollapsed, rawWidth }: { startedCollapsed: boolean; rawWidth: number },
+  { min, max }: { min: number; max: number },
+): RailDragCommit {
+  const w = Number.isFinite(rawWidth) ? Math.round(rawWidth) : min;
+  if (startedCollapsed) {
+    return w >= RAIL_COLLAPSED_WIDTH + RAIL_DRAG_EXPAND_TRAVEL
+      ? { kind: "expand" }
+      : { kind: "none" };
+  }
+  const collapseThreshold = min - RAIL_DRAG_COLLAPSE_MARGIN;
+  if (w < collapseThreshold) return { kind: "collapse" };
+  return { kind: "resize", width: Math.max(min, Math.min(max, w)) };
+}
+
 export type SidebarCollapseSnapshot = {
   manualCollapsed: boolean;
   autoCollapsed: boolean;

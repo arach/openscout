@@ -1,15 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import {
   RAIL_COLLAPSED_WIDTH,
+  RAIL_DRAG_COLLAPSE_MARGIN,
+  RAIL_DRAG_EXPAND_TRAVEL,
   SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_EXPANDED_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  SIDE_RAIL_DEFAULT_WIDTH,
+  SIDE_RAIL_MAX_WIDTH,
+  SIDE_RAIL_MIN_WIDTH,
   applySetCollapsed,
   applyToggleCollapsed,
+  clampSideRailWidth,
   clampSidebarExpandedWidth,
   resolveEffectiveCollapsed,
+  resolveRailDragCommit,
+  resolveRailDragGhostWidth,
   resolveSidebarWidth,
   type SidebarCollapseSnapshot,
 } from "./sidebar-collapse-state.ts";
@@ -53,6 +61,106 @@ describe("sidebar resize pure logic (SCO-086)", () => {
 
   test("double-click reset target is SIDEBAR_EXPANDED_WIDTH (260)", () => {
     expect(clampSidebarExpandedWidth(SIDEBAR_EXPANDED_WIDTH)).toBe(260);
+  });
+});
+
+describe("side-rail resize band (SCO-088 §3)", () => {
+  test("band is default 260 / min 240 / max 400", () => {
+    expect(SIDE_RAIL_DEFAULT_WIDTH).toBe(260);
+    expect(SIDE_RAIL_MIN_WIDTH).toBe(240);
+    expect(SIDE_RAIL_MAX_WIDTH).toBe(400);
+  });
+
+  test("clampSideRailWidth clamps + rounds; NaN → default", () => {
+    expect(clampSideRailWidth(100)).toBe(240);
+    expect(clampSideRailWidth(999)).toBe(400);
+    expect(clampSideRailWidth(300.6)).toBe(301);
+    expect(clampSideRailWidth(Number.NaN)).toBe(260);
+  });
+});
+
+describe("drag-through-collapse ghost width (SCO-088b §2 + addendum)", () => {
+  const sidebar = { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH };
+  const collapseThreshold = SIDEBAR_MIN_WIDTH - RAIL_DRAG_COLLAPSE_MARGIN; // 160
+
+  test("expanded drag: continuous, NOT dead-clamped at min", () => {
+    // Above min: tracks the pointer.
+    expect(
+      resolveRailDragGhostWidth(300, { ...sidebar, startedCollapsed: false }),
+    ).toBe(300);
+    // Between the collapse threshold and min: flows BELOW min (shows direction),
+    // never dead-clamps at min.
+    expect(
+      resolveRailDragGhostWidth(180, { ...sidebar, startedCollapsed: false }),
+    ).toBe(180);
+    expect(180).toBeLessThan(SIDEBAR_MIN_WIDTH);
+    expect(180).toBeGreaterThanOrEqual(collapseThreshold);
+  });
+
+  test("expanded drag past the collapse threshold snaps the ghost to 48", () => {
+    expect(
+      resolveRailDragGhostWidth(collapseThreshold - 1, {
+        ...sidebar,
+        startedCollapsed: false,
+      }),
+    ).toBe(RAIL_COLLAPSED_WIDTH);
+    expect(
+      resolveRailDragGhostWidth(60, { ...sidebar, startedCollapsed: false }),
+    ).toBe(RAIL_COLLAPSED_WIDTH);
+  });
+
+  test("collapsed drag: grows continuously from 48, never snaps", () => {
+    expect(
+      resolveRailDragGhostWidth(48, { ...sidebar, startedCollapsed: true }),
+    ).toBe(48);
+    expect(
+      resolveRailDragGhostWidth(120, { ...sidebar, startedCollapsed: true }),
+    ).toBe(120);
+    // Clamped to max at the top.
+    expect(
+      resolveRailDragGhostWidth(999, { ...sidebar, startedCollapsed: true }),
+    ).toBe(SIDEBAR_MAX_WIDTH);
+  });
+});
+
+describe("drag commit decision (SCO-088b §2)", () => {
+  const sidebar = { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH };
+  const sideRail = { min: SIDE_RAIL_MIN_WIDTH, max: SIDE_RAIL_MAX_WIDTH };
+
+  test("expanded → collapse below (min − 40)", () => {
+    expect(
+      resolveRailDragCommit({ startedCollapsed: false, rawWidth: 159 }, sidebar),
+    ).toEqual({ kind: "collapse" });
+    // Side rail threshold is 240 − 40 = 200.
+    expect(
+      resolveRailDragCommit({ startedCollapsed: false, rawWidth: 199 }, sideRail),
+    ).toEqual({ kind: "collapse" });
+  });
+
+  test("expanded → resize clamped to [min,max] between threshold and min, and above", () => {
+    // Between threshold (160) and min (200): settles at min.
+    expect(
+      resolveRailDragCommit({ startedCollapsed: false, rawWidth: 180 }, sidebar),
+    ).toEqual({ kind: "resize", width: SIDEBAR_MIN_WIDTH });
+    // Normal resize.
+    expect(
+      resolveRailDragCommit({ startedCollapsed: false, rawWidth: 300 }, sidebar),
+    ).toEqual({ kind: "resize", width: 300 });
+    // Above max clamps.
+    expect(
+      resolveRailDragCommit({ startedCollapsed: false, rawWidth: 999 }, sidebar),
+    ).toEqual({ kind: "resize", width: SIDEBAR_MAX_WIDTH });
+  });
+
+  test("collapsed → expand only past the outward-travel threshold", () => {
+    const justUnder = RAIL_COLLAPSED_WIDTH + RAIL_DRAG_EXPAND_TRAVEL - 1;
+    const atThreshold = RAIL_COLLAPSED_WIDTH + RAIL_DRAG_EXPAND_TRAVEL;
+    expect(
+      resolveRailDragCommit({ startedCollapsed: true, rawWidth: justUnder }, sidebar),
+    ).toEqual({ kind: "none" });
+    expect(
+      resolveRailDragCommit({ startedCollapsed: true, rawWidth: atThreshold }, sidebar),
+    ).toEqual({ kind: "expand" });
   });
 });
 

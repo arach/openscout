@@ -123,9 +123,10 @@ export function CenterPaneHeader({
     </>
   ) : null;
 
-  // SCO-087b: the top row is now TWO stacked shell-owned rows — the title row
-  // (breadcrumb + right utilities only) and, directly below it, the secondary
-  // content-nav row. No secondary nav → no second row (title row stays flush).
+  // SCO-088b: ONE 40px top row (supersedes the sco-087b two-row split). The area
+  // title/breadcrumb and the AREA_SUB_NAV tabs sit inline on the same reading line
+  // (separated by a hairline), utilities pinned right, one bottom hairline. Tabs
+  // never wrap — they condense/clip; utilities stay pinned.
   if (isTopRow) {
     return (
       <div
@@ -134,34 +135,27 @@ export function CenterPaneHeader({
         data-scout-top-row=""
         data-scout-has-secondary-row={showSecondaryRow ? "" : undefined}
       >
-        <div className="scout-center-pane-header-title-row">
-          <div
-            className="scout-center-pane-header-main"
-            onMouseDown={onInteractiveMouseDown}
-          >
-            {breadcrumb ? (
-              <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
-                <span className="scout-nav-crumb">{breadcrumb}</span>
-              </div>
-            ) : null}
-          </div>
-          {rightUtility ? (
-            <div
-              className="scout-center-pane-header-utility"
-              data-scout-header-utility=""
-              onMouseDown={onInteractiveMouseDown}
-            >
-              {rightUtility}
+        <div
+          className="scout-center-pane-header-main"
+          onMouseDown={onInteractiveMouseDown}
+        >
+          {breadcrumb ? (
+            <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
+              <span className="scout-nav-crumb">{breadcrumb}</span>
             </div>
           ) : null}
+          {breadcrumb && showSecondaryRow ? (
+            <span className="scout-top-row-divider" aria-hidden="true" />
+          ) : null}
+          {secondaryNav}
         </div>
-        {showSecondaryRow ? (
+        {rightUtility ? (
           <div
-            className="scout-center-pane-header-secondary-row"
-            data-scout-secondary-row=""
+            className="scout-center-pane-header-utility"
+            data-scout-header-utility=""
             onMouseDown={onInteractiveMouseDown}
           >
-            {secondaryNav}
+            {rightUtility}
           </div>
         ) : null}
       </div>

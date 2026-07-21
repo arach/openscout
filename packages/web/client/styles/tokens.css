@@ -94,6 +94,9 @@
   --motion-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
   --motion-ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-linear: linear;
+  /* SCO-088: deliberate rail collapse/expand + resize-commit settle. Honest
+   * 120–200ms ease-out; the reduced-motion gate collapses it to instant. */
+  --scout-rail-motion: 160ms;
 
   /* ── Layout constants (NOT spacing — never snap these to the scale) ─────────
    * --statusbar-h matches Hudson's SHELL_THEME.layout.statusBarHeight and the

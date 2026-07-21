@@ -268,7 +268,10 @@ body { margin: 0; }
 .scout-nav-tab.active {
   background: transparent;
   color: var(--scout-chrome-ink-strong);
-  border-bottom-color: var(--hud-accent, #22d3ee);
+  /* SCO-088 one-accent audit: the sole saturated chrome color is the green
+     accent. This dormant fallback was cyan (#22d3ee); align it to the accent so
+     no stray hue can render even if --hud-accent is ever undefined. */
+  border-bottom-color: var(--hud-accent, oklch(0.86 0.17 125));
 }
 
 .scout-nav-slash {
@@ -342,37 +345,29 @@ body { margin: 0; }
   pointer-events: auto;
 }
 
-/* SCO-087b: the top row is two STACKED rows — a title band (breadcrumb +
-   utilities only, "empty of tabs") and, below it, the secondary content-nav row.
-   The container is a column; each row owns its own horizontal layout. */
+/* SCO-088b: ONE 40px top row (supersedes the sco-087b two-row split). Area
+   title/breadcrumb + AREA_SUB_NAV tabs sit inline on the same reading line
+   (main group), utilities pinned right, one bottom hairline spanning the inset
+   width. The row fills the 40px frame set by the shell. */
 .scout-center-pane-header--top-row {
   position: static;
-  flex-direction: column;
+  flex-direction: row;
   flex-wrap: nowrap;
-  align-items: stretch;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
   height: 100%;
-  gap: 0;
-  padding: 0;
+  gap: 12px;
+  padding: 0 12px 0 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 6%, transparent);
   background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg));
 }
 
-/* Title band — one clean grid line with the SCOUT brand + side-rail header.
-   Height matches SIDEBAR_TOP_ROW_HEIGHT (44) in OpenScoutAppShell. */
-.scout-center-pane-header--top-row .scout-center-pane-header-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 0 0 44px;
-  gap: 8px 12px;
-  padding: 0 12px 0 14px;
-  min-width: 0;
-}
-
+/* Main reading group: breadcrumb · hairline · tabs — 12px rhythm, never wraps.
+   Overflows by clipping the tab cluster first; utilities stay pinned right. */
 .scout-center-pane-header--top-row .scout-center-pane-header-main {
   display: flex;
   align-items: center;
+  gap: 12px;
   flex: 1 1 auto;
   min-width: 0;
   flex-wrap: nowrap;
@@ -381,25 +376,20 @@ body { margin: 0; }
 
 .scout-center-pane-header--top-row .scout-center-pane-header-utility {
   flex-wrap: nowrap;
+  flex: 0 0 auto;
 }
 
-/* Secondary content-nav row — the "tabs" (area sub-nav / Ops / Chat strips),
-   directly below the title band. Fills the frame's remaining height
-   (SECONDARY_NAV_ROW_HEIGHT). */
-.scout-center-pane-header--top-row .scout-center-pane-header-secondary-row {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-height: 0;
+.scout-center-pane-header--top-row .scout-center-pane-secondary {
   min-width: 0;
-  padding: 0 12px 0 14px;
   overflow: hidden;
-  border-top: 1px solid color-mix(in srgb, var(--hud-ink) 5%, transparent);
 }
 
-.scout-center-pane-header--top-row .scout-center-pane-header-secondary-row .scout-center-pane-secondary {
-  min-width: 0;
-  overflow: hidden;
+/* Vertical hairline between the title/breadcrumb and the inline tab cluster. */
+.scout-top-row-divider {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--hud-ink) 12%, transparent);
 }
 
 /* Top-row settings / ⌘K accelerators (compact chrome buttons). */
@@ -431,26 +421,44 @@ body { margin: 0; }
   color: var(--scout-chrome-ink-ghost);
 }
 
-/* SCO-087b: pin the SCOUT brand band to the shared 44px top grid line so it
-   lines up with the risen side-rail header and the title bar. The inline style
-   still supplies macOS titleBarInset as top padding (traffic-light clearance). */
+/* SCO-088b (live feedback): the top of the L must read as ONE continuous band.
+   The SCOUT logo cell and the content top row share the same 40px height and the
+   same bottom-hairline y, so the horizontal arm runs unbroken from the logo to the
+   right window edge. Match the top row's hairline colour (ink 6%) exactly. The
+   inline style still supplies macOS titleBarInset as top padding (traffic-light
+   clearance), which the top row also carries — so both hairlines stay aligned. */
 html[data-scout-sidebar-chrome] [data-slot="sidebar-header"] {
   padding-bottom: 0;
   gap: 0;
+  border-bottom-color: color-mix(in srgb, var(--hud-ink) 6%, transparent);
 }
 
 html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] {
-  height: 44px;
+  height: 40px;
   align-items: center;
 }
 
-/* Expanded brand button fills the band (collapsed icon rail keeps its 32px
+/* Expanded brand button fills the 40px band (collapsed icon rail keeps its 32px
    square via the important size-8 utility). */
 html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-menu-button"] {
-  height: 44px;
+  height: 40px;
 }
 
-/* SCO-086: unified edge chevron for all rails. */
+/* SCO-088b (live feedback): square off ALL nav-chrome highlights — the rounded
+   pills read as ugly. The active/hover backgrounds become flat rectangles; active
+   nav items keep their left 2px accent bar (the one green accent), sub-items keep
+   the flat accent wash. Scoped to the nav sidebar chrome, so content cards/buttons
+   inside screens are untouched. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-menu-button"],
+html[data-scout-sidebar-chrome] [data-slot="sidebar-menu-sub-button"] {
+  border-radius: 0;
+}
+
+/* SCO-086: unified edge chevron for all rails.
+   SCO-088b addendum: whisper-quiet in ALL modes — no fill, no border, low-ink
+   glyph at rest; the 22×28 hit area is unchanged so it stays easy to click. Full
+   ink + a faint surface/hairline appear only on hover/focus. It stays visually
+   subordinate to the title and tabs. */
 .scout-rail-toggle {
   appearance: none;
   display: inline-flex;
@@ -460,10 +468,10 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
   height: 28px;
   padding: 0;
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--hud-ink) 12%, transparent);
+  border: 1px solid transparent;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--hud-surface) 92%, transparent);
-  color: var(--scout-chrome-ink-soft, var(--hud-ink));
+  background: transparent;
+  color: color-mix(in srgb, var(--hud-ink) 40%, transparent);
   font-family: var(--hud-font-mono, ui-monospace, monospace);
   font-size: 14px;
   font-weight: 600;
@@ -471,13 +479,30 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
   cursor: pointer;
   pointer-events: auto;
   z-index: 45;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  /* SCO-088 §2: the chevron glides with its rail's edge on collapse/expand (and
+     on programmatic width changes) instead of jumping. left/right are the only
+     positional props that move; this is a single out-of-flow element so it never
+     relayouts the center pane (SCO-087 P3 holds). During any rail drag-resize the
+     positional transition is suppressed (see [data-scout-rail-resizing]) so the
+     chevron tracks the pointer live. */
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease,
+    left var(--scout-rail-motion, 160ms) var(--motion-ease-standard),
+    right var(--scout-rail-motion, 160ms) var(--motion-ease-standard);
+}
+
+/* While a handle is being dragged, chevrons ride the ghost edge live — no
+   positional easing (that would lag the pointer). */
+html[data-scout-rail-resizing] .scout-rail-toggle {
+  transition-property: background, color, border-color;
 }
 
 .scout-rail-toggle:hover {
   color: var(--scout-chrome-ink, var(--hud-ink));
-  background: color-mix(in srgb, var(--hud-ink) 8%, var(--hud-surface));
-  border-color: color-mix(in srgb, var(--hud-ink) 22%, transparent);
+  background: color-mix(in srgb, var(--hud-surface) 92%, transparent);
+  border-color: color-mix(in srgb, var(--hud-ink) 12%, transparent);
 }
 
 .scout-rail-toggle:focus-visible {
@@ -504,6 +529,20 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 22%, transparent);
 }
 
+/* SCO-088 §2/§3: on pointer-up the width commits in ONE write (rail + center
+   pane snap once — P3 holds). This settle ghost stays at the committed edge for
+   ~150ms and fades out (composited opacity), so the commit reads as a quick
+   settle rather than an instant jump. Shared by the sidebar and side-rail
+   handles. */
+.scout-sidebar-resize-ghost--settle {
+  animation: scout-rail-settle-ghost 150ms var(--motion-ease-standard) forwards;
+}
+
+@keyframes scout-rail-settle-ghost {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 /* Collapsed OpenScout rails (side rail + inspector). */
 .scout-collapsed-rail {
   display: flex;
@@ -517,6 +556,10 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
   border-style: solid;
   border-width: 0;
   pointer-events: auto;
+  /* SCO-088 §2: a collapsed rail settles in on mount (the collapse swap) instead
+     of popping. Pure opacity — composited, no relayout. Runs once per mount
+     (collapse), not on route changes while already collapsed. */
+  animation: scout-rail-settle var(--scout-rail-motion, 160ms) var(--motion-ease-standard) both;
 }
 
 .scout-collapsed-rail[data-side="left"] {
@@ -525,6 +568,25 @@ html[data-scout-sidebar-chrome] [data-sidebar="brand-row"] [data-slot="sidebar-m
 
 .scout-collapsed-rail[data-side="right"] {
   border-left-width: 1px;
+}
+
+@keyframes scout-rail-settle {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+/* SCO-088 §1 (F1): soften the collapsed double rail. When BOTH left rails are
+   collapsed (shell sets data-scout-double-rail), drop the seam BETWEEN them (the
+   sidebar's right border at x≈48) and tint the collapsed side rail one step
+   darker than the icon rail, so 0–48 reads as "nav" and 48–96 reads as a
+   "context handle" — not two identical strips. The single outer boundary (the
+   collapsed side rail's own right border) and both chevrons are kept. */
+html[data-scout-double-rail] [data-slot="sidebar-container"] {
+  border-right-color: transparent !important;
+}
+
+html[data-scout-double-rail] .scout-collapsed-rail[data-side="left"] {
+  background: color-mix(in srgb, var(--hud-bg) 84%, var(--hud-surface));
 }
 
 .scout-collapsed-rail-glyph {
@@ -557,12 +619,15 @@ html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
   transition-property: opacity, transform !important;
 }
 
-/* prefers-reduced-motion: everything commits instantly, no fades. */
+/* prefers-reduced-motion: everything commits instantly, no fades. The shell also
+   skips the resize settle ghost entirely under reduced motion (JS guard); this
+   is the CSS backstop. */
 @media (prefers-reduced-motion: reduce) {
   [data-scout-theme] [data-slot="sidebar-container"],
   [data-scout-theme] [data-slot="sidebar-container"] *,
   [data-scout-theme] [data-scout-collapsed-rail],
-  [data-scout-theme] .scout-rail-toggle {
+  [data-scout-theme] .scout-rail-toggle,
+  [data-scout-theme] .scout-sidebar-resize-ghost--settle {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
@@ -580,17 +645,20 @@ html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
 
 .scout-area-subnav {
   display: inline-flex;
-  flex-wrap: wrap;
+  /* SCO-088b: inline in the single top row — tabs never wrap; they condense/clip. */
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .scout-area-subnav-item {
   appearance: none;
   border: 0;
   background: transparent;
-  border-radius: var(--radius-sm, 4px);
+  /* SCO-088b (live feedback): no pill — a clean squared tab. */
+  border-radius: 0;
   padding: 4px 10px;
   font-family: var(--hud-font-mono);
   font-size: 10px;
@@ -599,17 +667,17 @@ html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
   text-transform: uppercase;
   color: var(--scout-chrome-ink-faint);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: color 120ms ease, box-shadow 120ms ease;
 }
 
+/* Hover signals by ink only — no pill/box background. */
 .scout-area-subnav-item:hover {
   color: var(--scout-chrome-ink);
-  background: var(--scout-chrome-hover);
 }
 
+/* Active = a clean squared underline (the single green accent), no box/pill/radius. */
 .scout-area-subnav-item--active {
   color: var(--scout-chrome-ink-strong);
-  background: var(--scout-chrome-active);
   box-shadow: inset 0 -2px 0 0 var(--hud-accent);
 }
 
