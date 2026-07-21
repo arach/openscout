@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   directChannelNaturalKey,
   namedChannelNaturalKey,
+  stableChannelId,
   systemChannelNaturalKey,
   type ActorIdentity,
   type AgentDefinition,
@@ -202,7 +203,7 @@ describe("BrokerConversationService", () => {
       channel: "shared",
     });
     expect(shared).toEqual(expect.objectContaining({
-      id: "c-1",
+      id: stableChannelId(namedChannelNaturalKey("shared")),
       kind: "channel",
       title: "shared-channel",
       shareMode: "shared",

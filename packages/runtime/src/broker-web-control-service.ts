@@ -156,7 +156,9 @@ export function scoutWebControlCorsHeaders(
   };
 }
 
-export function isChildProcessRunning(child: RuntimeChildProcessLike | null): boolean {
+export function isChildProcessRunning(
+  child: RuntimeChildProcessLike | null,
+): child is RuntimeChildProcessLike {
   return Boolean(child && child.exitCode === null && child.signalCode === null);
 }
 

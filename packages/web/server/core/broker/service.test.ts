@@ -782,6 +782,91 @@ describe("sendScoutConversationMessage", () => {
 });
 
 describe("sendScoutConversationSteer", () => {
+  test("routes a conversation-local session by its visible runtime name", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: { id: "operator", kind: "person", displayName: "Operator" },
+            "session-gauss": { id: "session-gauss", kind: "session", displayName: "openscout-gauss-4" },
+          },
+          agents: {},
+          endpoints: {
+            "endpoint-gauss": {
+              id: "endpoint-gauss",
+              agentId: "session-gauss",
+              nodeId: "node-1",
+              harness: "claude",
+              transport: "tmux",
+              state: "idle",
+              sessionId: "session-gauss",
+            },
+          },
+          conversations: {
+            "chn-engineering": {
+              id: "chn-engineering",
+              kind: "channel",
+              title: "engineering-ci",
+              visibility: "workspace",
+              shareMode: "local",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "session-gauss"],
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/invocations") {
+        return jsonResponse({
+          accepted: true,
+          invocationId: body.id,
+          flightId: "flight-gauss",
+          targetAgentId: body.targetAgentId,
+          state: "queued",
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationSteer({
+      conversationId: "chn-engineering",
+      senderId: "operator",
+      body: "@openscout-gauss-4 consolidate the feedback",
+      intent: "invoke",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(result).toMatchObject({
+      usedBroker: true,
+      invokedTargets: ["session-gauss"],
+      unresolvedTargets: [],
+    });
+    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+      .toMatchObject({
+        mentions: [expect.objectContaining({ actorId: "session-gauss" })],
+        metadata: expect.objectContaining({ relayTargetIds: ["session-gauss"] }),
+      });
+    expect(requests.find((request) => request.path === "/v1/invocations")?.body)
+      .toMatchObject({ targetAgentId: "session-gauss", action: "consult" });
+  }, 15000);
+
   test("records one operator message and wakes every non-human participant in an agent-to-agent conversation", async () => {
     const home = useIsolatedOpenScoutHome();
     const requests: Array<{ method: string; path: string; body?: any }> = [];
