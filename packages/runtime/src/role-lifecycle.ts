@@ -44,6 +44,7 @@ function projectRootFromInvocation(
     || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "projectPath")
     || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "cwd")
     || metadataString(flight?.metadata as Record<string, unknown> | undefined, "projectRoot")
+    || metadataString(flight?.metadata as Record<string, unknown> | undefined, "projectPath")
     || metadataString(flight?.metadata as Record<string, unknown> | undefined, "cwd")
     || null
   );
