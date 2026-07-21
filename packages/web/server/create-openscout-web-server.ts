@@ -5871,7 +5871,8 @@ export async function createOpenScoutWebServer(
       if (!body.actorId?.trim() || !body.kind || !body.intent?.trim() || !body.status?.trim()) {
         return c.json({ error: "actorId, kind, intent, and status are required" }, 400);
       }
-      // Client bypassPermission is intentionally ignored.
+      // Client bypassPermission is intentionally ignored; projectRoot is
+      // required for project-scoped orchestrator permission matching.
       const entry = await webAppendMissionLog(
         {
           missionId,
@@ -5885,7 +5886,7 @@ export async function createOpenScoutWebServer(
           blockers: body.blockers,
           refs: body.refs,
         },
-        { projectRoot: body.projectRoot },
+        { projectRoot: body.projectRoot?.trim() || undefined },
       );
       return c.json({ entry }, 201);
     } catch (error) {

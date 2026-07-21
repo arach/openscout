@@ -47,6 +47,7 @@ type RoleCommand =
       status: string;
       checkpoint?: string;
       note?: string;
+      projectRoot?: string;
       json: boolean;
     };
 
@@ -65,12 +66,15 @@ export function renderRoleCommandHelp(): string {
     "  revoke <assignmentId>",
     "  log <missionId> [--limit N]",
     "  log-append <missionId> --actor <id> --kind progress --intent \"...\" --status \"...\"",
+    "             [--project <root>] [--checkpoint ...] [--note ...]",
     "",
     "Examples:",
     "  scout role assign --role orchestrator --agent premotion.main --mission work-abc",
     "  scout role log work-abc",
     "  scout role log-append work-abc --actor premotion.main --kind progress \\",
     "    --intent \"Ship unify-send\" --status \"Linking child asks\"",
+    "  scout role log-append work-abc --actor premotion.main --project /path/to/repo \\",
+    "    --kind progress --intent \"Track\" --status \"Update\"  # project-scoped orchestrator",
   ].join("\n");
 }
 
@@ -181,6 +185,7 @@ export function parseRoleCommandOptions(args: string[]): RoleCommand {
         status,
         checkpoint: takeFlag(rest, "--checkpoint"),
         note: takeFlag(rest, "--note"),
+        projectRoot: takeFlag(rest, "--project"),
         json,
       };
     }
@@ -348,6 +353,7 @@ export async function runRoleCommand(
         status: options.status,
         checkpoint: options.checkpoint,
         note: options.note,
+        projectRoot: options.projectRoot,
       },
     );
     if (options.json) {

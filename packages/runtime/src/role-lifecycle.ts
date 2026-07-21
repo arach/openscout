@@ -35,6 +35,20 @@ export type RoleLifecycleAskEvent = {
   projectRoot?: string | null;
 };
 
+function projectRootFromInvocation(
+  invocation?: InvocationRequest | null,
+  flight?: FlightRecord | null,
+): string | null {
+  return (
+    metadataString(invocation?.metadata as Record<string, unknown> | undefined, "projectRoot")
+    || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "projectPath")
+    || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "cwd")
+    || metadataString(flight?.metadata as Record<string, unknown> | undefined, "projectRoot")
+    || metadataString(flight?.metadata as Record<string, unknown> | undefined, "cwd")
+    || null
+  );
+}
+
 export type RoleLifecycleWorkEvent = {
   lifecycle: "work.completed";
   workId: string;
@@ -345,7 +359,12 @@ export function applyRoleLifecycleForTerminalFlight(
   }
 
   const planned = planRoleLifecycleMissionLogs(
-    { lifecycle, flight, invocation: input.invocation },
+    {
+      lifecycle,
+      flight,
+      invocation: input.invocation,
+      projectRoot: projectRootFromInvocation(input.invocation, flight),
+    },
     assignments,
   );
 
