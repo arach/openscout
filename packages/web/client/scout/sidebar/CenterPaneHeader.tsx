@@ -21,6 +21,7 @@ import {
   type AreaSubNavItem,
 } from "../nav-destinations.ts";
 import { useScout } from "../Provider.tsx";
+import { getPrimaryArea, primaryAreaForRoute } from "../primary-areas.ts";
 import type { Route } from "../../lib/types.ts";
 import { OpsSubnav } from "../../screens/ops/OpsSubnav.tsx";
 import { ChatSubnav } from "../../screens/chat/ChatSubnav.tsx";
@@ -123,10 +124,14 @@ export function CenterPaneHeader({
     </>
   ) : null;
 
-  // SCO-087b: the top row is now TWO stacked shell-owned rows — the title row
-  // (breadcrumb + right utilities only) and, directly below it, the secondary
-  // content-nav row. No secondary nav → no second row (title row stays flush).
+  // SCO-088b/c: ONE 40px top row. It LEADS with the current section name in title
+  // form (the primary-area label, e.g. "Sessions"), breadcrumb-style: section name
+  // · " / " · the AREA_SUB_NAV tabs. When the area has no sub-nav, only the section
+  // name shows (no slash, no duplication). Using the section label — not the deep
+  // route breadcrumb — avoids a dim leaf that duplicates the active tab (the old
+  // /ops/lanes "Lanes" case). Tabs never wrap; they scroll. Utilities pinned right.
   if (isTopRow) {
+    const sectionName = getPrimaryArea(primaryAreaForRoute(route)).label;
     return (
       <div
         className="scout-center-pane-header scout-center-pane-header--top-row"
@@ -134,34 +139,27 @@ export function CenterPaneHeader({
         data-scout-top-row=""
         data-scout-has-secondary-row={showSecondaryRow ? "" : undefined}
       >
-        <div className="scout-center-pane-header-title-row">
-          <div
-            className="scout-center-pane-header-main"
-            onMouseDown={onInteractiveMouseDown}
-          >
-            {breadcrumb ? (
-              <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
-                <span className="scout-nav-crumb">{breadcrumb}</span>
-              </div>
-            ) : null}
+        <div
+          className="scout-center-pane-header-main"
+          onMouseDown={onInteractiveMouseDown}
+        >
+          <div className="scout-center-pane-breadcrumb" data-scout-breadcrumb="">
+            <span className="scout-nav-crumb">{sectionName}</span>
           </div>
-          {rightUtility ? (
-            <div
-              className="scout-center-pane-header-utility"
-              data-scout-header-utility=""
-              onMouseDown={onInteractiveMouseDown}
-            >
-              {rightUtility}
-            </div>
+          {showSecondaryRow ? (
+            <span className="scout-top-row-sep" aria-hidden="true">
+              /
+            </span>
           ) : null}
+          {secondaryNav}
         </div>
-        {showSecondaryRow ? (
+        {rightUtility ? (
           <div
-            className="scout-center-pane-header-secondary-row"
-            data-scout-secondary-row=""
+            className="scout-center-pane-header-utility"
+            data-scout-header-utility=""
             onMouseDown={onInteractiveMouseDown}
           >
-            {secondaryNav}
+            {rightUtility}
           </div>
         ) : null}
       </div>

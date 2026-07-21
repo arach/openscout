@@ -48,6 +48,7 @@ import { useScout } from "../Provider.tsx";
 import {
   PRIMARY_AREAS,
   defaultRouteForArea,
+  getPrimaryArea,
   primaryAreaForRoute,
   type PrimaryArea,
   type PrimaryAreaId,
@@ -163,30 +164,6 @@ function AreaMenuItems({
   );
 }
 
-function BrokerStatusLine() {
-  const { apiConnection } = useScout();
-  const offline = apiConnection.status === "offline";
-  return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
-        "text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden",
-      )}
-      title={offline ? "Scout API offline" : "Scout API connected"}
-      data-sidebar="broker-status"
-    >
-      <span
-        className={cn(
-          "inline-block size-1.5 shrink-0 rounded-full",
-          offline ? "bg-red-500" : "bg-emerald-400",
-        )}
-        aria-hidden
-      />
-      <span className="truncate">{offline ? "Offline" : "Broker"}</span>
-    </div>
-  );
-}
-
 export function ScoutSidebar({
   brandLabel = "Scout",
 }: {
@@ -196,13 +173,20 @@ export function ScoutSidebar({
    */
   brandLabel?: string;
 }) {
-  const { route, navigate } = useScout();
+  const { route, navigate, openSettings } = useScout();
   const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const opsControlEnabled = useOptionalFlag("ops.control", true);
   const model = useSidebarModel(route);
   const activeAreaId = primaryAreaForRoute(route);
   const navigateAreas = PRIMARY_AREAS.filter((a) => a.section === "navigate");
-  const systemAreas = PRIMARY_AREAS.filter((a) => a.section === "system");
+  // SCO-088c §2: Settings is pinned at the sidebar bottom (see footer), so it is
+  // removed from the SYSTEM nav list — it must live exactly once. SYSTEM keeps Ops.
+  const systemAreas = PRIMARY_AREAS.filter(
+    (a) => a.section === "system" && a.id !== "settings",
+  );
+  const settingsArea = getPrimaryArea("settings");
+  const SettingsIcon = settingsArea.icon;
+  const settingsActive = activeAreaId === "settings";
 
   const goHome = () => navigate({ view: "inbox" });
   const goArea = (id: PrimaryAreaId) => {
@@ -258,14 +242,6 @@ export function ScoutSidebar({
             </SidebarMenuItem>
           </SidebarMenu>
         </div>
-        {model.kind === "scope" ? (
-          <div
-            className="px-2 pb-1 font-mono text-[9px] tracking-[0.12em] uppercase text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden"
-            data-sidebar="scope-section"
-          >
-            Scope
-          </div>
-        ) : null}
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
@@ -340,15 +316,31 @@ export function ScoutSidebar({
         )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border gap-1.5">
-        {/* SCO-087: machine scope + ⌘K moved to the app-wide top row. Only the
-            broker status indicator remains in the footer. */}
-        <div
-          className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center"
-          onMouseDown={onInteractiveMouseDown}
-        >
-          <BrokerStatusLine />
-        </div>
+      <SidebarFooter className="border-t border-sidebar-border">
+        {/* SCO-088c §2: Settings is pinned at the sidebar bottom (where the Broker
+            block used to sit — broker status lives only in the 28px status bar now).
+            Same destination as the retired top-right gear (/settings); nav-item
+            styling, left-accent when the settings route is active. Collapsed → a
+            centered gear (label hidden, hover tooltip kept). */}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              type="button"
+              isActive={settingsActive}
+              tooltip={settingsArea.label}
+              aria-current={settingsActive ? "page" : undefined}
+              data-area="settings"
+              className={cn(
+                "font-mono text-[11px] font-medium tracking-[0.02em]",
+                ACTIVE_MENU_CLASS,
+              )}
+              onClick={() => openSettings()}
+            >
+              <SettingsIcon size={16} strokeWidth={1.6} aria-hidden />
+              <span>{settingsArea.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );
