@@ -209,7 +209,10 @@ export function agentLaneToCardModel(
     branch: facts?.branch ?? preview?.branch ?? agent.branch ?? null,
     sessionId: shortSession(agent.harnessSessionId),
     sessionIdFull,
-    parentSessionId: null,
+    parentSessionId: facts?.parentSessionId ?? null,
+    parentSessionLabel: facts?.parentSessionId
+      ? [facts.parentAgentName, shortSession(facts.parentSessionId)].filter(Boolean).join(" · ")
+      : null,
     time: lane.lastActiveAt ? timeAgo(lane.lastActiveAt, opts.nowMs) : null,
     working,
     head,

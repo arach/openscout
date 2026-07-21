@@ -152,9 +152,41 @@ describe("tail transcript sources", () => {
     expect(event).toBeNull();
   });
 
-  test("does not turn Claude workflow journals into session transcripts", () => {
+  test("uses transcript mtime to render timestamp-less Claude child-agent records", () => {
+    const transcript: DiscoveredTranscript = {
+      source: "claude",
+      transcriptPath: "/tmp/claude/subagents/agent-worker123.jsonl",
+      sessionId: "worker123",
+      parentSessionId: "claude-parent",
+      subagentId: "worker123",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed",
+      mtimeMs: 1_700_000_000_000,
+      size: 100,
+    };
+
+    const event = ClaudeSource.parseLine(
+      JSON.stringify({
+        type: "assistant",
+        agentId: "worker123",
+        message: { content: [{ type: "text", text: "I found the component." }] },
+      }),
+      makeContext("claude", transcript),
+    );
+
+    expect(event).toEqual(expect.objectContaining({
+      sessionId: "worker123",
+      kind: "assistant",
+      summary: "I found the component.",
+      ts: 1_700_000_000_007,
+    }));
+  });
+
+  test("discovers active Claude child-agent transcripts separately from their parent session", () => {
     const projectDir = join(process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT!, "-Users-arach-dev-openscout");
-    const workflowDir = join(projectDir, "claude-session", "subagents", "workflows", "wf_fixture");
+    const subagentsDir = join(projectDir, "claude-session", "subagents");
+    const workflowDir = join(subagentsDir, "workflows", "wf_fixture");
     mkdirSync(workflowDir, { recursive: true });
     const transcriptPath = join(projectDir, "claude-session.jsonl");
     writeFileSync(
@@ -175,9 +207,25 @@ describe("tail transcript sources", () => {
       ].join("\n") + "\n",
       "utf8",
     );
+    writeFileSync(
+      join(subagentsDir, "agent-worker123.jsonl"),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-04-27T15:00:02.000Z",
+        agentId: "worker123",
+        message: { content: [{ type: "text", text: "working" }] },
+      }) + "\n",
+      "utf8",
+    );
 
     const transcripts = ClaudeSource.discoverTranscripts([]);
-    expect(transcripts.map((transcript) => transcript.sessionId)).toEqual(["claude-session"]);
+    expect(transcripts.map((transcript) => transcript.sessionId).sort()).toEqual(["claude-session", "worker123"]);
+    expect(transcripts).toContainEqual(expect.objectContaining({
+      sessionId: "worker123",
+      parentSessionId: "claude-session",
+      subagentId: "worker123",
+      cwd: "/Users/arach/dev/openscout",
+    }));
     expect(transcripts.some((transcript) => transcript.transcriptPath.endsWith("journal.jsonl"))).toBe(false);
   });
 

@@ -91,6 +91,28 @@ describe("agent lane card model", () => {
     expect(model.tokens).toBe("249.2k");
     expect(model.tokenUsage?.total).toBe(14_744_037);
   });
+
+  test("labels a child lane with its observed Scout parent", () => {
+    const agent = stubAgent("claude subagent worker123");
+    agent.agentClass = "organic";
+    agent.role = "subagent";
+    agent.harness = "claude";
+    agent.harnessSessionId = "worker123";
+
+    const model = agentLaneToCardModel(lane({
+      source: "native",
+      agent,
+      facts: {
+        touchedFiles: [],
+        parentSessionId: "parent-session-123456",
+        parentAgentName: "fable",
+      },
+    }), { isLive: true, nowMs: NOW });
+
+    expect(model.name).toBe("claude subagent worker123");
+    expect(model.parentSessionId).toBe("parent-session-123456");
+    expect(model.parentSessionLabel).toBe("fable · parent-s");
+  });
 });
 
 describe("isAgentLaneWorking", () => {
@@ -1294,6 +1316,30 @@ describe("sortLanesWithStableOrder", () => {
     const result = sortLanesWithStableOrder([alpha], order);
     expect(result.lanes.map((item) => item.id)).toEqual(["agent:alpha"]);
     expect(result.newLaneIds).toEqual(["agent:alpha"]);
+  });
+
+  test("keeps observed child lanes directly after their parent", () => {
+    const order = createStableLaneOrder();
+    const parentAgent = stubAgent("fable");
+    parentAgent.harnessSessionId = "parent-session";
+    const parent = lane({ agent: parentAgent });
+    const unrelated = lane({ agent: stubAgent("other") });
+    const childAgent = stubAgent("claude subagent worker");
+    childAgent.agentClass = "organic";
+    childAgent.role = "subagent";
+    childAgent.harnessSessionId = "worker";
+    const child = lane({
+      agent: childAgent,
+      source: "native",
+      facts: { touchedFiles: [], parentSessionId: "parent-session" },
+    });
+
+    const result = sortLanesWithStableOrder([parent, unrelated, child], order);
+    expect(result.lanes.map((item) => item.id)).toEqual([
+      "agent:fable",
+      "agent:claude subagent worker",
+      "agent:other",
+    ]);
   });
 });
 
