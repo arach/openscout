@@ -1,3 +1,4 @@
+/** Upright arrow — matches MessageComposerSendIcon. */
 export function SendIcon() {
   return (
     <svg
@@ -6,13 +7,13 @@ export function SendIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="m3 11 18-8-8 18-2.8-7.2L3 11Z" />
-      <path d="M10.2 13.8 21 3" />
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
     </svg>
   );
 }

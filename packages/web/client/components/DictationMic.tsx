@@ -11,6 +11,14 @@ import {
   type ScoutVoiceLiveHandle,
   type ScoutVoiceSessionState,
 } from "../lib/scout-voice.ts";
+import {
+  createLevelHistory,
+  energyFromPartialDelta,
+  tryStartMicLevelMeter,
+  VOICE_WAVE_BARS,
+  type LevelHistory,
+  type StreamLevelMeter,
+} from "../lib/voice-levels.ts";
 
 import "./dictation-mic.css";
 
@@ -23,6 +31,13 @@ export type MicStatus = {
   partial: string;
   message: string | null;
   tone: "neutral" | "recording" | "processing" | "error";
+  /**
+   * Rolling mic/speech energy samples, oldest → newest (0–1).
+   * Empty when idle. Drives MessageComposer waveform.
+   */
+  levels: number[];
+  /** True when levels come from a real AnalyserNode (not speech-proxy). */
+  levelsLive: boolean;
 };
 
 function sessionStateFromVoice(state: ScoutVoiceSessionState): MicSessionState {
@@ -48,7 +63,7 @@ function statusMessageForState(
     case "starting":
       return "Starting voice…";
     case "recording":
-      return partial.trim() ? partial.trim() : "Listening…";
+      return partial.trim() ? partial.trim() : null;
     case "processing":
       return "Transcribing…";
     default:
@@ -75,19 +90,40 @@ export function DictationMic({
 }) {
   const clientRef = useRef(getSharedScoutVoiceClient());
   const liveRef = useRef<ScoutVoiceLiveHandle | null>(null);
+  const historyRef = useRef<LevelHistory>(createLevelHistory(VOICE_WAVE_BARS));
+  const meterRef = useRef<StreamLevelMeter | null>(null);
+  const levelsLiveRef = useRef(false);
+  const partialRef = useRef("");
+  const lastPartialAtRef = useRef(0);
+  const proxyRafRef = useRef(0);
   const [sessionState, setSessionState] = useState<MicSessionState>("idle");
   const [partialText, setPartialText] = useState("");
   const [probeState, setProbeState] = useState<MicProbeState>("probing");
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
   const [engageIssue, setEngageIssue] = useState<ScoutVoiceIssue | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [levelsTick, setLevelsTick] = useState(0);
+
+  const stopLevelSources = useCallback(() => {
+    if (proxyRafRef.current) {
+      window.cancelAnimationFrame(proxyRafRef.current);
+      proxyRafRef.current = 0;
+    }
+    meterRef.current?.stop();
+    meterRef.current = null;
+    levelsLiveRef.current = false;
+  }, []);
 
   const reportError = useCallback((message: string) => {
     setLastError(message);
     onError?.(message);
   }, [onError]);
 
-  const emitStatus = useCallback((state: MicSessionState, partial: string, message: string | null) => {
+  const emitStatus = useCallback((
+    state: MicSessionState,
+    partial: string,
+    message: string | null,
+  ) => {
     onStatus?.({
       state,
       partial,
@@ -99,12 +135,16 @@ export function DictationMic({
           : state === "processing"
             ? "processing"
             : "neutral",
+      levels: state === "idle" && !message
+        ? []
+        : historyRef.current.snapshot(),
+      levelsLive: levelsLiveRef.current,
     });
   }, [onStatus]);
 
   useEffect(() => {
     emitStatus(sessionState, partialText, lastError);
-  }, [emitStatus, lastError, partialText, sessionState]);
+  }, [emitStatus, lastError, partialText, sessionState, levelsTick]);
 
   const probeVoice = useCallback(async (force = false) => {
     const client = clientRef.current;
@@ -136,19 +176,52 @@ export function DictationMic({
 
     return () => {
       unsubscribe();
+      stopLevelSources();
       const live = liveRef.current;
       if (live) {
         void live.cancel().catch(() => undefined);
         liveRef.current = null;
       }
     };
-  }, [probeVoice]);
+  }, [probeVoice, stopLevelSources]);
+
+  const pushLevel = useCallback((level: number) => {
+    historyRef.current.push(level);
+    setLevelsTick((n) => n + 1);
+  }, []);
+
+  const startSpeechProxyLoop = useCallback(() => {
+    if (proxyRafRef.current) return;
+    let lastFrame = performance.now();
+    const tick = (now: number) => {
+      // ~28fps is enough for a calm bar field.
+      if (now - lastFrame >= 36) {
+        lastFrame = now;
+        const idleMs = now - (lastPartialAtRef.current || now);
+        const energy = energyFromPartialDelta(
+          partialRef.current,
+          partialRef.current,
+          idleMs,
+        );
+        // Keep a little noise floor while live so silence still reads as open.
+        historyRef.current.push(Math.max(0.05, energy));
+        setLevelsTick((n) => n + 1);
+      }
+      proxyRafRef.current = window.requestAnimationFrame(tick);
+    };
+    proxyRafRef.current = window.requestAnimationFrame(tick);
+  }, []);
 
   const startRecording = useCallback(async () => {
     const client = clientRef.current;
     setLastError(null);
     setPartialText("");
+    partialRef.current = "";
+    lastPartialAtRef.current = performance.now();
+    historyRef.current.clear();
+    setLevelsTick((n) => n + 1);
     setSessionState("starting");
+    stopLevelSources();
 
     let engagement = await engageScoutVoiceDictation({
       surface: "chat-composer",
@@ -180,18 +253,65 @@ export function DictationMic({
     setVoiceReady(true);
 
     let live: ScoutVoiceLiveHandle | null = null;
+    let sawStreamLevels = false;
     try {
       live = await client.startLive({
         onState: (state) => setSessionState(sessionStateFromVoice(state)),
-        onPartial: (text) => setPartialText(text),
+        onPartial: (text) => {
+          const prev = partialRef.current;
+          partialRef.current = text;
+          lastPartialAtRef.current = performance.now();
+          setPartialText(text);
+          // When we only have speech-proxy levels, each partial growth is a hit.
+          if (!levelsLiveRef.current) {
+            const energy = energyFromPartialDelta(prev, text, 0);
+            pushLevel(energy);
+          }
+        },
+        onLevel: (level) => {
+          sawStreamLevels = true;
+          levelsLiveRef.current = true;
+          // Prefer stream meter over speech proxy.
+          if (proxyRafRef.current) {
+            window.cancelAnimationFrame(proxyRafRef.current);
+            proxyRafRef.current = 0;
+          }
+          pushLevel(level);
+        },
       });
       liveRef.current = live;
       setSessionState("recording");
+
+      // Browser capture emits onLevel from the same MediaStream. Native has no
+      // stream — wait a beat, then parallel-meter or speech-proxy from partials.
+      await wait(140);
+      if (liveRef.current && !sawStreamLevels && !levelsLiveRef.current) {
+        const meter = await tryStartMicLevelMeter((level) => {
+          sawStreamLevels = true;
+          levelsLiveRef.current = true;
+          if (proxyRafRef.current) {
+            window.cancelAnimationFrame(proxyRafRef.current);
+            proxyRafRef.current = 0;
+          }
+          pushLevel(level);
+        });
+        if (meter && liveRef.current) {
+          meterRef.current = meter;
+        } else if (liveRef.current && !levelsLiveRef.current) {
+          levelsLiveRef.current = false;
+          startSpeechProxyLoop();
+        }
+      }
+
       const final = await live.result;
       liveRef.current = null;
+      stopLevelSources();
       setSessionState("idle");
       setPartialText("");
+      partialRef.current = "";
       setLastError(null);
+      historyRef.current.clear();
+      setLevelsTick((n) => n + 1);
       const text = final.text?.trim();
       if (text) {
         onAppend(text);
@@ -201,19 +321,30 @@ export function DictationMic({
       void probeVoice(true);
     } catch (error) {
       liveRef.current = null;
+      stopLevelSources();
       setSessionState("idle");
       setPartialText("");
+      partialRef.current = "";
+      historyRef.current.clear();
+      setLevelsTick((n) => n + 1);
       const message = error instanceof Error ? error.message : "Scout voice recording failed.";
       if (error instanceof Error && error.name === "AbortError") return;
       reportError(message);
       void probeVoice(true);
     }
-  }, [onAppend, probeVoice, reportError]);
+  }, [onAppend, probeVoice, pushLevel, reportError, startSpeechProxyLoop, stopLevelSources]);
 
   const stopRecording = useCallback(async () => {
     const live = liveRef.current;
     if (!live) return;
     setSessionState("processing");
+    // Soft decay while transcribing — bars settle, not hard cut.
+    stopLevelSources();
+    const decayTimer = window.setInterval(() => {
+      historyRef.current.decay(0.82);
+      setLevelsTick((n) => n + 1);
+    }, 50);
+    window.setTimeout(() => window.clearInterval(decayTimer), 600);
     try {
       await live.stop();
     } catch (error) {
@@ -221,10 +352,13 @@ export function DictationMic({
       liveRef.current = null;
       setSessionState("idle");
       setPartialText("");
+      partialRef.current = "";
+      historyRef.current.clear();
+      setLevelsTick((n) => n + 1);
       const message = error instanceof Error ? error.message : "Scout voice recording did not finish.";
       reportError(message);
     }
-  }, [reportError]);
+  }, [reportError, stopLevelSources]);
 
   const onClick = useCallback(() => {
     if (sessionState === "recording") {
@@ -251,6 +385,7 @@ export function DictationMic({
   ) && !isRecording && !isBusy;
   const showUnavailable = (voiceReady === false || engageIssue !== null) && !needsPermission && !hardDenied && !isRecording && !isBusy;
 
+  // Mic only starts/stops capture. Send is a separate control on the composer.
   const title = lastError
     ? lastError
     : engageIssue
@@ -264,12 +399,12 @@ export function DictationMic({
       : probeState === "probing"
         ? "Checking voice…"
         : isRecording
-          ? "Stop dictation"
+          ? "Stop recording"
           : sessionState === "processing"
             ? "Transcribing…"
             : sessionState === "starting"
               ? "Starting voice…"
-              : "Dictate";
+              : "Start recording";
 
   const stateClass =
     lastError ? "s-dictation-mic--error"

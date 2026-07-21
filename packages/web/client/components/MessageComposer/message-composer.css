@@ -1,0 +1,445 @@
+/* ── MessageComposer ──────────────────────────────────────────────────
+   Sandwich layout (always):
+
+     ┌ header ─ reply / annotation (optional) ─────────┐
+     │ body ── message input (+ live voice partial)    │
+     ├ toolbar ────────────────────────────────────────┤
+     │ [attach] [tools/model…]              [mic][send]│
+     └─────────────────────────────────────────────────┘
+
+   Nomenclature:
+     · Send  — primary paper-plane control; always commits the draft
+     · Mic   — start/stop recording only (never send)
+     · Agent stop — replaces Send when stopMode (stops the agent, not mic)
+
+   Density:
+     panel   — cards / quiet-start
+     thread  — conversation footer (aliases s-thread-compose*)
+     compact — rails / docks
+     bare    — parent owns outer padding
+*/
+
+.s-msg-compose {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.s-msg-compose--panel {
+  padding: 0;
+}
+
+.s-msg-compose--thread {
+  padding: var(--space-md) var(--space-3xl) var(--space-2xl);
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: transparent;
+  margin-top: auto;
+}
+
+.s-msg-compose--compact {
+  padding: var(--space-sm);
+}
+
+.s-msg-compose--bare {
+  padding: 0;
+}
+
+.s-msg-compose-shell {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, var(--surface));
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  transition: border-color 0.15s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.s-msg-compose-shell:focus-within {
+  border-color: color-mix(in srgb, var(--border) 100%, transparent);
+}
+
+/* ── Top: decoration / reply ─────────────────────────────────────── */
+
+.s-msg-compose-header {
+  flex-shrink: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+  min-width: 0;
+}
+
+/* ── Middle: message input ───────────────────────────────────────── */
+
+.s-msg-compose-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) var(--space-md) var(--space-xs);
+}
+
+/* Custom input slot (AgentMentionTextarea, etc.) fills the body width. */
+.s-msg-compose-body > *:first-child {
+  min-width: 0;
+  width: 100%;
+}
+
+.s-msg-compose-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 160px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  font-size: var(--text-lg);
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+  color: var(--ink);
+  resize: none;
+  outline: none;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.s-msg-compose-input::placeholder {
+  color: var(--dim);
+}
+
+.s-msg-compose-input:focus {
+  box-shadow: none;
+}
+
+.s-msg-compose-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Voice strip lives in the body (not the toolbar) so model pickers /
+   attach / Send keep a clean baseline. */
+.s-msg-compose-voice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: var(--space-sm);
+  min-width: 0;
+  color: var(--dim);
+}
+
+.s-msg-compose-voice--recording {
+  color: var(--green);
+}
+
+.s-msg-compose-voice--processing {
+  color: var(--muted);
+}
+
+.s-msg-compose-voice--error {
+  color: var(--red, #ef4444);
+}
+
+.s-msg-compose-voice-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.s-msg-compose-voice-label {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-msg-compose-voice-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Waveform (body-level, full horizontal run) ─────────────────── */
+
+.s-msg-compose-wave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  width: 100%;
+  height: 28px;
+  padding: 2px 0;
+  pointer-events: none;
+}
+
+.s-msg-compose-wave-bar {
+  flex: 1 1 0;
+  min-width: 1.5px;
+  max-width: 3px;
+  /* Fixed rail height; scaleY is set from live samples in JS. */
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.28;
+  transform-origin: center;
+  transform: scaleY(0.12);
+  /* Smooth only the sample-to-sample change — not a looping decoration. */
+  transition: transform 40ms linear, opacity 80ms ease;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-msg-compose-wave-bar {
+    transition: none;
+  }
+}
+
+/* ── Base: toolbar ─────────────────────────────────────────────────
+   [attach]  ·················  [model/tools] [mic] [Send]
+   Model chips live in the right cluster only — never under attach. */
+
+.s-msg-compose-toolbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: color-mix(in srgb, var(--bg) 28%, var(--surface));
+}
+
+.s-msg-compose-toolbar-start {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.s-msg-compose-toolbar-spacer {
+  display: block;
+  width: 0;
+  height: 0;
+}
+
+.s-msg-compose-toolbar-end {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.s-msg-compose-tools {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.s-msg-compose-tools-hint {
+  font-size: var(--text-xs);
+  color: var(--dim);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* ── Tool chip (model / harness picker resting face) ───────────────
+   Designed read state: soft pill, micro kicker, mono value, chevron.
+   Native select is stretched over the face for a11y + OS menus. */
+
+.s-msg-compose-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(200px, 40vw);
+  min-height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: none;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+
+.s-msg-compose-tool:hover {
+  background: color-mix(in srgb, var(--ink) 11%, transparent);
+}
+
+.s-msg-compose-tool:focus-within {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.s-msg-compose-tool--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.s-msg-compose-tool-kicker {
+  display: none; /* chip is value-only; aria-label carries the name */
+}
+
+.s-msg-compose-tool-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.s-msg-compose-tool:hover .s-msg-compose-tool-value,
+.s-msg-compose-tool:focus-within .s-msg-compose-tool-value {
+  color: var(--ink);
+}
+
+.s-msg-compose-tool-chevron {
+  flex-shrink: 0;
+  color: var(--dim);
+  opacity: 0.75;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+.s-msg-compose-tool:hover .s-msg-compose-tool-chevron,
+.s-msg-compose-tool:focus-within .s-msg-compose-tool-chevron {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.s-msg-compose-tool-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: inherit;
+  border: none;
+  background: transparent;
+  font-size: 16px; /* avoid iOS zoom on open */
+  appearance: none;
+}
+
+.s-msg-compose-tool--disabled .s-msg-compose-tool-native {
+  cursor: not-allowed;
+}
+
+/* Circular icon buttons in the toolbar (attach, etc.) */
+.s-msg-compose-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.s-msg-compose-icon-btn:not(:disabled):hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 35%, var(--border));
+}
+
+.s-msg-compose-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Send (standardized primary action) ────────────────────────────
+   Always means "commit the draft". Never starts/stops dictation.
+   When stopMode is on, this slot becomes Agent Stop (square). */
+
+.s-msg-compose-send {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink);
+  color: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.s-msg-compose-send:not(:disabled):hover {
+  transform: scale(1.05);
+}
+
+.s-msg-compose-send:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.s-msg-compose-send--agent-stop {
+  background: var(--red, #ef4444);
+}
+
+/* Dictation mic sits in the toolbar; drop the flex-end self-align
+   that assumed a side-by-side input row. */
+.s-msg-compose-toolbar .s-dictation-mic {
+  align-self: center;
+  width: 32px;
+  height: 32px;
+}
+
+/* Compact density */
+.s-msg-compose--compact .s-msg-compose-input {
+  min-height: 32px;
+  font-size: var(--text-md);
+}
+
+.s-msg-compose--compact .s-msg-compose-body {
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.s-msg-compose--compact .s-msg-compose-send,
+.s-msg-compose--compact .s-msg-compose-icon-btn,
+.s-msg-compose--compact .s-msg-compose-toolbar .s-dictation-mic {
+  width: 28px;
+  height: 28px;
+}
+
+.s-msg-compose--compact .s-msg-compose-toolbar {
+  padding: var(--space-2xs) var(--space-xs) var(--space-xs);
+}

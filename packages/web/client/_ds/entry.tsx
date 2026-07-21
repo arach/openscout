@@ -25,6 +25,10 @@ export { AgentAvatar } from "../components/AgentAvatar.tsx";
 export { HarnessMark } from "../components/HarnessMark.tsx";
 export { AgentsSubnav } from "../screens/agents/AgentsSubnav.tsx";
 
+// Classic message input (pure, prop-driven):
+export { MessageComposer } from "../components/MessageComposer/index.ts";
+
+
 // Directory hero (context-coupled) — renders the agents directory from
 // fixture props inside ScoutProvider (cfg.provider supplies its context):
 export { AgentsLibrary } from "../screens/agents/library.tsx";

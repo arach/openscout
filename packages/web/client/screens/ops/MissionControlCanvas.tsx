@@ -8,7 +8,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { formatLabel } from "../../lib/text.ts";
 import { statusOnHover } from "../../lib/page-status.ts";
 import { summarizeObserveEvent } from "../../lib/observe.ts";
-import { DictationMic } from "../../components/DictationMic.tsx";
+import { MessageComposer } from "../../components/MessageComposer/index.ts";
 import { type SessionObserveData } from "../sessions/SessionObserve.tsx";
 import type { Agent, ObserveEvent } from "../../lib/types.ts";
 import {
@@ -601,59 +601,43 @@ function FocusMessageTab({
     }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      void send();
-    }
-  };
-
   const name = agent.handle ?? agent.name;
-  const canSend = draft.trim().length > 0 && !sending;
 
   return (
     <div className="s-focus-tab">
       <div className="s-focus-compose">
-        <label className="s-focus-compose-label" htmlFor="s-focus-compose-input">
-          Message <span className="s-focus-compose-target">@{name}</span>
-        </label>
-        <textarea
-          id="s-focus-compose-input"
-          ref={textareaRef}
-          className="s-focus-compose-input"
-          placeholder={`Message @${name}…   (⌘↩ to Send)`}
-          rows={6}
+        <MessageComposer
+          density="panel"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={sending}
+          onChange={setDraft}
+          onSend={() => void send()}
+          sending={sending}
+          placeholder={`Message @${name}…`}
+          textareaRef={textareaRef}
+          rows={4}
+          aria-label={`Message @${name}`}
+          header={(
+            <div className="s-focus-compose-label">
+              Message <span className="s-focus-compose-target">@{name}</span>
+            </div>
+          )}
+          tools={(
+            <div className="s-focus-compose-hint">
+              {error ? (
+                <span className="s-focus-compose-error">Send failed: {error}</span>
+              ) : sent ? (
+                <span className="s-focus-compose-ok">
+                  Sent ↗{" "}
+                  <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>
+                    Open Chat
+                  </button>
+                </span>
+              ) : (
+                <span>Send starts a Run, or steers the active Run when this agent is already working.</span>
+              )}
+            </div>
+          )}
         />
-        <div className="s-focus-compose-foot">
-          <div className="s-focus-compose-hint">
-            {error ? (
-              <span className="s-focus-compose-error">Send failed: {error}</span>
-            ) : sent ? (
-              <span className="s-focus-compose-ok">Sent ↗ <button type="button" className="s-focus-compose-link" onClick={onOpenConversation}>Open Chat</button></span>
-            ) : (
-              <>Send starts a Run, or steers the active Run when this agent is already working.</>
-            )}
-          </div>
-          <div className="s-focus-compose-actions">
-            <DictationMic
-              onAppend={(text) =>
-                setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
-              }
-            />
-            <button
-              type="button"
-              className="s-ops-btn s-ops-btn--primary"
-              onClick={() => void send()}
-              disabled={!canSend}
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
