@@ -106,23 +106,33 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
 6. **Keyboard:** the SHELL owns `Cmd+B` — disable/remove shadcn's provider
    listener entirely (it has no editable/terminal guard; leaving both
    double-toggles because the shell doesn't stop propagation).
-7. **Composition mapping (preserve current UX):**
+7. **Composition mapping (REVISED 2026-07-20 — pure navigation):**
+   the sidebar is an activity-bar-style navigator. NOTHING that was not
+   already in the navigation gets merged into it — no content sections, no
+   context panes.
+   - **Default presentation is the icon rail (48px)**; the expanded 260px
+     state is available via trigger/`⌘B` but is NOT the default. Expanded
+     state shows only area labels + scope/settings — still no content.
    - `SidebarHeader`: Scout mark + product name (click → Home).
    - `SidebarContent`: "Navigate" group (Home, Projects, Sessions, Chat,
      Dispatch, Search) and "System" group (Ops, Settings) from
      `PRIMARY_AREAS` via `SidebarMenu*`; `SidebarMenuButton isActive` from
-     `primaryAreaForRoute(route)`; collapsed-rail tooltips via the
-     component's built-in tooltip path.
-   - Context section: `resolveSidebarContext(route)` output as a third
-     `SidebarGroup` ("Context") accepting arbitrary children, not just
-     `SidebarMenu`. **Preserve `resolveSidebarContext().footer` as pinned
-     UI OUTSIDE the scrolling `SidebarContent`** (current Mesh footer
-     behavior must not change).
+     `primaryAreaForRoute(route)`; rail tooltips via the component's
+     built-in tooltip path. NO Context group in the sidebar.
    - `SidebarFooter`: broker status + `SidebarTrigger`.
    - `SidebarRail`: omit (fixed 260/48 widths).
    - Scope rail: `useSidebarModel` scope items have no icons — preserve the
      current initial-letter fallback (or add icons) so the collapsed scope
      rail isn't blank.
+   - **Context content lives in the side rail, not the sidebar:**
+     `resolveSidebarContext(route)` output renders in a LEFT HudsonKit
+     `SidePanel` (the "side rail") beside the sidebar — separate component,
+     per the constraint below. The shell's left inset arithmetic becomes
+     sidebar-width + side-rail-width (rail collapsible as today);
+     `resolveSidebarContext().footer` stays pinned at the side rail's
+     bottom (Mesh footer behavior unchanged). The legacy left SidePanel
+     path and this new side rail share the component but the side rail is
+     a distinct shell slot from the legacy `LeftPanel` slot.
 8. **Keep everything presentation-agnostic:** `primary-areas.ts`,
    `ROUTE_AREA_BY_VIEW`, `resolveSidebarContext`, `useSidebarModel`, the
    `nav.sidebar` flag (default on; `?ff.nav.sidebar=off` → legacy chrome),
@@ -139,10 +149,10 @@ Radix `Slot`/`Collapsible`/`Tooltip` in places.
   components with separate jobs.** Do not extend, subclass, wrap, or
   restyle `SidePanel` into a sidebar, and do not route sidebar rendering
   through HudsonKit chrome. The shadcn sidebar owns left navigation
-  (destinations + context); HudsonKit `SidePanel` owns the right inspector
-  and, until the flag-off path is deleted, the legacy left rail. Shared
-  concerns (collapse persistence, inset arithmetic) integrate through shell
-  state/CSS vars, not through component coupling.
+  (destinations only); the left HudsonKit `SidePanel` (the "side rail")
+  owns per-area context content; the right HudsonKit `SidePanel` owns the
+  inspector. Shared concerns (collapse persistence, inset arithmetic)
+  integrate through shell state/CSS vars, not through component coupling.
 - No Radix dependency. `clsx`, `tailwind-merge`,
   `class-variance-authority` are permitted (see Requirement 0); nothing
   else new. Do NOT add the renamed `@base-ui/react` package — port to the
