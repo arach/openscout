@@ -51,6 +51,11 @@ const SERVER_CONTROL_TIMEOUT_MS = 20_000;
 const SERVER_OPEN_TIMEOUT_MS = 15_000;
 const SERVER_HEALTH_TIMEOUT_MS = 1_500;
 
+type ScoutFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
 type ScoutServerHealth = {
   ok: true;
   surface: "control-plane" | "openscout-web";
@@ -929,7 +934,7 @@ export async function requestScoutWebControl(
   action: "start" | "restart",
   options: {
     brokerUrl?: string;
-    fetchImpl?: typeof fetch;
+    fetchImpl?: ScoutFetch;
   } = {},
 ): Promise<ScoutWebControlStatus> {
   const brokerUrl = options.brokerUrl ?? resolveScoutBrokerUrl();

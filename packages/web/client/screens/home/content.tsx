@@ -2,7 +2,7 @@ import "./fleet-home.css";
 import "./activity-stream.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Send } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import HomeHero, {
   type ServiceGauge,
 } from "./HomeHero.tsx";
@@ -20,6 +20,10 @@ import { useOptionalFlag } from "hudsonkit/flags";
 import { isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
 import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
+import {
+  MessageComposer,
+  MessageComposerToolSelect,
+} from "../../components/MessageComposer/index.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
 import {
@@ -53,14 +57,11 @@ import {
   normalizeHomeMovingSort,
   normalizeHomeMovingWindowKey,
   observedSessionKey,
-  workingContextFromLane,
   workingContextFromObserve,
   type HomeMovingSortMode,
   type WorkingAgentContext,
 } from "./home-moving.ts";
-import { homeMovingGridClass, homeMovingLayout } from "./home-moving-layout.ts";
-import { assignEntranceIndices } from "./home-entrance.ts";
-import { NowCard } from "./home-now-card.tsx";
+import { HomeMovingSignalList } from "./home-moving-signal.tsx";
 import { agentLaneTailRecentLimit, isAgentLaneLive, type AgentLane } from "../ops/agent-lanes-model.ts";
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
@@ -298,11 +299,6 @@ export function HomeContent({
   const requestIdRef = useRef(0);
   const lastForegroundRefreshAtRef = useRef(0);
   const fleetRef = useRef<FleetState | null>(null);
-  // Ids of moving units (agents · lanes · observed actors) that have already
-  // played their one-time entrance. Persisted across the home's constant
-  // re-renders so only a unit's FIRST appearance animates; later refreshes,
-  // clock ticks, and layout-mode switches render statically.
-  const enterIndexRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     fleetRef.current = fleet;
@@ -762,17 +758,6 @@ export function HomeContent({
     totalMovingCount > movingCardCount && movingCardCount > 0
       ? `What's moving · ${movingCardCount} of ${totalMovingCount}`
       : `What's moving · ${totalMovingCount}`;
-  const movingLayout = homeMovingLayout(movingCardCount);
-
-  // First-appearance entrances. Visible units in render order:
-  // sorted moving cards. Assignments are sticky
-  // (see home-entrance.ts): the class stays on across re-renders so the 1s
-  // clock tick can't cut an entrance mid-flight; new ids cascade from 0.
-  const visibleMovingIds = [
-    ...visibleMovingCards.map((card) => card.id),
-  ];
-  assignEntranceIndices(enterIndexRef.current, visibleMovingIds);
-  const enterIndexById = enterIndexRef.current;
 
   return (
     <div className="s-fleet-home">
@@ -807,59 +792,14 @@ export function HomeContent({
             ) : (
               <>
                 {movingCardCount > 0 && (
-                  <div className={homeMovingGridClass(movingLayout)}>
-                    {visibleMovingCards.map((card) => {
-                      if (card.bucket === "working") {
-                        const agent = card.agent;
-                        return (
-                          <NowCard
-                            key={card.id}
-                            agent={agent}
-                            ask={movingAskByAgent.get(agent.id) ?? null}
-                            context={workingContext[agent.id] ?? null}
-                            observeData={observeCache[agent.id]?.data ?? null}
-                            observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
-                            lastActivityAt={card.lastActivityAt}
-                            layout={movingLayout}
-                            nowMs={nowMs}
-                            navigate={navigate}
-                            enter={enterIndexById.has(card.id)}
-                            enterIndex={enterIndexById.get(card.id) ?? 0}
-                          />
-                        );
-                      }
-                      if (card.bucket === "native") {
-                        const lane = card.lane;
-                        return (
-                          <NowCard
-                            key={card.id}
-                            agent={lane.agent}
-                            ask={null}
-                            context={workingContextFromLane(lane)}
-                            observeData={lane.observe}
-                            observeLive={isAgentLaneLive(lane.observe)}
-                            lastActivityAt={card.lastActivityAt}
-                            layout={movingLayout}
-                            nowMs={nowMs}
-                            navigate={navigate}
-                            enter={enterIndexById.has(card.id)}
-                            enterIndex={enterIndexById.get(card.id) ?? 0}
-                          />
-                        );
-                      }
-                      return (
-                        <ObservedActorCard
-                          key={card.id}
-                          actor={card.actor}
-                          lastActivityAt={card.lastActivityAt}
-                          nowMs={nowMs}
-                          navigate={navigate}
-                          enter={enterIndexById.has(card.id)}
-                          enterIndex={enterIndexById.get(card.id) ?? 0}
-                        />
-                      );
-                    })}
-                  </div>
+                  <HomeMovingSignalList
+                    cards={visibleMovingCards}
+                    sort={movingSort}
+                    nowMs={nowMs}
+                    movingAskByAgent={movingAskByAgent}
+                    observeCache={observeCache}
+                    navigate={navigate}
+                  />
                 )}
                 {movingAsksWithoutWorkingAgent.length > 0 && (
                   <div className="s-moving-ask-list">
@@ -1023,93 +963,6 @@ function MovingControls({
   );
 }
 
-function ObservedActorCard({
-  actor,
-  lastActivityAt,
-  nowMs,
-  navigate,
-  enter = false,
-  enterIndex = 0,
-}: {
-  actor: FleetActivity;
-  lastActivityAt: number;
-  nowMs: number;
-  navigate: (r: Route) => void;
-  enter?: boolean;
-  enterIndex?: number;
-}) {
-  const name = actor.actorName ?? "—";
-  const initial = name[0]?.toUpperCase() ?? "?";
-  const verb = activityVerb(actor.kind);
-  const text = summarize(actor.title ?? actor.summary, 140);
-  const lastActivityAge = formatAge(lastActivityAt, nowMs);
-  const route: Route | null = actor.conversationId
-    ? { view: "conversation", conversationId: actor.conversationId }
-    : actor.recordId
-      ? { view: "work", workId: actor.recordId }
-      : actor.agentId
-        ? { view: "agents-v2", agentId: actor.agentId }
-        : null;
-  const sourceTag = inferActorSource(name);
-
-  return (
-    <div
-      className={`s-now-card s-now-card--observed${enter ? " s-now-card--enter" : ""}`}
-      style={{
-        cursor: route ? "pointer" : "default",
-        ...(enter ? { "--enter-delay": `${enterIndex * 45}ms` } : {}),
-      } as React.CSSProperties}
-      onClick={() => {
-        if (route) navigate(route);
-      }}
-    >
-      <div className="s-now-card-head">
-        <div
-          className="s-avatar s-avatar-sm"
-          style={{ background: actorColor(name) }}
-        >
-          {initial}
-        </div>
-        <div className="s-now-card-copy">
-          <div className="s-now-card-name">{name}</div>
-          <div className="s-now-card-meta">
-            observed{sourceTag ? ` · ${sourceTag}` : ""} · {verb}
-          </div>
-        </div>
-        <span className="s-now-card-live s-now-card-live--observed">
-          <span className="s-now-card-live-dot" aria-hidden="true" />
-          recent
-        </span>
-      </div>
-
-      <div className="s-now-card-task">{text || "(no recent text)"}</div>
-
-      <div className="s-now-card-ticker">
-        <span className="s-now-card-ticker-prompt">›</span>
-        <span className="s-now-card-ticker-text">{actor.kind.replace(/[._]/g, " ")}</span>
-        <span className="s-now-card-ticker-dots" aria-hidden="true">
-          <span /><span /><span />
-        </span>
-      </div>
-
-      <div className="s-now-card-footer">
-        <span>last activity {lastActivityAge}</span>
-        <span>unmanaged</span>
-      </div>
-    </div>
-  );
-}
-
-function inferActorSource(name: string): string | null {
-  const lower = name.toLowerCase();
-  if (lower.includes("claude")) return "claude";
-  if (lower.includes("codex")) return "codex";
-  if (lower.includes("grok")) return "grok";
-  if (lower.includes("gemini")) return "gemini";
-  if (lower.includes("hudson")) return "hudson";
-  return null;
-}
-
 function MovingAskRow({
   ask,
   navigate,
@@ -1173,15 +1026,17 @@ function LookbackPicker({
 
 function MovingSkeleton() {
   return (
-    <div className="s-now-grid s-now-grid--dense s-now-skeleton" aria-hidden="true">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="s-now-skeleton-row">
-          <span className="s-now-skeleton-avatar" />
-          <span className="s-now-skeleton-name" />
-          <span className="s-now-skeleton-meta" />
-          <span className="s-now-skeleton-action" />
-        </div>
-      ))}
+    <div className="s-moving-signal-stage s-moving-signal-skeleton" aria-hidden="true">
+      <div className="s-moving-signal-list">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="s-moving-signal-row s-moving-signal-row--skeleton">
+            <span className="s-moving-signal-dot" />
+            <span className="s-moving-signal-skeleton-action" />
+            <span className="s-moving-signal-skeleton-who" />
+            <span className="s-moving-signal-skeleton-age" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1316,10 +1171,10 @@ function QuietStartPanel({
     setModel(selectedAgent?.model?.trim() ?? "");
   }, [selectedAgent?.id]);
 
-  const submitMessage = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitMessage = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     const trimmed = prompt.trim();
-    if (!selectedAgent || !trimmed) return;
+    if (!selectedAgent || !trimmed || submitting) return;
     setSubmitting(true);
     setSendError(null);
     try {
@@ -1364,76 +1219,71 @@ function QuietStartPanel({
         </div>
       </div>
 
-      <form className="s-quiet-panel s-quiet-panel--ask" onSubmit={submitMessage}>
+      <div className="s-quiet-panel s-quiet-panel--ask">
         <div className="s-quiet-panel-head">
           <span className="s-eyebrow">Message</span>
-          <button
-            type="submit"
-            className="s-icon-btn s-icon-btn--primary"
-            title="Send to selected agent"
-            disabled={submitting || !selectedAgent || !prompt.trim()}
-          >
-            <Send size={14} aria-hidden="true" />
-            <span>{submitting ? "Sending" : "Send"}</span>
-          </button>
         </div>
-        <div className="s-quiet-target-row">
-          <label className="s-quiet-label" htmlFor="home-catchup-agent">
-            To
-          </label>
-          <select
-            id="home-catchup-agent"
-            className="s-quiet-select s-quiet-select--target"
-            value={agentId}
-            onChange={(event) => setAgentId(event.target.value)}
-            disabled={catchupAgents.length === 0 || submitting}
-          >
-            {catchupAgents.length === 0 ? (
-              <option value="">No registered agents</option>
-            ) : catchupAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <textarea
-          className="s-quiet-textarea"
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Type a message..."
-          aria-label="Message"
-          rows={4}
-          disabled={submitting || !selectedAgent}
-        />
-        <div className="s-quiet-controls">
-          <select
-            className="s-quiet-select"
-            value={harness}
-            onChange={(event) => setHarness(event.target.value)}
+        <div className="s-quiet-compose">
+          <MessageComposer
+            density="panel"
+            value={prompt}
+            onChange={setPrompt}
+            onSend={() => void submitMessage()}
+            placeholder="Type a message…"
             disabled={submitting || !selectedAgent}
-            aria-label="Harness"
-          >
-            <option value="">default harness</option>
-            {harnessOptions.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-          <select
-            className="s-quiet-select"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={submitting || !selectedAgent}
-            aria-label="Model"
-          >
-            <option value="">default model</option>
-            {modelOptions.map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
+            sending={submitting}
+            canSend={!submitting && Boolean(selectedAgent) && prompt.trim().length > 0}
+            header={(
+              <div className="s-quiet-target-row s-quiet-target-row--in-compose">
+                <label className="s-quiet-label" htmlFor="home-catchup-agent">
+                  To
+                </label>
+                <select
+                  id="home-catchup-agent"
+                  className="s-quiet-select s-quiet-select--target"
+                  value={agentId}
+                  onChange={(event) => setAgentId(event.target.value)}
+                  disabled={catchupAgents.length === 0 || submitting}
+                >
+                  {catchupAgents.length === 0 ? (
+                    <option value="">No registered agents</option>
+                  ) : catchupAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            tools={(
+              <>
+                {/* Right cluster order: harness · model · mic · Send (model nearest actions) */}
+                <MessageComposerToolSelect
+                  label="Harness"
+                  value={harness}
+                  onChange={setHarness}
+                  disabled={submitting || !selectedAgent}
+                  options={[
+                    { value: "", label: "default" },
+                    ...harnessOptions.map((option) => ({ value: option, label: option })),
+                  ]}
+                />
+                <MessageComposerToolSelect
+                  label="Model"
+                  value={model}
+                  onChange={setModel}
+                  disabled={submitting || !selectedAgent}
+                  options={[
+                    { value: "", label: "default" },
+                    ...modelOptions.map((option) => ({ value: option, label: option })),
+                  ]}
+                />
+              </>
+            )}
+          />
         </div>
         {sendError && <div className="s-quiet-error">{sendError}</div>}
-      </form>
+      </div>
     </div>
   );
 }

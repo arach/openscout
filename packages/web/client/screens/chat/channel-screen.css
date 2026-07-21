@@ -607,6 +607,11 @@ button.ch-msg-meta-top--trigger:focus-visible {
   flex-shrink: 0;
 }
 
+/* Unified MessageComposer replaces legacy .ch-compose row. */
+.ch-compose-wrap .s-msg-compose {
+  width: 100%;
+}
+
 .ch-compose {
   display: flex;
   align-items: flex-end;

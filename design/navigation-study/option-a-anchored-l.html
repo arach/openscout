@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option A — Anchored L</title>
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --surface2:oklch(0.205 0.005 260); --ink:oklch(0.965 0.006 260);
+    --muted:oklch(0.72 0.008 260); --dim:oklch(0.57 0.007 260);
+    --ghost:oklch(0.965 0.006 260 / 0.48); --border:oklch(0.965 0.006 260 / 0.08);
+    --border2:oklch(0.965 0.006 260 / 0.14); --accent:oklch(0.86 0.17 125);
+    --ok:oklch(0.80 0.15 155); --hover:oklch(0.965 0.006 260 / 0.05);
+    --active:oklch(0.965 0.006 260 / 0.08);
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    /* live widths */ --sb:260px; --sr:260px; --insp:280px;
+    --toprow:40px; --status:28px; --band:48px; /* railToggleTop */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:32px 28px 64px;-webkit-font-smoothing:antialiased}
+  .page{max-width:1240px;margin:0 auto}
+  a.back{color:var(--dim);text-decoration:none;font-size:11px;letter-spacing:.06em}
+  a.back:hover{color:var(--muted)}
+  h1{font-size:14px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:14px 0 4px}
+  .concept{color:var(--muted);font-size:12px;margin:0 0 6px;max-width:760px;line-height:1.6}
+  .rec{color:var(--accent);font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+  .controls{display:flex;gap:8px;align-items:center;margin:18px 0 14px;flex-wrap:wrap}
+  .controls .hint{color:var(--dim);font-size:11px;margin-left:6px}
+  button.preset{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--muted);
+    background:var(--surface);border:1px solid var(--border2);border-radius:5px;padding:6px 11px;cursor:pointer}
+  button.preset:hover{color:var(--ink);border-color:var(--accent)}
+  .state{font-size:10px;color:var(--dim);letter-spacing:.08em}
+
+  /* ---- chrome frame ---- */
+  .frame{position:relative;height:560px;background:var(--bg);border:1px solid var(--border2);
+    border-radius:10px;overflow:hidden;box-shadow:0 30px 80px -40px #000}
+  .frame *{transition:none}
+
+  /* sidebar (full height, left) */
+  .sidebar{position:absolute;left:0;top:0;bottom:var(--status);width:var(--sb);
+    background:color-mix(in srgb,var(--surface) 96%,transparent);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;z-index:6}
+  .brand{display:flex;align-items:center;gap:8px;height:52px;padding:0 12px;flex-shrink:0}
+  .brand svg{width:18px;height:18px;color:#f8f3e8;flex-shrink:0}
+  .brand .name{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .grp{padding:10px 8px 4px}
+  .grplabel{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:0 8px 6px}
+  .nav{display:flex;flex-direction:column;gap:1px}
+  .navitem{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;border-radius:5px;
+    color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.02em;cursor:default;position:relative}
+  .navitem:hover{background:var(--hover)}
+  .navitem .mono{display:flex;align-items:center;justify-content:center;width:20px;height:20px;
+    border-radius:4px;font-size:10px;color:var(--dim);flex-shrink:0;border:1px solid transparent}
+  .navitem.active{color:var(--ink);background:var(--active);font-weight:600}
+  .navitem.active::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;background:var(--accent);border-radius:1px}
+  .navitem.active .mono{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+  .sb-foot{margin-top:auto;padding:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:6px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+  .sb-foot .lbl{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ghost)}
+  /* collapsed sidebar: icons only */
+  .collapsed .name,.collapsed .grplabel,.collapsed .navitem span.txt,.collapsed .sb-foot .lbl{display:none}
+  .collapsed .brand{justify-content:center;padding:0}
+  .collapsed .navitem{justify-content:center;padding:0}
+  .collapsed .sb-foot{justify-content:center}
+
+  /* top row (inset to sidebar) */
+  .toprow{position:absolute;left:var(--sb);right:0;top:0;height:var(--toprow);z-index:5;
+    display:flex;align-items:center;gap:12px;padding:0 12px 0 14px;
+    background:color-mix(in srgb,var(--surface) 92%,var(--bg));border-bottom:1px solid var(--border)}
+  .crumb{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted);white-space:nowrap}
+  .crumb b{color:var(--ink);font-weight:600}
+  .vrule{width:1px;height:16px;background:var(--border2);flex-shrink:0}
+  .subnav{display:flex;gap:2px}
+  .subnav button{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--dim);background:transparent;border:0;border-radius:4px;padding:4px 10px;cursor:default;position:relative}
+  .subnav button.on{color:var(--ink);box-shadow:inset 0 -2px 0 0 var(--accent)}
+  .spacer{flex:1}
+  .scope{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:5px;
+    border:1px solid var(--border2);background:color-mix(in srgb,var(--bg) 82%,transparent);
+    font-size:10px;color:var(--muted);white-space:nowrap}
+  .scope .dot{background:var(--ok)}
+  .util{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border-radius:4px;
+    border:1px solid var(--border);background:color-mix(in srgb,var(--bg) 82%,transparent);color:var(--ghost);cursor:default}
+  .util .kbd{font-size:9px;letter-spacing:.06em;color:var(--dim)}
+  .util svg{width:13px;height:13px}
+
+  /* side rail (context) */
+  .siderail{position:absolute;left:var(--sb);top:var(--toprow);bottom:var(--status);width:var(--sr);
+    background:color-mix(in srgb,var(--surface) 96%,transparent);border-right:1px solid var(--border);z-index:4;overflow:hidden}
+  .rail-head{height:44px;display:flex;align-items:center;padding:0 14px;
+    font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+  .rail-body{padding:8px}
+  .ctx{display:flex;align-items:center;gap:9px;height:34px;padding:0 8px;border-radius:5px;color:var(--muted);font-size:11px}
+  .ctx:hover{background:var(--hover)}
+  .ctx.on{background:var(--active);color:var(--ink)}
+  .ctx .sw{width:7px;height:7px;border-radius:2px;background:var(--dim);flex-shrink:0}
+  .ctx.on .sw{background:var(--accent)}
+  .ctx .meta{margin-left:auto;font-size:9px;color:var(--dim)}
+  /* collapsed side rail — softened per F1: one step darker, no inner border, tint */
+  .siderail.mini{width:var(--band);background:color-mix(in srgb,var(--bg) 84%,var(--surface));border-right:1px solid var(--border)}
+  .siderail.mini .rail-head,.siderail.mini .rail-body{display:none}
+  .siderail.mini .mini-icons{display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:52px}
+  .siderail:not(.mini) .mini-icons{display:none}
+  .mini-icons .sw{width:6px;height:6px;border-radius:2px;background:var(--dim)}
+  .mini-icons .sw.on{background:var(--accent)}
+
+  /* center pane */
+  .center{position:absolute;top:var(--toprow);bottom:var(--status);
+    left:calc(var(--sb) + var(--srw));right:var(--insp);overflow:hidden;padding:22px 26px}
+  .center h2{font-size:13px;font-weight:600;letter-spacing:.01em;margin:0 0 3px}
+  .center .lede{font-size:11px;color:var(--dim);margin:0 0 20px}
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .cx{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:14px}
+  .cx .t{font-size:11px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:7px}
+  .cx .t .d{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .bar{height:6px;border-radius:3px;background:var(--surface2);margin:6px 0}
+  .bar.a{width:70%} .bar.b{width:45%} .bar.c{width:88%} .bar.d{width:55%}
+
+  /* inspector */
+  .inspector{position:absolute;right:0;top:var(--toprow);bottom:var(--status);width:var(--insp);
+    background:color-mix(in srgb,var(--surface) 96%,transparent);border-left:1px solid var(--border);z-index:4;overflow:hidden}
+  .inspector .rail-head{border-bottom:1px solid var(--border)}
+  .irow{display:flex;justify-content:space-between;padding:9px 14px;font-size:10px;border-bottom:1px solid var(--border)}
+  .irow .k{color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+  .irow .v{color:var(--muted)}
+  .inspector.mini{width:var(--band)}
+  .inspector.mini .rail-head,.inspector.mini .irow{display:none}
+
+  /* status bar */
+  .status{position:absolute;left:0;right:0;bottom:0;height:var(--status);z-index:7;
+    display:flex;align-items:center;justify-content:space-between;padding:0 14px;
+    background:color-mix(in srgb,var(--surface) 90%,var(--bg));border-top:1px solid var(--border);font-size:9px;color:var(--dim)}
+  .status .l,.status .r{display:flex;gap:12px;align-items:center}
+  .status b{color:var(--muted);font-weight:500}
+  .status .k{letter-spacing:.14em;text-transform:uppercase}
+
+  /* edge chevrons — on the boundary, y=48 band */
+  .chev{position:absolute;top:var(--band);width:22px;height:28px;z-index:20;
+    display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;
+    color:var(--muted);background:color-mix(in srgb,var(--surface) 92%,transparent);
+    border:1px solid var(--border2);border-radius:4px;cursor:pointer;transform:translateX(-50%)}
+  .chev:hover{color:var(--ink);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+  .chev.sb{left:var(--sb)}
+  .chev.sr{left:calc(var(--sb) + var(--srw))}
+  .chev.in{left:auto;right:var(--insp);transform:translateX(50%)}
+
+  .spec{margin-top:16px;font-size:10.5px;color:var(--dim);line-height:1.9}
+  .spec b{color:var(--muted);font-weight:600}
+  .spec code{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back" href="index.html">‹ back to compare</a>
+  <span class="rec" style="margin-left:12px">Option A · Recommended · annotated-mock direction</span>
+  <h1>Anchored L</h1>
+  <p class="concept">Full-height sidebar owns the top-left; the top row is inset to the content columns; the vertical sidebar + horizontal status bar frame content as an <b>L</b>. Same geometry as the shipped SCO-087 build — refined to read as one system: one green accent, hairline dividers, all three chevrons on the y=48 band, the collapsed side rail softened one step off the icon rail so 48+48 doesn't read as "two sidebars."</p>
+
+  <div class="controls">
+    <button class="preset" onclick="preset('exp')">All expanded</button>
+    <button class="preset" onclick="preset('col')">All collapsed</button>
+    <button class="preset" onclick="preset('mix')">Sidebar rail · rest expanded</button>
+    <span class="hint">— or click any <span style="color:var(--muted)">‹ ›</span> chevron to toggle that rail. <span class="state" id="state"></span></span>
+  </div>
+
+  <div class="frame" id="frame">
+    <!-- sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor"><polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" stroke-width="1.9" fill="currentColor" fill-opacity=".12"/><polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" stroke-width=".9" fill="currentColor" fill-opacity=".9"/></svg>
+        <span class="name">Scout</span>
+      </div>
+      <div class="grp">
+        <div class="grplabel">Navigate</div>
+        <div class="nav">
+          <div class="navitem"><span class="mono">H</span><span class="txt">Home</span></div>
+          <div class="navitem active"><span class="mono">P</span><span class="txt">Projects</span></div>
+          <div class="navitem"><span class="mono">S</span><span class="txt">Sessions</span></div>
+          <div class="navitem"><span class="mono">C</span><span class="txt">Chat</span></div>
+          <div class="navitem"><span class="mono">D</span><span class="txt">Dispatch</span></div>
+          <div class="navitem"><span class="mono">⌕</span><span class="txt">Search</span></div>
+        </div>
+      </div>
+      <div class="grp">
+        <div class="grplabel">System</div>
+        <div class="nav">
+          <div class="navitem"><span class="mono">O</span><span class="txt">Ops</span></div>
+          <div class="navitem"><span class="mono">✦</span><span class="txt">Settings</span></div>
+        </div>
+      </div>
+      <div class="sb-foot"><span class="dot"></span><span class="lbl">Broker</span></div>
+    </aside>
+
+    <!-- top row -->
+    <div class="toprow">
+      <span class="crumb">Projects&nbsp;/&nbsp;<b>openscout</b></span>
+      <span class="vrule"></span>
+      <div class="subnav"><button class="on">Recent</button><button>All</button></div>
+      <span class="spacer"></span>
+      <span class="scope"><span class="dot"></span>this-mac</span>
+      <span class="util"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1Z"/></svg></span>
+      <span class="util"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg><span class="kbd">⌘K</span></span>
+    </div>
+
+    <!-- side rail -->
+    <aside class="siderail" id="siderail">
+      <div class="rail-head">Projects</div>
+      <div class="rail-body">
+        <div class="ctx on"><span class="sw"></span>openscout<span class="meta">4</span></div>
+        <div class="ctx"><span class="sw"></span>hudson<span class="meta">1</span></div>
+        <div class="ctx"><span class="sw"></span>studio<span class="meta">2</span></div>
+        <div class="ctx"><span class="sw"></span>landing<span class="meta">—</span></div>
+      </div>
+      <div class="mini-icons"><span class="sw on"></span><span class="sw"></span><span class="sw"></span><span class="sw"></span></div>
+    </aside>
+
+    <!-- center -->
+    <main class="center">
+      <h2>openscout</h2>
+      <p class="lede">4 agents · 2 working · last active 3m ago</p>
+      <div class="cards">
+        <div class="cx"><div class="t"><span class="d"></span>fable · sco-087</div><div class="bar a"></div><div class="bar b"></div></div>
+        <div class="cx"><div class="t"><span class="d"></span>codex · review</div><div class="bar c"></div><div class="bar d"></div></div>
+        <div class="cx"><div class="t"><span class="d" style="background:var(--dim)"></span>opus · idle</div><div class="bar b"></div><div class="bar a"></div></div>
+        <div class="cx"><div class="t"><span class="d" style="background:var(--dim)"></span>sonnet · idle</div><div class="bar d"></div><div class="bar c"></div></div>
+      </div>
+    </main>
+
+    <!-- inspector -->
+    <aside class="inspector" id="inspector">
+      <div class="rail-head">Detail</div>
+      <div class="irow"><span class="k">cwd</span><span class="v">~/dev/openscout</span></div>
+      <div class="irow"><span class="k">harness</span><span class="v">claude</span></div>
+      <div class="irow"><span class="k">model</span><span class="v">opus-4.8</span></div>
+      <div class="irow"><span class="k">branch</span><span class="v">sco-087</span></div>
+    </aside>
+
+    <!-- chevrons -->
+    <button class="chev sb" onclick="toggle('sb')" title="Collapse sidebar">‹</button>
+    <button class="chev sr" onclick="toggle('sr')" title="Collapse context">‹</button>
+    <button class="chev in" onclick="toggle('in')" title="Collapse inspector">›</button>
+
+    <!-- status -->
+    <div class="status">
+      <div class="l"><span><span class="k">Active</span> <b>2</b></span><span><span class="k">Mesh</span> <b>ok</b></span></div>
+      <div class="r"><b>build 3d0c25a</b></div>
+    </div>
+  </div>
+
+  <p class="spec">
+    <b>Top row</b> height <code>40</code>, <code>left: sidebarWidth</code> → right edge · breadcrumb 11/600/.04em · sub-nav 10/600/.06em uppercase, active <code>inset 0 -2px accent</code> · utilities 26px ghost buttons ·
+    <b>sidebar</b> <code>200–360</code> (def 260) / 48 rail, active item <code>inset 2px 0 accent</code> ·
+    <b>rails</b> collapse to <code>48</code>, chevrons 22×28 on the <code>y=48</code> band ·
+    <b>status</b> 28 · one accent, hairlines <code>ink 6–8%</code>.
+  </p>
+</div>
+
+<script>
+  const root=document.documentElement.style;
+  const W={sb:{on:'260px',off:'48px'},sr:{on:'260px',off:'48px'},in:{on:'280px',off:'48px'}};
+  const st={sb:true,sr:true,in:true}; // true = expanded
+  function apply(){
+    root.setProperty('--sb', st.sb?W.sb.on:W.sb.off);
+    root.setProperty('--srw', st.sr?W.sr.on:W.sr.off);   // used by center left calc
+    root.setProperty('--sr', st.sr?W.sr.on:W.sr.off);
+    root.setProperty('--insp', st.in?W.in.on:W.in.off);
+    document.getElementById('sidebar').classList.toggle('collapsed',!st.sb);
+    document.getElementById('siderail').classList.toggle('mini',!st.sr);
+    document.getElementById('inspector').classList.toggle('mini',!st.in);
+    // chevron glyphs
+    q('.chev.sb').textContent = st.sb?'‹':'›';
+    q('.chev.sr').textContent = st.sr?'‹':'›';
+    q('.chev.in').textContent = st.in?'›':'‹';
+    const combo=(st.sb?260:48)+' / '+(st.sr?260:48)+' / '+(st.in?280:48);
+    document.getElementById('state').textContent='['+combo+']';
+  }
+  function q(s){return document.querySelector(s)}
+  function toggle(k){st[k]=!st[k];apply()}
+  function preset(p){
+    if(p==='exp'){st.sb=st.sr=st.in=true}
+    if(p==='col'){st.sb=st.sr=st.in=false}
+    if(p==='mix'){st.sb=false;st.sr=true;st.in=true}
+    apply();
+  }
+  apply();
+</script>
+</body>
+</html>

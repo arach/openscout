@@ -69,6 +69,280 @@ const RAIL_PROJECTS = [
   { name: "premotion" },
 ];
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PART 1 · Shell chrome — three layout options (docs/design/navigation-study.md)
+
+   Where does the top-left corner belong, and how do the left rails collapse?
+   A · Anchored L      — full-height sidebar owns the corner; top row inset.
+   B · Full-width Mast — mast spans everything, owns the corner; sidebar below.
+   C · Telescoping Rail— nav + context are one region; collapse to ONE 48 rail.
+
+   The mini-frames below are structural schematics in the real dark-HUD palette,
+   each shown expanded AND collapsed, so the three differences read at a glance:
+   corner ownership · top-bar span · double-rail vs single-rail when collapsed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const NAV_ITEMS = ["home", "projects", "sessions", "chat", "dispatch", "ops"];
+
+const CHROME: { id: "a" | "b" | "c"; label: string; tag: string; rec?: boolean; concept: string; corner: string }[] = [
+  {
+    id: "a",
+    label: "A · Anchored L",
+    tag: "recommended",
+    rec: true,
+    concept:
+      "Full-height sidebar owns the top-left; the top row is inset to the content columns. Same geometry as shipped SCO-087 — refined so the pieces read as one system.",
+    corner: "Sidebar owns the corner",
+  },
+  {
+    id: "b",
+    label: "B · Full-width Mast",
+    tag: "needs sign-off",
+    concept:
+      "The top row becomes a true full-width band; the logo moves into the mast's left corner and every column starts below it. Reverses the liked full-height sidebar.",
+    corner: "Mast owns the corner",
+  },
+  {
+    id: "c",
+    label: "C · Telescoping Rail",
+    tag: "most ambitious",
+    concept:
+      "Nav + context are one continuous region. Collapsed, they telescope into a single 48px rail; context flies out as an overlay instead of pushing a second strip.",
+    corner: "Sidebar owns the corner",
+  },
+];
+
+const DIFFS: { label: string; a: string; b: string; c: string; key: "a" | "b" | "c" }[] = [
+  { label: "Top-left corner", a: "Sidebar · brand", b: "Mast · brand", c: "Sidebar · brand", key: "b" },
+  { label: "Top bar span", a: "Inset to content", b: "Full viewport width", c: "Inset to content", key: "b" },
+  { label: "Collapsed left", a: "48 + 48 · double rail", b: "48 + 48 · double rail", c: "48 · single + flyout", key: "c" },
+  { label: "Permanent horizontal", a: "40 top · 28 status", b: "44 mast · 28 status", c: "40 top · 28 status", key: "b" },
+  { label: "Migration delta", a: "CSS polish · low risk", b: "Shell restructure · sign-off", c: "New overlay mode · med-high", key: "a" },
+];
+
+function Dots({ n, activeIdx = 1 }: { n: number; activeIdx?: number }) {
+  return (
+    <div className={styles.mDots}>
+      {Array.from({ length: n }).map((_, i) => (
+        <span key={i} className={`${styles.mDot} ${i === activeIdx ? styles.mDotOn : ""}`} />
+      ))}
+    </div>
+  );
+}
+
+function MNav({ brand }: { brand: boolean }) {
+  return (
+    <div className={styles.mNav}>
+      {brand && (
+        <div className={styles.mBrand}>
+          <span className={styles.mBrandMark} />
+          <span className={styles.mBrandName}>scout</span>
+        </div>
+      )}
+      <div className={styles.mNavList}>
+        {NAV_ITEMS.map((t, i) => (
+          <span key={t} className={`${styles.mNavRow} ${i === 1 ? styles.mNavRowOn : ""}`}>{t}</span>
+        ))}
+      </div>
+      <div className={styles.mFoot}><span className={styles.mOk} />broker</div>
+    </div>
+  );
+}
+
+/* the inset top row (A, C) */
+function MTopRow() {
+  return (
+    <div className={styles.mTopRow}>
+      <span className={styles.mCrumb}>projects&nbsp;/&nbsp;<b>openscout</b></span>
+      <span className={styles.mVrule} />
+      <span className={styles.mSub}>recent</span>
+      <span className={styles.mSpacer} />
+      <span className={styles.mChip} />
+      <span className={styles.mKbd}>⌘K</span>
+    </div>
+  );
+}
+
+/* the full-width mast (B) — brand lives here */
+function MMast() {
+  return (
+    <div className={styles.mMast}>
+      <span className={styles.mBrandMark} />
+      <span className={styles.mBrandName}>scout</span>
+      <span className={styles.mVrule} />
+      <span className={styles.mCrumb}>projects&nbsp;/&nbsp;<b>openscout</b></span>
+      <span className={styles.mVrule} />
+      <span className={styles.mSub}>recent</span>
+      <span className={styles.mSpacer} />
+      <span className={styles.mChip} />
+      <span className={styles.mKbd}>⌘K</span>
+    </div>
+  );
+}
+
+function MStatus() {
+  return (
+    <div className={styles.mStatus}>
+      <span>active 2 · mesh ok</span>
+      <span>build 3d0c25a</span>
+    </div>
+  );
+}
+
+function MCenter() {
+  return <div className={styles.mCenter}><span className={styles.mRegLabel}>center</span></div>;
+}
+
+/* A · Anchored L — full-height sidebar, top row inset to the content columns */
+function FrameA({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div className={styles.mini}>
+      <div className={styles.mMain}>
+        {collapsed ? (
+          <div className={styles.mStrip}><span className={styles.mBrandMark} /><Dots n={6} /></div>
+        ) : (
+          <div className={styles.mSidebar}><MNav brand /></div>
+        )}
+        <div className={styles.mRight}>
+          <MTopRow />
+          <div className={styles.mBody}>
+            {collapsed
+              ? <div className={styles.mStripCtx}><Dots n={4} /></div>
+              : <div className={styles.mContext}><span className={styles.mRegLabel}>context</span></div>}
+            <MCenter />
+            {collapsed
+              ? <div className={styles.mStripInsp}><Dots n={3} /></div>
+              : <div className={styles.mInspector}><span className={styles.mRegLabel}>detail</span></div>}
+          </div>
+        </div>
+      </div>
+      <MStatus />
+    </div>
+  );
+}
+
+/* B · Full-width Mast — mast spans the whole top; sidebar (no brand) below it */
+function FrameB({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div className={styles.mini}>
+      <MMast />
+      <div className={styles.mBody}>
+        {collapsed
+          ? <div className={styles.mStrip}><Dots n={6} /></div>
+          : <div className={styles.mSidebar}><MNav brand={false} /></div>}
+        {collapsed
+          ? <div className={styles.mStripCtx}><Dots n={4} /></div>
+          : <div className={styles.mContext}><span className={styles.mRegLabel}>context</span></div>}
+        <MCenter />
+        {collapsed
+          ? <div className={styles.mStripInsp}><Dots n={3} /></div>
+          : <div className={styles.mInspector}><span className={styles.mRegLabel}>detail</span></div>}
+      </div>
+      <MStatus />
+    </div>
+  );
+}
+
+/* C · Telescoping Rail — nav+context as one region; collapse to ONE rail + flyout */
+function FrameC({ collapsed }: { collapsed: boolean }) {
+  return (
+    <div className={styles.mini}>
+      <div className={styles.mMain}>
+        {collapsed ? (
+          <div className={styles.mStrip}>
+            <span className={styles.mBrandMark} />
+            <Dots n={6} />
+            <span className={styles.mHandle}>⊟</span>
+          </div>
+        ) : (
+          <div className={styles.mRegion}>
+            <div className={styles.mRegionNav}><MNav brand /></div>
+            <div className={styles.mSeam} />
+            <div className={styles.mRegionCtx}><span className={styles.mRegLabel}>context</span></div>
+          </div>
+        )}
+        <div className={styles.mRight}>
+          <MTopRow />
+          <div className={styles.mBody}>
+            <MCenter />
+            <div className={styles.mInspector}><span className={styles.mRegLabel}>detail</span></div>
+          </div>
+        </div>
+        {collapsed && (
+          <div className={styles.mFlyout}><span className={styles.mRegLabel}>context ▸ flyout</span></div>
+        )}
+      </div>
+      <MStatus />
+    </div>
+  );
+}
+
+function ChromeFrame({ option, collapsed }: { option: "a" | "b" | "c"; collapsed: boolean }) {
+  if (option === "a") return <FrameA collapsed={collapsed} />;
+  if (option === "b") return <FrameB collapsed={collapsed} />;
+  return <FrameC collapsed={collapsed} />;
+}
+
+function ChromeComparison() {
+  return (
+    <section className={styles.chromeSection}>
+      <div className={styles.partHead}>
+        <span className={styles.partKicker}>Part 1 · shell chrome</span>
+        <span className={styles.partTitle}>Three shell layouts — where the corner lives, how the rails collapse</span>
+      </div>
+      <p className={styles.partLede}>
+        One structural question underneath SCO-083→087: does the top-left corner belong to a full-height
+        sidebar or a full-width mast, and when the two left rails collapse do they read as two 48px strips or
+        one? Three options from <code>docs/design/navigation-study.md</code>, each in expanded and collapsed
+        state. A keeps the shipped geometry (recommended); B is the masthead question; C kills the double rail.
+      </p>
+
+      <div className={styles.readLegend}>
+        <span className={styles.readSwatch}><i style={{ background: "var(--scout-accent)" }} /> <b>accent</b> = the single green (active nav · brand · live)</span>
+        <span className={styles.readSwatch}><i style={{ background: "var(--studio-canvas-alt)", border: "1px solid var(--studio-edge-strong)" }} /> collapsed rail = 48px icon strip</span>
+        <span>▸ in the matrix marks the column that differs on that row</span>
+      </div>
+
+      <div className={styles.chromeGrid}>
+        {CHROME.map((opt) => (
+          <div key={opt.id} className={styles.chromeCol}>
+            <div className={styles.chromeColHead}>
+              <span className={styles.chromeColTitle}>{opt.label}</span>
+              <span className={`${styles.chromeTag} ${opt.rec ? styles.chromeTagRec : ""}`}>{opt.tag}</span>
+            </div>
+            <p className={styles.chromeConcept}>{opt.concept}</p>
+
+            <div className={styles.stateLabel}>expanded</div>
+            <ChromeFrame option={opt.id} collapsed={false} />
+
+            <div className={styles.stateLabel}>collapsed</div>
+            <ChromeFrame option={opt.id} collapsed />
+
+            <div className={styles.cornerNote}><span className={styles.cornerDot} /><b>{opt.corner}</b></div>
+          </div>
+        ))}
+      </div>
+
+      <div className={styles.diffMatrix}>
+        <div className={`${styles.diffRow} ${styles.diffHead}`}>
+          <span>difference</span>
+          <span>A · Anchored L</span>
+          <span>B · Full-width Mast</span>
+          <span>C · Telescoping Rail</span>
+        </div>
+        {DIFFS.map((row) => (
+          <div key={row.label} className={styles.diffRow}>
+            <span className={styles.diffLabel}>{row.label}</span>
+            <span className={row.key === "a" ? styles.diffCellKey : styles.diffCell}>{row.a}</span>
+            <span className={row.key === "b" ? styles.diffCellKey : styles.diffCell}>{row.b}</span>
+            <span className={row.key === "c" ? styles.diffCellKey : styles.diffCell}>{row.c}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ── model A · status quo ─────────────────────────────────────────────────── */
 
 function QuoFrame() {
@@ -419,16 +693,24 @@ export default function AppNavStudy() {
           · studies · shell · app-nav
         </div>
         <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          App nav · four structural models
+          App nav · shell chrome &amp; structure
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Scout is an overview-first platform — not an IDE or ADE replacement. It watches,
-          summarizes, and coordinates; the doing happens in the editor, the terminal, and the agent
-          harness. So the nav is organized around user jobs, not implementation records: four models
-          of the whole shell, switched in place, with every route in packages/web mapped onto each.
-          B shipped; D is the proposed correction to its overlapping Projects / Sessions / Chat split.
+          Scout is an overview-first platform — not an IDE or ADE replacement. Two levels of the nav
+          question live here. <b className="text-studio-ink-muted">Part 1 · the shell chrome</b> — where the
+          top-left corner belongs and how the rails collapse — three layout options (A · Anchored L,
+          B · Full-width Mast, C · Telescoping Rail) from the SCO-083→087 navigation study, side by side in
+          expanded and collapsed states. <b className="text-studio-ink-muted">Part 2 · the structure</b> — what the
+          destinations are — four IA models with every packages/web route mapped onto each.
         </p>
       </header>
+
+      <ChromeComparison />
+
+      <div className={styles.partHead} style={{ marginBottom: 12 }}>
+        <span className={styles.partKicker}>Part 2 · structure</span>
+        <span className={styles.partTitle}>Four IA models — what the destinations are</span>
+      </div>
 
       <div className={styles.takeSwitch}>
         {MODELS.map((m) => (

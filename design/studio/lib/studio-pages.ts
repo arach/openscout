@@ -163,6 +163,39 @@ export const STUDIO_PAGES: StudioPage[] = [
 
   // ── Studies · Scout ─────────────────────────────────────────────
   {
+    href: "/studies/home-whats-moving",
+    label: "Home · What's Moving",
+    bucket: "studies",
+    surface: "web",
+    family: "home",
+    status: "concept",
+    source: [
+      "design/studio/views/home-whats-moving.tsx",
+      "design/studio/app/studies/home-whats-moving/page.tsx",
+      "packages/web/client/screens/home/home-now-card.tsx",
+      "packages/web/client/screens/home/content.tsx",
+    ],
+    blurb:
+      "Chosen: signal first, groupable, one-line rows. Selection opens a fixed centered glass overlay over a light scrim — list does not reflow. Recent / Grouped. Studio only until ported.",
+  },
+  {
+    href: "/studies/pr-assign-review",
+    label: "Repos · Assign for review",
+    bucket: "studies",
+    surface: "web",
+    family: "repos",
+    status: "concept",
+    source: [
+      "design/studio/views/pr-assign-review.tsx",
+      "design/studio/app/studies/pr-assign-review/page.tsx",
+      "design/studio/components/MessageComposer.tsx",
+      "packages/web/client/scout/repo-watch/PullRequestAssignDialog.tsx",
+      "packages/web/client/components/MessageComposer/MessageComposer.tsx",
+    ],
+    blurb:
+      "Second take: pure MessageComposer shell (not a custom form). PR context + project/agent chips in header; harness·model·effort as toolbar selects; guidance draft is the body. Agent defaults empty. Studio only until ported.",
+  },
+  {
     href: "/studies/session-harness-state",
     label: "Session Harness State",
     bucket: "studies",
@@ -416,17 +449,19 @@ export const STUDIO_PAGES: StudioPage[] = [
   },
   {
     href: "/studies/app-nav",
-    label: "App nav · Structural models",
+    label: "App nav · Chrome & structure",
     bucket: "studies",
     surface: "shell",
     status: "concept",
     source: [
       "design/studio/views/app-nav.tsx",
+      "docs/design/navigation-study.md",
+      "design/navigation-study/option-a-anchored-l.html",
+      "packages/web/client/OpenScoutAppShell.tsx",
       "packages/web/client/scout/topNavConfig.ts",
-      "packages/web/client/scout/secondaryNavConfig.ts",
     ],
     blurb:
-      "Framed by the posture: Scout is an overview-first platform, not an IDE or ADE replacement — every deep surface is a preview with a handoff, never a workbench. Three switchable shell models — A · Status quo (control, problem-flagged: two inboxes, sessions ×3, 10-item Ops drawer, deprecated directory, nav.clean fork), B · Work nouns (CHOSEN: Home · Projects · Sessions · Chat + ⌘K + one System drawer), C · Project-first (SHELVED: the rail-as-nav premise makes you pick a scope before showing agents, but the product is all-agents-in-view across projects) — with the full 24-route inventory mapped onto each.",
+      "Two levels of the nav question. Part 1 · shell chrome (SCO-083→087): where the top-left corner belongs and how the left rails collapse, as a three-column side-by-side of A · Anchored L (recommended — full-height sidebar owns the corner, top row inset), B · Full-width Mast (needs sign-off — mast spans everything, sidebar below), C · Telescoping Rail (most ambitious — nav+context collapse into ONE 48px rail, context flies out as an overlay), each in expanded AND collapsed state with a difference matrix (corner ownership · top-bar span · double-rail vs single-rail). Part 2 · structure: four switchable IA models — A · Status quo (problem-flagged), B · Work nouns (shipped), C · Project-first (shelved), D · Human jobs (proposed) — with the full 24-route inventory mapped onto each.",
   },
   {
     href: "/studies/chat-landing",
@@ -1450,6 +1485,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     status: "draft",
     source: ["design/studio/app/atoms/inspector-section/page.tsx"],
     blurb: "Proposed Tier-1 atom from the inspector-bar audit.",
+  },
+  {
+    href: "/atoms/message-composer",
+    label: "MessageComposer",
+    bucket: "atoms",
+    family: "message-composer",
+    status: "in-flight",
+    source: [
+      "design/studio/components/MessageComposer.tsx",
+      "design/studio/app/atoms/message-composer/page.tsx",
+      "packages/web/client/components/MessageComposer/MessageComposer.tsx",
+      "packages/web/client/screens/home/content.tsx",
+      "packages/web/client/screens/chat/ConversationComposer.tsx",
+    ],
+    blurb:
+      "Classic chat input: shell · textarea · send bottom-right · optional header/footer. Shared by home quiet-start and conversation threads.",
   },
 
   {

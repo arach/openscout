@@ -1,5 +1,4 @@
 import {
-  type FormEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -8,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Plus, Tag, Wrench } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, MessageCircle, Tag, Wrench } from "lucide-react";
 
 import type {
   ObserveData,
@@ -55,9 +54,7 @@ import {
 import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { api } from "../../lib/api.ts";
-import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
 import { renderWithMentions } from "../../lib/mentions.tsx";
-import { DictationMic } from "../../components/DictationMic.tsx";
 import {
   formatClockTimestamp,
   formatDurationClock,
@@ -73,7 +70,7 @@ import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
-import { SendIcon } from "../chat/conversation-icons.tsx";
+import { MessageComposer } from "../../components/MessageComposer/index.ts";
 
 import "./session-observe.css";
 
@@ -2710,8 +2707,7 @@ function SessionObserveComposer({
   const canWrite = Boolean(activeConversationId || canResumeSession);
   const canSubmit = canWrite && draft.trim().length > 0 && !sending;
 
-  const submit = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
+  const submit = async () => {
     const body = draft.trim();
     if (!body || sending) return;
     if (!activeConversationId && (!resumableAgentId || !resumableSessionId)) {
@@ -2754,58 +2750,35 @@ function SessionObserveComposer({
   };
 
   return (
-    <form className="s-observe-compose" onSubmit={(event) => void submit(event)}>
-      <div className="s-observe-compose-shell">
-        <div className="s-observe-compose-row">
-          <textarea
-            ref={inputRef}
-            className="s-observe-compose-input"
-            value={draft}
-            rows={3}
-            placeholder={canWrite ? "Write into this session..." : "This trace is read-only"}
-            disabled={!canWrite || sending}
-            onChange={(event) => setDraft(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (!isComposerSendShortcut(event)) return;
-              event.preventDefault();
-              if (canSubmit) void submit();
-            }}
-          />
-          <button
-            type="button"
-            className="s-observe-compose-tool"
-            aria-label="Add context"
-            title="Add context"
-            disabled={!canWrite || sending}
-            onClick={() => inputRef.current?.focus()}
-          >
-            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
-          </button>
-          <DictationMic
-            disabled={!canWrite || sending}
-            onAppend={(text) =>
-              setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
-            }
-          />
-          <button
-            type="submit"
-            className="s-observe-compose-send"
-            disabled={!canSubmit}
-            title="Send into this session (Cmd+Enter)"
-            aria-label="Send into this session"
-          >
-            <SendIcon />
-          </button>
-        </div>
-      </div>
-      {error ? <div className="s-observe-compose-status s-observe-compose-status--error">{error}</div> : null}
-      {!canWrite ? (
-        <div className="s-observe-compose-status s-observe-compose-status--muted">
-          No broker conversation or resumable agent session is attached to this trace.
-        </div>
-      ) : null}
-      {status ? <div className="s-observe-compose-status">{status}</div> : null}
-    </form>
+    <div className="s-observe-compose">
+      <MessageComposer
+        density="panel"
+        value={draft}
+        onChange={setDraft}
+        onSend={() => void submit()}
+        sending={sending}
+        disabled={!canWrite || sending}
+        canSend={canSubmit}
+        placeholder={canWrite ? "Write into this session…" : "This trace is read-only"}
+        textareaRef={inputRef}
+        rows={3}
+        showAttach={canWrite}
+        onAttach={() => inputRef.current?.focus()}
+        attachTitle="Add context"
+        attachAriaLabel="Add context"
+        sendTitle="Send into this session (Cmd+Enter)"
+        sendAriaLabel="Send into this session"
+        tools={!canWrite ? (
+          <span className="s-observe-compose-status s-observe-compose-status--muted">
+            No broker conversation or resumable agent session is attached to this trace.
+          </span>
+        ) : error ? (
+          <span className="s-observe-compose-status s-observe-compose-status--error">{error}</span>
+        ) : status ? (
+          <span className="s-observe-compose-status">{status}</span>
+        ) : null}
+      />
+    </div>
   );
 }
 

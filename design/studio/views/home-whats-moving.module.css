@@ -1,0 +1,816 @@
+/* Home · What's Moving — layout study */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ── take switcher ─────────────────────────────────────────────── */
+
+.takes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.take {
+  appearance: none;
+  border: 1px solid var(--studio-edge);
+  background: transparent;
+  color: var(--studio-ink-faint);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 180px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.take:hover {
+  border-color: color-mix(in srgb, var(--studio-ink) 28%, var(--studio-edge));
+  color: var(--studio-ink);
+}
+
+.takeOn {
+  border-color: color-mix(in srgb, var(--studio-ink) 40%, var(--studio-edge));
+  background: color-mix(in srgb, var(--studio-ink) 5%, transparent);
+  color: var(--studio-ink);
+}
+
+.takeId {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.takeNote {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: inherit;
+  opacity: 0.82;
+}
+
+/* ── frame chrome ──────────────────────────────────────────────── */
+
+.frame {
+  position: relative;
+  border: 1px solid var(--studio-edge);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--studio-canvas) 70%, #0a0a0a);
+  /* Keep list clipped; overlay is portaled to cover the full frame via stage. */
+  overflow: hidden;
+}
+
+.frameHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 80%, transparent);
+}
+
+.frameTitle {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.frameTitle em {
+  font-style: normal;
+  color: var(--studio-ink);
+  margin-left: 6px;
+  letter-spacing: 0.04em;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--studio-edge);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.segBtn,
+.segBtnOn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--studio-ink-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.segBtnOn {
+  background: color-mix(in srgb, #d4f06a 88%, white);
+  color: #111;
+  font-weight: 600;
+}
+
+.linkish {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--studio-ink-faint);
+  text-transform: uppercase;
+}
+
+/* ── principles ────────────────────────────────────────────────── */
+
+.principles {
+  margin: 0;
+  padding: 0 2px;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.principles li {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--studio-ink-faint);
+}
+
+.principles strong {
+  color: var(--studio-ink);
+  font-weight: 600;
+}
+
+.flag {
+  color: #e8a23a;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rec {
+  color: #9fd86b;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── A · Control (shipped-ish cards) ───────────────────────────── */
+
+.controlList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.controlRow {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.1fr)
+    minmax(120px, 0.9fr)
+    minmax(0, 2.4fr)
+    auto
+    auto;
+  gap: 10px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #3d5c3a 55%, var(--studio-edge));
+  border-radius: 12px;
+  background: color-mix(in srgb, #0f1410 70%, transparent);
+}
+
+.ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0b0d0a;
+}
+
+.name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--studio-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--studio-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actionPill {
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #0a0c0a;
+  color: color-mix(in srgb, var(--studio-ink) 82%, transparent);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ages {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ageLast {
+  color: #d4f06a;
+}
+
+.ageNew {
+  color: var(--studio-ink-faint);
+}
+
+.btnSoup {
+  display: flex;
+  gap: 6px;
+}
+
+.btnGhost,
+.btnPrimary {
+  appearance: none;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: default;
+  border: 1px solid color-mix(in srgb, var(--studio-edge) 90%, transparent);
+  background: transparent;
+  color: var(--studio-ink-faint);
+}
+
+.btnPrimary {
+  border-color: color-mix(in srgb, #d4f06a 55%, transparent);
+  color: #d4f06a;
+}
+
+.btnGhost:disabled {
+  opacity: 0.35;
+}
+
+/* ── B · Signal first — one-line rows + fixed centered overlay ─ */
+
+.signalStage {
+  position: relative;
+  min-height: 120px;
+  /* Let the overlay paint full stage bounds without mid-glyph clipping. */
+  isolation: isolate;
+}
+
+.signalList {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 8px;
+}
+
+.signalItem {
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 50%, transparent);
+}
+
+/* Single scan line: · action · who · age — never grows on select */
+.signalRow {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) minmax(100px, 0.55fr) 48px;
+  gap: 10px 12px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.signalRow:hover {
+  background: color-mix(in srgb, var(--studio-ink) 3.5%, transparent);
+}
+
+.signalRowOn {
+  background: color-mix(in srgb, #d4f06a 7%, transparent);
+  box-shadow: inset 2px 0 0 #d4f06a;
+}
+
+.signalRowOn:hover {
+  background: color-mix(in srgb, #d4f06a 9%, transparent);
+}
+
+.signalDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #d4f06a;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #d4f06a 16%, transparent);
+  flex-shrink: 0;
+}
+
+.signalDotIdle {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--studio-ink) 28%, transparent);
+  box-shadow: none;
+}
+
+.signalAction {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--studio-ink);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.signalWho {
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--studio-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.signalWho strong {
+  color: color-mix(in srgb, var(--studio-ink) 80%, transparent);
+  font-weight: 600;
+}
+
+.signalAge {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: #d4f06a;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Dim scrim over the list; card sits dead-center. List does not reflow. */
+.signalOverlayRoot {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 24px;
+  background: color-mix(in srgb, #050605 48%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: signalScrimIn 0.14s ease-out;
+}
+
+.signalOverlay {
+  box-sizing: border-box;
+  width: min(400px, 100%);
+  /* Cap to the padded scrim so we never clip mid-glyph against the frame. */
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--studio-edge) 90%, transparent);
+  background: color-mix(in srgb, #121512 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow:
+    0 24px 64px color-mix(in srgb, #000 55%, transparent),
+    0 0 0 1px color-mix(in srgb, #000 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  overflow: hidden; /* round corners cleanly; scroll lives in body */
+  pointer-events: auto;
+  animation: signalOverlayIn 0.16s ease-out;
+}
+
+@keyframes signalScrimIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes signalOverlayIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.overlayHead {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 10px;
+}
+
+.overlayKicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--studio-ink-faint);
+}
+
+.overlayLive {
+  color: #d4f06a;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 9px;
+}
+
+.overlayClose {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--studio-ink-faint);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.overlayClose:hover {
+  background: color-mix(in srgb, var(--studio-ink) 8%, transparent);
+  color: var(--studio-ink);
+}
+
+.overlayBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 16px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.overlayAction {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--studio-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* No line-clamp — was mid-glyph clipping into a row of “dots”. */
+}
+
+.overlayMeta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--studio-edge) 60%, transparent);
+}
+
+.overlayMeta > div {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  align-items: start;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.overlayMeta dt {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 9px;
+  color: var(--studio-ink-faint);
+  opacity: 0.8;
+}
+
+.overlayMeta dd {
+  margin: 0;
+  color: color-mix(in srgb, var(--studio-ink) 82%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overlayActions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--studio-edge) 55%, transparent);
+  background: color-mix(in srgb, #0c0e0c 40%, transparent);
+}
+
+.overlayPrimary,
+.overlayGhost {
+  appearance: none;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: default;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.overlayPrimary {
+  border-color: color-mix(in srgb, #d4f06a 45%, transparent);
+  color: #d4f06a;
+  background: color-mix(in srgb, #d4f06a 8%, transparent);
+}
+
+.overlayGhost {
+  border-color: color-mix(in srgb, var(--studio-edge) 80%, transparent);
+  color: var(--studio-ink-faint);
+}
+
+.overlayPrimary:hover,
+.overlayGhost:hover {
+  border-color: color-mix(in srgb, var(--studio-ink) 25%, var(--studio-edge));
+  color: var(--studio-ink);
+}
+
+.overlayPrimary:hover {
+  color: #d4f06a;
+}
+
+@media (max-width: 720px) {
+  .signalRow {
+    grid-template-columns: 8px minmax(0, 1fr) 44px;
+  }
+
+  .signalWho {
+    display: none;
+  }
+
+  .signalOverlayRoot {
+    padding: 14px;
+  }
+
+  .overlayMeta {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Grouped = same signal rows under project bands */
+.signalGrouped {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+}
+
+.signalGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.signalGroup .signalList {
+  padding-top: 0;
+  padding-bottom: 4px;
+}
+
+.signalGroup .signalRow {
+  padding-left: 16px;
+}
+
+
+
+.signalGroup .projectBand {
+  padding-top: 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 50%, transparent);
+  margin-bottom: 2px;
+}
+
+.signalGroup:first-child .projectBand {
+  padding-top: 12px;
+}
+
+/* ── C · Project ledger (retired as separate take; styles kept for scraps) ── */
+
+.ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0 12px;
+}
+
+.projectBand {
+  padding: 14px 16px 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.projectBand span {
+  color: color-mix(in srgb, var(--studio-ink) 70%, transparent);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.ledgerHead,
+.ledgerRow {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.9fr)
+    minmax(70px, 0.55fr)
+    minmax(0, 2.2fr)
+    56px
+    72px;
+  gap: 10px 12px;
+  align-items: center;
+  padding: 8px 16px;
+}
+
+.ledgerHead {
+  color: var(--studio-ink-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 70%, transparent);
+  margin: 0 0 2px;
+}
+
+.ledgerRow {
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 40%, transparent);
+}
+
+.ledgerRow:hover {
+  background: color-mix(in srgb, var(--studio-ink) 3%, transparent);
+}
+
+.ledgerAgent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ledgerAgent .name {
+  font-size: 13px;
+}
+
+.harness {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--studio-ink-faint);
+}
+
+.ledgerAction {
+  min-width: 0;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--studio-ink) 90%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ledgerAge {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: #d4f06a;
+  text-align: right;
+}
+
+.ledgerGo {
+  justify-self: end;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--studio-ink-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.ledgerRow:hover .ledgerGo {
+  color: #d4f06a;
+}
+
+/* ── notes ─────────────────────────────────────────────────────── */
+
+.delta {
+  border-top: 1px solid var(--studio-edge);
+  padding-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.delta h3 {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  font-weight: 600;
+}
+
+.delta p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--studio-ink-faint);
+  max-width: 62ch;
+}
+
+@media (max-width: 900px) {
+  .controlRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .ages {
+    align-items: flex-start;
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .ledgerHead {
+    display: none;
+  }
+
+  .ledgerRow {
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+  }
+
+  .ledgerRow .harness,
+  .ledgerRow .ledgerAction {
+    grid-column: 1 / -1;
+  }
+}

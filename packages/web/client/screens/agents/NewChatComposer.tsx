@@ -8,6 +8,7 @@ import {
   type DragEvent as ReactDragEvent,
 } from "react";
 import { FileText, Loader2 } from "lucide-react";
+import { MessageComposer } from "../../components/MessageComposer/index.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -408,35 +409,11 @@ export function NewChatComposer({
               event.target.value = "";
             }}
           />
-          <button
-            type="button"
-            className="s-newchat-attach-btn"
-            disabled={isStarting}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Attach file
-          </button>
-
           {attachmentFeedback ? (
             <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
               {attachmentFeedback}
             </div>
           ) : null}
-
-          <textarea
-            ref={textRef}
-            className="s-newchat-well"
-            placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
-            value={message}
-            disabled={isStarting}
-            onChange={(event) => setMessage(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                void start();
-              }
-            }}
-          />
 
           {error && <div className="s-newchat-error" role="alert">{error}</div>}
           {isStarting && (
@@ -452,28 +429,36 @@ export function NewChatComposer({
             </div>
           )}
 
-          <div className="s-newchat-foot">
-            <span className="s-newchat-hint">
-              {hasAttachments ? "⌘↵ to route" : "⌘↵ to start chat"} · paste or drop captures anywhere
-            </span>
-            <button
-              type="button"
-              className="s-newchat-start"
-              disabled={!agent || isStarting}
-              onClick={() => void start()}
-            >
-              {isStarting ? (
-                <>
-                  <Loader2 size={14} className="s-newchat-start-spinner" aria-hidden="true" />
-                  {phase === "uploading" ? "Uploading..." : hasAttachments ? "Routing..." : "Sending..."}
-                </>
-              ) : hasAttachments ? (
-                "Route"
-              ) : (
-                "Start chat"
-              )}
-            </button>
-          </div>
+          <MessageComposer
+            density="panel"
+            value={message}
+            onChange={setMessage}
+            onSend={() => void start()}
+            textareaRef={textRef}
+            placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
+            disabled={isStarting || !agent}
+            sending={isStarting}
+            canSend={Boolean(agent) && !isStarting}
+            showAttach
+            onAttach={() => fileInputRef.current?.click()}
+            attachTitle="Attach file"
+            attachAriaLabel="Attach file"
+            sendTitle={hasAttachments ? "Route (Cmd+Enter)" : "Start chat (Cmd+Enter)"}
+            sendAriaLabel={hasAttachments ? "Route capture" : "Start chat"}
+            tools={(
+              <span className="s-newchat-hint">
+                {isStarting
+                  ? phase === "uploading"
+                    ? "Uploading…"
+                    : hasAttachments
+                      ? "Routing…"
+                      : "Sending…"
+                  : hasAttachments
+                    ? "⌘↵ to route · paste or drop captures"
+                    : "⌘↵ to start · paste or drop captures"}
+              </span>
+            )}
+          />
         </div>
       </div>
     </div>

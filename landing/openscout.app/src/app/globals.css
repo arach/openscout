@@ -543,6 +543,178 @@ html[data-site-theme="dark"] .dot-grid {
    (its live thread), one scale jump (the headline / the readouts).
    ────────────────────────────────────────────────────────── */
 
+/* Mission sheet — one full compositional field, with the generated plot held
+   behind a lightweight flight-plan scaffold. The scaffold keeps the texture
+   from reading as a picture parked behind the console. */
+#main {
+  --mission-ruler-x: clamp(1.2rem, 3.2vw, 3.5rem);
+}
+
+.mission-hero {
+  --mission-wash: #fff;
+  position: relative;
+  isolation: isolate;
+  background: var(--site-page-bg);
+}
+
+.mission-hero__field {
+  position: absolute;
+  inset: -2.5rem 0 -5rem;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--site-border) 54%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 48%, transparent) 1px, transparent 1px);
+  background-size: 100% 9.5rem, 12.5rem 100%;
+}
+
+.mission-hero__field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(
+      ellipse 43% 64% at 27% 54%,
+      color-mix(in srgb, var(--mission-wash) 86%, transparent) 0%,
+      color-mix(in srgb, var(--mission-wash) 68%, transparent) 45%,
+      color-mix(in srgb, var(--mission-wash) 18%, transparent) 76%,
+      transparent 100%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--site-page-bg) 44%, transparent) 0%,
+      transparent 18%,
+      transparent 72%,
+      color-mix(in srgb, var(--site-page-bg) 78%, transparent) 100%
+    );
+}
+
+.mission-hero__layer {
+  position: absolute;
+  inset: 0;
+  background-image: url("/visuals/mission-sheet-field.webp");
+  background-repeat: no-repeat;
+  mix-blend-mode: multiply;
+  will-change: transform;
+}
+
+.mission-hero__layer--far {
+  z-index: 1;
+  background-position: 50% 46%;
+  background-size: max(100%, 92rem) auto;
+  opacity: 0.27;
+  transform: translateY(-0.75rem) scale(1.015);
+}
+
+/* The persistent left rule — one measured margin line running the height of
+   the page, the "edge of the sheet." Strongest across the establishing hero,
+   settling to a hairline below so the numbered section marks (see
+   main > .section-band::after) read as registration on one continuous spine
+   rather than as scattered decorations. Carries no fabricated readouts. */
+.mission-page-ruler {
+  position: absolute;
+  top: 0.75rem;
+  bottom: 2rem;
+  left: var(--mission-ruler-x);
+  width: 1px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.mission-page-ruler::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--site-border-strong) 68%, transparent) 0 36rem,
+    color-mix(in srgb, var(--site-border) 28%, transparent) 44rem 100%
+  );
+}
+
+/* Fine ticks across the hero only — enough to say "measured sheet" without
+   pretending to be a running clock. */
+.mission-page-ruler::after {
+  content: "";
+  position: absolute;
+  inset: 2.65rem auto auto 0;
+  width: 0.5rem;
+  height: 34rem;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--site-border-strong) 40%, transparent) 0 1px,
+    transparent 1px 2.4rem
+  );
+}
+
+@media (max-width: 1399px) and (min-width: 921px) {
+  #main {
+    --mission-ruler-x: 1.15rem;
+  }
+
+  .mission-hero__content {
+    padding-left: 4.75rem;
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .mission-hero__layer--far {
+    animation: mission-sheet-drift-far linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 56rem;
+  }
+
+}
+
+@keyframes mission-sheet-drift-far {
+  from { transform: translateY(-0.9rem) scale(1.015); }
+  to { transform: translateY(1.7rem) scale(1.015); }
+}
+
+html[data-site-theme="dark"] .mission-hero__layer {
+  filter: grayscale(1) invert(1);
+  mix-blend-mode: screen;
+}
+
+html[data-site-theme="dark"] .mission-hero {
+  --mission-wash: color-mix(in srgb, var(--site-page-bg) 88%, #26313b 12%);
+}
+
+html[data-site-theme="dark"] .mission-hero__layer--far {
+  opacity: 0.1;
+}
+
+@media (max-width: 920px) {
+  .mission-hero__layer--far {
+    background-position: 62% 38%;
+    background-size: auto 92%;
+    opacity: 0.17;
+  }
+
+  .mission-page-ruler {
+    display: none;
+  }
+
+  .mission-hero__field::after {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--site-page-bg) 74%, transparent) 0%,
+      color-mix(in srgb, var(--site-page-bg) 90%, transparent) 46%,
+      color-mix(in srgb, var(--site-page-bg) 62%, transparent) 100%
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-hero__layer {
+    animation: none;
+    will-change: auto;
+  }
+}
+
 .hero-split {
   display: grid;
   /* The console is the live artifact of the fold and needs room to breathe:
@@ -558,6 +730,32 @@ html[data-site-theme="dark"] .dot-grid {
 
 .hero-editorial {
   min-width: 0;
+  position: relative;
+  isolation: isolate;
+}
+
+/* A translucent briefing wash, not an opaque card. It lightly neutralizes
+   the plotted field behind the copy and introduces the warm filtered paper
+   tone from the concept render without drawing a rectangular container. */
+.hero-editorial::before {
+  content: "";
+  position: absolute;
+  inset: -3.1rem -3.8rem -2.6rem -2.6rem;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 76% 68% at 46% 48%,
+    color-mix(in srgb, var(--mission-wash) 94%, transparent) 0%,
+    color-mix(in srgb, var(--mission-wash) 84%, transparent) 58%,
+    color-mix(in srgb, var(--mission-wash) 46%, transparent) 80%,
+    transparent 100%
+  );
+  -webkit-backdrop-filter: blur(2.5px) saturate(0.72);
+  backdrop-filter: blur(2.5px) saturate(0.72);
+}
+
+html[data-site-theme="dark"] .hero-editorial::before {
+  opacity: 0.82;
 }
 
 .hero-console-col {
@@ -1041,6 +1239,72 @@ html[data-site-theme="dark"] .dot-grid {
 
 main > .section-band {
   border-top: 1px solid var(--site-border);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Registration number on the spine — a page mark, not a label. It rides the
+   left rule as terse wayfinding (01 is the hero) and never restates the
+   section's own eyebrow/title, which remain the content hierarchy. */
+main > .section-band::after {
+  content: attr(data-mission);
+  position: absolute;
+  top: 1.4rem;
+  left: calc(var(--mission-ruler-x) + 0.55rem);
+  z-index: 4;
+  pointer-events: none;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--site-muted) 66%, transparent);
+  letter-spacing: 0.14em;
+}
+
+@media (max-width: 1499px) and (min-width: 921px) {
+  main > .section-band > .mx-auto {
+    padding-left: 7.25rem;
+  }
+}
+
+/* Quiet, uniform graph field — one continuous "sheet" the whole page sits on.
+   Vertical lines share the hero field's 12.5rem rhythm so the grid reads as a
+   single surface rather than a picture re-parked behind each band. The
+   generated mission plot stays the hero's establishing artifact; the bands
+   carry only its measured paper, so nothing competes with the copy. */
+main > .section-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--site-border) 20%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--site-border) 20%, transparent) 1px, transparent 1px);
+  background-size: 100% 10rem, 12.5rem 100%;
+  opacity: 0.7;
+}
+
+main > .section-band > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-site-theme="dark"] main > .section-band::before {
+  opacity: 0.4;
+}
+
+@media (max-width: 720px) {
+  main > .section-band::before {
+    background-size: 100% 9rem, 10rem 100%;
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 920px) {
+  main > .section-band::after {
+    display: none;
+  }
 }
 
 /* Eyebrow: a quiet label attached to the title, not a competing banner.

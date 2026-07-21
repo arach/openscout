@@ -885,16 +885,305 @@
   text-transform: uppercase;
 }
 
+.rw-open-prs-status {
+  margin-top: 6px;
+  max-width: 48rem;
+  color: var(--copy);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+/* ── Assign for review: launch form ──────────────────────────────── */
+
+.rw-pr-assign-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in oklab, var(--ink, #111) 42%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.rw-pr-assign-dialog {
+  width: min(480px, 100%);
+  max-height: min(84vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink-1);
+  box-shadow: 0 18px 48px color-mix(in oklab, #000 28%, transparent);
+  font-family: var(--mono);
+}
+
+.rw-pr-assign-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.rw-pr-assign-eyebrow {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.rw-pr-assign-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.rw-pr-assign-copy {
+  margin: 6px 0 0;
+  max-width: 28rem;
+  overflow: hidden;
+  color: var(--ink-1);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rw-pr-assign-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rw-pr-assign-close {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--rail-2);
+  color: var(--copy);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rw-pr-assign-close:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.rw-pr-assign-close:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rw-pr-assign-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 14px 16px 16px;
+}
+
+.rw-pr-assign-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.rw-pr-assign-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.rw-pr-assign-field--wide {
+  grid-column: 1 / -1;
+}
+
+.rw-pr-assign-field > span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rw-pr-assign-field > span em {
+  font-style: normal;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  opacity: 0.75;
+}
+
+.rw-pr-assign-field select,
+.rw-pr-assign-field input {
+  width: 100%;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--bg-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.rw-pr-assign-field select:focus,
+.rw-pr-assign-field input:focus {
+  outline: 1px solid var(--amber, #c48a2a);
+  outline-offset: 0;
+}
+
+.rw-pr-assign-field select:disabled,
+.rw-pr-assign-field input:disabled {
+  opacity: 0.6;
+}
+
+.rw-pr-assign-session {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.rw-pr-assign-session legend {
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rw-pr-assign-session-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.rw-pr-assign-session-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--ink-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rw-pr-assign-session-choice:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+.rw-pr-assign-session-choice[data-active] {
+  border-color: color-mix(in oklab, var(--amber, #c48a2a) 55%, var(--line));
+  background: color-mix(in oklab, var(--amber, #c48a2a) 14%, var(--bg-2));
+}
+
+.rw-pr-assign-session-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rw-pr-assign-session-title {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rw-pr-assign-session-sub {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.rw-pr-assign-hint,
+.rw-pr-assign-error {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.rw-pr-assign-hint {
+  color: var(--muted);
+}
+
+.rw-pr-assign-error {
+  color: var(--amber, #c48a2a);
+}
+
+.rw-pr-assign-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.rw-pr-assign-submit {
+  margin: 0;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in oklab, var(--amber, #c48a2a) 55%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--amber, #c48a2a) 18%, var(--bg-2));
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rw-pr-assign-submit:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--amber, #c48a2a) 28%, var(--bg-2));
+}
+
+.rw-pr-assign-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .rw-pr-assign-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .rw-pr-assign-session-choices {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rw-open-pr {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
   gap: 16px;
   align-items: center;
+  width: 100%;
   min-height: 38px;
+  margin: 0;
   padding: 8px 16px;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   color: inherit;
+  font: inherit;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .rw-open-pr:last-child {
@@ -903,6 +1192,12 @@
 
 .rw-open-pr:hover {
   background: var(--row-hover);
+}
+
+.rw-open-pr:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: -1px;
+  z-index: 1;
 }
 
 .rw-open-pr-main,

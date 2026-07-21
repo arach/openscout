@@ -6,7 +6,7 @@
   "description": "Internal design + planning studio for OpenScout. Renders the plans/ tree, hosts inline UI studies, and exposes a live atom gallery.",
   "scripts": {
     "dev": "next dev --port 43140",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start --port 43140"
   },
   "dependencies": {

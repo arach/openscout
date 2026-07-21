@@ -26,6 +26,12 @@ export type ScoutVoiceLiveCallbacks = {
   onState?: (state: ScoutVoiceSessionState) => void;
   onPartial?: (text: string) => void;
   onFinal?: (final: ScoutVoiceLiveFinal) => void;
+  /**
+   * Optional live mic energy 0–1 while recording. Only available when the
+   * capture path exposes a MediaStream (browser). Used to drive speech-
+   * representative waveforms instead of decorative loops.
+   */
+  onLevel?: (level: number) => void;
 };
 
 export type ScoutSpeechResult = {
@@ -819,103 +825,112 @@ async function startBrowserScoutVoiceLive(
     throw new Error("Scout voice capture is unavailable in this browser.");
   }
 
+  // Lazy import keeps the voice client light for non-composer call sites.
+  const { startStreamLevelMeter } = await import("./voice-levels.ts");
+
   const sessionId = createSessionId();
-    const chunks: Blob[] = [];
-    let stream: MediaStream | null = null;
-    let recorder: MediaRecorder | null = null;
-    let cancelled = false;
-    let finalized = false;
+  const chunks: Blob[] = [];
+  let stream: MediaStream | null = null;
+  let recorder: MediaRecorder | null = null;
+  let levelMeter: { stop: () => void } | null = null;
+  let cancelled = false;
+  let finalized = false;
 
-    let resolveResult!: (final: ScoutVoiceLiveFinal) => void;
-    let rejectResult!: (error: Error) => void;
-    const result = new Promise<ScoutVoiceLiveFinal>((resolve, reject) => {
-      resolveResult = resolve;
-      rejectResult = reject;
-    });
+  let resolveResult!: (final: ScoutVoiceLiveFinal) => void;
+  let rejectResult!: (error: Error) => void;
+  const result = new Promise<ScoutVoiceLiveFinal>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
 
-    const stopTracks = () => {
-      for (const track of stream?.getTracks() ?? []) {
-        track.stop();
-      }
-      stream = null;
-    };
+  const stopTracks = () => {
+    levelMeter?.stop();
+    levelMeter = null;
+    for (const track of stream?.getTracks() ?? []) {
+      track.stop();
+    }
+    stream = null;
+  };
 
-    const settleError = (error: Error, state: ScoutVoiceSessionState = "error") => {
+  const settleError = (error: Error, state: ScoutVoiceSessionState = "error") => {
+    if (finalized) return;
+    finalized = true;
+    stopTracks();
+    callbacks.onState?.(state);
+    rejectResult(error);
+  };
+
+  const finalizeRecording = async () => {
+    if (finalized) return;
+    stopTracks();
+    if (cancelled) {
+      settleError(cancelledVoiceError(), "cancelled");
+      return;
+    }
+    callbacks.onState?.("processing");
+    const mimeType = recorder?.mimeType || preferredRecordingMimeType() || "application/octet-stream";
+    const audio = new Blob(chunks, { type: mimeType });
+    if (audio.size === 0) {
+      settleError(new Error("No voice audio was captured."));
+      return;
+    }
+    try {
+      const final = await transcribeScoutVoiceAudio(audio, { sessionId });
       if (finalized) return;
       finalized = true;
-      stopTracks();
-      callbacks.onState?.(state);
-      rejectResult(error);
-    };
-
-    const finalizeRecording = async () => {
-      if (finalized) return;
-      stopTracks();
-      if (cancelled) {
-        settleError(cancelledVoiceError(), "cancelled");
-        return;
-      }
-      callbacks.onState?.("processing");
-      const mimeType = recorder?.mimeType || preferredRecordingMimeType() || "application/octet-stream";
-      const audio = new Blob(chunks, { type: mimeType });
-      if (audio.size === 0) {
-        settleError(new Error("No voice audio was captured."));
-        return;
-      }
-      try {
-        const final = await transcribeScoutVoiceAudio(audio, { sessionId });
-        if (finalized) return;
-        finalized = true;
-        callbacks.onFinal?.(final);
-        callbacks.onState?.("done");
-        resolveResult(final);
-      } catch (error) {
-        settleError(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-
-    try {
-      callbacks.onState?.("starting");
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = preferredRecordingMimeType();
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      });
-      recorder.addEventListener("error", () => {
-        settleError(new Error("Scout voice recorder failed."));
-      });
-      recorder.addEventListener("stop", () => {
-        void finalizeRecording();
-      }, { once: true });
-      recorder.start();
-      callbacks.onPartial?.("");
-      callbacks.onState?.("recording");
+      callbacks.onFinal?.(final);
+      callbacks.onState?.("done");
+      resolveResult(final);
     } catch (error) {
-      const startError = error instanceof Error ? error : new Error(String(error));
-      settleError(startError);
-      void result.catch(() => undefined);
-      throw startError;
+      settleError(error instanceof Error ? error : new Error(String(error)));
     }
+  };
 
-    return {
-      get sessionId() {
-        return sessionId;
-      },
-      result,
-      stop: async () => {
-        if (!recorder || recorder.state === "inactive") return;
+  try {
+    callbacks.onState?.("starting");
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (callbacks.onLevel) {
+      levelMeter = startStreamLevelMeter(stream, callbacks.onLevel);
+    }
+    const mimeType = preferredRecordingMimeType();
+    recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    });
+    recorder.addEventListener("error", () => {
+      settleError(new Error("Scout voice recorder failed."));
+    });
+    recorder.addEventListener("stop", () => {
+      void finalizeRecording();
+    }, { once: true });
+    recorder.start();
+    callbacks.onPartial?.("");
+    callbacks.onState?.("recording");
+  } catch (error) {
+    const startError = error instanceof Error ? error : new Error(String(error));
+    settleError(startError);
+    void result.catch(() => undefined);
+    throw startError;
+  }
+
+  return {
+    get sessionId() {
+      return sessionId;
+    },
+    result,
+    stop: async () => {
+      if (!recorder || recorder.state === "inactive") return;
+      recorder.stop();
+    },
+    cancel: async () => {
+      cancelled = true;
+      if (recorder && recorder.state !== "inactive") {
         recorder.stop();
-      },
-      cancel: async () => {
-        cancelled = true;
-        if (recorder && recorder.state !== "inactive") {
-          recorder.stop();
-          return;
-        }
-        settleError(cancelledVoiceError(), "cancelled");
-      },
-    };
+        return;
+      }
+      settleError(cancelledVoiceError(), "cancelled");
+    },
+  };
 }
 
 function normalizeScoutVoiceSessionState(value: unknown): ScoutVoiceSessionState | null {
