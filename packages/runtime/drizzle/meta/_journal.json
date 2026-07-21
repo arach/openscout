@@ -29,6 +29,13 @@
       "when": 1784647043307,
       "tag": "0003_role-assignments-mission-log",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784666969459,
+      "tag": "0004_role-assignments-one-orchestrator",
+      "breakpoints": true
     }
   ]
 }

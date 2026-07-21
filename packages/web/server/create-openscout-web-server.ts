@@ -5759,20 +5759,19 @@ export async function createOpenScoutWebServer(
   app.get("/api/work/:id/material/raw", handleWorkMaterialRaw);
   app.get("/api/tasks/:id", handleWorkDetail);
 
-  // Assigned roles + mission log (orchestrator-first).
+  // Assigned roles + mission log — proxy to broker (canonical writer).
   app.get("/api/roles/catalog", (c) => c.json({ roles: SCOUT_ROLE_CATALOG }));
-  app.get("/api/roles/assignments", (c) => {
+  app.get("/api/roles/assignments", async (c) => {
     try {
-      return c.json({
-        assignments: webListRoleAssignments({
-          agentId: c.req.query("agentId") || undefined,
-          missionId: c.req.query("missionId") || undefined,
-          roleId: c.req.query("roleId") || undefined,
-          activeOnly: c.req.query("activeOnly") !== "0" && c.req.query("activeOnly") !== "false",
-          includeStanding: c.req.query("includeStanding") !== "0",
-          limit: parseOptionalPositiveInt(c.req.query("limit")),
-        }),
+      const assignments = await webListRoleAssignments({
+        agentId: c.req.query("agentId") || undefined,
+        missionId: c.req.query("missionId") || undefined,
+        roleId: c.req.query("roleId") || undefined,
+        activeOnly: c.req.query("activeOnly") !== "0" && c.req.query("activeOnly") !== "false",
+        includeStanding: c.req.query("includeStanding") !== "0",
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
       });
+      return c.json({ assignments });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
@@ -5790,7 +5789,7 @@ export async function createOpenScoutWebServer(
       if (!body.roleId?.trim() || !body.agentId?.trim()) {
         return c.json({ error: "roleId and agentId are required" }, 400);
       }
-      const kind = body.scope?.kind ?? "agent";
+      const kind = (body.scope?.kind ?? "agent").trim();
       let scope: { kind: "mission"; missionId: string } | { kind: "agent" } | { kind: "project"; projectRoot: string };
       if (kind === "mission") {
         if (!body.scope?.missionId?.trim()) {
@@ -5802,10 +5801,12 @@ export async function createOpenScoutWebServer(
           return c.json({ error: "scope.projectRoot is required for project scope" }, 400);
         }
         scope = { kind: "project", projectRoot: body.scope.projectRoot.trim() };
-      } else {
+      } else if (kind === "agent") {
         scope = { kind: "agent" };
+      } else {
+        return c.json({ error: `unknown scope.kind: ${kind}` }, 400);
       }
-      const assignment = webAssignRole({
+      const assignment = await webAssignRole({
         roleId: body.roleId.trim(),
         agentId: body.agentId.trim(),
         scope,
@@ -5816,7 +5817,7 @@ export async function createOpenScoutWebServer(
       return c.json({ assignment }, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const status = /unknown role|already has orchestrator|required/i.test(message) ? 400 : 500;
+      const status = /unknown role|already has orchestrator|required|unknown scope/i.test(message) ? 400 : 500;
       return c.json({ error: message }, status);
     }
   });
@@ -5825,7 +5826,7 @@ export async function createOpenScoutWebServer(
       const id = c.req.param("id");
       if (!id) return c.json({ error: "id is required" }, 400);
       const body = await c.req.json().catch(() => ({})) as { revokedById?: string };
-      const assignment = webRevokeRole({
+      const assignment = await webRevokeRole({
         assignmentId: id,
         revokedById: body.revokedById?.trim() || "operator",
       });
@@ -5836,12 +5837,12 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, status);
     }
   });
-  app.get("/api/missions/:missionId/log", (c) => {
+  app.get("/api/missions/:missionId/log", async (c) => {
     try {
       const missionId = c.req.param("missionId");
       if (!missionId) return c.json({ error: "missionId is required" }, 400);
       const afterSeq = parseOptionalPositiveInt(c.req.query("afterSeq"));
-      const entries = webListMissionLog({
+      const entries = await webListMissionLog({
         missionId,
         limit: parseOptionalPositiveInt(c.req.query("limit")),
         afterSeq: afterSeq ?? undefined,
@@ -5865,12 +5866,13 @@ export async function createOpenScoutWebServer(
         note?: string;
         blockers?: Array<{ label: string; ownerId?: string }>;
         refs?: Record<string, string>;
-        bypassPermission?: boolean;
+        projectRoot?: string;
       };
       if (!body.actorId?.trim() || !body.kind || !body.intent?.trim() || !body.status?.trim()) {
         return c.json({ error: "actorId, kind, intent, and status are required" }, 400);
       }
-      const entry = webAppendMissionLog(
+      // Client bypassPermission is intentionally ignored.
+      const entry = await webAppendMissionLog(
         {
           missionId,
           actorId: body.actorId.trim(),
@@ -5883,7 +5885,7 @@ export async function createOpenScoutWebServer(
           blockers: body.blockers,
           refs: body.refs,
         },
-        { bypassPermission: body.bypassPermission === true },
+        { projectRoot: body.projectRoot },
       );
       return c.json({ entry }, 201);
     } catch (error) {

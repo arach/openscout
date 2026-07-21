@@ -47,7 +47,6 @@ type RoleCommand =
       status: string;
       checkpoint?: string;
       note?: string;
-      bypassPermission: boolean;
       json: boolean;
     };
 
@@ -182,7 +181,6 @@ export function parseRoleCommandOptions(args: string[]): RoleCommand {
         status,
         checkpoint: takeFlag(rest, "--checkpoint"),
         note: takeFlag(rest, "--note"),
-        bypassPermission: hasFlag(rest, "--force"),
         json,
       };
     }
@@ -350,7 +348,6 @@ export async function runRoleCommand(
         status: options.status,
         checkpoint: options.checkpoint,
         note: options.note,
-        bypassPermission: options.bypassPermission,
       },
     );
     if (options.json) {

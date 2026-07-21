@@ -1314,7 +1314,26 @@ const routeRequest = createBrokerHttpRouter({
   recordReadCursor: recordReadCursorDurably,
   acknowledgeDeliveriesForReadCursor,
   deliveryAcceptanceService,
+  openRolesDb: openRolesControlPlaneDb,
 });
+
+let rolesControlPlaneDb: import("bun:sqlite").Database | null = null;
+function openRolesControlPlaneDb() {
+  if (sqliteDisabled) return null;
+  try {
+    if (!rolesControlPlaneDb) {
+      const require = createRequire(import.meta.url);
+      const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+      rolesControlPlaneDb = new Database(dbPath);
+      rolesControlPlaneDb.exec("PRAGMA busy_timeout = 2500;");
+      rolesControlPlaneDb.exec("PRAGMA journal_mode = WAL;");
+    }
+    return rolesControlPlaneDb as never;
+  } catch {
+    return null;
+  }
+}
+
 function createBrokerHttpServer(): ReturnType<typeof createServer> {
   return createServer((request, response) => {
     routeRequest(request, response).catch((error) => {

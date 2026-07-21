@@ -169,6 +169,51 @@ describe("planRoleLifecycleMissionLogs", () => {
     );
     expect(planned).toHaveLength(0);
   });
+
+  test("mission-scoped orchestrator does not log unrelated missions", () => {
+    const planned = planRoleLifecycleMissionLogs(
+      {
+        lifecycle: "ask.completed",
+        flight: flight(),
+        invocation: invocation({ collaborationRecordId: "work-B" }),
+      },
+      [
+        {
+          id: "a1",
+          roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+          agentId: "orch-1",
+          scope: { kind: "mission", missionId: "work-A" },
+          assignedById: "operator",
+          assignedAt: 1,
+          active: true,
+        },
+      ],
+    );
+    expect(planned).toHaveLength(0);
+  });
+
+  test("mission-scoped orchestrator logs only its mission", () => {
+    const planned = planRoleLifecycleMissionLogs(
+      {
+        lifecycle: "ask.completed",
+        flight: flight(),
+        invocation: invocation({ collaborationRecordId: "work-A" }),
+      },
+      [
+        {
+          id: "a1",
+          roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+          agentId: "orch-1",
+          scope: { kind: "mission", missionId: "work-A" },
+          assignedById: "operator",
+          assignedAt: 1,
+          active: true,
+        },
+      ],
+    );
+    expect(planned).toHaveLength(1);
+    expect(planned[0]!.input.missionId).toBe("work-A");
+  });
 });
 
 describe("applyRoleLifecycleForTerminalFlight", () => {

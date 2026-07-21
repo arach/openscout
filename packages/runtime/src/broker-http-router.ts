@@ -32,6 +32,16 @@ import {
   type BrokerControlStreamService,
 } from "./broker-control-stream-service.js";
 import type { BrokerDeliveryAcceptanceService } from "./broker-delivery-acceptance-service.js";
+import {
+  brokerAppendMissionLog,
+  brokerAssignRole,
+  brokerListMissionLog,
+  brokerListRoleAssignments,
+  brokerRevokeRole,
+  brokerRolesCatalog,
+  parseRoleScope,
+} from "./broker-roles-http.js";
+import type { ControlPlaneSqliteDatabase } from "./sqlite-adapter.js";
 import type {
   BrokerDeliveryHttpService,
   DeliveryAttemptBody,
@@ -152,6 +162,11 @@ export type BrokerHttpRouterDeps = {
   recordReadCursor: (cursor: ConversationReadCursor) => Promise<void>;
   acknowledgeDeliveriesForReadCursor: (cursor: ConversationReadCursor) => Promise<unknown>;
   deliveryAcceptanceService: BrokerDeliveryAcceptanceService;
+  /**
+   * Control-plane SQLite for assigned roles / mission log. When null/undefined,
+   * role routes return 503 (tables owned by migrations; broker is writer).
+   */
+  openRolesDb?: () => ControlPlaneSqliteDatabase | null;
 };
 
 const tailDiscoveryScopes = new Set<TailDiscoveryScope>(["hot", "shallow", "deep"]);
@@ -587,6 +602,153 @@ export function createBrokerHttpRouter(
       limit: parseLimit(url),
       recordId: url.searchParams.get("recordId") ?? undefined,
     }));
+    return;
+  }
+
+  // ── Assigned roles + mission log (broker-canonical writer) ──
+  if (method === "GET" && url.pathname === "/v1/roles/catalog") {
+    json(response, 200, brokerRolesCatalog());
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/roles/assignments") {
+    try {
+      const db = deps.openRolesDb?.() ?? null;
+      if (!db) {
+        json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
+        return;
+      }
+      json(response, 200, brokerListRoleAssignments(db, {
+        agentId: url.searchParams.get("agentId") ?? undefined,
+        missionId: url.searchParams.get("missionId") ?? undefined,
+        roleId: url.searchParams.get("roleId") ?? undefined,
+        activeOnly: url.searchParams.get("activeOnly") !== "0"
+          && url.searchParams.get("activeOnly") !== "false",
+        includeStanding: url.searchParams.get("includeStanding") !== "0",
+        limit: parseLimit(url),
+      }));
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/roles/assignments") {
+    try {
+      const db = deps.openRolesDb?.() ?? null;
+      if (!db) {
+        json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
+        return;
+      }
+      const body = await readRequestBody<{
+        roleId?: string;
+        agentId?: string;
+        scope?: { kind?: string; missionId?: string; projectRoot?: string };
+        assignedById?: string;
+        enforceSingleOrchestrator?: boolean;
+        metadata?: Record<string, unknown>;
+      }>(request);
+      if (!body.roleId?.trim() || !body.agentId?.trim()) {
+        throw new Error("roleId and agentId are required");
+      }
+      const scope = parseRoleScope(body.scope ?? { kind: "agent" });
+      json(response, 201, brokerAssignRole(db, {
+        roleId: body.roleId.trim(),
+        agentId: body.agentId.trim(),
+        scope,
+        assignedById: body.assignedById?.trim() || operatorActorId,
+        enforceSingleOrchestrator: body.enforceSingleOrchestrator,
+        metadata: body.metadata,
+      }));
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  const roleRevokeMatch = method === "POST"
+    ? url.pathname.match(/^\/v1\/roles\/assignments\/([^/]+)\/revoke$/)
+    : null;
+  if (roleRevokeMatch) {
+    try {
+      const db = deps.openRolesDb?.() ?? null;
+      if (!db) {
+        json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
+        return;
+      }
+      const assignmentId = decodeURIComponent(roleRevokeMatch[1] ?? "");
+      const body = await readRequestBody<{ revokedById?: string }>(request).catch(() => ({} as { revokedById?: string }));
+      json(response, 200, brokerRevokeRole(db, {
+        assignmentId,
+        revokedById: body.revokedById?.trim() || operatorActorId,
+      }));
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  const missionLogMatch = url.pathname.match(/^\/v1\/missions\/([^/]+)\/log$/);
+  if (missionLogMatch && method === "GET") {
+    try {
+      const db = deps.openRolesDb?.() ?? null;
+      if (!db) {
+        json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
+        return;
+      }
+      const missionId = decodeURIComponent(missionLogMatch[1] ?? "");
+      const afterSeqRaw = url.searchParams.get("afterSeq");
+      const afterSeq = afterSeqRaw ? Number.parseInt(afterSeqRaw, 10) : undefined;
+      json(response, 200, brokerListMissionLog(db, {
+        missionId,
+        limit: parseLimit(url),
+        afterSeq: Number.isFinite(afterSeq) ? afterSeq : undefined,
+      }));
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (missionLogMatch && method === "POST") {
+    try {
+      const db = deps.openRolesDb?.() ?? null;
+      if (!db) {
+        json(response, 503, { error: "roles_unavailable", detail: "control-plane roles store not open" });
+        return;
+      }
+      const missionId = decodeURIComponent(missionLogMatch[1] ?? "");
+      const body = await readRequestBody<{
+        actorId?: string;
+        kind?: string;
+        intent?: string;
+        status?: string;
+        checkpoint?: string;
+        nodeId?: string;
+        note?: string;
+        blockers?: Array<{ label: string; ownerId?: string }>;
+        refs?: Record<string, string>;
+        projectRoot?: string;
+      }>(request);
+      // Intentionally ignore any client bypassPermission field.
+      if (!body.actorId?.trim() || !body.kind || !body.intent?.trim() || !body.status?.trim()) {
+        throw new Error("actorId, kind, intent, and status are required");
+      }
+      json(response, 201, brokerAppendMissionLog(db, {
+        missionId,
+        actorId: body.actorId.trim(),
+        kind: body.kind as import("@openscout/protocol").ScoutMissionLogKind,
+        intent: body.intent,
+        status: body.status,
+        checkpoint: body.checkpoint,
+        nodeId: body.nodeId,
+        note: body.note,
+        blockers: body.blockers,
+        refs: body.refs,
+      }, { projectRoot: body.projectRoot }));
+    } catch (error) {
+      badRequest(response, error);
+    }
     return;
   }
 

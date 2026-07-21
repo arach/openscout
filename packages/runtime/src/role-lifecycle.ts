@@ -9,6 +9,7 @@
 import {
   SCOUT_MISSION_LOG_APPEND,
   SCOUT_ROLE_CATALOG,
+  assignmentAppliesTo,
   scoutRoleDefinition,
   type ScoutMissionLogAppendInput,
   type ScoutMissionLogKind,
@@ -30,6 +31,8 @@ export type RoleLifecycleAskEvent = {
   lifecycle: "ask.completed" | "ask.failed";
   flight: FlightRecord;
   invocation?: InvocationRequest | null;
+  /** Optional project root for project-scoped assignment matching. */
+  projectRoot?: string | null;
 };
 
 export type RoleLifecycleWorkEvent = {
@@ -40,6 +43,7 @@ export type RoleLifecycleWorkEvent = {
   title?: string | null;
   summary?: string | null;
   state?: string | null;
+  projectRoot?: string | null;
 };
 
 export type RoleLifecycleEvent = RoleLifecycleAskEvent | RoleLifecycleWorkEvent;
@@ -73,23 +77,52 @@ function metadataString(
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function resolveMissionId(opts: {
-  assignment: ScoutRoleAssignment;
-  invocation?: InvocationRequest | null;
-  flight?: FlightRecord | null;
-  workId?: string | null;
-}): string | null {
-  if (opts.assignment.scope.kind === "mission") {
-    return opts.assignment.scope.missionId;
+/** Mission/work id carried by the lifecycle event (not the assignment). */
+function eventMissionId(event: RoleLifecycleEvent): string | null {
+  if (event.lifecycle === "work.completed") {
+    return event.workId.trim() || null;
   }
-  if (opts.workId?.trim()) return opts.workId.trim();
-  const collab =
-    opts.invocation?.collaborationRecordId?.trim()
-    || metadataString(opts.invocation?.metadata as Record<string, unknown> | undefined, "workId")
-    || metadataString(opts.invocation?.metadata as Record<string, unknown> | undefined, "collaborationRecordId")
-    || metadataString(opts.flight?.metadata as Record<string, unknown> | undefined, "workId")
-    || metadataString(opts.flight?.metadata as Record<string, unknown> | undefined, "collaborationRecordId");
-  return collab || null;
+  const invocation = event.invocation;
+  const flight = event.flight;
+  return (
+    invocation?.collaborationRecordId?.trim()
+    || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "workId")
+    || metadataString(invocation?.metadata as Record<string, unknown> | undefined, "collaborationRecordId")
+    || metadataString(flight?.metadata as Record<string, unknown> | undefined, "workId")
+    || metadataString(flight?.metadata as Record<string, unknown> | undefined, "collaborationRecordId")
+    || null
+  );
+}
+
+/**
+ * Resolve the mission sink for a write: assignment must apply to the event's
+ * mission/project. Mission-scoped orchestrators only log events for *that*
+ * mission (no cross-mission leak).
+ */
+function resolveMissionIdForAssignment(
+  assignment: ScoutRoleAssignment,
+  event: RoleLifecycleEvent,
+): string | null {
+  const missionId = eventMissionId(event);
+  const projectRoot =
+    event.lifecycle === "work.completed"
+      ? event.projectRoot
+      : event.projectRoot;
+
+  if (!assignmentAppliesTo(assignment, {
+    missionId: missionId ?? undefined,
+    projectRoot: projectRoot?.trim() || undefined,
+  })) {
+    return null;
+  }
+
+  if (assignment.scope.kind === "mission") {
+    // Event must already match (via assignmentAppliesTo); log into that mission.
+    return assignment.scope.missionId;
+  }
+
+  // Standing agent / project scope: only log when the event has a concrete mission.
+  return missionId;
 }
 
 function holderMatches(
@@ -230,12 +263,7 @@ export function planRoleLifecycleMissionLogs(
       }
       if (!definition.actions.includes(SCOUT_MISSION_LOG_APPEND)) continue;
 
-      const missionId = resolveMissionId({
-        assignment,
-        invocation: event.lifecycle === "work.completed" ? null : event.invocation,
-        flight: event.lifecycle === "work.completed" ? null : event.flight,
-        workId: event.lifecycle === "work.completed" ? event.workId : null,
-      });
+      const missionId = resolveMissionIdForAssignment(assignment, event);
       if (!missionId) continue;
 
       const input =

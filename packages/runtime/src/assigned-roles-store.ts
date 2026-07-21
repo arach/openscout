@@ -2,7 +2,8 @@
  * Persistence for assigned roles + mission log entries.
  *
  * Tables live on the control-plane SQLite DB (role_assignments, mission_log_entries).
- * Writers: web API / future broker/MCP. See docs/proposals/assigned-roles-and-mission-log.md
+ * Canonical writer: the broker (HTTP /v1/roles*, lifecycle). Web proxies to broker;
+ * do not CREATE TABLE from web. See docs/proposals/assigned-roles-and-mission-log.md
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -23,6 +24,34 @@ import {
 } from "@openscout/protocol";
 
 import type { ControlPlaneSqliteDatabase } from "./sqlite-adapter.js";
+
+function runInTransaction<T>(db: ControlPlaneSqliteDatabase, work: () => T): T {
+  const anyDb = db as {
+    transaction?: <R>(fn: () => R) => () => R;
+    exec: (sql: string) => unknown;
+  };
+  if (typeof anyDb.transaction === "function") {
+    return anyDb.transaction(work)();
+  }
+  anyDb.exec("BEGIN IMMEDIATE");
+  try {
+    const result = work();
+    anyDb.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      anyDb.exec("ROLLBACK");
+    } catch {
+      // ignore rollback errors
+    }
+    throw error;
+  }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /UNIQUE constraint failed/i.test(message);
+}
 
 export type AssignRoleInput = {
   roleId: ScoutRoleId | string;
@@ -224,97 +253,112 @@ export function assignRole(
     throw new Error(`unknown role id: ${input.roleId}`);
   }
 
-  const now = input.assignedAt ?? Date.now();
-  const scope = scopeColumns(input.scope);
-  const enforceSingle =
-    input.enforceSingleOrchestrator
-    ?? input.roleId === SCOUT_ORCHESTRATOR_ROLE_ID;
+  return runInTransaction(db, () => {
+    const now = input.assignedAt ?? Date.now();
+    const scope = scopeColumns(input.scope);
+    const enforceSingle =
+      input.enforceSingleOrchestrator
+      ?? input.roleId === SCOUT_ORCHESTRATOR_ROLE_ID;
 
-  if (
-    enforceSingle
-    && input.roleId === SCOUT_ORCHESTRATOR_ROLE_ID
-    && input.scope.kind === "mission"
-  ) {
-    const holders = activeRoleHoldersForMission(
-      listRoleAssignments(db, {
-        missionId: input.scope.missionId,
-        roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
-        activeOnly: true,
-        includeStanding: false,
-      }),
-      input.scope.missionId,
-      SCOUT_ORCHESTRATOR_ROLE_ID,
-      { includeStanding: false },
-    ).filter((agentId) => agentId !== input.agentId);
+    if (
+      enforceSingle
+      && input.roleId === SCOUT_ORCHESTRATOR_ROLE_ID
+      && input.scope.kind === "mission"
+    ) {
+      const holders = activeRoleHoldersForMission(
+        listRoleAssignments(db, {
+          missionId: input.scope.missionId,
+          roleId: SCOUT_ORCHESTRATOR_ROLE_ID,
+          activeOnly: true,
+          includeStanding: false,
+        }),
+        input.scope.missionId,
+        SCOUT_ORCHESTRATOR_ROLE_ID,
+        { includeStanding: false },
+      ).filter((agentId) => agentId !== input.agentId);
 
-    if (holders.length > 0) {
-      throw new Error(
-        `mission ${input.scope.missionId} already has orchestrator(s): ${holders.join(", ")}. Revoke first or pass enforceSingleOrchestrator: false.`,
-      );
+      if (holders.length > 0) {
+        throw new Error(
+          `mission ${input.scope.missionId} already has orchestrator(s): ${holders.join(", ")}. Revoke first or pass enforceSingleOrchestrator: false.`,
+        );
+      }
     }
-  }
 
-  // Re-activate matching inactive assignment if present.
-  const existing = db
-    .query(
-      `SELECT * FROM role_assignments
-       WHERE role_id = ? AND agent_id = ? AND scope_kind = ?
-         AND IFNULL(mission_id, '') = IFNULL(?, '')
-         AND IFNULL(project_root, '') = IFNULL(?, '')
-       ORDER BY assigned_at DESC
-       LIMIT 1`,
-    )
-    .get(
-      input.roleId,
-      input.agentId,
-      scope.scopeKind,
-      scope.missionId,
-      scope.projectRoot,
-    ) as Parameters<typeof rowToAssignment>[0] | null;
+    // Re-activate matching inactive assignment if present.
+    const existing = db
+      .query(
+        `SELECT * FROM role_assignments
+         WHERE role_id = ? AND agent_id = ? AND scope_kind = ?
+           AND IFNULL(mission_id, '') = IFNULL(?, '')
+           AND IFNULL(project_root, '') = IFNULL(?, '')
+         ORDER BY assigned_at DESC
+         LIMIT 1`,
+      )
+      .get(
+        input.roleId,
+        input.agentId,
+        scope.scopeKind,
+        scope.missionId,
+        scope.projectRoot,
+      ) as Parameters<typeof rowToAssignment>[0] | null;
 
-  if (existing) {
-    db.query(
-      `UPDATE role_assignments
-       SET active = 1,
-           assigned_by_id = ?,
-           assigned_at = ?,
-           revoked_at = NULL,
-           revoked_by_id = NULL,
-           metadata_json = ?,
-           updated_at = ?
-       WHERE id = ?`,
-    ).run(
-      input.assignedById,
-      now,
-      input.metadata ? JSON.stringify(input.metadata) : existing.metadata_json,
-      now,
-      existing.id,
-    );
-    return getRoleAssignment(db, existing.id)!;
-  }
+    if (existing) {
+      db.query(
+        `UPDATE role_assignments
+         SET active = 1,
+             assigned_by_id = ?,
+             assigned_at = ?,
+             revoked_at = NULL,
+             revoked_by_id = NULL,
+             metadata_json = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        input.assignedById,
+        now,
+        input.metadata ? JSON.stringify(input.metadata) : existing.metadata_json,
+        now,
+        existing.id,
+      );
+      return getRoleAssignment(db, existing.id)!;
+    }
 
-  const id = input.id ?? createId("role");
-  db.query(
-    `INSERT INTO role_assignments (
-       id, role_id, agent_id, scope_kind, mission_id, project_root,
-       assigned_by_id, assigned_at, active, revoked_at, revoked_by_id,
-       metadata_json, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, NULL, ?, ?, ?)`,
-  ).run(
-    id,
-    input.roleId,
-    input.agentId,
-    scope.scopeKind,
-    scope.missionId,
-    scope.projectRoot,
-    input.assignedById,
-    now,
-    input.metadata ? JSON.stringify(input.metadata) : null,
-    now,
-    now,
-  );
+    const id = input.id ?? createId("role");
+    try {
+      db.query(
+        `INSERT INTO role_assignments (
+           id, role_id, agent_id, scope_kind, mission_id, project_root,
+           assigned_by_id, assigned_at, active, revoked_at, revoked_by_id,
+           metadata_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, NULL, ?, ?, ?)`,
+      ).run(
+        id,
+        input.roleId,
+        input.agentId,
+        scope.scopeKind,
+        scope.missionId,
+        scope.projectRoot,
+        input.assignedById,
+        now,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        now,
+        now,
+      );
+    } catch (error) {
+      if (
+        isUniqueConstraintError(error)
+        && input.roleId === SCOUT_ORCHESTRATOR_ROLE_ID
+        && input.scope.kind === "mission"
+      ) {
+        throw new Error(
+          `mission ${input.scope.missionId} already has an active orchestrator. Revoke first or pass enforceSingleOrchestrator: false.`,
+        );
+      }
+      throw error;
+    }
 
-  return getRoleAssignment(db, id)!;
+    return getRoleAssignment(db, id)!;
+  });
 }
 
 export function revokeRole(
@@ -374,9 +418,13 @@ export function appendMissionLogEntry(
   db: ControlPlaneSqliteDatabase,
   input: ScoutMissionLogAppendInput,
   opts?: {
-    /** Skip orchestrator permission check (operator/system writers). */
+    /**
+     * Skip assignment gate. Broker lifecycle only — never expose as a client
+     * request field.
+     */
     bypassPermission?: boolean;
     assignments?: ScoutRoleAssignment[];
+    projectRoot?: string;
   },
 ): ScoutMissionLogEntry {
   const validation = validateMissionLogEntryFields(input);
@@ -397,6 +445,7 @@ export function appendMissionLogEntry(
       agentId: input.actorId,
       missionId: input.missionId,
       assignments,
+      projectRoot: opts?.projectRoot,
     });
     if (!allowed) {
       throw new Error(
@@ -418,41 +467,56 @@ export function appendMissionLogEntry(
   }
 
   const at = input.at ?? Date.now();
-  const maxSeqRow = db
-    .query(
-      `SELECT COALESCE(MAX(seq), 0) AS max_seq FROM mission_log_entries WHERE mission_id = ?`,
-    )
-    .get(input.missionId) as { max_seq: number };
-  const seq = input.seq ?? maxSeqRow.max_seq + 1;
-  const id = input.id ?? createId("mlog");
+  const maxAttempts = 8;
 
-  db.query(
-    `INSERT INTO mission_log_entries (
-       id, mission_id, node_id, at, seq, actor_id, kind, intent, status,
-       checkpoint, blockers_json, refs_json, note, metadata_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.missionId,
-    input.nodeId ?? null,
-    at,
-    seq,
-    input.actorId,
-    input.kind,
-    input.intent.trim(),
-    input.status.trim(),
-    input.checkpoint?.trim() || null,
-    input.blockers ? JSON.stringify(input.blockers) : null,
-    input.refs ? JSON.stringify(input.refs) : null,
-    input.note?.trim() || null,
-    input.metadata ? JSON.stringify(input.metadata) : null,
-  );
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const id = input.id && attempt === 0 ? input.id : createId("mlog");
+    try {
+      return runInTransaction(db, () => {
+        const maxSeqRow = db
+          .query(
+            `SELECT COALESCE(MAX(seq), 0) AS max_seq FROM mission_log_entries WHERE mission_id = ?`,
+          )
+          .get(input.missionId) as { max_seq: number };
+        const seq = input.seq ?? maxSeqRow.max_seq + 1;
 
-  const row = db
-    .query(`SELECT * FROM mission_log_entries WHERE id = ?`)
-    .get(id) as Parameters<typeof rowToMissionLogEntry>[0];
+        db.query(
+          `INSERT INTO mission_log_entries (
+             id, mission_id, node_id, at, seq, actor_id, kind, intent, status,
+             checkpoint, blockers_json, refs_json, note, metadata_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          id,
+          input.missionId,
+          input.nodeId ?? null,
+          at,
+          seq,
+          input.actorId,
+          input.kind,
+          input.intent.trim(),
+          input.status.trim(),
+          input.checkpoint?.trim() || null,
+          input.blockers ? JSON.stringify(input.blockers) : null,
+          input.refs ? JSON.stringify(input.refs) : null,
+          input.note?.trim() || null,
+          input.metadata ? JSON.stringify(input.metadata) : null,
+        );
 
-  return rowToMissionLogEntry(row);
+        const row = db
+          .query(`SELECT * FROM mission_log_entries WHERE id = ?`)
+          .get(id) as Parameters<typeof rowToMissionLogEntry>[0];
+
+        return rowToMissionLogEntry(row);
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error) && input.seq == null && attempt < maxAttempts - 1) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`failed to allocate mission log seq for ${input.missionId}`);
 }
 
 /** Stable fingerprint for cache/ETag of a mission log tail. */

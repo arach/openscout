@@ -155,10 +155,10 @@ Same model; enforcement tightens later.
 | Piece | Where |
 | --- | --- |
 | Catalog + assignment + log types | `@openscout/protocol` (`assigned-roles.ts`) |
-| Assignment persistence | broker-owned (follow-up) |
-| Hook dispatch | runtime when moments fire (follow-up) |
-| Actions | tools / work_update / mission_log API (follow-up) |
-| UI campaign tree | web (later; not this proposal’s implement slice) |
+| Assignment + mission log persistence | broker-owned SQLite (`role_assignments`, `mission_log_entries`); HTTP `/v1/roles*`, `/v1/missions/:id/log` |
+| Web | proxies to broker only (no DDL, no direct control-plane writes) |
+| Lifecycle dispatch | `role-lifecycle.ts` on terminal flights (`post_ask_summary`) |
+| UI campaign tree | later |
 
 Do **not** overload `agentClass`, harness, or host-integration roles. This is
 **assignment**, not identity.

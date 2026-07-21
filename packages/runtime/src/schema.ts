@@ -1,4 +1,4 @@
-export const CONTROL_PLANE_SCHEMA_VERSION = 14;
+export const CONTROL_PLANE_SCHEMA_VERSION = 15;
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
@@ -686,6 +686,12 @@ CREATE INDEX IF NOT EXISTS idx_role_assignments_mission_role_active
   ON role_assignments (mission_id, role_id, active);
 CREATE INDEX IF NOT EXISTS idx_role_assignments_role_active
   ON role_assignments (role_id, active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_role_assignments_one_orchestrator_per_mission
+  ON role_assignments (mission_id)
+  WHERE active = 1
+    AND role_id = 'orchestrator'
+    AND scope_kind = 'mission'
+    AND mission_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mission_log_entries_mission_seq
   ON mission_log_entries (mission_id, seq);
 CREATE INDEX IF NOT EXISTS idx_mission_log_entries_mission_at
