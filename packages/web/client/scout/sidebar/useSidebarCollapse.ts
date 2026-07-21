@@ -9,7 +9,9 @@
  *   manualCollapsed; auto-collapse viewport updates session-only forceExpanded.
  *   Do NOT wire onOpenChange as setManualCollapsed(!open).
  * - Expanded width persists under `appshell.${appId}.sidebar.width` (SCO-086).
- *   Live drag updates React state only; persist on pointer-up.
+ *   SCO-087: live drag updates only the ghost target (dragGhostWidth); the
+ *   committed layout width and all insets stay pinned until pointer-up, so the
+ *   center pane reflows at most once per resize instead of every pointer-move.
  */
 import { useCallback, useEffect, useState } from "react";
 import { usePersistentState } from "@hudsonkit";
@@ -71,9 +73,14 @@ export function useSidebarCollapse(appId: string, viewportWidth: number) {
     forceExpanded,
   };
   const effectiveCollapsed = resolveEffectiveCollapsed(snapshot);
-  const expandedWidth = clampSidebarExpandedWidth(
-    dragWidth ?? persistedExpandedWidth,
-  );
+  // SCO-087: layout width IGNORES the live drag value. During a drag-resize the
+  // sidebar and every inset derived from it stay pinned to the committed width,
+  // so the heavy center pane never relayouts per pointer-move. `dragGhostWidth`
+  // is the live target used only to paint a ghost edge; the real width commits
+  // once on pointer-up (endResize).
+  const expandedWidth = clampSidebarExpandedWidth(persistedExpandedWidth);
+  const dragGhostWidth =
+    dragWidth != null ? clampSidebarExpandedWidth(dragWidth) : null;
   const width = resolveSidebarWidth(effectiveCollapsed, expandedWidth);
 
   const toggleCollapsed = useCallback(() => {
@@ -155,8 +162,10 @@ export function useSidebarCollapse(appId: string, viewportWidth: number) {
     effectiveCollapsed,
     /** Live layout width (collapsed rail or expanded). */
     width,
-    /** Live/persisted expanded width (never the collapsed rail width). */
+    /** Committed expanded width (never the collapsed rail width; stable during drag). */
     expandedWidth,
+    /** Live drag target for the ghost edge; null when not resizing (SCO-087). */
+    dragGhostWidth,
     isSidebarResizing,
     toggleCollapsed,
     setCollapsed,

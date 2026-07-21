@@ -326,6 +326,60 @@ body { margin: 0; }
   color: var(--scout-chrome-ink-soft);
 }
 
+/* SCO-087: CenterPaneHeader promoted to the fixed app-wide top row. It fills the
+   .scout-top-row-frame wrapper (which owns fixed positioning + the drag region),
+   so it drops sticky and paints an opaque seam. */
+.scout-top-row-frame {
+  pointer-events: auto;
+}
+
+.scout-center-pane-header--top-row {
+  position: static;
+  height: 100%;
+  flex-wrap: nowrap;
+  gap: 8px 12px;
+  padding: 0 12px 0 14px;
+  background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg));
+}
+
+.scout-center-pane-header--top-row .scout-center-pane-header-main {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.scout-center-pane-header--top-row .scout-center-pane-header-utility {
+  flex-wrap: nowrap;
+}
+
+/* Top-row settings / ⌘K accelerators (compact chrome buttons). */
+.scout-top-row-util {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--scout-chrome-border-soft, color-mix(in srgb, var(--hud-ink) 11%, transparent));
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--hud-bg) 82%, transparent);
+  color: var(--scout-chrome-ink-faint);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.scout-top-row-util:hover {
+  color: var(--scout-chrome-ink);
+  background: var(--scout-chrome-hover);
+  border-color: color-mix(in srgb, var(--hud-ink) 16%, transparent);
+}
+
+.scout-top-row-util-kbd {
+  font-family: var(--hud-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--scout-chrome-ink-ghost);
+}
+
 /* SCO-086: unified edge chevron for all rails. */
 .scout-rail-toggle {
   appearance: none;
@@ -366,18 +420,18 @@ body { margin: 0; }
   transform: translateY(-0.5px);
 }
 
-/* Sidebar edge toggle — sits on the rail boundary at header height. */
-.scout-rail-toggle--sidebar {
-  position: absolute;
-  top: 10px;
-  right: 0;
-  transform: translateX(50%);
+/* SCO-087: sidebar edge chevron — shell-rendered fixed element on the sidebar
+   boundary, in the panel-header band (aligned with the side rail / inspector
+   chevrons). Position/left ride is set inline so it tracks the ghost edge. */
+.scout-rail-toggle--sidebar-edge {
   z-index: 46;
 }
 
-[data-slot="sidebar-container"][data-side="left"] {
-  /* Anchor absolute RailToggle to the sidebar edge. */
-  position: fixed;
+/* SCO-087: ghost edge painted during a sidebar drag-resize. The committed width
+   stays pinned (center pane does not relayout); this line previews the target. */
+.scout-sidebar-resize-ghost {
+  background: color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 22%, transparent);
 }
 
 /* Collapsed OpenScout rails (side rail + inspector). */
@@ -421,11 +475,25 @@ body { margin: 0; }
   font-size: 10px;
 }
 
-/* Suppress width/left transitions while sidebar is live-drag resized. */
-html[data-scout-sidebar-resizing] [data-slot="sidebar-container"],
-html[data-scout-sidebar-resizing] [data-pane="center"],
-[data-sidebar-resizing] [data-slot="sidebar-container"] {
+/* SCO-087: rail collapse/expand + resize commit layout in ONE write. The center
+   pane (data-pane="center") and its insets carry no left/right transition, so a
+   heavy page reflows at most once per toggle instead of every frame. The sidebar
+   rail itself no longer eases width/left either — that drove a transient gap
+   against the instantly-committed center pane; the shadcn label opacity/margin
+   fades remain as the single composited motion. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] {
   transition: none !important;
+}
+
+/* prefers-reduced-motion: everything commits instantly, no fades. */
+@media (prefers-reduced-motion: reduce) {
+  [data-scout-theme] [data-slot="sidebar-container"],
+  [data-scout-theme] [data-slot="sidebar-container"] *,
+  [data-scout-theme] [data-scout-collapsed-rail],
+  [data-scout-theme] .scout-rail-toggle {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
 
 [data-scout-sidebar-resize-handle] {
