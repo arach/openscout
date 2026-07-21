@@ -21,6 +21,7 @@ import {
 import type { CommandOption } from "@hudsonkit";
 import type { SecondaryNavGroup } from "../components/SecondaryNav.tsx";
 import type { Route } from "../lib/types.ts";
+import { ROUTE_AREA_BY_VIEW } from "./primary-areas.ts";
 
 /** Top-tab keys used by chrome; `system` is a dropdown, not a catalog destination. */
 export type TopNavKey =
@@ -668,27 +669,17 @@ export function projectAreaSubNav(areaId: AreaSubNavAreaId): AreaSubNavItem[] {
 /**
  * Resolve area sub-nav for the current route from its primary area.
  * Returns null when the area has no AREA_SUB_NAV projection.
+ *
+ * SCO-086: imports ROUTE_AREA_BY_VIEW directly (no real cycle with
+ * primary-areas.ts; the prior "avoid circular import" comment was stale).
  */
 export function areaSubNavForRoute(route: Route): {
   areaId: AreaSubNavAreaId;
   items: AreaSubNavItem[];
 } | null {
-  // Inline area map to avoid a circular import with primary-areas.ts.
-  // Keep in sync with ROUTE_AREA_BY_VIEW for projects/sessions members.
-  const view = route.view;
-  let areaId: AreaSubNavAreaId | null = null;
-  if (
-    view === "agents-v2" ||
-    view === "agent-info" ||
-    view === "repos" ||
-    view === "repo-diff" ||
-    view === "code"
-  ) {
-    areaId = "projects";
-  } else if (view === "sessions" || view === "terminal") {
-    areaId = "sessions";
-  }
-  if (!areaId) return null;
+  const area = ROUTE_AREA_BY_VIEW[route.view];
+  if (area !== "projects" && area !== "sessions") return null;
+  const areaId: AreaSubNavAreaId = area;
   return { areaId, items: projectAreaSubNav(areaId) };
 }
 

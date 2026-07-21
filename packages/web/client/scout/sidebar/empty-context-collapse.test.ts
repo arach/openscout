@@ -78,14 +78,15 @@ describe("empty CONTEXT collapse (SCO-085)", () => {
     expect(next.rightCollapsed).toBe(false);
   });
 
-  test("toggle expand while empty + stored collapsed opens without keeping stored collapsed", () => {
+  test("toggle expand while empty + stored collapsed opens without rewriting stored pref", () => {
+    // SCO-086: temporary open override must preserve rightCollapsed=true.
     const next = nextLanesContextToggle({
       empty: true,
       forceOpen: false,
       rightCollapsed: true,
     });
     expect(next.forceOpen).toBe(true);
-    expect(next.rightCollapsed).toBe(false);
+    expect(next.rightCollapsed).toBe(true);
   });
 
   test("toggle while non-empty uses stored rightCollapsed", () => {

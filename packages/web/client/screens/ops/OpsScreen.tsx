@@ -9,6 +9,7 @@ import { PlanView } from "./PlanView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "../shared/TailView.tsx";
 import type { OpsMode, Route } from "../../lib/types.ts";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import { OpsSubnav } from "./OpsSubnav.tsx";
 
 export function OpsScreen({
@@ -21,15 +22,18 @@ export function OpsScreen({
   tailQuery?: string;
 }) {
   const { agents, route } = useScout();
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
   const selectedPlanDocumentId = route.view === "ops" && route.mode === "plan"
     ? route.planDocumentId
     : undefined;
 
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={route} navigate={navigate} />
-      </div>
+      {contentOwnsSecondaryNav ? (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={route} navigate={navigate} />
+        </div>
+      ) : null}
       <div className="s-ops-body">
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}

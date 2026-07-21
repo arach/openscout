@@ -18,6 +18,7 @@ import type {
   Route,
 } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import type { ServiceGauge } from "../home/HomeHero.tsx";
 import { OpsSubnav } from "../ops/OpsSubnav.tsx";
 import "./harnesses-screen.css";
@@ -485,11 +486,15 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
   const activeHarnesses = rows.filter((row) => row.agents.length > 0 || row.gauge || row.observations.length > 0).length;
   const workingAgents = scopedAgents.filter((agent) => isAgentBusy(agent.state)).length;
 
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
+
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={{ view: "harnesses", ...(machineId ? { machineId } : {}) }} navigate={navigate} />
-      </div>
+      {contentOwnsSecondaryNav ? (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={{ view: "harnesses", ...(machineId ? { machineId } : {}) }} navigate={navigate} />
+        </div>
+      ) : null}
       <div className="s-ops-body hs-body">
         <div className="hs-page">
           <header className="hs-page-head">

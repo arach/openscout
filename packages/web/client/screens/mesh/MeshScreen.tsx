@@ -20,6 +20,7 @@ import {
   type MeshDensity,
   type MeshStateFilter,
 } from "../../lib/mesh-view-store.ts";
+import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import { OpsSubnav } from "../ops/OpsSubnav.tsx";
 import "../system-surfaces-redesign.css";
 import "./mesh-screen.css";
@@ -299,11 +300,15 @@ export function MeshScreen({ navigate }: { navigate: (r: Route) => void }) {
       </div>
     );
 
+  const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
+
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={route} navigate={navigate} />
-      </div>
+      {contentOwnsSecondaryNav ? (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={route} navigate={navigate} />
+        </div>
+      ) : null}
       <div className="s-ops-body">
         {content}
       </div>

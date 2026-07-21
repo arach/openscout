@@ -93,7 +93,9 @@
   --sidebar-border: color-mix(in srgb, var(--hud-ink) 8%, transparent);
   --sidebar-ring: var(--hud-accent);
   --sidebar-width: 260px;
-  --sidebar-width-icon: 48px;
+  /* SCO-086: one shared collapsed rail width across sidebar / side rail / inspector. */
+  --scout-rail-collapsed-width: 48px;
+  --sidebar-width-icon: var(--scout-rail-collapsed-width);
 
   color: var(--ink);
 }
@@ -271,11 +273,12 @@ body { margin: 0; }
   color: var(--scout-chrome-ink);
 }
 
-/* SCO-085: shared center-pane header seam (breadcrumb + AREA_SUB_NAV strip). */
+/* SCO-085 / SCO-086: shared center-pane header / page title bar. */
 .scout-center-pane-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px 16px;
   padding: 8px 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--hud-ink) 6%, transparent);
@@ -283,6 +286,30 @@ body { margin: 0; }
   position: sticky;
   top: 0;
   z-index: 5;
+}
+
+.scout-center-pane-header-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.scout-center-pane-header-utility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.scout-center-pane-secondary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .scout-center-pane-breadcrumb {
@@ -297,6 +324,118 @@ body { margin: 0; }
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--scout-chrome-ink-soft);
+}
+
+/* SCO-086: unified edge chevron for all rails. */
+.scout-rail-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--hud-ink) 12%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--hud-surface) 92%, transparent);
+  color: var(--scout-chrome-ink-soft, var(--hud-ink));
+  font-family: var(--hud-font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 45;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.scout-rail-toggle:hover {
+  color: var(--scout-chrome-ink, var(--hud-ink));
+  background: color-mix(in srgb, var(--hud-ink) 8%, var(--hud-surface));
+  border-color: color-mix(in srgb, var(--hud-ink) 22%, transparent);
+}
+
+.scout-rail-toggle:focus-visible {
+  outline: 2px solid var(--hud-accent, oklch(0.86 0.17 125));
+  outline-offset: 1px;
+}
+
+.scout-rail-toggle-glyph {
+  display: block;
+  transform: translateY(-0.5px);
+}
+
+/* Sidebar edge toggle — sits on the rail boundary at header height. */
+.scout-rail-toggle--sidebar {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  transform: translateX(50%);
+  z-index: 46;
+}
+
+[data-slot="sidebar-container"][data-side="left"] {
+  /* Anchor absolute RailToggle to the sidebar edge. */
+  position: fixed;
+}
+
+/* Collapsed OpenScout rails (side rail + inspector). */
+.scout-collapsed-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+  border-color: color-mix(in srgb, var(--hud-ink) 8%, transparent);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: auto;
+}
+
+.scout-collapsed-rail[data-side="left"] {
+  border-right-width: 1px;
+}
+
+.scout-collapsed-rail[data-side="right"] {
+  border-left-width: 1px;
+}
+
+.scout-collapsed-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 28px;
+}
+
+.scout-collapsed-rail-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--scout-chrome-ink-faint, color-mix(in srgb, var(--hud-ink) 45%, transparent));
+  font-family: var(--hud-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+/* Suppress width/left transitions while sidebar is live-drag resized. */
+html[data-scout-sidebar-resizing] [data-slot="sidebar-container"],
+html[data-scout-sidebar-resizing] [data-pane="center"],
+[data-sidebar-resizing] [data-slot="sidebar-container"] {
+  transition: none !important;
+}
+
+[data-scout-sidebar-resize-handle] {
+  /* Hit target only — no visual chrome by default; subtle hover affordance. */
+  background: transparent;
+}
+
+[data-scout-sidebar-resize-handle]:hover,
+[data-scout-sidebar-resize-handle]:active {
+  background: color-mix(in srgb, var(--hud-accent, oklch(0.86 0.17 125)) 35%, transparent);
 }
 
 .scout-area-subnav {
@@ -3446,10 +3585,10 @@ a.s-inline-link {
 }
 
 /*
- * SCO-084: side-rail expand control sits beside the nav icon/expanded rail.
- * SidePanel's collapsed affordance hardcodes left-3; offset it past the nav rail.
- * Expanded side rail uses inline style.left = navRailWidth from ScoutSideRail.
+ * SCO-084 / legacy: SidePanel collapsed affordance hardcodes left-3.
+ * Sidebar chrome (SCO-086) uses OpenScout CollapsedRail instead; this offset
+ * only matters for the legacy left panel path when still present.
  */
 html[data-scout-sidebar-chrome] button.left-3[title^="Expand "] {
-  left: calc(var(--scout-nav-rail-width, 48px) + 12px);
+  left: calc(var(--scout-nav-rail-width, var(--scout-rail-collapsed-width, 48px)) + 12px);
 }
