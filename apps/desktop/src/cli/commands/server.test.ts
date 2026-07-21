@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   normalizeServerOpenPath,
+  requestScoutWebControl,
   renderServerCommandHelp,
   resolveBunExecutable,
   resolveServerBrowserUrl,
@@ -78,5 +79,39 @@ describe("server command helpers", () => {
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }
+  });
+
+  test("uses the broker as the only web server owner", async () => {
+    const calls: Array<{ url: string; method: string | undefined }> = [];
+    const status = await requestScoutWebControl("start", {
+      brokerUrl: "http://127.0.0.1:43110",
+      fetchImpl: async (input, init) => {
+        calls.push({ url: String(input), method: init?.method });
+        return new Response(JSON.stringify({
+          ok: true,
+          running: true,
+          starting: false,
+          managed: true,
+          webUrl: "http://127.0.0.1:43120",
+          port: 43120,
+          pid: 2468,
+          error: null,
+        }), { headers: { "content-type": "application/json" } });
+      },
+    });
+
+    expect(calls).toEqual([{ url: "http://127.0.0.1:43110/v1/web/start", method: "POST" }]);
+    expect(status.webUrl).toBe("http://127.0.0.1:43120");
+    expect(status.managed).toBe(true);
+  });
+
+  test("surfaces broker web lifecycle failures without spawning a local server", async () => {
+    await expect(requestScoutWebControl("restart", {
+      brokerUrl: "http://127.0.0.1:43110",
+      fetchImpl: async () => new Response(JSON.stringify({
+        ok: false,
+        error: "Scout web is running outside broker management.",
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    })).rejects.toThrow("Scout web is running outside broker management.");
   });
 });
