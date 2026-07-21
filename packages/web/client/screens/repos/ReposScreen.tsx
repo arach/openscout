@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { EmptyState } from "../../components/EmptyState.tsx";
+import { useContextMenu } from "../../components/ContextMenu.tsx";
 import type {
   RepoWatchSnapshot,
   RepoWatchWorktree,
@@ -14,6 +23,11 @@ import {
   type RepoPullRequestSnapshot,
   type RepoWatchScanDepth,
 } from "../../scout/repo-watch/api.ts";
+import {
+  buildPullRequestMenuItems,
+  type PullRequestWorktreeMatch,
+} from "../../scout/repo-watch/pull-request-actions.ts";
+import { PullRequestAssignDialog } from "../../scout/repo-watch/PullRequestAssignDialog.tsx";
 import RepoWatchTable from "../../scout/repo-watch/RepoWatchTable.tsx";
 import RepoWatchDrift from "../../scout/repo-watch/RepoWatchDrift.tsx";
 import {
@@ -24,6 +38,7 @@ import { agoFromMillis, attentionRank, type Tone } from "../../scout/repo-watch/
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../../scout/repo-diff/RepoDiffViewerLazy.tsx";
 import { prefetchRepoDiffSnapshots } from "../../scout/repo-diff/cache.ts";
+import { useScout } from "../../scout/Provider.tsx";
 
 
 /**
@@ -202,6 +217,32 @@ function pullRequestMatchesBranch(
   return Boolean(branch && pr.headRefName === branch);
 }
 
+function matchingWorktreeForPullRequest(
+  pr: RepoPullRequestItem,
+  snapshot: RepoWatchSnapshot | null | undefined,
+): PullRequestWorktreeMatch | null {
+  if (!snapshot) return null;
+  const head = pr.headRefName?.trim();
+  if (!head) return null;
+  const matches: PullRequestWorktreeMatch[] = [];
+  for (const project of snapshot.projects) {
+    for (const worktree of project.worktrees) {
+      if (worktree.branch.name?.trim() !== head) continue;
+      matches.push({
+        id: worktree.id,
+        path: worktree.path,
+        branch: head,
+      });
+    }
+  }
+  if (matches.length === 0) return null;
+  if (pr.path) {
+    const exact = matches.find((item) => item.path === pr.path);
+    if (exact) return exact;
+  }
+  return matches[0] ?? null;
+}
+
 function prefetchWorktreePaths(
   snapshot: RepoWatchSnapshot,
   selectedId: string | null,
@@ -292,13 +333,55 @@ function ReposOpenPullRequests({
   error,
   selectedProject,
   selectedWorktree,
+  repoSnapshot,
+  onSelectWorktree,
+  onOpenDiff,
+  navigate,
 }: {
   snapshot: RepoPullRequestSnapshot | null;
   loading: boolean;
   error: string | null;
   selectedProject: RepoWatchProject | null;
   selectedWorktree: RepoWatchWorktree | null;
+  repoSnapshot: RepoWatchSnapshot | null;
+  onSelectWorktree: (worktreeId: string) => void;
+  onOpenDiff: (path: string) => void;
+  navigate: (route: Route) => void;
 }) {
+  const { agents } = useScout();
+  const showContextMenu = useContextMenu();
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [assignPr, setAssignPr] = useState<RepoPullRequestItem | null>(null);
+  const [assignPending, setAssignPending] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const statusTimer = useRef<number | null>(null);
+
+  const reportStatus = useCallback((message: string | null) => {
+    setActionStatus(message);
+    if (statusTimer.current != null) window.clearTimeout(statusTimer.current);
+    if (message) {
+      statusTimer.current = window.setTimeout(() => setActionStatus(null), 6_000);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (statusTimer.current != null) window.clearTimeout(statusTimer.current);
+  }, []);
+
+  const closeAssign = useCallback(() => {
+    if (assignPending) return;
+    setAssignPr(null);
+    setAssignError(null);
+  }, [assignPending]);
+
+  const projectsForAssign = useMemo(
+    () => (repoSnapshot?.projects ?? []).map((project) => ({
+      root: project.root,
+      name: project.name,
+    })),
+    [repoSnapshot],
+  );
+
   const pullRequests = snapshot?.pullRequests ?? [];
   const selectedBranch = selectedWorktree?.branch.name ?? null;
   const selectedProjectPullRequests = pullRequests.filter((pr) =>
@@ -333,6 +416,21 @@ function ReposOpenPullRequests({
     Boolean(group),
   );
   if (!loading && !error && pullRequests.length === 0) return null;
+
+  const openPrMenu = (event: ReactMouseEvent, pr: RepoPullRequestItem) => {
+    event.preventDefault();
+    showContextMenu(event, buildPullRequestMenuItems(pr, {
+      matchingWorktree: matchingWorktreeForPullRequest(pr, repoSnapshot),
+      onBeginAssign: (next) => {
+        setAssignError(null);
+        setAssignPr(next);
+      },
+      onSelectWorktreeId: onSelectWorktree,
+      onOpenDiff,
+      onStatus: reportStatus,
+    }));
+  };
+
   return (
     <section className="rw-open-prs" aria-label="Open pull requests">
       <div className="rw-open-prs-head">
@@ -341,6 +439,9 @@ function ReposOpenPullRequests({
           <div className="rw-open-prs-title">
             {loading && pullRequests.length === 0 ? "Checking GitHub" : `${pullRequests.length} open`}
           </div>
+          {actionStatus ? (
+            <div className="rw-open-prs-status" role="status">{actionStatus}</div>
+          ) : null}
         </div>
         {snapshot ? <span className="rw-open-prs-meta">gh</span> : null}
       </div>
@@ -352,12 +453,13 @@ function ReposOpenPullRequests({
                 <div className="rw-open-pr-group-label">{group.label}</div>
               ) : null}
               {group.items.map((pr) => (
-                <a
+                <button
                   key={pr.id}
+                  type="button"
                   className="rw-open-pr"
-                  href={pr.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  title={`${pr.title} — click for actions`}
+                  onClick={(event) => openPrMenu(event, pr)}
+                  onContextMenu={(event) => openPrMenu(event, pr)}
                 >
                   <span className="rw-open-pr-main">
                     <span className="rw-open-pr-number">#{pr.number}</span>
@@ -370,7 +472,7 @@ function ReposOpenPullRequests({
                     {pr.author ? <span>@{pr.author}</span> : null}
                     <span>{prUpdatedAgo(pr.updatedAt, snapshot?.generatedAt ?? Date.now())}</span>
                   </span>
-                </a>
+                </button>
               ))}
             </div>
           ))}
@@ -380,6 +482,32 @@ function ReposOpenPullRequests({
           {error ?? "No open pull requests returned."}
         </div>
       )}
+
+      {assignPr ? (
+        <PullRequestAssignDialog
+          pr={assignPr}
+          agents={agents}
+          projects={projectsForAssign}
+          pending={assignPending}
+          error={assignError}
+          onClose={closeAssign}
+          onPendingChange={setAssignPending}
+          onError={setAssignError}
+          onAssigned={(result) => {
+            setAssignPr(null);
+            setAssignError(null);
+            reportStatus(result.message);
+            if (result.flightId || result.conversationId || result.targetAgentId) {
+              navigate({
+                view: "follow",
+                ...(result.flightId ? { flightId: result.flightId } : {}),
+                ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+                ...(result.targetAgentId ? { targetAgentId: result.targetAgentId } : {}),
+              });
+            }
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -815,6 +943,10 @@ export function ReposScreen({
                   error={pullRequestsError}
                   selectedProject={selection.project}
                   selectedWorktree={selection.worktree}
+                  repoSnapshot={snapshot}
+                  onSelectWorktree={setSelectedId}
+                  onOpenDiff={setDiffPath}
+                  navigate={navigate}
                 />
               </>
             )}
