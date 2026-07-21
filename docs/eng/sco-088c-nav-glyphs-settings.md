@@ -32,6 +32,23 @@ Nav chrome iconography is a touch too small. Bump one step:
 - Remove the duplicate `Settings` item from the sidebar SYSTEM nav section —
   Settings lives exactly once, pinned at the bottom. SYSTEM keeps `Ops`.
 
+## §3 Top-row content + spacing (live feedback, 12:19 round)
+
+- **Section name in the top bar:** the row leads with the current section name
+  in title form, breadcrumb-style: `Sessions / SESSIONS TERMINALS`. Areas
+  without sub-nav show just the section name (no slash, no duplicated dim
+  leaf identical to the active tab). Applies consistently to all areas.
+- **Tighten the left gap:** reduce the dead horizontal space between the
+  (collapsed) rail edge and the start of content / top-row content.
+- **Sub-nav breathing:** more top gap / padding-bottom for the tab cluster
+  inside the 40px row (row height unchanged).
+
+## §4 Collapsed rail: icons only (bug)
+
+The collapsed 48px rail must never render nav label text or boxed label
+outlines (regression seen after the glyph bump). Icons only, centered; labels
+at most as hover tooltips.
+
 ## Constraints (unchanged)
 
 - One-band 40px top row, hairline alignment, one-accent rule, squared nav
