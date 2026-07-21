@@ -135,3 +135,165 @@
 .ledgerRow:last-child { border-bottom: 0; }
 .ledgerTake { font-size: 10.5px; font-weight: 650; color: var(--studio-ink); }
 .ledgerVerdict { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 11.5px; line-height: 1.5; color: var(--studio-ink-faint); }
+
+/* ══ Navigation chrome · three shell layouts (A/B/C) ══════════════════════════
+   The mini-frames carry the REAL dark-HUD web palette (blue-tinted near-black,
+   oklch …260) scoped locally, so they read as actual Scout chrome rather than
+   studio surfaces. The surrounding page (heads, matrix) uses studio tokens.   */
+
+.chromeSection {
+  --hud-bg: oklch(0.132 0.004 260);
+  --hud-surface: oklch(0.178 0.005 260);
+  --hud-surface2: oklch(0.205 0.005 260);
+  --hud-ink: oklch(0.965 0.006 260);
+  --hud-muted: oklch(0.72 0.008 260);
+  --hud-dim: oklch(0.57 0.007 260);
+  --hud-border: oklch(0.965 0.006 260 / 0.09);
+  --hud-border2: oklch(0.965 0.006 260 / 0.16);
+  --hud-seam: oklch(0.965 0.006 260 / 0.06);
+  --hud-accent: oklch(0.86 0.17 125);
+  --hud-ok: oklch(0.80 0.15 155);
+  display: flex; flex-direction: column; gap: 16px; margin-bottom: 30px;
+}
+
+.partHead { display: flex; align-items: baseline; gap: 10px; }
+.partKicker { font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--scout-accent); }
+.partTitle { font-size: 15px; font-weight: 700; color: var(--studio-ink); letter-spacing: 0.01em; }
+.partLede { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 12px; line-height: 1.55; color: var(--studio-ink-faint); max-width: 74ch; margin: 0; }
+.partRule { height: 1px; background: var(--studio-edge); margin: 8px 0 4px; }
+
+/* how-to-read legend */
+.readLegend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 9.5px; color: var(--studio-ink-faint); }
+.readLegend b { color: var(--studio-ink-muted); font-weight: 600; }
+.readSwatch { display: inline-flex; align-items: center; gap: 6px; }
+.readSwatch i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* three columns */
+.chromeGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.chromeCol { display: flex; flex-direction: column; gap: 7px; }
+.chromeColHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.chromeColTitle { font-size: 12px; font-weight: 700; color: var(--studio-ink); letter-spacing: 0.02em; }
+.chromeTag { font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--studio-ink-faint); white-space: nowrap; }
+.chromeTagRec { color: var(--scout-accent); }
+.chromeConcept { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 10.5px; line-height: 1.5; color: var(--studio-ink-faint); margin: 0 0 2px; min-height: 62px; }
+.stateLabel { display: flex; align-items: center; gap: 7px; font-size: 8px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--studio-ink-faint); margin-top: 3px; }
+.stateLabel::after { content: ""; flex: 1; height: 1px; background: color-mix(in oklab, var(--studio-edge) 60%, transparent); }
+
+/* ── mini frame ─────────────────────────────────────────────────────────────── */
+.mini {
+  position: relative; height: 152px; display: flex; flex-direction: column;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--hud-bg); border: 1px solid var(--hud-border2);
+  border-radius: 8px; overflow: hidden; box-shadow: 0 12px 28px -22px #000;
+}
+.mMain { flex: 1; display: flex; min-height: 0; position: relative; }
+.mRight { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mBody { flex: 1; display: flex; min-height: 0; }
+
+.mStatus {
+  height: 14px; flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 8px; background: color-mix(in srgb, var(--hud-surface) 90%, var(--hud-bg));
+  border-top: 1px solid var(--hud-border); font-size: 6.5px; letter-spacing: 0.06em; color: var(--hud-dim);
+}
+
+/* sidebar / nav column */
+.mSidebar {
+  width: 60px; flex: none; background: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+  border-right: 1px solid var(--hud-border);
+}
+.mNav { height: 100%; display: flex; flex-direction: column; padding: 5px 5px 0; }
+.mBrand { display: flex; align-items: center; gap: 4px; height: 15px; margin-bottom: 4px; }
+.mBrandMark {
+  width: 7px; height: 7px; flex: none; border-radius: 1px; background: var(--hud-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hud-accent) 22%, transparent);
+}
+.mBrandName { font-size: 7px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hud-ink); }
+.mNavList { display: flex; flex-direction: column; gap: 1px; }
+.mNavRow { font-size: 6.5px; letter-spacing: 0.02em; color: var(--hud-muted); padding: 2px 3px; border-radius: 2px; position: relative; }
+.mNavRowOn { color: var(--hud-ink); background: oklch(0.965 0.006 260 / 0.08); }
+.mNavRowOn::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 1.5px; background: var(--hud-accent); border-radius: 1px; }
+.mFoot {
+  margin-top: auto; display: flex; align-items: center; gap: 3px; padding: 4px 3px;
+  border-top: 1px solid var(--hud-border); font-size: 5.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hud-dim);
+}
+.mOk { width: 4px; height: 4px; border-radius: 50%; background: var(--hud-ok); flex: none; }
+
+/* top row (inset to content) */
+.mTopRow {
+  height: 19px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 6px;
+  background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg)); border-bottom: 1px solid var(--hud-border);
+}
+.mCrumb { font-size: 6.5px; color: var(--hud-muted); white-space: nowrap; overflow: hidden; }
+.mCrumb b { color: var(--hud-ink); font-weight: 600; }
+.mVrule { width: 1px; height: 9px; background: var(--hud-border2); flex: none; }
+.mSub { font-size: 6px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hud-ink); box-shadow: inset 0 -1.5px 0 0 var(--hud-accent); padding-bottom: 1px; }
+.mSpacer { flex: 1; }
+.mChip { width: 15px; height: 9px; border-radius: 2px; border: 1px solid var(--hud-border2); background: color-mix(in srgb, var(--hud-bg) 82%, transparent); flex: none; }
+.mKbd { font-size: 6px; color: var(--hud-dim); }
+
+/* mast (B) — full width, owns the corner */
+.mMast {
+  height: 21px; flex: none; display: flex; align-items: center; gap: 5px; padding: 0 6px;
+  background: color-mix(in srgb, var(--hud-surface) 92%, var(--hud-bg)); border-bottom: 1px solid var(--hud-border2);
+}
+
+/* content columns */
+.mContext {
+  width: 46px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--hud-surface) 96%, transparent); border-right: 1px solid var(--hud-border);
+}
+.mCenter { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; }
+.mInspector {
+  width: 42px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--hud-surface) 96%, transparent); border-left: 1px solid var(--hud-border);
+}
+.mRegLabel { font-size: 6px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hud-dim); text-align: center; }
+.mCenter .mRegLabel { color: color-mix(in srgb, var(--hud-dim) 80%, transparent); }
+
+/* collapsed strips (48px rails) */
+.mStrip, .mStripCtx, .mStripInsp {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: color-mix(in srgb, var(--hud-surface) 96%, transparent);
+}
+.mStrip { width: 16px; padding-top: 5px; border-right: 1px solid var(--hud-border); }
+/* softened, one step darker than the icon rail — the F1 "don't read as two sidebars" tint */
+.mStripCtx { width: 16px; padding-top: 6px; background: color-mix(in srgb, var(--hud-bg) 84%, var(--hud-surface)); border-right: 1px solid var(--hud-border); }
+.mStripInsp { width: 15px; padding-top: 6px; border-left: 1px solid var(--hud-border); }
+.mDots { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.mDot { width: 5px; height: 5px; border-radius: 1px; background: var(--hud-dim); }
+.mDotOn { background: var(--hud-accent); }
+.mHandle {
+  margin-top: auto; margin-bottom: 5px; font-size: 7px; line-height: 1; color: var(--hud-muted);
+  border: 1px solid var(--hud-border2); border-radius: 2px; padding: 1px 2px;
+}
+
+/* C · nav + context as ONE region (single outer border, internal seam) */
+.mRegion { flex: none; display: flex; background: color-mix(in srgb, var(--hud-surface) 96%, transparent); border-right: 1px solid var(--hud-border); }
+.mRegionNav { width: 58px; flex: none; }
+.mSeam { width: 1px; flex: none; background: var(--hud-seam); }
+.mRegionCtx { width: 42px; flex: none; display: flex; align-items: center; justify-content: center; }
+
+/* C · context flyout overlay (collapsed) */
+.mFlyout {
+  position: absolute; left: 16px; top: 19px; bottom: 0; width: 54px; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--hud-surface) 98%, var(--hud-bg));
+  border-right: 1px solid var(--hud-border2); box-shadow: 8px 0 20px -6px rgba(0, 0, 0, 0.7);
+}
+.mFlyout .mRegLabel { color: var(--hud-muted); }
+
+/* corner-ownership badge under each frame */
+.cornerNote { display: flex; align-items: center; gap: 6px; font-size: 8.5px; letter-spacing: 0.04em; color: var(--studio-ink-faint); padding: 1px 2px; }
+.cornerNote b { color: var(--studio-ink-muted); font-weight: 600; }
+.cornerDot { width: 6px; height: 6px; border-radius: 1px; background: var(--scout-accent); flex: none; }
+
+/* ── the difference matrix ──────────────────────────────────────────────────── */
+.diffMatrix { display: flex; flex-direction: column; border: 1px solid var(--studio-edge); border-radius: 6px; overflow: hidden; background: var(--studio-canvas); }
+.diffRow { display: grid; grid-template-columns: 158px repeat(3, minmax(0, 1fr)); gap: 12px; padding: 8px 13px; border-bottom: 1px solid color-mix(in oklab, var(--studio-edge) 55%, transparent); align-items: baseline; }
+.diffRow:last-child { border-bottom: 0; }
+.diffHead { background: var(--studio-canvas-alt); }
+.diffHead span { font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--studio-ink-faint); }
+.diffLabel { font-size: 9px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--studio-ink-faint); }
+.diffCell { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 11px; color: var(--studio-ink-muted); }
+.diffCellKey { font-family: var(--studio-font-sans, Inter, sans-serif); font-size: 11px; color: var(--studio-ink); font-weight: 600; }
+.diffCellKey::before { content: "▸ "; color: var(--scout-accent); font-weight: 700; }

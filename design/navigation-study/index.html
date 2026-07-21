@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scout — Navigation Chrome Study</title>
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --ink:oklch(0.965 0.006 260); --muted:oklch(0.72 0.008 260);
+    --dim:oklch(0.57 0.007 260); --border:oklch(0.965 0.006 260 / 0.09);
+    --accent:oklch(0.86 0.17 125); --ok:oklch(0.80 0.15 155);
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:48px 32px 80px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 40px}
+  .mark{display:inline-flex;width:14px;height:14px;margin-right:8px;vertical-align:-2px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:0 0 44px}
+  a.card{display:block;text-decoration:none;color:inherit;background:var(--surface);
+    border:1px solid var(--border);border-radius:8px;padding:18px 18px 20px;
+    transition:border-color .15s ease,transform .15s ease}
+  a.card:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);transform:translateY(-2px)}
+  .tag{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .rec{color:var(--accent)}
+  .card h2{font-size:13px;font-weight:600;letter-spacing:.02em;margin:8px 0 6px}
+  .card p{font-size:11px;color:var(--muted);margin:0}
+  .legend{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 22px;margin-bottom:32px}
+  .legend h3{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 14px}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--dim);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase}
+  td{color:var(--muted)} td b{color:var(--ink);font-weight:600}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+  .foot{color:var(--dim);font-size:11px;margin-top:24px}
+  .foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><svg class="mark" viewBox="0 0 20 20" fill="none" stroke="currentColor" style="color:#f8f3e8"><polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" stroke-width="1.9" fill="currentColor" fill-opacity=".12"/><polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" stroke-width=".9" fill="currentColor" fill-opacity=".9"/></svg>Scout — Navigation Chrome Study</h1>
+  <p class="sub">Three arrangement options for the web app chrome (sidebar · side rail · top row · inspector). Click a card to open the interactive mockup. Companion write-up: <span style="color:var(--muted)">docs/design/navigation-study.md</span></p>
+
+  <div class="cards">
+    <a class="card" href="option-a-anchored-l.html">
+      <span class="tag rec">Option A · Recommended</span>
+      <h2>Anchored L</h2>
+      <p>The annotated-mock direction. Full-height sidebar + content-inset top row, refined to read as one system. Smallest delta — polish, not restructure.</p>
+    </a>
+    <a class="card" href="option-b-full-width-mast.html">
+      <span class="tag">Option B</span>
+      <h2>Full-width Mast</h2>
+      <p>A true full-width top row across everything; the sidebar drops below it and the logo moves into the mast. Needs sign-off (reverses the full-height sidebar).</p>
+    </a>
+    <a class="card" href="option-c-telescoping-rail.html">
+      <span class="tag">Option C</span>
+      <h2>Telescoping Rail</h2>
+      <p>Kills the double rail — nav + context collapse into one 48px strip; context flies out on demand. Most ambitious; sequence after A.</p>
+    </a>
+  </div>
+
+  <div class="legend">
+    <h3>Palette &amp; type (dark HUD, from scout/Provider.tsx)</h3>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 14px">
+      <span class="swatch" style="background:var(--bg);outline:1px solid var(--border)"></span>bg
+      &nbsp;<span class="swatch" style="background:var(--surface)"></span>surface
+      &nbsp;<span class="swatch" style="background:var(--ink)"></span>ink
+      &nbsp;<span class="swatch" style="background:var(--accent)"></span>accent (the only saturated color)
+      &nbsp;<span class="swatch" style="background:var(--ok)"></span>broker&nbsp;ok · type: JetBrains Mono
+    </p>
+    <h3 style="margin-top:20px">Current state matrix — vw 1280 (from the study §2.3)</h3>
+    <table>
+      <tr><th>#</th><th>sidebar / side-rail / inspector</th><th>center width</th><th>chevrons @ x</th></tr>
+      <tr><td>1</td><td><b>260 / 260 / 280</b> all expanded</td><td>480</td><td>260 · 520 · 1000</td></tr>
+      <tr><td>2</td><td>48 / 260 / 280</td><td>692</td><td>48 · 308 · 1000</td></tr>
+      <tr><td>3</td><td>260 / 48 / 280</td><td>692</td><td>260 · 308 · 1000</td></tr>
+      <tr><td>4</td><td><b>48 / 48 / 48</b> all collapsed</td><td>1136</td><td>48 · 96 · 1232</td></tr>
+    </table>
+    <p style="font-size:10px;color:var(--dim);margin:14px 0 0">Shared constants — top row 40 · rail collapsed 48 · sidebar 200–360 (def 260) · chevron 22×28 on the y=48 band · status 28.</p>
+  </div>
+
+  <p class="foot">Static analysis + mockups only — no production code changed. Grounded in OpenScoutAppShell.tsx, scout/sidebar/*, RailToggle.tsx, app.css, and specs sco-083..087.</p>
+</div>
+</body>
+</html>

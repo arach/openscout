@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option C — Telescoping Rail</title>
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --surface2:oklch(0.205 0.005 260); --ink:oklch(0.965 0.006 260);
+    --muted:oklch(0.72 0.008 260); --dim:oklch(0.57 0.007 260);
+    --ghost:oklch(0.965 0.006 260 / 0.48); --border:oklch(0.965 0.006 260 / 0.08);
+    --seam:oklch(0.965 0.006 260 / 0.06); --border2:oklch(0.965 0.006 260 / 0.14);
+    --accent:oklch(0.86 0.17 125); --ok:oklch(0.80 0.15 155);
+    --hover:oklch(0.965 0.006 260 / 0.05); --active:oklch(0.965 0.006 260 / 0.08);
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    --nav:260px; --ctx:260px; --insp:280px; --toprow:40px; --status:28px; --band:48px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);padding:32px 28px 64px;-webkit-font-smoothing:antialiased}
+  .page{max-width:1240px;margin:0 auto}
+  a.back{color:var(--dim);text-decoration:none;font-size:11px;letter-spacing:.06em} a.back:hover{color:var(--muted)}
+  h1{font-size:14px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:14px 0 4px}
+  .concept{color:var(--muted);font-size:12px;margin:0 0 6px;max-width:780px;line-height:1.6}
+  .tag{color:var(--dim);font-size:9px;letter-spacing:.14em;text-transform:uppercase}
+  .controls{display:flex;gap:8px;align-items:center;margin:18px 0 14px;flex-wrap:wrap}
+  .controls .hint{color:var(--dim);font-size:11px;margin-left:6px}
+  button.preset{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--muted);background:var(--surface);border:1px solid var(--border2);border-radius:5px;padding:6px 11px;cursor:pointer}
+  button.preset:hover{color:var(--ink);border-color:var(--accent)}
+  .state{font-size:10px;color:var(--dim);letter-spacing:.08em}
+
+  .frame{position:relative;height:560px;background:var(--bg);border:1px solid var(--border2);border-radius:10px;overflow:hidden;box-shadow:0 30px 80px -40px #000}
+  .frame *{transition:none}
+
+  /* nav (full height) */
+  .sidebar{position:absolute;left:0;top:0;bottom:var(--status);width:var(--nav);background:color-mix(in srgb,var(--surface) 96%,transparent);display:flex;flex-direction:column;z-index:6}
+  /* internal seam vs outer border: outer border only where context is NOT adjacent */
+  .sidebar{border-right:1px solid var(--seam)} /* seam toward context */
+  .frame.collapsed .sidebar{border-right:1px solid var(--border)} /* real edge when single rail */
+  .brand{display:flex;align-items:center;gap:8px;height:52px;padding:0 12px;flex-shrink:0}
+  .brand svg{width:18px;height:18px;color:#f8f3e8} .brand .name{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  .grp{padding:10px 8px 4px} .grplabel{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:0 8px 6px}
+  .nav{display:flex;flex-direction:column;gap:1px}
+  .navitem{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;border-radius:5px;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.02em;cursor:default;position:relative}
+  .navitem:hover{background:var(--hover)}
+  .navitem .mono{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;font-size:10px;color:var(--dim);flex-shrink:0;border:1px solid transparent}
+  .navitem.active{color:var(--ink);background:var(--active);font-weight:600}
+  .navitem.active::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;background:var(--accent);border-radius:1px}
+  .navitem.active .mono{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+  .sb-foot{margin-top:auto;padding:12px;border-top:1px solid var(--seam);display:flex;align-items:center;gap:6px}
+  .frame.collapsed .sb-foot{border-top-color:var(--border)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex-shrink:0}
+  .sb-foot .lbl{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ghost)}
+  .collapsed .name,.collapsed .grplabel,.collapsed .navitem span.txt,.collapsed .sb-foot .lbl{display:none}
+  .collapsed .brand{justify-content:center;padding:0} .collapsed .navitem{justify-content:center;padding:0} .collapsed .sb-foot{justify-content:center}
+
+  /* context-handle inside the collapsed single rail (telescoped) */
+  .ctx-handle{display:none}
+  .frame.collapsed .ctx-handle{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:6px;padding-top:10px;border-top:1px solid var(--border);width:100%}
+  .ctx-handle button{width:26px;height:26px;border-radius:5px;border:1px solid var(--border2);background:color-mix(in srgb,var(--bg) 80%,transparent);color:var(--muted);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .ctx-handle button:hover{color:var(--ink);border-color:var(--accent)}
+  .ctx-handle .cap{font-size:8px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;writing-mode:vertical-rl;margin-top:4px}
+
+  /* context column — pushed (expanded region) */
+  .ctxcol{position:absolute;left:var(--nav);top:var(--toprow);bottom:var(--status);width:var(--ctx);background:color-mix(in srgb,var(--surface) 92%,transparent);border-right:1px solid var(--border);z-index:4;overflow:hidden}
+  .frame.collapsed .ctxcol{display:none}
+  .rail-head{height:44px;display:flex;align-items:center;padding:0 14px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+  .rail-body{padding:8px}
+  .ctx{display:flex;align-items:center;gap:9px;height:34px;padding:0 8px;border-radius:5px;color:var(--muted);font-size:11px}
+  .ctx:hover{background:var(--hover)} .ctx.on{background:var(--active);color:var(--ink)}
+  .ctx .sw{width:7px;height:7px;border-radius:2px;background:var(--dim);flex-shrink:0} .ctx.on .sw{background:var(--accent)}
+  .ctx .meta{margin-left:auto;font-size:9px;color:var(--dim)}
+
+  /* context FLYOUT — overlay when collapsed */
+  .flyout{position:absolute;left:var(--nav);top:var(--toprow);bottom:var(--status);width:248px;z-index:15;
+    background:color-mix(in srgb,var(--surface) 98%,var(--bg));border-right:1px solid var(--border2);
+    box-shadow:18px 0 48px -12px rgba(0,0,0,.7);display:none;overflow:hidden}
+  .frame.collapsed.flyopen .flyout{display:block}
+  .flyout .rail-head{justify-content:space-between} .flyout .rail-head .x{cursor:pointer;color:var(--dim)} .flyout .rail-head .x:hover{color:var(--ink)}
+
+  /* center */
+  .center{position:absolute;top:var(--toprow);bottom:var(--status);left:calc(var(--nav) + var(--ctxpush));right:var(--insp);overflow:hidden;padding:22px 26px}
+  .center h2{font-size:13px;font-weight:600;margin:0 0 3px} .center .lede{font-size:11px;color:var(--dim);margin:0 0 20px}
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .cx{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:14px}
+  .cx .t{font-size:11px;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:7px} .cx .t .d{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .bar{height:6px;border-radius:3px;background:var(--surface2);margin:6px 0} .bar.a{width:70%}.bar.b{width:45%}.bar.c{width:88%}.bar.d{width:55%}
+
+  /* top row (inset to nav) */
+  .toprow{position:absolute;left:var(--nav);right:0;top:0;height:var(--toprow);z-index:5;display:flex;align-items:center;gap:12px;padding:0 12px 0 14px;background:color-mix(in srgb,var(--surface) 92%,var(--bg));border-bottom:1px solid var(--border)}
+  .crumb{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted);white-space:nowrap} .crumb b{color:var(--ink)}
+  .vrule{width:1px;height:16px;background:var(--border2)}
+  .subnav{display:flex;gap:2px} .subnav button{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);background:transparent;border:0;border-radius:4px;padding:4px 10px;cursor:default} .subnav button.on{color:var(--ink);box-shadow:inset 0 -2px 0 0 var(--accent)}
+  .spacer{flex:1}
+  .scope{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:5px;border:1px solid var(--border2);background:color-mix(in srgb,var(--bg) 82%,transparent);font-size:10px;color:var(--muted);white-space:nowrap} .scope .dot{background:var(--ok)}
+  .util{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border-radius:4px;border:1px solid var(--border);background:color-mix(in srgb,var(--bg) 82%,transparent);color:var(--ghost);cursor:default} .util .kbd{font-size:9px;color:var(--dim)} .util svg{width:13px;height:13px}
+
+  .inspector{position:absolute;right:0;top:var(--toprow);bottom:var(--status);width:var(--insp);background:color-mix(in srgb,var(--surface) 96%,transparent);border-left:1px solid var(--border);z-index:4;overflow:hidden}
+  .irow{display:flex;justify-content:space-between;padding:9px 14px;font-size:10px;border-bottom:1px solid var(--border)} .irow .k{color:var(--dim);letter-spacing:.06em;text-transform:uppercase} .irow .v{color:var(--muted)}
+  .inspector.mini{width:var(--band)} .inspector.mini .rail-head,.inspector.mini .irow{display:none}
+
+  .status{position:absolute;left:0;right:0;bottom:0;height:var(--status);z-index:7;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:color-mix(in srgb,var(--surface) 90%,var(--bg));border-top:1px solid var(--border);font-size:9px;color:var(--dim)}
+  .status .l,.status .r{display:flex;gap:12px;align-items:center} .status b{color:var(--muted);font-weight:500} .status .k{letter-spacing:.14em;text-transform:uppercase}
+
+  /* chevrons: region boundary + inspector. In collapsed, region chevron sits on the single 48 rail edge */
+  .chev{position:absolute;top:var(--band);width:22px;height:28px;z-index:20;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--muted);background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--border2);border-radius:4px;cursor:pointer;transform:translateX(-50%)}
+  .chev:hover{color:var(--ink);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+  .chev.reg{left:calc(var(--nav) + var(--ctxpush))}
+  .chev.in{left:auto;right:var(--insp);transform:translateX(50%)}
+
+  .spec{margin-top:16px;font-size:10.5px;color:var(--dim);line-height:1.9} .spec b{color:var(--muted);font-weight:600} .spec code{color:var(--accent)}
+  .callout{margin-top:10px;font-size:10.5px;color:var(--muted);background:color-mix(in srgb,var(--accent) 7%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;padding:10px 12px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back" href="index.html">‹ back to compare</a>
+  <span class="tag" style="margin-left:12px">Option C · most ambitious · sequence after A</span>
+  <h1>Telescoping Rail</h1>
+  <p class="concept">Nav + context are <b>one continuous left region</b> with a single internal seam (not two bordered panels, no gap). Collapsed, they <b>telescope into one 48px rail</b> that hosts the area icons <i>and</i> a context handle — the context content flies out as an overlay on demand instead of pushing a second 48px strip. Kills the double rail: collapsed left chrome is <b>48px, not 96</b>.</p>
+
+  <div class="controls">
+    <button class="preset" onclick="preset('exp')">Expanded region</button>
+    <button class="preset" onclick="preset('col')">Icon rail (telescoped)</button>
+    <button class="preset" onclick="preset('fly')">Icon rail + context flyout</button>
+    <span class="hint">— region chevron toggles the pair; the <span style="color:var(--muted)">⊟</span> handle opens the flyout. <span class="state" id="state"></span></span>
+  </div>
+
+  <div class="frame collapsed" id="frame">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor"><polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" stroke-width="1.9" fill="currentColor" fill-opacity=".12"/><polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" stroke-width=".9" fill="currentColor" fill-opacity=".9"/></svg>
+        <span class="name">Scout</span>
+      </div>
+      <div class="grp">
+        <div class="grplabel">Navigate</div>
+        <div class="nav">
+          <div class="navitem"><span class="mono">H</span><span class="txt">Home</span></div>
+          <div class="navitem active"><span class="mono">P</span><span class="txt">Projects</span></div>
+          <div class="navitem"><span class="mono">S</span><span class="txt">Sessions</span></div>
+          <div class="navitem"><span class="mono">C</span><span class="txt">Chat</span></div>
+          <div class="navitem"><span class="mono">D</span><span class="txt">Dispatch</span></div>
+          <div class="navitem"><span class="mono">⌕</span><span class="txt">Search</span></div>
+        </div>
+      </div>
+      <div class="grp">
+        <div class="grplabel">System</div>
+        <div class="nav">
+          <div class="navitem"><span class="mono">O</span><span class="txt">Ops</span></div>
+          <div class="navitem"><span class="mono">✦</span><span class="txt">Settings</span></div>
+        </div>
+      </div>
+      <!-- telescoped context handle (only in collapsed single rail) -->
+      <div class="ctx-handle"><button onclick="toggleFly()" title="Open Projects context">⊟</button></div>
+      <div class="sb-foot"><span class="dot"></span><span class="lbl">Broker</span></div>
+    </aside>
+
+    <!-- pushed context column (expanded region) -->
+    <aside class="ctxcol" id="ctxcol">
+      <div class="rail-head">Projects</div>
+      <div class="rail-body">
+        <div class="ctx on"><span class="sw"></span>openscout<span class="meta">4</span></div>
+        <div class="ctx"><span class="sw"></span>hudson<span class="meta">1</span></div>
+        <div class="ctx"><span class="sw"></span>studio<span class="meta">2</span></div>
+        <div class="ctx"><span class="sw"></span>landing<span class="meta">—</span></div>
+      </div>
+    </aside>
+
+    <!-- overlay flyout (collapsed) -->
+    <aside class="flyout">
+      <div class="rail-head">Projects <span class="x" onclick="toggleFly()">✕</span></div>
+      <div class="rail-body">
+        <div class="ctx on"><span class="sw"></span>openscout<span class="meta">4</span></div>
+        <div class="ctx"><span class="sw"></span>hudson<span class="meta">1</span></div>
+        <div class="ctx"><span class="sw"></span>studio<span class="meta">2</span></div>
+        <div class="ctx"><span class="sw"></span>landing<span class="meta">—</span></div>
+      </div>
+    </aside>
+
+    <div class="toprow">
+      <span class="crumb">Projects&nbsp;/&nbsp;<b>openscout</b></span>
+      <span class="vrule"></span>
+      <div class="subnav"><button class="on">Recent</button><button>All</button></div>
+      <span class="spacer"></span>
+      <span class="scope"><span class="dot"></span>this-mac</span>
+      <span class="util"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1Z"/></svg></span>
+      <span class="util"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/></svg><span class="kbd">⌘K</span></span>
+    </div>
+
+    <main class="center">
+      <h2>openscout</h2>
+      <p class="lede">4 agents · 2 working · last active 3m ago</p>
+      <div class="cards">
+        <div class="cx"><div class="t"><span class="d"></span>fable · sco-087</div><div class="bar a"></div><div class="bar b"></div></div>
+        <div class="cx"><div class="t"><span class="d"></span>codex · review</div><div class="bar c"></div><div class="bar d"></div></div>
+        <div class="cx"><div class="t"><span class="d" style="background:var(--dim)"></span>opus · idle</div><div class="bar b"></div><div class="bar a"></div></div>
+        <div class="cx"><div class="t"><span class="d" style="background:var(--dim)"></span>sonnet · idle</div><div class="bar d"></div><div class="bar c"></div></div>
+      </div>
+    </main>
+
+    <aside class="inspector" id="inspector">
+      <div class="rail-head">Detail</div>
+      <div class="irow"><span class="k">cwd</span><span class="v">~/dev/openscout</span></div>
+      <div class="irow"><span class="k">harness</span><span class="v">claude</span></div>
+      <div class="irow"><span class="k">model</span><span class="v">opus-4.8</span></div>
+      <div class="irow"><span class="k">branch</span><span class="v">sco-087</span></div>
+    </aside>
+
+    <button class="chev reg" onclick="toggleReg()" id="chevReg">›</button>
+    <button class="chev in" onclick="toggleIn()" id="chevIn">›</button>
+
+    <div class="status">
+      <div class="l"><span><span class="k">Active</span> <b>2</b></span><span><span class="k">Mesh</span> <b>ok</b></span></div>
+      <div class="r"><b>build 3d0c25a</b></div>
+    </div>
+  </div>
+
+  <div class="callout"><b>Watch:</b> "Icon rail (telescoped)" is the F1 fix — where Options A &amp; B show two 48px strips (nav + collapsed context = 96px), C shows a single 48px rail with a <span style="color:var(--muted)">⊟</span> context handle. Click it for the flyout: context overlays instead of pushing a second column.</div>
+
+  <p class="spec">
+    <b>Expanded region</b> nav 260 + context 260 as one panel, internal seam <code>ink 6%</code>, one outer border ·
+    <b>Telescoped</b> single <code>48</code> rail: 8 area icons + context handle · context = <code>overlay flyout</code> (248px, shadow), never a 2nd 48px strip ·
+    top row inset to nav (composes with A) · chevrons on the <code>y=48</code> band · <b>trade:</b> merges the look of two component systems + adds an overlay mode.
+  </p>
+</div>
+
+<script>
+  const root=document.documentElement.style;
+  const frame=document.getElementById('frame');
+  let expanded=false, flyopen=false, insp=true;
+  function apply(){
+    frame.classList.toggle('collapsed',!expanded);
+    frame.classList.toggle('flyopen',flyopen && !expanded);
+    root.setProperty('--nav', expanded?'260px':'48px');
+    root.setProperty('--ctx', expanded?'260px':'0px');
+    root.setProperty('--ctxpush', expanded?'260px':'0px'); // center left offset (flyout doesn't push)
+    root.setProperty('--insp', insp?'280px':'48px');
+    document.getElementById('inspector').classList.toggle('mini',!insp);
+    document.getElementById('chevReg').textContent=expanded?'‹':'›';
+    document.getElementById('chevIn').textContent=insp?'›':'‹';
+    const left = expanded?'260+260 (one region)':(flyopen?'48 rail + flyout':'48 rail');
+    document.getElementById('state').textContent='[left: '+left+' · inspector '+(insp?280:48)+']';
+  }
+  function toggleReg(){expanded=!expanded; if(expanded)flyopen=false; apply()}
+  function toggleFly(){flyopen=!flyopen; apply()}
+  function toggleIn(){insp=!insp; apply()}
+  function preset(p){ if(p==='exp'){expanded=true;flyopen=false} if(p==='col'){expanded=false;flyopen=false} if(p==='fly'){expanded=false;flyopen=true} apply() }
+  apply();
+</script>
+</body>
+</html>
