@@ -107,6 +107,16 @@ durable agent can be backed by different sessions over time. Commands that start
 or attach a harness use "session" as their public noun and fail loudly when a
 requested harness cannot be backed by a compatible session.
 
+**Assigned Role.** An assigned role is an explicit, durable duty granted to an
+agent for a mission, agent, or project scope. It is not an `agentClass`, harness,
+rank, or identity attribute: it says what the agent has been asked to do in that
+scope. The first catalog role is **orchestrator**, which owns a long-running
+mission spine and can keep its mission log current. An assignment is a seat on
+the durable agent, so it survives a process death while its backing sessions are
+disposable. Prefer starting a fresh session and re-steering it through the
+durable agent/mission context; use `session:<id>` only when the exact prior
+harness context is required.
+
 **Endpoint.** An endpoint attaches an agent identity to one reachable session,
 on a given transport and node. It is the join between the durable target and the
 concrete runtime — the record that says "this agent is currently reachable this
@@ -220,6 +230,16 @@ interaction needs ownership, milestones, or a review gate — anything more than
 single ask can hold. It is richer than a base task noun precisely because Scout
 wants owned, resumable work to be first-class rather than implied by a
 long-running message.
+
+**Mission And Mission Log.** A mission is the long-running campaign root for
+coordinated work; in v0 its id is a work-item id. A mission log is that mission's
+cheap append-only situation stream, with short structured `intent`, `status`,
+and `kind` fields plus optional checkpoint, blockers, and drill-down references.
+It is not chat, a replacement for work-item progress, or a harness transcript:
+keep the detailed evidence in the relevant DM, work record, or observed harness
+material. The anti-spam rule is strict: no active assignment whose role permits
+`mission_log.append` means no mission-log write. The built-in orchestrator role
+has that permission; ordinary workers do not acquire it by being busy or verbose.
 
 **Acceptance.** Acceptance is the requester's judgment that a result is actually
 done — a separate signal from broker acceptance, peer acknowledgement, and agent
