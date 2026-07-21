@@ -457,14 +457,6 @@ body { margin: 0; }
   border-left-width: 1px;
 }
 
-.scout-collapsed-rail-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 28px;
-}
-
 .scout-collapsed-rail-glyph {
   display: flex;
   align-items: center;
@@ -483,6 +475,16 @@ body { margin: 0; }
    fades remain as the single composited motion. */
 html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] {
   transition: none !important;
+}
+
+/* SCO-087 (review fix): the container override above does NOT reach descendants.
+   shadcn animates layout props on collapse — transition-[margin,opacity] on the
+   group label, transition-[width,height,padding] on menu buttons — which relays
+   out the sidebar subtree per frame. Restrict every descendant transition to
+   compositor-only opacity+transform so those layout props snap; the opacity
+   label fade (the single intended motion) is preserved. */
+html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
+  transition-property: opacity, transform !important;
 }
 
 /* prefers-reduced-motion: everything commits instantly, no fades. */

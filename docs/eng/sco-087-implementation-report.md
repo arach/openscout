@@ -121,3 +121,25 @@ Scope + embeds + the legacy path untouched. Removed the now-dead
    the *sidebar* drag-resize). Same ghost treatment there is a follow-up if
    wanted.
 5. `TOP_ROW_HEIGHT = 40` chosen as "slim" — tune to taste.
+
+## Review fixes (Codex, PR #406 — 2 blocking)
+
+**B1 — collapsed chevron off the boundary.** `CollapsedRail` rendered the
+`RailToggle` in a `width:100%` flex-centered header, so the collapsed side-rail
+and inspector chevrons sat ~24px inside the 48px strip. Fixed by absolutely
+positioning the chevron ON the strip's inner boundary line (`right:0`
+translateX(50%) for a left rail; `left:0` translateX(-50%) for a right rail) at
+`top:8` — the same band as the expanded chevrons. Removed the dead
+`.scout-collapsed-rail-header` rule. Files: `CollapsedRail.tsx`, `app.css`.
+
+**B2 — descendants still animated layout props.** The `transition:none` override
+only covered `[data-slot="sidebar-container"]`; shadcn descendants still eased
+`margin`/`opacity` (group label) and `width`/`height`/`padding` (menu buttons)
+on collapse → per-frame subtree relayout. Added
+`html[data-scout-sidebar-chrome] [data-slot="sidebar-container"] * {
+transition-property: opacity, transform !important; }` so layout props snap and
+motion stays compositor-only (opacity+transform); the label opacity fade is
+preserved. File: `app.css`.
+
+Re-verified: build green; focused nav/sidebar suites 79 pass / 0 fail; tsc no new
+errors in touched files. Behavior otherwise unchanged; not committed.

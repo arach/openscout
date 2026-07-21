@@ -49,16 +49,32 @@ export function CollapsedRail({
       }}
       aria-label={`${title} (collapsed)`}
     >
-      <div className="scout-collapsed-rail-header">
-        <RailToggle
-          side={side}
-          collapsed
-          label={title}
-          onToggle={onToggle}
-        />
-      </div>
+      {/* SCO-087 (review fix): center the chevron ON the rail's boundary line
+          (its inner edge — right edge for a left rail, left edge for a right
+          rail) so collapsed matches the expanded-state band, instead of
+          flex-centering it ~24px inside the 48px strip. top:8 == the expanded
+          railToggleTop offset (RAIL_TOGGLE_HEADER_TOP). */}
+      <RailToggle
+        side={side}
+        collapsed
+        label={title}
+        onToggle={onToggle}
+        className="scout-collapsed-rail-toggle"
+        style={{
+          position: "absolute",
+          top: 8,
+          zIndex: 46,
+          ...(side === "left"
+            ? { right: 0, transform: "translateX(50%)" }
+            : { left: 0, transform: "translateX(-50%)" }),
+        }}
+      />
       {glyph ? (
-        <div className="scout-collapsed-rail-glyph" aria-hidden="true">
+        <div
+          className="scout-collapsed-rail-glyph"
+          aria-hidden="true"
+          style={{ marginTop: 40 }}
+        >
           {glyph}
         </div>
       ) : null}
