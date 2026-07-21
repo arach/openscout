@@ -1,11 +1,32 @@
 /**
- * Classic sidebar chrome (SCO-083) — expanded (~260px) + icon rail (~48px).
+ * Scout primary navigation chrome (SCO-084) — shadcn Sidebar composition.
+ *
+ * PURE NAVIGATION only (Requirement 7 revised 2026-07-20):
+ * destinations, scope items, broker status, collapse trigger.
+ * Per-area context content lives in the left HudsonKit SidePanel (side rail),
+ * not here — do not re-introduce a Context group.
+ *
  * Gated by nav.sidebar; renders exactly one chrome tree vs legacy left panel.
+ * State (open/collapsed) is owned by useSidebarCollapse via SidebarProvider;
+ * this file is presentation only. Default presentation is the 48px icon rail.
+ *
+ * HudsonKit SidePanel is intentionally separate (side rail / right inspector /
+ * legacy left). Do not route this chrome through SidePanel.
  */
-import type React from "react";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useOptionalFlag } from "hudsonkit/flags";
-import { Tooltip } from "@base-ui-components/react/tooltip";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarTrigger,
+} from "../../components/ui/sidebar.tsx";
+import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
 import {
@@ -15,9 +36,8 @@ import {
   type PrimaryArea,
   type PrimaryAreaId,
 } from "../primary-areas.ts";
-import { resolveSidebarContext } from "../../screens/resolve-sidebar-context.tsx";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { useSidebarModel } from "./useSidebarModel.ts";
-import "./scout-sidebar.css";
 
 function ScoutMark({ className = "" }: { className?: string }) {
   return (
@@ -46,108 +66,74 @@ function ScoutMark({ className = "" }: { className?: string }) {
   );
 }
 
-function AreaButton({
-  area,
-  active,
-  collapsed,
-  onSelect,
-}: {
-  area: PrimaryArea;
-  active: boolean;
-  collapsed: boolean;
-  onSelect: () => void;
-}) {
-  const Icon = area.icon;
-  const className = `scout-sidebar-item${active ? " scout-sidebar-item--active" : ""}`;
-
-  if (!collapsed) {
-    return (
-      <button
-        type="button"
-        className={className}
-        onClick={onSelect}
-        aria-current={active ? "page" : undefined}
-        data-area={area.id}
-      >
-        <Icon size={16} strokeWidth={1.6} aria-hidden className="scout-sidebar-item-icon" />
-        <span className="scout-sidebar-item-label">{area.label}</span>
-      </button>
-    );
-  }
-
-  return (
-    <Tooltip.Root>
-      <Tooltip.Trigger
-        type="button"
-        className={className}
-        onClick={onSelect}
-        aria-current={active ? "page" : undefined}
-        data-area={area.id}
-        aria-label={area.label}
-        delay={200}
-      >
-        <Icon size={16} strokeWidth={1.6} aria-hidden className="scout-sidebar-item-icon" />
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Positioner side="right" sideOffset={8}>
-          <Tooltip.Popup className="scout-sidebar-tooltip">{area.label}</Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
-  );
-}
-
-function AreaSection({
-  title,
+function AreaMenuItems({
   areas,
   activeAreaId,
-  collapsed,
   onNavigateArea,
 }: {
-  title: string;
   areas: readonly PrimaryArea[];
   activeAreaId: PrimaryAreaId;
-  collapsed: boolean;
   onNavigateArea: (id: PrimaryAreaId) => void;
 }) {
   return (
-    <div className="scout-sidebar-section" role="group" aria-label={title}>
-      {!collapsed && <div className="scout-sidebar-section-label">{title}</div>}
-      <div className="scout-sidebar-section-items">
-        {areas.map((area) => (
-          <AreaButton
-            key={area.id}
-            area={area}
-            active={area.id === activeAreaId}
-            collapsed={collapsed}
-            onSelect={() => onNavigateArea(area.id)}
-          />
-        ))}
-      </div>
+    <SidebarMenu>
+      {areas.map((area) => {
+        const Icon = area.icon;
+        const active = area.id === activeAreaId;
+        return (
+          <SidebarMenuItem key={area.id}>
+            <SidebarMenuButton
+              type="button"
+              isActive={active}
+              tooltip={area.label}
+              aria-current={active ? "page" : undefined}
+              data-area={area.id}
+              className="font-mono text-[11px] font-medium tracking-[0.02em]"
+              onClick={() => onNavigateArea(area.id)}
+            >
+              <Icon size={16} strokeWidth={1.6} aria-hidden />
+              <span>{area.label}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </SidebarMenu>
+  );
+}
+
+function BrokerStatusLine() {
+  const { apiConnection } = useScout();
+  const offline = apiConnection.status === "offline";
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
+        "text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden",
+      )}
+      title={offline ? "Scout API offline" : "Scout API connected"}
+      data-sidebar="broker-status"
+    >
+      <span
+        className={cn(
+          "inline-block size-1.5 shrink-0 rounded-full",
+          offline ? "bg-red-500" : "bg-emerald-400",
+        )}
+        aria-hidden
+      />
+      <span className="truncate">{offline ? "Offline" : "Broker"}</span>
     </div>
   );
 }
 
 export function ScoutSidebar({
-  collapsed,
-  width,
-  onToggleCollapse,
   brandLabel = "Scout",
 }: {
-  collapsed: boolean;
-  width: number;
-  onToggleCollapse: () => void;
   brandLabel?: string;
 }) {
   const { route, navigate } = useScout();
   const opsControlEnabled = useOptionalFlag("ops.control", true);
   const model = useSidebarModel(route);
   const activeAreaId = primaryAreaForRoute(route);
-  // Scope presentation uses its own destination list; no Scout context pane.
-  const context =
-    model.kind === "scope"
-      ? { body: null as React.ReactNode, footer: null as React.ReactNode }
-      : resolveSidebarContext(route, navigate);
   const navigateAreas = PRIMARY_AREAS.filter((a) => a.section === "navigate");
   const systemAreas = PRIMARY_AREAS.filter((a) => a.section === "system");
 
@@ -159,106 +145,106 @@ export function ScoutSidebar({
   };
 
   return (
-    <Tooltip.Provider delay={200}>
-      <aside
-        className={`scout-sidebar${collapsed ? " scout-sidebar--collapsed" : ""}${
-          model.kind === "scope" ? " scout-sidebar--scope" : ""
-        }`}
-        style={{ width }}
-        data-sidebar="primary"
-        data-sidebar-kind={model.kind}
-        aria-label={model.kind === "scope" ? "Scope navigation" : "Primary navigation"}
-      >
-        <header className="scout-sidebar-header">
-          <button
-            type="button"
-            className="scout-sidebar-brand"
-            onClick={goHome}
-            title="Home"
-            aria-label="Scout Home"
-          >
-            <ScoutMark className="scout-sidebar-brand-mark" />
-            {!collapsed && <span className="scout-sidebar-brand-label">{brandLabel}</span>}
-          </button>
-        </header>
+    <Sidebar
+      side="left"
+      variant="sidebar"
+      collapsible="icon"
+      aria-label={model.kind === "scope" ? "Scope navigation" : "Primary navigation"}
+      data-sidebar-kind={model.kind}
+    >
+      <SidebarHeader className="border-b border-sidebar-border">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              type="button"
+              size="lg"
+              tooltip="Home"
+              onClick={goHome}
+              aria-label="Scout Home"
+              title="Home"
+              className="font-mono data-[slot=sidebar-menu-button]:!p-2"
+            >
+              <ScoutMark className="size-[18px] shrink-0" />
+              <span className="truncate text-[11px] font-bold tracking-[0.08em] uppercase">
+                {brandLabel}
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
 
-        <nav className="scout-sidebar-nav" aria-label={model.kind === "scope" ? "Scope areas" : "Primary areas"}>
-          {model.kind === "scope" ? (
-            <div className="scout-sidebar-section" role="group" aria-label="Scope">
-              {!collapsed && <div className="scout-sidebar-section-label">Scope</div>}
-              <div className="scout-sidebar-section-items">
+      <SidebarContent className="gap-0">
+        {model.kind === "scope" ? (
+          <SidebarGroup>
+            <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+              Scope
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
                 {model.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`scout-sidebar-item${item.active ? " scout-sidebar-item--active" : ""}`}
-                    onClick={() => navigate(item.route)}
-                    aria-current={item.active ? "page" : undefined}
-                    data-area={item.id}
-                    title={item.label}
-                    aria-label={item.label}
-                  >
-                    {!collapsed && <span className="scout-sidebar-item-label">{item.label}</span>}
-                    {collapsed && (
-                      <span className="scout-sidebar-item-label scout-sidebar-item-label--initial">
+                  <SidebarMenuItem key={item.id}>
+                    <SidebarMenuButton
+                      type="button"
+                      isActive={item.active}
+                      tooltip={item.label}
+                      aria-current={item.active ? "page" : undefined}
+                      data-area={item.id}
+                      aria-label={item.label}
+                      title={item.label}
+                      className="font-mono text-[11px] font-medium"
+                      onClick={() => navigate(item.route)}
+                    >
+                      {/* Scope items have no icons — initial-letter fallback for icon rail. */}
+                      <span
+                        className="flex size-4 shrink-0 items-center justify-center text-[11px] font-bold uppercase"
+                        aria-hidden
+                      >
                         {item.label.slice(0, 1)}
                       </span>
-                    )}
-                  </button>
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                 ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              <AreaSection
-                title="Navigate"
-                areas={navigateAreas}
-                activeAreaId={activeAreaId}
-                collapsed={collapsed}
-                onNavigateArea={goArea}
-              />
-              <AreaSection
-                title="System"
-                areas={systemAreas}
-                activeAreaId={activeAreaId}
-                collapsed={collapsed}
-                onNavigateArea={goArea}
-              />
-            </>
-          )}
-        </nav>
-
-        {!collapsed && (context.body || context.footer) && (
-          <div className="scout-sidebar-context" data-sidebar="context">
-            {context.body ? (
-              <div className="scout-sidebar-context-body">{context.body}</div>
-            ) : null}
-            {context.footer ? (
-              <div className="scout-sidebar-context-footer">{context.footer}</div>
-            ) : null}
-          </div>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+                Navigate
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <AreaMenuItems
+                  areas={navigateAreas}
+                  activeAreaId={activeAreaId}
+                  onNavigateArea={goArea}
+                />
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
+                System
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <AreaMenuItems
+                  areas={systemAreas}
+                  activeAreaId={activeAreaId}
+                  onNavigateArea={goArea}
+                />
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
         )}
+      </SidebarContent>
 
-        <footer className="scout-sidebar-footer">
-          <button
-            type="button"
-            className="scout-sidebar-collapse-btn"
-            onClick={onToggleCollapse}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
-          >
-            {collapsed ? (
-              <PanelLeftOpen size={16} strokeWidth={1.6} aria-hidden />
-            ) : (
-              <>
-                <PanelLeftClose size={16} strokeWidth={1.6} aria-hidden />
-                <span>Collapse</span>
-              </>
-            )}
-          </button>
-        </footer>
-      </aside>
-    </Tooltip.Provider>
+      <SidebarFooter className="border-t border-sidebar-border">
+        <div className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center">
+          <BrokerStatusLine />
+          <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:ml-0" />
+        </div>
+      </SidebarFooter>
+    </Sidebar>
   );
 }
 

@@ -40,8 +40,17 @@ import {
   NEW_CHAT_SHORTCUT_LABEL,
 } from "./lib/new-chat-shortcut.ts";
 import { goShortcutForKey } from "./lib/go-shortcuts.ts";
+import { SidebarProvider } from "./components/ui/sidebar.tsx";
 import { ScoutSidebar } from "./scout/sidebar/ScoutSidebar.tsx";
-import { useSidebarCollapse } from "./scout/sidebar/useSidebarCollapse.ts";
+import {
+  ScoutSideRail,
+  sideRailHasContent,
+} from "./scout/sidebar/ScoutSideRail.tsx";
+import {
+  SIDEBAR_COLLAPSED_WIDTH,
+  SIDEBAR_EXPANDED_WIDTH,
+  useSidebarCollapse,
+} from "./scout/sidebar/useSidebarCollapse.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -345,11 +354,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   useEffect(() => {
     if (sidebarChrome) {
       document.documentElement.setAttribute("data-scout-sidebar-chrome", "");
+      document.documentElement.style.setProperty(
+        "--scout-nav-rail-width",
+        `${sidebarCollapse.width}px`,
+      );
     } else {
       document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+      document.documentElement.style.removeProperty("--scout-nav-rail-width");
     }
-    return () => document.documentElement.removeAttribute("data-scout-sidebar-chrome");
-  }, [sidebarChrome]);
+    return () => {
+      document.documentElement.removeAttribute("data-scout-sidebar-chrome");
+      document.documentElement.style.removeProperty("--scout-nav-rail-width");
+    };
+  }, [sidebarChrome, sidebarCollapse.width]);
 
   useEffect(() => {
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
@@ -773,10 +790,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const scopeHidesLegacyLeft = scopePresentation && !sidebarChrome;
   const scopeHidesRight = scopePresentation;
 
-  // Sidebar chrome always reserves rail width (expanded or 48px icon rail).
+  // Side rail (context SidePanel) only when sidebar chrome is on and the route
+  // has resolveSidebarContext content. Scope has no Scout context pane.
+  const sideRailActive =
+    sidebarChrome && sideRailHasContent(route, scopePresentation);
+  const sideRailPushWidth =
+    sideRailActive && !leftCollapsed ? leftWidth : 0;
+
+  // Sidebar chrome: left inset = nav sidebar width + side-rail width.
+  // Nav sidebar always reserves rail width (expanded 260 or 48px icon rail).
+  // Side rail collapses to zero width with a floating expand control (as today).
   // Legacy SidePanel collapses to zero width with a floating expand control.
   const leftPushInset = sidebarChrome
-    ? sidebarCollapse.width
+    ? sidebarCollapse.width + sideRailPushWidth
     : (leftCollapsed || scopeHidesLegacyLeft ? 0 : leftWidth);
   const rightPushInset =
     effectiveRightCollapsed || rightOverlay || dispatchSheetOpen || scopeHidesRight
@@ -788,14 +814,20 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     pushedContentWidth < CENTER_CONTENT_MIN_WIDTH &&
     (leftPushInset > 0 || rightPushInset > 0);
   const autoOverlayRight = shouldAutoOverlayPanels && rightPushInset > 0;
+  // Side rail (not the icon nav rail) may overlay when center content is squeezed.
   const autoOverlayLeft =
-    !sidebarChrome &&
     shouldAutoOverlayPanels &&
-    leftPushInset > 0 &&
-    viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH;
+    (sidebarChrome
+      ? sideRailPushWidth > 0 &&
+        viewportWidth - sidebarCollapse.width - sideRailPushWidth < CENTER_CONTENT_MIN_WIDTH
+      : leftPushInset > 0 &&
+        viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH);
   const leftPanelOverlaysContent = autoOverlayLeft;
   const rightPanelOverlaysContent = dispatchSheetOpen || rightOverlay || autoOverlayRight;
-  const leftInset = leftPanelOverlaysContent ? 0 : leftPushInset;
+  // When the side rail overlays, keep the nav rail inset so content starts after icons.
+  const leftInset = leftPanelOverlaysContent
+    ? (sidebarChrome ? sidebarCollapse.width : 0)
+    : leftPushInset;
   const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
@@ -810,6 +842,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     display: "contents",
     "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
     "--scout-shell-right-inset": `${layoutMode === "panel" ? rightInset : 0}px`,
+    // Side-rail expand control offsets against the nav icon/expanded rail width.
+    ...(sidebarChrome
+      ? { "--scout-nav-rail-width": `${sidebarCollapse.width}px` }
+      : {}),
   } as React.CSSProperties;
   const rightOverlayControlTitle = rightOverlay
     ? "Pin inspector (push content)"
@@ -851,12 +887,36 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               />
 
               {sidebarChrome ? (
-                <ScoutSidebar
-                  collapsed={sidebarCollapse.effectiveCollapsed}
-                  width={sidebarCollapse.width}
-                  onToggleCollapse={sidebarCollapse.toggleCollapsed}
-                  brandLabel={scopePresentation ? scopeBrandLabel : app.name}
-                />
+                <>
+                  <SidebarProvider
+                    open={!sidebarCollapse.effectiveCollapsed}
+                    onOpenChange={(open) => sidebarCollapse.setCollapsed(!open)}
+                    style={
+                      {
+                        "--sidebar-width": `${SIDEBAR_EXPANDED_WIDTH}px`,
+                        "--sidebar-width-icon": `${SIDEBAR_COLLAPSED_WIDTH}px`,
+                        "--scout-sidebar-top": `${navTotalHeight}px`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <ScoutSidebar
+                      brandLabel={scopePresentation ? scopeBrandLabel : app.name}
+                    />
+                  </SidebarProvider>
+
+                  {/* Side rail: per-area context in a LEFT HudsonKit SidePanel.
+                      Distinct shell slot from the nav sidebar and legacy LeftPanel. */}
+                  {sideRailActive ? (
+                    <ScoutSideRail
+                      navRailWidth={sidebarCollapse.width}
+                      isCollapsed={leftCollapsed}
+                      onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+                      width={leftWidth}
+                      onResizeStart={handleResizeStart("left")}
+                      style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
+                    />
+                  ) : null}
+                </>
               ) : (
                 <>
                   <SidePanel
