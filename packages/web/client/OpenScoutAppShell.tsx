@@ -46,11 +46,18 @@ import {
   ScoutSideRail,
   sideRailHasContent,
 } from "./scout/sidebar/ScoutSideRail.tsx";
+import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_EXPANDED_WIDTH,
   useSidebarCollapse,
 } from "./scout/sidebar/useSidebarCollapse.ts";
+import { useScoutbotState } from "./scout/scoutbot/ScoutbotStateContext.tsx";
+import {
+  isLanesContextEmpty,
+  nextLanesContextToggle,
+  resolveLanesContextCollapsed,
+} from "./scout/sidebar/empty-context-collapse.ts";
 
 interface OpenScoutAppShellProps {
   app: HudsonApp;
@@ -296,12 +303,16 @@ function OpenScoutStatusBarRight({
 
 function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; assistantEnabled: boolean }) {
   const { navTotalHeight } = usePlatformLayout();
+  const { titleBarInset, dragRegionProps } = usePlatform();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
   const { route, agents, openContextCapture, apiConnection, navigate, selectedBrokerAttempt } = useScout();
   const browserLocation = useBrowserLocation();
   // SCO-083: exactly one chrome tree — sidebar experiment vs legacy left panel.
   const sidebarChrome = useOptionalFlag("nav.sidebar", false);
+  // SCO-085: full-height sidebar — content/panels use titlebar-safe top (0 on web).
+  const chromeTopOffset = sidebarChrome ? titleBarInset : navTotalHeight;
+  const scoutbotPublic = useScoutbotState();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -778,11 +789,31 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     && !route.sessionId;
   const dispatchHasNothingInContext = route.view === "broker" && !selectedBrokerAttempt;
   const agentsV2Route = route.view === "agents-v2";
-  const effectiveRightCollapsed = rightCollapsed
+
+  // SCO-085 empty CONTEXT on /ops/lanes: expose message count/loading ABOVE the
+  // panel (ScoutbotStateContext) so we never depend on mounted panel children
+  // (collapsed SidePanel unmounts them → deadlock). Emptiness derives collapse;
+  // expand sets a TEMPORARY route-scoped open override — never flips stored prefs.
+  const lanesContextRoute = route.view === "ops" && route.mode === "lanes";
+  const [lanesContextForceOpen, setLanesContextForceOpen] = useState(false);
+  const scoutbotConversation = scoutbotPublic.state.conversation;
+  const lanesContextEmpty = isLanesContextEmpty(route, scoutbotConversation);
+  useEffect(() => {
+    if (!lanesContextRoute) setLanesContextForceOpen(false);
+  }, [lanesContextRoute]);
+  useEffect(() => {
+    if (!lanesContextEmpty) setLanesContextForceOpen(false);
+  }, [lanesContextEmpty]);
+  const baseRightCollapsed = rightCollapsed
     || inspectorHasNothingInContext
     || projectsHaveNothingInContext
     || dispatchHasNothingInContext
     || scopePresentation;
+  const effectiveRightCollapsed = resolveLanesContextCollapsed({
+    empty: lanesContextEmpty,
+    forceOpen: lanesContextForceOpen,
+    baseCollapsed: baseRightCollapsed,
+  });
   const showRightPanel = !scopePresentation && (route.view !== "broker" || dispatchSheetOpen);
 
   // Scope presentation: legacy chrome collapses left/right as derived state
@@ -831,13 +862,17 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
-    top: navTotalHeight,
+    top: chromeTopOffset,
     bottom: 28,
     left: leftInset,
     right: rightInset,
     overflow: "auto",
     transition: "left 200ms ease, right 200ms ease",
   } : {};
+  // Side panels: zero/titlebar-safe top in sidebar mode (style overrides SidePanel default).
+  const panelTopStyle: React.CSSProperties = sidebarChrome
+    ? { top: chromeTopOffset }
+    : {};
   const shellChromeStyle = {
     display: "contents",
     "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
@@ -879,12 +914,16 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           onZoom={handleZoom}
           hud={
             <>
-              <ScoutNavigationBar
-                title={scopePresentation ? scopeBrandLabel : app.name}
-                search={scopePresentation ? undefined : (appSearch ?? undefined)}
-                center={appNavCenter}
-                actions={appNavActions}
-              />
+              {/* SCO-085: ScoutNavigationBar is conditionally UNMOUNTED in sidebar
+                  mode (not CSS-hidden) so duplicate controls/IDs never exist. */}
+              {!sidebarChrome ? (
+                <ScoutNavigationBar
+                  title={scopePresentation ? scopeBrandLabel : app.name}
+                  search={scopePresentation ? undefined : (appSearch ?? undefined)}
+                  center={appNavCenter}
+                  actions={appNavActions}
+                />
+              ) : null}
 
               {sidebarChrome ? (
                 <>
@@ -895,12 +934,14 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       {
                         "--sidebar-width": `${SIDEBAR_EXPANDED_WIDTH}px`,
                         "--sidebar-width-icon": `${SIDEBAR_COLLAPSED_WIDTH}px`,
-                        "--scout-sidebar-top": `${navTotalHeight}px`,
+                        // Full-height: brand at window top (titleBarInset is padding, not offset).
+                        "--scout-sidebar-top": "0px",
                       } as React.CSSProperties
                     }
                   >
                     <ScoutSidebar
-                      brandLabel={scopePresentation ? scopeBrandLabel : app.name}
+                      brandLabel={app.name}
+                      onOpenCommandPalette={() => setShowCommandPalette(true)}
                     />
                   </SidebarProvider>
 
@@ -913,7 +954,10 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                       onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
                       width={leftWidth}
                       onResizeStart={handleResizeStart("left")}
-                      style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
+                      style={{
+                        ...panelTopStyle,
+                        ...(leftPanelOverlaysContent ? panelOverlayStyle("left") : {}),
+                      }}
                     />
                   ) : null}
                 </>
@@ -956,12 +1000,31 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                     // Nothing to inspect on an unselected directory, so the expand
                     // affordance is inert there — don't flip the stored preference.
                     if (inspectorHasNothingInContext || projectsHaveNothingInContext) return;
+                    // SCO-085: /ops/lanes empty CONTEXT uses a temporary route-scoped
+                    // open override — never permanently flip stored rightCollapsed for emptiness.
+                    if (lanesContextRoute) {
+                      const next = nextLanesContextToggle({
+                        empty: lanesContextEmpty,
+                        forceOpen: lanesContextForceOpen,
+                        rightCollapsed,
+                      });
+                      setLanesContextForceOpen(next.forceOpen);
+                      if (next.rightCollapsed !== rightCollapsed) {
+                        setRightCollapsed(next.rightCollapsed);
+                      }
+                      return;
+                    }
                     setRightCollapsed(!rightCollapsed);
                   }}
                   width={rightWidth}
                   onResizeStart={handleResizeStart("right")}
                   floating={rightPanelOverlaysContent}
-                  style={rightPanelOverlaysContent ? panelOverlayStyle("right", dispatchSheetOpen) : undefined}
+                  style={{
+                    ...panelTopStyle,
+                    ...(rightPanelOverlaysContent
+                      ? panelOverlayStyle("right", dispatchSheetOpen)
+                      : {}),
+                  }}
                   footer={rightFooter}
                   headerActions={
                     <>
@@ -1057,6 +1120,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           }
         >
           <div style={contentStyle} className="frame-scrollbar" data-pane="center">
+            {/* SCO-085: one shared center-pane header seam (breadcrumb + AREA_SUB_NAV). */}
+            {sidebarChrome ? <CenterPaneHeader /> : null}
             <app.slots.Content />
           </div>
         </Frame>
@@ -1069,6 +1134,26 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           aria-modal="true"
           style={{ position: "fixed", inset: 0, zIndex: 80, outline: "none" }}
         >
+          {/* SCO-085: onboarding is outside the inert tree; sidebar drag is covered.
+              Equivalent drag strip at the top of the takeover. */}
+          <div
+            data-scout-takeover-drag-region=""
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: Math.max(28, titleBarInset || 28),
+              zIndex: 1,
+              ...((dragRegionProps as { style?: React.CSSProperties } | undefined)?.style ?? {}),
+            }}
+            {...(Object.fromEntries(
+              Object.entries((dragRegionProps ?? {}) as Record<string, unknown>).filter(
+                ([key]) => key !== "style",
+              ),
+            ) as React.HTMLAttributes<HTMLDivElement>)}
+          />
           <TakeoverSlot />
         </div>
       ) : null}

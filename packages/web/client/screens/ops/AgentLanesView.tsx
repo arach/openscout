@@ -535,6 +535,8 @@ function AgentLaneColumn({
         onWidthChange={onWidthChange}
         onResizeStart={onWidthResizeStart}
         resizing={widthResizing}
+        statusLabel={laneStatusLabel(agent, source)}
+        live={isLive}
       />
       <AgentLaneCard
         model={agentLaneToCardModel(lane, { isLive, nowMs })}

@@ -271,16 +271,9 @@ function ScoutbotZeroState({
   suggestedPrompts?: readonly string[];
   onSelectPrompt?: (prompt: string) => void;
 }) {
+  // SCO-085: suggested prompts at the top of the empty state (not vertically centered).
   return (
-    <div className="flex min-h-full flex-1 flex-col justify-center gap-2 px-1 py-2.5">
-      <div className="max-w-[30rem]">
-        <div className="font-sans text-[13px] font-semibold leading-tight text-[var(--scout-chrome-ink)]">
-          Start with a question.
-        </div>
-        <p className="mt-0.5 font-sans text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
-          Paste a failed result or ask about what you are seeing. Scout replies when you ask.
-        </p>
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col justify-start gap-2 px-1 py-2.5">
       {suggestedPrompts.length > 0 ? (
         <div className="grid gap-1">
           {suggestedPrompts.slice(0, 3).map((prompt) => (
@@ -295,6 +288,14 @@ function ScoutbotZeroState({
           ))}
         </div>
       ) : null}
+      <div className="max-w-[30rem]">
+        <div className="font-sans text-[13px] font-semibold leading-tight text-[var(--scout-chrome-ink)]">
+          Start with a question.
+        </div>
+        <p className="mt-0.5 font-sans text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+          Paste a failed result or ask about what you are seeing. Scout replies when you ask.
+        </p>
+      </div>
     </div>
   );
 }

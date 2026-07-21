@@ -1,10 +1,14 @@
 /**
- * Scout primary navigation chrome (SCO-084) — shadcn Sidebar composition.
+ * Scout primary navigation chrome (SCO-084 / SCO-085) — shadcn Sidebar composition.
  *
  * PURE NAVIGATION only (Requirement 7 revised 2026-07-20):
- * destinations, scope items, broker status, collapse trigger.
- * Per-area context content lives in the left HudsonKit SidePanel (side rail),
- * not here — do not re-introduce a Context group.
+ * destinations, scope items, broker status, collapse trigger, machine scope,
+ * ⌘K palette trigger. Per-area context content lives in the left HudsonKit
+ * SidePanel (side rail), not here — do not re-introduce a Context group.
+ *
+ * SCO-085 full-height: brand strip at window top (titleBarInset padding),
+ * drag region on the brand strip, no top bar. MachineScopeControl is the only
+ * instance (footer). Settings is a primary area — no top-bar Settings button.
  *
  * Gated by nav.sidebar; renders exactly one chrome tree vs legacy left panel.
  * State (open/collapsed) is owned by useSidebarCollapse via SidebarProvider;
@@ -13,6 +17,9 @@
  * HudsonKit SidePanel is intentionally separate (side rail / right inspector /
  * legacy left). Do not route this chrome through SidePanel.
  */
+import type { CSSProperties, HTMLAttributes } from "react";
+import { usePlatform } from "@hudsonkit";
+import { Command } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -24,8 +31,13 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarTrigger,
+  useSidebar,
 } from "../../components/ui/sidebar.tsx";
+import { MachineScopeControl } from "../../components/MachineScopeControl.tsx";
 import { cn } from "../../lib/utils.ts";
 import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
@@ -36,6 +48,10 @@ import {
   type PrimaryArea,
   type PrimaryAreaId,
 } from "../primary-areas.ts";
+import {
+  areaSubNavForRoute,
+  type AreaSubNavAreaId,
+} from "../nav-destinations.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { useSidebarModel } from "./useSidebarModel.ts";
 
@@ -66,20 +82,38 @@ function ScoutMark({ className = "" }: { className?: string }) {
   );
 }
 
+const ACTIVE_MENU_CLASS =
+  "data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground data-active:shadow-[inset_2px_0_0_0_var(--sidebar-primary,var(--hud-accent,oklch(0.86_0.17_125)))]";
+
 function AreaMenuItems({
   areas,
   activeAreaId,
   onNavigateArea,
+  route,
+  navigate,
 }: {
   areas: readonly PrimaryArea[];
   activeAreaId: PrimaryAreaId;
   onNavigateArea: (id: PrimaryAreaId) => void;
+  route: Route;
+  navigate: (route: Route) => void;
 }) {
+  const { state } = useSidebar();
+  const expanded = state === "expanded";
+  const subNav = areaSubNavForRoute(route);
+
   return (
     <SidebarMenu>
       {areas.map((area) => {
         const Icon = area.icon;
         const active = area.id === activeAreaId;
+        const areaSub =
+          expanded &&
+          active &&
+          subNav &&
+          (subNav.areaId as string) === area.id
+            ? subNav.items
+            : null;
         return (
           <SidebarMenuItem key={area.id}>
             <SidebarMenuButton
@@ -88,12 +122,36 @@ function AreaMenuItems({
               tooltip={area.label}
               aria-current={active ? "page" : undefined}
               data-area={area.id}
-              className="font-mono text-[11px] font-medium tracking-[0.02em]"
+              className={cn(
+                "font-mono text-[11px] font-medium tracking-[0.02em]",
+                ACTIVE_MENU_CLASS,
+              )}
               onClick={() => onNavigateArea(area.id)}
             >
               <Icon size={16} strokeWidth={1.6} aria-hidden />
               <span>{area.label}</span>
             </SidebarMenuButton>
+            {areaSub && areaSub.length > 0 ? (
+              <SidebarMenuSub>
+                {areaSub.map((item) => {
+                  const itemActive = item.active(route);
+                  return (
+                    <SidebarMenuSubItem key={item.id}>
+                      <SidebarMenuSubButton
+                        render={<button type="button" />}
+                        isActive={itemActive}
+                        aria-current={itemActive ? "page" : undefined}
+                        data-subnav={item.id}
+                        className="font-mono text-[10px]"
+                        onClick={() => navigate(item.route)}
+                      >
+                        <span>{item.label}</span>
+                      </SidebarMenuSubButton>
+                    </SidebarMenuSubItem>
+                  );
+                })}
+              </SidebarMenuSub>
+            ) : null}
           </SidebarMenuItem>
         );
       })}
@@ -108,7 +166,7 @@ function BrokerStatusLine() {
     <div
       className={cn(
         "flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
-        "text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden",
+        "text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden",
       )}
       title={offline ? "Scout API offline" : "Scout API connected"}
       data-sidebar="broker-status"
@@ -125,12 +183,58 @@ function BrokerStatusLine() {
   );
 }
 
+function CommandPaletteButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          type="button"
+          tooltip="Command palette (⌘K)"
+          aria-label="Open command palette"
+          title="Command palette (⌘K)"
+          className="font-mono text-[11px] font-medium"
+          onClick={onOpen}
+          data-sidebar="command-palette"
+        >
+          <Command size={16} strokeWidth={1.6} aria-hidden />
+          <span>Command</span>
+          <span className="ml-auto font-mono text-[9px] tracking-wider text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden">
+            ⌘K
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
+/**
+ * Machine scope in the sidebar footer.
+ * Expanded: full select. Collapsed 48px rail: icon that opens a compact popover
+ * with the same select (never omit entirely — machine-scoped routes need a path).
+ */
+function SidebarMachineScope() {
+  const { state } = useSidebar();
+  return (
+    <MachineScopeControl
+      variant={state === "collapsed" ? "rail" : "sidebar"}
+    />
+  );
+}
+
 export function ScoutSidebar({
   brandLabel = "Scout",
+  onOpenCommandPalette,
 }: {
+  /**
+   * Fixed product brand (usually app.name / "Scout"). Scope's active section
+   * label is NOT a brand — scope destinations live in the model body.
+   */
   brandLabel?: string;
+  /** Shell-owned command palette open callback (new ⌘K footer entry). */
+  onOpenCommandPalette?: () => void;
 }) {
   const { route, navigate } = useScout();
+  const { titleBarInset, dragRegionProps, onInteractiveMouseDown } = usePlatform();
   const opsControlEnabled = useOptionalFlag("ops.control", true);
   const model = useSidebarModel(route);
   const activeAreaId = primaryAreaForRoute(route);
@@ -152,32 +256,61 @@ export function ScoutSidebar({
       aria-label={model.kind === "scope" ? "Scope navigation" : "Primary navigation"}
       data-sidebar-kind={model.kind}
     >
-      <SidebarHeader className="border-b border-sidebar-border">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              type="button"
-              size="lg"
-              tooltip="Home"
-              onClick={goHome}
-              aria-label="Scout Home"
-              title="Home"
-              className="font-mono data-[slot=sidebar-menu-button]:!p-2"
-            >
-              <ScoutMark className="size-[18px] shrink-0" />
-              <span className="truncate text-[11px] font-bold tracking-[0.08em] uppercase">
-                {brandLabel}
-              </span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+      {/* Brand strip: drag region + titleBarInset so macOS traffic lights clear. */}
+      <SidebarHeader
+        className="border-b border-sidebar-border"
+        style={{
+          paddingTop: Math.max(8, titleBarInset || 0),
+          ...((dragRegionProps as { style?: CSSProperties } | undefined)?.style ?? {}),
+        }}
+        {...(Object.fromEntries(
+          Object.entries((dragRegionProps ?? {}) as Record<string, unknown>).filter(
+            ([key]) => key !== "style",
+          ),
+        ) as HTMLAttributes<HTMLDivElement>)}
+        data-sidebar-drag-region=""
+      >
+        <div className="flex items-center gap-0.5">
+          <SidebarMenu className="min-w-0 flex-1">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                size="lg"
+                tooltip="Home"
+                onClick={goHome}
+                onMouseDown={onInteractiveMouseDown}
+                aria-label="Scout Home"
+                title="Home"
+                className="font-mono data-[slot=sidebar-menu-button]:!p-2"
+              >
+                <ScoutMark className="size-[18px] shrink-0" />
+                <span className="truncate text-[11px] font-bold tracking-[0.08em] uppercase">
+                  {brandLabel}
+                </span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          {/* Collapse trigger in brand row (also in footer). */}
+          <SidebarTrigger
+            className="shrink-0"
+            onMouseDown={onInteractiveMouseDown}
+          />
+        </div>
+        {model.kind === "scope" ? (
+          <div
+            className="px-2 pb-1 font-mono text-[9px] tracking-[0.12em] uppercase text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden"
+            data-sidebar="scope-section"
+          >
+            Scope
+          </div>
+        ) : null}
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
         {model.kind === "scope" ? (
           <SidebarGroup>
             <SidebarGroupLabel className="font-mono text-[9px] tracking-[0.12em] uppercase">
-              Scope
+              Surfaces
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
@@ -191,7 +324,10 @@ export function ScoutSidebar({
                       data-area={item.id}
                       aria-label={item.label}
                       title={item.label}
-                      className="font-mono text-[11px] font-medium"
+                      className={cn(
+                        "font-mono text-[11px] font-medium",
+                        ACTIVE_MENU_CLASS,
+                      )}
                       onClick={() => navigate(item.route)}
                     >
                       {/* Scope items have no icons — initial-letter fallback for icon rail. */}
@@ -219,6 +355,8 @@ export function ScoutSidebar({
                   areas={navigateAreas}
                   activeAreaId={activeAreaId}
                   onNavigateArea={goArea}
+                  route={route}
+                  navigate={navigate}
                 />
               </SidebarGroupContent>
             </SidebarGroup>
@@ -231,6 +369,8 @@ export function ScoutSidebar({
                   areas={systemAreas}
                   activeAreaId={activeAreaId}
                   onNavigateArea={goArea}
+                  route={route}
+                  navigate={navigate}
                 />
               </SidebarGroupContent>
             </SidebarGroup>
@@ -238,8 +378,17 @@ export function ScoutSidebar({
         )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border">
-        <div className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center">
+      <SidebarFooter className="border-t border-sidebar-border gap-1.5">
+        <SidebarMachineScope />
+        {onOpenCommandPalette ? (
+          <div onMouseDown={onInteractiveMouseDown}>
+            <CommandPaletteButton onOpen={onOpenCommandPalette} />
+          </div>
+        ) : null}
+        <div
+          className="flex items-center gap-1 group-data-[collapsible=icon]:justify-center"
+          onMouseDown={onInteractiveMouseDown}
+        >
           <BrokerStatusLine />
           <SidebarTrigger className="ml-auto group-data-[collapsible=icon]:ml-0" />
         </div>
@@ -252,3 +401,6 @@ export function ScoutSidebar({
 export function sidebarActiveAreaId(route: Route): PrimaryAreaId {
   return primaryAreaForRoute(route);
 }
+
+/** Area sub-nav area ids used by the sidebar projection (tests). */
+export type { AreaSubNavAreaId };
