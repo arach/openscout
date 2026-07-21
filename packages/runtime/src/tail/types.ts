@@ -57,6 +57,10 @@ export type DiscoveredTranscript = {
   source: string;
   transcriptPath: string;
   sessionId: string | null;
+  /** The Claude Code session which spawned this transcript, when it is a child worker. */
+  parentSessionId?: string | null;
+  /** Harness-owned child worker id (for example Claude's `agent-*.jsonl` id). */
+  subagentId?: string | null;
   cwd: string | null;
   project: string;
   /** Launch attribution; retained as `harness` for wire compatibility. */
