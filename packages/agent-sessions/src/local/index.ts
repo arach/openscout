@@ -99,7 +99,12 @@ export type CreateLocalAgentClientOptions = {
   transport?: LocalAgentTransport;
   cwd: string;
   systemPrompt?: string;
+  /** Stable id for the in-process SessionRegistry entry. */
+  sessionId?: string;
+  /** Provider-native id to resume or load when the harness process is cold. */
   reuseKey?: string;
+  /** Adapter-specific behavior such as Cursor interaction and permission policy. */
+  adapterOptions?: Record<string, unknown>;
   warmth?: LocalAgentWarmth;
   model?: string;
   timeoutMs?: number;
@@ -118,6 +123,7 @@ export type LocalAgentClient = {
   turn(input: string | LocalAgentClientTurnOptions): Promise<LocalAgentTurnResult>;
   close(): Promise<void>;
   interrupt?(): void;
+  isAlive?(): boolean;
 };
 
 type LocalAdapterSpec = {
@@ -229,9 +235,11 @@ function buildAdapterOptions(options: {
   systemPrompt?: string;
   model?: string;
   reuseKey?: string;
+  adapterOptions?: Record<string, unknown>;
 }): Record<string, unknown> {
   if (options.transport === "pi_rpc") {
     return {
+      ...(options.adapterOptions ?? {}),
       ...(options.model ? { model: options.model } : {}),
       ...(options.systemPrompt ? { appendSystemPrompt: options.systemPrompt } : {}),
       ...(options.reuseKey ? { sessionId: options.reuseKey } : {}),
@@ -239,6 +247,7 @@ function buildAdapterOptions(options: {
   }
 
   return {
+    ...(options.adapterOptions ?? {}),
     ...(options.reuseKey ? { sessionId: options.reuseKey, sessionMode: "auto" } : {}),
     ...(options.transport === "cursor_acp" ? { cursorExtensions: true } : {}),
   };
@@ -562,7 +571,7 @@ async function runCodexTurnWithAbort(
 async function createCodexLocalAgentClient(
   options: CreateLocalAgentClientOptions,
 ): Promise<LocalAgentClient> {
-  const sessionId = options.reuseKey?.trim() || randomUUID();
+  const sessionId = options.sessionId?.trim() || options.reuseKey?.trim() || randomUUID();
   let currentSessionOptions = buildCodexSessionOptions({
     sessionId,
     cwd: options.cwd,
@@ -667,7 +676,7 @@ export async function createLocalAgentClient(
       [spec.adapterType]: spec.createAdapter,
     },
   });
-  const sessionId = options.reuseKey?.trim() || randomUUID();
+  const sessionId = options.sessionId?.trim() || options.reuseKey?.trim() || randomUUID();
   const sessionSystemPromptAppliedByAdapter = transport === "pi_rpc";
   let active: ActiveLocalSession | null = null;
   let closed = false;
@@ -693,6 +702,7 @@ export async function createLocalAgentClient(
         systemPrompt: options.systemPrompt,
         model,
         reuseKey: options.reuseKey,
+        adapterOptions: options.adapterOptions,
       }),
     });
     active = {
@@ -759,6 +769,13 @@ export async function createLocalAgentClient(
       if (active) {
         registry.interrupt(active.session.id);
       }
+    },
+    isAlive(): boolean {
+      if (closed || !active) {
+        return !closed;
+      }
+      const status = registry.getSessionSnapshot(active.session.id)?.session.status;
+      return status !== "error" && status !== "closed";
     },
   };
 }

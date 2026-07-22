@@ -1,10 +1,9 @@
-import { createCursorAcpAdapter } from "@openscout/agent-sessions";
-
 import { invokeAcpAgent, type AcpAgentInvocationResult } from "./acp-agent-invocation.js";
 
 export interface CursorAcpInvocationOptions {
   sessionId: string;
-  externalSessionId?: string;
+  poolKey?: string;
+  resumeSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;
@@ -19,7 +18,6 @@ export async function invokeCursorAcpAgent(
   return await invokeAcpAgent({
     ...options,
     adapterType: "cursor-acp",
-    createAdapter: createCursorAcpAdapter,
     label: "Cursor ACP",
     adapterOptions: {
       cursorExtensions: true,

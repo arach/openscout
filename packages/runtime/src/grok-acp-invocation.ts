@@ -1,5 +1,3 @@
-import { createGrokAcpAdapter } from "@openscout/agent-sessions";
-
 import {
   invokeAcpAgent,
   type AcpAgentInvocationResult,
@@ -7,7 +5,8 @@ import {
 
 export interface GrokAcpInvocationOptions {
   sessionId: string;
-  externalSessionId?: string;
+  poolKey?: string;
+  resumeSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;
@@ -22,7 +21,6 @@ export async function invokeGrokAcpAgent(
   return await invokeAcpAgent({
     ...options,
     adapterType: "grok-acp",
-    createAdapter: createGrokAcpAdapter,
     label: "Grok ACP",
   });
 }
