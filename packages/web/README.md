@@ -17,7 +17,30 @@ bun --cwd packages/web dev:server
 
 Then open the URL printed in the terminal (default port `43120`).
 
-The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
+The public Bun edge binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The edge owns the public web port and reverse-proxies to a pool of loopback-only Bun/Hono request workers. It performs no SQLite reads, broker snapshots, or terminal discovery itself, so health and overload responses remain available when an application worker stalls. The pool uses Bun and platform APIs already required by Scout; it adds no npm package or system-service dependency.
+
+`OPENSCOUT_WEB_WORKERS` sets the pool size. The default is CPU-aware (two to four workers, capped at eight). Worker zero owns singleton background services and in-memory pairing/Scoutbot/voice routes; general requests are least-busy balanced across the remaining workers. `OPENSCOUT_WEB_MAX_REQUESTS_PER_WORKER` sets the bounded in-flight request capacity (default 64), so overload is rejected instead of creating an unbounded worker queue. `OPENSCOUT_WEB_WORKER_PORT_BASE` can override the private port band, whose default is derived in `46000-46999`.
+
+## Load smoke test
+
+The default load smoke test starts an isolated edge with synthetic workers. Its mock stream is MiniMax-shaped test data only: it uses no credentials, provider calls, agent messages, or existing sessions.
+
+```bash
+bun --cwd packages/web load:edge
+```
+
+Maintainers can point the same harness at an already-running isolated production bundle for a read-only mixed workload over agent summaries, session/SQLite reads, tail snapshots, and repository diff/filesystem work:
+
+```bash
+OPENSCOUT_LOAD_ORIGIN=http://127.0.0.1:45320 \
+OPENSCOUT_LOAD_WORKTREE=/path/to/worktree \
+OPENSCOUT_LOAD_SESSION=optional-chat-id \
+bun --cwd packages/web load:edge
+```
+
+The real mode performs no mutations, agent messages, or LLM/provider calls.
+
+The Scout local named-edge flow is name resolution first, then Caddy, then the Bun edge: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active public web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
 
 ## Public Package
 
@@ -92,7 +115,7 @@ OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:43122 bun --cwd packages/web dev:server
 The public route table stays small and explicit:
 
 - `/api/*` is the Bun API surface
-- `/api/health` is the canonical health endpoint
+- `/api/health` is answered directly by the thin edge and reports ready/total workers
 - `/ws/terminal` is the terminal/takeover WebSocket
 - `/ws/hmr` is the Vite hot-reload WebSocket in dev
 - everything else is client traffic

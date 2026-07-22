@@ -111,6 +111,7 @@ export function renderServerCommandHelp(): string {
     "                    Additional trusted browser origin; may be repeated",
     "  --cwd DIR         Workspace / setup root (optional override OPENSCOUT_SETUP_CWD)",
     "  --path PATH       Browser path for `open` (default /)",
+    "  OPENSCOUT_WEB_WORKERS controls the zero-dependency request-worker pool (default: CPU-aware, max 8)",
     "",
     "Requires `bun` on PATH.",
   ].join("\n");
@@ -118,7 +119,7 @@ export function renderServerCommandHelp(): string {
 
 /**
  * Resolved against `import.meta.url`: published CLI has `scout-control-plane-web.mjs` beside `main.mjs`;
- * in-repo dev uses `packages/web/server/index.ts`.
+ * in-repo dev uses the thin edge at `packages/web/server/edge.ts`.
  */
 export function resolveScoutWebServerEntry(): string {
   return resolveScoutControlPlaneWebServerEntry();
@@ -137,7 +138,7 @@ export function resolveScoutControlPlaneWebServerEntry(): string {
       dirname(fileURLToPath(import.meta.url)),
     ],
   });
-  const source = resolveRepoEntrypoint(repoRoot, "packages/web/server/index.ts");
+  const source = resolveRepoEntrypoint(repoRoot, "packages/web/server/edge.ts");
   if (source) {
     return source;
   }

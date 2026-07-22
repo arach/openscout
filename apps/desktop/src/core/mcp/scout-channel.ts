@@ -25,6 +25,7 @@ import {
   type InboxItem,
   type MessageRecord,
 } from "@openscout/protocol";
+import { waitForStdioServerClosure } from "./stdio-server-lifecycle.ts";
 
 type InboxStreamEvent = {
   item?: InboxItem;
@@ -449,9 +450,7 @@ export async function runScoutChannelServer(options: {
   await server.connect(transport);
 
   const abortController = new AbortController();
-  process.on("SIGINT", () => abortController.abort());
-  process.on("SIGTERM", () => abortController.abort());
-  process.on("beforeExit", () => abortController.abort());
+  server.onclose = () => abortController.abort();
 
   startScoutChannelHeartbeat({
     broker,
@@ -490,4 +489,10 @@ export async function runScoutChannelServer(options: {
     },
     abortController.signal,
   );
+
+  try {
+    await waitForStdioServerClosure({ server, transport });
+  } finally {
+    abortController.abort();
+  }
 }

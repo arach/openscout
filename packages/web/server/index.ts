@@ -22,12 +22,18 @@ import {
 } from "./managed-terminal-relay.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
 
-process.title = "scout-web";
+const workerIndex = Number.parseInt(process.env.OPENSCOUT_WEB_WORKER_INDEX ?? "0", 10);
+const ownsBackgroundServices = !Number.isFinite(workerIndex) || workerIndex === 0;
+process.title = `scout-web-worker-${Number.isFinite(workerIndex) ? workerIndex : 0}`;
 
 const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_PORT
     ?? process.env.SCOUT_WEB_PORT
     ?? String(resolveWebPort()),
+  10,
+);
+const publicPort = Number.parseInt(
+  process.env.OPENSCOUT_WEB_PUBLIC_PORT ?? String(port),
   10,
 );
 const hostname = process.env.OPENSCOUT_WEB_HOST?.trim()
@@ -105,7 +111,7 @@ function startTerminalRelay(): Promise<ManagedTerminalRelay | null> {
   }
   terminalRelayStart = startManagedTerminalRelay({
     hostname,
-    webPort: port,
+    webPort: publicPort,
   })
     .then((relay) => {
       terminalRelay = relay;
@@ -131,12 +137,14 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
   return startTerminalRelay();
 }
 
-void startTerminalRelay();
-await bootstrapProviderTelemetry();
+if (ownsBackgroundServices) {
+  void startTerminalRelay();
+  void bootstrapProviderTelemetry();
+}
 
 const web = await createOpenScoutWebServer({
   currentDirectory,
-  webPort: port,
+  webPort: publicPort,
   shellStateCacheTtlMs,
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,
@@ -171,7 +179,8 @@ const web = await createOpenScoutWebServer({
     const relay = await ensureTerminalRelay();
     return relay ? relay.healthcheck() : false;
   },
-  scoutbot: { enabled: true },
+  scoutbot: { enabled: ownsBackgroundServices },
+  backgroundServices: ownsBackgroundServices,
 });
 const { app, warmupCaches } = web;
 
@@ -294,7 +303,9 @@ const shutdown = async (signal: NodeJS.Signals) => {
 process.on("SIGINT", (signal) => { void shutdown(signal); });
 process.on("SIGTERM", (signal) => { void shutdown(signal); });
 
-console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
-console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
+console.log(`OpenScout worker ${workerIndex} -> http://${hostname}:${server.port}`);
+console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${publicPort}`}`);
 console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
-void warmupCaches();
+if (ownsBackgroundServices) {
+  setTimeout(() => void warmupCaches(), 5_000).unref?.();
+}

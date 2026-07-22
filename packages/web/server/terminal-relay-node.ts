@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 
 import { sanitizeUploadName } from "./relay.ts";
+import { startProcessParentWatchdog } from "./process-parent-watchdog.ts";
 import {
   attachSession,
   createSession,
@@ -37,6 +38,9 @@ const hostname =
 const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PORT?.trim() || "3201",
   10,
+);
+const parentWatchdog = startProcessParentWatchdog(
+  process.env.OPENSCOUT_WEB_RELAY_PARENT_PID,
 );
 const UPLOAD_DIR = "/tmp/scout-uploads";
 
@@ -572,7 +576,11 @@ server.listen(port, hostname, () => {
   console.log(`[relay] Server listening on http://${hostname}:${port} (HTTP + WebSocket)`);
 });
 
+let shuttingDown = false;
 const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (parentWatchdog) clearInterval(parentWatchdog);
   console.log("\n[relay] Shutting down...");
   for (const [id] of sessions) {
     destroy(id);

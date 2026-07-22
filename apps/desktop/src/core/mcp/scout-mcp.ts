@@ -79,6 +79,7 @@ import type {
   ScoutAskReceipt,
 } from "../broker/ask-types.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
+import { waitForStdioServerClosure } from "./stdio-server-lifecycle.ts";
 
 const AGENT_STATE_VALUES = [
   "offline",
@@ -5276,4 +5277,5 @@ export async function runScoutMcpServer(options: {
   });
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  await waitForStdioServerClosure({ server, transport });
 }

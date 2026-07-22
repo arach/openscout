@@ -456,6 +456,10 @@ export type CreateOpenScoutWebServerOptions = {
     enabled?: boolean;
     brokerBaseUrl?: string;
   };
+  /** Run process-wide discovery/watch services. Multi-worker deployments set
+   * this only on worker zero so UDP beacons and filesystem watchers are not
+   * duplicated in every request worker. */
+  backgroundServices?: boolean;
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
   repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
@@ -2102,7 +2106,9 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
-const AGENT_ATTENTION_TTL_MS = 2_000;
+const AGENT_ATTENTION_TTL_MS = 10_000;
+const AGENT_BACKGROUND_REFRESH_DELAY_MS = 500;
+const AGENT_BROKER_CONTEXT_TTL_MS = 5_000;
 type TmuxPaneCapture = NonNullable<CreateOpenScoutWebServerOptions["captureTmuxPane"]>;
 type AgentAttentionSnapshot = {
   index: Map<string, AgentAttentionEntry>;
@@ -2120,11 +2126,11 @@ let agentAttentionInFlight: {
 } | null = null;
 
 /**
- * Needs-attention index for /api/agents, cached briefly and coalesced: the
- * endpoint is polled every ~2.5s per client and the pairing-snapshot read
- * opens a bridge socket per call, so concurrent post-TTL polls must share one
- * rebuild. Failures yield an empty index so a broken source cannot take
- * /api/agents down with it. The sourcing lives in `core/attention` so the
+ * Needs-attention index for /api/agents, cached and coalesced. A rebuild opens
+ * the pairing bridge and inspects live terminal panes, so once a snapshot is
+ * available callers receive it immediately while an expired snapshot refreshes
+ * in the background. Failures yield an empty index so a broken source cannot
+ * take /api/agents down with it. The sourcing lives in `core/attention` so the
  * mobile agents RPC can build the identical index.
  */
 function queryAgentAttentionIndex(
@@ -2139,7 +2145,17 @@ function queryAgentAttentionSnapshot(
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
 ): Promise<AgentAttentionSnapshot> {
   const cached = agentAttentionCache;
-  if (cached && cached.capture === capture && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+  if (cached && cached.capture === capture) {
+    if (Date.now() - cached.at >= AGENT_ATTENTION_TTL_MS && !agentAttentionInFlight) {
+      const promise = delay(AGENT_BACKGROUND_REFRESH_DELAY_MS)
+        .then(() => buildAgentAttentionIndexSnapshot(broker, capture))
+        .finally(() => {
+          if (agentAttentionInFlight?.promise === promise) {
+            agentAttentionInFlight = null;
+          }
+        });
+      agentAttentionInFlight = { capture, promise };
+    }
     return Promise.resolve(cached.snapshot);
   }
   if (agentAttentionInFlight?.capture === capture) {
@@ -2154,14 +2170,42 @@ function queryAgentAttentionSnapshot(
   return promise;
 }
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function createAgentBrokerContextReader(): () => Promise<ScoutBrokerContext | null> {
+  let cache: { at: number; value: ScoutBrokerContext | null } | null = null;
+  let inFlight: Promise<ScoutBrokerContext | null> | null = null;
+
+  const refresh = (delayMs: number) => {
+    if (inFlight) return inFlight;
+    const promise = delay(delayMs)
+      .then(() => loadScoutBrokerContext().catch(() => null))
+      .then((value) => {
+        cache = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        if (inFlight === promise) inFlight = null;
+      });
+    inFlight = promise;
+    return promise;
+  };
+
+  return () => {
+    if (!cache) return refresh(0);
+    if (Date.now() - cache.at >= AGENT_BROKER_CONTEXT_TTL_MS && !inFlight) {
+      void refresh(AGENT_BACKGROUND_REFRESH_DELAY_MS);
+    }
+    return Promise.resolve(cache.value);
+  };
+}
+
 async function buildAgentAttentionIndexSnapshot(
   broker: ScoutBrokerContext | null,
   capture: TmuxPaneCapture,
 ): Promise<AgentAttentionSnapshot> {
-  let snapshot: AgentAttentionSnapshot = {
-    index: new Map<string, AgentAttentionEntry>(),
-    hostItems: [],
-  };
   try {
     const pairingSnapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
     const sessionItems = pairingSnapshots.length > 0 ? projectSessionsAttention(pairingSnapshots) : [];
@@ -2205,7 +2249,7 @@ async function buildAgentAttentionIndexSnapshot(
         return result?.body ?? null;
       },
     );
-    snapshot = {
+    const snapshot = {
       hostItems,
       index: buildAgentAttentionIndex({
         sessionItems,
@@ -2220,12 +2264,18 @@ async function buildAgentAttentionIndexSnapshot(
         hostRows: hostItems,
       }),
     };
+    agentAttentionCache = { at: Date.now(), capture, snapshot };
+    return snapshot;
   } catch (error) {
     // Attention is a decoration on the agent list, never a reason to 500 it.
     console.warn("[openscout-web] attention snapshot failed", error);
+    const cached = agentAttentionCache;
+    if (cached?.capture === capture) return cached.snapshot;
+    return {
+      index: new Map<string, AgentAttentionEntry>(),
+      hostItems: [],
+    };
   }
-  agentAttentionCache = { at: Date.now(), capture, snapshot };
-  return snapshot;
 }
 
 function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
@@ -2241,6 +2291,7 @@ function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAge
 function agentListSummary(agent: WebAgent) {
   return {
     id: agent.id,
+    definitionId: agent.definitionId,
     name: agent.name,
     handle: agent.handle,
     agentClass: agent.agentClass,
@@ -2253,13 +2304,33 @@ function agentListSummary(agent: WebAgent) {
     project: agent.project,
     branch: agent.branch,
     selector: agent.selector,
+    defaultSelector: agent.defaultSelector,
+    nodeQualifier: agent.nodeQualifier,
+    workspaceQualifier: agent.workspaceQualifier,
+    wakePolicy: agent.wakePolicy,
     model: agent.model,
     transport: agent.transport,
     capabilities: agent.capabilities,
+    terminalSurface: agent.terminalSurface,
+    harnessLogPath: agent.harnessLogPath,
+    authorityNodeId: agent.authorityNodeId,
     authorityNodeName: agent.authorityNodeName,
+    homeNodeId: agent.homeNodeId,
     homeNodeName: agent.homeNodeName,
+    ownerId: agent.ownerId,
+    ownerName: agent.ownerName,
+    ownerHandle: agent.ownerHandle,
     conversationId: agent.conversationId,
     harnessSessionId: agent.harnessSessionId,
+    staleLocalRegistration: agent.staleLocalRegistration,
+    retiredFromFleet: agent.retiredFromFleet,
+    replacedByAgentId: agent.replacedByAgentId,
+    providerName: agent.providerName,
+    providerUrl: agent.providerUrl,
+    protocol: agent.protocol,
+    skills: agent.skills,
+    authorityProfile: agent.authorityProfile,
+    runtimePolicy: agent.runtimePolicy,
     updatedAt: agent.updatedAt,
     createdAt: agent.createdAt,
   };
@@ -2269,6 +2340,8 @@ async function queryAgentsIncludingBrokerCards(
   limit?: number,
   includeAttention = true,
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+  loadBrokerContext: () => Promise<ScoutBrokerContext | null> = () =>
+    loadScoutBrokerContext().catch(() => null),
 ): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -2279,7 +2352,7 @@ async function queryAgentsIncludingBrokerCards(
   const agents = queryAgents(databaseLimit)
     .map(withResolvedHarnessSessionIdentity)
     .filter((agent) => !archivedIds.has(agent.id));
-  const broker = await loadScoutBrokerContext().catch(() => null);
+  const broker = await loadBrokerContext();
   // The HUD's first page is deliberately a summary read. The full attention
   // index opens the pairing bridge and can take seconds on a busy machine, so
   // only rich callers pay that cost.
@@ -4251,21 +4324,26 @@ export async function createOpenScoutWebServer(
   const pendingPairRequests = createPendingPairRequestStore();
   // Always-on discovery beacon so idle Macs still appear in the iOS "On your
   // network" list. Stands down only when the controller has its own LAN advert.
-  const lanPairBeacon = startScoutPairLanBeacon(async () => {
-    try {
-      return (await loadPairingState(currentDirectory, false)).lanDiscoveryAdvertised;
-    } catch {
-      return false;
-    }
-  }, { webPort: options.webPort });
+  const lanPairBeacon = options.backgroundServices === false
+    ? null
+    : startScoutPairLanBeacon(async () => {
+        try {
+          return (await loadPairingState(currentDirectory, false)).lanDiscoveryAdvertised;
+        } catch {
+          return false;
+        }
+      }, { webPort: options.webPort });
   const routes = resolveOpenScoutWebRoutes(process.env);
-  startGlobalHeuristicsWatcher();
+  if (options.backgroundServices !== false) {
+    startGlobalHeuristicsWatcher();
+  }
   const app = new Hono();
   installHttpsEdgeSecurityHeaders(app, options.publicOrigin);
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const agentBrokerContextReader = createAgentBrokerContextReader();
   const dispatchBrokerSnapshotCache = createCachedSnapshot(async () => {
     const baseUrl = resolveScoutBrokerUrl();
     const signal = AbortSignal.timeout(2_000);
@@ -4907,10 +4985,12 @@ export async function createOpenScoutWebServer(
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
     const summary = c.req.query("detail") === "summary";
+    const includeAttention = !summary || c.req.query("attention") === "1";
     const agents = await queryAgentsIncludingBrokerCards(
       limit,
-      !summary,
+      includeAttention,
       options.captureTmuxPane ?? defaultCaptureTmuxPane,
+      agentBrokerContextReader,
     );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });

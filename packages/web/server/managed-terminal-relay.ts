@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as createTcpServer } from "node:net";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readProcessField,
@@ -204,9 +204,56 @@ async function processParentPid(pid: number): Promise<number | null> {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export function isRelayCommandIdentity(command: string): boolean {
+  const relayNames = new Set([
+    "scout-relay",
+    "openscout-terminal-relay",
+    "openscout-terminal-relay.mjs",
+    "terminal-relay-node",
+    "terminal-relay-node.ts",
+  ]);
+  return command
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/^["']|["']$/g, ""))
+    .some((token) => relayNames.has(basename(token)));
+}
+
 async function isRelayProcess(pid: number): Promise<boolean> {
   const command = await processField(pid, "command") ?? "";
-  return /scout-relay|openscout-terminal-relay|terminal-relay-node/.test(command);
+  return isRelayCommandIdentity(command);
+}
+
+export function isLegacyOrphanTerminalRelay(input: {
+  health: TerminalRelayHealth;
+  listenerPid: number | null;
+  parentPid: number | null;
+  command: string;
+}): boolean {
+  return Boolean(
+    input.listenerPid
+    && input.health.pid === input.listenerPid
+    && input.parentPid === 1
+    && isRelayCommandIdentity(input.command)
+    && input.health.sessions === 0
+    && input.health.attachedSessions === 0
+  );
+}
+
+async function terminateIdleLegacyOrphanRelay(
+  health: TerminalRelayHealth,
+  listenerPid: number | null,
+): Promise<boolean> {
+  if (!listenerPid || listenerPid === process.pid) return false;
+  const [parentPid, command] = await Promise.all([
+    processParentPid(listenerPid),
+    processField(listenerPid, "command").then((value) => value ?? ""),
+  ]);
+  if (!isLegacyOrphanTerminalRelay({ health, listenerPid, parentPid, command })) {
+    return false;
+  }
+  console.warn(`[relay] Replacing idle pre-watchdog orphan relay pid ${listenerPid}`);
+  return terminateRelayPid(listenerPid);
 }
 
 async function relayPidOwnedByThisWebProcess(pid: number | null): Promise<boolean> {
@@ -248,7 +295,19 @@ export async function startManagedTerminalRelay(args: {
   const ports = relayPortRange(relayPortPreference.port);
   const preferredTargetHttpUrl = `http://${loopbackHost}:${relayPortPreference.port}`;
   const preferredTargetWebSocketUrl = `ws://${loopbackHost}:${relayPortPreference.port}`;
-  const preferredHealth = await readTerminalRelayHealth(preferredTargetHttpUrl);
+  let preferredHealth = await readTerminalRelayHealth(preferredTargetHttpUrl);
+
+  if (preferredHealth) {
+    const listenerPid = await tcpListenerPid(relayPortPreference.port);
+    if (await terminateIdleLegacyOrphanRelay(preferredHealth, listenerPid)) {
+      if (!await waitForPortAvailable(bindHost, relayPortPreference.port)) {
+        throw new Error(
+          `Idle legacy terminal relay on port ${relayPortPreference.port} did not exit`,
+        );
+      }
+      preferredHealth = null;
+    }
+  }
 
   if (preferredHealth) {
     await cleanupOwnedRelayListeners(ports, relayPortPreference.port);
@@ -404,6 +463,7 @@ async function startRelayProcess(input: {
         ...process.env,
         OPENSCOUT_WEB_TERMINAL_RELAY_HOST: input.bindHost,
         OPENSCOUT_WEB_TERMINAL_RELAY_PORT: String(input.relayPort),
+        OPENSCOUT_WEB_RELAY_PARENT_PID: String(process.pid),
       },
       stdio: "inherit",
     },

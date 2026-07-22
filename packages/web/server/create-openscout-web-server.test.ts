@@ -1515,8 +1515,8 @@ describe("createOpenScoutWebServer", () => {
       updatedAt: 1_700_000_200_000,
     });
     expect(agents[0]).not.toHaveProperty("brokerActivity");
-    expect(agents[0]).not.toHaveProperty("authorityProfile");
-    expect(agents[0]).not.toHaveProperty("runtimePolicy");
+    expect(agents[0]).toHaveProperty("authorityProfile");
+    expect(agents[0]).toHaveProperty("runtimePolicy");
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
@@ -2386,6 +2386,19 @@ describe("createOpenScoutWebServer", () => {
     const agentResponse = await server.app.request("http://localhost/api/agents");
     const agents = await agentResponse.json() as Array<{ id: string; state: string; pendingAsk?: string }>;
     expect(agents.find((agent) => agent.id === agentId)).toMatchObject({
+      state: "needs_attention",
+      pendingAsk: "Permission rule Bash(curl:*) requires confirmation.",
+    });
+
+    const summaryResponse = await server.app.request(
+      "http://localhost/api/agents?detail=summary&attention=1",
+    );
+    const summaryAgents = await summaryResponse.json() as Array<{
+      id: string;
+      state: string;
+      pendingAsk?: string;
+    }>;
+    expect(summaryAgents.find((agent) => agent.id === agentId)).toMatchObject({
       state: "needs_attention",
       pendingAsk: "Permission rule Bash(curl:*) requires confirmation.",
     });
