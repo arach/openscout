@@ -20,6 +20,7 @@ public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
     private var inFlight: Task<Void, Never>?
     private var nativeStreamTask: Task<Void, Never>?
     private var nativeSubscription: ScoutNativeAgentsSubscription?
+    private var compatibilityWebIsReady = false
 
     public init(
         client: ScoutCommsClient = ScoutCommsClient(),
@@ -130,7 +131,21 @@ public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
                     throw ScoutNativeReadClientError.service("scoutd native-read stream ended")
                 } catch {
                     guard !Task.isCancelled, !ScoutAppError.isCancellation(error) else { return }
-                    await fetchWebFallback()
+                    let nativeSchemaIsUnsupported = Self.isUnsupportedNativeReadSchema(error)
+                    await fetchWebFallback(startWebFirst: nativeSchemaIsUnsupported)
+                    if nativeSchemaIsUnsupported {
+                        while !Task.isCancelled, isStarted {
+                            do {
+                                try await Task.sleep(
+                                    nanoseconds: UInt64(max(0.25, pollInterval) * 1_000_000_000)
+                                )
+                            } catch {
+                                return
+                            }
+                            await fetchWebFallback()
+                        }
+                        return
+                    }
                     do {
                         try await Task.sleep(
                             nanoseconds: UInt64(max(0.25, pollInterval) * 1_000_000_000)
@@ -143,9 +158,30 @@ public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
         }
     }
 
-    private func fetchWebFallback() async {
+    private static func isUnsupportedNativeReadSchema(_ error: Error) -> Bool {
+        guard let nativeError = error as? ScoutNativeReadClientError,
+              case .service(let message) = nativeError else {
+            return false
+        }
+        return message.contains("unsupported probe request schema")
+    }
+
+    private func fetchWebFallback(startWebFirst: Bool = false) async {
         do {
-            let next = try await client.fetchAgents(limit: requestedLimit, summary: true)
+            if startWebFirst, !compatibilityWebIsReady {
+                try await client.ensureWebStarted()
+                compatibilityWebIsReady = true
+            }
+            let next: [ScoutAgent]
+            do {
+                next = try await client.fetchAgents(limit: requestedLimit, summary: true)
+            } catch {
+                guard !ScoutAppError.isCancellation(error) else { return }
+                compatibilityWebIsReady = false
+                try await client.ensureWebStarted()
+                compatibilityWebIsReady = true
+                next = try await client.fetchAgents(limit: requestedLimit, summary: true)
+            }
             nativeHasMore = requestedLimit.map { next.count >= $0 } ?? false
             scoutSetIfChanged(next, to: \.agents)
             scoutSetIfChanged(nil, to: \.lastError)

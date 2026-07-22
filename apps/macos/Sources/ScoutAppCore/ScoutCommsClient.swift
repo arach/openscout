@@ -32,6 +32,18 @@ public struct ScoutCommsClient: Sendable {
         return try await ScoutHTTP.fetch([ScoutAgent].self, from: url)
     }
 
+    /// Ensure the broker-managed web child is available before using web-only
+    /// compatibility reads. Modern scoutd builds serve the native roster path;
+    /// older running daemons can reject that schema while the broker itself is
+    /// healthy, so the fallback must not assume the web child is already up.
+    public func ensureWebStarted() async throws {
+        var request = URLRequest(url: ScoutBroker.baseURL().appending(path: "v1/web/start"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        try await ScoutHTTP.send(request)
+    }
+
     public func fetchMessages(cId: String, limit: Int) async throws -> [ScoutMessage] {
         let url = ScoutWeb.baseURL()
             .appending(path: "api/messages")
