@@ -15,11 +15,13 @@ function documentIsHidden(): boolean {
 }
 
 export function useObservePolling(agents: Agent[], options?: {
+  enabled?: boolean;
   activeIntervalMs?: number;
   idleIntervalMs?: number;
   pauseWhenHidden?: boolean;
 }): ObserveCache {
   const [cache, setCache] = useState<ObserveCache>({});
+  const enabled = options?.enabled ?? true;
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
   const queuedRef = useRef(false);
@@ -33,6 +35,7 @@ export function useObservePolling(agents: Agent[], options?: {
     : (options?.idleIntervalMs ?? IDLE_POLL_INTERVAL_MS);
 
   const fetchAll = useCallback(async () => {
+    if (!enabled) return;
     if (agents.length === 0) {
       setCache({});
       return;
@@ -70,11 +73,11 @@ export function useObservePolling(agents: Agent[], options?: {
         void fetchAll();
       }
     }
-  }, [agentIds, agents, pauseWhenHidden]);
+  }, [agentIds, agents, enabled, pauseWhenHidden]);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (agents.length === 0) {
+    if (!enabled || agents.length === 0) {
       setCache({});
       return () => {
         mountedRef.current = false;
@@ -95,7 +98,7 @@ export function useObservePolling(agents: Agent[], options?: {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
     };
-  }, [agents.length, fetchAll, pauseWhenHidden, pollIntervalMs]);
+  }, [agents.length, enabled, fetchAll, pauseWhenHidden, pollIntervalMs]);
   return cache;
 }
 

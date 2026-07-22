@@ -16,6 +16,7 @@ final class ScoutWebSurfaceBridge {
     private static let protocolVersion = 1
     private static let handlerName = "scoutSurface"
     private static let maximumHostCount = 32
+    private static let maximumLaneAgentCount = 96
     private static let maximumRequestBytes = 1_048_576
     private static let allowedEnvelopeKeys: Set<String> = [
         "v", "id", "surface", "method", "hostIds", "params", "deadlineMs",
@@ -119,6 +120,22 @@ final class ScoutWebSurfaceBridge {
             perform(request: request, reply: reply, deadline: deadline) { [weak self] in
                 guard let self else { throw SurfaceBridgeError.cancelled }
                 return try await self.listAgents(hostIds: try self.authorizedHostIds(request.hostIds))
+            }
+        case "agents.observe":
+            guard let agentIds = request.params?.agentIds,
+                  !agentIds.isEmpty,
+                  agentIds.count <= 128,
+                  agentIds.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 })
+            else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "agentIds are required.", deadline: deadline))
+                return
+            }
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                return try await self.observeAgents(
+                    hostIds: try self.authorizedHostIds(request.hostIds),
+                    agentIds: Set(agentIds)
+                )
             }
         case "tail.recent":
             perform(request: request, reply: reply, deadline: deadline) { [weak self] in
@@ -229,7 +246,10 @@ final class ScoutWebSurfaceBridge {
     private var enabledCapabilities: [String] {
         switch surface {
         case .lanes:
-            return ["bootstrap", "native.openExternalURL", "native.cancel", "agents.list", "tail.recent", "native.setLaneSelection"]
+            return [
+                "bootstrap", "native.openExternalURL", "native.cancel", "agents.list",
+                "agents.observe", "tail.recent", "native.setLaneSelection",
+            ]
         case .dispatch:
             return ["bootstrap", "native.openExternalURL", "native.cancel"]
         }
@@ -253,7 +273,7 @@ final class ScoutWebSurfaceBridge {
                 continue
             }
             do {
-                let agents = try await client.listAgents(query: nil, limit: 256)
+                let agents = try await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)
                 outcomes.append([
                     "hostId": hostId,
                     "ready": true,
@@ -278,6 +298,13 @@ final class ScoutWebSurfaceBridge {
                 continue
             }
             do {
+                let agents = (try? await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)) ?? []
+                var agentByConversation: [String: String] = [:]
+                for agent in agents {
+                    if let conversationId = agent.conversationId, agentByConversation[conversationId] == nil {
+                        agentByConversation[conversationId] = agent.id
+                    }
+                }
                 let events = try await client.recentTail(limit: limit)
                 let sequence = events.map(\.tsMs).max() ?? 0
                 outcomes.append([
@@ -286,7 +313,54 @@ final class ScoutWebSurfaceBridge {
                     "value": [
                         "cursor": cursor(hostId: hostId, sequence: sequence),
                         "nextCursor": NSNull(),
-                        "events": events.map(tailPayload),
+                        "events": events.map { event in
+                            tailPayload(event, agentId: event.conversationId.flatMap { agentByConversation[$0] })
+                        },
+                    ],
+                ])
+            } catch {
+                outcomes.append(hostFailure(hostId, message: error.localizedDescription))
+            }
+        }
+        return ["hosts": outcomes]
+    }
+
+    private func observeAgents(hostIds: [String], agentIds: Set<String>) async throws -> [String: Any] {
+        let machines = machineMap()
+        var outcomes: [[String: Any]] = []
+        for hostId in hostIds {
+            guard let machine = machines[hostId], let client = machine.client else {
+                outcomes.append(hostFailure(hostId, message: "Host is not connected."))
+                continue
+            }
+            do {
+                let agents = try await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)
+                let selectedAgents = agents.filter { agentIds.contains($0.id) }
+                let events = try await client.recentTail(limit: 256)
+                let eventsByConversation = Dictionary(grouping: events) { $0.conversationId ?? "" }
+                let payloads = selectedAgents.map { agent -> [String: Any] in
+                    let matching = agent.conversationId.flatMap { eventsByConversation[$0] } ?? []
+                    let updatedAt = max(
+                        agent.lastActiveAt.map { Int64($0.timeIntervalSince1970 * 1_000) } ?? 0,
+                        matching.map(\.tsMs).max() ?? 0
+                    )
+                    return [
+                        "agentId": agent.id,
+                        "source": matching.isEmpty ? "unavailable" : "live",
+                        "fidelity": "timestamped",
+                        // AgentSummary.sessionId can be a shared display label;
+                        // conversationId is the routable identity used by Tail.
+                        "sessionId": agent.conversationId as Any? ?? agent.sessionId as Any? ?? NSNull(),
+                        "updatedAt": updatedAt,
+                        "events": matching.suffix(64).map(observePayload),
+                    ]
+                }
+                outcomes.append([
+                    "hostId": hostId,
+                    "ready": true,
+                    "value": [
+                        "cursor": cursor(hostId: hostId, sequence: payloads.map { ($0["updatedAt"] as? Int64) ?? 0 }.max() ?? 0),
+                        "agents": payloads,
                     ],
                 ])
             } catch {
@@ -315,13 +389,30 @@ final class ScoutWebSurfaceBridge {
         ]
     }
 
-    private func tailPayload(_ event: TailEvent) -> [String: Any] {
+    private func tailPayload(_ event: TailEvent, agentId: String? = nil) -> [String: Any] {
         [
             "id": event.id,
             "at": event.tsMs,
-            "agentId": NSNull(),
+            "agentId": agentId as Any? ?? NSNull(),
             "sessionId": event.conversationId as Any? ?? NSNull(),
             "kind": event.kind.rawValue,
+            "text": event.summary,
+        ]
+    }
+
+    private func observePayload(_ event: TailEvent) -> [String: Any] {
+        let kind: String
+        switch event.kind {
+        case .user: kind = "ask"
+        case .assistant: kind = "message"
+        case .tool, .toolResult: kind = "tool"
+        case .system: kind = "system"
+        case .other: kind = "note"
+        }
+        return [
+            "id": event.id,
+            "at": event.tsMs,
+            "kind": kind,
             "text": event.summary,
         ]
     }
@@ -417,6 +508,7 @@ private struct RequestEnvelope: Decodable {
 }
 
 private struct RequestParams: Decodable {
+    let agentIds: [String]?
     let cursor: String?
     let limit: Int?
     let requestId: String?

@@ -44,11 +44,12 @@ function teardown(): void {
   // Keep wsClient open across re-mounts; tRPC handles reconnection.
 }
 
-export function useTailEvents(onEvent: (event: TailEvent) => void): void {
+export function useTailEvents(onEvent: (event: TailEvent) => void, enabled = true): void {
   const cbRef = useRef(onEvent);
   cbRef.current = onEvent;
 
   useEffect(() => {
+    if (!enabled) return;
     const subscriber: TailSubscription = (event) => cbRef.current(event);
     subscribers.add(subscriber);
     ensureSubscribed();
@@ -58,5 +59,5 @@ export function useTailEvents(onEvent: (event: TailEvent) => void): void {
         teardown();
       }
     };
-  }, []);
+  }, [enabled]);
 }
