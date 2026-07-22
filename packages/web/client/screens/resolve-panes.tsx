@@ -18,7 +18,6 @@ import { SearchContent, SearchRight } from "./search/index.ts";
 import { SessionsContent, SessionsRight } from "./sessions/index.ts";
 import { SettingsContent } from "./settings/index.ts";
 import { TerminalContent, TerminalLeft, TerminalRight } from "./terminal/index.ts";
-import { WorkContent, WorkRight } from "./work/index.ts";
 
 type Navigate = ReturnType<typeof useScout>["navigate"];
 
@@ -87,8 +86,6 @@ export function resolveContentPane(
       return <OpsContent route={route} navigate={navigate} />;
     case "terminal":
       return <TerminalContent route={route as Extract<Route, { view: "terminal" }>} navigate={navigate} />;
-    case "work":
-      return <WorkContent route={route} navigate={navigate} />;
     case "follow":
       return <FollowContent route={route} navigate={navigate} />;
     default:
@@ -124,8 +121,6 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
       return <ChatRight />;
     case "terminal":
       return <TerminalRight />;
-    case "work":
-      return <WorkRight />;
     case "mesh":
       return <MeshRight />;
     case "repos":

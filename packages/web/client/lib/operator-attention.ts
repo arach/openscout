@@ -1,4 +1,51 @@
 import { api } from "./api.ts";
+import type { FleetAsk, FleetAttentionItem, Route, WorkItem } from "./types.ts";
+
+function directResolutionRoute({
+  conversationId,
+  workId,
+  agentId,
+}: {
+  conversationId?: string | null;
+  workId?: string | null;
+  agentId?: string | null;
+}): Route {
+  if (conversationId) return { view: "conversation", conversationId };
+  if (workId) {
+    return {
+      view: "follow",
+      workId,
+      preferredView: "chat",
+      ...(agentId ? { targetAgentId: agentId } : {}),
+    };
+  }
+  if (agentId) return { view: "agents-v2", agentId, tab: "message" };
+  return { view: "inbox" };
+}
+
+export function routeForOperatorAttention(item: FleetAttentionItem): Route {
+  return directResolutionRoute({
+    conversationId: item.conversationId,
+    workId: item.kind === "work_item" ? item.recordId : null,
+    agentId: item.agentId,
+  });
+}
+
+export function routeForFleetAsk(ask: FleetAsk): Route {
+  return directResolutionRoute({
+    conversationId: ask.conversationId,
+    workId: ask.collaborationRecordId,
+    agentId: ask.agentId,
+  });
+}
+
+export function routeForWorkItem(work: WorkItem): Route {
+  return directResolutionRoute({
+    conversationId: work.conversationId,
+    workId: work.id,
+    agentId: work.nextMoveOwnerId ?? work.ownerId,
+  });
+}
 
 export type OperatorAttentionDismissTarget =
   | {

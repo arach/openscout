@@ -1312,7 +1312,6 @@ export type Route =
   | { view: "code"; root?: string; file?: string; project?: string; path?: string; wt?: string }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)
-  | ({ view: "work"; workId: string } & MachineScopedRoute)
   | {
       view: "settings";
       section?: SettingsSection;
@@ -1355,7 +1354,7 @@ export type Route =
 
 export type AgentTab = "profile" | "config" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
-export type FollowPreferredView = "tail" | "session" | "chat" | "work";
+export type FollowPreferredView = "tail" | "session" | "chat";
 /** URL-addressable settings surface sections (SCO-082 Phase B). */
 export type SettingsSection =
   | "pairing"

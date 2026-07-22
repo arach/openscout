@@ -262,9 +262,14 @@ function buildObservedSignal(
   const route: Route | null = actor.conversationId
     ? { view: "conversation", conversationId: actor.conversationId }
     : actor.recordId
-      ? { view: "work", workId: actor.recordId }
+      ? {
+          view: "follow",
+          workId: actor.recordId,
+          preferredView: "chat",
+          ...(actor.agentId ? { targetAgentId: actor.agentId } : {}),
+        }
       : actor.agentId
-        ? { view: "agents-v2", agentId: actor.agentId }
+        ? { view: "agents-v2", agentId: actor.agentId, tab: "message" }
         : null;
 
   return {

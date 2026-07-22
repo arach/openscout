@@ -36,7 +36,6 @@ describe("resolveSidebarContext exhaustiveness (SCO-083)", () => {
       "broker",
       "search",
       "settings",
-      "work",
       "repos",
       "code",
       "harnesses",

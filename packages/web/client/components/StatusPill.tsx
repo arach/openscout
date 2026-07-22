@@ -5,7 +5,7 @@ import { toneToChipClass, toneToPillClass, type Tone } from "../lib/status-tone.
  * StatusPill renders a small inline status badge using one of two CSS families:
  *
  *   - `variant="pill"` -> `.s-pill .s-pill-<variant>` (work-themed; used in
- *     WorkList / WorkDetailScreen).
+ *     WorkList).
  *   - `variant="chip"` -> `.sys-chip .sys-chip-<tone>` (system-themed; used
  *     across BrokerScreen, MeshScreen, SettingsScreen, MeshInspector).
  *

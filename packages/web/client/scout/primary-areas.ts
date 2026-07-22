@@ -134,7 +134,6 @@ export const ROUTE_AREA_BY_VIEW = {
   conversation: "chat",
   channels: "chat",
   broker: "dispatch",
-  work: "dispatch",
   follow: "dispatch",
   search: "search",
   ops: "ops",
@@ -169,8 +168,6 @@ export function primaryAreaForRoute(route: Route): PrimaryAreaId {
         return "sessions";
       case "chat":
         return "chat";
-      case "work":
-        return "dispatch";
       default:
         break;
     }

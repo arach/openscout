@@ -596,6 +596,10 @@ export function queryFollowTarget(opts: {
   if (target.workId && !target.conversationId) {
     const work = queryWorkItemById(target.workId);
     target.conversationId = work?.conversationId ?? target.conversationId;
+    target.targetAgentId = target.targetAgentId
+      ?? work?.nextMoveOwnerId
+      ?? work?.ownerId
+      ?? null;
   }
 
   if (target.conversationId && (!target.sessionId || !target.targetAgentId)) {

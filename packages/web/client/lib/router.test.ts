@@ -172,13 +172,10 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "mesh", machineId: "node-b" })).toBe("/mesh?machineId=node-b");
 
     expect(routeFromUrl("http://127.0.0.1:43120/work/work-1?machineId=node-b")).toEqual({
-      view: "work",
+      view: "follow",
       workId: "work-1",
-      machineId: "node-b",
+      preferredView: "chat",
     });
-    expect(routePath({ view: "work", workId: "work-1", machineId: "node-b" })).toBe(
-      "/work/work-1?machineId=node-b",
-    );
 
     expect(routeFromUrl("http://127.0.0.1:43120/harnesses?machineId=node-b")).toEqual({
       view: "harnesses",
@@ -463,10 +460,10 @@ describe("agents route parsing", () => {
     });
     expect(routePath({ view: "channels", channelId: "chan-1" })).toBe("/channels/chan-1");
     expect(routeFromUrl("http://127.0.0.1:43120/work/w-1")).toEqual({
-      view: "work",
+      view: "follow",
       workId: "w-1",
+      preferredView: "chat",
     });
-    expect(routePath({ view: "work", workId: "w-1" })).toBe("/work/w-1");
     // Bare /work has no route: the parser sends it to the inbox default.
     expect(routeFromUrl("http://127.0.0.1:43120/work")).toEqual({ view: "inbox" });
     expect(routeFromUrl("http://127.0.0.1:43120/settings/agents/a-1")).toEqual({

@@ -46,7 +46,6 @@ describe("top nav config", () => {
     expect(topNavKeyForRoute({ view: "terminal" })).toBe("system");
     expect(topNavKeyForRoute({ view: "search" })).toBe("system");
     expect(topNavKeyForRoute({ view: "code" })).toBe("system");
-    expect(topNavKeyForRoute({ view: "work", workId: "w1" })).toBe("system");
     expect(topNavKeyForRoute({ view: "follow" })).toBe("system");
     expect(topNavKeyForRoute({ view: "settings" })).toBe("system");
   });

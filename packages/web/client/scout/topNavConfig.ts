@@ -38,7 +38,6 @@ const SYSTEM_VIEWS = new Set<Route["view"]>([
   "terminal",
   "search",
   "code",
-  "work",
   "follow",
   "settings",
 ]);
@@ -76,7 +75,6 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
     case "terminal":
     case "search":
     case "code":
-    case "work":
     case "follow":
     case "settings":
       return "system";
@@ -109,7 +107,6 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
     case "channels":
     case "mesh":
     case "broker":
-    case "work":
       return TOP_NAV_VIEW_LABELS[route.view] ?? route.view;
     default:
       return null;

@@ -42,7 +42,6 @@ describe("route breadcrumbs (SCO-083)", () => {
       "conversation",
       "channels",
       "broker",
-      "work",
       "follow",
       "search",
       "ops",

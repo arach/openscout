@@ -290,12 +290,17 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                 route: { view: "conversation", conversationId: item.conversationId },
               });
             }
-            if (item.recordId) {
+            if (item.recordId && !item.conversationId) {
               jumps.push({
-                key: "work",
-                label: "Work",
-                title: "Open work item",
-                route: { view: "work", workId: item.recordId },
+                key: "context",
+                label: "Open",
+                title: "Open related context",
+                route: {
+                  view: "follow",
+                  workId: item.recordId,
+                  preferredView: "chat",
+                  ...(item.agentId ? { targetAgentId: item.agentId } : {}),
+                },
               });
             }
             if (item.agentId) {

@@ -12,6 +12,7 @@ import {
 } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { routeForFleetAsk, routeForOperatorAttention, routeForWorkItem } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type {
@@ -684,7 +685,7 @@ function PlanContextInspectorPanel({
             key={work.id}
             type="button"
             className="ctx-panel-item ctx-panel-plan-context-item"
-            onClick={() => openContent(navigate, { view: "work", workId: work.id }, { returnTo: returnRoute })}
+            onClick={() => openContent(navigate, routeForWorkItem(work), { returnTo: returnRoute })}
           >
             <div className="ctx-panel-body">
               <span className="ctx-panel-name">{work.title}</span>
@@ -776,24 +777,24 @@ function PlanContextSection({
 }
 
 function planRouteForAsk(ask: FleetAsk): Route {
-  if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
-  if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
-  return { view: "agents-v2", agentId: ask.agentId };
+  return routeForFleetAsk(ask);
 }
 
 function planRouteForRun(run: AgentRun): Route {
   if (run.conversationId) return { view: "conversation", conversationId: run.conversationId };
-  if (run.workId) return { view: "work", workId: run.workId };
-  return { view: "agents-v2", agentId: run.agentId };
+  if (run.workId) {
+    return {
+      view: "follow",
+      workId: run.workId,
+      preferredView: "chat",
+      ...(run.agentId ? { targetAgentId: run.agentId } : {}),
+    };
+  }
+  return { view: "agents-v2", agentId: run.agentId, tab: "message" };
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
-  // Only work items live on the work detail page; questions belong to their
-  // conversation (or fall through to the owning agent).
-  if (item.kind === "work_item" && item.recordId) return { view: "work", workId: item.recordId };
-  if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
-  if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
-  return null;
+  return routeForOperatorAttention(item);
 }
 
 function OpsStat({

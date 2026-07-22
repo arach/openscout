@@ -69,7 +69,6 @@ export function resolveSidebarContext(
 
     // ── Dispatch ───────────────────────────────────────────────────────
     case "broker":
-    case "work":
     case "follow":
       return { body: null, footer: null };
 

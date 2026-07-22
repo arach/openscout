@@ -25,7 +25,6 @@ export const ROUTE_VIEW_LABELS: Record<string, string> = {
   mesh: "Mesh",
   broker: "Dispatch",
   settings: "Settings",
-  work: "Work",
   follow: "Follow",
   code: "Code",
   ops: "Ops",
@@ -50,7 +49,6 @@ export function routeBreadcrumbForRoute(route: Route): string | null {
     case "channels":
     case "mesh":
     case "broker":
-    case "work":
     case "code":
     case "briefings":
     case "activity":

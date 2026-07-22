@@ -70,36 +70,24 @@ export function routeForFollowTarget(
   target: FollowTarget,
   preferredView: FollowPreferredView | undefined,
 ): Route {
-  if (preferredView === "work" && target.workId) {
-    return { view: "work", workId: target.workId };
-  }
   if (preferredView === "session" && target.sessionId) {
     return { view: "sessions", sessionId: target.sessionId };
   }
   if (preferredView === "chat" && target.conversationId) {
     return { view: "conversation", conversationId: target.conversationId };
   }
+  if (preferredView === "chat" && target.targetAgentId) {
+    return { view: "agents-v2", agentId: target.targetAgentId, tab: "message" };
+  }
   if (preferredView === "tail") {
     return tailRouteForFollowTarget(target);
   }
 
-  const observeRoute = observeRouteForFollowTarget(target);
-  if (observeRoute) {
-    return observeRoute;
-  }
-  if (target.workId) {
-    return { view: "work", workId: target.workId };
-  }
-  if (target.sessionId) {
-    return {
-      view: "sessions",
-      sessionId: target.sessionId,
-      ...(target.targetAgentId ? { agentId: target.targetAgentId } : {}),
-    };
-  }
   if (target.conversationId) {
     return { view: "conversation", conversationId: target.conversationId };
   }
+  const observeRoute = observeRouteForFollowTarget(target);
+  if (observeRoute) return observeRoute;
   if (target.flightId || target.invocationId || target.targetAgentId) {
     return tailRouteForFollowTarget(target);
   }

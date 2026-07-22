@@ -42,10 +42,10 @@ describe("primary areas (SCO-083 IA model)", () => {
     expect(systemPrimaryAreas().map((a) => a.id)).toEqual(["ops", "settings"]);
   });
 
-  test("ROUTE_AREA_BY_VIEW has exactly 21 keys and 8 non-empty buckets", () => {
+  test("ROUTE_AREA_BY_VIEW has exactly 20 keys and 8 non-empty buckets", () => {
     const views = allRouteViews();
-    expect(views).toHaveLength(21);
-    expect(new Set(views).size).toBe(21);
+    expect(views).toHaveLength(20);
+    expect(new Set(views).size).toBe(20);
 
     const buckets = routeViewsByArea();
     const areaIds = Object.keys(buckets) as PrimaryAreaId[];
@@ -61,7 +61,7 @@ describe("primary areas (SCO-083 IA model)", () => {
     );
     expect(buckets.sessions.sort()).toEqual(["sessions", "terminal"].sort());
     expect(buckets.chat.sort()).toEqual(["channels", "conversation", "messages"].sort());
-    expect(buckets.dispatch.sort()).toEqual(["broker", "follow", "work"].sort());
+    expect(buckets.dispatch.sort()).toEqual(["broker", "follow"].sort());
     expect(buckets.search).toEqual(["search"]);
     expect(buckets.ops.sort()).toEqual(["harnesses", "mesh", "ops"].sort());
     expect(buckets.settings).toEqual(["settings"]);
@@ -81,7 +81,6 @@ describe("primary areas (SCO-083 IA model)", () => {
     expect(primaryAreaForRoute({ view: "follow", preferredView: "tail" })).toBe("ops");
     expect(primaryAreaForRoute({ view: "follow", preferredView: "session" })).toBe("sessions");
     expect(primaryAreaForRoute({ view: "follow", preferredView: "chat" })).toBe("chat");
-    expect(primaryAreaForRoute({ view: "follow", preferredView: "work" })).toBe("dispatch");
   });
 
   test("Ops default route respects ops.control gate policy", () => {

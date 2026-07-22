@@ -41,7 +41,7 @@ export function toneToChipClass(tone: Tone): "neutral" | "success" | "warning" |
 }
 
 /* ------------------------------------------------------------------ */
-/* Work items (WorkList, WorkDetailScreen)                            */
+/* Work items (WorkList)                                              */
 /* ------------------------------------------------------------------ */
 
 /**
