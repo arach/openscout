@@ -1926,6 +1926,17 @@ export function endpointStateAfterSuccessfulSessionWarmup(
 }
 
 export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<void> {
+  if (endpoint.transport === "tmux") {
+    const sessionName = endpoint.sessionId
+      ?? (typeof endpoint.metadata?.tmuxSession === "string"
+        ? endpoint.metadata.tmuxSession
+        : null);
+    if (sessionName) {
+      await killAgentSession(sessionName);
+    }
+    return;
+  }
+
   if (endpoint.transport === "codex_app_server") {
     await shutdownCodexAppServerAgent(buildCodexEndpointSessionOptions(endpoint));
     return;

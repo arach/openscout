@@ -28,6 +28,9 @@ public final class HUDDockState: ObservableObject {
     @Published var text: String = ""
     @Published var targetHandle: String? = nil   // "@hudson" (display + routing)
     @Published var targetLabel: String? = nil    // "Hudson"  (visible chip text)
+    /// `#project` scope chip — place-default addressing. Does not replace
+    /// the work/hand target; scopes the draft when present.
+    @Published var scopeProject: String? = nil
     @Published var focusRequested: Int = 0       // bump → dock takes firstResponder
     @Published var lastError: String? = nil
     @Published var isSending: Bool = false
@@ -275,6 +278,21 @@ public final class HUDDockState: ObservableObject {
         }
     }
 
+    /// Stage a `#project` scope chip (place-default addressing exception).
+    func setScopeProject(_ raw: String?) {
+        guard let raw else {
+            scopeProject = nil
+            return
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            scopeProject = nil
+            return
+        }
+        let bare = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        scopeProject = bare.isEmpty ? nil : bare
+    }
+
     // MARK: - Suggestions
 
     func setSuggestionAgents(_ agents: [HudAgent]) {
@@ -362,8 +380,14 @@ public final class HUDDockState: ObservableObject {
             text = ""
         }
 
-        if suggestion.kind == .agent {
+        switch suggestion.kind {
+        case .agent:
+            // @work hands — agents are facets of work until DRI exists.
             setTarget(handle: suggestion.targetHandle, label: suggestion.targetLabel)
+        case .project:
+            setScopeProject(suggestion.targetHandle ?? suggestion.targetLabel)
+        case .command, .session:
+            break
         }
 
         clearSuggestions(resetDismissedSignature: true)
@@ -386,9 +410,10 @@ public final class HUDDockState: ObservableObject {
     /// unengage, HUD dismiss).
     ///
     /// Stages, in order:
-    ///   1. Non-empty text → clear text (keep target chip)
-    ///   2. Target chip set → clear target
-    ///   3. (caller handles focus + engaged-row + dismiss)
+    ///   1. Non-empty text → clear text (keep chips)
+    ///   2. Work/hand target chip → clear target
+    ///   3. Project scope chip → clear scope
+    ///   4. (caller handles focus + engaged-row + dismiss)
     @discardableResult
     func escapePressed() -> Bool {
         if suggestionsVisible {
@@ -416,6 +441,10 @@ public final class HUDDockState: ObservableObject {
         if targetHandle != nil {
             targetHandle = nil
             targetLabel = nil
+            return true
+        }
+        if scopeProject != nil {
+            scopeProject = nil
             return true
         }
         return false
@@ -447,8 +476,16 @@ public final class HUDDockState: ObservableObject {
     /// message the flash already attributed.
     func send(body: String?, resolvedTarget: String?) async {
         let source = body ?? text
-        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Scope token rides in the body (place-default send path unchanged).
+        if let project = scopeProject, !project.isEmpty {
+            let token = "#\(project)"
+            let lower = trimmed.lowercased()
+            if !lower.contains(token.lowercased()) {
+                trimmed = "\(token) \(trimmed)"
+            }
+        }
         if body == nil { text = "" }
         isSending = true
         defer { isSending = false }
@@ -476,37 +513,37 @@ private extension HUDDockState {
     static let commandCandidates: [HUDDockCommandCandidate] = [
         HUDDockCommandCandidate(
             command: "/help",
-            detail: "Show Scoutbot commands",
+            detail: "Commands, tabs, and addressing",
             replacement: "/help ",
             action: nil
         ),
         HUDDockCommandCandidate(
-            command: "/agents",
-            detail: "List known agents and endpoints",
-            replacement: "/agents ",
-            action: nil
-        ),
-        HUDDockCommandCandidate(
             command: "/status",
-            detail: "Summarize active work and online agents",
+            detail: "ON YOU, then RECENT work",
             replacement: "/status ",
             action: nil
         ),
         HUDDockCommandCandidate(
             command: "/recent",
-            detail: "Show recent messages from an agent",
+            detail: "Recent work (fleet or @hand)",
             replacement: "/recent ",
             action: nil
         ),
         HUDDockCommandCandidate(
+            command: "/agents",
+            detail: "Hands as facets of current work",
+            replacement: "/agents ",
+            action: nil
+        ),
+        HUDDockCommandCandidate(
             command: "/doing",
-            detail: "Show active work for an agent",
+            detail: "What work a hand is on",
             replacement: "/doing ",
             action: nil
         ),
         HUDDockCommandCandidate(
             command: "/flight",
-            detail: "Inspect a flight by id",
+            detail: "Inspect one work unit by id",
             replacement: "/flight ",
             action: nil
         ),

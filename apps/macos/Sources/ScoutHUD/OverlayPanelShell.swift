@@ -48,7 +48,7 @@ final class OverlayPanel: NSPanel {
             && HUDRunnerState.shared.shouldHandleProjectNavigation
             && runnerTabIsForward
             && (kc == 36 || kc == 48 || kc == 125 || kc == 126)
-        let isIdleAgentRosterArrow = HUDState.shared.view == .agents
+        let isIdleAgentRosterArrow = HUDState.shared.view == .focus
             && !HUDDockState.shared.suggestionsVisible
             && HUDDockState.shared.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (kc == 125 || kc == 126)

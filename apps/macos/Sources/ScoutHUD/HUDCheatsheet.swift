@@ -65,7 +65,7 @@ struct HUDCheatsheetOverlay: View {
             }
 
             section("Tabs · Tier") {
-                kbd("1 2 3 4 5", "agents · activity · tail · sessions · assistant")
+                kbd("1 2 3 4 5", "focus · threads · tail · scout · scoutbot")
                 kbd("⌘← ⌘→", "tier down / up (S / M / L)")
                 kbd("[ ]", "tier down / up")
             }
@@ -74,11 +74,12 @@ struct HUDCheatsheetOverlay: View {
                 kbd("i", "focus the message dock (insert)")
                 kbd("/", "focus dock and start a slash command")
                 kbd("/spin", "open the Scout runner draft")
-                kbd("@", "stage an agent target from the dock")
+                kbd("@", "reach work / hand — stages a target chip")
+                kbd("#", "scope to a project — stages a #project chip")
                 kbd("session:", "complete a known session id")
                 kbd("↑ ↓", "move through open suggestions")
-                kbd("↵", "send message")
-                kbd("Esc", "cascade: suggestions → text → target → blur → dismiss")
+                kbd("↵", "send (place default when no chip)")
+                kbd("Esc", "cascade: suggestions → text → target → scope → blur → dismiss")
             }
 
             section("Voice") {

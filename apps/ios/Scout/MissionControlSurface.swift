@@ -16,6 +16,17 @@ struct MissionControlSurface: View {
             case .dispatch: return "/embed/dispatch"
             }
         }
+
+        var localSurface: ScoutWebSurfaceBridge.Surface {
+            switch self {
+            case .lanes: return .lanes
+            case .dispatch: return .dispatch
+            }
+        }
+
+        var assetDirectory: String {
+            "WebSurfaces/\(localSurface.rawValue)"
+        }
     }
 
     let model: AppModel
@@ -24,8 +35,33 @@ struct MissionControlSurface: View {
 
     @State private var webState = HudWebViewState()
     @State private var reloadGeneration = 0
+    @State private var localBridge: ScoutWebSurfaceBridge
     @StateObject private var entrance = CockpitEntrancePhase()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    init(model: AppModel, kind: Kind, isActive: Bool) {
+        self.model = model
+        self.kind = kind
+        self.isActive = isActive
+        _localBridge = State(initialValue: ScoutWebSurfaceBridge(model: model, surface: kind.localSurface))
+    }
+
+    private var usesLocalBundledPage: Bool {
+        #if DEBUG
+        // Bundled pages are the normal iPad development path. Keep the old
+        // host-served page available only as an explicit troubleshooting
+        // escape hatch while the adapter-backed renderer migration continues.
+        ProcessInfo.processInfo.environment["SCOUT_REMOTE_WEB_SURFACES"] != "1"
+        #else
+        false
+        #endif
+    }
+
+    private var webActivity: HudWebViewActivity {
+        guard scenePhase == .active else { return .background }
+        return isActive ? .visible : .hiddenWarm
+    }
 
     private var sourceURL: URL? {
         // Re-resolve on connection changes: `webAccessHost` is nil while the
@@ -51,6 +87,34 @@ struct MissionControlSurface: View {
                 // mounted and warm across every subsequent tab switch.
                 if !entrance.hasEntered {
                     Color.clear
+                } else if usesLocalBundledPage {
+                    HudWebSurface(
+                        HudWebSurfaceDescriptor(
+                            id: "scout.ios.\(kind.rawValue.lowercased())",
+                            title: kind.rawValue,
+                            location: .bundled(
+                                directory: kind.assetDirectory,
+                                readAccessDirectory: "WebSurfaces"
+                            ),
+                            lifecycle: .keepWarm
+                        ),
+                        state: $webState,
+                        configuration: HudWebViewConfiguration(
+                            allowsBackForwardNavigationGestures: false,
+                            allowsJavaScript: true,
+                            customUserAgent: "Scout-iPad/1 LocalSurface",
+                            usesNonPersistentDataStore: true,
+                            isInspectable: false
+                        ),
+                        integration: localBridge.integration,
+                        activity: webActivity
+                    )
+                    .id(reloadGeneration)
+                    .overlay {
+                        if let message = webState.errorMessage {
+                            unavailable(title: "Couldn’t load local \(kind.rawValue)", detail: message)
+                        }
+                    }
                 } else if let sourceURL {
                     HudWebSurface(
                         HudWebSurfaceDescriptor(
@@ -93,7 +157,12 @@ struct MissionControlSurface: View {
     private var toolbar: some View {
         HStack(spacing: HudSpacing.md) {
             HudSectionLabel(kind.rawValue, tint: ScoutInk.muted)
-            if let host = sourceURL?.host {
+            if usesLocalBundledPage {
+                Text("LOCAL · SIGNED")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.5)
+                    .foregroundStyle(HudPalette.accent)
+            } else if let host = sourceURL?.host {
                 Text(host.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .medium))
                     .tracking(0.5)

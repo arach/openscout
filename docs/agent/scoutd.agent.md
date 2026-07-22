@@ -109,6 +109,13 @@ the broker writer or routing path.
 - child exit → log → backoff 1s→30s → respawn unless shutdown requested
 - child stdout/stderr append to scoutd-owned `stdout.log` / `stderr.log`; before
   each spawn, files above 512 KiB retain a bounded tail in `.1` and are truncated
+- every five minutes, sweep exact Scout-owned stale-process evidence: expired managed
+  process leases and orphaned duplicate `_oscout-pair._tcp` advertisements that
+  have a live replacement; set `OPENSCOUT_PROCESS_SWEEP=0` only for debugging
+- the supervised broker separately sweeps idle cardless sessions every five
+  minutes and retires them after 24 hours with no endpoint, flight, work-item,
+  or question activity; tune with `OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS` and
+  `OPENSCOUT_CARDLESS_SESSION_SWEEP_INTERVAL_MS`
 - SIGINT/SIGTERM → `stopping` → terminate child (12s budget) → `stopped`
 - forwards optional launch env: mesh, node, tailscale, web portal hosts
 
@@ -148,11 +155,15 @@ pin exists. A pin mismatch is still stale; a missing identity is unverified.
 
 Output schema: `scout.doctor.v1` phases (CLI wraps same config).
 
-`doctor --fix` is intentionally not implemented in the current Rust slice. If
-added, keep it opt-in and conservative: ensure directories/plist, boot out the
-legacy launchd label, remove a stale broker socket only when health is
-unreachable and no broker process owns it, and terminate only exact-match
-orphaned Scout processes already reported by doctor.
+`doctor --fix` remains conservative and opt-in. The always-on process sweep is
+narrower still: it terminates only an expired leased process group whose live
+command matches the lease's isolated profile marker, or an orphaned OpenScout
+pairing advertisement when the same identity and port have a live replacement.
+Harness/session retirement remains broker-owned and must use broker lifecycle
+state; scoutd must not infer that an agent is stale from process age alone.
+The broker rechecks cardless-session eligibility immediately before stopping a
+harness, and only retires an `idle` session with no nonterminal flight and no
+open work/question ownership.
 
 ## Invariants
 

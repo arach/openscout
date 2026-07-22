@@ -171,20 +171,12 @@ struct HUDStatusView: View {
         )
     }
 
-    private var activeAgentId: String? {
-        agents.first(where: { $0.state == .working })?.id
-    }
-
     private var brokerOffline: Bool {
         agentsStore.lastError != nil && (agentsStore.agents?.isEmpty ?? true)
     }
 
     private var attentionCount: Int {
         agents.filter { $0.state == .needsAttention }.count
-    }
-
-    private var workingCount: Int {
-        agents.filter { $0.state == .working }.count
     }
 
     var body: some View {
@@ -319,13 +311,14 @@ struct HUDStatusView: View {
             return
         }
         switch view {
-        case .agents:
-            activityStore.stop()
+        case .focus:
+            // Focus needs both attention roster and activity ledger.
             agentsStore.start()
-        case .activity:
-            agentsStore.stop()
             activityStore.start()
-        case .tail, .sessions, .assistant:
+        case .threads:
+            agentsStore.start()
+            activityStore.stop()
+        case .tail, .scout, .scoutbot:
             agentsStore.stop()
             activityStore.stop()
         }
@@ -377,8 +370,8 @@ struct HUDStatusView: View {
     // MARK: - Masthead
     //
     // One row: tiny mark + nav tabs. No wordmark, no live meter, no
-    // hotkey chip. Attention surfaces as a single lime pip at the right
-    // *only* when there's actually attention. Hotkey moves to footer.
+    // hotkey chip. Attention lives in focus → ON YOU (not a top-right pip).
+    // Hotkey moves to footer.
 
     @ViewBuilder
     private var masthead: some View {
@@ -405,14 +398,11 @@ struct HUDStatusView: View {
 
             Spacer(minLength: 6)
 
-            // Right cluster: attention pip (when something needs eyes) ·
-            // dismissed-flash pip (when an alert was dismissed but the
-            // condition lingers) · 3-pill size toggle · `?` cheatsheet hint.
+            // Right cluster: broker-offline pip · dismissed-flash pip ·
+            // 3-pill size toggle · `?` cheatsheet hint.
+            // (The old "on you" attention pip is gone — ON YOU on focus carries it.)
             HStack(spacing: 8) {
-                if attentionCount > 0 {
-                    AttentionPip()
-                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
-                } else if brokerOffline {
+                if brokerOffline {
                     BrokerOfflinePip()
                 }
                 DismissedFlashPip()
@@ -620,29 +610,25 @@ struct HUDStatusView: View {
     private var content: some View {
         ZStack(alignment: .top) {
             switch state.view {
-            case .agents:
-                agentsContent
+            case .focus:
+                focusContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
-            case .activity:
-                HUDActivityView(
-                    agents: agents,
-                    activity: activityStore.items,
-                    isLoading: activityStore.isLoading && activityStore.items == nil
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .transition(.opacity)
+            case .threads:
+                HUDSessionsView(agents: agents, tail: sessionsTail)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
             case .tail:
                 HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding, size: state.size, surface: tailSurface ?? .overlay)
                     .opacity(tailContentOpacity)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
-            case .sessions:
-                HUDSessionsView(agents: agents, tail: sessionsTail)
+            case .scout:
+                HUDAssistantView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
-            case .assistant:
-                HUDAssistantView()
+            case .scoutbot:
+                HUDScoutbotView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             }
@@ -651,19 +637,17 @@ struct HUDStatusView: View {
     }
 
     @ViewBuilder
-    private var agentsContent: some View {
-        if agentsStore.agents == nil && agentsStore.lastError == nil {
-            FleetLoadingView()
-        } else {
-            HUDAgentsView(
-                agents: agents,
-                activeAgentId: activeAgentId,
-                canLoadMore: agentsStore.canLoadMore,
-                isLoadingMore: agentsStore.isLoadingMore,
-                loadMoreCount: agentsStore.loadMoreCount,
-                onLoadMore: agentsStore.loadMore
-            )
-        }
+    private var focusContent: some View {
+        HUDFocusView(
+            agents: agents,
+            activity: activityStore.items,
+            isLoading: (agentsStore.agents == nil && agentsStore.lastError == nil)
+                || (activityStore.isLoading && activityStore.items == nil && agents.isEmpty),
+            canLoadMore: agentsStore.canLoadMore,
+            isLoadingMore: agentsStore.isLoadingMore,
+            loadMoreCount: agentsStore.loadMoreCount,
+            onLoadMore: agentsStore.loadMore
+        )
     }
 
     private var tailContentOpacity: Double {
@@ -732,10 +716,10 @@ private struct NavigatorLink: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 3) {
-                // Assistant tab carries the robot-head identity per
-                // feedback_meta_agent_naming_neutral — the label text
-                // stays neutral, the sigil does the brand work.
-                if view == .assistant {
+                // Scoutbot (tab 5) carries the robot-head — it IS the bot.
+                // Scout (tab 4) stays the conversational DM without the sigil
+                // so the two tabs read as distinct roles in the masthead.
+                if view == .scoutbot {
                     RobotGlyphShape()
                         .stroke(sigilColor, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
                         .frame(width: 11, height: 11)

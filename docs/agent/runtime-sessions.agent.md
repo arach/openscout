@@ -103,6 +103,14 @@ Happy path: `registered → waking → idle ↔ working → idle`.
 
 After broker restart: assume `reachability_unknown` until proven.
 
+Broker-created cardless sessions are disposable. The broker checks them every
+five minutes and stops an `idle` local session after 24 hours without endpoint,
+flight, work-item, or question activity. Sessions with a nonterminal flight,
+open owned work/question, or a non-idle endpoint state are never TTL candidates.
+Set `OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS` or
+`OPENSCOUT_CARDLESS_SESSION_SWEEP_INTERVAL_MS` to tune the policy; setting the
+sweep interval to `0` disables the broker sweep for debugging.
+
 ## Adapter Registry (pairing/runtime)
 
 Built-in adapter keys include: `claude-code`, `codex`, `acp`, `grok-acp`, `kimi-acp`, `pi`, `opencode`, `openai`.

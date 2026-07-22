@@ -73,3 +73,16 @@ npm --prefix packages/runtime run check
 npm --prefix packages/protocol run check
 bun run --cwd landing build
 ```
+
+## Web Capture Hygiene
+
+- Do not invoke Chrome or Chromium with `--headless` / `--screenshot` directly.
+- Use the bounded repository helper instead:
+
+```bash
+bun run capture:web --url http://localhost:43120/ --output /tmp/scout-page.png
+```
+
+- The helper owns an isolated browser profile, applies a hard timeout, terminates
+  the complete browser process group, and leaves a short-lived lease so `scoutd`
+  can reap the group if the wrapper itself is interrupted.

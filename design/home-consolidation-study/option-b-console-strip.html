@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option B — Console Strip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --surface2:oklch(0.205 0.005 260); --ink:oklch(0.965 0.006 260);
+    --muted:oklch(0.72 0.008 260); --dim:oklch(0.57 0.007 260);
+    --border:oklch(0.965 0.006 260 / 0.09); --border2:oklch(0.965 0.006 260 / 0.14);
+    --accent:oklch(0.86 0.17 125); --ok:oklch(0.80 0.15 155);
+    --amber:oklch(0.82 0.12 75); --red:oklch(0.68 0.18 25);
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --serif:"Cormorant Garamond",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:28px 24px 64px;-webkit-font-smoothing:antialiased}
+  .page{max-width:1220px;margin:0 auto}
+  a.back{color:var(--dim);text-decoration:none;font-size:11px;letter-spacing:.06em}
+  a.back:hover{color:var(--muted)}
+  .tag{color:var(--dim);font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin-left:12px}
+  h1{font-size:14px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:12px 0 4px}
+  .concept{color:var(--muted);font-size:12px;margin:0 0 18px;max-width:820px;line-height:1.65}
+  .concept b{color:var(--ink)}
+  .frame{background:var(--bg);border:1px solid var(--border2);border-radius:10px;
+    overflow:hidden;box-shadow:0 30px 80px -40px #000;padding:26px 30px 34px}
+
+  .hd{padding-bottom:16px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+  .hd-topbar{display:grid;grid-template-columns:1fr auto;gap:10px 16px;padding:12px 14px;
+    border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb,var(--surface) 86%,var(--bg))}
+  .hd-l,.hd-r{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--dim)}
+  .hd-r{justify-content:flex-end}
+  .path{color:var(--ink);letter-spacing:.08em;text-transform:uppercase}
+  .path.muted{color:var(--dim)}
+  .sep{opacity:.7}
+  .meta{color:var(--muted)}
+  .meta-label{letter-spacing:.1em;text-transform:uppercase;font-size:10px}
+  .op{color:var(--ink)}
+  .dot{width:5px;height:5px;border-radius:50%;background:var(--ok);display:inline-block}
+  .btn{font-family:var(--mono);font-size:10px;color:var(--muted);background:transparent;
+    border:1px solid var(--border);border-radius:5px;padding:5px 9px;cursor:default}
+  .hd-usage{grid-column:1/-1;padding-top:10px;border-top:1px solid var(--border)}
+  .gauges{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .gauge{border:1px solid var(--border);border-radius:6px;padding:9px 11px;background:color-mix(in srgb,var(--bg) 50%,var(--surface))}
+  .g-row{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:6px}
+  .g-pct{color:var(--ok)} .g-pct.warn{color:var(--amber)}
+  .g-bar{height:4px;border-radius:2px;background:var(--surface2);overflow:hidden}
+  .g-bar>i{display:block;height:100%;background:var(--ok)} .g-bar>i.warn{background:var(--amber)}
+  .g-meta{margin-top:5px;font-size:10px;color:var(--dim)}
+  .hr-row{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end;margin-top:12px;
+    padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+  .eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .live{font-size:10px;color:var(--ok);margin-left:8px}
+  .hr-svg{width:100%;height:56px;display:block;margin-top:6px}
+  .hr-stats{display:flex;gap:16px;font-size:10px;color:var(--dim)}
+  .hr-stats b{display:block;font-family:var(--serif);font-size:20px;font-weight:500;color:var(--ink);font-style:italic;line-height:1}
+
+  .section{margin-top:22px}
+  .rule{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .rule .eyebrow{flex:none}
+  .rule-line{flex:1;height:1px;background:var(--border)}
+  .rule-right{font-size:10px;color:var(--dim)}
+
+  .desk{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:900px){.desk,.gauges,.ctx{grid-template-columns:1fr !important}}
+  .panel{border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb,var(--surface) 82%,var(--bg));overflow:hidden}
+  .panel-head{min-height:40px;padding:9px 12px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between}
+  .panel-body{padding:12px}
+  .link{font-size:10px;color:var(--dim)}
+  .target-row{display:grid;grid-template-columns:max-content 1fr;gap:10px;align-items:center;margin-bottom:8px}
+  .lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+  select,textarea{font-family:var(--mono);font-size:12px;color:var(--ink);width:100%;
+    background:color-mix(in srgb,var(--bg) 64%,var(--surface));border:1px solid var(--border);border-radius:6px}
+  select{height:30px;padding:0 8px}
+  textarea{min-height:76px;padding:9px 11px;resize:vertical}
+  .tools{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .tool{font-size:10px;color:var(--dim);padding:3px 7px;border:1px solid var(--border);border-radius:4px}
+  .send{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;padding:6px 12px;
+    border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--bg)}
+  .tail{background:var(--bg);min-height:180px;font-size:11px;padding:8px 10px;line-height:1.5}
+  .tail .ln{display:grid;grid-template-columns:50px 1fr;gap:8px;padding:2px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent)}
+  .tail .t{color:var(--dim)} .tail .m{color:var(--muted)} .tail b{color:var(--ink);font-weight:500}
+  .ok{color:var(--ok)} .warn{color:var(--amber)}
+
+  /* context strip — compact new panels */
+  .ctx{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  .ctx-card{border:1px solid var(--border);border-radius:7px;padding:10px 12px;
+    background:color-mix(in srgb,var(--surface) 75%,var(--bg));min-width:0}
+  .ctx-card .k{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .ctx-card .v{font-size:12px;color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ctx-card .s{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45}
+  .ctx-card .s span{color:var(--dim)}
+  .pill{display:inline-block;font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid var(--border);color:var(--muted);margin-right:4px}
+  .pill.dirty{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 40%,var(--border))}
+  .pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--border))}
+  .ports{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .port{font-size:10px;color:var(--muted);padding:2px 6px;border-radius:3px;background:color-mix(in srgb,var(--bg) 70%,transparent);border:1px solid var(--border)}
+  .port b{color:var(--accent);font-weight:500}
+
+  .moving{display:flex;flex-direction:column;gap:2px}
+  .mrow{display:grid;grid-template-columns:8px 1fr auto auto;gap:10px;align-items:center;
+    padding:8px 10px;border-radius:5px;font-size:11px;color:var(--muted)}
+  .mrow:hover{background:color-mix(in srgb,var(--surface) 80%,transparent)}
+  .mdot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .mdot.idle{background:var(--dim)}
+  .mwho{color:var(--ink);font-weight:500}
+  .mage{color:var(--dim);font-variant-numeric:tabular-nums;font-size:10px}
+
+  .stream{display:flex;flex-direction:column}
+  .arow{display:grid;grid-template-columns:52px 90px 1fr;gap:10px;padding:7px 4px;
+    border-bottom:1px solid color-mix(in srgb,var(--border) 70%,transparent);font-size:11px;color:var(--muted)}
+  .arow .t{color:var(--dim)} .arow .a{color:var(--ink)}
+  .tabs{display:inline-flex;gap:2px}
+  .tab{font-family:var(--mono);font-size:10px;color:var(--dim);padding:3px 8px;border-radius:4px;border:1px solid transparent;background:transparent}
+  .tab.on{color:var(--ink);border-color:var(--border);background:color-mix(in srgb,var(--bg) 60%,transparent)}
+
+  .spec{margin-top:18px;font-size:11px;color:var(--dim);line-height:1.85;max-width:860px}
+  .spec b{color:var(--muted)} .spec code{color:var(--accent);font-size:10px}
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back" href="index.html">‹ back to compare</a>
+  <span class="tag">Option B · Mid density</span>
+  <h1>Console Strip</h1>
+  <p class="concept">Always-on <b>Message</b> and <b>Local tail</b> sit under the hero. New context (repo, PRs, studies, ports) arrives as a <b>four-cell strip</b> — compact cards, not full modules. Full What’s moving + live activity keep their current section treatment below. Mid-density compromise: more desk than A, less card wall than C.</p>
+
+  <div class="frame">
+    <section class="hd">
+      <div class="hd-topbar">
+        <div class="hd-l">
+          <span class="path">home</span><span class="sep">/</span>
+          <span class="path">fleet</span><span class="sep">/</span>
+          <span class="path muted">TUE 21 JUL</span>
+        </div>
+        <div class="hd-r">
+          <span class="meta-label">operator</span>
+          <span class="meta op">art</span>
+          <span class="sep">/</span>
+          <span class="meta">16:53:12</span>
+          <span class="dot"></span>
+          <span class="meta">updated 12s</span>
+          <button class="btn" type="button">[open ops]</button>
+          <button class="btn" type="button">[refresh]</button>
+        </div>
+        <div class="hd-usage">
+          <div class="gauges">
+            <div class="gauge">
+              <div class="g-row"><span>Claude</span><span class="g-pct">62%</span></div>
+              <div class="g-bar"><i style="width:62%"></i></div>
+              <div class="g-meta">5h · 42k/68k · ↻ 4h</div>
+            </div>
+            <div class="gauge">
+              <div class="g-row"><span>Codex</span><span class="g-pct warn">78%</span></div>
+              <div class="g-bar"><i class="warn" style="width:78%"></i></div>
+              <div class="g-meta">5h · 31k/40k · ↻ 2h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="hr-row">
+        <div>
+          <span class="eyebrow">Heart-rate</span><span class="live">● live · trailing 7d</span>
+          <svg class="hr-svg" viewBox="0 0 420 56" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="0" y1="44" x2="420" y2="44" stroke="oklch(0.965 0.006 260 / 0.09)"/>
+            <path d="M0,40 C40,38 70,32 100,34 C140,36 170,22 210,24 C250,26 280,14 320,16 C360,18 390,28 420,22" fill="none" stroke="oklch(0.86 0.17 125)" stroke-width="1.5"/>
+            <circle cx="420" cy="22" r="2.4" fill="oklch(0.86 0.17 125)"/>
+          </svg>
+        </div>
+        <div class="hr-stats">
+          <div><b>142</b>events</div>
+          <div><b>4m</b>last</div>
+          <div><b>38m</b>gap</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="desk">
+      <div class="panel">
+        <div class="panel-head"><span class="eyebrow">Message</span></div>
+        <div class="panel-body">
+          <div class="target-row">
+            <span class="lbl">To</span>
+            <select><option>claude · callable</option><option>codex · in_turn</option></select>
+          </div>
+          <textarea placeholder="Type a message…"></textarea>
+          <div class="tools">
+            <span class="tool">Harness · claude</span>
+            <span class="tool">Model · default</span>
+            <button class="send" type="button">Send</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="eyebrow">Local tail</span><span class="link">Open tail ↗</span></div>
+        <div class="tail">
+          <div class="ln"><span class="t">16:52:58</span><span class="m"><b>broker</b> delivery ok · flight fl-ecckne</span></div>
+          <div class="ln"><span class="t">16:52:41</span><span class="m"><b>claude</b> <span class="ok">in_turn</span> · home consolidation</span></div>
+          <div class="ln"><span class="t">16:51:12</span><span class="m"><b>codex</b> replied · navigation polish</span></div>
+          <div class="ln"><span class="t">16:49:03</span><span class="m"><b>tail</b> watch openscout</span></div>
+          <div class="ln"><span class="t">16:47:40</span><span class="m"><b>mesh</b> peer reachable</span></div>
+          <div class="ln"><span class="t">16:45:18</span><span class="m"><b>github</b> <span class="warn">rate 78%</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- new compact context -->
+    <div class="ctx" aria-label="Project context strip">
+      <div class="ctx-card">
+        <div class="k">Repo</div>
+        <div class="v">codex/grouped-product-polish</div>
+        <div class="s">
+          <span class="pill dirty">dirty · 4</span>
+          <span class="pill">↑1</span>
+          <span class="pill ok">↓0</span>
+          <br><span>last commit 2h ·</span> polish moving cards
+        </div>
+      </div>
+      <div class="ctx-card">
+        <div class="k">Open PRs · 3</div>
+        <div class="v">#842 home moving sort</div>
+        <div class="s">#839 nav chrome · #821 quiet panel always-on<br><span>review requested · 2 checks green</span></div>
+      </div>
+      <div class="ctx-card">
+        <div class="k">Recent studies</div>
+        <div class="v">navigation-study</div>
+        <div class="s">mobile-chrome-study · home-whats-moving<br><span>design/ · 3 folders this week</span></div>
+      </div>
+      <div class="ctx-card">
+        <div class="k">Quick links</div>
+        <div class="v">Dev ports</div>
+        <div class="ports">
+          <span class="port">web <b>:43120</b></span>
+          <span class="port">studio <b>:43130</b></span>
+          <span class="port">broker <b>:43100</b></span>
+          <span class="port">landing <b>:3000</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="rule">
+        <span class="eyebrow">What's moving · 3</span>
+        <span class="rule-line"></span>
+        <span class="rule-right">
+          <span class="tabs"><button class="tab on" type="button">Recent</button><button class="tab" type="button">Grouped</button></span>
+          · open mesh ↗
+        </span>
+      </div>
+      <div class="moving">
+        <div class="mrow"><span class="mdot"></span><span><span class="mwho">claude</span> · home consolidation study</span><span>in_turn</span><span class="mage">1m</span></div>
+        <div class="mrow"><span class="mdot"></span><span><span class="mwho">codex</span> · grouped product polish</span><span>callable</span><span class="mage">12m</span></div>
+        <div class="mrow"><span class="mdot idle"></span><span><span class="mwho">pi</span> · observed · tail watcher</span><span>native</span><span class="mage">38m</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="rule">
+        <span class="eyebrow">Live activity · 18</span>
+        <span class="rule-line"></span>
+        <span class="rule-right">
+          <span class="tabs"><button class="tab" type="button">30m</button><button class="tab" type="button">6h</button><button class="tab on" type="button">24h</button></span>
+        </span>
+      </div>
+      <div class="stream">
+        <div class="arow"><span class="t">4m</span><span class="a">claude</span><span>sent a request · design-study task</span></div>
+        <div class="arow"><span class="t">12m</span><span class="a">codex</span><span>answered · navigation polish notes</span></div>
+        <div class="arow"><span class="t">28m</span><span class="a">broker</span><span>flight updated · fl-ecckne</span></div>
+        <div class="arow"><span class="t">41m</span><span class="a">art</span><span>said · keep quiet panels always-on</span></div>
+        <div class="arow"><span class="t">1h</span><span class="a">mesh</span><span>peer mac-studio · reachable</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="spec">
+    <b>Keeps:</b> full hero (gauges + heartrate), Message, Tail, What’s moving, live activity.<br>
+    <b>Changes:</b> Message/Tail always-on; adds a 4-cell context strip (repo · PRs · studies · ports) between desk and situational sections.<br>
+    <b>Judge:</b> Does the strip deliver enough project awareness without competing with quiet-panel cards? Mid option for production-shaped shipping.
+  </p>
+</div>
+</body>
+</html>

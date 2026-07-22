@@ -574,19 +574,19 @@ public final class HUDController {
         if shouldSuppressNavHotkeys(for: event) { return false }
         switch event.keyCode {
         case 18: // 1
-            Task { @MainActor in HUDState.shared.select(.agents) }
+            Task { @MainActor in HUDState.shared.select(.focus) }
             return true
         case 19: // 2
-            Task { @MainActor in HUDState.shared.select(.activity) }
+            Task { @MainActor in HUDState.shared.select(.threads) }
             return true
         case 20: // 3
             Task { @MainActor in HUDState.shared.select(.tail) }
             return true
         case 21: // 4
-            Task { @MainActor in HUDState.shared.select(.sessions) }
+            Task { @MainActor in HUDState.shared.select(.scout) }
             return true
         case 23: // 5
-            Task { @MainActor in HUDState.shared.select(.assistant) }
+            Task { @MainActor in HUDState.shared.select(.scoutbot) }
             return true
         case 36: // Return — engage selected row
             Task { @MainActor in
@@ -765,7 +765,7 @@ public final class HUDController {
         let dockIsIdle = HUDDockState.shared.text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
-        if HUDState.shared.view == .agents && dockIsIdle && (kc == 125 || kc == 126) {
+        if HUDState.shared.view == .focus && dockIsIdle && (kc == 125 || kc == 126) {
             return false
         }
         return true

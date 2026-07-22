@@ -19,7 +19,13 @@ struct RootView: View {
     @AppStorage(ScoutHomeFX.grainKey) private var homeGrainEnabled = true
     @AppStorage(ScoutHomeFX.motionKey) private var homeMotionEnabled = true
     @AppStorage(ScoutHomeFX.identityKey) private var homeIdentityEnabled = true
+    // Opt-in alternative navigation. `.tabs` keeps the shipped chrome (titleBar +
+    // dockedTabBar + status strip) exactly; `.crown` swaps in the summonable crown.
+    @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
+    @State private var crownAssembled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -91,7 +97,11 @@ struct RootView: View {
             DesignFrame { layout in
                 ZStack(alignment: .bottom) {
                     VStack(spacing: 0) {
-                        titleBar(layout)
+                        // Crown mode drops the masthead; identity + actions move to
+                        // the crown chrome. Tabs mode is unchanged.
+                        if navMode == .tabs {
+                            titleBar(layout)
+                        }
 
                         // Keep every tab surface alive for the launch lifetime.
                         // Opacity switches presentation without discarding view
@@ -170,7 +180,12 @@ struct RootView: View {
                     // the surfaces' scroll content above it, and the material masks
                     // anything that scrolls behind it — the conventional iOS pattern.
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        dockedTabBar(layout)
+                        if navMode == .tabs {
+                            dockedTabBar(layout)
+                        } else {
+                            // Reserve room so surface content clears the floating crown bar.
+                            Color.clear.frame(height: 96)
+                        }
                     }
 
                     // Read-only connection readout pinned flush to the true screen
@@ -179,21 +194,35 @@ struct RootView: View {
                     // boundary: fill down + bottom-align the content, THEN ignore the
                     // bottom safe area. Safe to sit on the swipe-up gesture —
                     // hit-testing is off, it's a pure readout.
-                    // Tick independently of broker polling so "FETCH NOW" ages
-                    // into seconds/minutes even when a stalled request produces no
-                    // model mutation. The timestamp itself only advances after a
-                    // successfully decoded broker query (see BrokerRequestLog).
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        ScoutStatusBar(
-                            leading: appReadouts(layout),
-                            trailing: statsReadouts(layout, now: context.date)
+                    // Tick independently of broker polling so the FETCHED age
+                    // counts up through seconds/minutes even when a stalled
+                    // request produces no model mutation. The underlying fetch
+                    // instant only advances after a successfully decoded broker
+                    // query (see BrokerRequestLog).
+                    if navMode == .tabs {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            ScoutStatusBar(
+                                leading: appReadouts(layout),
+                                trailing: statsReadouts(layout, now: context.date)
+                            )
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .ignoresSafeArea(edges: .bottom)
+                        // The nav stack leaves a residual inset; push the last bit so
+                        // the bar sits flush in the indicator band, not floating.
+                        .offset(y: 14)
+                    } else {
+                        // Crown mode: the crown chrome replaces both the tab bar and
+                        // the status strip (the LED carries fleet aliveness instead).
+                        CrownNavChrome(
+                            model: model,
+                            currentSurface: surface,
+                            onSelect: { selectSurface($0) },
+                            onSettings: { showSettings = true },
+                            onConnect: { showConnection = true },
+                            assembled: $crownAssembled
                         )
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(edges: .bottom)
-                    // The nav stack leaves a residual inset; push the last bit so
-                    // the bar sits flush in the indicator band, not floating.
-                    .offset(y: 14)
                 }
                 .task(id: "\(model.fleetDataReadyToken)|\(surface.rawValue)") {
                     guard model.fleetDataReadyToken != 0, surface != .home else { return }
@@ -235,6 +264,15 @@ struct RootView: View {
         // Sim verification hook (sibling to `SCOUT_TAB`): open Settings on
         // launch so the inspector panels can be screenshotted without touch input.
         .onAppear {
+            // `SCOUT_NAV=crown` (or `tabs`) flips navigation mode for captures.
+            if let nav = ProcessInfo.processInfo.environment["SCOUT_NAV"],
+               ScoutNavMode(rawValue: nav) != nil {
+                navModeRaw = nav
+            }
+            // `SCOUT_CROWN=collapsed` starts crown mode collapsed for the paired capture.
+            if ProcessInfo.processInfo.environment["SCOUT_CROWN"] == "collapsed" {
+                crownAssembled = false
+            }
             if ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS"] != nil {
                 let delayMilliseconds = Int(
                     ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS_DELAY_MS"] ?? "0"
@@ -410,9 +448,11 @@ struct RootView: View {
         return items
     }
 
-    /// Compact, passive freshness readout. This is deliberately a wall-clock
-    /// confirmation rather than "FETCH NOW": the protected area reports state
-    /// and never presents text that looks like an action.
+    /// Compact, passive freshness readout. Shows the age of the last successful
+    /// broker fetch ("FETCHED 12s") so the value counts up as data stalls instead
+    /// of freezing at a wall-clock time. Deliberately quiet: staleness reads from
+    /// the growing age itself, so there is no warn tint competing for attention —
+    /// fresh is muted, long-stalled just sinks to dim.
     private func fetchReadout(_ layout: ScoutLayoutMetrics, now: Date) -> StatusReadout {
         guard let fetchedAt = model.lastSuccessfulFetchAt else {
             return StatusReadout(
@@ -422,13 +462,19 @@ struct RootView: View {
         }
 
         let age = max(0, Int(now.timeIntervalSince(fetchedAt)))
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
-        let clock = formatter.string(from: fetchedAt)
+        let ageLabel: String
+        if age < 60 {
+            ageLabel = "\(age)s"
+        } else if age < 3600 {
+            ageLabel = "\(age / 60)m"
+        } else {
+            ageLabel = "\(age / 3600)h"
+        }
         return StatusReadout(
-            label: "\(layout.isMiniPhone ? "SYNC" : "FETCHED") \(clock)",
-            tint: age >= 60 ? HudPalette.statusWarn : ScoutInk.muted
+            label: "\(layout.isMiniPhone ? "SYNC" : "FETCHED") \(ageLabel)",
+            // 3 minutes ≈ nine missed poll cycles — a real stall, not one slow
+            // request. Even then it only dims; the readout is telemetry, not an alarm.
+            tint: age >= 180 ? ScoutInk.dim : ScoutInk.muted
         )
     }
 
@@ -481,7 +527,7 @@ struct RootView: View {
                 } else {
                     Text("SCOUT")
                         .font(HudFont.ui(layout.wordmarkSize, weight: .light))
-                        .tracking(3)
+                        .tracking(2.5)
                         .foregroundStyle(HudPalette.ink)
                 }
                 machineArea
@@ -528,11 +574,14 @@ struct RootView: View {
         }
     }
 
-    /// One host chip: an online dot + name in a capsule. `selected` signals the
+    /// One host chip: an online dot + name in a low-radius plate. `selected` signals the
     /// active filter through contrast (lifted fill, ink text, brighter edge) — no
     /// accent, so the row stays calm. Tappable only when an action is supplied.
     @ViewBuilder
     private func hostChip(name: String, online: Bool, selected: Bool, action: (() -> Void)?) -> some View {
+        // Near-square corners (not a capsule): the studio chrome is all crisp
+        // plates and hairlines, and a full stadium read as bubbly against it.
+        let plate = RoundedRectangle(cornerRadius: 5, style: .continuous)
         let chip = HStack(spacing: HudSpacing.xs) {
             Circle()
                 .fill(online ? HudPalette.accent : ScoutInk.dim)
@@ -546,8 +595,8 @@ struct RootView: View {
         }
         .padding(.horizontal, HudSpacing.sm)
         .padding(.vertical, 3)
-        .background(Capsule().fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
-        .overlay(Capsule().stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+        .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
+        .overlay(plate.stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
 
         if let action {
             Button(action: action) { chip }
@@ -583,7 +632,7 @@ private struct EtchedScoutWordmark: View {
     private var face: some View {
         Text("SCOUT")
             .font(HudFont.ui(size, weight: .light))
-            .tracking(3)
+            .tracking(2.5)
     }
 
     var body: some View {

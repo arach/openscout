@@ -34,6 +34,7 @@ struct AppSettingsView: View {
 
     @State private var tab: String
     @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
+    @AppStorage(ScoutNavMode.storageKey) private var navMode = ScoutNavMode.default.rawValue
     @State private var renamingMachine: AppModel.PairedMachine?
     @State private var renameText = ""
     @State private var copiedLogs = false
@@ -578,6 +579,15 @@ struct AppSettingsView: View {
                     hint: "warm or cool the charcoal"
                 )
                 HudInspectorFieldRow("Mode", value: "Dark", hint: "cockpit, always")
+            }
+            HudInspectorSection("Navigation") {
+                // Opt-in: swaps the tab bar + status strip for the summonable crown.
+                HudInspectorCycleRow(
+                    "Style",
+                    selection: $navMode,
+                    choices: ScoutNavMode.allCases.map { HudInspectorChoice(id: $0.rawValue, title: $0.title) },
+                    hint: "tabs, or the experimental crown"
+                )
             }
         }
     }

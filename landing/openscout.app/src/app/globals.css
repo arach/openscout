@@ -683,8 +683,12 @@ html[data-site-theme="dark"] .mission-hero {
   --mission-wash: color-mix(in srgb, var(--site-page-bg) 88%, #26313b 12%);
 }
 
+/* Dark is the production default, so the inverted sheet is the version most
+   visitors see. Invert + screen turns the paper plot into a faint light-on-dark
+   contour that glows like a console readout; 0.1 washed it out entirely, so
+   lift it just enough to register as the hero's establishing artifact. */
 html[data-site-theme="dark"] .mission-hero__layer--far {
-  opacity: 0.1;
+  opacity: 0.22;
 }
 
 @media (max-width: 920px) {

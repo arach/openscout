@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scout — Home Consolidation Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter+Tight:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --ink:oklch(0.965 0.006 260); --muted:oklch(0.72 0.008 260);
+    --dim:oklch(0.57 0.007 260); --border:oklch(0.965 0.006 260 / 0.09);
+    --accent:oklch(0.86 0.17 125); --ok:oklch(0.80 0.15 155);
+    --amber:oklch(0.82 0.12 75); --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:48px 32px 80px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto}
+  h1{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px}
+  .mark{display:inline-flex;width:14px;height:14px;margin-right:8px;vertical-align:-2px}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 12px;max-width:820px}
+  .sub b{color:var(--ink);font-weight:600}
+  .brief{border:1px solid var(--border);border-left:2px solid var(--accent);
+    padding:12px 16px;margin:18px 0 36px;font-size:11px;color:var(--muted);max-width:820px}
+  .brief b{color:var(--ink);font-weight:600}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:0 0 40px}
+  a.card{display:block;text-decoration:none;color:inherit;background:var(--surface);
+    border:1px solid var(--border);border-radius:8px;padding:18px 18px 20px;
+    transition:border-color .15s ease,transform .15s ease}
+  a.card:hover{border-color:color-mix(in srgb,var(--accent) 50%,transparent);transform:translateY(-2px)}
+  .tag{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .rec{color:var(--accent)}
+  .dense{color:var(--amber)}
+  .card h2{font-size:13px;font-weight:600;letter-spacing:.02em;margin:8px 0 6px}
+  .card p{font-size:11px;color:var(--muted);margin:0}
+  .legend{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 22px;margin-bottom:28px}
+  .legend h3{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+  .legend p{font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.65}
+  .legend ul{margin:0;padding-left:18px;font-size:11px;color:var(--muted)}
+  .legend li{margin-bottom:6px}
+  .legend b{color:var(--ink);font-weight:600}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+  .foot{color:var(--dim);font-size:11px;margin-top:8px}
+  .foot a{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+  th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--dim);font-weight:500;font-size:9px;letter-spacing:.1em;text-transform:uppercase}
+  td{color:var(--muted)} td b{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><svg class="mark" viewBox="0 0 20 20" fill="none" stroke="currentColor" style="color:#f8f3e8"><polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" stroke-width="1.9" fill="currentColor" fill-opacity=".12"/><polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" stroke-width=".9" fill="currentColor" fill-opacity=".9"/></svg>Scout — Home Consolidation Study</h1>
+  <p class="sub">Static explorations for a denser, always-on fleet homepage. Grounded in <b>packages/web/client/screens/home</b> (content.tsx, HomeHero.tsx, fleet-home.css quiet panels). No production code changed.</p>
+
+  <div class="brief">
+    <b>Problem.</b> Local tail + Message composer only appear in the quiet/idle state (<code>QuietStartPanel</code>). When the fleet is active they vanish, and repo/PR/study/port context lives elsewhere. This study keeps the operator-console language and asks how much “desk surface” home can hold before it overcrowds.
+  </div>
+
+  <div class="cards">
+    <a class="card" href="option-a-quiet-desk.html">
+      <span class="tag rec">Option A · Minimal pole</span>
+      <h2>Quiet Desk</h2>
+      <p>Hero + two always-on panels (Message · Local tail). Moving and activity collapse to a thin status strip. Judging floor: “is two enough?”</p>
+    </a>
+    <a class="card" href="option-b-console-strip.html">
+      <span class="tag">Option B · Mid</span>
+      <h2>Console Strip</h2>
+      <p>Hero, always-on Message/Tail row, then a compact context strip (repo · PRs · studies · ports) above What’s moving + live activity.</p>
+    </a>
+    <a class="card" href="option-c-mission-grid.html">
+      <span class="tag dense">Option C · Dense pole</span>
+      <h2>Mission Grid</h2>
+      <p>Hero + 2×3 panel grid (Message, Tail, Repo, PRs, Studies, Ports) with moving + stream below. Overcrowding-line test.</p>
+    </a>
+    <a class="card" href="option-d-split-command.html">
+      <span class="tag">Option D · Split</span>
+      <h2>Split Command</h2>
+      <p>Two-column ops desk: left work surface (compose · tail · stream), right situational stack (moving · repo · PRs · studies · ports).</p>
+    </a>
+  </div>
+
+  <div class="legend">
+    <h3>Preserved surfaces</h3>
+    <p>
+      <span class="swatch" style="background:var(--bg);outline:1px solid var(--border)"></span>bg
+      &nbsp;<span class="swatch" style="background:var(--surface)"></span>surface / quiet-panel
+      &nbsp;<span class="swatch" style="background:var(--accent)"></span>accent
+      &nbsp;<span class="swatch" style="background:var(--ok)"></span>sync ok
+      · mono HUD + serif accents for numbers
+    </p>
+    <ul>
+      <li><b>Fleet header hero</b> — path strip, operator/sync, service-budget gauges, heartrate graph</li>
+      <li><b>Always-on</b> — Local tail + Message composer (today: quiet-only via <code>showQuietStart</code>)</li>
+      <li><b>Situational</b> — What’s moving, live activity stream</li>
+      <li><b>New compact panels</b> — repo state, open PRs, recent studies, quick links (dev ports)</li>
+    </ul>
+    <h3 style="margin-top:20px">Density matrix</h3>
+    <table>
+      <tr><th>Option</th><th>Primary surface</th><th>Panel count</th><th>Intent</th></tr>
+      <tr><td><b>A Quiet Desk</b></td><td>Message + Tail</td><td>hero + 2</td><td>Minimal always-on desk</td></tr>
+      <tr><td><b>B Console Strip</b></td><td>compose row + chip strip</td><td>hero + 2 + 4 chips + 2 sections</td><td>Context without full cards</td></tr>
+      <tr><td><b>C Mission Grid</b></td><td>2×3 card grid</td><td>hero + 6 + 2 sections</td><td>Find the overcrowding line</td></tr>
+      <tr><td><b>D Split Command</b></td><td>L/R columns</td><td>hero + work + stack</td><td>Separate action vs awareness</td></tr>
+    </table>
+  </div>
+
+  <p class="foot">Study only — open each HTML file in a browser. Pattern matches <a href="../navigation-study/index.html">design/navigation-study</a> and <a href="../mobile-chrome-study/index.html">design/mobile-chrome-study</a>.</p>
+</div>
+</body>
+</html>

@@ -71,16 +71,18 @@ import { useLaneDeck } from "./useLaneDeck.ts";
 import { useLaneWidthResize } from "./useLaneWidthResize.ts";
 import { isLaneSyntheticAgent } from "./agent-lane-navigation.ts";
 import { publishLaneRoster, type LaneRosterEntry } from "./lane-roster-store.ts";
+import {
+  AGENT_LANES_GRID_COLUMN_OPTIONS,
+  agentLanesLayoutOptions,
+  normalizeAgentLanesGridColumns,
+  normalizeAgentLanesLayoutMode,
+  type AgentLanesGridColumns,
+  type AgentLanesLayoutMode,
+} from "./agent-lanes-layout.ts";
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 const LANE_LAYOUT_STORAGE_KEY = "openscout:agent-lanes-layout";
-
-type AgentLanesLayoutMode = "lanes" | "floor";
-
-const LANE_LAYOUT_OPTIONS: Array<{ key: AgentLanesLayoutMode; label: string }> = [
-  { key: "lanes", label: "lanes" },
-  { key: "floor", label: "floor" },
-];
+const LANE_GRID_COLUMNS_STORAGE_KEY = "openscout:agent-lanes-grid-columns";
 const LANE_TECHNICAL_ROLLUP_STORAGE_KEY = "openscout:agent-lanes-technical-rollup";
 const LANE_TECHNICAL_ROLLUP_LANE_STORAGE_PREFIX = `${LANE_TECHNICAL_ROLLUP_STORAGE_KEY}:lane:`;
 const LANE_SCROLL_STORAGE_PREFIX = "openscout:agent-lanes-scroll";
@@ -132,14 +134,22 @@ function readStoredHorizon(): AgentLaneHorizonKey {
   return DEFAULT_AGENT_LANE_HORIZON;
 }
 
-function readStoredLaneLayout(): AgentLanesLayoutMode {
+function readStoredLaneLayout(embedded: boolean): AgentLanesLayoutMode {
   try {
     const stored = sessionStorage.getItem(LANE_LAYOUT_STORAGE_KEY);
-    if (stored === "lanes" || stored === "floor") return stored;
+    return normalizeAgentLanesLayoutMode(stored, embedded);
   } catch {
     // ignore storage failures
   }
   return "lanes";
+}
+
+function readStoredLaneGridColumns(): AgentLanesGridColumns {
+  try {
+    return normalizeAgentLanesGridColumns(sessionStorage.getItem(LANE_GRID_COLUMNS_STORAGE_KEY));
+  } catch {
+    return "auto";
+  }
 }
 
 function readStoredLegacyTechnicalRollup(): boolean | null {
@@ -426,6 +436,7 @@ function AgentLaneColumn({
   widthResizing,
   focusProps,
   operatorName,
+  grid = false,
 }: {
   lane: AgentLane;
   widthPx: number;
@@ -455,6 +466,7 @@ function AgentLaneColumn({
   };
   /** Operator display name for the chat-style user-request head in the trace. */
   operatorName?: string;
+  grid?: boolean;
 }) {
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
@@ -522,8 +534,8 @@ function AgentLaneColumn({
     <article
       ref={laneRef}
       data-lane-id={lane.id}
-      className={`s-agent-lane${liveClass}${newClass}${pinned ? " s-agent-lane--pinned" : ""}${focusProps?.["data-cursor"] ? " s-agent-lane--cursor" : ""}`}
-      style={{ "--lane-width": `${widthPx}px` } as CSSProperties}
+      className={`s-agent-lane${grid ? " s-agent-lane--grid" : ""}${liveClass}${newClass}${pinned ? " s-agent-lane--pinned" : ""}${focusProps?.["data-cursor"] ? " s-agent-lane--cursor" : ""}`}
+      style={grid ? undefined : ({ "--lane-width": `${widthPx}px` } as CSSProperties)}
       {...laneFocusRest}
     >
       <AgentLaneChrome
@@ -537,6 +549,7 @@ function AgentLaneColumn({
         resizing={widthResizing}
         statusLabel={laneStatusLabel(agent, source)}
         live={isLive}
+        widthControls={!grid}
       />
       <AgentLaneCard
         model={agentLaneToCardModel(lane, { isLive, nowMs })}
@@ -584,8 +597,10 @@ export function AgentLanesView({
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
-  const [laneLayout, setLaneLayout] = useState<AgentLanesLayoutMode>(readStoredLaneLayout);
+  const [laneLayout, setLaneLayout] = useState<AgentLanesLayoutMode>(() => readStoredLaneLayout(embedded));
+  const [gridColumns, setGridColumns] = useState<AgentLanesGridColumns>(readStoredLaneGridColumns);
   const floorMode = !embedded && laneLayout === "floor";
+  const gridMode = laneLayout === "grid";
   // The floor's recency bands span up to 4h; admission follows the bands while
   // the user's stored horizon choice stays untouched for the lanes layout.
   const effectiveHorizon: AgentLaneHorizonKey = floorMode ? "4h" : horizon;
@@ -661,6 +676,14 @@ export function AgentLanesView({
       // ignore storage failures
     }
   }, [laneLayout]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LANE_GRID_COLUMNS_STORAGE_KEY, gridColumns);
+    } catch {
+      // ignore storage failures
+    }
+  }, [gridColumns]);
 
   const laneOrderRef = useRef(createStableLaneOrder());
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
@@ -832,7 +855,7 @@ export function AgentLanesView({
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, [deckMenuOpen]);
 
-  const renderLaneColumn = useCallback((column: ResolvedLaneColumn, index: number) => {
+  const renderLaneColumn = useCallback((column: ResolvedLaneColumn, index: number, grid = false) => {
     const { lane } = column;
     const laneTitle = lanePrimaryLabel(lane.agent, lane.source);
     const laneWidth = deck.laneWidths[lane.id] ?? snapLaneWidthPx(column.widthPx).tier ?? column.widthPx;
@@ -864,6 +887,7 @@ export function AgentLanesView({
         widthResizing={resizingLaneId === lane.id}
         focusProps={getLaneFocusProps(index, lane.id)}
         operatorName={laneOperatorName}
+        grid={grid}
       />
     );
   }, [
@@ -893,6 +917,7 @@ export function AgentLanesView({
     <div
       className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded s-agent-lanes--low-motion" : ""}`}
       data-lane-profile={profileId}
+      data-lane-layout={floorMode ? "floor" : laneLayout}
       data-lanes-deck-version="1"
     >
       <div className="s-agent-lanes-bar">
@@ -917,15 +942,29 @@ export function AgentLanesView({
           </div>
         </div>
         <div className="s-agent-lanes-bar-controls">
-          {!embedded ? (
-            <div className="s-agent-lanes-layouts" role="group" aria-label="Lane layout">
-              {LANE_LAYOUT_OPTIONS.map((option) => (
+          <div className="s-agent-lanes-layouts" role="group" aria-label="Lane layout">
+            {agentLanesLayoutOptions(embedded).map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`s-agent-lanes-horizon${laneLayout === option.key ? " s-agent-lanes-horizon--on" : ""}`}
+                aria-pressed={laneLayout === option.key}
+                onClick={() => setLaneLayout(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {gridMode ? (
+            <div className="s-agent-lanes-grid-density" role="group" aria-label="Grid columns">
+              {AGENT_LANES_GRID_COLUMN_OPTIONS.map((option) => (
                 <button
                   key={option.key}
                   type="button"
-                  className={`s-agent-lanes-horizon${laneLayout === option.key ? " s-agent-lanes-horizon--on" : ""}`}
-                  aria-pressed={laneLayout === option.key}
-                  onClick={() => setLaneLayout(option.key)}
+                  className={`s-agent-lanes-horizon${gridColumns === option.key ? " s-agent-lanes-horizon--on" : ""}`}
+                  aria-pressed={gridColumns === option.key}
+                  title={option.key === "auto" ? "Fit columns to the available width" : `${option.key} columns`}
+                  onClick={() => setGridColumns(option.key)}
                 >
                   {option.label}
                 </button>
@@ -1079,6 +1118,15 @@ export function AgentLanesView({
         )
       ) : floorMode ? (
         <AgentFloorView lanes={filteredLanes} now={now} onOpenTrace={openFloorTrace} railLedger operatorName={laneOperatorName} />
+      ) : gridMode ? (
+        <div
+          className="s-agent-lanes-grid"
+          data-grid-columns={gridColumns}
+          role="listbox"
+          aria-label="Agent lane grid"
+        >
+          {visibleColumns.map((column, index) => renderLaneColumn(column, index, true))}
+        </div>
       ) : (
         <div className="s-agent-lanes-body">
           {layout.pinnedLeft.length > 0 ? (

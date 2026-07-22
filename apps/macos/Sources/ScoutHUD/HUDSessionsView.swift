@@ -2,29 +2,30 @@ import AppKit
 import ScoutAppCore
 import SwiftUI
 
-// Sessions tab — native port of design/studio/components/hud/HudSessions.tsx.
+// Threads tab — conversations reframed from sessions (hud-redesign).
 //
-// Compact: single-col ledger, inline reveal on engage.
-// Medium:  same ledger, wider meta strip (project + duration + msg), inline reveal.
-// Large:   full-width ledger; lifecycle detail reveals inline on interaction.
+// Subject = work, sender = agent (Gmail shape). Two-line flat rows:
+//   line 1: subject + status facet + relative time
+//   line 2: @agent · last message
+// Attention rows get a thin left accent bar. No categorical status colors
+// beyond the single accent for "needs you."
 
 private enum SessionStatus: Sendable {
     case running, idle, ended
 
+    /// Operator-facing status, remapped from harness lifecycle vocabulary.
     var label: String {
         switch self {
-        case .running: return "RUNNING"
-        case .idle: return "IDLE"
-        case .ended: return "ENDED"
+        case .running: return "WORKING"
+        case .idle: return "AWAITING"
+        case .ended: return "WOUND DOWN"
         }
     }
 
-    var color: Color {
-        switch self {
-        case .running: return HUDChrome.accent
-        case .idle: return HUDChrome.inkMuted
-        case .ended: return HUDChrome.inkFaint
-        }
+    var isAttention: Bool {
+        // "awaiting" on idle often means waiting on someone; callers mark
+        // true attention via agent state when synthesizing.
+        false
     }
 }
 
@@ -46,6 +47,33 @@ private struct SynthesizedSession: Identifiable {
     let ago: String
     let model: String
     let startedAt: String?
+    /// True when the bound agent needs the operator (attention precedence).
+    let needsYou: Bool
+
+    /// Work title for the row — project when meaningful, else last turn.
+    var subject: String {
+        let turn = lastTurn.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !project.isEmpty, project != "—", project != "unknown" {
+            // Prefer a short work-shaped subject; append a cue from last turn
+            // only when the turn is short and distinct.
+            if turn.isEmpty || turn == project { return project }
+            if turn.count <= 48 { return turn }
+            return project
+        }
+        return turn.isEmpty ? agentName : turn
+    }
+
+    var statusLabel: String {
+        if needsYou { return "AWAITING YOU" }
+        return status.label
+    }
+
+    var agentLabel: String {
+        if let handle = agentHandle, !handle.isEmpty {
+            return handle.hasPrefix("@") ? handle : "@\(handle)"
+        }
+        return agentName.hasPrefix("@") ? agentName : "@\(agentName)"
+    }
 }
 
 struct HUDSessionsView: View {
@@ -269,7 +297,8 @@ struct HUDSessionsView: View {
                     lastTurn: lastTurn,
                     ago: ScoutAgent.formatAgo(sinceMs: lastActivity),
                     model: agent?.tokens ?? clean(transcript.harness) ?? harness,
-                    startedAt: nil
+                    startedAt: nil,
+                    needsYou: agent?.state == .needsAttention
                 ),
                 lastActivity
             )
@@ -349,7 +378,8 @@ struct HUDSessionsView: View {
                 lastTurn: agent.lastTurn,
                 ago: agent.ago,
                 model: agent.tokens,
-                startedAt: nil
+                startedAt: nil,
+                needsYou: agent.state == .needsAttention
             )
         }
     }
@@ -447,12 +477,14 @@ struct HUDSessionsView: View {
 private struct SessionsHeader: View {
     let sessions: [SynthesizedSession]
 
-    private var running: Int { sessions.filter { $0.status == .running }.count }
+    private var onYou: Int { sessions.filter(\.needsYou).count }
 
     var body: some View {
-        // Tab name is in the masthead. Eyebrow carries count + running.
+        // Tab name is in the masthead. Eyebrow carries thread count + attention.
         HUDEyebrow(
-            text: "\(sessions.count) SESSION\(sessions.count == 1 ? "" : "S")  ·  \(running) RUNNING",
+            text: onYou > 0
+                ? "\(sessions.count) THREAD\(sessions.count == 1 ? "" : "S")  ·  \(onYou) ON YOU"
+                : "\(sessions.count) THREAD\(sessions.count == 1 ? "" : "S")",
             color: HUDChrome.inkFaint
         )
         .padding(.horizontal, 16)
@@ -461,9 +493,8 @@ private struct SessionsHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HUDChrome.borderStrong)
+                .fill(HUDChrome.border)
                 .frame(height: 0.5)
-                .padding(.horizontal, 16)
         }
     }
 }
@@ -472,7 +503,7 @@ private struct SessionsHeader: View {
 
 private struct SessionRow: View {
     let session: SynthesizedSession
-    let isFirst: Bool
+    let isFirst: Bool  // retained for call-site stability; layout is uniform
     let size: HUDSize
     var cursored: Bool = false
     let engaged: Bool
@@ -480,42 +511,82 @@ private struct SessionRow: View {
 
     @State private var hovered = false
 
-    // Mirrors tail's three-tier fill: cursored (j/k landing) → engaged
-    // (Enter expansion) → hovered (mouse). Background carries the state;
-    // no left edge bar (operator's call).
     private var rowFill: Color {
-        if engaged  { return HUDChrome.canvasLift.opacity(0.70) }
-        if cursored { return HUDChrome.canvasLift.opacity(0.42) }
-        if hovered  { return HUDChrome.canvasLift.opacity(0.18) }
+        if engaged  { return HUDChrome.canvasAlt }
+        if cursored || hovered { return HUDChrome.canvasAlt.opacity(0.72) }
         return Color.clear
     }
 
-    private var verticalPad: CGFloat { size == .compact ? 10 : 12 }
+    private var statusColor: Color {
+        session.needsYou ? HUDChrome.accent : HUDChrome.inkFaint
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: size == .compact ? 5 : 7) {
-            identityLine
-            metaLine
-            lastTurnLine
+        VStack(alignment: .leading, spacing: 2) {
+            // Line 1: subject + status facet + ago
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if session.status == .running && !session.needsYou {
+                    Circle()
+                        .fill(HUDChrome.accent)
+                        .frame(width: 5, height: 5)
+                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
+                }
+                Text(session.subject)
+                    .font(HUDType.body(13, weight: .medium))
+                    .foregroundStyle(HUDChrome.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Text(session.statusLabel)
+                    .font(HUDType.mono(10, weight: .semibold))
+                    .tracking(HUDType.eyebrowTracking)
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+                    .fixedSize()
+                Spacer(minLength: 6)
+                Text(session.ago)
+                    .font(HUDType.mono(10))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .fixedSize()
+            }
+            // Line 2: @agent · last message
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(session.agentLabel)
+                    .font(HUDType.mono(10))
+                    .foregroundStyle(HUDChrome.inkMuted)
+                    .lineLimit(1)
+                    .fixedSize()
+                Text("·")
+                    .font(HUDType.mono(10))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                Text(session.lastTurn)
+                    .font(HUDType.mono(10))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 14)
-        .padding(.top, isFirst ? verticalPad + 1 : verticalPad)
-        .padding(.bottom, verticalPad)
+        .padding(.horizontal, 16)
+        .padding(.vertical, size == .compact ? 10 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowFill)
         .overlay(alignment: .leading) {
-            if session.status == .running || engaged {
+            if session.needsYou || engaged {
                 Rectangle()
                     .fill(HUDChrome.accent)
                     .frame(width: 1.5)
+            } else if cursored {
+                Rectangle()
+                    .fill(HUDChrome.accent.opacity(0.55))
+                    .frame(width: 1)
             }
         }
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(HUDChrome.borderSoft)
+                .fill(HUDChrome.border)
                 .frame(height: 0.5)
-                .padding(.horizontal, 16)
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -532,150 +603,6 @@ private struct SessionRow: View {
                 }
             }
         }
-    }
-
-    private var identityLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            StatusDot(status: session.status)
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-
-            Text(session.agentName)
-                .font(HUDType.body(13, weight: .semibold))
-                .foregroundStyle(HUDChrome.ink)
-                .lineLimit(1)
-                .fixedSize()
-
-            if let handle = session.agentHandle {
-                Text(handle.hasPrefix("@") ? handle : "@" + handle)
-                    .font(HUDType.mono(10))
-                    .foregroundStyle(HUDChrome.inkFaint)
-                    .fixedSize()
-            }
-
-            Text(session.status.label)
-                .font(HUDType.mono(10, weight: .semibold))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(session.status.color)
-                .fixedSize()
-
-            Spacer(minLength: 6)
-
-            Text(session.ago)
-                .font(HUDType.mono(10, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(HUDChrome.inkFaint)
-                .fixedSize()
-        }
-    }
-
-    private var metaLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            HarnessChip(harness: session.harness)
-            metaDot
-            Text(session.project.uppercased())
-                .font(HUDType.mono(10))
-                .tracking(HUDType.eyebrowTracking)
-                .foregroundStyle(HUDChrome.inkMuted)
-                .lineLimit(1)
-            metaDot
-            Text(session.branch)
-                .font(HUDType.mono(10))
-                .foregroundStyle(HUDChrome.inkFaint)
-                .lineLimit(1)
-                .truncationMode(.middle)
-
-            // WHY: medium/large surfaces runtime/size + event count on the meta strip.
-            if size != .compact {
-                metaDot
-                Text(session.duration)
-                    .font(HUDType.mono(10))
-                    .monospacedDigit()
-                    .foregroundStyle(HUDChrome.inkFaint)
-                metaDot
-                Text("\(session.messageCount) evt")
-                    .font(HUDType.mono(10))
-                    .monospacedDigit()
-                    .foregroundStyle(HUDChrome.inkFaint)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 14)
-    }
-
-    private var lastTurnLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("↪")
-                .font(HUDType.mono(10))
-                .foregroundStyle(HUDChrome.inkFaint)
-            Text(session.lastTurn)
-                .font(HUDType.body(size == .compact ? 11 : 12))
-                .foregroundStyle(HUDChrome.inkMuted)
-                .lineLimit(size == .compact ? 1 : 2)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(1.5)
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 14)
-    }
-
-    private var metaDot: some View {
-        Circle()
-            .fill(HUDChrome.inkFaint)
-            .frame(width: 1.8, height: 1.8)
-    }
-}
-
-// MARK: - Status dot
-
-private struct StatusDot: View {
-    let status: SessionStatus
-
-    var body: some View {
-        ZStack {
-            switch status {
-            case .running:
-                Circle()
-                    .fill(HUDChrome.accent.opacity(0.32))
-                    .frame(width: 12, height: 12)
-                Circle()
-                    .fill(HUDChrome.accent)
-                    .frame(width: 6, height: 6)
-            case .idle:
-                Circle()
-                    .fill(HUDChrome.inkMuted.opacity(0.65))
-                    .frame(width: 6, height: 6)
-            case .ended:
-                Circle()
-                    .stroke(HUDChrome.inkFaint, lineWidth: 1)
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .frame(width: 12, height: 12)
-    }
-}
-
-// MARK: - Harness chip
-
-private struct HarnessChip: View {
-    let harness: String
-
-    var body: some View {
-        Text(harness.uppercased())
-            .font(HUDType.mono(10, weight: .semibold))
-            .tracking(HUDType.eyebrowTracking)
-            .foregroundStyle(HUDChrome.inkMuted)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(HUDChrome.canvas)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .stroke(HUDChrome.border, lineWidth: 0.5)
-            )
     }
 }
 
@@ -817,7 +744,7 @@ private struct SessionsFeedEndMarker: View {
             Rectangle()
                 .fill(HUDChrome.borderSoft)
                 .frame(height: 0.5)
-            Text("END OF SESSIONS")
+            Text("END OF THREADS")
                 .font(HUDType.mono(9, weight: .semibold))
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkFaint)
@@ -839,15 +766,15 @@ private struct EmptySessions: View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            HUDEyebrow(text: "LEDGER  ·  NO SESSIONS", color: HUDChrome.inkFaint)
+            HUDEyebrow(text: "THREADS  ·  EMPTY", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
-            Text("No sessions running.")
+            Text("No threads yet.")
                 .font(HUDType.body(15, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
                 .padding(.top, 6)
 
-            Text("Agent run sessions will print here as the broker reports them.")
+            Text("Conversations will print here as agents file.")
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.inkMuted)
                 .multilineTextAlignment(.center)

@@ -1,0 +1,1 @@
+import{c as e,j as t,r as o,N as s}from"./NativeSurfaceApp-BfNxzU8-.js";const r=document.getElementById("root");if(!r)throw new Error("missing #root");e.createRoot(r).render(t.jsx(o.StrictMode,{children:t.jsx(s,{surface:"dispatch",title:"Dispatch"})}));

@@ -2,13 +2,11 @@ import AppKit
 import ScoutAppCore
 import SwiftUI
 
-// Assistant tab — slot 5. Native port of
-// design/studio/components/hud/HudAssistant.tsx.
+// Scout tab (was assistant). Native port of
+// design/studio/components/hud/HudAssistant.tsx — treatment kept as-is.
 //
-// DM-style desktop view of the same Scout that lives on iOS
-// (project-hud-slot5-scout-surface). One persistent thread; the tab
-// label stays neutral while the robot-head glyph carries the brand on
-// the masthead and on every Scout message.
+// DM-style desktop view of Scout. One persistent thread; the robot-head
+// glyph carries the brand on the masthead and on every Scout message.
 //
 // Compact / Medium: single-column thread + small "DESKTOP THREAD"
 // eyebrow header with ONLINE indicator.

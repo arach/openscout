@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "assetRevision": "73f7aa3765cf7ae0",
+  "protocol": {
+    "minimum": 1,
+    "maximum": 1
+  },
+  "toolchain": {
+    "node": "22.22.2",
+    "bun": "1.3.11",
+    "vite": "^7.0.0",
+    "lockfileSha256": "ffd9fd224fbd38fc1b4bf494e224bc843506b049941a5beb4aac0e7c64b0a73e"
+  },
+  "surfaces": {
+    "lanes": {
+      "entry": "lanes/index.html",
+      "capabilities": [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "agents.list",
+        "agents.observe",
+        "tail.recent",
+        "tail.subscribe",
+        "native.setLaneSelection"
+      ],
+      "preferences": [
+        "lanes.layout",
+        "lanes.horizon",
+        "lanes.gridColumns",
+        "lanes.collapseTechnicalEvents"
+      ]
+    },
+    "dispatch": {
+      "entry": "dispatch/index.html",
+      "capabilities": [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "dispatch.diagnostics",
+        "dispatch.subscribe",
+        "dispatch.ask",
+        "dispatch.review"
+      ],
+      "preferences": [
+        "dispatch.density"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "dispatch/index.html",
+      "sha256": "1b6c4de9cd1dace86f043da66b67578a00696a81a0127968b9fda029adb4fc9d",
+      "bytes": 782
+    },
+    {
+      "path": "lanes/index.html",
+      "sha256": "d87e84280c6c4967852b2f682aba77d978093938551351ade9edfede8dbdd2d3",
+      "bytes": 776
+    },
+    {
+      "path": "shared/NativeSurfaceApp-BfNxzU8-.js",
+      "sha256": "b5284aa7a8eebd9e08efd1dc0ce883c7657328647f46f5491d47101043294d95",
+      "bytes": 196585
+    },
+    {
+      "path": "shared/NativeSurfaceApp-W7OjaQv2.css",
+      "sha256": "781428c4d5b050f288e40f53ca78116217ed545ad3e0654b744a4b5159e8a043",
+      "bytes": 1652
+    },
+    {
+      "path": "shared/dispatch-K9C05ZTD.js",
+      "sha256": "cec5ad347af1f23ba4dcfb63788ecbb8c25d8de8305e505f5b2a5fef66ae8950",
+      "bytes": 254
+    },
+    {
+      "path": "shared/lanes-KkNIFtB2.js",
+      "sha256": "09886952f24ff68823614cf59561dbb4e5f9cc02cb54fd5086fde61807779c6a",
+      "bytes": 248
+    }
+  ]
+}

@@ -3,12 +3,15 @@ import Foundation
 public enum MessageSuggestionKind: String, Sendable {
     case command
     case agent
+    case project
     case session
 
     public var eyebrow: String {
         switch self {
         case .command: return "COMMANDS"
-        case .agent: return "AGENTS"
+        // @ addresses work hands (agents as facets of work).
+        case .agent: return "WORK"
+        case .project: return "PROJECTS"
         case .session: return "SESSIONS"
         }
     }
@@ -17,6 +20,7 @@ public enum MessageSuggestionKind: String, Sendable {
         switch self {
         case .command: return "/"
         case .agent: return "@"
+        case .project: return "#"
         case .session: return "session"
         }
     }
@@ -132,12 +136,12 @@ public struct MessageSuggestionAgent: Sendable {
 
 public enum MessageSuggestionEngine {
     public static let defaultCommands: [MessageCommandCandidate] = [
-        MessageCommandCandidate(command: "/help", detail: "Show Scoutbot commands", replacement: "/help "),
-        MessageCommandCandidate(command: "/agents", detail: "List known agents and endpoints", replacement: "/agents "),
-        MessageCommandCandidate(command: "/status", detail: "Summarize active work and online agents", replacement: "/status "),
-        MessageCommandCandidate(command: "/recent", detail: "Show recent messages from an agent", replacement: "/recent "),
-        MessageCommandCandidate(command: "/doing", detail: "Show active work for an agent", replacement: "/doing "),
-        MessageCommandCandidate(command: "/flight", detail: "Inspect a flight by id", replacement: "/flight "),
+        MessageCommandCandidate(command: "/help", detail: "Commands, tabs, and addressing", replacement: "/help "),
+        MessageCommandCandidate(command: "/status", detail: "ON YOU, then RECENT work", replacement: "/status "),
+        MessageCommandCandidate(command: "/recent", detail: "Recent work (fleet or @hand)", replacement: "/recent "),
+        MessageCommandCandidate(command: "/agents", detail: "Hands as facets of current work", replacement: "/agents "),
+        MessageCommandCandidate(command: "/doing", detail: "What work a hand is on", replacement: "/doing "),
+        MessageCommandCandidate(command: "/flight", detail: "Inspect one work unit by id", replacement: "/flight "),
         MessageCommandCandidate(command: "/spin", detail: "Open the agent runner", replacement: "", action: .openRunner),
     ]
 
@@ -170,6 +174,12 @@ public enum MessageSuggestionEngine {
             return MessageSuggestionTrigger(kind: .agent, token: token, query: query, startOffset: startOffset, endOffset: endOffset)
         }
 
+        if token.hasPrefix("#") {
+            let query = String(token.dropFirst())
+            guard isProjectQuery(query) else { return nil }
+            return MessageSuggestionTrigger(kind: .project, token: token, query: query, startOffset: startOffset, endOffset: endOffset)
+        }
+
         let lowerToken = token.lowercased()
         if lowerToken.hasPrefix("session:") || lowerToken.hasPrefix("sid:") {
             let prefixLength = lowerToken.hasPrefix("session:") ? 8 : 4
@@ -191,6 +201,8 @@ public enum MessageSuggestionEngine {
             return commandSuggestions(query: trigger.query, commands: commands)
         case .agent:
             return agentSuggestions(query: trigger.query, agents: agents)
+        case .project:
+            return projectSuggestions(query: trigger.query, agents: agents)
         case .session:
             return sessionSuggestions(query: trigger.query, agents: agents)
         }
@@ -256,6 +268,38 @@ public enum MessageSuggestionEngine {
             .map { $0 }
     }
 
+    /// `#project` scope candidates derived from known agent workspaces.
+    private static func projectSuggestions(query: String, agents: [MessageSuggestionAgent]) -> [MessageSuggestion] {
+        let q = query.lowercased()
+        var seen = Set<String>()
+        var rows: [MessageSuggestion] = []
+        for agent in agents {
+            guard let project = projectName(for: agent) else { continue }
+            let key = project.lowercased()
+            guard !seen.contains(key) else { continue }
+            guard q.isEmpty || key.contains(q) else { continue }
+            seen.insert(key)
+            rows.append(
+                MessageSuggestion(
+                    id: "project:\(key)",
+                    kind: .project,
+                    label: "#\(project)",
+                    detail: "scope · \(agent.name)",
+                    // Leave the scope token in the draft for composers without
+                    // a chip; HUD dock still stages a scope chip on apply.
+                    replacement: "#\(project) ",
+                    targetHandle: "#\(project)",
+                    targetLabel: "#\(project)",
+                    action: nil
+                )
+            )
+        }
+        return rows
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+            .prefix(7)
+            .map { $0 }
+    }
+
     private static func sessionSuggestions(query: String, agents: [MessageSuggestionAgent]) -> [MessageSuggestion] {
         let q = query.lowercased()
         var seen = Set<String>()
@@ -303,6 +347,15 @@ public enum MessageSuggestionEngine {
         return "\(agent.name) · \(agent.state) · \(scope ?? "agent")"
     }
 
+    private static func projectName(for agent: MessageSuggestionAgent) -> String? {
+        guard let root = agent.workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !root.isEmpty else {
+            return nil
+        }
+        let name = (root as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
     private static func isSimpleQuery(_ value: String) -> Bool {
         value.allSatisfy { ch in
             ch.isLetter || ch.isNumber || ch == "-" || ch == "_"
@@ -312,6 +365,12 @@ public enum MessageSuggestionEngine {
     private static func isHandleQuery(_ value: String) -> Bool {
         value.allSatisfy { ch in
             ch.isLetter || ch.isNumber || ch == "-" || ch == "_" || ch == "."
+        }
+    }
+
+    private static func isProjectQuery(_ value: String) -> Bool {
+        value.allSatisfy { ch in
+            ch.isLetter || ch.isNumber || ch == "-" || ch == "_" || ch == "." || ch == "/"
         }
     }
 
