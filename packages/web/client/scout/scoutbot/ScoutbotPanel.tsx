@@ -33,6 +33,8 @@ import {
 import { ChatHistory, ChatInput } from "./ScoutbotChat.tsx";
 import { ScoutbotIconButton, ScoutVoiceSetupPanel } from "./ScoutbotControls.tsx";
 import { ScoutbotSettingsPanel } from "./ScoutbotSettingsPanel.tsx";
+import { ScoutbotRealtimeVoice } from "./ScoutbotRealtimeVoice.tsx";
+import { SCOUTBOT_REALTIME_REPLY_EVENT } from "./ScoutbotRealtimeVoiceContext.tsx";
 import {
   DEFAULT_SCOUTBOT_VOICE_PRESET_ID,
   DEFAULT_SCOUTBOT_VOICE_SPEED,
@@ -466,6 +468,15 @@ export function ScoutbotPanel({
     speakScoutbotText(replyText);
   }, [applyScoutbotUiAction, speakScoutbotText]);
 
+  useEffect(() => {
+    const handleRealtimeReply = () => {
+      setAskStatus("Scoutbot replied by voice");
+      void loadScoutbotSession();
+    };
+    window.addEventListener(SCOUTBOT_REALTIME_REPLY_EVENT, handleRealtimeReply);
+    return () => window.removeEventListener(SCOUTBOT_REALTIME_REPLY_EVENT, handleRealtimeReply);
+  }, [loadScoutbotSession]);
+
   const askScoutbot = useCallback(async (body: string) => {
     const trimmed = body.trim();
     if (!trimmed || sending) return;
@@ -761,6 +772,9 @@ export function ScoutbotPanel({
           <Bot size={20} className="shrink-0 text-lime-300" aria-hidden="true" />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <ScoutbotRealtimeVoice
+            dictationActive={recording}
+          />
           <ScoutbotIconButton
             icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
             title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}

@@ -7060,7 +7060,7 @@ export async function createOpenScoutWebServer(
     return c.json(result);
   });
 
-  mountScoutVoiceRoutes(app);
+  mountScoutVoiceRoutes(app, { resolveOpenAIApiKey: scoutbot.resolveOpenAIApiKey });
 
   // Dev-only: serve generated Scoutbot FX fixtures for /dev/scoutbot-fx lab.
   // Fixtures are produced by packages/web/scripts/generate-scoutbot-fx-fixtures.mjs

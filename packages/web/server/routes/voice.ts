@@ -8,6 +8,16 @@ import {
   transcribeScoutVoiceAudio,
   type ScoutSpeechTimingRequest,
 } from "../scout-voice.ts";
+import {
+  ScoutRealtimeVoiceError,
+  createScoutRealtimeVoiceCall,
+  validateScoutRealtimeOffer,
+} from "../realtime-voice.ts";
+import {
+  SCOUT_REALTIME_VOICE_CALL_PATH,
+  SCOUT_REALTIME_VOICE_FLAG_HEADER,
+  SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE,
+} from "../../shared/realtime-voice.ts";
 import { engageScoutVoiceDictation } from "../scout-voice-engage.ts";
 import {
   ScoutVoiceSessionError,
@@ -123,7 +133,11 @@ function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | 
   }
 }
 
-export function mountScoutVoiceRoutes(app: Hono): void {
+export type ScoutVoiceRouteDeps = {
+  resolveOpenAIApiKey?: () => Promise<string | undefined>;
+};
+
+export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {}): void {
   ensureScoutVoiceOrigins();
 
   app.get("/api/voice/health", async (c) => {
@@ -431,7 +445,44 @@ export function mountScoutVoiceRoutes(app: Hono): void {
     }
   });
 
+  app.post(SCOUT_REALTIME_VOICE_CALL_PATH, async (c) => {
+    // This is a rollout gate, not an authorization boundary. The browser only
+    // sends the marker when the registered feature flag exposed the control.
+    if (c.req.header(SCOUT_REALTIME_VOICE_FLAG_HEADER) !== SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE) {
+      return c.json({ error: "Realtime voice is not enabled." }, 404);
+    }
+    try {
+      const offerSdp = validateScoutRealtimeOffer(await c.req.text());
+      const apiKey = await deps.resolveOpenAIApiKey?.() ?? process.env.OPENAI_API_KEY?.trim();
+      if (!apiKey) {
+        return c.json({ error: "OpenAI API key is required to start a realtime voice call." }, 503);
+      }
+      const answerSdp = await createScoutRealtimeVoiceCall({
+        offerSdp,
+        apiKey,
+        signal: c.req.raw.signal,
+      });
+      return new Response(answerSdp, {
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/sdp",
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start realtime voice.";
+      const status = error instanceof ScoutRealtimeVoiceError ? error.status : 502;
+      if (status >= 500) {
+        console.warn("[voice-realtime] call_failed", {
+          message,
+          ...(error instanceof ScoutRealtimeVoiceError && error.diagnostic ? error.diagnostic : {}),
+        });
+      }
+      return c.json({ error: message }, status as 400 | 413 | 502);
+    }
+  });
+
   app.get("/api/voice/defaults", (c) => {
     return c.json(resolveScoutSpeechDefaults());
   });
+
 }

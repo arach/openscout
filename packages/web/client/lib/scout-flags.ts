@@ -76,6 +76,7 @@ const SURFACE_FLAG_KEYS = [
   "surface.activity",
   "surface.follow",
   "surface.scoutbot",
+  "surface.realtime-voice",
   "surface.workflows",
 ] as const;
 
@@ -201,6 +202,15 @@ export const scoutFlags = createFlagRegistry({
     tier: "everyone",
     owner: "scout-web",
     tags: ["surface", "assistant"],
+  },
+  "surface.realtime-voice": {
+    label: "Surface · Realtime voice",
+    description:
+      "Live WebRTC voice conversations with Scoutbot through OpenAI Realtime.",
+    defaultEnabled: false,
+    tier: "everyone",
+    owner: "scout-web",
+    tags: ["surface", "assistant", "voice"],
   },
   "surface.workflows": {
     label: "Surface · Workflows",
