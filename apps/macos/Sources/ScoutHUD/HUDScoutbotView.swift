@@ -11,8 +11,11 @@ import SwiftUI
 // and land as real replies on `assistantThread` (e.g. /status → ON YOU /
 // RECENT work-first output).
 //
+// Input is the universal MessageComposer dock (one composer, studio shape).
+// Chips run immediately through ScoutComposeService; freeform slash
+// commands type into the dock the same way as every other tab.
+//
 // Deferred (not fake affordances — just not built yet):
-//   · Attach / dictation chrome unique to this tab (uses the shared dock)
 //   · Dedicated scoutbot transcript stream (shares assistantThread with
 //     tab 4 so DM + command replies stay one conversation for now)
 //   · Structured status-line widgets (replies render as mono text blocks;
@@ -21,9 +24,7 @@ import SwiftUI
 struct HUDScoutbotView: View {
     @ObservedObject private var compose = ScoutComposeService.shared
     @ObservedObject private var state = HUDState.shared
-    @State private var draft = ""
     @State private var isSending = false
-    @FocusState private var inputFocused: Bool
 
     private static let commands: [(cmd: String, hint: String)] = [
         ("/status", "ON YOU, then RECENT work"),
@@ -55,7 +56,6 @@ struct HUDScoutbotView: View {
                     }
                 }
             }
-            consoleInput
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -135,7 +135,7 @@ struct HUDScoutbotView: View {
 
     private var emptyHint: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Run a command chip or type a slash command below.")
+            Text("Run a command chip, or type a slash command in the dock.")
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.inkMuted)
             Text("Replies use the live scoutbot prefilter (/status → ON YOU · RECENT).")
@@ -163,57 +163,6 @@ struct HUDScoutbotView: View {
         .padding(.top, 12)
     }
 
-    // MARK: - Input
-
-    private var consoleInput: some View {
-        HStack(spacing: 8) {
-            Text("▸")
-                .font(HUDType.mono(11, weight: .semibold))
-                .foregroundStyle(HUDChrome.accent)
-
-            TextField("/status · /recent · /agents · /help", text: $draft)
-                .textFieldStyle(.plain)
-                .font(HUDType.mono(11))
-                .foregroundStyle(HUDChrome.ink)
-                .focused($inputFocused)
-                .onSubmit { submitDraft() }
-                .disabled(isSending || compose.isSending)
-
-            Button(action: submitDraft) {
-                Text("RUN")
-                    .font(HUDType.mono(10, weight: .bold))
-                    .tracking(HUDType.eyebrowMicro)
-                    .foregroundStyle(canSubmit ? HUDChrome.accent : HUDChrome.inkFaint)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSubmit)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(HUDChrome.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(HUDChrome.border, lineWidth: 0.75)
-        )
-        .padding(.horizontal, horizontalPad)
-        .padding(.vertical, 10)
-        .background(HUDChrome.canvas)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(HUDChrome.border)
-                .frame(height: 0.5)
-        }
-    }
-
-    private var canSubmit: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !isSending
-            && !compose.isSending
-    }
-
     private var horizontalPad: CGFloat {
         state.size == .compact ? 16 : 20
     }
@@ -222,13 +171,6 @@ struct HUDScoutbotView: View {
 
     private func runCommand(_ cmd: String) {
         Task { await send(cmd) }
-    }
-
-    private func submitDraft() {
-        let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
-        draft = ""
-        Task { await send(body) }
     }
 
     /// Same pipeline as the dock / assistant: default target is scoutbot,
