@@ -13,6 +13,6 @@ import Testing
     #expect(ScoutDictationController.toggleDecision(for: .idle) == .start)
     #expect(ScoutDictationController.toggleDecision(for: .starting) == .stop)
     #expect(ScoutDictationController.toggleDecision(for: .recording) == .stop)
-    #expect(ScoutDictationController.toggleDecision(for: .processing) == .ignore)
+    #expect(ScoutDictationController.toggleDecision(for: .processing) == .cancel)
     #expect(ScoutDictationController.toggleDecision(for: .unavailable(reason: "missing")) == .probeThenStartIfIdle)
 }
