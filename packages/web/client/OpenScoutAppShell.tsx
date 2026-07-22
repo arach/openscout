@@ -34,6 +34,7 @@ import {
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { ScoutbotRealtimeVoice } from "./scout/scoutbot/ScoutbotRealtimeVoice.tsx";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../shared/realtime-voice.ts";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
 import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
@@ -279,6 +280,7 @@ function OpenScoutStatusBarLeft({
   dictationActive: boolean;
 }) {
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
+  const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const meshValueClass = statusBar.mesh.color === "amber"
     ? "text-amber-400"
     : statusBar.mesh.color === "red"
@@ -300,12 +302,14 @@ function OpenScoutStatusBarLeft({
         </span>
         <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
-      {scoutbotEnabled && (
+      {(scoutbotEnabled || realtimeVoiceEnabled) && (
         <>
           <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
           <div className="flex items-center gap-1">
-            <ScoutbotBroadcastChip />
-            <ScoutbotRealtimeVoice dictationActive={dictationActive} />
+            {scoutbotEnabled && <ScoutbotBroadcastChip />}
+            {realtimeVoiceEnabled && (
+              <ScoutbotRealtimeVoice dictationActive={dictationActive} />
+            )}
           </div>
         </>
       )}
