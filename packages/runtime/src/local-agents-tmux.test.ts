@@ -62,6 +62,57 @@ describe("tmux prompt delivery", () => {
 
     expect(strategy.verify(submittedTail)).toBe(true);
   });
+
+  test("verifier does not accept unrelated non-empty composer text", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const pendingTail = paneTail([
+      "───────────────────────────── relay-agent ──",
+      "❯ draft still pending in the composer",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+    ]);
+
+    expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
+  test("verifier does not accept Claude's collapsed paste placeholder", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const pendingTail = paneTail([
+      "───────────────────────────── relay-agent ──",
+      "❯ [Pasted text #1 +111 lines]",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+    ]);
+
+    expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
+  test("verifier requires activity after the prompt, not stale activity above it", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const pendingTail = paneTail([
+      "⏺ Read(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Read 30 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ [Pasted text #1 +111 lines]",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Sonnet 4.6 │ ⎇ main │ ~/dev/openscout",
+    ]);
+
+    expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
+  test("verifier accepts harness activity emitted after the submitted prompt", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const acceptedTail = paneTail([
+      "❯ New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.",
+      "",
+      "⏺ Read(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Read 30 lines",
+    ]);
+
+    expect(strategy.verify(acceptedTail)).toBe(true);
+  });
 });
 
 describe("tmux Claude readiness detection", () => {
