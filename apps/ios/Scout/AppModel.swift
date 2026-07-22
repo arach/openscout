@@ -210,7 +210,10 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
-    /// Operator usage-quota gauges (Claude / Codex / GitHub) for the Home strip.
+    /// The live agents behind `activeAgentCount` — the crown LED's working wing
+    /// (harness · project) reads these without a second fetch.
+    var liveAgents: [AgentSummary] = []
+    /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) for the Home strip.
     /// Empty until a connected bridge reports them (older bridges omit the RPC).
     var serviceBudgets: [ServiceBudget] = []
     var recentTerminals: [MobileTerminal] = []
@@ -1791,13 +1794,46 @@ final class AppModel {
         }
         guard sawSuccessfulRead else { return }
         updateFleetStats(from: agents)
-        // Usage-quota gauges for the Home strip — read once from any connected
-        // bridge (they report the operator's local subscriptions, machine-wide).
+        // Usage-quota gauges for the Home strip. Every Mac answers from its OWN
+        // statusline/provider captures, and account quota (Claude/Codex/Kimi) is fleet-wide
+        // while machine knowledge is not — a machine whose last session for a
+        // provider ran days ago confidently serves a days-old percentage.
+        // First-non-empty-wins therefore flipped the strip to the stale value
+        // whenever the sorted client order changed. Merge instead: per provider,
+        // per window label, keep the MAX usedPercent — usage is monotonically
+        // non-decreasing within a window and expired windows are already
+        // filtered server-side, so max is the freshest valid value.
+        var budgetsByProvider: [String: ServiceBudget] = [:]
+        var providerOrder: [String] = []
         for client in clients {
-            if let budgets = try? await client.serviceBudgets(), !budgets.isEmpty {
-                serviceBudgets = budgets
-                break
+            guard let budgets = try? await client.serviceBudgets() else { continue }
+            for budget in budgets {
+                guard let existing = budgetsByProvider[budget.provider] else {
+                    budgetsByProvider[budget.provider] = budget
+                    providerOrder.append(budget.provider)
+                    continue
+                }
+                var windows = existing.windows
+                for window in budget.windows {
+                    if let index = windows.firstIndex(where: { $0.label == window.label }) {
+                        if window.usedPercent > windows[index].usedPercent {
+                            windows[index] = window
+                        }
+                    } else {
+                        windows.append(window)
+                    }
+                }
+                budgetsByProvider[budget.provider] = ServiceBudget(
+                    provider: existing.provider,
+                    label: existing.label,
+                    plan: existing.plan,
+                    windows: windows
+                )
             }
+        }
+        let mergedBudgets = providerOrder.compactMap { budgetsByProvider[$0] }
+        if !mergedBudgets.isEmpty {
+            serviceBudgets = mergedBudgets
         }
         // Recent terminal sessions for the Home Terminals shelf — first successful
         // read wins (an empty list is valid: no sessions registered).
@@ -1815,6 +1851,9 @@ final class AppModel {
     func updateFleetStats(from agents: [AgentSummary]) {
         agentCount = agents.count
         activeAgentCount = agents.filter { $0.state == .live }.count
+        // The live set behind the count — the crown LED's working wing reads
+        // harness · project straight from here (no extra fetch).
+        liveAgents = agents.filter { $0.state == .live }
     }
 
     /// Saved route inventory for the focused pairing. This is route metadata, not
