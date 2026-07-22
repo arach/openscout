@@ -75,6 +75,15 @@ const SUBSCRIPTION_PROVIDERS = [
     ],
   },
   {
+    id: "grok",
+    description: "SuperGrok subscription and shared weekly usage allowance.",
+    links: [
+      { label: "Open Grok", href: "https://grok.com/" },
+      { label: "Billing", href: "https://grok.com/?_s=billing" },
+      { label: "Help", href: "https://docs.x.ai/grok/faq" },
+    ],
+  },
+  {
     id: "minimax",
     description: "MiniMax Token Plan 5-hour and weekly allowance.",
     links: [
