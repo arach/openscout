@@ -34,6 +34,7 @@ export type ServiceGauge =
       unitLabel: string;
       resetAt: number;
       windows?: ServiceQuotaWindowGauge[];
+      plan?: string;
     }
   | {
       id: string;

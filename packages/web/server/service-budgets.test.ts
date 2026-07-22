@@ -16,6 +16,9 @@ const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalPath = process.env.PATH;
 const originalGhBin = process.env.OPENSCOUT_GH_BIN;
 const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
+const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
+const originalKimiUsageJson = process.env.OPENSCOUT_KIMI_USAGE_JSON;
+const originalKimiUsageUrl = process.env.OPENSCOUT_KIMI_USAGE_URL;
 const tempPaths = new Set<string>();
 
 afterEach(() => {
@@ -51,6 +54,21 @@ afterEach(() => {
     delete process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
   } else {
     process.env.OPENSCOUT_GH_RATE_LIMIT_JSON = originalGhRateLimitJson;
+  }
+  if (originalKimiCodeHome === undefined) {
+    delete process.env.KIMI_CODE_HOME;
+  } else {
+    process.env.KIMI_CODE_HOME = originalKimiCodeHome;
+  }
+  if (originalKimiUsageJson === undefined) {
+    delete process.env.OPENSCOUT_KIMI_USAGE_JSON;
+  } else {
+    process.env.OPENSCOUT_KIMI_USAGE_JSON = originalKimiUsageJson;
+  }
+  if (originalKimiUsageUrl === undefined) {
+    delete process.env.OPENSCOUT_KIMI_USAGE_URL;
+  } else {
+    process.env.OPENSCOUT_KIMI_USAGE_URL = originalKimiUsageUrl;
   }
 
   for (const path of tempPaths) {
@@ -413,6 +431,78 @@ describe("service budgets", () => {
     expect(rawDb.query<{ count: number }>(
       "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE id LIKE 'budget:quota:history:%' AND provider = 'openai' AND harness = 'codex'",
     ).get()?.count).toBe(2);
+    rawDb.close();
+  });
+
+  test("harvests Kimi Code subscription windows and membership level", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-kimi-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.KIMI_CODE_HOME = join(home, ".kimi-code");
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+
+    const now = Date.now();
+    process.env.OPENSCOUT_KIMI_USAGE_JSON = JSON.stringify({
+      usage: {
+        limit: "100",
+        used: "53",
+        remaining: "47",
+        resetTime: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      limits: [
+        {
+          detail: {
+            limit: "100",
+            used: "6",
+            remaining: "94",
+            resetTime: new Date(now + 5 * 60 * 60 * 1000).toISOString(),
+          },
+          window: {
+            duration: 300,
+            timeUnit: "TIME_UNIT_MINUTE",
+          },
+        },
+      ],
+      user: {
+        membership: {
+          level: "LEVEL_ADVANCED",
+        },
+      },
+    });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const response = await loadServiceBudgets(true);
+    const kimi = response.gauges.find((gauge) => gauge.id === "kimi");
+
+    expect(kimi).toEqual(expect.objectContaining({
+      id: "kimi",
+      label: "kimi",
+      kind: "quota",
+      usedLabel: "53%",
+      capLabel: "100%",
+      unitLabel: "7d",
+      plan: "Advanced",
+    }));
+    expect(kimi && kimi.kind === "quota" ? kimi.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", usedLabel: "6%" }),
+      expect.objectContaining({ label: "7d", usedLabel: "53%" }),
+    ]);
+    delete process.env.OPENSCOUT_KIMI_USAGE_JSON;
+    resetServiceBudgetsCache();
+    const withoutFreshToken = await loadServiceBudgets(true);
+    expect(withoutFreshToken.gauges.find((gauge) => gauge.id === "kimi")).toEqual(
+      expect.objectContaining({ id: "kimi", kind: "quota", usedLabel: "53%", plan: "Advanced" }),
+    );
+    expect(rawDb.query<{ count: number }>(
+      "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE provider = 'kimi' AND harness = 'kimi'",
+    ).get()?.count).toBe(4);
     rawDb.close();
   });
 

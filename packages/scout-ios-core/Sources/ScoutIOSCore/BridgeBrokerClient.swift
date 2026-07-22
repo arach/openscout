@@ -171,7 +171,7 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return wire.map { $0.toSummary() }
     }
 
-    /// Operator usage-quota gauges (Claude / Codex / GitHub) with their spent
+    /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) with their spent
     /// windows, for the Home strip. Empty when the paired Mac can't report them
     /// (older bridge without the `mobile/service-budgets` procedure).
     public func serviceBudgets() async throws -> [ServiceBudget] {
@@ -1067,7 +1067,7 @@ struct MobileCommsMessage: Codable, Sendable {
 // MARK: - Service budgets (usage quota)
 
 /// A subscription's usage quota for the Home strip — one provider (Claude /
-/// Codex / GitHub) with its spent windows (e.g. a short 5h cap + a weekly cap).
+/// Codex / Kimi / GitHub) with its spent windows (e.g. a short 5h cap + a weekly cap).
 public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
     /// One spent window: a short label, how much of it is used (0–100), and a
     /// terse reset hint. `usedPercent` decodes leniently from int or double.
