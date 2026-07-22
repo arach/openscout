@@ -281,6 +281,8 @@ struct ScoutSessionComposer: View {
                 voice.start()
             case .stop:
                 voice.stop()
+            case .cancel:
+                voice.cancel()
             case .ignore:
                 break
             }

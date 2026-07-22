@@ -1131,6 +1131,9 @@ final class HUDRunnerState: ObservableObject {
             lastError = nil
         case .stop:
             voice.stop()
+        case .cancel:
+            // transcription is hung — abort so the mic is released
+            voice.cancel()
         case .ignore:
             return
         }

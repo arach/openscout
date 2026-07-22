@@ -29,6 +29,11 @@ final class ScoutVoiceHostRunner {
     private var permissionRecoveryTask: Task<Void, Never>?
     private var lastPostedState: String?
 
+    /// Apple Speech/HudsonKit can publish many near-identical partials per second.
+    /// Keep the live remote preview responsive without turning voice history into a
+    /// transcript tail. Final text is still delivered immediately on completion.
+    private static let partialDebounceInterval = DispatchQueue.SchedulerTimeType.Stride.milliseconds(350)
+
     private init() {}
 
     func start() {
@@ -270,11 +275,12 @@ final class ScoutVoiceHostRunner {
 
         voice.$partial
             .dropFirst()
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .removeDuplicates()
-            .sink { [weak self] partial in
+            .filter { !$0.isEmpty }
+            .debounce(for: Self.partialDebounceInterval, scheduler: DispatchQueue.main)
+            .sink { [weak self] trimmed in
                 guard let self, self.activeSessionId == sessionId else { return }
-                let trimmed = partial.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
                 Task { await self.postEvent(sessionId: sessionId, event: "session.partial", data: ["text": trimmed]) }
             }
             .store(in: &sessionCancellables)
