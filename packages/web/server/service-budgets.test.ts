@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +19,16 @@ const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
 const originalKimiUsageJson = process.env.OPENSCOUT_KIMI_USAGE_JSON;
 const originalCursorStatusJson = process.env.OPENSCOUT_CURSOR_STATUS_JSON;
+const originalMinimaxApiKey = process.env.MINIMAX_API_KEY;
+const originalMinimaxToken = process.env.MINIMAX_TOKEN;
+const originalMinimaxRemainsJson = process.env.OPENSCOUT_MINIMAX_REMAINS_JSON;
 const tempPaths = new Set<string>();
+
+beforeEach(() => {
+  delete process.env.MINIMAX_API_KEY;
+  delete process.env.MINIMAX_TOKEN;
+  delete process.env.OPENSCOUT_MINIMAX_REMAINS_JSON;
+});
 
 afterEach(() => {
   closeDb();
@@ -69,6 +78,21 @@ afterEach(() => {
     delete process.env.OPENSCOUT_CURSOR_STATUS_JSON;
   } else {
     process.env.OPENSCOUT_CURSOR_STATUS_JSON = originalCursorStatusJson;
+  }
+  if (originalMinimaxApiKey === undefined) {
+    delete process.env.MINIMAX_API_KEY;
+  } else {
+    process.env.MINIMAX_API_KEY = originalMinimaxApiKey;
+  }
+  if (originalMinimaxToken === undefined) {
+    delete process.env.MINIMAX_TOKEN;
+  } else {
+    process.env.MINIMAX_TOKEN = originalMinimaxToken;
+  }
+  if (originalMinimaxRemainsJson === undefined) {
+    delete process.env.OPENSCOUT_MINIMAX_REMAINS_JSON;
+  } else {
+    process.env.OPENSCOUT_MINIMAX_REMAINS_JSON = originalMinimaxRemainsJson;
   }
   for (const path of tempPaths) {
     rmSync(path, { recursive: true, force: true });
@@ -534,6 +558,104 @@ describe("service budgets", () => {
       tone: "ok",
     });
     rawDb.close();
+  });
+
+  test("harvests MiniMax Token Plan 5-hour and weekly windows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-minimax-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    const now = Date.now();
+    process.env.OPENSCOUT_MINIMAX_REMAINS_JSON = JSON.stringify({
+      model_remains: [{
+        model_name: "general",
+        start_time: now - 60_000,
+        end_time: now + 5 * 60 * 60 * 1000,
+        current_interval_total_count: 4500,
+        current_interval_usage_count: 900,
+        current_interval_remaining_percent: 80,
+        weekly_start_time: now - 24 * 60 * 60 * 1000,
+        weekly_end_time: now + 6 * 24 * 60 * 60 * 1000,
+        current_weekly_total_count: 20_000,
+        current_weekly_usage_count: 5_000,
+        current_weekly_remaining_percent: 75,
+      }],
+      base_resp: { status_code: 0, status_msg: "success" },
+    });
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const response = await loadServiceBudgets(true);
+    const minimax = response.gauges.find((gauge) => gauge.id === "minimax");
+    expect(minimax).toEqual(expect.objectContaining({
+      id: "minimax",
+      kind: "quota",
+      plan: "Token Plan",
+      usedLabel: "5.0k",
+      capLabel: "20k",
+      unitLabel: "7d",
+    }));
+    expect(minimax && minimax.kind === "quota" ? minimax.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", fill: 0.2, usedLabel: "900", capLabel: "4.5k" }),
+      expect.objectContaining({ label: "7d", fill: 0.25, usedLabel: "5.0k", capLabel: "20k" }),
+    ]);
+    rawDb.close();
+  });
+
+  test("detects configured Cloudflare and Vercel cloud accounts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-cloud-accounts-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+    mkdirSync(join(home, "Library", "Preferences", ".wrangler", "config"), { recursive: true });
+    writeFileSync(join(home, "Library", "Preferences", ".wrangler", "config", "default.toml"), "oauth_token = \"secret\"\n", "utf8");
+    mkdirSync(join(home, "Library", "Application Support", "com.vercel.cli"), { recursive: true });
+    writeFileSync(join(home, "Library", "Application Support", "com.vercel.cli", "config.json"), JSON.stringify({ currentTeam: "team" }), "utf8");
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const response = await loadServiceBudgets(true);
+    expect(response.cloudAccounts).toEqual([
+      { id: "cloudflare", label: "Cloudflare", statusLabel: "Connected", detailLabel: "Wrangler account detected" },
+      { id: "vercel", label: "Vercel", statusLabel: "Connected", detailLabel: "Vercel account detected" },
+    ]);
+    rawDb.close();
+  });
+
+  test("loads a manually declared exe.dev cloud account", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-exe-"));
+    tempPaths.add(root);
+    const home = join(root, "home");
+    mkdirSync(join(home, ".scout"), { recursive: true });
+    writeFileSync(join(home, ".scout", "provider-accounts.json"), JSON.stringify({
+      exe: {
+        status: "active",
+        detail: "Persistent VMs for remote agents",
+      },
+    }));
+    process.env.HOME = home;
+    process.env.OPENSCOUT_CONTROL_HOME = join(root, "control");
+
+    const response = await loadServiceBudgets(true);
+    expect(response.gauges.find((gauge) => gauge.id === "exe")).toBeUndefined();
+    expect(response.cloudAccounts.find((account) => account.id === "exe")).toEqual({
+      id: "exe",
+      label: "exe.dev",
+      statusLabel: "Connected",
+      detailLabel: "Persistent VMs for remote agents",
+    });
   });
 
   test("harvests GitHub rate limits into quota snapshots", async () => {

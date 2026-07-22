@@ -3,20 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { HarnessMark, harnessLabel as sharedHarnessLabel } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
-import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
-import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import {
   formatAbsoluteTimestamp,
   normalizeTimestampMs,
   timeAgo,
 } from "../../lib/time.ts";
-import type {
-  Agent,
-  HarnessTopologyObservation,
-  HarnessTopologySnapshot,
-  Route,
-} from "../../lib/types.ts";
+import type { Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
 import type { ServiceGauge } from "../home/HomeHero.tsx";
@@ -27,38 +20,24 @@ type QuotaGauge = Extract<ServiceGauge, { kind: "quota" }>;
 type QuotaWindow = NonNullable<QuotaGauge["windows"]>[number];
 type BudgetHistoryPoint = NonNullable<QuotaWindow["history"]>[number];
 
+type CloudAccount = {
+  id: "cloudflare" | "vercel" | "exe";
+  label: string;
+  statusLabel: string;
+  detailLabel: string;
+};
+
 type HarnessRow = {
   id: string;
   label: string;
-  agents: Agent[];
   gauge: ServiceGauge | null;
-  observations: HarnessTopologyObservation[];
-  transports: string[];
-  models: string[];
-  projects: string[];
-  working: number;
-  ready: number;
-  notReady: number;
-  latestSeen: number | null;
 };
-
-const KNOWN_HARNESSES = [
-  "codex",
-  "claude",
-  "kimi",
-  "cursor",
-  "native",
-  "worker",
-  "bridge",
-  "http",
-  "pi",
-  "flue",
-] as const;
 
 const HARNESS_LABELS: Record<string, string> = {
   codex: "Codex",
   claude: "Claude",
   kimi: "Kimi",
+  minimax: "MiniMax",
   cursor: "Cursor",
   native: "Native",
   worker: "Worker",
@@ -96,6 +75,14 @@ const SUBSCRIPTION_PROVIDERS = [
     ],
   },
   {
+    id: "minimax",
+    description: "MiniMax Token Plan 5-hour and weekly allowance.",
+    links: [
+      { label: "Usage", href: "https://platform.minimax.io/console/plan" },
+      { label: "Docs", href: "https://platform.minimax.io/docs/token-plan/intro" },
+    ],
+  },
+  {
     id: "cursor",
     description: "Cursor membership detected locally; usage stays on its dashboard.",
     links: [
@@ -105,6 +92,22 @@ const SUBSCRIPTION_PROVIDERS = [
   },
 ] as const;
 
+const CLOUD_PROVIDER_LINKS: Record<CloudAccount["id"], Array<{ label: string; href: string }>> = {
+  cloudflare: [
+    { label: "Dashboard", href: "https://dash.cloudflare.com/" },
+    { label: "Billing", href: "https://dash.cloudflare.com/?to=/:account/billing" },
+  ],
+  vercel: [
+    { label: "Dashboard", href: "https://vercel.com/dashboard" },
+    { label: "Billing", href: "https://vercel.com/account/billing" },
+  ],
+  exe: [
+    { label: "VMs", href: "https://exe.dev/" },
+    { label: "Billing", href: "https://exe.dev/user/billing" },
+    { label: "Docs", href: "https://exe.dev/docs/what-is-exe" },
+  ],
+};
+
 function canonicalHarnessId(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
   if (!normalized) return "unknown";
@@ -112,29 +115,13 @@ function canonicalHarnessId(value: string | null | undefined): string {
   if (normalized.includes("codex")) return "codex";
   if (normalized.includes("cursor")) return "cursor";
   if (normalized.includes("kimi") || normalized.includes("moonshot")) return "kimi";
+  if (normalized.includes("minimax")) return "minimax";
   if (normalized.includes("github")) return "github";
   return normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
 }
 
 function harnessLabel(id: string): string {
   return HARNESS_LABELS[id] ?? sharedHarnessLabel(id);
-}
-
-function uniqueValues(values: Array<string | null | undefined>): string[] {
-  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
-}
-
-function pathLeaf(path: string | null | undefined): string | null {
-  const value = path?.trim();
-  if (!value) return null;
-  return value.split("/").filter(Boolean).pop() ?? value;
-}
-
-function compactList(values: string[], max = 3): string {
-  if (values.length === 0) return "-";
-  const shown = values.slice(0, max);
-  const suffix = values.length > shown.length ? ` +${values.length - shown.length}` : "";
-  return `${shown.join(", ")}${suffix}`;
 }
 
 function formatLegacyQuotaLabel(label: string): string {
@@ -209,87 +196,13 @@ function budgetLatestAt(gauge: ServiceGauge | null): number | null {
     }, null);
 }
 
-function observationHarnessId(observation: HarnessTopologyObservation): string {
-  return canonicalHarnessId(observation.source || observation.topology.source);
-}
-
-function observationSeenAt(observation: HarnessTopologyObservation): number | null {
-  const observedAt = Date.parse(observation.observedAt);
-  const fromObserved = Number.isFinite(observedAt) ? observedAt : 0;
-  return Math.max(fromObserved, normalizeTimestampMs(observation.changedAt) ?? 0) || null;
-}
-
-function sourceLabel(source: string): string {
-  if (source.includes("workflow")) return "Claude workflow";
-  return harnessLabel(canonicalHarnessId(source));
-}
-
-function buildHarnessRows(
-  agents: Agent[],
-  gauges: ServiceGauge[],
-  snapshot: HarnessTopologySnapshot | null,
-): HarnessRow[] {
-  const ids = new Set<string>(KNOWN_HARNESSES);
-  for (const agent of agents) ids.add(canonicalHarnessId(agent.harness));
-  for (const gauge of gauges) ids.add(canonicalHarnessId(gauge.id));
-  for (const observation of snapshot?.observations ?? []) ids.add(observationHarnessId(observation));
-
+function buildHarnessRows(gauges: ServiceGauge[]): HarnessRow[] {
   const gaugesById = new Map(gauges.map((gauge) => [canonicalHarnessId(gauge.id), gauge]));
-  const observationsById = new Map<string, HarnessTopologyObservation[]>();
-  for (const observation of snapshot?.observations ?? []) {
-    const id = observationHarnessId(observation);
-    const list = observationsById.get(id) ?? [];
-    list.push(observation);
-    observationsById.set(id, list);
-  }
-
-  return [...ids].map((id): HarnessRow => {
-    const rowAgents = agents.filter((agent) => canonicalHarnessId(agent.harness) === id);
-    const observations = observationsById.get(id) ?? [];
-    const stateCounts = rowAgents.reduce(
-      (acc, agent) => {
-        acc[normalizeAgentState(agent.state)] += 1;
-        return acc;
-      },
-      { in_turn: 0, in_flight: 0, needs_attention: 0, callable: 0, blocked: 0 },
-    );
-    const latestAgentAt = rowAgents.reduce<number | null>(
-      (latest, agent) => Math.max(
-        latest ?? 0,
-        normalizeTimestampMs(agent.updatedAt) ?? normalizeTimestampMs(agent.createdAt) ?? 0,
-      ) || latest,
-      null,
-    );
-    const latestObservationAt = observations.reduce<number | null>(
-      (latest, observation) => Math.max(latest ?? 0, observationSeenAt(observation) ?? 0) || latest,
-      null,
-    );
-    const gauge = gaugesById.get(id) ?? null;
-    const latestBudgetAt = budgetLatestAt(gauge);
-
-    return {
-      id,
-      label: harnessLabel(id),
-      agents: rowAgents,
-      gauge,
-      observations,
-      transports: uniqueValues(rowAgents.map((agent) => agent.transport)),
-      models: uniqueValues(rowAgents.map((agent) => agent.model)),
-      projects: uniqueValues(rowAgents.map((agent) => pathLeaf(agent.projectRoot) ?? agent.project ?? pathLeaf(agent.cwd))),
-      working: stateCounts.in_turn + stateCounts.in_flight,
-      ready: stateCounts.callable,
-      notReady: stateCounts.blocked + stateCounts.needs_attention,
-      latestSeen: Math.max(latestAgentAt ?? 0, latestObservationAt ?? 0, latestBudgetAt ?? 0) || null,
-    };
-  }).sort((left, right) => {
-    const leftRank = left.agents.length > 0 ? 0 : left.gauge ? 1 : left.observations.length > 0 ? 2 : 3;
-    const rightRank = right.agents.length > 0 ? 0 : right.gauge ? 1 : right.observations.length > 0 ? 2 : 3;
-    return leftRank - rightRank
-      || right.working - left.working
-      || right.ready - left.ready
-      || (right.latestSeen ?? 0) - (left.latestSeen ?? 0)
-      || left.label.localeCompare(right.label);
-  });
+  return SUBSCRIPTION_PROVIDERS.map(({ id }) => ({
+    id,
+    label: harnessLabel(id),
+    gauge: gaugesById.get(id) ?? null,
+  }));
 }
 
 function MiniHistory({ points }: { points?: BudgetHistoryPoint[] }) {
@@ -309,40 +222,6 @@ function MiniHistory({ points }: { points?: BudgetHistoryPoint[] }) {
         );
       })}
     </span>
-  );
-}
-
-function BudgetCell({ gauge }: { gauge: ServiceGauge | null }) {
-  if (!gauge) return <span className="hs-muted">-</span>;
-  if (gauge.kind === "status") {
-    return (
-      <div className="hs-budget-status">
-        <span>{gauge.windowLabel ?? "usage"}</span>
-        <strong>{gauge.statusLabel}</strong>
-        <span>{gauge.detailLabel ?? "quota n/a"}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="hs-budget-windows">
-      {quotaWindows(gauge).map((window) => {
-        const pct = Math.round(window.fill * 100);
-        const tone = gaugeTone(window.fill);
-        return (
-          <div key={`${gauge.id}:${window.label}`} className="hs-budget-window">
-            <div className="hs-budget-window-top">
-              <span className="hs-budget-label">{window.label}</span>
-              <strong className={`hs-budget-value hs-budget-value--${tone}`}>{usageLabel(window)}</strong>
-              <span className="hs-budget-reset">{formatResetRelative(window.resetAt)}</span>
-            </div>
-            <div className="hs-budget-meter" aria-hidden="true">
-              <span className={`hs-budget-meter-fill hs-budget-meter-fill--${tone}`} style={{ width: `${pct}%` }} />
-            </div>
-            <MiniHistory points={window.history} />
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -457,7 +336,7 @@ function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
               ) : gauge?.kind === "status" ? (
                 <div className="hs-subscription-status-detail">
                   <strong>{gauge.statusLabel}</strong>
-                  <span>Plan status is detected from Cursor's local app data. Open Usage for real-time allowance.</span>
+                  <span>{gauge.detailLabel || "Subscription detected locally. Open the provider dashboard for live usage."}</span>
                 </div>
               ) : (
                 <div className="hs-subscription-missing">
@@ -485,134 +364,48 @@ function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
   );
 }
 
-function HarnessLedger({ rows }: { rows: HarnessRow[] }) {
+function CloudAccountsSection({ accounts }: { accounts: CloudAccount[] }) {
+  if (accounts.length === 0) return null;
   return (
-    <div className="hs-ledger" role="table" aria-label="Provider ledger">
-      <div className="hs-ledger-head" role="row">
-        <span>provider</span>
-        <span>agents</span>
-        <span>runtime</span>
-        <span>budget</span>
-        <span>topology</span>
-        <span>projects</span>
-        <span>seen</span>
-      </div>
-      <div className="hs-ledger-rows">
-        {rows.map((row) => {
-          const active = row.working + row.ready;
-          const topologyTotals = row.observations.reduce(
-            (acc, observation) => {
-              acc.groups += observation.summary.groups;
-              acc.agents += observation.summary.agents;
-              acc.tasks += observation.summary.tasks;
-              return acc;
-            },
-            { groups: 0, agents: 0, tasks: 0 },
-          );
-          return (
-            <div key={row.id} className="hs-ledger-row" role="row">
-              <div className="hs-harness-cell">
-                <HarnessMark
-                  harness={row.id}
-                  size={15}
-                  title={null}
-                  className={`hs-harness-mark${active > 0 ? " hs-harness-mark--live" : ""}`}
-                />
-                <span className="hs-harness-main">
-                  <strong>{row.label}</strong>
-                  <span>{row.gauge ? "budget feed" : row.observations.length > 0 ? "observed" : "catalog"}</span>
-                </span>
-              </div>
-              <div className="hs-agent-cell">
-                <strong>{row.agents.length}</strong>
-                <span>{row.working} working / {row.ready} ready</span>
-              </div>
-              <div className="hs-runtime-cell">
-                <span title={row.transports.join(", ")}>{compactList(row.transports)}</span>
-                <span title={row.models.join(", ")}>{compactList(row.models, 2)}</span>
-              </div>
-              <BudgetCell gauge={row.gauge} />
-              <div className="hs-topology-cell">
-                {row.observations.length > 0 ? (
-                  <>
-                    <strong>{row.observations.length} sources</strong>
-                    <span>{topologyTotals.agents} agents / {topologyTotals.tasks} tasks</span>
-                    <span>{topologyTotals.groups} groups</span>
-                  </>
-                ) : (
-                  <span className="hs-muted">-</span>
-                )}
-              </div>
-              <div className="hs-project-cell" title={row.projects.join(", ")}>
-                {compactList(row.projects, 3)}
-              </div>
-              <div className="hs-seen-cell">{timeAgo(row.latestSeen) || "-"}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function TopologySection({ snapshot }: { snapshot: HarnessTopologySnapshot | null }) {
-  const observations = snapshot?.observations ?? [];
-  return (
-    <section className="hs-section">
-      <div className="hs-section-head">
+    <section className="hs-cloud-accounts" aria-labelledby="hs-cloud-accounts-title">
+      <div className="hs-section-head hs-cloud-accounts-head">
         <div>
-          <h3>Observed topology</h3>
-          <p>{observations.length} sources / {snapshot?.totals.agents ?? 0} observed agents / {snapshot?.totals.tasks ?? 0} tasks</p>
+          <h3 id="hs-cloud-accounts-title">Cloud accounts</h3>
+          <p>Only accounts detected on this machine are shown.</p>
         </div>
-        <span className="hs-section-meta">{snapshot ? timeAgo(snapshot.generatedAt) || "-" : "-"}</span>
+        <span className="hs-section-meta">{accounts.length} connected</span>
       </div>
-      {observations.length === 0 ? (
-        <div className="hs-empty">No observed topology snapshot.</div>
-      ) : (
-        <div className="hs-topology-grid">
-          {observations.map((observation) => {
-            const topology = observation.topology;
-            const workflows = topology.groups.filter((group) => group.kind === "workflow").length;
-            const activeTasks = topology.tasks.filter((task) => task.state !== "completed" && task.state !== "done").length;
-            const sampleAgents = topology.agents.slice(0, 4);
-            return (
-              <article key={observation.id} className="hs-topology-card">
-                <div className="hs-topology-card-head">
-                  <strong>{sourceLabel(observation.source)}</strong>
-                  <span>{timeAgo(observationSeenAt(observation)) || "-"}</span>
-                </div>
-                <div className="hs-topology-counts">
-                  <span><strong>{topology.groups.length}</strong> groups</span>
-                  <span><strong>{topology.agents.length}</strong> agents</span>
-                  <span><strong>{topology.tasks.length}</strong> tasks</span>
-                  <span><strong>{topology.relationships.length}</strong> edges</span>
-                </div>
-                <div className="hs-topology-card-detail">
-                  <span>{workflows} workflows</span>
-                  <span>{activeTasks} active tasks</span>
-                </div>
-                <div className="hs-topology-agent-strip">
-                  {sampleAgents.length > 0 ? sampleAgents.map((agent) => (
-                    <span key={agent.id} title={agent.id}>
-                      {agent.name ?? agent.role ?? agent.type ?? "agent"}
-                    </span>
-                  )) : <span className="hs-muted">-</span>}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+      <div className="hs-cloud-grid">
+        {accounts.map((account) => (
+          <article key={account.id} className="hs-cloud-card">
+            <div>
+              <span className="hs-cloud-dot" aria-hidden="true" />
+              <div>
+                <h4>{account.label}</h4>
+                <span>{account.detailLabel}</span>
+              </div>
+            </div>
+            <span className="hs-subscription-state hs-subscription-state--connected">{account.statusLabel}</span>
+            <nav aria-label={`${account.label} quick links`}>
+              {CLOUD_PROVIDER_LINKS[account.id].map((link) => (
+                <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                  {link.label}
+                  <ExternalLink size={11} aria-hidden="true" />
+                </a>
+              ))}
+            </nav>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
 
 export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) {
-  const { agents, route } = useScout();
+  const { route } = useScout();
   const machineId = routeMachineId(route);
-  const scopedAgents = useMemo(() => filterAgentsByMachineScope(agents, machineId), [agents, machineId]);
   const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
-  const [topologySnapshot, setTopologySnapshot] = useState<HarnessTopologySnapshot | null>(null);
+  const [cloudAccounts, setCloudAccounts] = useState<CloudAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -625,17 +418,16 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
     setError(null);
 
     try {
-      const [budgetResult, topologyResult] = await Promise.allSettled([
-        api<{ gauges: ServiceGauge[] }>(`/api/service-budgets${force ? "?refresh=1" : ""}`),
-        api<HarnessTopologySnapshot>(`/api/topology/snapshot${force ? "?force=1" : ""}`),
-      ]);
+      const response = await api<{ gauges: ServiceGauge[]; cloudAccounts?: CloudAccount[] }>(
+        `/api/service-budgets${force ? "?refresh=1" : ""}`,
+      );
       if (requestId !== requestIdRef.current) return;
-      if (budgetResult.status === "fulfilled") setServiceGauges(budgetResult.value.gauges ?? []);
-      if (topologyResult.status === "fulfilled") setTopologySnapshot(topologyResult.value);
-      const errors = [budgetResult, topologyResult]
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
-      setError(errors.length > 0 ? errors.join(" / ") : null);
+      setServiceGauges(response.gauges ?? []);
+      setCloudAccounts(response.cloudAccounts ?? []);
+    } catch (cause) {
+      if (requestId === requestIdRef.current) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -653,12 +445,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
     return () => window.clearInterval(id);
   }, [load]);
 
-  const rows = useMemo(
-    () => buildHarnessRows(scopedAgents, serviceGauges, topologySnapshot),
-    [scopedAgents, serviceGauges, topologySnapshot],
-  );
-  const activeHarnesses = rows.filter((row) => row.agents.length > 0 || row.gauge || row.observations.length > 0).length;
-  const workingAgents = scopedAgents.filter((agent) => isAgentBusy(agent.state)).length;
+  const rows = useMemo(() => buildHarnessRows(serviceGauges), [serviceGauges]);
 
   const contentOwnsSecondaryNav = useContentOwnsSecondaryNav();
 
@@ -688,42 +475,9 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
             </button>
           </header>
 
-          <div className="hs-stat-grid" aria-label="Provider summary">
-            <div className="hs-stat">
-              <span>Providers</span>
-              <strong>{rows.length}</strong>
-              <em>{activeHarnesses} active</em>
-            </div>
-            <div className="hs-stat">
-              <span>Agents</span>
-              <strong>{scopedAgents.length}</strong>
-              <em>{workingAgents} working</em>
-            </div>
-            <div className="hs-stat">
-              <span>Topology</span>
-              <strong>{topologySnapshot?.totals.sources ?? 0}</strong>
-              <em>{topologySnapshot?.totals.relationships ?? 0} edges</em>
-            </div>
-            <div className="hs-stat">
-              <span>Usage feeds</span>
-              <strong>{serviceGauges.length}</strong>
-              <em>{serviceGauges.filter((gauge) => gauge.kind === "quota").length} quota feeds</em>
-            </div>
-          </div>
-
           {error && <div className="hs-error" role="status" aria-live="polite">refresh: {error}</div>}
           {loading ? <div className="hs-empty">Loading subscriptions.</div> : <SubscriptionSection rows={rows} />}
-          <section className="hs-section" aria-labelledby="hs-runtime-title">
-            <div className="hs-section-head">
-              <div>
-                <h3 id="hs-runtime-title">Provider runtime</h3>
-                <p>{activeHarnesses} active providers / {scopedAgents.length} registered agents / {serviceGauges.length} provider feeds</p>
-              </div>
-              <span className="hs-section-meta">live inventory</span>
-            </div>
-            {loading ? <div className="hs-empty">Loading providers.</div> : <HarnessLedger rows={rows} />}
-          </section>
-          <TopologySection snapshot={topologySnapshot} />
+          {!loading ? <CloudAccountsSection accounts={cloudAccounts} /> : null}
         </div>
       </div>
     </div>
