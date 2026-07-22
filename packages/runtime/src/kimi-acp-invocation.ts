@@ -22,5 +22,10 @@ export async function invokeKimiAcpAgent(
     ...options,
     adapterType: "kimi-acp",
     label: "Kimi Code ACP",
+    adapterOptions: {
+      // These broker-owned invocations have no attached approval consumer.
+      // Kimi otherwise waits indefinitely on its first ACP tool call.
+      permissionMode: "auto_approve",
+    },
   });
 }

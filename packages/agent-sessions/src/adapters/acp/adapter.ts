@@ -173,7 +173,7 @@ type AcpAdapterOptions = {
   writeTextFile: boolean;
   cursorExtensions: boolean;
   cursorInteractionMode: "interactive" | "safe_reject";
-  permissionMode: "interactive" | "safe_reject";
+  permissionMode: "interactive" | "safe_reject" | "auto_approve";
   clientInfo: {
     name: string;
     title: string;
@@ -248,7 +248,9 @@ function parseOptions(config: AdapterConfig): AcpAdapterOptions {
       : "interactive",
     permissionMode: stringValue(raw.permissionMode) === "safe_reject"
       ? "safe_reject"
-      : "interactive",
+      : stringValue(raw.permissionMode) === "auto_approve"
+        ? "auto_approve"
+        : "interactive",
     clientInfo: {
       name: stringValue(raw.clientName) ?? "openscout",
       title: stringValue(raw.clientTitle) ?? "OpenScout",
@@ -1162,6 +1164,22 @@ export class AcpAdapter extends BaseAdapter {
 
     const allowOptionId = this.permissionOption(options, "allow");
     const rejectOptionId = this.permissionOption(options, "reject");
+    if (this.acpOptions.permissionMode === "auto_approve") {
+      this.writeResult(message.id, allowOptionId
+        ? { outcome: { outcome: "selected", optionId: allowOptionId } }
+        : { outcome: { outcome: "cancelled" } });
+      if (!allowOptionId) {
+        this.emit("event", {
+          event: "block:action:status",
+          sessionId: this.session.id,
+          turnId: active.turnId,
+          blockId,
+          status: "failed",
+        });
+        this.endBlock(blockId, "failed");
+      }
+      return;
+    }
     this.pendingPermissions.set(this.permissionKey(active.turnId, blockId), {
       requestId: message.id,
       turnId: active.turnId,

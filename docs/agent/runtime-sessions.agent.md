@@ -119,6 +119,12 @@ Kimi Code is a first-class cardless harness target: `--harness kimi` resolves
 through the catalog to the `kimi_acp` transport, which launches `kimi acp` and
 reuses the CLI's cached `kimi login` authentication state.
 
+Permission posture: broker-owned Kimi ACP invocations have no approval
+consumer, so their invocation wrapper explicitly selects Kimi's one-shot allow
+option for tool permission requests. The generic ACP adapter remains
+interactive by default; an absent allow option is cancelled rather than
+invented.
+
 Kimi's harness-owned session history is observed separately by
 `packages/runtime/src/tail/kimi-source.ts`; the ACP adapter does not import those
 wire logs into Scout session records.
