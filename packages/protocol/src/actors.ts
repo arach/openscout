@@ -41,6 +41,7 @@ export type AgentEndpointTransport = Extract<
   | "pi_rpc"
   | "grok_acp"
   | "kimi_acp"
+  | "cursor_acp"
   | "tmux"
   | "cursor_exec"
   | "cursor_cli_text"

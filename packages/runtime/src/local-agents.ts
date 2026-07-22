@@ -29,6 +29,7 @@ import {
 } from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
+import { invokeCursorAcpAgent } from "./cursor-acp-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -444,7 +445,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi", "cursor"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "grok-acp",
@@ -910,7 +911,7 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  if (value === "codex" || value === "claude" || value === "grok" || value === "pi") {
+  if (value === "codex" || value === "claude" || value === "grok" || value === "pi" || value === "cursor") {
     return value;
   }
   return DEFAULT_LOCAL_AGENT_HARNESS;
@@ -925,6 +926,10 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "pi_rpc";
   }
 
+  if (harness === "cursor") {
+    return "cursor_acp";
+  }
+
   if (value === "claude_stream_json") {
     return "claude_stream_json";
   }
@@ -935,6 +940,14 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
 
   if (value === "pi_rpc") {
     return "pi_rpc";
+  }
+
+  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp") {
+    return value;
+  }
+
+  if (value === "cursor_exec") {
+    return "cursor_acp";
   }
 
   if (value === "tmux") {
@@ -2581,6 +2594,12 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
     return isPiRpcAgentAlive(buildPiAgentSessionOptions(agentName, normalizedRecord));
   }
 
+  if (normalizedRecord.transport === "grok_acp"
+    || normalizedRecord.transport === "kimi_acp"
+    || normalizedRecord.transport === "cursor_acp") {
+    return areHarnessBinariesAvailable(normalizedRecord);
+  }
+
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
 }
 
@@ -2626,7 +2645,7 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
-  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp") {
+  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp" || endpoint.transport === "cursor_acp") {
     return endpoint.state !== "offline";
   }
 
@@ -3761,6 +3780,10 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
   if (record.transport === "pi_rpc" || (record.transport === "tmux" && harness === "pi")) {
     binaries.add("pi");
   }
+
+  if (record.transport === "grok_acp") binaries.add("grok");
+  if (record.transport === "kimi_acp") binaries.add("kimi");
+  if (record.transport === "cursor_acp") binaries.add("cursor-agent");
 
   if (record.transport === "tmux") {
     binaries.add("tmux");
@@ -5078,6 +5101,7 @@ export async function invokeLocalAgentEndpoint(
     const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
     const result = await invokeGrokAcpAgent({
       sessionId,
+      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
@@ -5086,7 +5110,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
-      externalSessionId: result.sessionId,
+      externalSessionId: result.externalSessionId,
       metadata: result.metadata,
     };
   }
@@ -5096,6 +5120,7 @@ export async function invokeLocalAgentEndpoint(
     const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
     const result = await invokeKimiAcpAgent({
       sessionId,
+      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
@@ -5104,7 +5129,26 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
-      externalSessionId: result.sessionId,
+      externalSessionId: result.externalSessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "cursor_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const result = await invokeCursorAcpAgent({
+      sessionId,
+      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Cursor ACP"),
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.externalSessionId,
       metadata: result.metadata,
     };
   }
@@ -5213,6 +5257,27 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (onlineRecord.transport === "grok_acp" || onlineRecord.transport === "kimi_acp" || onlineRecord.transport === "cursor_acp") {
+    const commonOptions = {
+      sessionId: onlineRecord.tmuxSession || agentRuntimeId,
+      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      cwd: onlineRecord.cwd,
+      prompt,
+      name: definitionId,
+      timeoutMs: invocation.timeoutMs,
+    };
+    const result = onlineRecord.transport === "grok_acp"
+      ? await invokeGrokAcpAgent(commonOptions)
+      : onlineRecord.transport === "kimi_acp"
+        ? await invokeKimiAcpAgent(commonOptions)
+        : await invokeCursorAcpAgent(commonOptions);
+    return {
+      output: result.output,
+      externalSessionId: result.externalSessionId,
       metadata: result.metadata,
     };
   }
