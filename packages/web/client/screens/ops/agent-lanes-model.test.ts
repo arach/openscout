@@ -380,26 +380,60 @@ describe("isAgentLaneWorking", () => {
     expect(isAgentLaneWorking(staleLane, NOW, agentLaneHorizonWindowMs("30m"))).toBe(false);
   });
 
-  test("includes transcript mtime-only lanes inside the selected horizon", () => {
+  test("excludes recently touched transcripts without substantive tail activity", () => {
+    const sessionId = "019edd5a-ad7c-7563-8b28-a9d34699a369";
     const { lanes } = buildAgentLanes({
       transcripts: [{
-        source: "codex",
+        source: "claude",
         transcriptPath: "/tmp/rollout.jsonl",
-        sessionId: "019edd5a-ad7c-7563-8b28-a9d34699a369",
+        sessionId,
         cwd: "/Users/art/dev/openscout",
         project: "openscout",
         harness: "unattributed",
         mtimeMs: NOW - 20_000,
         size: 1200,
       }],
-      tailEvents: [],
+      tailEvents: [
+        stubTailEvent(sessionId, NOW - 15_000, "system", {
+          source: "claude",
+          summary: "agent-name",
+        }),
+        stubTailEvent(sessionId, NOW - 14_000, "system", {
+          source: "claude",
+          summary: "permission-mode",
+        }),
+      ],
       now: NOW,
       horizon: "5m",
     });
 
+    expect(lanes).toHaveLength(0);
+  });
+
+  test("uses the last substantive event instead of a newer transcript mtime", () => {
+    const sessionId = "019edd5a-ad7c-7563-8b28-a9d34699a369";
+    const substantiveAt = NOW - 10 * 60_000;
+    const { lanes } = buildAgentLanes({
+      transcripts: [{
+        source: "claude",
+        transcriptPath: "/tmp/rollout.jsonl",
+        sessionId,
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 20_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent(sessionId, substantiveAt, "assistant", {
+        source: "claude",
+        summary: "Finished the requested review.",
+      })],
+      now: NOW,
+      horizon: "30m",
+    });
+
     expect(lanes).toHaveLength(1);
-    expect(lanes[0]?.agent.harnessSessionId).toBe("019edd5a-ad7c-7563-8b28-a9d34699a369");
-    expect(lanes[0]?.observe?.events[0]?.text).toBe("Native codex transcript discovered.");
+    expect(lanes[0]?.lastActiveAt).toBe(substantiveAt);
   });
 
   test("includes native codex lanes with recent substantive tail events", () => {
