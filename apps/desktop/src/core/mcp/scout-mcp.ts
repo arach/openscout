@@ -76,6 +76,7 @@ import {
   type ScoutAskHandler,
 } from "../broker/ask.ts";
 import type {
+  ScoutAskReplyMode,
   ScoutAskReceipt,
 } from "../broker/ask-types.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
@@ -503,6 +504,7 @@ type ScoutMcpDependencies = {
     shouldSpeak?: boolean;
     labels?: string[];
     replyToSessionId?: string;
+    replyMode?: ScoutAskReplyMode;
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskResult>;
@@ -515,6 +517,7 @@ type ScoutMcpDependencies = {
     shouldSpeak?: boolean;
     labels?: string[];
     replyToSessionId?: string;
+    replyMode?: ScoutAskReplyMode;
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskByIdResult>;
@@ -527,6 +530,7 @@ type ScoutMcpDependencies = {
     shouldSpeak?: boolean;
     labels?: string[];
     replyToSessionId?: string;
+    replyMode?: ScoutAskReplyMode;
     currentDirectory: string;
     source?: string;
   }) => Promise<ScoutAskByIdResult>;
@@ -2910,6 +2914,7 @@ function defaultScoutMcpDependencies(
       shouldSpeak,
       labels,
       replyToSessionId,
+      replyMode,
       currentDirectory,
       source,
     }) =>
@@ -2922,6 +2927,7 @@ function defaultScoutMcpDependencies(
         shouldSpeak,
         labels,
         replyToSessionId,
+        replyMode,
         currentDirectory,
         source,
       }),
@@ -2934,6 +2940,7 @@ function defaultScoutMcpDependencies(
       shouldSpeak,
       labels,
       replyToSessionId,
+      replyMode,
       currentDirectory,
       source,
     }) =>
@@ -2946,6 +2953,7 @@ function defaultScoutMcpDependencies(
         shouldSpeak,
         labels,
         replyToSessionId,
+        replyMode,
         currentDirectory,
         source,
       }),
@@ -2958,6 +2966,7 @@ function defaultScoutMcpDependencies(
       shouldSpeak,
       labels,
       replyToSessionId,
+      replyMode,
       currentDirectory,
       source,
     }) =>
@@ -2970,6 +2979,7 @@ function defaultScoutMcpDependencies(
         shouldSpeak,
         labels,
         replyToSessionId,
+        replyMode,
         currentDirectory,
         source,
       }),
@@ -3901,6 +3911,7 @@ export function createScoutMcpServer(options: {
             ...(channel ? { channel } : {}),
             ...(shouldSpeak !== undefined ? { shouldSpeak } : {}),
             ...(resolvedReplyToSessionId ? { replyToSessionId: resolvedReplyToSessionId } : {}),
+            replyMode: resolvedReplyMode,
             currentDirectory: resolvedCurrentDirectory,
             source: "scout-mcp",
           });
@@ -4590,6 +4601,7 @@ export function createScoutMcpServer(options: {
           shouldSpeak,
           labels,
           replyToSessionId: resolvedReplyToSessionId,
+          replyMode: resolvedReplyMode,
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
@@ -4702,6 +4714,7 @@ export function createScoutMcpServer(options: {
           shouldSpeak,
           labels,
           replyToSessionId: resolvedReplyToSessionId,
+          replyMode: resolvedReplyMode,
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
         });
@@ -4852,6 +4865,7 @@ export function createScoutMcpServer(options: {
         shouldSpeak,
         labels,
         replyToSessionId: resolvedReplyToSessionId,
+        replyMode: resolvedReplyMode,
         currentDirectory: resolvedCurrentDirectory,
         source: "scout-mcp",
       });

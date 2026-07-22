@@ -18,7 +18,10 @@ import type {
   MeshMessageAuthorityForwardResult,
   PeerForwardResult,
 } from "./broker-mesh-forwarding-service.js";
-import { isWorkingFlightState } from "./broker-local-invocation-helpers.js";
+import {
+  isWorkingFlightState,
+  shouldNotifyInvocationRequester,
+} from "./broker-local-invocation-helpers.js";
 
 export type BrokerMessageRuntime = {
   peek(): { messages: Record<string, MessageRecord> };
@@ -122,9 +125,9 @@ export class BrokerMessageService {
       class: "status",
       body,
       replyToMessageId: invocation.messageId,
-      audience: {
-        notify: [invocation.requesterId],
-      },
+      ...(shouldNotifyInvocationRequester(invocation)
+        ? { audience: { notify: [invocation.requesterId] } }
+        : { audience: { delivery: "none" } }),
       visibility: messageVisibilityForConversation(conversation),
       policy: "durable",
       createdAt: Date.now(),
