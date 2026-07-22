@@ -115,8 +115,10 @@ public final class HUDDockState: ObservableObject {
             voice.start()
         case .stop:
             voice.stop()
+        case .cancel:
+            // transcription is hung — abort so the mic is released
+            voice.cancel()
         case .ignore:
-            // already finalizing — ignore the second tap
             return
         }
     }
