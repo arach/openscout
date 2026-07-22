@@ -139,7 +139,6 @@ import {
   loadSessionRefObservePayload,
 } from "./core/observe/service.ts";
 import {
-  filterTailEventsForDisplay,
   getTailDiscovery,
   refreshTailDiscovery,
   readRecentTranscriptEvents,
@@ -731,16 +730,6 @@ function limitTailDiscoverySnapshot(
   };
 }
 
-function readTailDiscovery(
-  tailRuntime: WebTailRuntime,
-  options: { force: boolean; scope?: TailDiscoveryScope; limit?: number },
-): Promise<DiscoverySnapshot> {
-  if (!options.scope && options.limit === undefined) {
-    return tailRuntime.getTailDiscovery(options.force);
-  }
-  return tailRuntime.getTailDiscovery(options);
-}
-
 function rawFilePathFromRoute(requestUrl: string): string | null {
   const pathname = new URL(requestUrl).pathname;
   const prefix = "/api/file/raw";
@@ -801,43 +790,6 @@ function createBrokerJsonCache<T>(): BrokerJsonCache<T> {
   };
 }
 
-async function localTailRecentPayload(
-  tailRuntime: WebTailRuntime,
-  limit: number,
-  includeTranscripts: boolean,
-): Promise<TailRecentPayload> {
-  const eventsById = new Map<string, TailEvent>();
-
-  if (includeTranscripts) {
-    const discovery = await tailRuntime.getTailDiscovery();
-    const transcriptBudget = Math.max(limit, 800);
-    const transcriptEvents = filterTailEventsForDisplay(
-      await tailRuntime.readRecentTranscriptEvents(transcriptBudget, {
-        discovery,
-        perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
-      }),
-    );
-    for (const event of transcriptEvents) {
-      eventsById.set(event.id, event);
-    }
-  }
-
-  for (const event of filterTailEventsForDisplay(tailRuntime.snapshotRecentEvents(limit))) {
-    eventsById.set(event.id, event);
-  }
-
-  const events = [...eventsById.values()]
-    .sort((left, right) => left.ts - right.ts)
-    .slice(-limit);
-
-  return {
-    generatedAt: Date.now(),
-    limit,
-    cursor: events.at(-1)?.id ?? null,
-    events,
-  };
-}
-
 function headerSafe(value: string): string {
   return value.replace(/[\r\n]+/g, " ").slice(0, 180);
 }
@@ -853,7 +805,7 @@ function scheduleBrokerJsonRefresh<T>(
     let upstreamTiming: string | null = null;
     const metrics: ServerTimingMetric[] = [];
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       upstreamTiming = res.headers.get("server-timing");
       metrics.push({ name: "web-broker-fetch", dur: performance.now() - fetchStart });
       if (!res.ok) {
@@ -883,7 +835,10 @@ function scheduleBrokerJsonRefresh<T>(
 }
 
 function cachedBrokerJsonState<T>(cache: BrokerJsonCache<T>): string {
-  if (cache.data) return cache.inFlight ? "hit-refreshing" : "hit";
+  if (cache.data) {
+    if (cache.lastError) return cache.inFlight ? "stale-retrying" : "stale";
+    return cache.inFlight ? "hit-refreshing" : "hit";
+  }
   if (cache.lastError) return cache.inFlight ? "empty-retrying" : "empty-error";
   return cache.inFlight ? "empty-refreshing" : "empty";
 }
@@ -893,7 +848,6 @@ async function serveCachedBrokerJson<T>(
   cache: BrokerJsonCache<T>,
   url: URL,
   label: string,
-  fallback: () => T | Promise<T>,
   options: { forceRefresh?: boolean; transform?: (data: T) => T } = {},
 ): Promise<Response> {
   const start = performance.now();
@@ -903,12 +857,12 @@ async function serveCachedBrokerJson<T>(
     }
     await scheduleBrokerJsonRefresh(cache, url, label);
   } else {
-    scheduleBrokerJsonRefresh(cache, url, label);
+    const refresh = scheduleBrokerJsonRefresh(cache, url, label);
+    if (cache.data === null) {
+      await refresh;
+    }
   }
   const state = cachedBrokerJsonState(cache);
-  const data = options.transform
-    ? options.transform(cache.data ?? await fallback())
-    : cache.data ?? await fallback();
   c.header("Cache-Control", "no-store");
   c.header("X-OpenScout-Tail-State", state);
   if (cache.lastError) {
@@ -919,6 +873,13 @@ async function serveCachedBrokerJson<T>(
     dur: performance.now() - start,
     desc: state,
   }]));
+  if (cache.data === null) {
+    return c.json({
+      error: `${label} unavailable`,
+      ...(cache.lastError ? { detail: cache.lastError } : {}),
+    }, 502);
+  }
+  const data = options.transform ? options.transform(cache.data) : cache.data;
   return c.json(data);
 }
 
@@ -7233,14 +7194,6 @@ export async function createOpenScoutWebServer(
       cache,
       url,
       "broker tail discovery",
-      async () => limitTailDiscoverySnapshot(
-        await readTailDiscovery(tailRuntime, {
-          force: forceRefresh,
-          ...(scope ? { scope } : {}),
-          ...(limitParam !== undefined ? { limit: limitParam } : {}),
-        }),
-        limitParam,
-      ),
       {
         forceRefresh,
         transform: (data) => limitTailDiscoverySnapshot(data, limitParam),
@@ -7306,7 +7259,6 @@ export async function createOpenScoutWebServer(
       cache,
       url,
       "broker tail",
-      () => localTailRecentPayload(tailRuntime, limitParam, includeTranscripts),
     );
   });
 

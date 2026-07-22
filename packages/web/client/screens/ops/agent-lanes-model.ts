@@ -252,8 +252,6 @@ export function laneContextLabel(agent: Agent, source: AgentLaneSource): string 
   return harness || session?.slice(0, 8) || "native";
 }
 
-const NATIVE_DISCOVERED_FRESH_MS = 5 * 60_000;
-
 function stableHash(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -844,24 +842,13 @@ export function observeDataFromTail(
     };
   });
 
-  const placeholderEvents: ObserveEvent[] = observeEvents.length > 0
-    ? observeEvents
-      : (now - transcript.mtimeMs <= (options?.windowMs ?? NATIVE_DISCOVERED_FRESH_MS)
-        ? [{
-            id: `${nativeSessionId(transcript)}:discovered`,
-            t: 0,
-            kind: "system",
-            text: `Native ${transcript.source} transcript discovered.`,
-            detail: transcript.cwd ?? transcript.transcriptPath,
-        }]
-        : []);
   const files = filesFromObserveEvents(observeEvents);
   const usage = usageFromTailEvents(rawTail, {
     scope: typeof options?.windowMs === "number" && options.windowMs > 0 ? "turn" : "session",
   });
 
   return {
-    events: placeholderEvents,
+    events: observeEvents,
     files,
     live: current && observeEvents.length > 0,
     metadata: {
@@ -1485,10 +1472,7 @@ function transcriptActiveAt(
   transcript: TailDiscoveredTranscript,
   eventsBySession: Map<string, TailEvent[]>,
 ): number {
-  return Math.max(
-    transcript.mtimeMs || 0,
-    sessionSubstantiveLastActiveAt(transcript.sessionId, eventsBySession, transcript),
-  );
+  return sessionSubstantiveLastActiveAt(transcript.sessionId, eventsBySession, transcript);
 }
 
 function scoutAgentForTerminalSession(
