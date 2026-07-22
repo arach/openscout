@@ -369,7 +369,11 @@ export class BrokerWebControlService {
 
       const deadline = Date.now() + this.startPollTimeoutMs;
       while (Date.now() < deadline) {
-        if (!await this.isHealthy()) {
+        // Wait for the owned process itself to exit, not merely for its health
+        // route to turn false. A draining edge intentionally returns 503 while
+        // it still owns the public/private ports; spawning on health failure
+        // alone races the replacement into EADDRINUSE.
+        if (!isChildProcessRunning(child)) {
           return this.startIfNeeded(context);
         }
         await this.sleep(this.startPollIntervalMs);
@@ -426,7 +430,7 @@ export class BrokerWebControlService {
     }
 
     const repoRoot = this.resolveRepoRoot();
-    const repoEntry = resolveRepoEntrypoint(repoRoot, "packages/web/server/index.ts");
+    const repoEntry = resolveRepoEntrypoint(repoRoot, "packages/web/server/edge.ts");
     if (repoEntry) {
       return repoEntry;
     }

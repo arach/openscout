@@ -41,9 +41,6 @@ if (shouldTryNode && preferredHost !== "bun") {
         process.env.OPENSCOUT_RUNTIME_HOST ??= "node";
       }
       await import(pathToFileURL(nodeEntry).href);
-      if (isLongLivedImportedCommand(command)) {
-        await waitForImportedCommandLifecycle();
-      }
       process.exit(process.exitCode ?? 0);
     } catch (error) {
       if (preferredHost !== "node" && bunPath) {
@@ -73,9 +70,6 @@ if (bunPath) {
 
   if (isCurrentRuntimeBun()) {
     await import(pathToFileURL(bunEntry).href);
-    if (isLongLivedImportedCommand(command)) {
-      await waitForImportedCommandLifecycle();
-    }
     process.exit(process.exitCode ?? 0);
   }
 
@@ -133,17 +127,6 @@ function normalizeHost(value) {
 
 function isCurrentRuntimeBun() {
   return typeof globalThis.Bun !== "undefined";
-}
-
-function waitForImportedCommandLifecycle() {
-  // Imported commands such as `scout mcp` own long-lived stdio handles. Wait
-  // until those handles naturally drain instead of terminating them as soon as
-  // the entry module finishes its initial setup.
-  return new Promise((resolve) => process.once("beforeExit", resolve));
-}
-
-function isLongLivedImportedCommand(value) {
-  return value === "mcp" || value === "channel";
 }
 
 function resolveBunExecutable() {

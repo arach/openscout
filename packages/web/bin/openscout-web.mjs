@@ -38,6 +38,7 @@ Options:
   --host <h>         Bind host (default 0.0.0.0 for LAN/mDNS access)
   --local-name <n>   Node hostname or short alias to advertise (default <machine>.scout.local)
   --port <n>         Listen port (default 43120; optional override OPENSCOUT_WEB_PORT)
+  --workers <n>      Request worker count (default CPU-aware, maximum 8)
   --cwd <dir>        Workspace root (optional override OPENSCOUT_SETUP_CWD)
   --vite-url <url>   Proxy non-API requests to a Vite dev server
   --static-root <d>  Override the static client directory
@@ -93,6 +94,15 @@ for (let i = 0; i < argv.length; i++) {
       process.exit(1);
     }
     env.OPENSCOUT_WEB_PORT = v;
+    continue;
+  }
+  if (a === "--workers") {
+    const v = argv[++i];
+    if (!v) {
+      console.error("openscout-web: --workers requires a value");
+      process.exit(1);
+    }
+    env.OPENSCOUT_WEB_WORKERS = v;
     continue;
   }
   if (a === "--cwd") {

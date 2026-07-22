@@ -14,6 +14,7 @@ ports, while staying well above privileged system ports.
 | Web app server | `43120` | `OPENSCOUT_WEB_PORT` / `SCOUT_WEB_PORT` override |
 | Web terminal relay | `43121` | Defaults to web port + 1 |
 | Vite asset server | `43122` | `OPENSCOUT_WEB_VITE_URL` or dev flags override |
+| Web request workers | `46000-46999` | Loopback-only pool; base is derived from the public web port and `OPENSCOUT_WEB_WORKER_PORT_BASE` overrides |
 | Pairing bridge | `43130` | `OPENSCOUT_PAIRING_PORT` / `SCOUT_PAIRING_PORT` / `~/.openscout/config.json` override |
 | Pairing relay | `43131` | Defaults to pairing bridge + 1 |
 | Pairing file server | `43132` | Defaults to pairing bridge + 2 |

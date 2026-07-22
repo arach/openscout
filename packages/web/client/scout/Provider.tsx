@@ -16,7 +16,7 @@ import {
   type NavigateOptions,
 } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
-import { friendlyApiError } from "../lib/api-errors.ts";
+import { friendlyApiError, isOfflineApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
@@ -118,7 +118,7 @@ export type ContextCaptureRequest = {
 };
 
 export type ApiConnectionState = {
-  status: "checking" | "online" | "offline";
+  status: "checking" | "online" | "degraded" | "offline";
   message: string | null;
   lastCheckedAt: number | null;
 };
@@ -140,7 +140,8 @@ const AGENT_REFRESH_EVENT_KINDS = [
   "scout.dispatched",
 ] as const;
 const AGENT_REFRESH_EVENT_KIND_SET = new Set<string>(AGENT_REFRESH_EVENT_KINDS);
-const AGENT_REFRESH_POLL_MS = 15_000;
+const AGENT_REFRESH_POLL_MS = 30_000;
+const AGENT_REFRESH_EVENT_DEBOUNCE_MS = 250;
 
 type ThemeVars = CSSProperties & Record<`--${string}`, string>;
 
@@ -391,7 +392,11 @@ export function ScoutProvider({
   const scoutbotAgent = useMemo(() => resolveScoutbotAgent(agents), [agents]);
   const scoutbotAgentId = scoutbotAgent?.id ?? resolveScoutbotAgentId(agents);
   const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
-  const reloadInFlightRef = useRef<Promise<void> | null>(null);
+  const reloadInFlightRef = useRef<{ url: string; promise: Promise<void> } | null>(null);
+  const reloadEventTimerRef = useRef<number | null>(null);
+  const agentInventoryUrl = route.view === "ops"
+    ? "/api/agents"
+    : "/api/agents?detail=summary&attention=1";
 
   const markApiOnline = useCallback(() => {
     setApiConnection({
@@ -401,36 +406,41 @@ export function ScoutProvider({
     });
   }, []);
 
-  const markApiOffline = useCallback((cause: unknown) => {
+  const markApiFailure = useCallback((cause: unknown) => {
+    const message = friendlyApiError(cause);
     setApiConnection({
-      status: "offline",
-      message: friendlyApiError(cause),
+      status: isOfflineApiError(message) ? "offline" : "degraded",
+      message,
       lastCheckedAt: Date.now(),
     });
   }, []);
 
   const reload = useCallback(async () => {
-    if (reloadInFlightRef.current) {
-      return reloadInFlightRef.current;
+    const existing = reloadInFlightRef.current;
+    if (existing) {
+      await existing.promise;
+      if (existing.url === agentInventoryUrl) return;
     }
 
     const request = (async () => {
       try {
-        const agentsResult = await api<Agent[]>("/api/agents");
+        const agentsResult = await api<Agent[]>(agentInventoryUrl);
         setAgents((previous) => keepPreviousIfJsonEqual(previous, agentsResult));
         markApiOnline();
       } catch (cause) {
-        markApiOffline(cause);
+        markApiFailure(cause);
       }
     })();
 
-    reloadInFlightRef.current = request;
+    reloadInFlightRef.current = { url: agentInventoryUrl, promise: request };
     try {
       await request;
     } finally {
-      reloadInFlightRef.current = null;
+      if (reloadInFlightRef.current?.promise === request) {
+        reloadInFlightRef.current = null;
+      }
     }
-  }, [markApiOffline, markApiOnline]);
+  }, [agentInventoryUrl, markApiFailure, markApiOnline]);
 
   const refreshOnboarding = useCallback(async () => {
     try {
@@ -438,7 +448,7 @@ export function ScoutProvider({
       setOnboarding(state);
       markApiOnline();
     } catch (cause) {
-      markApiOffline(cause);
+      markApiFailure(cause);
       setOnboarding({
         hasLocalConfig: true,
         hasProjectConfig: true,
@@ -450,7 +460,7 @@ export function ScoutProvider({
         operatorNameSuggestion: null,
       });
     }
-  }, [markApiOffline, markApiOnline]);
+  }, [markApiFailure, markApiOnline]);
 
   const skipOnboarding = useCallback(() => {
     setOnboardingSkipped(true);
@@ -516,9 +526,21 @@ export function ScoutProvider({
 
   useBrokerEvents((event) => {
     if (AGENT_REFRESH_EVENT_KIND_SET.has(event.kind)) {
-      void reload();
+      if (reloadEventTimerRef.current !== null) {
+        window.clearTimeout(reloadEventTimerRef.current);
+      }
+      reloadEventTimerRef.current = window.setTimeout(() => {
+        reloadEventTimerRef.current = null;
+        void reload();
+      }, AGENT_REFRESH_EVENT_DEBOUNCE_MS);
     }
   });
+
+  useEffect(() => () => {
+    if (reloadEventTimerRef.current !== null) {
+      window.clearTimeout(reloadEventTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {

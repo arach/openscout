@@ -156,4 +156,26 @@ describe("Claude tmux host attention", () => {
     expect(items).toEqual([]);
     expect(Date.now() - startedAt).toBeLessThan(100);
   });
+
+  test("bounds host scans and prioritizes active recent sessions", async () => {
+    const captures: string[] = [];
+    const agents = Array.from({ length: 30 }, (_, index) => agent({
+      id: `agent-${index}`,
+      state: index === 29 ? "working" : "available",
+      updatedAt: index,
+    }));
+
+    await collectTmuxHostAttention(agents, async (candidate) => {
+      captures.push(candidate.id);
+      return null;
+    }, { maxCandidates: 5, captureConcurrency: 1 });
+
+    expect(captures).toEqual([
+      "agent-29",
+      "agent-28",
+      "agent-27",
+      "agent-26",
+      "agent-25",
+    ]);
+  });
 });
