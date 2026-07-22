@@ -1,4 +1,3 @@
-import { Radio, Square } from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -136,28 +135,21 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
   }, [applyReplyActions, state]);
 
   const value = useMemo<ScoutbotRealtimeVoiceContextValue>(
-    () => ({ open, state, error, trace, setOpen, startCall, endCall }),
+    () => ({
+      open,
+      state,
+      error,
+      trace,
+      setOpen,
+      startCall,
+      endCall,
+    }),
     [open, state, error, trace, startCall, endCall],
   );
 
   return (
     <ScoutbotRealtimeVoiceContext.Provider value={value}>
       {children}
-      {!open && (state === "connecting" || state === "live") && (
-        <aside className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded border border-lime-300/35 bg-[var(--scout-chrome-bg)] px-2.5 py-2 shadow-xl">
-          <Radio size={12} className={state === "connecting" ? "animate-pulse text-lime-300" : "text-lime-300"} />
-          <span className="font-mono text-[10px] text-[var(--scout-chrome-ink)]">
-            Scoutbot voice {state === "connecting" ? "connecting" : "live"}
-          </span>
-          <button
-            type="button"
-            onClick={endCall}
-            className="ml-1 inline-flex min-h-6 items-center gap-1 rounded border border-red-400/40 px-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-red-100 hover:bg-red-400/15"
-          >
-            <Square size={9} className="fill-current" /> End
-          </button>
-        </aside>
-      )}
     </ScoutbotRealtimeVoiceContext.Provider>
   );
 }

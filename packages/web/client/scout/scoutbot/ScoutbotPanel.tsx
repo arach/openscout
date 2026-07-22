@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, ChevronDown, Square, Volume2, VolumeX } from "lucide-react";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
@@ -23,6 +24,7 @@ import {
   type ScoutVoiceSessionState,
   type ScoutSpeechHandle,
 } from "../../lib/scout-voice.ts";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../../../shared/realtime-voice.ts";
 import { useScout } from "../Provider.tsx";
 import {
   useScoutbotStatePublisher,
@@ -33,8 +35,10 @@ import {
 import { ChatHistory, ChatInput } from "./ScoutbotChat.tsx";
 import { ScoutbotIconButton, ScoutVoiceSetupPanel } from "./ScoutbotControls.tsx";
 import { ScoutbotSettingsPanel } from "./ScoutbotSettingsPanel.tsx";
-import { ScoutbotRealtimeVoice } from "./ScoutbotRealtimeVoice.tsx";
-import { SCOUTBOT_REALTIME_REPLY_EVENT } from "./ScoutbotRealtimeVoiceContext.tsx";
+import {
+  SCOUTBOT_REALTIME_REPLY_EVENT,
+  useScoutbotRealtimeVoice,
+} from "./ScoutbotRealtimeVoiceContext.tsx";
 import {
   DEFAULT_SCOUTBOT_VOICE_PRESET_ID,
   DEFAULT_SCOUTBOT_VOICE_SPEED,
@@ -79,6 +83,10 @@ export function ScoutbotPanel({
     onlineCount,
   } = useScout();
   const publisher = useScoutbotStatePublisher();
+  const realtimeVoiceFlag = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
+  const realtimeVoice = useScoutbotRealtimeVoice();
+  const realtimeLive = realtimeVoiceFlag
+    && (realtimeVoice.state === "connecting" || realtimeVoice.state === "live");
 
   const [collapsed, setCollapsed] = usePersistentBoolean("openscout.scoutbot.collapsed", true);
   const [draft, setDraft] = useState("");
@@ -741,11 +749,13 @@ export function ScoutbotPanel({
     }
   }, [voiceAvailable]);
 
-  const voiceLabel = recording
-    ? voiceState === "processing" ? "Sending" : "Stop"
-    : voiceProbeState === "probing" ? "Checking Voice"
-    : voiceProbeState === "launching" ? "Opening Scout"
-    : voiceAvailable === false ? "Open Scout" : "Start Talking";
+  const voiceLabel = realtimeLive
+    ? "Live call"
+    : recording
+      ? voiceState === "processing" ? "Sending" : "Stop"
+      : voiceProbeState === "probing" ? "Checking Voice"
+      : voiceProbeState === "launching" ? "Opening Scout"
+      : voiceAvailable === false ? "Open Scout" : "Start Talking";
   const isEmptyChat = sessionState !== null
     && sessionState.session.messages.length === 0
     && !sending;
@@ -772,12 +782,17 @@ export function ScoutbotPanel({
           <Bot size={20} className="shrink-0 text-lime-300" aria-hidden="true" />
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <ScoutbotRealtimeVoice
-            dictationActive={recording}
-          />
           <ScoutbotIconButton
             icon={voiceReplies ? <Volume2 size={11} /> : <VolumeX size={11} />}
-            title={voiceReplies ? "Voice replies on (click to mute)" : "Voice replies off (click to enable)"}
+            title={
+              realtimeLive
+                ? voiceReplies
+                  ? "Voice replies on for typed chat (live call has its own audio)"
+                  : "Voice replies off for typed chat (live call has its own audio)"
+                : voiceReplies
+                  ? "Voice replies on (click to mute)"
+                  : "Voice replies off (click to enable)"
+            }
             onClick={() => {
               const next = !voiceReplies;
               setVoiceReplies(next);
@@ -843,7 +858,7 @@ export function ScoutbotPanel({
       </div>
 
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 pt-2 pb-2.5">
-        {voiceAvailable === false && voiceSetupOpen && (
+        {voiceAvailable === false && voiceSetupOpen && !realtimeLive && (
           <ScoutVoiceSetupPanel
             issue={voiceIssue}
             probeState={voiceProbeState}
@@ -854,7 +869,7 @@ export function ScoutbotPanel({
           />
         )}
 
-        {(partial || speaking) && (
+        {(partial || speaking) && !realtimeLive && (
           <div className="flex items-center justify-between gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2.5 py-2 font-mono text-[10px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
             <span className="min-w-0 truncate">{speaking ? "Speaking reply…" : partial}</span>
             {speaking && (
@@ -886,14 +901,16 @@ export function ScoutbotPanel({
           voiceLabel={voiceLabel}
           voiceBusy={voiceState === "processing" || voiceProbeState === "probing" || voiceProbeState === "launching"}
           voiceUnavailable={voiceAvailable === false}
+          voiceHeld={realtimeLive}
           onMicClick={() => {
+            if (realtimeLive) return;
             if (voiceAvailable === false) {
               setVoiceSetupOpen(true);
               return;
             }
             void (recording ? stopVoice() : startVoice());
           }}
-          prominent={isEmptyChat}
+          prominent={isEmptyChat && !realtimeLive}
           autoFocus={forceExpanded}
           focusSignal={composeFocusNonce}
         />

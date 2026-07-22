@@ -310,6 +310,7 @@ export function ChatInput({
   voiceLabel,
   voiceBusy,
   voiceUnavailable,
+  voiceHeld = false,
   onMicClick,
   prominent = false,
   autoFocus,
@@ -324,6 +325,8 @@ export function ChatInput({
   voiceLabel: string;
   voiceBusy: boolean;
   voiceUnavailable: boolean;
+  /** Soft-hold the mic without a busy spinner (e.g. live call owns the mic). */
+  voiceHeld?: boolean;
   onMicClick: () => void;
   prominent?: boolean;
   autoFocus?: boolean;
@@ -351,8 +354,8 @@ export function ChatInput({
   let micTitle = "Start talking";
   if (voiceUnavailable) micTitle = "Set up Scout voice";
   if (recording) micTitle = "Stop talking";
-  if (voiceBusy) micTitle = voiceLabel;
-  const showVoiceLabel = voiceBusy || recording;
+  if (voiceBusy || voiceHeld) micTitle = voiceLabel;
+  const showVoiceLabel = voiceBusy || recording || voiceHeld;
   const textareaClassName = [
     "w-full resize-none rounded border font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink)] placeholder:text-[var(--scout-chrome-ink-ghost)]",
     prominent
@@ -375,7 +378,13 @@ export function ChatInput({
         onSubmit={() => {
           if (draft.trim() && !sending) onSubmit();
         }}
-        placeholder={prominent ? "Ask Scout about what you are seeing…" : "Ask Scout…"}
+        placeholder={
+          voiceHeld
+            ? "Type while live voice is on…"
+            : prominent
+              ? "Ask Scout about what you are seeing…"
+              : "Ask Scout…"
+        }
         rows={prominent ? 4 : 2}
         disabled={sending}
         submitOnEnter
@@ -388,11 +397,13 @@ export function ChatInput({
           title={micTitle}
           aria-label={micTitle}
           onClick={onMicClick}
-          disabled={sending || voiceBusy}
+          disabled={sending || voiceBusy || voiceHeld}
           className={`flex h-8 items-center justify-center rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             recording
               ? "border-lime-300/50 bg-lime-300/10 text-lime-200"
-              : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
+              : voiceHeld
+                ? "border-lime-300/25 bg-lime-300/[0.05] text-lime-100/70"
+                : "border-[var(--scout-chrome-border-soft)] text-[var(--scout-chrome-ink-faint)] hover:bg-[var(--scout-chrome-hover)] hover:text-[var(--scout-chrome-ink)]"
           } ${showVoiceLabel ? "gap-1.5 px-3 font-mono text-[10px] uppercase tracking-[0.12em]" : "w-9"}`}
         >
           {voiceBusy ? (

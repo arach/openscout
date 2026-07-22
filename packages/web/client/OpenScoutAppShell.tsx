@@ -33,6 +33,7 @@ import {
   ScoutActivityLogStatusButton,
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
+import { ScoutbotRealtimeVoice } from "./scout/scoutbot/ScoutbotRealtimeVoice.tsx";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
 import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
@@ -270,7 +271,13 @@ export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellPr
   );
 }
 
-function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState }) {
+function OpenScoutStatusBarLeft({
+  statusBar,
+  dictationActive,
+}: {
+  statusBar: ScoutStatusBarState;
+  dictationActive: boolean;
+}) {
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
   const meshValueClass = statusBar.mesh.color === "amber"
     ? "text-amber-400"
@@ -296,7 +303,10 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
       {scoutbotEnabled && (
         <>
           <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
-          <ScoutbotBroadcastChip />
+          <div className="flex items-center gap-1">
+            <ScoutbotBroadcastChip />
+            <ScoutbotRealtimeVoice dictationActive={dictationActive} />
+          </div>
         </>
       )}
     </div>
@@ -1618,7 +1628,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
               <StatusBar
                 status={statusBar.status}
-                left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
+                left={(
+                  <OpenScoutStatusBarLeft
+                    statusBar={statusBar}
+                    dictationActive={scoutbotPublic.state.activity === "listening"}
+                  />
+                )}
                 right={(
                   <OpenScoutStatusBarRight
                     statusBar={statusBar}
