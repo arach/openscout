@@ -117,6 +117,24 @@ const CLOUD_PROVIDER_LINKS: Record<CloudAccount["id"], Array<{ label: string; hr
   ],
 };
 
+const CLOUD_PROVIDER_META: Record<CloudAccount["id"], { mark: string; category: string; description: string }> = {
+  exe: {
+    mark: "EX",
+    category: "Agent compute",
+    description: "Persistent VMs for remote Scout agents and isolated workloads.",
+  },
+  cloudflare: {
+    mark: "CF",
+    category: "Edge platform",
+    description: "Workers, networking, and edge infrastructure available for deployment.",
+  },
+  vercel: {
+    mark: "V",
+    category: "App hosting",
+    description: "Projects, preview environments, and production deployments.",
+  },
+};
+
 function canonicalHarnessId(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
   if (!normalized) return "unknown";
@@ -380,31 +398,43 @@ function CloudAccountsSection({ accounts }: { accounts: CloudAccount[] }) {
       <div className="hs-section-head hs-cloud-accounts-head">
         <div>
           <h3 id="hs-cloud-accounts-title">Cloud accounts</h3>
-          <p>Only accounts detected on this machine are shown.</p>
+          <p>Infrastructure available to Scout for deployment and agent compute.</p>
         </div>
         <span className="hs-section-meta">{accounts.length} connected</span>
       </div>
       <div className="hs-cloud-grid">
-        {accounts.map((account) => (
-          <article key={account.id} className="hs-cloud-card">
-            <div>
-              <span className="hs-cloud-dot" aria-hidden="true" />
-              <div>
-                <h4>{account.label}</h4>
-                <span>{account.detailLabel}</span>
-              </div>
-            </div>
-            <span className="hs-subscription-state hs-subscription-state--connected">{account.statusLabel}</span>
-            <nav aria-label={`${account.label} quick links`}>
-              {CLOUD_PROVIDER_LINKS[account.id].map((link) => (
-                <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
-                  {link.label}
-                  <ExternalLink size={11} aria-hidden="true" />
-                </a>
-              ))}
-            </nav>
-          </article>
-        ))}
+        {accounts.map((account) => {
+          const meta = CLOUD_PROVIDER_META[account.id];
+          return (
+            <article key={account.id} className="hs-cloud-card">
+              <header className="hs-cloud-card-head">
+                <div className="hs-cloud-identity">
+                  <span className="hs-cloud-mark" aria-hidden="true">{meta.mark}</span>
+                  <div>
+                    <span className="hs-cloud-category">{meta.category}</span>
+                    <h4>{account.label}</h4>
+                  </div>
+                </div>
+                <span className="hs-subscription-state hs-subscription-state--connected">{account.statusLabel}</span>
+              </header>
+              <p className="hs-cloud-description">{meta.description}</p>
+              <footer className="hs-cloud-card-footer">
+                <span className="hs-cloud-connection">
+                  <span className="hs-cloud-dot" aria-hidden="true" />
+                  {account.detailLabel}
+                </span>
+                <nav aria-label={`${account.label} quick links`}>
+                  {CLOUD_PROVIDER_LINKS[account.id].map((link) => (
+                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                      {link.label}
+                      <ExternalLink size={11} aria-hidden="true" />
+                    </a>
+                  ))}
+                </nav>
+              </footer>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
