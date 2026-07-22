@@ -359,10 +359,10 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
   {
     name: "cursor",
     harness: "cursor",
-    label: "Cursor Agent SDK",
-    description: "Programmatic agent execution via the Cursor Agent SDK",
-    homepage: "https://cursor.com",
-    tags: ["coding", "sdk", "cursor"],
+    label: "Cursor CLI",
+    description: "Cursor's coding agent over its official ACP stdio interface",
+    homepage: "https://cursor.com/docs/cli/acp",
+    tags: ["coding", "cli", "cursor", "acp"],
     featured: true,
     order: 4,
     support: {
@@ -372,22 +372,25 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
       files: true,
     },
     install: {
-      binary: "mw",
-      requires: ["bun"],
-      macos: "bun install -g missionwriter",
-      linux: "bun install -g missionwriter",
-      windows: "bun install -g missionwriter",
+      binary: "cursor-agent",
+      requires: ["curl"],
+      macos: "curl -fsSL https://cursor.com/install | bash",
+      linux: "curl -fsSL https://cursor.com/install | bash",
+      windows: "irm 'https://cursor.com/install?win32=true' | iex",
+      verify: "cursor-agent --version >/dev/null 2>&1",
     },
     readiness: {
-      anyOf: [
-        { kind: "env", key: "CURSOR_API_KEY" },
-      ],
-      notReadyMessage: "Cursor Agent SDK is available but CURSOR_API_KEY is not set.",
+      healthcheckCommand: "cursor-agent status >/dev/null 2>&1",
+      loginCommand: "cursor-agent login",
+      notReadyMessage: "Cursor CLI is installed but still needs cursor-agent login or CURSOR_API_KEY.",
     },
-    capabilities: ["invoke", "deliver", "execute"],
+    sessionDefaults: {
+      defaultTransport: "cursor_acp",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
     metadata: {
-      sdkType: "cursor",
-      invocationModel: "one_shot",
+      adapterType: "cursor-acp",
+      transport: "acp_stdio",
     },
   },
   {

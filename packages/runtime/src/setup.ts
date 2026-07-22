@@ -38,7 +38,7 @@ import {
 import { assertTestIsolatedUserData, ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
-export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
+export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
 export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "grok", "pi"] as const;
@@ -888,7 +888,7 @@ function normalizeTransport(
   }
 
   if (harness === "cursor") {
-    return "cursor_exec";
+    return "cursor_acp";
   }
 
   if (harness === "pi" && value === undefined) {
@@ -905,6 +905,14 @@ function normalizeTransport(
 
   if (value === "pi_rpc") {
     return "pi_rpc";
+  }
+
+  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp") {
+    return value;
+  }
+
+  if (value === "cursor_exec") {
+    return "cursor_acp";
   }
 
   if (value === "tmux") {

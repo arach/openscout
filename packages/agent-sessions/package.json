@@ -80,6 +80,12 @@
       "import": "./dist/adapters/codex/index.js",
       "default": "./dist/adapters/codex/index.js"
     },
+    "./adapters/cursor-acp": {
+      "bun": "./src/adapters/cursor-acp/index.ts",
+      "types": "./dist/adapters/cursor-acp/index.d.ts",
+      "import": "./dist/adapters/cursor-acp/index.js",
+      "default": "./dist/adapters/cursor-acp/index.js"
+    },
     "./adapters/codex/topology": {
       "bun": "./src/adapters/codex/topology.ts",
       "types": "./dist/adapters/codex/topology.d.ts",

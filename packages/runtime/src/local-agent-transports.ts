@@ -1,4 +1,4 @@
-export type DirectLocalAgentTransport = "codex_app_server" | "claude_stream_json" | "pi_rpc" | "grok_acp" | "kimi_acp";
+export type DirectLocalAgentTransport = "codex_app_server" | "claude_stream_json" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp";
 
 const directLocalAgentTransports = new Set<string>([
   "codex_app_server",
@@ -6,6 +6,7 @@ const directLocalAgentTransports = new Set<string>([
   "pi_rpc",
   "grok_acp",
   "kimi_acp",
+  "cursor_acp",
 ]);
 
 export function isDirectLocalAgentTransport(

@@ -12,16 +12,19 @@ export interface AcpAgentInvocationOptions {
   createAdapter: AdapterFactory;
   label: string;
   sessionId: string;
+  externalSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;
   timeoutMs?: number;
   hardCeilingMs?: number;
+  adapterOptions?: Record<string, unknown>;
 }
 
 export interface AcpAgentInvocationResult {
   output: string;
   sessionId: string;
+  externalSessionId?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -53,6 +56,12 @@ export async function invokeAcpAgent(
     sessionId: options.sessionId,
     name: options.name ?? options.label,
     cwd: options.cwd,
+    options: {
+      ...(options.adapterOptions ?? {}),
+      ...(options.externalSessionId
+        ? { sessionId: options.externalSessionId, sessionMode: "auto" }
+        : {}),
+    },
   });
   const turn = runAcpTurn(registry, session.id, options);
 
@@ -109,9 +118,15 @@ async function runAcpTurn(
     });
 
     const snapshot = registry.getSessionSnapshot(sessionId);
+    const acpMeta = snapshot?.session.providerMeta?.acp;
+    const externalSessionId = acpMeta && typeof acpMeta === "object" && !Array.isArray(acpMeta)
+      && typeof (acpMeta as Record<string, unknown>).acpSessionId === "string"
+      ? (acpMeta as Record<string, unknown>).acpSessionId as string
+      : undefined;
     return {
       output: completedText(snapshot, options.label),
       sessionId,
+      ...(externalSessionId ? { externalSessionId } : {}),
       metadata: {
         adapterType: options.adapterType,
         providerMeta: snapshot?.session.providerMeta,
