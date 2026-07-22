@@ -534,7 +534,8 @@ export class AcpAdapter extends BaseAdapter {
 
   async shutdown(): Promise<void> {
     this.cancelPendingPermissions();
-    if (this.currentSessionId && this.agentCapabilities?.sessionCapabilities?.close) {
+    const processAlive = Boolean(this.process && !this.process.killed && this.process.exitCode === null);
+    if (processAlive && this.currentSessionId && this.agentCapabilities?.sessionCapabilities?.close) {
       await this.request("session/close", { sessionId: this.currentSessionId }, 2_000).catch(() => undefined);
     }
 

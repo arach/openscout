@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
+import { shutdownAllAcpAgentSessions, shutdownAcpAgentSession } from "./acp-agent-invocation.js";
 
 const originalKimiCliBin = process.env.KIMI_CLI_BIN;
 const originalLog = process.env.OPENSCOUT_TEST_KIMI_LOG;
 const tempDirs = new Set<string>();
 
-afterEach(() => {
+afterEach(async () => {
+  await shutdownAllAcpAgentSessions();
   if (originalKimiCliBin === undefined) delete process.env.KIMI_CLI_BIN;
   else process.env.KIMI_CLI_BIN = originalKimiCliBin;
   if (originalLog === undefined) delete process.env.OPENSCOUT_TEST_KIMI_LOG;
@@ -19,7 +21,7 @@ afterEach(() => {
 });
 
 describe("invokeKimiAcpAgent", () => {
-  test("runs a Kimi ACP turn and closes the subprocess session", async () => {
+  test("keeps Kimi attached and cold-loads its provider session after detachment", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openscout-kimi-acp-"));
     tempDirs.add(directory);
     const logPath = join(directory, "kimi.log");
@@ -35,7 +37,7 @@ for await (const line of rl) {
   const message = JSON.parse(line);
   const { id, method } = message;
   const params = message.params ?? {};
-  appendFileSync(logPath, method + "\\n");
+  appendFileSync(logPath, method + ":" + (params.sessionId ?? "") + "\\n");
   if (method === "initialize") {
     console.log(JSON.stringify({
       jsonrpc: "2.0", id,
@@ -50,6 +52,8 @@ for await (const line of rl) {
     console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
   } else if (method === "session/new") {
     console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { sessionId: "fake-kimi-session" } }));
+  } else if (method === "session/load") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
   } else if (method === "session/prompt") {
     console.log(JSON.stringify({
       jsonrpc: "2.0", method: "session/update",
@@ -73,9 +77,26 @@ for await (const line of rl) {
     });
 
     expect(result.output).toContain("kimi-acp-ok");
-    expect(result.sessionId).toBe("kimi-runtime-test");
+    expect(result.sessionId).toBe("fake-kimi-session");
     expect(result.metadata).toMatchObject({ adapterType: "kimi-acp" });
     expect(readFileSync(logPath, "utf8")).toContain("argv:acp");
-    expect(readFileSync(logPath, "utf8")).toContain("session/close");
+    expect(readFileSync(logPath, "utf8")).not.toContain("session/close:");
+
+    await shutdownAcpAgentSession({
+      adapterType: "kimi-acp",
+      sessionId: "kimi-runtime-test",
+    });
+    await invokeKimiAcpAgent({
+      sessionId: "kimi-runtime-test",
+      resumeSessionId: result.sessionId,
+      cwd: directory,
+      prompt: "reply after restart",
+      timeoutMs: 2_000,
+    });
+
+    const log = readFileSync(logPath, "utf8");
+    expect(log.match(/initialize:/g)).toHaveLength(2);
+    expect(log.match(/session\/new:/g)).toHaveLength(1);
+    expect(log).toContain("session/load:fake-kimi-session");
   });
 });

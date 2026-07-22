@@ -29,6 +29,7 @@ import {
 } from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
+import { shutdownAcpAgentSession } from "./acp-agent-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -1949,6 +1950,15 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
 
   if (endpoint.transport === "pi_rpc") {
     await shutdownPiRpcAgent(buildPiEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp") {
+    await shutdownAcpAgentSession({
+      adapterType: endpoint.transport === "grok_acp" ? "grok-acp" : "kimi-acp",
+      sessionId: endpointRuntimeInstanceId(endpoint),
+      poolKey: endpoint.id,
+    });
   }
 }
 
@@ -5075,9 +5085,11 @@ export async function invokeLocalAgentEndpoint(
 
   if (!existing && endpoint.transport === "grok_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeGrokAcpAgent({
       sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
@@ -5093,9 +5105,11 @@ export async function invokeLocalAgentEndpoint(
 
   if (!existing && endpoint.transport === "kimi_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeKimiAcpAgent({
       sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
