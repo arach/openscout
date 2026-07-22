@@ -337,6 +337,9 @@ export function buildScoutAskCommand({
     channel: payload.channel,
     shouldSpeak: payload.shouldSpeak,
     workItem: payload.workItem,
+    // The HTTP surface returns a durable receipt and the web app observes the
+    // conversation directly; it does not need a second endpoint notification.
+    replyMode: "none",
     currentDirectory,
     source: ASK_ROUTE_SOURCE,
   };

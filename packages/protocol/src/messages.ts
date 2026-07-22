@@ -33,6 +33,8 @@ export interface MessageAudience {
   notify?: ScoutId[];
   invoke?: ScoutId[];
   reason?: DeliveryReason;
+  /** Persist the message without scheduling any transport deliveries. */
+  delivery?: "none";
 }
 
 export interface MessageRecord {
