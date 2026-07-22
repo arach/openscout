@@ -18,6 +18,7 @@ const originalGhBin = process.env.OPENSCOUT_GH_BIN;
 const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
 const originalKimiUsageJson = process.env.OPENSCOUT_KIMI_USAGE_JSON;
+const originalCursorStatusJson = process.env.OPENSCOUT_CURSOR_STATUS_JSON;
 const tempPaths = new Set<string>();
 
 afterEach(() => {
@@ -63,6 +64,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_KIMI_USAGE_JSON;
   } else {
     process.env.OPENSCOUT_KIMI_USAGE_JSON = originalKimiUsageJson;
+  }
+  if (originalCursorStatusJson === undefined) {
+    delete process.env.OPENSCOUT_CURSOR_STATUS_JSON;
+  } else {
+    process.env.OPENSCOUT_CURSOR_STATUS_JSON = originalCursorStatusJson;
   }
   for (const path of tempPaths) {
     rmSync(path, { recursive: true, force: true });
@@ -496,6 +502,37 @@ describe("service budgets", () => {
     expect(rawDb.query<{ count: number }>(
       "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE provider = 'kimi' AND harness = 'kimi'",
     ).get()?.count).toBe(4);
+    rawDb.close();
+  });
+
+  test("detects the local Cursor plan without claiming dashboard usage", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-cursor-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    process.env.OPENSCOUT_CURSOR_STATUS_JSON = JSON.stringify({
+      membershipType: "pro_plus",
+      subscriptionStatus: "active",
+    });
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const response = await loadServiceBudgets(true);
+    expect(response.gauges.find((gauge) => gauge.id === "cursor")).toEqual({
+      id: "cursor",
+      label: "cursor",
+      kind: "status",
+      statusLabel: "Pro Plus",
+      windowLabel: "subscription",
+      detailLabel: "Active",
+      tone: "ok",
+    });
     rawDb.close();
   });
 

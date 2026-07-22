@@ -8,6 +8,9 @@
  *             or the control-plane DB when available
  *   - kimi:   provider-reported Kimi Code 5-hour and weekly subscription quota
  *             from the same `/usages` endpoint used by Kimi Code's `/usage`
+ *   - cursor: locally reported Cursor membership and subscription state. Cursor
+ *             usage remains linked to its authenticated dashboard until a
+ *             documented machine-readable usage feed is available.
  *   - github: `gh api rate_limit` resources.core (hourly window; honest about scope)
  *
  * Cached server-side so we can poll cheaply from the client.
@@ -39,6 +42,7 @@ const CLAUDE_STATUSLINE_HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
 const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
 const KIMI_USAGE_JSON_ENV = "OPENSCOUT_KIMI_USAGE_JSON";
+const CURSOR_STATUS_JSON_ENV = "OPENSCOUT_CURSOR_STATUS_JSON";
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -104,13 +108,14 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
   if (!forceRefresh && inflight) return inflight;
 
   inflight = (async () => {
-    const [codex, claude, kimi, github] = await Promise.all([
+    const [codex, claude, kimi, cursor, github] = await Promise.all([
       loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
       loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
       loadKimiGauge().catch((error) => serviceBudgetProviderFailed("kimi", error)),
+      loadCursorGauge().catch((error) => serviceBudgetProviderFailed("cursor", error)),
       loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
-    const gauges = [codex, claude, kimi, github].filter((g): g is ServiceGauge => g !== null);
+    const gauges = [codex, claude, kimi, cursor, github].filter((g): g is ServiceGauge => g !== null);
     const value: ServiceBudgetsResponse = { generatedAt: Date.now(), gauges };
     cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     return value;
@@ -961,6 +966,76 @@ function kimiMembershipPlan(payload: KimiUsageResponse): string | undefined {
     .replace(/^LEVEL_/u, "")
     .toLowerCase()
     .replace(/(^|_)([a-z])/gu, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
+}
+
+/* ── cursor ─────────────────────────────────────────────────────────── */
+
+type CursorSubscriptionState = {
+  membershipType?: unknown;
+  subscriptionStatus?: unknown;
+};
+
+async function loadCursorGauge(): Promise<ServiceGauge | null> {
+  const state = readCursorSubscriptionState();
+  const membership = stringValue(state?.membershipType);
+  const subscriptionStatus = stringValue(state?.subscriptionStatus);
+  if (!membership && !subscriptionStatus) return null;
+
+  const normalizedStatus = subscriptionStatus?.trim().toLowerCase();
+  return {
+    id: "cursor",
+    label: "cursor",
+    kind: "status",
+    statusLabel: cursorMembershipLabel(membership) ?? "Cursor",
+    windowLabel: "subscription",
+    detailLabel: normalizedStatus ? cursorMembershipLabel(normalizedStatus) ?? normalizedStatus : "detected locally",
+    tone: normalizedStatus === "active"
+      ? "ok"
+      : normalizedStatus?.includes("cancel") || normalizedStatus?.includes("past")
+        ? "warn"
+        : "dim",
+  };
+}
+
+function readCursorSubscriptionState(): CursorSubscriptionState | null {
+  const fixtureJson = process.env[CURSOR_STATUS_JSON_ENV];
+  if (fixtureJson?.trim()) {
+    return parseJsonRecord(fixtureJson) as CursorSubscriptionState | null;
+  }
+
+  const candidates = [
+    join(homeDir(), "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+    join(homeDir(), ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
+  ];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    let cursorDb: Database | null = null;
+    try {
+      cursorDb = new Database(path, { readonly: true });
+      const readValue = (key: string): unknown => cursorDb?.query<{ value: unknown }, [string]>(
+        "SELECT value FROM ItemTable WHERE key = ?1 LIMIT 1",
+      ).get(key)?.value;
+      const membershipType = readValue("cursorAuth/stripeMembershipType");
+      const subscriptionStatus = readValue("cursorAuth/stripeSubscriptionStatus");
+      if (membershipType !== undefined || subscriptionStatus !== undefined) {
+        return { membershipType, subscriptionStatus };
+      }
+    } catch (error) {
+      debugServiceBudgetProvider("cursor", "local subscription state could not be read", error);
+    } finally {
+      cursorDb?.close();
+    }
+  }
+  return null;
+}
+
+function cursorMembershipLabel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value
+    .trim()
+    .replace(/\+/gu, " plus ")
+    .replace(/[_-]+/gu, " ")
+    .replace(/\b\w/gu, (letter) => letter.toUpperCase());
 }
 
 /* ── github ─────────────────────────────────────────────────────────── */
