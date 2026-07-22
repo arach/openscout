@@ -69,12 +69,12 @@ struct PairingApprovalPanelView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(ShellPalette.shellBackground)
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(ShellPalette.accent.opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(ShellPalette.accentBorder, lineWidth: 1)
             content
-                .padding(20)
+                .padding(18)
         }
         .frame(width: 340)
         .preferredColorScheme(.dark)
@@ -82,12 +82,20 @@ struct PairingApprovalPanelView: View {
 
     @ViewBuilder private var content: some View {
         if let request = controller.pendingPairingRequests.first {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "iphone")
-                        .font(.system(size: 26, weight: .regular))
+                        .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(ShellPalette.accent)
-                        .frame(width: 30)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(ShellPalette.accentSoft)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(ShellPalette.accentBorder, lineWidth: 1)
+                        )
                     VStack(alignment: .leading, spacing: 3) {
                         Text("PAIRING REQUEST")
                             .font(MenuType.mono(9, weight: .semibold))
@@ -124,12 +132,16 @@ struct PairingApprovalPanelView: View {
                     } label: {
                         Text("Deny")
                             .font(MenuType.bodyMedium(12))
-                            .foregroundStyle(ShellPalette.copy)
+                            .foregroundStyle(ShellPalette.ink)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 9)
                             .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(ShellPalette.line, lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(ShellPalette.surfaceFill)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .stroke(ShellPalette.lineStrong, lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -140,17 +152,14 @@ struct PairingApprovalPanelView: View {
                     } label: {
                         Text(controller.pairingApprovalPending ? "Allowing…" : "Allow")
                             .font(MenuType.bodyMedium(12))
-                            .foregroundStyle(ShellPalette.ink)
+                            .foregroundStyle(ShellPalette.shellBackground)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 9)
                             .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(ShellPalette.accent.opacity(0.20))
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(ShellPalette.accent)
                             )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(ShellPalette.accent.opacity(0.6), lineWidth: 1)
-                            )
+                            .shadow(color: ShellPalette.accent.opacity(0.24), radius: 5, y: 2)
                     }
                     .buttonStyle(.plain)
                     .disabled(controller.pairingApprovalPending)
