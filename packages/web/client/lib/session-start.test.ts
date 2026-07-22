@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
-import { resumeAgentSession, startAgentSession } from "./session-start.ts";
+import {
+  harnessFromAdapterType,
+  invokeSession,
+  resumeAgentSession,
+  startAgentSession,
+} from "./session-start.ts";
 
 const agent = {
   id: "agent:openscout",
@@ -100,5 +105,47 @@ describe("startAgentSession", () => {
       },
     });
     expect(result.conversationId).toBe("chat:resumed");
+  });
+
+  test("invokes a bare observed session using its own execution metadata", async () => {
+    let requestBody: unknown = null;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = init?.body ? JSON.parse(String(init.body)) : null;
+      return new Response(JSON.stringify({
+        conversationId: "chat:invoked",
+        agentId: "agent:minted",
+        sessionId: "harness-session-1",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await invokeSession({
+      projectPath: "/work/openscout",
+      sessionId: "harness-session-1",
+      harness: "claude",
+      model: "opus",
+      reasoningEffort: "high",
+      instructions: "Continue the implementation.",
+    });
+
+    expect(requestBody).toEqual({
+      target: { projectPath: "/work/openscout" },
+      execution: {
+        session: "existing",
+        targetSessionId: "harness-session-1",
+        harness: "claude",
+        model: "opus",
+        reasoningEffort: "high",
+      },
+      seed: { instructions: "Continue the implementation." },
+    });
+  });
+
+  test("maps transcript adapter types only to known broker harnesses", () => {
+    expect(harnessFromAdapterType("claude-code")).toBe("claude");
+    expect(harnessFromAdapterType("CODEX_APP_SERVER")).toBe("codex");
+    expect(harnessFromAdapterType("unknown-adapter")).toBeUndefined();
   });
 });

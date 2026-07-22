@@ -65,7 +65,7 @@ import {
 } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
-import { resumeAgentSession } from "../../lib/session-start.ts";
+import { harnessFromAdapterType, invokeSession, resumeAgentSession } from "../../lib/session-start.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
@@ -2685,11 +2685,25 @@ function SessionObserveComposer({
   conversationId,
   agentId,
   sessionId,
+  invoke,
 }: {
   conversationId?: string | null;
   agentId?: string | null;
   sessionId?: string | null;
+  /**
+   * Broker-invoke target for a session that has no live agent identity yet
+   * (bare history trace). Carries the session's own project path + harness +
+   * model so the broker resumes it the correct way in and mints an agent id.
+   */
+  invoke?: {
+    projectPath: string;
+    sessionId: string;
+    harness?: string;
+    model?: string;
+    reasoningEffort?: string;
+  } | null;
 }) {
+  const { navigate } = useScout();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -2704,13 +2718,14 @@ function SessionObserveComposer({
   const resumableAgentId = agentId?.trim() || null;
   const resumableSessionId = sessionId?.trim() || null;
   const canResumeSession = Boolean(resumableAgentId && resumableSessionId);
-  const canWrite = Boolean(activeConversationId || canResumeSession);
+  const canInvokeSession = Boolean(invoke?.projectPath && invoke?.sessionId);
+  const canWrite = Boolean(activeConversationId || canResumeSession || canInvokeSession);
   const canSubmit = canWrite && draft.trim().length > 0 && !sending;
 
   const submit = async () => {
     const body = draft.trim();
     if (!body || sending) return;
-    if (!activeConversationId && (!resumableAgentId || !resumableSessionId)) {
+    if (!activeConversationId && !canResumeSession && !canInvokeSession) {
       setError("No writable session target is attached yet.");
       return;
     }
@@ -2728,7 +2743,10 @@ function SessionObserveComposer({
             intent: "steer",
           }),
         });
-      } else {
+        setDraft("");
+        setStatus("Sent into this session.");
+        inputRef.current?.focus();
+      } else if (canResumeSession) {
         const result = await resumeAgentSession({
           agentId: resumableAgentId!,
           sessionId: resumableSessionId!,
@@ -2738,10 +2756,31 @@ function SessionObserveComposer({
         if (resumedConversationId) {
           setActiveConversationId(resumedConversationId);
         }
+        setDraft("");
+        setStatus("Sent into this session.");
+        inputRef.current?.focus();
+      } else {
+        // No agent identity yet: have the broker invoke the raw session on its
+        // own harness/model, then follow the minted conversation into a DM.
+        const result = await invokeSession({
+          projectPath: invoke!.projectPath,
+          sessionId: invoke!.sessionId,
+          ...(invoke!.harness ? { harness: invoke!.harness } : {}),
+          ...(invoke!.model ? { model: invoke!.model } : {}),
+          ...(invoke!.reasoningEffort ? { reasoningEffort: invoke!.reasoningEffort } : {}),
+          instructions: body,
+        });
+        const invokedConversationId = result.conversationId?.trim();
+        setDraft("");
+        if (invokedConversationId) {
+          setActiveConversationId(invokedConversationId);
+          setStatus("Session invoked — opening conversation.");
+          navigate({ view: "conversation", conversationId: invokedConversationId });
+        } else {
+          setStatus("Session invoked.");
+          inputRef.current?.focus();
+        }
       }
-      setDraft("");
-      setStatus("Sent into this session.");
-      inputRef.current?.focus();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -2759,7 +2798,13 @@ function SessionObserveComposer({
         sending={sending}
         disabled={!canWrite || sending}
         canSend={canSubmit}
-        placeholder={canWrite ? "Write into this session…" : "This trace is read-only"}
+        placeholder={
+          !canWrite
+            ? "This trace is read-only"
+            : !activeConversationId && !canResumeSession && canInvokeSession
+              ? "Message this session to invoke it…"
+              : "Write into this session…"
+        }
         textareaRef={inputRef}
         rows={3}
         showAttach={canWrite}
@@ -2999,6 +3044,22 @@ export function SessionObserve({
   const sessionMeta = metadata?.session;
   const sourcePath = sessionMeta?.threadPath ?? null;
 
+  // A bare history trace has no live agent identity. If the session carries its
+  // own project path + id, offer a broker-invoke path in the composer so the
+  // user can engage — resumed the correct way in (its own harness + model),
+  // with an agent identity minted on top by the broker.
+  const invokeTargetSessionId = sessionId?.trim() || sessionMeta?.externalSessionId?.trim() || null;
+  const invokeTarget =
+    !agentId && sessionMeta?.cwd && invokeTargetSessionId
+      ? {
+          projectPath: sessionMeta.cwd,
+          sessionId: invokeTargetSessionId,
+          harness: harnessFromAdapterType(sessionMeta.adapterType),
+          model: sessionMeta.model,
+          reasoningEffort: sessionMeta.effort,
+        }
+      : null;
+
   return (
     <div
       ref={observeRootRef}
@@ -3101,6 +3162,7 @@ export function SessionObserve({
             conversationId={conversationId}
             agentId={agentId}
             sessionId={sessionId}
+            invoke={invokeTarget}
           />
         </footer>
       )}
