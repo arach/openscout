@@ -7,6 +7,7 @@ import {
 
 export interface KimiAcpInvocationOptions {
   sessionId: string;
+  externalSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;

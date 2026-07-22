@@ -30,6 +30,7 @@ describe("harness catalog", () => {
     });
     expect(entries.find((entry) => entry.name === "grok-acp")?.metadata?.adapterType).toBe("grok-acp");
     expect(entries.find((entry) => entry.name === "kimi")?.metadata?.adapterType).toBe("kimi-acp");
+    expect(entries.find((entry) => entry.name === "cursor")?.metadata?.adapterType).toBe("cursor-acp");
     expect(entries.find((entry) => entry.name === "pi")?.install?.macos).toBe(
       "npm install -g @earendil-works/pi-coding-agent",
     );
@@ -53,7 +54,11 @@ describe("harness catalog", () => {
       transport: "kimi_acp",
       fallbackTransports: [],
     });
-    expect(resolveHarnessSessionDefaults("cursor")).toBeNull();
+    expect(resolveHarnessSessionDefaults("cursor")).toEqual({
+      harness: "cursor",
+      transport: "cursor_acp",
+      fallbackTransports: [],
+    });
   });
 
   test("merge applies local overrides without discarding nested builtin fields", () => {

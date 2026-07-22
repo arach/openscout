@@ -9,6 +9,8 @@ import type {
   Block,
   BlockStatus,
   Prompt,
+  QuestionAnswer,
+  QuestionBlock,
   SessionStatus,
   Turn,
   TurnStatus,
@@ -132,6 +134,25 @@ type PendingPermission = {
   rejectOptionId: string | null;
 };
 
+type PendingCursorQuestion = {
+  requestId: JsonRpcId;
+  turnId: string;
+  questionId: string;
+  optionIdsByLabel: Map<string, string>;
+};
+
+type PendingCursorQuestionRequest = {
+  requestId: JsonRpcId;
+  answers: Map<string, string[]>;
+  remainingBlockIds: Set<string>;
+};
+
+type PendingCursorPlan = {
+  requestId: JsonRpcId;
+  turnId: string;
+  blockId: string;
+};
+
 type AcpAdapterOptions = {
   adapterType: string;
   command: string;
@@ -150,6 +171,9 @@ type AcpAdapterOptions = {
   additionalDirectories: string[];
   readTextFile: boolean;
   writeTextFile: boolean;
+  cursorExtensions: boolean;
+  cursorInteractionMode: "interactive" | "safe_reject";
+  permissionMode: "interactive" | "safe_reject";
   clientInfo: {
     name: string;
     title: string;
@@ -218,6 +242,13 @@ function parseOptions(config: AdapterConfig): AcpAdapterOptions {
     additionalDirectories: stringArray(raw.additionalDirectories),
     readTextFile: booleanValue(raw.readTextFile, true),
     writeTextFile: booleanValue(raw.writeTextFile, booleanValue(raw.allowWriteTextFile, false)),
+    cursorExtensions: booleanValue(raw.cursorExtensions, false),
+    cursorInteractionMode: stringValue(raw.cursorInteractionMode) === "safe_reject"
+      ? "safe_reject"
+      : "interactive",
+    permissionMode: stringValue(raw.permissionMode) === "safe_reject"
+      ? "safe_reject"
+      : "interactive",
     clientInfo: {
       name: stringValue(raw.clientName) ?? "openscout",
       title: stringValue(raw.clientTitle) ?? "OpenScout",
@@ -473,6 +504,9 @@ export class AcpAdapter extends BaseAdapter {
   private agentCapabilities: AcpInitializeResponse["agentCapabilities"] = {};
   private activeTurn: ActiveTurnState | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
+  private pendingCursorQuestions = new Map<string, PendingCursorQuestion>();
+  private pendingCursorQuestionRequests = new Map<JsonRpcId, PendingCursorQuestionRequest>();
+  private pendingCursorPlans = new Map<string, PendingCursorPlan>();
   private promptQueue: Promise<void> = Promise.resolve();
 
   constructor(config: AdapterConfig) {
@@ -498,11 +532,30 @@ export class AcpAdapter extends BaseAdapter {
       this.notify("session/cancel", { sessionId: this.currentSessionId });
     }
     this.cancelPendingPermissions();
+    this.cancelCursorInteractions("Cursor interaction cancelled.");
     this.finishTurn("stopped");
   }
 
   decide(turnId: string, blockId: string, decision: "approve" | "deny"): void {
     const key = this.permissionKey(turnId, blockId);
+    const cursorPlan = this.pendingCursorPlans.get(key);
+    if (cursorPlan) {
+      this.pendingCursorPlans.delete(key);
+      this.writeResult(cursorPlan.requestId, {
+        outcome: decision === "approve"
+          ? { outcome: "accepted" }
+          : { outcome: "rejected", reason: "User rejected the Cursor plan." },
+      });
+      this.emit("event", {
+        event: "block:action:status",
+        sessionId: this.session.id,
+        turnId,
+        blockId,
+        status: decision === "approve" ? "completed" : "failed",
+      });
+      this.endBlock(blockId, decision === "approve" ? "completed" : "failed");
+      return;
+    }
     const pending = this.pendingPermissions.get(key);
     if (!pending) {
       return;
@@ -532,8 +585,46 @@ export class AcpAdapter extends BaseAdapter {
     });
   }
 
+  answerQuestion(answer: QuestionAnswer): void {
+    const pending = this.pendingCursorQuestions.get(answer.blockId);
+    if (!pending) return;
+
+    this.pendingCursorQuestions.delete(answer.blockId);
+    const request = this.pendingCursorQuestionRequests.get(pending.requestId);
+    if (!request) return;
+
+    const selectedOptionIds = answer.answer
+      .map((label) => pending.optionIdsByLabel.get(label))
+      .filter((optionId): optionId is string => Boolean(optionId));
+    request.answers.set(pending.questionId, selectedOptionIds);
+    request.remainingBlockIds.delete(answer.blockId);
+    this.emit("event", {
+      event: "block:question:answer",
+      sessionId: this.session.id,
+      turnId: pending.turnId,
+      blockId: answer.blockId,
+      questionStatus: "answered",
+      answer: answer.answer,
+    });
+    this.endBlock(answer.blockId, "completed");
+
+    if (request.remainingBlockIds.size === 0) {
+      this.pendingCursorQuestionRequests.delete(pending.requestId);
+      this.writeResult(request.requestId, {
+        outcome: {
+          outcome: "answered",
+          answers: [...request.answers].map(([questionId, selectedIds]) => ({
+            questionId,
+            selectedOptionIds: selectedIds,
+          })),
+        },
+      });
+    }
+  }
+
   async shutdown(): Promise<void> {
     this.cancelPendingPermissions();
+    this.cancelCursorInteractions("Cursor interaction cancelled because the session closed.");
     if (this.currentSessionId && this.agentCapabilities?.sessionCapabilities?.close) {
       await this.request("session/close", { sessionId: this.currentSessionId }, 2_000).catch(() => undefined);
     }
@@ -639,7 +730,10 @@ export class AcpAdapter extends BaseAdapter {
       const canResume = Boolean(this.agentCapabilities?.sessionCapabilities?.resume);
       const canLoad = this.agentCapabilities?.loadSession === true;
 
-      if ((options.sessionMode === "resume" || options.sessionMode === "auto") && canResume) {
+      if (options.sessionMode === "resume") {
+        if (!canResume) {
+          throw new Error(`ACP agent does not advertise support for resuming session ${requestedSessionId}.`);
+        }
         await this.request("session/resume", {
           ...baseParams,
           sessionId: requestedSessionId,
@@ -648,7 +742,10 @@ export class AcpAdapter extends BaseAdapter {
         return;
       }
 
-      if ((options.sessionMode === "load" || options.sessionMode === "auto") && canLoad) {
+      if (options.sessionMode === "load") {
+        if (!canLoad) {
+          throw new Error(`ACP agent does not advertise support for loading session ${requestedSessionId}.`);
+        }
         await this.request("session/load", {
           ...baseParams,
           sessionId: requestedSessionId,
@@ -657,7 +754,38 @@ export class AcpAdapter extends BaseAdapter {
         return;
       }
 
-      throw new Error(`ACP agent does not advertise support for resuming or loading session ${requestedSessionId}.`);
+      const recoveryFailures: Array<{ method: string; message: string }> = [];
+      if (canResume) {
+        try {
+          await this.request("session/resume", {
+            ...baseParams,
+            sessionId: requestedSessionId,
+          }, options.startupTimeoutMs);
+          this.setAcpSessionId(requestedSessionId);
+          return;
+        } catch (error) {
+          recoveryFailures.push({ method: "session/resume", message: errorMessage(error) });
+        }
+      }
+      if (canLoad) {
+        try {
+          await this.request("session/load", {
+            ...baseParams,
+            sessionId: requestedSessionId,
+          }, options.startupTimeoutMs);
+          this.setAcpSessionId(requestedSessionId);
+          return;
+        } catch (error) {
+          recoveryFailures.push({ method: "session/load", message: errorMessage(error) });
+        }
+      }
+      this.updateProviderMeta({
+        sessionRecovery: {
+          requestedSessionId,
+          outcome: "new_session",
+          failures: recoveryFailures,
+        },
+      });
     }
 
     const created = await this.request<{ sessionId?: string }>("session/new", baseParams, options.startupTimeoutMs);
@@ -786,6 +914,12 @@ export class AcpAdapter extends BaseAdapter {
         case "fs/write_text_file":
           await this.handleWriteTextFile(message);
           return;
+        case "cursor/ask_question":
+          await this.handleCursorAskQuestion(message);
+          return;
+        case "cursor/create_plan":
+          await this.handleCursorCreatePlan(message);
+          return;
         default:
           this.writeError(message.id, JSON_RPC_METHOD_NOT_FOUND, `Unsupported ACP client method: ${message.method}`);
       }
@@ -795,6 +929,15 @@ export class AcpAdapter extends BaseAdapter {
   }
 
   private handleNotification(message: JsonRpcNotification): void {
+    if (this.acpOptions.cursorExtensions && message.method.startsWith("cursor/")) {
+      this.updateProviderMeta({
+        lastCursorNotification: {
+          method: message.method,
+          params: message.params,
+        },
+      });
+      return;
+    }
     if (message.method !== "session/update") {
       return;
     }
@@ -991,6 +1134,15 @@ export class AcpAdapter extends BaseAdapter {
   }
 
   private async handlePermissionRequest(message: JsonRpcRequest): Promise<void> {
+    if (this.acpOptions.permissionMode === "safe_reject") {
+      const params = isRecord(message.params) ? message.params : {};
+      const options = Array.isArray(params.options) ? params.options.filter(isRecord) : [];
+      const rejectOptionId = this.permissionOption(options, "reject");
+      this.writeResult(message.id, rejectOptionId
+        ? { outcome: { outcome: "selected", optionId: rejectOptionId } }
+        : { outcome: { outcome: "cancelled" } });
+      return;
+    }
     const active = this.activeTurn;
     if (!active) {
       this.writeResult(message.id, { outcome: { outcome: "cancelled" } });
@@ -1025,6 +1177,129 @@ export class AcpAdapter extends BaseAdapter {
       approval: {
         version: 1,
         description: toolName(toolCall),
+        risk: "medium",
+      },
+    });
+  }
+
+  private async handleCursorAskQuestion(message: JsonRpcRequest): Promise<void> {
+    if (!this.acpOptions.cursorExtensions) {
+      this.writeError(message.id, JSON_RPC_METHOD_NOT_FOUND, "Cursor ACP extensions are disabled.");
+      return;
+    }
+    if (this.acpOptions.cursorInteractionMode === "safe_reject") {
+      this.writeResult(message.id, {
+        outcome: { outcome: "skipped", reason: "OpenScout headless invocation has no interactive question surface." },
+      });
+      return;
+    }
+
+    const active = this.activeTurn;
+    const params = isRecord(message.params) ? message.params : {};
+    const questions = Array.isArray(params.questions) ? params.questions.filter(isRecord) : [];
+    if (!active || questions.length === 0) {
+      this.writeResult(message.id, {
+        outcome: { outcome: "skipped", reason: "Cursor supplied no answerable questions." },
+      });
+      return;
+    }
+
+    const request: PendingCursorQuestionRequest = {
+      requestId: message.id,
+      answers: new Map(),
+      remainingBlockIds: new Set(),
+    };
+    this.pendingCursorQuestionRequests.set(message.id, request);
+
+    for (const [index, question] of questions.entries()) {
+      const questionId = stringValue(question.id) ?? `question-${index + 1}`;
+      const prompt = stringValue(question.prompt) ?? "Cursor needs more information.";
+      const rawOptions = Array.isArray(question.options) ? question.options.filter(isRecord) : [];
+      const labels = rawOptions.map((option, optionIndex) =>
+        stringValue(option.label) ?? stringValue(option.id) ?? `Option ${optionIndex + 1}`
+      );
+      const duplicateLabels = new Set(labels.filter((label, index) => labels.indexOf(label) !== index));
+      const options = rawOptions.map((option, optionIndex) => ({
+        id: stringValue(option.id) ?? `option-${optionIndex + 1}`,
+        label: duplicateLabels.has(labels[optionIndex]!)
+          ? `${labels[optionIndex]} (${stringValue(option.id) ?? optionIndex + 1})`
+          : labels[optionIndex]!,
+      }));
+      const block: QuestionBlock = {
+        id: crypto.randomUUID(),
+        turnId: active.turnId,
+        type: "question",
+        status: "streaming",
+        index: active.blockIndex++,
+        header: stringValue(params.title) ?? undefined,
+        question: prompt,
+        options: options.map(({ label }) => ({ label })),
+        multiSelect: question.allowMultiple === true,
+        questionStatus: "awaiting_answer",
+      };
+      active.blocks.set(block.id, block);
+      request.remainingBlockIds.add(block.id);
+      this.pendingCursorQuestions.set(block.id, {
+        requestId: message.id,
+        turnId: active.turnId,
+        questionId,
+        optionIdsByLabel: new Map(options.map(({ id, label }) => [label, id])),
+      });
+      this.emit("event", {
+        event: "block:start",
+        sessionId: this.session.id,
+        turnId: active.turnId,
+        block,
+      });
+    }
+  }
+
+  private async handleCursorCreatePlan(message: JsonRpcRequest): Promise<void> {
+    if (!this.acpOptions.cursorExtensions) {
+      this.writeError(message.id, JSON_RPC_METHOD_NOT_FOUND, "Cursor ACP extensions are disabled.");
+      return;
+    }
+    if (this.acpOptions.cursorInteractionMode === "safe_reject") {
+      this.writeResult(message.id, {
+        outcome: { outcome: "rejected", reason: "OpenScout headless invocation cannot approve a Cursor plan." },
+      });
+      return;
+    }
+
+    const active = this.activeTurn;
+    const params = isRecord(message.params) ? message.params : {};
+    if (!active) {
+      this.writeResult(message.id, { outcome: { outcome: "cancelled" } });
+      return;
+    }
+
+    const title = stringValue(params.name) ?? "Cursor plan";
+    const plan = stringValue(params.plan) ?? stringValue(params.overview) ?? title;
+    const blockId = this.upsertToolBlock({
+      toolCallId: stringValue(params.toolCallId) ?? crypto.randomUUID(),
+      title,
+      kind: "plan",
+      status: "pending",
+      rawInput: params,
+      content: [{ type: "content", content: { type: "text", text: plan } }],
+    });
+    if (!blockId) {
+      this.writeResult(message.id, { outcome: { outcome: "cancelled" } });
+      return;
+    }
+    this.pendingCursorPlans.set(this.permissionKey(active.turnId, blockId), {
+      requestId: message.id,
+      turnId: active.turnId,
+      blockId,
+    });
+    this.emit("event", {
+      event: "block:action:approval",
+      sessionId: this.session.id,
+      turnId: active.turnId,
+      blockId,
+      approval: {
+        version: 1,
+        description: `${title}\n\n${plan}`,
         risk: "medium",
       },
     });
@@ -1156,6 +1431,9 @@ export class AcpAdapter extends BaseAdapter {
       return;
     }
 
+    this.cancelPendingPermissions();
+    this.cancelCursorInteractions(`Cursor interaction cancelled because the turn ended with status ${status}.`);
+
     for (const blockId of active.blocks.keys()) {
       if (!active.endedBlocks.has(blockId)) {
         this.endBlock(blockId, status === "failed" ? "failed" : "completed");
@@ -1209,6 +1487,35 @@ export class AcpAdapter extends BaseAdapter {
     this.pendingPermissions.clear();
   }
 
+  private cancelCursorInteractions(reason: string): void {
+    for (const [, request] of this.pendingCursorQuestionRequests) {
+      this.writeResult(request.requestId, { outcome: { outcome: "skipped", reason } });
+    }
+    for (const [blockId, pending] of this.pendingCursorQuestions) {
+      this.emit("event", {
+        event: "block:question:answer",
+        sessionId: this.session.id,
+        turnId: pending.turnId,
+        blockId,
+        questionStatus: "denied",
+        answer: [],
+      });
+    }
+    for (const [, pending] of this.pendingCursorPlans) {
+      this.writeResult(pending.requestId, { outcome: { outcome: "cancelled" } });
+      this.emit("event", {
+        event: "block:action:status",
+        sessionId: this.session.id,
+        turnId: pending.turnId,
+        blockId: pending.blockId,
+        status: "failed",
+      });
+    }
+    this.pendingCursorQuestions.clear();
+    this.pendingCursorQuestionRequests.clear();
+    this.pendingCursorPlans.clear();
+  }
+
   private permissionOption(options: Record<string, unknown>[], kind: "allow" | "reject"): string | null {
     const match = options.find((option) => {
       const optionKind = stringValue(option.kind);
@@ -1245,6 +1552,7 @@ export class AcpAdapter extends BaseAdapter {
     }
     this.pendingRequests.clear();
     this.cancelPendingPermissions();
+    this.cancelCursorInteractions(error.message);
     this.emit("error", error);
     this.setStatus("error");
   }
