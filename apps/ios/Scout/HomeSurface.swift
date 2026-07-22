@@ -24,6 +24,10 @@ struct HomeSurface: View {
     var onCompose: () -> Void = {}
     var onConnect: () -> Void = {}
     var reloadToken: Int = 0
+    /// Crown navigation replaces the docked tab bar with a floating assembly in
+    /// the bottom reserve; the pinned composer lifts off the reserve so it clears
+    /// the crown corner glyphs. Tabs mode passes false and is pixel-unchanged.
+    var crownMode: Bool = false
 
     @State private var agents: [HomeAgent] = []
     @State private var isLoading = true
@@ -323,6 +327,7 @@ struct HomeSurface: View {
             askDock
         }
         .padding(.top, HudSpacing.sm)
+        .padding(.bottom, crownMode ? CrownMetric.homeComposerLift : 0)
         .background(
             LinearGradient(
                 colors: [HudPalette.bg, HudPalette.bg, HudPalette.bg.opacity(0)],
@@ -1078,7 +1083,17 @@ private struct SparklineShape: Shape {
             } else {
                 path.move(to: first)
             }
-            for point in points.dropFirst() { path.addLine(to: point) }
+            // Catmull-Rom through every sample — rounded curves like the web's,
+            // instead of straight segment-to-segment joints.
+            for index in 1 ..< points.count {
+                let p0 = points[max(index - 2, 0)]
+                let p1 = points[index - 1]
+                let p2 = points[index]
+                let p3 = points[min(index + 1, points.count - 1)]
+                let control1 = CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6)
+                let control2 = CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6)
+                path.addCurve(to: p2, control1: control1, control2: control2)
+            }
             if closesArea, let last = points.last {
                 path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
                 path.closeSubpath()
