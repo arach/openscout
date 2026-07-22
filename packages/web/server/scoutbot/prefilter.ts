@@ -126,7 +126,7 @@ function renderHelp(): string {
     "- `/flight <id>` — inspect one work unit by id",
     "- `/steer session:<session>` — target this ScoutBot thread at a conversation",
     "",
-    "HUD tabs: focus · threads · tail · scout",
+    "HUD tabs: focus · threads · tail · scout · scoutbot",
     "",
     "Addressing in the dock:",
     "- default — steer where you are (place); no address needed",
