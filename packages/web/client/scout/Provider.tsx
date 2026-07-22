@@ -277,8 +277,10 @@ export function ScoutProvider({
   const selectedBrokerAttempt = useMemo(() => {
     if (route.view !== "broker" || !route.attemptId) return null;
     if (brokerAttemptCache?.id === route.attemptId) return brokerAttemptCache;
-    // Deep-link stub until the diagnostics feed resolves the full attempt.
-    return { id: route.attemptId } as BrokerRouteAttempt;
+    // A deep link has only an id until the diagnostics feed hydrates it.
+    // Do not cast that partial route state to a full attempt: inspector code
+    // formats timestamps and other required fields immediately.
+    return null;
   }, [brokerAttemptCache, route]);
 
   const selectedKnowledgeHit = useMemo(() => {

@@ -2,6 +2,7 @@ import type { AgentHarness } from "@openscout/protocol";
 
 export type ScoutAskWorkspace = "same" | "new_worktree";
 export type ScoutAskSession = "reuse" | "new";
+export type ScoutAskReplyMode = "inline" | "notify" | "none";
 
 export type ScoutAskSenderContext = {
   agentId?: string;
@@ -29,6 +30,7 @@ type ScoutAskCommandBase = {
   };
   labels?: string[];
   replyToSessionId?: string;
+  replyMode?: ScoutAskReplyMode;
   channel?: string;
   shouldSpeak?: boolean;
   currentDirectory?: string;

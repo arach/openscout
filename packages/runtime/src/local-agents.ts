@@ -30,6 +30,7 @@ import {
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
 import { invokeCursorAcpAgent } from "./cursor-acp-invocation.js";
+import { shutdownAcpAgentSession } from "./acp-agent-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -1962,6 +1963,23 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
 
   if (endpoint.transport === "pi_rpc") {
     await shutdownPiRpcAgent(buildPiEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (
+    endpoint.transport === "grok_acp"
+    || endpoint.transport === "kimi_acp"
+    || endpoint.transport === "cursor_acp"
+  ) {
+    await shutdownAcpAgentSession({
+      adapterType: endpoint.transport === "grok_acp"
+        ? "grok-acp"
+        : endpoint.transport === "kimi_acp"
+          ? "kimi-acp"
+          : "cursor-acp",
+      sessionId: endpointRuntimeInstanceId(endpoint),
+      poolKey: endpoint.id,
+    });
   }
 }
 
@@ -5098,10 +5116,11 @@ export async function invokeLocalAgentEndpoint(
 
   if (!existing && endpoint.transport === "grok_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeGrokAcpAgent({
       sessionId,
-      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
@@ -5110,17 +5129,18 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
-      externalSessionId: result.externalSessionId,
+      externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
   }
 
   if (!existing && endpoint.transport === "kimi_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeKimiAcpAgent({
       sessionId,
-      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
@@ -5129,17 +5149,18 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
-      externalSessionId: result.externalSessionId,
+      externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
   }
 
   if (!existing && endpoint.transport === "cursor_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeCursorAcpAgent({
       sessionId,
-      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Cursor ACP"),
@@ -5148,7 +5169,7 @@ export async function invokeLocalAgentEndpoint(
 
     return {
       output: result.output,
-      externalSessionId: result.externalSessionId,
+      externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
   }
@@ -5264,7 +5285,8 @@ export async function invokeLocalAgentEndpoint(
   if (onlineRecord.transport === "grok_acp" || onlineRecord.transport === "kimi_acp" || onlineRecord.transport === "cursor_acp") {
     const commonOptions = {
       sessionId: onlineRecord.tmuxSession || agentRuntimeId,
-      externalSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd: onlineRecord.cwd,
       prompt,
       name: definitionId,
@@ -5277,7 +5299,7 @@ export async function invokeLocalAgentEndpoint(
         : await invokeCursorAcpAgent(commonOptions);
     return {
       output: result.output,
-      externalSessionId: result.externalSessionId,
+      externalSessionId: result.sessionId,
       metadata: result.metadata,
     };
   }

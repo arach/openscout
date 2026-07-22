@@ -1,18 +1,22 @@
 import {
-  SessionRegistry,
-  type AdapterFactory,
-  type SessionState,
-} from "@openscout/agent-sessions";
+  createLocalAgentClient,
+  type LocalAgentClient,
+  type LocalAgentHarness,
+  type LocalAgentTransport,
+} from "@openscout/agent-sessions/local";
 
 import type { RuntimeTimer } from "./portable-types.js";
-import { RequesterWaitTimeoutError, isRequesterWaitTimeoutError } from "./requester-timeout.js";
+import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 export interface AcpAgentInvocationOptions {
-  adapterType: string;
-  createAdapter: AdapterFactory;
+  adapterType: "grok-acp" | "kimi-acp" | "cursor-acp";
   label: string;
+  /** Stable broker/runtime session id. It is not an ACP provider session id. */
   sessionId: string;
-  externalSessionId?: string;
+  /** Stable resolved endpoint key used to own one live ACP process. */
+  poolKey?: string;
+  /** Provider-native ACP session id used only when attaching a cold process. */
+  resumeSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;
@@ -23,118 +27,151 @@ export interface AcpAgentInvocationOptions {
 
 export interface AcpAgentInvocationResult {
   output: string;
+  /** Provider-native ACP session id, suitable for a later cold resume. */
   sessionId: string;
-  externalSessionId?: string;
   metadata?: Record<string, unknown>;
 }
 
+type AcpPoolEntry = {
+  client: LocalAgentClient;
+  fingerprint: string;
+  nativeSessionId?: string;
+};
+
 const DEFAULT_ACP_HARD_CEILING_MS = 30 * 60_000;
+const activeAcpSessions = new Map<string, Promise<AcpPoolEntry>>();
 
-function completedText(snapshot: SessionState | null, label: string): string {
-  const turn = snapshot?.turns.at(-1);
-  if (!turn) {
-    return `The ${label} session completed without an observable turn.`;
-  }
-
-  const text = turn.blocks
-    .map(({ block }) => block.type === "text" ? block.text.trim() : "")
-    .filter(Boolean)
-    .join("\n\n");
-
-  return text || `The ${label} session completed without a text reply.`;
+function harnessForAdapter(adapterType: AcpAgentInvocationOptions["adapterType"]): LocalAgentHarness {
+  if (adapterType === "grok-acp") return "grok";
+  if (adapterType === "kimi-acp") return "kimi";
+  return "cursor";
 }
 
-export async function invokeAcpAgent(
-  options: AcpAgentInvocationOptions,
-): Promise<AcpAgentInvocationResult> {
-  const registry = new SessionRegistry({
-    adapters: {
-      [options.adapterType]: options.createAdapter,
-    },
-  });
-  const session = await registry.createSession(options.adapterType, {
-    sessionId: options.sessionId,
-    name: options.name ?? options.label,
-    cwd: options.cwd,
-    options: {
-      ...(options.adapterOptions ?? {}),
-      ...(options.externalSessionId
-        ? { sessionId: options.externalSessionId, sessionMode: "auto" }
-        : {}),
-    },
-  });
-  const turn = runAcpTurn(registry, session.id, options);
+function transportForAdapter(adapterType: AcpAgentInvocationOptions["adapterType"]): LocalAgentTransport {
+  if (adapterType === "grok-acp") return "grok_acp";
+  if (adapterType === "kimi-acp") return "kimi_acp";
+  return "cursor_acp";
+}
 
+function resolvedPoolKey(options: AcpAgentInvocationOptions): string {
+  return options.poolKey?.trim() || `${options.adapterType}\u0000${options.sessionId}`;
+}
+
+function sessionFingerprint(options: AcpAgentInvocationOptions): string {
+  return [options.adapterType, options.sessionId, options.cwd].join("\u0000");
+}
+
+async function createPoolEntry(options: AcpAgentInvocationOptions): Promise<AcpPoolEntry> {
+  const client = await createLocalAgentClient({
+    harness: harnessForAdapter(options.adapterType),
+    transport: transportForAdapter(options.adapterType),
+    cwd: options.cwd,
+    sessionId: options.sessionId,
+    reuseKey: options.resumeSessionId,
+    adapterOptions: options.adapterOptions,
+    warmth: "lazy",
+  });
+  return {
+    client,
+    fingerprint: sessionFingerprint(options),
+    nativeSessionId: options.resumeSessionId,
+  };
+}
+
+async function closeEntry(entryPromise: Promise<AcpPoolEntry>): Promise<void> {
+  const entry = await entryPromise.catch(() => null);
+  if (entry) {
+    await entry.client.close().catch(() => undefined);
+  }
+}
+
+async function entryForInvocation(options: AcpAgentInvocationOptions): Promise<AcpPoolEntry> {
+  const key = resolvedPoolKey(options);
+  const fingerprint = sessionFingerprint(options);
+  let detachedNativeSessionId: string | undefined;
+  const existingPromise = activeAcpSessions.get(key);
+  if (existingPromise) {
+    const existing = await existingPromise;
+    const requestedNativeId = options.resumeSessionId?.trim();
+    const nativeIdConflict = Boolean(
+      requestedNativeId
+      && existing.nativeSessionId
+      && requestedNativeId !== existing.nativeSessionId,
+    );
+    if (existing.fingerprint === fingerprint && !nativeIdConflict && existing.client.isAlive?.() !== false) {
+      return existing;
+    }
+    detachedNativeSessionId = existing.nativeSessionId;
+    if (activeAcpSessions.get(key) === existingPromise) {
+      activeAcpSessions.delete(key);
+    }
+    await closeEntry(existingPromise);
+  }
+
+  const createdPromise = createPoolEntry({
+    ...options,
+    resumeSessionId: options.resumeSessionId ?? detachedNativeSessionId,
+  });
+  activeAcpSessions.set(key, createdPromise);
   try {
-    return await waitForRequesterResult(turn, options.timeoutMs, options.label);
+    return await createdPromise;
   } catch (error) {
-    if (isRequesterWaitTimeoutError(error)) {
-      // The caller's wait budget is not the harness execution budget. Keep the
-      // per-invocation ACP session alive until the turn reaches a terminal
-      // event or the hard execution ceiling.
-      turn.catch(() => undefined);
+    if (activeAcpSessions.get(key) === createdPromise) {
+      activeAcpSessions.delete(key);
     }
     throw error;
   }
 }
 
-async function runAcpTurn(
-  registry: SessionRegistry,
-  sessionId: string,
+export async function invokeAcpAgent(
   options: AcpAgentInvocationOptions,
 ): Promise<AcpAgentInvocationResult> {
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let unsubscribe = () => {};
-      let settled = false;
-      const hardCeilingMs = options.hardCeilingMs ?? DEFAULT_ACP_HARD_CEILING_MS;
-      const finish = (error?: Error): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(hardCeiling);
-        unsubscribe();
-        if (error) reject(error);
-        else resolve();
-      };
-      const hardCeiling = setTimeout(() => {
-        finish(new Error(`${options.label} exceeded the ${hardCeilingMs}ms hard ceiling.`));
-      }, hardCeilingMs);
-      hardCeiling.unref?.();
-
-      unsubscribe = registry.onEvent(({ event }) => {
-        if ("sessionId" in event && event.sessionId !== sessionId) return;
-        if (event.event === "turn:end") {
-          finish();
-          return;
-        }
-        if (event.event === "turn:error") {
-          finish(new Error(event.message || `${options.label} turn failed.`));
-        }
-      });
-
-      Promise.resolve(registry.send({ sessionId, text: options.prompt })).catch((error) => {
-        finish(error instanceof Error ? error : new Error(String(error)));
-      });
-    });
-
-    const snapshot = registry.getSessionSnapshot(sessionId);
-    const acpMeta = snapshot?.session.providerMeta?.acp;
-    const externalSessionId = acpMeta && typeof acpMeta === "object" && !Array.isArray(acpMeta)
-      && typeof (acpMeta as Record<string, unknown>).acpSessionId === "string"
-      ? (acpMeta as Record<string, unknown>).acpSessionId as string
-      : undefined;
+  const key = resolvedPoolKey(options);
+  const entry = await entryForInvocation(options);
+  const turn = entry.client.turn({
+    input: options.prompt,
+    timeoutMs: options.hardCeilingMs ?? DEFAULT_ACP_HARD_CEILING_MS,
+  }).then((result) => {
+    const nativeSessionId = result.session.nativeId?.trim()
+      || entry.nativeSessionId
+      || options.resumeSessionId?.trim();
+    if (!nativeSessionId) {
+      throw new Error(`${options.label} did not expose a provider-native ACP session id.`);
+    }
+    entry.nativeSessionId = nativeSessionId;
     return {
-      output: completedText(snapshot, options.label),
-      sessionId,
-      ...(externalSessionId ? { externalSessionId } : {}),
-      metadata: {
-        adapterType: options.adapterType,
-        providerMeta: snapshot?.session.providerMeta,
-      },
+      output: result.text,
+      sessionId: nativeSessionId,
+      metadata: result.metadata,
     };
-  } finally {
-    await registry.closeSession(sessionId).catch(() => undefined);
-  }
+  }).catch(async (error) => {
+    const current = activeAcpSessions.get(key);
+    if (current && await current.catch(() => null) === entry) {
+      activeAcpSessions.delete(key);
+    }
+    await entry.client.close().catch(() => undefined);
+    throw error;
+  });
+
+  return await waitForRequesterResult(turn, options.timeoutMs, options.label);
+}
+
+export async function shutdownAcpAgentSession(input: {
+  adapterType: AcpAgentInvocationOptions["adapterType"];
+  sessionId: string;
+  poolKey?: string;
+}): Promise<void> {
+  const key = input.poolKey?.trim() || `${input.adapterType}\u0000${input.sessionId}`;
+  const entry = activeAcpSessions.get(key);
+  if (!entry) return;
+  activeAcpSessions.delete(key);
+  await closeEntry(entry);
+}
+
+export async function shutdownAllAcpAgentSessions(): Promise<void> {
+  const entries = [...activeAcpSessions.values()];
+  activeAcpSessions.clear();
+  await Promise.all(entries.map(closeEntry));
 }
 
 function requesterTimeoutMs(timeoutMs: number | undefined): number | null {
