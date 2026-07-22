@@ -218,6 +218,9 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
+    /// The live agents behind `activeAgentCount` — the crown LED's working wing
+    /// (harness · project) reads these without a second fetch.
+    var liveAgents: [AgentSummary] = []
     /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) for the Home strip.
     /// Empty until a connected bridge reports them (older bridges omit the RPC).
     var serviceBudgets: [ServiceBudget] = []
@@ -1844,6 +1847,9 @@ final class AppModel {
     func updateFleetStats(from agents: [AgentSummary]) {
         agentCount = agents.count
         activeAgentCount = agents.filter { $0.state == .live }.count
+        // The live set behind the count — the crown LED's working wing reads
+        // harness · project straight from here (no extra fetch).
+        liveAgents = agents.filter { $0.state == .live }
     }
 
     /// Saved route inventory for the focused pairing. This is route metadata, not
