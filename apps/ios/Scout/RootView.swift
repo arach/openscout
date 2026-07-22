@@ -123,8 +123,7 @@ struct RootView: View {
                                     onSeeAllActivity: { selectSurface(.comms) },
                                     onCompose: { selectSurface(.new) },
                                     onConnect: { showConnection = true },
-                                    reloadToken: model.fleetDataReadyToken,
-                                    crownMode: navMode == .crown
+                                    reloadToken: model.fleetDataReadyToken
                                 )
                             }
                             surfaceLayer(.agents) {
@@ -190,10 +189,10 @@ struct RootView: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if navMode == .tabs {
                             dockedTabBar(layout)
-                        } else {
-                            // Reserve room so surface content clears the floating crown bar.
-                            Color.clear.frame(height: CrownMetric.bottomReserve)
                         }
+                        // Crown mode reserves NOTHING at the bottom: surface
+                        // content flows through behind the floating crown, and
+                        // the crown's own drop shadows keep it legible on top.
                     }
                     // Crown mode reserves a top zone so surface headers clear the
                     // permanent top strip + LED. Zero effect in tabs mode.
@@ -249,7 +248,8 @@ struct RootView: View {
                                 .ignoresSafeArea(edges: .bottom)
                                 // Same residual-inset correction as the tabs bar, so the
                                 // strip sits flush in the indicator band, not floating.
-                                .offset(y: 14)
+                                // The wide canvas reads best a touch deeper still.
+                                .offset(y: layout.physicalWidth >= 700 ? 20 : 14)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             CrownNavChrome(

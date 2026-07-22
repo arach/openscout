@@ -518,23 +518,18 @@ enum CrownMetric {
     /// Reserved chrome zone (added beyond the safe area) so surface content is
     /// inset clear of the top strip. Matches the strip's content zone exactly:
     /// the iPad's permanent strip is shallow (no island to clear); the phone
-    /// rail hangs the dials 19pt below the island, dial-bottom at 19 + 54, and
-    /// content tucks just under that (the operator wants the vitals rows
-    /// closer to the dock, not a padded gap). Single-sourced here and
+    /// rail hangs the dials 14pt below the island — row is CENTER-aligned so
+    /// the LED and the dials share one horizontal centerline (dial-bottom at
+    /// 14 + 54), and content tucks just under that. Single-sourced here and
     /// consumed by RootView's crown-mode safeAreaInset.
     static func topReserve(for layout: ScoutLayoutMetrics) -> CGFloat {
         layout.physicalWidth >= 700 ? 48 : 69
     }
     /// Tracks the lowered bottom unit: ~the assembled assembly's top (crown,
-    /// including its tap pulse) above the screen bottom, so surface content
-    /// clears it without a dead gap. Labels are gone, so the unit sits deeper
-    /// in the indicator band and the reserve shrinks with it.
+    /// including its tap pulse) above the screen bottom. Crown mode no longer
+    /// RESERVES this — content flows through behind the crown (operator
+    /// direction) — but surfaces may still consult it for their own lifts.
     static let bottomReserve: CGFloat = 66
-    /// Extra lift for Home's pinned "Ask the fleet" composer in crown mode. The
-    /// bottom reserve already clears the assembly, but flush-against-reserve put
-    /// the capsule's top edge level with the corner glyphs — this raises it into
-    /// breathing room. Tabs mode never pays this (gated at the call site).
-    static let homeComposerLift: CGFloat = 28
 }
 
 // MARK: - Per-device chrome sizing
@@ -713,6 +708,52 @@ struct CrownNavChrome: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scoutLayout) private var layout
 
+    // MARK: Idle auto-hide (EXPERIMENT — one switch reverses it)
+    //
+    // The RESTING crown fades and slides down after `timeout` seconds without
+    // chrome interaction; a tap on the invisible wake zone at the bottom edge
+    // brings it back. The summoned assembly NEVER auto-hides — the operator is
+    // navigating. Flip `enabled` to false and the timer, the wake zone, and
+    // the hide transforms all become no-ops; nothing else references these.
+    private enum IdleHide {
+        static let enabled = true
+        static let timeout: TimeInterval = 4
+    }
+    @State private var crownHidden = false
+    @State private var lastInteraction = Date()
+
+    /// Hiding only ever applies to the resting crown — never the assembly.
+    private var restHidden: Bool { IdleHide.enabled && crownHidden && !assembled }
+
+    private func poke() {
+        lastInteraction = Date()
+        dismissIdleHint()
+        guard crownHidden else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.25, dampingFraction: 0.85)) {
+            crownHidden = false
+        }
+    }
+
+    // MARK: First-run hint (companion to the IdleHide experiment)
+    //
+    // Shown ONCE, shortly after the chrome first appears, so the operator
+    // learns the tuck-away / wake-up gesture before it first fires. Dismisses
+    // on any chrome tap, on its own tap, or after a few seconds — then never
+    // returns. To re-calibrate: delete the `scout.crown.idleHintSeen` default
+    // (currently suffixed `.2` while the design is being tuned — settle on the
+    // bare key once the card is final), or flip IdleHide.enabled off, which
+    // suppresses the hint entirely.
+    @AppStorage("scout.crown.idleHintSeen.2") private var idleHintSeen = false
+    @State private var idleHintVisible = false
+
+    private func dismissIdleHint() {
+        guard idleHintVisible, !idleHintSeen else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.2)) {
+            idleHintVisible = false
+        }
+        idleHintSeen = true
+    }
+
     private var alive: Bool { model.activeAgentCount > 0 }
     /// The crown's one semantic state: work in flight. Driven by the bridge
     /// connecting/loading — frequent sub-second fleet polls would keep the
@@ -775,9 +816,111 @@ struct CrownNavChrome: View {
                     // so they never collide even at this depth. Applies to the
                     // collapsed crown too — it shares this centerline.
                     .padding(.bottom, max(geo.safeAreaInsets.bottom - 36, 0))
+                    // Idle auto-hide (see IdleHide): resting crown sinks away;
+                    // a tap anywhere on the chrome pokes the timer.
+                    .opacity(restHidden ? 0 : 1)
+                    .offset(y: restHidden ? 24 : 0)
+                    .allowsHitTesting(!restHidden)
+                    .simultaneousGesture(TapGesture().onEnded { poke() })
+
+                // Invisible wake zone: once the crown has sunk, a tap where it
+                // lives restores it. Sized to the crown's own footprint so it
+                // doesn't eat taps meant for content behind the bottom edge.
+                if restHidden {
+                    Color.clear
+                        .frame(width: sizing.crown + 48, height: sizing.crown + 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture { poke() }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, max(geo.safeAreaInsets.bottom - 36, 0))
+                }
+
+                // One-time explainer for the tuck-away gesture (see
+                // dismissIdleHint). Floats just above the crown's home so the
+                // pointer reads as indicating the wake zone.
+                if idleHintVisible {
+                    idleHint
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, sizing.crown + 56)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
             }
         }
+        .onChange(of: assembled) { _, summoned in
+            // Summoning always revives the crown and re-arms the timer.
+            if summoned { crownHidden = false; lastInteraction = Date() }
+        }
+        .task {
+            // Idle watcher: parks the resting crown after the timeout. No-op
+            // while IdleHide is disabled or the assembly is summoned.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard IdleHide.enabled, !assembled, !crownHidden,
+                      Date().timeIntervalSince(lastInteraction) > IdleHide.timeout else { continue }
+                withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.85)) {
+                    crownHidden = true
+                }
+            }
+        }
+        .task(id: crownHidden) {
+            // One-time IdleHide onboarding: fire right AFTER the first
+            // disappearance, so the operator sees the crown tuck away and the
+            // card explains what just happened. If they wake the crown first,
+            // the id change cancels this — they've discovered the gesture on
+            // their own and the next hide will offer the card again.
+            guard crownHidden, IdleHide.enabled, !idleHintSeen else { return }
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled, !idleHintSeen, crownHidden else { return }
+            withAnimation(reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.3, dampingFraction: 0.85)) {
+                idleHintVisible = true
+            }
+            try? await Task.sleep(for: .seconds(8))
+            dismissIdleHint()
+        }
         .environment(\.colorScheme, .dark)
+    }
+
+    /// The one-time IdleHide explainer — a small card in the crown's own
+    /// machined material, hovering over the crown's home so the wake-up
+    /// gesture is learned before it's needed.
+    private var idleHint: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 7) {
+                ScoutHexagon()
+                    .stroke(ScoutInk.dim.opacity(0.85), lineWidth: 1)
+                    .frame(width: 9, height: 10.5)
+                Text("THE CROWN TUCKED ITSELF AWAY")
+                    .font(HudFont.mono(8.5, weight: .semibold)).tracking(1.5)
+                    .foregroundStyle(ScoutInk.dim)
+            }
+            Text("After \(Int(IdleHide.timeout))s idle it sinks out of view —\ntap the bottom edge to bring it back.")
+                .font(HudFont.mono(10.5, weight: .medium))
+                .foregroundStyle(HudPalette.ink)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+            Glyphic(kind: .chevron, size: 9, rotation: .degrees(180))
+                .foregroundStyle(ScoutInk.dim)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [ScoutSignalSurface.top, ScoutSignalSurface.bottom],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .modifier(CrownMachined(shape: RoundedRectangle(cornerRadius: 14, style: .continuous)))
+                .overlay(
+                    ScoutFilmGrain(grainOpacity: 0.05)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                )
+                .shadow(color: .black.opacity(0.55), radius: 16, y: 8)
+        )
+        .onTapGesture { dismissIdleHint() }
+        .accessibilityLabel("The crown hides after a few seconds idle. Tap the bottom edge to bring it back.")
     }
 
     // The permanent top strip: a FULL-BLEED solid band (the docked tab bar's
@@ -791,8 +934,9 @@ struct CrownNavChrome: View {
     // minimal — no strip at rest, and on summon the strip fades in full-bleed
     // FROM THE VERY TOP so the island punches through it (a strip starting
     // below the notch leaves an ugly dead band). Phone content TOP-ANCHORS
-    // 19pt below the REAL device inset (`deviceTopInset` — the chrome ignores
-    // the top safe area, so geo's inset reads 0 here).
+    // 14pt below the REAL device inset (`deviceTopInset` — the chrome ignores
+    // the top safe area, so geo's inset reads 0 here), the row CENTER-aligned
+    // so LED and dials share one centerline.
     private func topCluster(_ geo: GeometryProxy) -> some View {
         let inset = deviceTopInset
         let railHeight = inset + railZone
@@ -812,7 +956,7 @@ struct CrownNavChrome: View {
 
             VStack(spacing: 0) {
                 Spacer().frame(height: inset)
-                HStack(alignment: isWide ? .center : .top, spacing: 0) {
+                HStack(alignment: .center, spacing: 0) {
                     topLeading
                     Spacer(minLength: 8)
                     Button(action: onLED) { ledDisplay }
@@ -821,8 +965,8 @@ struct CrownNavChrome: View {
                     Spacer(minLength: 8)
                     topTrailing
                 }
-                .padding(.horizontal, isWide ? 28 : sizing.hPad)
-                .padding(.top, isWide ? 0 : 19)
+                .padding(.horizontal, isWide ? 22 : sizing.hPad)
+                .padding(.top, isWide ? 0 : 14)
                 .frame(height: railZone, alignment: isWide ? .center : .top)
             }
             .frame(height: railHeight)
@@ -947,8 +1091,10 @@ struct CrownNavChrome: View {
         }
         .frame(maxWidth: isWide ? 620 : .infinity)
         // Labels are gone — only a snug reserve below the control row so the
-        // unit hugs the bottom without dead space padding it out.
-        .padding(.bottom, 4)
+        // unit hugs the bottom without dead space padding it out. The wide
+        // canvas keeps 2pt more so the island's rim never kisses the status
+        // strip's top edge below it.
+        .padding(.bottom, isWide ? 6 : 4)
     }
 
     // Fast spring + tight stagger — the operator wants the choreography
@@ -970,13 +1116,15 @@ struct CrownNavChrome: View {
 
     /// The top complications' entrance: a scale-up PLUS a slide in from the
     /// strip's center — the study's "lodging" motion, so a complication reads
-    /// as docking into its slot rather than popping into existence.
+    /// as docking into its slot rather than popping into existence. Wide-canvas
+    /// pills ride 1pt high so their bottom rim clears the strip's lower edge.
     @ViewBuilder
     private func stagedTop<Content: View>(leading: Bool, _ index: Int, @ViewBuilder _ content: () -> Content) -> some View {
         content()
             .scaleEffect(assembled ? 1 : 0.4)
             .opacity(assembled ? 1 : 0)
             .offset(x: assembled ? 0 : (leading ? 90 : -90))
+            .offset(y: isWide ? -1 : 0)
             .allowsHitTesting(assembled)
             .animation(anim(index), value: assembled)
     }
