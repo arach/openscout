@@ -1034,7 +1034,7 @@ const mobileRouter = t.router({
       return getScoutMobileActivity(input);
     }),
 
-  // Usage-quota readout (Claude / Codex / GitHub). No params; the phone just
+  // Usage-quota readout (Claude / Codex / Kimi / GitHub). No params; the phone just
   // asks for the current budgets and gets one flat row per known provider.
   serviceBudgets: procedure
     .input(z.object({}).optional())

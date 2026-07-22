@@ -94,7 +94,7 @@ const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[2].value;
 const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 const MOVING_WINDOW_STORAGE_KEY = "openscout.home.movingWindow.v1";
 const MOVING_SORT_STORAGE_KEY = "openscout.home.movingSort.v1";
-// Service-budget data (claude/codex/github usage) is expensive to compute
+// Service-budget data (claude/codex/kimi/github usage) is expensive to compute
 // and doesn't change minute-to-minute. Refresh once an hour; the server
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;

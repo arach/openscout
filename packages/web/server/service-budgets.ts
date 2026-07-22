@@ -6,6 +6,8 @@
  *             (carries authoritative rate_limits.secondary — the OpenAI weekly window)
  *   - claude: provider-reported Anthropic quota windows from statusline capture
  *             or the control-plane DB when available
+ *   - kimi:   provider-reported Kimi Code 5-hour and weekly subscription quota
+ *             from the same `/usages` endpoint used by Kimi Code's `/usage`
  *   - github: `gh api rate_limit` resources.core (hourly window; honest about scope)
  *
  * Cached server-side so we can poll cheaply from the client.
@@ -27,6 +29,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const CODEX_LOOKBACK_DAYS = 3;
 const GH_CLI_TIMEOUT_MS = 4000;
+const KIMI_USAGE_TIMEOUT_MS = 4000;
 const DB_BUSY_TIMEOUT_MS = 2_500;
 const QUOTA_HISTORY_BUCKET_MS = 60 * 60 * 1000;
 const QUOTA_HISTORY_LOOKBACK_MS = WEEK_MS;
@@ -35,6 +38,7 @@ const PERSISTED_QUOTA_ROW_LIMIT = 768;
 const CLAUDE_STATUSLINE_HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
 const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
+const KIMI_USAGE_JSON_ENV = "OPENSCOUT_KIMI_USAGE_JSON";
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -66,6 +70,7 @@ export type ServiceGauge =
       unitLabel: string;
       resetAt: number;
       windows?: ServiceQuotaWindowGauge[];
+      plan?: string;
     }
   | {
       id: string;
@@ -99,12 +104,13 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
   if (!forceRefresh && inflight) return inflight;
 
   inflight = (async () => {
-    const [codex, claude, github] = await Promise.all([
+    const [codex, claude, kimi, github] = await Promise.all([
       loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
       loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
+      loadKimiGauge().catch((error) => serviceBudgetProviderFailed("kimi", error)),
       loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
-    const gauges = [codex, claude, github].filter((g): g is ServiceGauge => g !== null);
+    const gauges = [codex, claude, kimi, github].filter((g): g is ServiceGauge => g !== null);
     const value: ServiceBudgetsResponse = { generatedAt: Date.now(), gauges };
     cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     return value;
@@ -307,6 +313,7 @@ type ServiceQuotaSnapshot = {
   provider?: string | null;
   harness?: string | null;
   transport?: string | null;
+  planType?: string | null;
   label: string;
   windowKind?: string | null;
   usedPercent?: number | null;
@@ -532,6 +539,7 @@ function loadPersistedProviderQuotaSnapshots(input: {
         provider,
         harness,
         transport,
+        plan_type AS planType,
         label,
         window_kind AS windowKind,
         used_percent AS usedPercent,
@@ -591,6 +599,11 @@ function quotaGaugeFromSnapshots(input: {
     windows.find((window) => window.label === "7d") ??
     windows[windows.length - 1]!;
   const fill = Math.max(...windows.map((window) => window.fill));
+  const plan = snapshots
+    .filter((snapshot) => snapshot.capturedAt >= minCurrentCapturedAt)
+    .sort((a, b) => b.capturedAt - a.capturedAt)
+    .map((snapshot) => stringValue(snapshot.planType))
+    .find((value): value is string => Boolean(value));
 
   return {
     id: input.id,
@@ -602,6 +615,7 @@ function quotaGaugeFromSnapshots(input: {
     unitLabel: displayWindow.label,
     resetAt: displayWindow.resetAt,
     windows,
+    ...(plan ? { plan } : {}),
   };
 }
 
@@ -736,6 +750,217 @@ function quotaWindowSortRank(label: string): number {
   if (label === "5h") return 0;
   if (label === "7d") return 1;
   return 2;
+}
+
+/* ── kimi ───────────────────────────────────────────────────────────── */
+
+type KimiUsageDetail = {
+  limit?: unknown;
+  used?: unknown;
+  remaining?: unknown;
+  resetTime?: unknown;
+  resetAt?: unknown;
+  reset_at?: unknown;
+};
+
+type KimiUsageLimit = {
+  detail?: KimiUsageDetail;
+  window?: {
+    duration?: unknown;
+    timeUnit?: unknown;
+  };
+};
+
+type KimiUsageResponse = {
+  usage?: KimiUsageDetail;
+  limits?: KimiUsageLimit[];
+  user?: {
+    membership?: {
+      level?: unknown;
+    };
+  };
+};
+
+async function loadKimiGauge(): Promise<ServiceGauge | null> {
+  const persisted = loadPersistedProviderQuotaGauge({
+    id: "kimi",
+    label: "kimi",
+    provider: "kimi",
+    harness: "kimi",
+    maxAgeMs: WEEK_MS,
+  });
+  const payload = await readKimiUsageResponse();
+  // Kimi OAuth access tokens are short-lived and refreshed by Kimi Code itself.
+  // A manual Scout refresh while Kimi is closed should retain the last valid,
+  // non-expired provider snapshot rather than blinking the gauge away.
+  if (!payload) return persisted;
+
+  const capturedAt = Date.now();
+  const snapshots = kimiQuotaSnapshots(payload, capturedAt);
+  if (snapshots.length === 0) return persisted;
+
+  persistQuotaSnapshots(snapshots);
+  const refreshed = loadPersistedProviderQuotaGauge({
+    id: "kimi",
+    label: "kimi",
+    provider: "kimi",
+    harness: "kimi",
+    maxAgeMs: WEEK_MS,
+  });
+  const gauge = refreshed ?? quotaGaugeFromSnapshots({
+    id: "kimi",
+    label: "kimi",
+  }, snapshots);
+  const plan = kimiMembershipPlan(payload);
+  return gauge?.kind === "quota" && plan ? { ...gauge, plan } : gauge;
+}
+
+async function readKimiUsageResponse(): Promise<KimiUsageResponse | null> {
+  const fixtureJson = process.env[KIMI_USAGE_JSON_ENV];
+  if (fixtureJson?.trim()) {
+    const parsed = parseJsonRecord(fixtureJson);
+    return parsed as KimiUsageResponse | null;
+  }
+
+  const credentials = readKimiCredentials();
+  const accessToken = stringValue(credentials?.access_token);
+  if (!accessToken) return null;
+
+  let response: Response;
+  try {
+    response = await fetch("https://api.kimi.com/coding/v1/usages", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(KIMI_USAGE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    debugServiceBudgetProvider("kimi", "usage request failed", error);
+    return null;
+  }
+  if (!response.ok) {
+    debugServiceBudgetProvider("kimi", "usage request returned non-success status", {
+      status: response.status,
+    });
+    return null;
+  }
+
+  try {
+    const parsed = await response.json();
+    return recordValue(parsed) as KimiUsageResponse | null;
+  } catch (error) {
+    debugServiceBudgetProvider("kimi", "usage response was not valid JSON", error);
+    return null;
+  }
+}
+
+function kimiCodeHome(): string {
+  return process.env.KIMI_CODE_HOME?.trim() || join(homeDir(), ".kimi-code");
+}
+
+function readKimiCredentials(): Record<string, unknown> | null {
+  const candidates = [join(kimiCodeHome(), "credentials", "kimi-code.json")];
+  if (!process.env.KIMI_CODE_HOME?.trim()) {
+    candidates.push(join(homeDir(), ".kimi", "credentials", "kimi-code.json"));
+  }
+  for (const path of candidates) {
+    const credentials = readJsonRecord(path);
+    if (credentials) return credentials;
+  }
+  return null;
+}
+
+function kimiQuotaSnapshots(payload: KimiUsageResponse, capturedAt: number): ServiceQuotaSnapshot[] {
+  const planType = kimiMembershipPlan(payload);
+  const weekly = kimiQuotaSnapshot(payload.usage, {
+    label: "7d",
+    windowKind: "secondary",
+    windowMs: WEEK_MS,
+    capturedAt,
+    planType,
+  });
+  const limits = Array.isArray(payload.limits) ? payload.limits : [];
+  const rolling = limits.flatMap((limit, index) => {
+    const windowMs = kimiWindowMs(limit.window);
+    if (!limit.detail || !windowMs) return [];
+    const label = formatWindowMs(windowMs) ?? `limit-${index + 1}`;
+    const snapshot = kimiQuotaSnapshot(limit.detail, {
+      label,
+      windowKind: label === "5h" ? "primary" : `limit-${index + 1}`,
+      windowMs,
+      capturedAt,
+      planType,
+    });
+    return snapshot ? [snapshot] : [];
+  });
+  return [weekly, ...rolling].filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+}
+
+function kimiQuotaSnapshot(
+  detail: KimiUsageDetail | undefined,
+  options: {
+    label: string;
+    windowKind: string;
+    windowMs: number;
+    capturedAt: number;
+    planType?: string;
+  },
+): ServiceQuotaSnapshot | null {
+  if (!detail) return null;
+  const limit = numericValue(detail.limit);
+  const used = numericValue(detail.used);
+  const remaining = numericValue(detail.remaining);
+  const usedPercent = limit !== undefined && limit > 0
+    ? ((used ?? Math.max(0, limit - (remaining ?? limit))) / limit) * 100
+    : undefined;
+  const percentRemaining = limit !== undefined && limit > 0 && remaining !== undefined
+    ? (remaining / limit) * 100
+    : usedPercent === undefined
+      ? undefined
+      : Math.max(0, 100 - usedPercent);
+  if (usedPercent === undefined && percentRemaining === undefined) return null;
+
+  const resetAt = timestampMs(detail.resetTime)
+    ?? timestampMs(detail.resetAt)
+    ?? timestampMs(detail.reset_at)
+    ?? options.capturedAt + options.windowMs;
+  return {
+    provider: "kimi",
+    harness: "kimi",
+    transport: "kimi_acp",
+    planType: options.planType,
+    label: options.label,
+    windowKind: options.windowKind,
+    usedPercent,
+    percentRemaining,
+    resetAt,
+    windowMs: options.windowMs,
+    capturedAt: options.capturedAt,
+    metadata: {
+      source: "service-budgets.kimi-usages",
+    },
+  };
+}
+
+function kimiWindowMs(window: KimiUsageLimit["window"]): number | null {
+  const duration = numericValue(window?.duration);
+  if (duration === undefined || duration <= 0) return null;
+  const unit = stringValue(window?.timeUnit)?.toUpperCase() ?? "";
+  if (unit.includes("MINUTE")) return duration * 60_000;
+  if (unit.includes("HOUR")) return duration * 60 * 60_000;
+  if (unit.includes("DAY")) return duration * 24 * 60 * 60_000;
+  if (unit.includes("SECOND")) return duration * 1000;
+  return null;
+}
+
+function kimiMembershipPlan(payload: KimiUsageResponse): string | undefined {
+  const raw = stringValue(payload.user?.membership?.level);
+  if (!raw) return undefined;
+  return raw
+    .replace(/^LEVEL_/u, "")
+    .toLowerCase()
+    .replace(/(^|_)([a-z])/gu, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
 }
 
 /* ── github ─────────────────────────────────────────────────────────── */
@@ -875,15 +1100,16 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
         captured_at, metadata_json, created_at
       ) VALUES (
         ?1, 'provider_reported', ?2, ?3, ?4, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL, ?5, ?6,
-        ?7, ?8, ?9, ?10, ?11, ?12,
-        ?13, ?14, ?15
+        NULL, NULL, NULL, ?5, ?6, ?7,
+        ?8, ?9, ?10, ?11, ?12, ?13,
+        ?14, ?15, ?16
       )
       ON CONFLICT(id) DO UPDATE SET
         source = excluded.source,
         provider = excluded.provider,
         harness = excluded.harness,
         transport = excluded.transport,
+        plan_type = excluded.plan_type,
         label = excluded.label,
         window_kind = excluded.window_kind,
         used_percent = excluded.used_percent,
@@ -913,6 +1139,7 @@ function persistQuotaSnapshots(snapshots: ServiceQuotaSnapshot[]): void {
         snapshot.provider ?? null,
         snapshot.harness ?? null,
         snapshot.transport ?? null,
+        snapshot.planType ?? null,
         snapshot.label,
         snapshot.windowKind ?? null,
         finiteNumber(snapshot.usedPercent) ?? null,
