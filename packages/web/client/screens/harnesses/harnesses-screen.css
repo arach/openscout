@@ -516,11 +516,29 @@
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.hs-cloud-mark svg {
+  width: 21px;
+  height: 21px;
+  fill: currentColor;
+}
+
+.hs-cloud-mark img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.hs-cloud-mark--cloudflare {
+  color: #f38020;
+}
+
+.hs-cloud-mark--vercel svg {
+  width: 19px;
+  height: 19px;
 }
 
 .hs-cloud-category {
