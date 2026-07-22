@@ -3236,9 +3236,8 @@ export interface TmuxDispatchStrategy {
 }
 
 export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string): TmuxDispatchStrategy {
-  // Default verifier: the prompt is considered submitted iff its content no longer
-  // shows up in the tail of the pane. Per-harness branches override this when a
-  // more reliable signal exists (e.g. a composer prompt marker).
+  // Pi and Grok do not expose Claude's stable composer markers, so retain the
+  // prompt-fragment fallback for those harnesses.
   const promptAbsentFromTail = (paneTail: string) =>
     !tmuxPaneTailContainsPromptFragment(paneTail, prompt);
 
@@ -3249,7 +3248,7 @@ export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string)
   // historically prepended to "leave insert mode", but newer Claude Code builds
   // bind Escape to composer state actions (close suggestion, cancel pending tool)
   // and can silently swallow the Enter that follows.
-  return { submit: ["Enter"], verify: promptAbsentFromTail };
+  return { submit: ["Enter"], verify: tmuxPaneTailShowsClaudePromptAccepted };
 }
 
 export async function sendTmuxPrompt(
@@ -3403,6 +3402,25 @@ export function tmuxPaneTailContainsPromptFragment(paneTail: string, prompt: str
     return false;
   }
   return textContainsPromptFragment(cleanedTail, prompt);
+}
+
+function tmuxPaneTailShowsClaudePromptAccepted(paneTail: string): boolean {
+  const cleanedTail = stripTerminalControlSequences(paneTail);
+  const lines = cleanedTail.split(/\r?\n/);
+  const anchor = findActiveTmuxComposerAnchor(lines);
+  if (!anchor) {
+    return tmuxPaneTailShowsHarnessActivity(cleanedTail);
+  }
+
+  const outputAfterPrompt = lines.slice(anchor.index + 1).join("\n");
+  if (tmuxPaneTailShowsHarnessActivity(outputAfterPrompt)) {
+    return true;
+  }
+
+  const composerText = anchor.kind === "inline"
+    ? collectInlineComposerText(lines, anchor.index)
+    : collectBoxedComposerText(lines, anchor.index);
+  return composerText.length === 0;
 }
 
 function textContainsPromptFragment(haystack: string, prompt: string): boolean {
