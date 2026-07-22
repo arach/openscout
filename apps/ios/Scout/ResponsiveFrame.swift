@@ -16,7 +16,8 @@ struct ScoutLayoutMetrics: Equatable {
     var titleTopPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.sm }
     var titleBottomPadding: CGFloat { HudSpacing.xs }
     // A thin, small all-caps wordmark (set with wide tracking at the call site).
-    var wordmarkSize: CGFloat { isNarrowPhone ? 14 : 15 }
+    // Kept compact so the masthead yields the top band to the host area.
+    var wordmarkSize: CGFloat { isNarrowPhone ? 11.5 : 12.5 }
     var surfacePadding: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }
     var surfaceTopPadding: CGFloat { isNarrowPhone ? HudSpacing.sm : HudSpacing.lg }
     var surfaceBottomPadding: CGFloat { isNarrowPhone ? HudSpacing.xl : HudSpacing.xxl }

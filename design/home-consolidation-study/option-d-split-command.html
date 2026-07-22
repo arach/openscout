@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option D — Split Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(0.132 0.004 260); --surface:oklch(0.178 0.005 260);
+    --surface2:oklch(0.205 0.005 260); --ink:oklch(0.965 0.006 260);
+    --muted:oklch(0.72 0.008 260); --dim:oklch(0.57 0.007 260);
+    --border:oklch(0.965 0.006 260 / 0.09); --border2:oklch(0.965 0.006 260 / 0.14);
+    --accent:oklch(0.86 0.17 125); --ok:oklch(0.80 0.15 155);
+    --amber:oklch(0.82 0.12 75);
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --serif:"Cormorant Garamond",Georgia,serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:28px 24px 64px;-webkit-font-smoothing:antialiased}
+  .page{max-width:1280px;margin:0 auto}
+  a.back{color:var(--dim);text-decoration:none;font-size:11px;letter-spacing:.06em}
+  a.back:hover{color:var(--muted)}
+  .tag{color:var(--dim);font-size:9px;letter-spacing:.14em;text-transform:uppercase;margin-left:12px}
+  h1{font-size:14px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:12px 0 4px}
+  .concept{color:var(--muted);font-size:12px;margin:0 0 18px;max-width:860px;line-height:1.65}
+  .concept b{color:var(--ink)}
+  .frame{background:var(--bg);border:1px solid var(--border2);border-radius:10px;
+    overflow:hidden;box-shadow:0 30px 80px -40px #000;padding:24px 26px 30px}
+
+  .hd{padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+  .hd-topbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;
+    padding:10px 12px;border:1px solid var(--border);border-radius:8px;
+    background:color-mix(in srgb,var(--surface) 86%,var(--bg));font-size:11px;color:var(--dim)}
+  .path{color:var(--ink);letter-spacing:.08em;text-transform:uppercase}
+  .path.muted{color:var(--dim)}
+  .sep{opacity:.7;margin:0 4px}
+  .op{color:var(--ink)} .meta{color:var(--muted)}
+  .dot{width:5px;height:5px;border-radius:50%;background:var(--ok);display:inline-block;margin:0 4px}
+  .btn{font-family:var(--mono);font-size:10px;color:var(--muted);background:transparent;
+    border:1px solid var(--border);border-radius:5px;padding:4px 8px;margin-left:4px;cursor:default}
+  .hero-row{display:grid;grid-template-columns:1fr 280px;gap:12px;margin-top:12px}
+  @media (max-width:960px){.hero-row,.cols{grid-template-columns:1fr !important}}
+  .gauges{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .gauge{border:1px solid var(--border);border-radius:6px;padding:9px 11px;background:color-mix(in srgb,var(--bg) 50%,var(--surface))}
+  .g-row{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:5px}
+  .g-pct{color:var(--ok)} .g-pct.warn{color:var(--amber)}
+  .g-bar{height:4px;border-radius:2px;background:var(--surface2);overflow:hidden}
+  .g-bar>i{display:block;height:100%;background:var(--ok)} .g-bar>i.warn{background:var(--amber)}
+  .g-meta{margin-top:4px;font-size:10px;color:var(--dim)}
+  .hr{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface)}
+  .eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .live{font-size:10px;color:var(--ok);margin-left:6px}
+  .hr-svg{width:100%;height:44px;display:block;margin-top:4px}
+  .hr-stats{display:flex;gap:12px;margin-top:4px;font-size:10px;color:var(--dim)}
+  .hr-stats b{color:var(--ink);font-family:var(--serif);font-style:italic;font-size:15px;margin-right:3px}
+
+  /* split */
+  .cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(280px,.85fr);gap:14px;align-items:start}
+  .col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .col-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+    padding:0 2px;display:flex;align-items:center;gap:8px}
+  .col-label::after{content:"";flex:1;height:1px;background:var(--border)}
+
+  .panel{border:1px solid var(--border);border-radius:8px;background:color-mix(in srgb,var(--surface) 82%,var(--bg));overflow:hidden}
+  .panel-head{min-height:38px;padding:8px 12px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .panel-body{padding:11px 12px}
+  .link{font-size:10px;color:var(--dim)}
+  .count{font-size:10px;color:var(--muted)}
+
+  .target-row{display:grid;grid-template-columns:max-content 1fr;gap:8px;align-items:center;margin-bottom:8px}
+  .lbl{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+  select,textarea{font-family:var(--mono);font-size:12px;color:var(--ink);width:100%;
+    background:color-mix(in srgb,var(--bg) 64%,var(--surface));border:1px solid var(--border);border-radius:6px}
+  select{height:30px;padding:0 8px}
+  textarea{min-height:84px;padding:9px 11px;resize:vertical}
+  .tools{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .tool{font-size:10px;color:var(--dim);padding:3px 7px;border:1px solid var(--border);border-radius:4px}
+  .send{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;padding:6px 12px;
+    border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--bg)}
+
+  .tail{background:var(--bg);font-size:11px;line-height:1.5;padding:8px 10px;min-height:160px}
+  .tail .ln{display:grid;grid-template-columns:48px 1fr;gap:8px;padding:2px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent)}
+  .tail .t{color:var(--dim)} .tail .m{color:var(--muted)} .tail b{color:var(--ink);font-weight:500}
+  .ok{color:var(--ok)} .warn{color:var(--amber)}
+
+  .stream .arow{display:grid;grid-template-columns:44px 72px 1fr;gap:8px;padding:6px 0;
+    border-bottom:1px solid color-mix(in srgb,var(--border) 60%,transparent);font-size:11px;color:var(--muted)}
+  .arow .t{color:var(--dim)} .arow .a{color:var(--ink)}
+  .tabs{display:inline-flex;gap:2px}
+  .tab{font-family:var(--mono);font-size:10px;color:var(--dim);padding:2px 7px;border:1px solid transparent;border-radius:3px;background:transparent}
+  .tab.on{color:var(--ink);border-color:var(--border)}
+
+  .mrow{display:grid;grid-template-columns:8px 1fr auto;gap:8px;align-items:start;padding:7px 0;
+    border-bottom:1px solid color-mix(in srgb,var(--border) 55%,transparent);font-size:11px}
+  .mdot{width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px}
+  .mdot.idle{background:var(--dim)}
+  .mwho{color:var(--ink);font-weight:500}
+  .mwhat{color:var(--muted);font-size:10px;margin-top:2px;line-height:1.4}
+  .mage{color:var(--dim);font-size:10px;white-space:nowrap}
+
+  .branch{font-size:11px;color:var(--ink);font-weight:500;word-break:break-all;margin-bottom:6px}
+  .pills{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+  .pill{font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border);color:var(--muted)}
+  .pill.dirty{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 40%,var(--border))}
+  .pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--border))}
+  .sub{font-size:10px;color:var(--dim);line-height:1.45}
+
+  .item{display:flex;justify-content:space-between;gap:8px;padding:5px 0;
+    border-bottom:1px solid color-mix(in srgb,var(--border) 50%,transparent);font-size:11px}
+  .item .t{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .m{color:var(--dim);font-size:10px;flex:none}
+
+  .ports{display:flex;flex-wrap:wrap;gap:5px}
+  .port{font-size:10px;color:var(--muted);padding:4px 7px;border-radius:4px;
+    border:1px solid var(--border);background:color-mix(in srgb,var(--bg) 60%,transparent)}
+  .port b{color:var(--accent);font-weight:600}
+
+  .compact{/* stacked situational panels on right */}
+  .compact .panel-body{padding:9px 11px}
+
+  .spec{margin-top:18px;font-size:11px;color:var(--dim);line-height:1.85;max-width:900px}
+  .spec b{color:var(--muted)} .spec code{color:var(--accent);font-size:10px}
+</style>
+</head>
+<body>
+<div class="page">
+  <a class="back" href="index.html">‹ back to compare</a>
+  <span class="tag">Option D · Split layout</span>
+  <h1>Split Command</h1>
+  <p class="concept">Separate <b>action</b> from <b>awareness</b>. Left column is the always-on work surface: Message, Local tail, live activity. Right column is situational: What’s moving plus the new compact panels (repo, PRs, studies, ports). Hero still spans full width. Tests whether L/R hierarchy beats a flat grid when home must hold more.</p>
+
+  <div class="frame">
+    <section class="hd">
+      <div class="hd-topbar">
+        <div>
+          <span class="path">home</span><span class="sep">/</span>
+          <span class="path">fleet</span><span class="sep">/</span>
+          <span class="path muted">TUE 21 JUL</span>
+        </div>
+        <div>
+          <span>operator</span> <span class="op">art</span>
+          <span class="sep">/</span> <span class="meta">16:53:12</span>
+          <span class="dot"></span><span class="meta">updated 12s</span>
+          <button class="btn" type="button">[open ops]</button>
+          <button class="btn" type="button">[refresh]</button>
+        </div>
+      </div>
+      <div class="hero-row">
+        <div class="gauges">
+          <div class="gauge">
+            <div class="g-row"><span>Claude</span><span class="g-pct">62%</span></div>
+            <div class="g-bar"><i style="width:62%"></i></div>
+            <div class="g-meta">5h · 42k/68k · ↻ 4h</div>
+          </div>
+          <div class="gauge">
+            <div class="g-row"><span>Codex</span><span class="g-pct warn">78%</span></div>
+            <div class="g-bar"><i class="warn" style="width:78%"></i></div>
+            <div class="g-meta">5h · 31k/40k · ↻ 2h</div>
+          </div>
+        </div>
+        <div class="hr">
+          <span class="eyebrow">Heart-rate</span><span class="live">● live</span>
+          <svg class="hr-svg" viewBox="0 0 240 44" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="0" y1="34" x2="240" y2="34" stroke="oklch(0.965 0.006 260 / 0.09)"/>
+            <path d="M0,30 C25,28 50,20 80,22 C110,24 140,12 170,14 C200,16 220,10 240,11" fill="none" stroke="oklch(0.86 0.17 125)" stroke-width="1.4"/>
+            <circle cx="240" cy="11" r="2.2" fill="oklch(0.86 0.17 125)"/>
+          </svg>
+          <div class="hr-stats"><span><b>142</b>ev</span><span><b>4m</b>last</span><span><b>38m</b>gap</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="cols">
+      <!-- LEFT: work surface -->
+      <div class="col">
+        <div class="col-label">Work surface</div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Message</span></div>
+          <div class="panel-body">
+            <div class="target-row">
+              <span class="lbl">To</span>
+              <select><option>claude · callable</option><option>codex · in_turn</option><option>pi · idle</option></select>
+            </div>
+            <textarea placeholder="Type a message…"></textarea>
+            <div class="tools">
+              <span class="tool">Harness · claude</span>
+              <span class="tool">Model · default</span>
+              <button class="send" type="button">Send</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Local tail</span><span class="link">Open tail ↗</span></div>
+          <div class="tail">
+            <div class="ln"><span class="t">16:52:58</span><span class="m"><b>broker</b> delivery ok · flight fl-ecckne</span></div>
+            <div class="ln"><span class="t">16:52:41</span><span class="m"><b>claude</b> <span class="ok">in_turn</span> · home consolidation study</span></div>
+            <div class="ln"><span class="t">16:51:12</span><span class="m"><b>codex</b> replied · navigation polish</span></div>
+            <div class="ln"><span class="t">16:49:03</span><span class="m"><b>tail</b> watch /Users/art/dev/openscout</span></div>
+            <div class="ln"><span class="t">16:47:40</span><span class="m"><b>mesh</b> peer mac-studio reachable</span></div>
+            <div class="ln"><span class="t">16:45:18</span><span class="m"><b>github</b> <span class="warn">rate 78%</span> · remaining 940</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="eyebrow">Live activity · 18</span>
+            <span class="tabs">
+              <button class="tab" type="button">30m</button>
+              <button class="tab" type="button">6h</button>
+              <button class="tab on" type="button">24h</button>
+            </span>
+          </div>
+          <div class="panel-body stream">
+            <div class="arow"><span class="t">4m</span><span class="a">claude</span><span>sent a request · design-study task</span></div>
+            <div class="arow"><span class="t">12m</span><span class="a">codex</span><span>answered · navigation polish notes</span></div>
+            <div class="arow"><span class="t">28m</span><span class="a">broker</span><span>flight updated · fl-ecckne</span></div>
+            <div class="arow"><span class="t">41m</span><span class="a">art</span><span>said · keep quiet panels always-on</span></div>
+            <div class="arow"><span class="t">1h</span><span class="a">mesh</span><span>peer mac-studio · reachable</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: situational stack -->
+      <div class="col compact">
+        <div class="col-label">Awareness</div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="eyebrow">What's moving · 3</span>
+            <span class="link">mesh ↗</span>
+          </div>
+          <div class="panel-body">
+            <div class="mrow">
+              <span class="mdot"></span>
+              <div><div class="mwho">claude</div><div class="mwhat">home consolidation study</div></div>
+              <span class="mage">1m</span>
+            </div>
+            <div class="mrow">
+              <span class="mdot"></span>
+              <div><div class="mwho">codex</div><div class="mwhat">grouped product polish</div></div>
+              <span class="mage">12m</span>
+            </div>
+            <div class="mrow">
+              <span class="mdot idle"></span>
+              <div><div class="mwho">pi</div><div class="mwhat">native tail watcher</div></div>
+              <span class="mage">38m</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Repo</span><span class="link">diff ↗</span></div>
+          <div class="panel-body">
+            <div class="branch">codex/grouped-product-polish</div>
+            <div class="pills">
+              <span class="pill dirty">dirty · 4</span>
+              <span class="pill">↑1</span>
+              <span class="pill ok">↓0</span>
+            </div>
+            <div class="sub">last commit 2h · polish moving cards<br>origin · fetch ok</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Open PRs</span><span class="count">3</span></div>
+          <div class="panel-body">
+            <div class="item"><span class="t">#842 home moving sort</span><span class="m">review</span></div>
+            <div class="item"><span class="t">#839 nav chrome</span><span class="m">draft</span></div>
+            <div class="item"><span class="t">#821 quiet always-on</span><span class="m">CI ✓</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Recent studies</span><span class="link">design/ ↗</span></div>
+          <div class="panel-body">
+            <div class="item"><span class="t">home-consolidation-study</span><span class="m">today</span></div>
+            <div class="item"><span class="t">navigation-study</span><span class="m">2d</span></div>
+            <div class="item"><span class="t">mobile-chrome-study</span><span class="m">5d</span></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="eyebrow">Quick links</span><span class="count">ports</span></div>
+          <div class="panel-body">
+            <div class="ports">
+              <span class="port">web <b>:43120</b></span>
+              <span class="port">studio <b>:43130</b></span>
+              <span class="port">broker <b>:43100</b></span>
+              <span class="port">landing <b>:3000</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="spec">
+    <b>Keeps:</b> hero, heartrate, Message, Tail, What’s moving, live activity — Message/Tail always-on.<br>
+    <b>Structure:</b> left = act (compose · tail · stream); right = know (moving · repo · PRs · studies · ports).<br>
+    <b>Judge:</b> Does the split preserve operator focus better than C’s flat grid while still exposing the new panels? Strong candidate if home must grow without burying Send.
+  </p>
+</div>
+</body>
+</html>

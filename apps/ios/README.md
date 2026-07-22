@@ -33,6 +33,11 @@ apps/ios/scripts/install-last-build.sh
 apps/ios/scripts/push-device.sh
 ```
 
+Debug iPad builds load the signed, app-bundled Lanes and Dispatch pages. Set
+`SCOUT_REMOTE_WEB_SURFACES=1` in an Xcode run scheme only when intentionally
+troubleshooting the transitional host-served versions. Release keeps its
+existing gated behavior until the SCO-089 renderer cutover is complete.
+
 Use an explicit `xcodebuild -derivedDataPath` for any flow that reuses a prior
 device build. Do not guess the latest build by scanning DerivedData.
 

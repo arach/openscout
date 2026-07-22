@@ -100,8 +100,12 @@ struct HUDRunnerOverlay: View {
             .accessibilityAddTraits(.isModal)
     }
 
+    @ViewBuilder
     private var intakeLayer: some View {
-        geometryLayer
+        if runner.completion != nil {
+            geometryLayer
+        } else {
+            geometryLayer
             .transition(.opacity)
             .animation(
                 reduceMotion ? nil : .easeInOut(duration: 0.16),
@@ -130,6 +134,7 @@ struct HUDRunnerOverlay: View {
                     onAttachments: runner.stageAttachments
                 )
             )
+        }
     }
 
     private var geometryLayer: some View {
@@ -151,32 +156,38 @@ struct HUDRunnerOverlay: View {
     }
 
     private func modal(size: CGSize) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HUDRunnerHeader()
-            Rectangle()
-                .fill(HUDChrome.composerBorder)
-                .frame(height: 1)
-            VStack(alignment: .leading, spacing: 22) {
-                HUDRunnerRoutingSurface(focus: $focusedField)
-                    .frame(
-                        height: HUDRunnerLayout.routingHeight(
-                            for: runner.disclosure,
-                            projectChoiceCount: projectChoiceCount,
-                            runtimeChoiceCount: runtimeChoiceCount
-                        ),
-                        alignment: .top
-                    )
-                VStack(alignment: .leading, spacing: 8) {
-                    HUDRunnerSectionLabel("MESSAGE")
-                    HUDRunnerComposer(
-                        focus: $focusedField,
-                        dropTargeted: dropTargeted
-                    )
+        Group {
+            if let completion = runner.completion {
+                HUDRunnerCompletionView(completion: completion)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    HUDRunnerHeader()
+                    Rectangle()
+                        .fill(HUDChrome.composerBorder)
+                        .frame(height: 1)
+                    VStack(alignment: .leading, spacing: 22) {
+                        HUDRunnerRoutingSurface(focus: $focusedField)
+                            .frame(
+                                height: HUDRunnerLayout.routingHeight(
+                                    for: runner.disclosure,
+                                    projectChoiceCount: projectChoiceCount,
+                                    runtimeChoiceCount: runtimeChoiceCount
+                                ),
+                                alignment: .top
+                            )
+                        VStack(alignment: .leading, spacing: 8) {
+                            HUDRunnerSectionLabel("MESSAGE")
+                            HUDRunnerComposer(
+                                focus: $focusedField,
+                                dropTargeted: dropTargeted
+                            )
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .disabled(runner.isSubmitting)
                 }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .disabled(runner.isSubmitting)
         }
         .frame(width: size.width, height: size.height)
         .background(HUDChrome.composerPanel)

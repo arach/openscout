@@ -14,6 +14,35 @@ struct HUDRunnerLocalReference: Identifiable, Equatable {
     }
 }
 
+struct HUDRunnerCompletion: Equatable, Sendable {
+    let title: String
+    let projectTitle: String
+    let projectPath: String
+    let runtimeLabel: String
+    let effortLabel: String
+    let conversationId: String?
+    let agentId: String?
+    let sessionId: String?
+    let flightId: String?
+
+    var referenceLabel: String? {
+        if let conversationId = conversationId?.trimmedNonEmpty {
+            return "chat \(Self.short(conversationId, length: 12))"
+        }
+        if let sessionId = sessionId?.trimmedNonEmpty {
+            return "session \(Self.short(sessionId, length: 14))"
+        }
+        if let flightId = flightId?.trimmedNonEmpty {
+            return "flight \(Self.short(flightId, length: 10))"
+        }
+        return nil
+    }
+
+    private static func short(_ value: String, length: Int) -> String {
+        value.count > length ? String(value.prefix(length)) : value
+    }
+}
+
 private struct HUDRunnerFileIntakeResult: Sendable {
     let url: URL
     let attachment: ScoutComposerImage?
@@ -67,6 +96,7 @@ final class HUDRunnerState: ObservableObject {
     @Published private(set) var isCommittingTask = false
     @Published var lastError: String?
     @Published var lastResponse: ScoutSessionStartResult?
+    @Published private(set) var completion: HUDRunnerCompletion?
     @Published private(set) var focusRequest = HUDRunnerFocusRequest(
         revision: 0,
         target: .instructions
@@ -85,11 +115,13 @@ final class HUDRunnerState: ObservableObject {
     private var automaticSelectedProjectId: String?
     private var submissionTask: Task<Void, Never>?
     private var submissionID: UUID?
-    private var successDismissTask: Task<Void, Never>?
     private var activeFileIntakeIDs = Set<UUID>()
     private var voicePreparationID: UUID?
     private var runtimeSelectionIsExplicit = false
     private var persistenceSelectionIsExplicit = false
+    private var projectSelectionIsRequired = false
+    private var automaticAgentName: String?
+    private var automaticDisplayName: String?
     private let historyDefaults: UserDefaults?
 
     private static let historyDefaultsKey = "hud.runner.recent-history.v1"
@@ -109,13 +141,12 @@ final class HUDRunnerState: ObservableObject {
         prefillInstructions: String? = nil,
         projectRoot: String? = nil,
         closesHUDOnDismiss: Bool = false,
-        freshDraft: Bool = false
+        freshDraft: Bool = false,
+        requiresProjectSelection: Bool = false
     ) {
         let wasPresented = isPresented
-        successDismissTask?.cancel()
-        successDismissTask = nil
         if freshDraft, !isSubmitting {
-            resetDraft()
+            resetDraft(requiresProjectSelection: requiresProjectSelection)
         } else if !wasPresented {
             disclosure = .none
             runtimeDraft = nil
@@ -129,6 +160,7 @@ final class HUDRunnerState: ObservableObject {
         lastError = nil
         if let projectRoot = projectRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
            !projectRoot.isEmpty {
+            projectSelectionIsRequired = false
             directory = projectRoot
             projectQuery = URL(fileURLWithPath: projectRoot).lastPathComponent
             selectedProjectId = nil
@@ -162,6 +194,7 @@ final class HUDRunnerState: ObservableObject {
         isRuntimePickerPresented = false
         runtimePickerShowsConfiguration = false
         runtimePickerTuningPresetID = nil
+        completion = nil
         projectInputFocused = false
         HUDRunnerActivationLease.shared.end()
     }
@@ -192,10 +225,11 @@ final class HUDRunnerState: ObservableObject {
         isCommittingTask = false
     }
 
-    private func resetDraft() {
+    private func resetDraft(requiresProjectSelection: Bool = false) {
         activeFileIntakeIDs.removeAll()
         isStagingFiles = false
-        directory = preferredInitialDirectory
+        projectSelectionIsRequired = requiresProjectSelection
+        directory = requiresProjectSelection ? "" : preferredInitialDirectory
         projectQuery = ""
         projectSearchQuery = ""
         selectedProjectId = nil
@@ -208,6 +242,8 @@ final class HUDRunnerState: ObservableObject {
         runtimePickerTuningPresetID = nil
         runtimeSelectionIsExplicit = false
         persistenceSelectionIsExplicit = false
+        automaticAgentName = nil
+        automaticDisplayName = nil
         agentName = ""
         displayName = ""
         instructions = ""
@@ -217,7 +253,8 @@ final class HUDRunnerState: ObservableObject {
         attachmentSourceURLs = [:]
         lastError = nil
         lastResponse = nil
-        if let defaultProject = projectForDirectory(directory) {
+        completion = nil
+        if !requiresProjectSelection, let defaultProject = projectForDirectory(directory) {
             selectProject(defaultProject, automatic: true)
         } else if !directory.isEmpty {
             projectQuery = URL(fileURLWithPath: directory).lastPathComponent
@@ -252,6 +289,7 @@ final class HUDRunnerState: ObservableObject {
     }
 
     private func selectProject(_ project: HudRunnerProjectOption, automatic: Bool) {
+        projectSelectionIsRequired = false
         selectedProjectId = project.id
         automaticSelectedProjectId = automatic ? project.id : nil
         projectQuery = project.title
@@ -272,12 +310,7 @@ final class HUDRunnerState: ObservableObject {
                 explicit: false
             )
         }
-        if agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            agentName = slug(project.title)
-        }
-        if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            displayName = project.title
-        }
+        updateAutomaticAgentIdentity(title: project.title)
     }
 
     func updateProjectSearchQuery(_ value: String) {
@@ -296,12 +329,14 @@ final class HUDRunnerState: ObservableObject {
             panel.directoryURL = URL(fileURLWithPath: directory)
         }
         if panel.runModal() == .OK, let url = panel.url {
+            projectSelectionIsRequired = false
             directory = url.path
             cacheProjectDirectory(url.path)
             projectQuery = url.path
             projectSearchQuery = ""
             selectedProjectId = nil
             automaticSelectedProjectId = nil
+            updateAutomaticAgentIdentity(title: url.lastPathComponent)
             disclosure = .none
             requestFocus(.instructions)
             HUDRunnerAccessibility.announce("Directory \(url.lastPathComponent) selected.", priority: .medium)
@@ -674,6 +709,8 @@ final class HUDRunnerState: ObservableObject {
             automaticSelectedProjectId = nil
             agentName = ""
             displayName = ""
+            automaticAgentName = nil
+            automaticDisplayName = nil
             if !runtimeSelectionIsExplicit,
                let harness = options?.defaults?.harness,
                !harness.isEmpty {
@@ -1137,6 +1174,10 @@ final class HUDRunnerState: ObservableObject {
             voice.consumeFinalText()
             return true
         }
+        if completion != nil {
+            cancel()
+            return true
+        }
         if isRuntimePickerPresented {
             closeRuntimePicker()
             return true
@@ -1179,8 +1220,11 @@ final class HUDRunnerState: ObservableObject {
         if let runtimeDraft {
             setRuntime(normalizedRuntimePreset(runtimeDraft), explicit: true)
             self.runtimeDraft = nil
-            disclosure = .none
         }
+        disclosure = .none
+        isRuntimePickerPresented = false
+        runtimePickerShowsConfiguration = false
+        runtimePickerTuningPresetID = nil
         let id = UUID()
         submissionID = id
         isSubmitting = true
@@ -1226,6 +1270,11 @@ final class HUDRunnerState: ObservableObject {
             model: selectedModel,
             effort: reasoningEffort
         )
+        let submittedProjectTitle = selectedProject?.title.trimmedNonEmpty
+            ?? URL(fileURLWithPath: trimmedDirectory).lastPathComponent.trimmedNonEmpty
+            ?? trimmedDirectory
+        let submittedRuntimeLabel = runnerPresetLabel
+        let submittedEffortLabel = effortLabel
 
         do {
             try Task.checkCancellation()
@@ -1254,25 +1303,26 @@ final class HUDRunnerState: ObservableObject {
                 projectID: submittedProjectID,
                 runtime: submittedRuntime
             )
-            let shouldCloseHUD = closesHUDOnDismiss
-            finishPresentation()
             instructions = ""
             attachments = []
             localReferences = []
             capturedFileURLs = []
             attachmentSourceURLs = [:]
-            let success = "started \(response.handle ?? response.agentId ?? response.conversationId ?? "Scout agent")"
+            let destination = response.handle ?? response.agentId ?? response.conversationId ?? "Scout agent"
+            completion = HUDRunnerCompletion(
+                title: destination,
+                projectTitle: submittedProjectTitle,
+                projectPath: trimmedDirectory,
+                runtimeLabel: submittedRuntimeLabel,
+                effortLabel: submittedEffortLabel,
+                conversationId: response.conversationId,
+                agentId: response.agentId,
+                sessionId: response.sessionId,
+                flightId: response.flightId
+            )
+            let success = "started \(destination) in \(submittedProjectTitle) with \(submittedRuntimeLabel)"
             HUDFlashState.shared.flash(success, kind: .success)
             HUDRunnerAccessibility.announce("Task \(success).", priority: .medium)
-            if shouldCloseHUD {
-                successDismissTask?.cancel()
-                successDismissTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .milliseconds(700))
-                    guard !Task.isCancelled, self?.isPresented == false else { return }
-                    HUDController.shared.dismiss()
-                    self?.successDismissTask = nil
-                }
-            }
         } catch {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled {
                 return
@@ -1294,9 +1344,9 @@ final class HUDRunnerState: ObservableObject {
     private func applyDefaultsIfNeeded(_ options: HudRunnerOptions) {
         guard !didApplyDefaults else { return }
         didApplyDefaults = true
-        let userStartedProject = automaticSelectedProjectId == nil
+        let userStartedProject = projectSelectionIsRequired || (automaticSelectedProjectId == nil
             && (selectedProjectId != nil
-                || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                || !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
         if !userStartedProject,
            directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             directory = options.defaults?.directory ?? NSHomeDirectory()
@@ -1354,6 +1404,7 @@ final class HUDRunnerState: ObservableObject {
     }
 
     private func resolvedDirectoryForSubmit() -> String {
+        guard !projectSelectionIsRequired else { return "" }
         if let selected = selectedProject {
             return selected.root
         }
@@ -1441,6 +1492,42 @@ final class HUDRunnerState: ObservableObject {
         let directory = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !directory.isEmpty else { return }
         historyDefaults?.set(directory, forKey: Self.lastProjectDirectoryDefaultsKey)
+    }
+
+    private func updateAutomaticAgentIdentity(title: String) {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return }
+        let suggestedName = slug(cleanTitle)
+        let currentName = agentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentName.isEmpty || currentName == automaticAgentName {
+            agentName = suggestedName
+            automaticAgentName = suggestedName
+        } else {
+            automaticAgentName = nil
+        }
+        let currentDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if currentDisplayName.isEmpty || currentDisplayName == automaticDisplayName {
+            displayName = cleanTitle
+            automaticDisplayName = cleanTitle
+        } else {
+            automaticDisplayName = nil
+        }
+    }
+
+    func openCompletedTask() {
+        guard let conversationId = completion?.conversationId?.trimmedNonEmpty else { return }
+        let userInfo = ScoutHUDRouter.distributedUserInfo(
+            command: "open-channel",
+            value: conversationId
+        )
+        finishPresentation()
+        HUDController.shared.dismiss()
+        DistributedNotificationCenter.default().postNotificationName(
+            ScoutHUDRouter.commandNotificationName,
+            object: nil,
+            userInfo: userInfo,
+            deliverImmediately: true
+        )
     }
 
     private static var developmentProjectRoot: String? {

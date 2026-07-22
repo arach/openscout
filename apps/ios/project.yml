@@ -31,7 +31,21 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Scout
+      - path: Scout
+        excludes:
+          - "Resources/WebSurfaces/**"
+      - path: Scout/Resources/WebSurfaces
+        type: folder
+        buildPhase: resources
+    preBuildScripts:
+      - name: Validate signed web surfaces
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(DERIVED_FILE_DIR)/scout-web-surfaces.stamp
+        script: |
+          set -euo pipefail
+          bash "${SRCROOT}/scripts/validate-web-surfaces.sh"
+          /usr/bin/touch "${DERIVED_FILE_DIR}/scout-web-surfaces.stamp"
     dependencies:
       - package: Hudson
         product: HudsonObservability

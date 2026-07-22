@@ -1880,6 +1880,27 @@ final class AppModel {
         return components.url
     }
 
+    /// Narrow read-only projection used by the app-bundled web-surface bridge.
+    /// The page receives a derived host fingerprint; the raw machine key and
+    /// concrete broker client never cross the WebKit boundary.
+    struct WebSurfaceMachine {
+        let machineId: String
+        let name: String
+        let isOnline: Bool
+        let client: (any ScoutBrokerClient)?
+    }
+
+    func webSurfaceMachines() -> [WebSurfaceMachine] {
+        pairedMachines.map { machine in
+            WebSurfaceMachine(
+                machineId: machine.id,
+                name: machine.name,
+                isOnline: machine.isOnline,
+                client: machine.isOnline ? fleet.connectedClient(machineId: machine.id) : nil
+            )
+        }
+    }
+
     /// True once at least one bridge has been paired (keychain-backed).
     var hasTrustedBridge: Bool {
         ((try? ScoutIdentity.getTrustedBridges()) ?? []).isEmpty == false

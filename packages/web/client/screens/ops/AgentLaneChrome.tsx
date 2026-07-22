@@ -13,6 +13,7 @@ export function AgentLaneChrome({
   onWidthChange,
   onResizeStart,
   resizing,
+  widthControls = true,
   /** SCO-085: inline status replaces ornamental loader in the column header. */
   statusLabel,
   live,
@@ -25,6 +26,7 @@ export function AgentLaneChrome({
   onWidthChange: (width: AgentLaneWidthTier) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   resizing?: boolean;
+  widthControls?: boolean;
   statusLabel?: string | null;
   live?: boolean;
 }) {
@@ -54,31 +56,35 @@ export function AgentLaneChrome({
             </span>
           ) : null}
         </div>
-        <div className="s-agent-lane-chrome-widths" role="group" aria-label="Lane width">
-          {WIDTH_OPTIONS.map((tier) => (
-            <button
-              key={tier}
-              type="button"
-              className={`s-agent-lane-chrome-width-btn${
-                activeTier === tier ? " s-agent-lane-chrome-width-btn--on" : ""
-              }`}
-              aria-pressed={activeTier === tier}
-              title={`${tier.toUpperCase()} width`}
-              onClick={() => onWidthChange(tier)}
-            >
-              {tier.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        {widthControls ? (
+          <div className="s-agent-lane-chrome-widths" role="group" aria-label="Lane width">
+            {WIDTH_OPTIONS.map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                className={`s-agent-lane-chrome-width-btn${
+                  activeTier === tier ? " s-agent-lane-chrome-width-btn--on" : ""
+                }`}
+                aria-pressed={activeTier === tier}
+                title={`${tier.toUpperCase()} width`}
+                onClick={() => onWidthChange(tier)}
+              >
+                {tier.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize lane width"
-        title="Drag to resize lane"
-        className={`s-agent-lane-width-handle${resizing ? " s-agent-lane-width-handle--active" : ""}`}
-        onPointerDown={onResizeStart}
-      />
+      {widthControls ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize lane width"
+          title="Drag to resize lane"
+          className={`s-agent-lane-width-handle${resizing ? " s-agent-lane-width-handle--active" : ""}`}
+          onPointerDown={onResizeStart}
+        />
+      ) : null}
     </div>
   );
 }

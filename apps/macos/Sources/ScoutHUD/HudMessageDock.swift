@@ -49,13 +49,21 @@ struct HudMessageDock: View {
 
     @ObservedObject private var dock = HUDDockState.shared
     @ObservedObject private var compose = ScoutComposeService.shared
+    @ObservedObject private var voice = HudVoiceService.shared
     @FocusState private var focused: Bool
     @State private var panelWidth: CGFloat = 0
+    // Collapsed at rest; grows into the full composer on engage (focus /
+    // click / hotkey / draft / voice). Collapses back on blur-when-empty.
+    @State private var engaged = false
 
     // Active thread name for the dock's target row. Defaults to "default"
     // until the thread map loads (stage 1 always resolves to that anyway).
     private var threadName: String {
         compose.activeThread?.name ?? "default"
+    }
+
+    private var voiceActive: Bool {
+        voice.state.isCaptureActive || voice.state.isProcessing
     }
 
     var body: some View {
@@ -66,29 +74,42 @@ struct HudMessageDock: View {
         // own intrinsic height — and the multi-line TextField grows it.
         let size = HudDockSize.from(panelWidth: panelWidth)
         Group {
-            switch size {
-            case .compact:
-                CompactDock(
+            if engaged {
+                switch size {
+                case .compact:
+                    CompactDock(
+                        pad: size.horizontalPadding,
+                        text: $dock.text,
+                        target: dock.targetLabel,
+                        scopeProject: dock.scopeProject,
+                        threadName: threadName,
+                        isSending: dock.isSending,
+                        focused: $focused,
+                        onSubmit: submit
+                    )
+                case .medium, .large:
+                    MediumLargeDock(
+                        size: size,
+                        text: $dock.text,
+                        target: dock.targetLabel,
+                        scopeProject: dock.scopeProject,
+                        threadName: threadName,
+                        isSending: dock.isSending,
+                        focused: $focused,
+                        onSubmit: submit
+                    )
+                }
+            } else {
+                CollapsedDock(
                     pad: size.horizontalPadding,
-                    text: $dock.text,
                     target: dock.targetLabel,
+                    scopeProject: dock.scopeProject,
                     threadName: threadName,
-                    isSending: dock.isSending,
-                    focused: $focused,
-                    onSubmit: submit
-                )
-            case .medium, .large:
-                MediumLargeDock(
-                    size: size,
-                    text: $dock.text,
-                    target: dock.targetLabel,
-                    threadName: threadName,
-                    isSending: dock.isSending,
-                    focused: $focused,
-                    onSubmit: submit
+                    onEngage: { engaged = true }
                 )
             }
         }
+        .animation(.easeOut(duration: 0.18), value: engaged)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .topLeading) {
             if dock.suggestionsVisible {
@@ -110,12 +131,30 @@ struct HudMessageDock: View {
             }
         )
         .onPreferenceChange(DockWidthKey.self) { panelWidth = $0 }
+        .onChange(of: engaged) { _, now in
+            // Grown → put the caret in the field so engage is one gesture.
+            guard now else { return }
+            focused = true
+            DockFieldSelection.moveCaretToEndSoon()
+        }
         .onChange(of: dock.focusRequested) { _, _ in
+            engaged = true
             focused = true
             DockFieldSelection.moveCaretToEndSoon()
         }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
-        .onChange(of: dock.text) { _, _ in refreshSuggestions() }
+        .onChange(of: focused) { _, now in
+            // Blur with nothing in flight collapses back to the resting bar;
+            // a half-typed draft or live dictation keeps it grown.
+            if !now, dock.text.isEmpty, !voiceActive { engaged = false }
+        }
+        .onChange(of: voice.state) { _, _ in
+            if voiceActive { engaged = true }
+        }
+        .onChange(of: dock.text) { _, next in
+            if !next.isEmpty { engaged = true }
+            refreshSuggestions()
+        }
         .onChange(of: agents) { _, next in
             dock.setSuggestionAgents(next)
         }
@@ -167,12 +206,56 @@ private extension MessageSuggestionPopoverStyle {
     )
 }
 
-// ─── Compact — single 32px row ──────────────────────────────────────
+// ─── Composer card chrome (studio MessageComposer shell) ────────────
+//
+// Rounded surface card — border + studio-surface bg, corner ~14. Shared
+// by collapsed rest and grown composer so the dock never reads as a flat
+// hairline bar.
+
+private struct DockComposerCard<Content: View>: View {
+    var contentPadding: CGFloat = 10
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, contentPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(HUDChrome.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(HUDChrome.border, lineWidth: 0.75)
+            )
+    }
+}
+
+// Outer dock strip: canvas + top edge, p-2 around the card (studio Dock).
+private struct DockStrip<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(HUDChrome.canvas)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(HUDChrome.border)
+                    .frame(height: 0.5)
+            }
+    }
+}
+
+// ─── Compact — MessageComposer density (1-row + tool row) ───────────
 
 private struct CompactDock: View {
     let pad: CGFloat
     @Binding var text: String
     let target: String?
+    let scopeProject: String?
     let threadName: String
     let isSending: Bool
     @FocusState.Binding var focused: Bool
@@ -185,21 +268,27 @@ private struct CompactDock: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                MicButton(box: 20, glyph: 12)
-                SpeakerButton(box: 20, glyph: 12)
+        // `pad` kept for call-site parity with size tiers; the studio
+        // strip uses a fixed p-2 (8) around the card.
+        let _ = pad
+        DockStrip {
+            DockComposerCard(contentPadding: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    DockComposerHeader(
+                        target: target,
+                        scopeProject: scopeProject,
+                        place: threadName
+                    )
 
-                if let target {
-                    MessageRouteChip(label: target, style: .hud)
-                    MessageContextPill(name: threadName, style: .hud)
-                }
-
-                ZStack(alignment: .leading) {
-                    TextField(showDictationPreview ? "" : "talk — / commands · @ agents", text: $text)
+                    ZStack(alignment: .leading) {
+                        TextField(
+                            showDictationPreview
+                                ? ""
+                                : "steer here · @work to reach · #project to scope · / for commands",
+                            text: $text
+                        )
                         .textFieldStyle(.plain)
-                        .font(HUDType.mono(10))
+                        .font(HUDType.mono(11))
                         .foregroundStyle(HUDChrome.ink)
                         .focused($focused)
                         .onKeyPress(phases: .down) { press in
@@ -209,40 +298,102 @@ private struct CompactDock: View {
                             return .handled
                         }
                         .onSubmit(onSubmit)
-                    if showDictationPreview {
-                        DictationLivePreview(text: voice.partial)
-                            .allowsHitTesting(false)
+                        if showDictationPreview {
+                            DictationLivePreview(text: voice.partial, fontSize: 11)
+                                .allowsHitTesting(false)
+                        }
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                MessageSendChip(isEnabled: !text.isEmpty, isSending: isSending, style: .hud(small: true), action: onSubmit)
-                EscChip()
-                HyperKeyChip()
-            }
-            .padding(.horizontal, pad)
-            .frame(height: 32)
-            .frame(maxWidth: .infinity)
-            .background(HUDChrome.canvas)
-            .overlay(alignment: .top) {
-                // Warm-cream hairline framing — same family as the panel
-                // rim but at a fraction of the alpha. Cuts the dock out
-                // of the body the way Lattices' "Hold to speak" strip
-                // sits below its log column.
-                Rectangle()
-                    .fill(HUDChrome.borderRim.opacity(0.55))
-                    .frame(height: 0.5)
+                    DockToolRow(
+                        micBox: 20,
+                        micGlyph: 12,
+                        isSending: isSending,
+                        textEmpty: text.isEmpty,
+                        smallSend: true,
+                        onSubmit: onSubmit
+                    )
+                }
             }
         }
     }
 }
 
-// ─── Medium / Large — two rows ──────────────────────────────────────
+// ─── Collapsed — resting rounded card (studio Dock lines ~190–204) ───
+//
+// Full-width rounded surface pill. Left→right: ▸ · place · | · hint · mic.
+// No doubled "steering here" copy — place + the grammar hint is enough.
+// Mic stays interactive on the RIGHT so hold-to-talk works at rest.
+
+private struct CollapsedDock: View {
+    let pad: CGFloat
+    let target: String?
+    let scopeProject: String?
+    let threadName: String
+    let onEngage: () -> Void
+
+    var body: some View {
+        let _ = pad
+        DockStrip {
+            // Engage zone + mic are siblings (not nested buttons) so the
+            // hold-to-talk gesture isn't swallowed by the card's onTap.
+            HStack(spacing: 8) {
+                Button(action: onEngage) {
+                    HStack(spacing: 8) {
+                        Text("▸")
+                            .font(HUDType.mono(10, weight: .semibold))
+                            .foregroundStyle(HUDChrome.accent)
+
+                        // Place is the default steer target. Staged @work /
+                        // #project chips surface when the operator has scoped.
+                        if let target {
+                            MessageRouteChip(label: target, style: .hud)
+                        }
+                        if let scopeProject {
+                            MessageRouteChip(label: "#\(scopeProject)", prefix: "#", style: .hud)
+                        }
+                        Text(threadName)
+                            .font(HUDType.mono(10))
+                            .foregroundStyle(HUDChrome.inkMuted)
+                            .lineLimit(1)
+
+                        Rectangle()
+                            .fill(HUDChrome.border)
+                            .frame(width: 1, height: 10)
+
+                        DockGrammarHint()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Mic on the RIGHT (studio MicGlyph). Interactive.
+                MicButton(box: 18, glyph: 11)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(HUDChrome.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(HUDChrome.border, lineWidth: 0.75)
+            )
+        }
+    }
+}
+
+// ─── Medium / Large — MessageComposer card, multi-line input ────────
 
 private struct MediumLargeDock: View {
     let size: HudDockSize
     @Binding var text: String
     let target: String?
+    let scopeProject: String?
     let threadName: String
     let isSending: Bool
     @FocusState.Binding var focused: Bool
@@ -251,78 +402,148 @@ private struct MediumLargeDock: View {
     @ObservedObject private var voice = HudVoiceService.shared
 
     private var isLarge: Bool { size == .large }
-    private var minInputH: CGFloat { isLarge ? 46 : 36 }
-    private var micBox: CGFloat { isLarge ? 28 : 24 }
-    private var micGlyph: CGFloat { isLarge ? 16 : 14 }
-    // Slightly smaller than the prior sans sizes — mono reads heavier.
-    private var placeholderSize: CGFloat { isLarge ? 11.5 : 10.5 }
+    private var micBox: CGFloat { isLarge ? 24 : 22 }
+    private var micGlyph: CGFloat { isLarge ? 14 : 13 }
+    private var placeholderSize: CGFloat { isLarge ? 12 : 11 }
     private var showDictationPreview: Bool {
         text.isEmpty && (voice.state.isCaptureActive || voice.state.isProcessing)
     }
 
     var body: some View {
-        // Top-aligned: chips stay with the first line; the text field
-        // grows downward as the operator types. lineLimit(1...5) caps
-        // growth so a runaway paste can't push the whole HUD around.
-        HStack(alignment: .top, spacing: 10) {
-            MicButton(box: micBox, glyph: micGlyph)
-            SpeakerButton(box: micBox, glyph: micGlyph)
+        DockStrip {
+            DockComposerCard(contentPadding: isLarge ? 12 : 10) {
+                VStack(alignment: .leading, spacing: 8) {
+                    DockComposerHeader(
+                        target: target,
+                        scopeProject: scopeProject,
+                        place: threadName
+                    )
+
+                    ZStack(alignment: .topLeading) {
+                        TextField(
+                            showDictationPreview
+                                ? ""
+                                : "steer here · @work to reach · #project to scope · / for commands",
+                            text: $text,
+                            axis: .vertical
+                        )
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...5)
+                        .font(HUDType.mono(placeholderSize))
+                        .foregroundStyle(HUDChrome.ink)
+                        .focused($focused)
+                        .onKeyPress(phases: .down) { press in
+                            guard press.key == .return else { return .ignored }
+                            guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+                            onSubmit()
+                            return .handled
+                        }
+                        .onSubmit(onSubmit)
+                        if showDictationPreview {
+                            DictationLivePreview(text: voice.partial, fontSize: placeholderSize)
+                                .allowsHitTesting(false)
+                                .padding(.top, 1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: isLarge ? 28 : 22, alignment: .leading)
+
+                    DockToolRow(
+                        micBox: micBox,
+                        micGlyph: micGlyph,
+                        isSending: isSending,
+                        textEmpty: text.isEmpty,
+                        smallSend: false,
+                        onSubmit: onSubmit
+                    )
+                }
+            }
+        }
+    }
+}
+
+// Header slot of the grown MessageComposer: ▸ place — steering here.
+// Staged @work / #project chips surface when the operator has scoped.
+private struct DockComposerHeader: View {
+    let target: String?
+    let scopeProject: String?
+    let place: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("▸")
+                .font(HUDType.mono(10, weight: .semibold))
+                .foregroundStyle(HUDChrome.accent)
 
             if let target {
                 MessageRouteChip(label: target, style: .hud)
-                    .padding(.top, isLarge ? 6 : 4)
-                MessageContextPill(name: threadName, style: .hud)
-                    .padding(.top, isLarge ? 6 : 4)
+            }
+            if let scopeProject {
+                MessageRouteChip(label: "#\(scopeProject)", prefix: "#", style: .hud)
             }
 
-            ZStack(alignment: .topLeading) {
-                TextField(
-                    showDictationPreview ? "" : "talk to the assistant — / commands, @ for agents",
-                    text: $text,
-                    axis: .vertical
-                )
-                .textFieldStyle(.plain)
-                .lineLimit(1...5)
-                // Mono small for cockpit voice and to match the message
-                // thread font; matches CompactDock which is already mono.
-                .font(HUDType.mono(placeholderSize))
-                .foregroundStyle(HUDChrome.ink)
-                .focused($focused)
-                .onKeyPress(phases: .down) { press in
-                    guard press.key == .return else { return .ignored }
-                    guard press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
-                    onSubmit()
-                    return .handled
-                }
-                .onSubmit(onSubmit)
-                if showDictationPreview {
-                    DictationLivePreview(text: voice.partial, fontSize: placeholderSize)
-                        .allowsHitTesting(false)
-                        .padding(.top, 1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, isLarge ? 4 : 3)
+            Text(place)
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .lineLimit(1)
 
-            MessageSendChip(isEnabled: !text.isEmpty, isSending: isSending, style: .hud(small: false), action: onSubmit)
-                .padding(.top, isLarge ? 6 : 4)
-
-            HStack(spacing: 8) {
-                EscChip()
-                HyperKeyChip()
+            if target == nil {
+                Text("— steering here")
+                    .font(HUDType.mono(10))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .lineLimit(1)
             }
-            .padding(.leading, 4)
-            .padding(.top, isLarge ? 6 : 4)
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, size.horizontalPadding)
-        .padding(.vertical, isLarge ? 6 : 4)
-        .frame(maxWidth: .infinity, minHeight: minInputH, alignment: .top)
-        .background(HUDChrome.canvas)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(HUDChrome.borderRim.opacity(0.55))
-                .frame(height: 0.5)
+    }
+}
+
+// Bottom tool row: mic · speaker · send · esc · hyper (studio attach ·
+// dictation · mic · send — native keeps speaker + esc/hyper chrome).
+private struct DockToolRow: View {
+    let micBox: CGFloat
+    let micGlyph: CGFloat
+    let isSending: Bool
+    let textEmpty: Bool
+    let smallSend: Bool
+    let onSubmit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            MicButton(box: micBox, glyph: micGlyph)
+            SpeakerButton(box: micBox, glyph: micGlyph)
+            Spacer(minLength: 0)
+            MessageSendChip(
+                isEnabled: !textEmpty,
+                isSending: isSending,
+                style: .hud(small: smallSend),
+                action: onSubmit
+            )
+            EscChip()
+            HyperKeyChip()
         }
+    }
+}
+
+// Grammar hint: faint body with @work / #project lifted to ink-muted
+// (studio collapsed Dock lines 199–201).
+private struct DockGrammarHint: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            Text("steer here · ")
+                .foregroundStyle(HUDChrome.inkFaint)
+            Text("@work")
+                .foregroundStyle(HUDChrome.inkMuted)
+            Text(" · ")
+                .foregroundStyle(HUDChrome.inkFaint)
+            Text("#project")
+                .foregroundStyle(HUDChrome.inkMuted)
+            Text(" · /")
+                .foregroundStyle(HUDChrome.inkFaint)
+        }
+        .font(HUDType.mono(11))
+        .lineLimit(1)
+        .truncationMode(.tail)
     }
 }
 

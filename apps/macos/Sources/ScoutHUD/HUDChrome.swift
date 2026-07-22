@@ -23,6 +23,10 @@ public enum HUDChrome {
     // intent is: black means black.
     public static let canvas      = Color(red: 0.045, green: 0.040, blue: 0.035)
     public static let canvasAlt   = Color(red: 0.080, green: 0.072, blue: 0.062)
+    // Elevated card fill — studio `--studio-surface` (composer / dock pill).
+    // Sits between canvasAlt and canvasLift so rounded cards read as a
+    // discrete surface without jumping to the louder lift tone.
+    public static let surface     = Color(red: 0.100, green: 0.092, blue: 0.080)
     public static let canvasLift  = Color(red: 0.155, green: 0.142, blue: 0.122)
     // Legacy glass tokens — still referenced by the panel background.
     // Pulled down into the new near-black range so the panel reads as

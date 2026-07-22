@@ -61,6 +61,7 @@ public struct MessageSuggestionPopoverStyle: @unchecked Sendable {
         switch kind {
         case .command: return commandAccent
         case .agent: return agentAccent
+        case .project: return commandAccent
         case .session: return sessionAccent
         }
     }
