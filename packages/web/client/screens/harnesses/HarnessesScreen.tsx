@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { HarnessMark, harnessLabel as sharedHarnessLabel } from "../../components/HarnessMark.tsx";
@@ -69,6 +69,41 @@ const HARNESS_LABELS: Record<string, string> = {
   github: "GitHub",
   unknown: "Unknown",
 };
+
+const SUBSCRIPTION_PROVIDERS = [
+  {
+    id: "claude",
+    description: "Anthropic plan windows captured from Claude Code.",
+    links: [
+      { label: "Usage", href: "https://claude.ai/settings/usage" },
+      { label: "Manage plan", href: "https://claude.ai/settings/billing" },
+    ],
+  },
+  {
+    id: "codex",
+    description: "OpenAI plan windows reported by local Codex sessions.",
+    links: [
+      { label: "Usage", href: "https://chatgpt.com/codex/settings/usage" },
+      { label: "Open Codex", href: "https://chatgpt.com/codex" },
+    ],
+  },
+  {
+    id: "kimi",
+    description: "Kimi Code subscription windows and membership level.",
+    links: [
+      { label: "Kimi Code", href: "https://www.kimi.com/code" },
+      { label: "Docs", href: "https://www.kimi.com/code/docs/en/" },
+    ],
+  },
+  {
+    id: "cursor",
+    description: "Cursor membership detected locally; usage stays on its dashboard.",
+    links: [
+      { label: "Usage", href: "https://cursor.com/dashboard/usage" },
+      { label: "Manage plan", href: "https://cursor.com/dashboard/billing" },
+    ],
+  },
+] as const;
 
 function canonicalHarnessId(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
@@ -311,6 +346,145 @@ function BudgetCell({ gauge }: { gauge: ServiceGauge | null }) {
   );
 }
 
+function SubscriptionQuotaWindow({ gauge, window }: { gauge: QuotaGauge; window: QuotaWindow }) {
+  const percentUsed = Math.max(0, Math.min(100, Math.round(window.fill * 100)));
+  const percentRemaining = 100 - percentUsed;
+  const tone = gaugeTone(window.fill);
+  const resetDateTime = Number.isFinite(window.resetAt) ? new Date(window.resetAt).toISOString() : undefined;
+  return (
+    <div className="hs-subscription-window">
+      <div className="hs-subscription-window-head">
+        <div>
+          <span className="hs-subscription-window-label">{window.label} window</span>
+          <strong className={`hs-subscription-usage hs-subscription-usage--${tone}`}>
+            {percentUsed}% used
+          </strong>
+        </div>
+        <div className="hs-subscription-remaining">
+          <strong>{percentRemaining}%</strong>
+          <span>available</span>
+        </div>
+      </div>
+      <div
+        className="hs-subscription-meter"
+        role="progressbar"
+        aria-label={`${gauge.label} ${window.label} usage`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percentUsed}
+      >
+        <span className={`hs-subscription-meter-fill hs-subscription-meter-fill--${tone}`} style={{ width: `${percentUsed}%` }} />
+      </div>
+      <div className="hs-subscription-window-meta">
+        <span>{usageLabel(window)} {window.unitLabel === "quota" ? "quota" : window.unitLabel}</span>
+        <span>
+          resets in {formatResetRelative(window.resetAt)}
+          {resetDateTime ? (
+            <time dateTime={resetDateTime} title={formatAbsoluteTimestamp(window.resetAt) || undefined}>
+              {` · ${formatAbsoluteTimestamp(window.resetAt) || ""}`}
+            </time>
+          ) : null}
+        </span>
+      </div>
+      <MiniHistory points={window.history} />
+    </div>
+  );
+}
+
+function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
+  const subscriptions = SUBSCRIPTION_PROVIDERS.map((provider) => ({
+    provider,
+    row: rows.find((row) => row.id === provider.id) ?? null,
+  }));
+  const connected = subscriptions.filter(({ row }) => row?.gauge).length;
+  const usageFeeds = subscriptions.filter(({ row }) => row?.gauge?.kind === "quota").length;
+  const knownPlans = subscriptions.filter(({ row }) => row?.gauge?.kind === "quota" && row.gauge.plan
+    || row?.gauge?.kind === "status").length;
+  const nextReset = subscriptions
+    .flatMap(({ row }) => row?.gauge?.kind === "quota" ? quotaWindows(row.gauge) : [])
+    .map((window) => window.resetAt)
+    .filter((resetAt) => resetAt > Date.now())
+    .sort((left, right) => left - right)[0];
+
+  return (
+    <section className="hs-subscriptions" aria-labelledby="hs-subscriptions-title">
+      <div className="hs-section-head hs-subscriptions-head">
+        <div>
+          <h3 id="hs-subscriptions-title">Subscriptions</h3>
+          <p>Plans, remaining allowance, reset windows, and the fastest path to each provider dashboard.</p>
+        </div>
+        <div className="hs-subscription-summary" aria-label="Subscription feed summary">
+          <span><strong>{connected}</strong> detected</span>
+          <span><strong>{usageFeeds}</strong> usage feeds</span>
+          <span><strong>{knownPlans}</strong> plans named</span>
+          <span><strong>{nextReset ? formatResetRelative(nextReset) : "-"}</strong> next reset</span>
+        </div>
+      </div>
+
+      <div className="hs-subscription-grid">
+        {subscriptions.map(({ provider, row }) => {
+          const gauge = row?.gauge ?? null;
+          const plan = gauge?.kind === "quota" ? gauge.plan : gauge?.kind === "status" ? gauge.statusLabel : null;
+          const latestAt = budgetLatestAt(gauge);
+          const connectionLabel = gauge?.kind === "quota"
+            ? "Usage connected"
+            : gauge?.kind === "status"
+              ? gauge.detailLabel || "Subscription detected"
+              : "Not detected";
+          return (
+            <article key={provider.id} className={`hs-subscription-card hs-subscription-card--${gauge ? "connected" : "missing"}`}>
+              <header className="hs-subscription-card-head">
+                <div className="hs-subscription-provider">
+                  <HarnessMark harness={provider.id} size={18} title={null} className="hs-subscription-mark" />
+                  <div>
+                    <h4>{harnessLabel(provider.id)}</h4>
+                    <span>{plan || "Plan not reported"}</span>
+                  </div>
+                </div>
+                <span className={`hs-subscription-state hs-subscription-state--${gauge ? "connected" : "missing"}`}>
+                  {connectionLabel}
+                </span>
+              </header>
+
+              <p className="hs-subscription-description">{provider.description}</p>
+
+              {gauge?.kind === "quota" ? (
+                <div className="hs-subscription-windows">
+                  {quotaWindows(gauge).map((window) => (
+                    <SubscriptionQuotaWindow key={`${provider.id}:${window.label}`} gauge={gauge} window={window} />
+                  ))}
+                </div>
+              ) : gauge?.kind === "status" ? (
+                <div className="hs-subscription-status-detail">
+                  <strong>{gauge.statusLabel}</strong>
+                  <span>Plan status is detected from Cursor's local app data. Open Usage for real-time allowance.</span>
+                </div>
+              ) : (
+                <div className="hs-subscription-missing">
+                  <strong>No local subscription feed yet</strong>
+                  <span>Open the provider locally, then refresh Scout.</span>
+                </div>
+              )}
+
+              <footer className="hs-subscription-footer">
+                <span>{latestAt ? `updated ${timeAgo(latestAt) || "now"}` : gauge ? "detected locally" : "waiting for provider data"}</span>
+                <nav aria-label={`${harnessLabel(provider.id)} quick links`}>
+                  {provider.links.map((link) => (
+                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                      {link.label}
+                      <ExternalLink size={11} aria-hidden="true" />
+                    </a>
+                  ))}
+                </nav>
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function HarnessLedger({ rows }: { rows: HarnessRow[] }) {
   return (
     <div className="hs-ledger" role="table" aria-label="Provider ledger">
@@ -501,7 +675,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
             <div className="hs-title-group">
               <span className="hs-kicker">ops / provider central</span>
               <h2>Providers</h2>
-              <p>{activeHarnesses} active providers / {scopedAgents.length} registered agents / {serviceGauges.length} budget feeds</p>
+              <p>See what you pay for, how much remains, and where to use it.</p>
             </div>
             <button
               type="button"
@@ -531,14 +705,24 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
               <em>{topologySnapshot?.totals.relationships ?? 0} edges</em>
             </div>
             <div className="hs-stat">
-              <span>Budgets</span>
+              <span>Usage feeds</span>
               <strong>{serviceGauges.length}</strong>
               <em>{serviceGauges.filter((gauge) => gauge.kind === "quota").length} quota feeds</em>
             </div>
           </div>
 
-          {error && <div className="hs-error">refresh: {error}</div>}
-          {loading ? <div className="hs-empty">Loading providers.</div> : <HarnessLedger rows={rows} />}
+          {error && <div className="hs-error" role="status" aria-live="polite">refresh: {error}</div>}
+          {loading ? <div className="hs-empty">Loading subscriptions.</div> : <SubscriptionSection rows={rows} />}
+          <section className="hs-section" aria-labelledby="hs-runtime-title">
+            <div className="hs-section-head">
+              <div>
+                <h3 id="hs-runtime-title">Provider runtime</h3>
+                <p>{activeHarnesses} active providers / {scopedAgents.length} registered agents / {serviceGauges.length} provider feeds</p>
+              </div>
+              <span className="hs-section-meta">live inventory</span>
+            </div>
+            {loading ? <div className="hs-empty">Loading providers.</div> : <HarnessLedger rows={rows} />}
+          </section>
           <TopologySection snapshot={topologySnapshot} />
         </div>
       </div>
