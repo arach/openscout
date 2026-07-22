@@ -368,6 +368,73 @@ describe("service budgets", () => {
     ]);
   });
 
+  test("does not let a later stale replay lower an active quota window", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-service-budgets-monotonic-"));
+    tempPaths.add(controlHome);
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = join(controlHome, "home");
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(controlHome, "home", "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+    const insert = rawDb.query(`
+      INSERT INTO budget_quota_window_snapshots (
+        id, source, provider, harness, transport, label, window_kind,
+        used_percent, percent_remaining, reset_at, window_ms, captured_at,
+        metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = Date.now();
+    const resetAt = now + 5 * 60 * 60 * 1000;
+    insert.run(
+      "codex-current",
+      "provider_reported",
+      "openai",
+      "codex",
+      "codex_jsonl",
+      "5h",
+      "primary",
+      64,
+      36,
+      resetAt,
+      5 * 60 * 60 * 1000,
+      now - 60_000,
+      "{}",
+      now - 60_000,
+    );
+    insert.run(
+      "codex-stale-replay",
+      "provider_reported",
+      "openai",
+      "codex",
+      "codex_jsonl",
+      "5h",
+      "primary",
+      21,
+      79,
+      resetAt,
+      5 * 60 * 60 * 1000,
+      now,
+      "{}",
+      now,
+    );
+    rawDb.close();
+
+    const response = await loadServiceBudgets();
+    const codex = response.gauges.find((gauge) => gauge.id === "codex");
+
+    expect(codex).toEqual(expect.objectContaining({
+      id: "codex",
+      kind: "quota",
+      usedLabel: "64%",
+    }));
+    expect(codex && codex.kind === "quota" ? codex.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", usedLabel: "64%", fill: 0.64 }),
+    ]);
+  });
+
   test("harvests Codex rate limits into quota snapshots", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-codex-"));
     tempPaths.add(root);
