@@ -390,6 +390,95 @@
   color: var(--ink);
 }
 
+.hs-cloud-accounts {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.hs-cloud-accounts-head {
+  align-items: center;
+}
+
+.hs-cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-sm);
+}
+
+.hs-cloud-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.hs-cloud-card > div,
+.hs-cloud-card nav,
+.hs-cloud-card a {
+  display: flex;
+  align-items: center;
+}
+
+.hs-cloud-card > div {
+  min-width: 0;
+  gap: var(--space-md);
+}
+
+.hs-cloud-card h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
+
+.hs-cloud-card > div span:not(.hs-cloud-dot) {
+  display: block;
+  margin-top: var(--space-3xs);
+  color: var(--dim);
+  font-size: var(--text-xs);
+}
+
+.hs-cloud-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.hs-cloud-card nav {
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.hs-cloud-card a {
+  gap: var(--space-2xs);
+  min-height: 28px;
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.hs-cloud-card a:hover {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  color: var(--ink);
+}
+
+.hs-cloud-card a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .hs-ledger {
   min-width: 0;
   overflow-x: auto;
@@ -737,6 +826,15 @@
   }
 
   .hs-subscription-footer nav {
+    justify-content: flex-start;
+  }
+
+  .hs-cloud-card {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .hs-cloud-card nav {
     justify-content: flex-start;
   }
 }
