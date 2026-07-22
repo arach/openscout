@@ -339,7 +339,7 @@ export function BrokerScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
-  const { agents, selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
+  const { route, agents, selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("all");
   const [loading, setLoading] = useState(true);
@@ -454,13 +454,14 @@ export function BrokerScreen({
   }), [feedRows]);
 
   const selectedAttempt = useMemo(() => {
-    if (!broker || !selectedBrokerAttempt) return null;
-    return feedRows.find((attempt) => attempt.id === selectedBrokerAttempt.id)
-      ?? broker.attempts.find((attempt) => attempt.id === selectedBrokerAttempt.id)
-      ?? broker.failedQueries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
-      ?? broker.failedDeliveries.find((attempt) => attempt.id === selectedBrokerAttempt.id)
+    const requestedAttemptId = route.view === "broker" ? route.attemptId : undefined;
+    if (!broker || !requestedAttemptId) return null;
+    return feedRows.find((attempt) => attempt.id === requestedAttemptId)
+      ?? broker.attempts.find((attempt) => attempt.id === requestedAttemptId)
+      ?? broker.failedQueries.find((attempt) => attempt.id === requestedAttemptId)
+      ?? broker.failedDeliveries.find((attempt) => attempt.id === requestedAttemptId)
       ?? null;
-  }, [broker, feedRows, selectedBrokerAttempt]);
+  }, [broker, feedRows, route]);
 
   useEffect(() => {
     if (selectedAttempt && selectedAttempt !== selectedBrokerAttempt) {
@@ -485,10 +486,11 @@ export function BrokerScreen({
   });
 
   useEffect(() => {
-    if (!selectedBrokerAttempt) return;
-    const index = activeRows.findIndex((row) => row.id === selectedBrokerAttempt.id);
+    const requestedAttemptId = route.view === "broker" ? route.attemptId : undefined;
+    if (!requestedAttemptId) return;
+    const index = activeRows.findIndex((row) => row.id === requestedAttemptId);
     if (index >= 0) setFocusedIndex(index);
-  }, [activeRows, activeTab, selectedBrokerAttempt, setFocusedIndex]);
+  }, [activeRows, activeTab, route, setFocusedIndex]);
 
   const cycleBrokerTab = useCallback((delta: number) => {
     const current = BROKER_TABS.indexOf(activeTab);
@@ -606,7 +608,7 @@ export function BrokerScreen({
               <BrokerAttemptList
                 attempts={activeRows}
                 agents={agents}
-                selectedAttemptId={selectedBrokerAttempt?.id ?? null}
+                selectedAttemptId={route.view === "broker" ? route.attemptId ?? null : null}
                 onInspect={inspectBrokerAttempt}
                 getRowFocusProps={getRowFocusProps}
               />
