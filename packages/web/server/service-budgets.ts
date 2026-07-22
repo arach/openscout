@@ -39,7 +39,6 @@ const CLAUDE_STATUSLINE_HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
 const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
 const KIMI_USAGE_JSON_ENV = "OPENSCOUT_KIMI_USAGE_JSON";
-const KIMI_USAGE_URL_ENV = "OPENSCOUT_KIMI_USAGE_URL";
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -827,11 +826,9 @@ async function readKimiUsageResponse(): Promise<KimiUsageResponse | null> {
   const accessToken = stringValue(credentials?.access_token);
   if (!accessToken) return null;
 
-  const url = process.env[KIMI_USAGE_URL_ENV]?.trim()
-    || "https://api.kimi.com/coding/v1/usages";
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch("https://api.kimi.com/coding/v1/usages", {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",

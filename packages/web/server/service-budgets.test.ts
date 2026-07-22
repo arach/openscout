@@ -18,7 +18,6 @@ const originalGhBin = process.env.OPENSCOUT_GH_BIN;
 const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
 const originalKimiUsageJson = process.env.OPENSCOUT_KIMI_USAGE_JSON;
-const originalKimiUsageUrl = process.env.OPENSCOUT_KIMI_USAGE_URL;
 const tempPaths = new Set<string>();
 
 afterEach(() => {
@@ -65,12 +64,6 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_KIMI_USAGE_JSON = originalKimiUsageJson;
   }
-  if (originalKimiUsageUrl === undefined) {
-    delete process.env.OPENSCOUT_KIMI_USAGE_URL;
-  } else {
-    process.env.OPENSCOUT_KIMI_USAGE_URL = originalKimiUsageUrl;
-  }
-
   for (const path of tempPaths) {
     rmSync(path, { recursive: true, force: true });
   }
