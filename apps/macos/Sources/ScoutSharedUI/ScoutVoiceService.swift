@@ -15,7 +15,12 @@ import ScoutNativeCore
 public final class ScoutVoiceService: ObservableObject {
     public static let shared = ScoutVoiceService()
 
-    @Published public private(set) var state: ScoutDictationState = .idle
+    @Published public private(set) var state: ScoutDictationState = .idle {
+        didSet {
+            guard state != oldValue else { return }
+            armWatchdog(for: state)
+        }
+    }
     /// Most recent partial transcript while recording. Cleared on stop.
     @Published public private(set) var partial: String = ""
     /// Most recent final transcript. The dock observes this via Combine
@@ -26,7 +31,36 @@ public final class ScoutVoiceService: ObservableObject {
     private let log = Logger(subsystem: "dev.openscout.menu", category: "voice")
 
     private var syncTask: Task<Void, Never>?
+    private var watchdogTask: Task<Void, Never>?
     private var deliveredFinalCount = 0
+
+    /// Ceiling on transient states so a hung transcription can't strand the mic.
+    /// `.recording` is excluded — the user may speak for as long as they like.
+    private static func watchdogTimeoutNanos(for state: ScoutDictationState) -> UInt64? {
+        switch state {
+        case .starting: return 12_000_000_000
+        case .processing: return 25_000_000_000
+        default: return nil
+        }
+    }
+
+    /// Force capture back to idle when a transient state hangs, releasing the mic.
+    private func armWatchdog(for state: ScoutDictationState) {
+        watchdogTask?.cancel()
+        guard let timeout = Self.watchdogTimeoutNanos(for: state) else {
+            watchdogTask = nil
+            return
+        }
+        watchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeout)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.state == state else { return }
+                self.log.error("voice \(String(describing: state)) exceeded watchdog — cancelling")
+                self.cancel()
+            }
+        }
+    }
 
     private init() {
         dictation.preference = ScoutVoiceSettingsStore.loadPreference()

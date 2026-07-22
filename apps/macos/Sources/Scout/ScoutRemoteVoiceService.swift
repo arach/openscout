@@ -7,15 +7,55 @@ import ScoutNativeCore
 final class ScoutRemoteVoiceService: ObservableObject {
     static let shared = ScoutRemoteVoiceService()
 
-    @Published private(set) var state: ScoutDictationState = .idle
+    @Published private(set) var state: ScoutDictationState = .idle {
+        didSet {
+            guard state != oldValue else { return }
+            armWatchdog(for: state)
+        }
+    }
     @Published private(set) var partial: String = ""
     @Published private(set) var lastFinalText: String = ""
 
     private var activeSessionId: String?
     private var eventTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
+    private var watchdogTask: Task<Void, Never>?
+
+    /// A transient state (session hand-off, transcription) that must never last
+    /// forever. `.recording` is deliberately excluded — the user may hold the
+    /// mic as long as they like.
+    private static func watchdogTimeoutNanos(for state: ScoutDictationState) -> UInt64? {
+        switch state {
+        case .starting: return 12_000_000_000   // 12s to create + open the session
+        case .processing: return 25_000_000_000  // 25s ceiling on transcription
+        default: return nil
+        }
+    }
 
     private init() {}
+
+    /// Force the session back to idle when a transient state hangs, releasing the
+    /// mic and unblocking the composer even if the host never sends a terminal event.
+    private func armWatchdog(for state: ScoutDictationState) {
+        watchdogTask?.cancel()
+        guard let timeout = Self.watchdogTimeoutNanos(for: state) else {
+            watchdogTask = nil
+            return
+        }
+        watchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeout)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.state == state else { return }
+                let sessionId = self.activeSessionId
+                self.resetSession()
+                if let sessionId {
+                    // Best-effort: tell the host to drop the orphaned session too.
+                    Task { try? await Self.send(path: "/api/voice/session/\(sessionId)/cancel", method: "POST") }
+                }
+            }
+        }
+    }
 
     func probe() async {
         do {

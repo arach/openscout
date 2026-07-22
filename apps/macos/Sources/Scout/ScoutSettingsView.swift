@@ -1,9 +1,12 @@
 import HudsonUI
+import ScoutNativeCore
+import ScoutSharedUI
 import SwiftUI
 
 private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
     case appearance
     case terminal
+    case voice
     case notifications
     case about
 
@@ -13,6 +16,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "Appearance"
         case .terminal: return "Terminal"
+        case .voice: return "Voice"
         case .notifications: return "Notifications"
         case .about: return "About"
         }
@@ -22,6 +26,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "paintpalette"
         case .terminal: return "terminal"
+        case .voice: return "waveform"
         case .notifications: return "bell"
         case .about: return "info.circle"
         }
@@ -31,6 +36,7 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "Theme, accent, and window material."
         case .terminal: return "Workspace view, font, and shell presentation."
+        case .voice: return "Dictation engine and live capture state."
         case .notifications: return "How Scout tells you an agent needs you."
         case .about: return "Local build details."
         }
@@ -41,6 +47,12 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
 struct ScoutSettingsView: View {
     @ObservedObject var appearance: ScoutAppearance
     @ObservedObject private var attention = ScoutAttentionCenter.shared
+    @ObservedObject private var voice = ScoutRemoteVoiceService.shared
+    /// When the dictation engine entered its current state — drives the live
+    /// duration counter that makes a hung state self-evident.
+    @State private var voiceStateEnteredAt = Date()
+    @State private var voiceInputDevices: [ScoutVoiceInputDevice] = []
+    @State private var voiceInputDeviceId: String = ""
     @AppStorage(ScoutTerminalSettings.rendererKey) private var terminalRenderer = ScoutTerminalRenderer.xterm.rawValue
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var terminalFontFamily = ScoutTerminalSettings.defaultFontFamily
     @AppStorage(ScoutTerminalSettings.fontSizeKey) private var terminalFontSize = ScoutTerminalSettings.defaultFontSize
@@ -166,6 +178,8 @@ struct ScoutSettingsView: View {
             appearancePage
         case .terminal:
             terminalPage
+        case .voice:
+            voicePage
         case .notifications:
             notificationsPage
         case .about:
@@ -246,6 +260,92 @@ struct ScoutSettingsView: View {
     private var terminalFontChoices: [String] {
         let choices = ScoutTerminalSettings.availableFontFamilies
         return choices.contains(terminalFontFamily) ? choices : [terminalFontFamily] + choices
+    }
+
+    private var voicePage: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+            settingsBlock(title: "Dictation") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("Speak into the composer and Scout types for you. This shows what the mic is doing right now.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+
+                    DictationEngineStateView(
+                        state: voice.state,
+                        partial: voice.partial,
+                        enteredAt: voiceStateEnteredAt,
+                        onReset: { voice.cancel() }
+                    )
+                }
+            }
+
+            settingsBlock(title: "Microphone") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    micAccessRow
+
+                    settingRow(title: "Input") {
+                        if voiceInputDevices.isEmpty {
+                            Text("No inputs detected")
+                                .font(HudFont.mono(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.muted)
+                        } else {
+                            Picker("Input device", selection: $voiceInputDeviceId) {
+                                ForEach(voiceInputDevices, id: \.id) { device in
+                                    Text(device.isDefault ? "\(device.name) (system default)" : device.name)
+                                        .tag(device.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 300)
+                            .onChange(of: voiceInputDeviceId) { _, newValue in
+                                ScoutVoiceSettingsStore.saveInputDeviceId(newValue.isEmpty ? nil : newValue)
+                            }
+                        }
+                    }
+
+                    Text("Dictation follows your system default unless you pick a device here.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+            }
+        }
+        .onChange(of: voice.state) { _, _ in
+            voiceStateEnteredAt = Date()
+        }
+        .task { loadVoiceInputs() }
+    }
+
+    private var micAccessRow: some View {
+        let mic = ScoutVoicePermissions.microphoneStatus()
+        let tint = mic.granted
+            ? ScoutPalette.statusOk
+            : (mic.isTerminal ? ScoutPalette.statusError : ScoutPalette.statusWarn)
+        return settingRow(title: "Access") {
+            HStack(spacing: HudSpacing.sm) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                Text(mic.granted ? "Granted" : mic.displayStatus)
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(tint)
+                if !mic.granted {
+                    Button("Open mic settings") {
+                        ScoutVoicePermissions.openMicrophonePrivacySettings()
+                    }
+                    .buttonStyle(.plain)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.accent)
+                }
+            }
+        }
+    }
+
+    private func loadVoiceInputs() {
+        voiceInputDevices = ScoutVoiceSettingsStore.listInputDevices()
+        voiceInputDeviceId = ScoutVoiceSettingsStore.loadInputDeviceId()
+            ?? voiceInputDevices.first(where: { $0.isDefault })?.id
+            ?? voiceInputDevices.first?.id
+            ?? ""
     }
 
     private var notificationsPage: some View {
@@ -593,5 +693,208 @@ struct ScoutSettingsView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+    }
+}
+
+/// A transparent, real-time readout of the dictation state machine. Renders the
+/// current `ScoutDictationState`, the linear capture pipeline with the active
+/// stage highlighted, a live duration counter that turns amber once a transient
+/// state overruns its watchdog ceiling, and an always-reachable Reset. Engine-
+/// agnostic: takes plain values so any voice surface can host it.
+private struct DictationEngineStateView: View {
+    let state: ScoutDictationState
+    let partial: String
+    let enteredAt: Date
+    let onReset: () -> Void
+
+    private struct Stage: Identifiable {
+        let id: String
+        let label: String
+        let isCurrent: Bool
+    }
+
+    private var stages: [Stage] {
+        [
+            Stage(id: "idle", label: "Idle", isCurrent: state == .idle),
+            Stage(id: "starting", label: "Starting", isCurrent: state == .starting),
+            Stage(id: "recording", label: "Recording", isCurrent: state == .recording),
+            Stage(id: "processing", label: "Processing", isCurrent: state == .processing),
+        ]
+    }
+
+    private var isActive: Bool { state.isCaptureActive || state.isProcessing }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            header
+            descriptionLine
+            pipelineSection
+        }
+        .padding(HudSpacing.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutDesign.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    private var header: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Circle()
+                .fill(Self.color(for: state))
+                .frame(width: 10, height: 10)
+
+            Text(Self.humanTitle(state))
+                .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+
+            if isActive {
+                TimelineView(.periodic(from: enteredAt, by: 1)) { context in
+                    let elapsed = max(0, context.date.timeIntervalSince(enteredAt))
+                    Text(Self.elapsedLabel(elapsed))
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Self.isStuck(state: state, elapsed: elapsed)
+                            ? ScoutPalette.statusWarn
+                            : ScoutPalette.muted)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if isActive {
+                Button("Reset", action: onReset)
+                    .buttonStyle(.plain)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.accent)
+            }
+        }
+    }
+
+    private var pipelineSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            Text("CAPTURE FLOW")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(ScoutPalette.dim)
+            pipeline
+        }
+    }
+
+    private var pipeline: some View {
+        HStack(spacing: HudSpacing.xs) {
+            ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
+                if index > 0 {
+                    Rectangle()
+                        .fill(ScoutDesign.hairline)
+                        .frame(width: 14, height: HudStrokeWidth.thin)
+                }
+                stageChip(stage)
+            }
+        }
+        .opacity(state.isUnavailable ? 0.4 : 1)
+    }
+
+    private func stageChip(_ stage: Stage) -> some View {
+        Text(stage.label.uppercased())
+            .font(HudFont.mono(HudTextSize.micro, weight: stage.isCurrent ? .bold : .medium))
+            .tracking(0.4)
+            .foregroundStyle(stage.isCurrent ? ScoutPalette.ink : ScoutPalette.dim)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(stage.isCurrent ? ScoutSurface.selected(Self.color(for: state)) : ScoutDesign.bg)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .stroke(stage.isCurrent ? Self.color(for: state) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            )
+    }
+
+    /// The plain-language line — the hero. Says what's happening in words, not
+    /// state-machine jargon. Falls back to the live partial or an error reason.
+    @ViewBuilder
+    private var descriptionLine: some View {
+        if case .unavailable(let reason) = state {
+            Text(reason)
+                .font(HudFont.ui(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.statusError)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if !partial.isEmpty {
+            Text("“\(partial)”")
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.muted)
+                .lineLimit(2)
+        } else {
+            Text(Self.humanDescription(state))
+                .font(HudFont.ui(HudTextSize.xs))
+                .foregroundStyle(ScoutPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var borderColor: Color {
+        if state.isUnavailable { return ScoutSurface.tintBorder(ScoutPalette.statusError) }
+        if isActive { return ScoutSurface.tintBorder(Self.color(for: state)) }
+        return ScoutDesign.hairline
+    }
+
+    // MARK: - State presentation (static so callers can reuse the labels)
+
+    /// Human, present-tense title for the current state — no internal jargon.
+    static func humanTitle(_ state: ScoutDictationState) -> String {
+        switch state {
+        case .probing: return "Checking…"
+        case .idle: return "Idle"
+        case .starting: return "Starting…"
+        case .recording: return "Listening"
+        case .processing: return "Transcribing…"
+        case .unavailable: return "Unavailable"
+        }
+    }
+
+    /// One plain sentence explaining what the engine is doing and, when idle,
+    /// what to do next.
+    static func humanDescription(_ state: ScoutDictationState) -> String {
+        switch state {
+        case .probing: return "Making sure the voice host is reachable."
+        case .idle: return "The mic is off. Tap the mic in the composer to start dictating."
+        case .starting: return "Opening the microphone."
+        case .recording: return "Capturing your voice — the mic is live."
+        case .processing: return "Turning your speech into text."
+        case .unavailable: return "Dictation isn’t available right now."
+        }
+    }
+
+    static func color(for state: ScoutDictationState) -> Color {
+        switch state {
+        case .idle: return ScoutPalette.dim
+        case .probing: return ScoutPalette.statusInfo
+        case .starting: return ScoutPalette.accent
+        case .recording: return ScoutPalette.accent
+        case .processing: return ScoutPalette.statusInfo
+        case .unavailable: return ScoutPalette.statusError
+        }
+    }
+
+    /// Mirrors the service watchdog ceilings so the counter flags a hang before
+    /// the auto-recovery fires.
+    static func isStuck(state: ScoutDictationState, elapsed: TimeInterval) -> Bool {
+        switch state {
+        case .starting: return elapsed > 12
+        case .processing: return elapsed > 25
+        default: return false
+        }
+    }
+
+    static func elapsedLabel(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(total)s" }
+        return "\(total / 60)m \(String(format: "%02d", total % 60))s"
     }
 }
