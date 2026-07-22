@@ -123,9 +123,9 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
     const [codex, claude, kimi, cursor, minimax, github] = await Promise.all([
       loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
       loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
-      loadKimiGauge().catch((error) => serviceBudgetProviderFailed("kimi", error)),
+      loadKimiGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("kimi", error)),
       loadCursorGauge().catch((error) => serviceBudgetProviderFailed("cursor", error)),
-      loadMinimaxGauge().catch((error) => serviceBudgetProviderFailed("minimax", error)),
+      loadMinimaxGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("minimax", error)),
       loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
     const gauges = [codex, claude, kimi, cursor, minimax, github].filter((g): g is ServiceGauge => g !== null);
@@ -803,7 +803,7 @@ type KimiUsageResponse = {
   };
 };
 
-async function loadKimiGauge(): Promise<ServiceGauge | null> {
+async function loadKimiGauge(forceRefresh = false): Promise<ServiceGauge | null> {
   const persisted = loadPersistedProviderQuotaGauge({
     id: "kimi",
     label: "kimi",
@@ -811,6 +811,7 @@ async function loadKimiGauge(): Promise<ServiceGauge | null> {
     harness: "kimi",
     maxAgeMs: WEEK_MS,
   });
+  if (!forceRefresh) return persisted;
   const payload = await readKimiUsageResponse();
   // Kimi OAuth access tokens are short-lived and refreshed by Kimi Code itself.
   // A manual Scout refresh while Kimi is closed should retain the last valid,
@@ -1079,7 +1080,7 @@ type MinimaxRemainsResponse = {
   };
 };
 
-async function loadMinimaxGauge(): Promise<ServiceGauge | null> {
+async function loadMinimaxGauge(forceRefresh = false): Promise<ServiceGauge | null> {
   const persisted = loadPersistedProviderQuotaGauge({
     id: "minimax",
     label: "minimax",
@@ -1087,6 +1088,7 @@ async function loadMinimaxGauge(): Promise<ServiceGauge | null> {
     harness: "minimax",
     maxAgeMs: WEEK_MS,
   });
+  if (!forceRefresh) return persisted;
   const payload = await readMinimaxRemainsResponse();
   if (!payload) return persisted;
 
@@ -1230,7 +1232,7 @@ async function loadGithubGauge(forceRefresh = false): Promise<ServiceGauge | nul
       harness: "github",
       maxAgeMs: 15 * 60 * 1000,
     });
-    if (persisted) return persisted;
+    return persisted;
   }
 
   let stdout: string;

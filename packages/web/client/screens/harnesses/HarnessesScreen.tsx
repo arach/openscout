@@ -117,6 +117,24 @@ const CLOUD_PROVIDER_LINKS: Record<CloudAccount["id"], Array<{ label: string; hr
   ],
 };
 
+const CLOUD_PROVIDER_META: Record<CloudAccount["id"], { mark: string; category: string; description: string }> = {
+  exe: {
+    mark: "EX",
+    category: "Agent compute",
+    description: "Persistent VMs for remote Scout agents and isolated workloads.",
+  },
+  cloudflare: {
+    mark: "CF",
+    category: "Edge platform",
+    description: "Workers, networking, and edge infrastructure available for deployment.",
+  },
+  vercel: {
+    mark: "V",
+    category: "App hosting",
+    description: "Projects, preview environments, and production deployments.",
+  },
+};
+
 function canonicalHarnessId(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
   if (!normalized) return "unknown";
@@ -279,7 +297,19 @@ function SubscriptionQuotaWindow({ gauge, window }: { gauge: QuotaGauge; window:
   );
 }
 
-function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
+function SubscriptionLoadingState() {
+  return (
+    <div className="hs-subscription-loading" aria-hidden="true">
+      <span className="hs-loading-line hs-loading-line--label" />
+      <span className="hs-loading-line hs-loading-line--value" />
+      <span className="hs-loading-meter" />
+      <span className="hs-loading-line hs-loading-line--meta" />
+      <span className="hs-loading-history" />
+    </div>
+  );
+}
+
+function SubscriptionSection({ rows, loading }: { rows: HarnessRow[]; loading: boolean }) {
   const subscriptions = SUBSCRIPTION_PROVIDERS.map((provider) => ({
     provider,
     row: rows.find((row) => row.id === provider.id) ?? null,
@@ -295,48 +325,52 @@ function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
     .sort((left, right) => left - right)[0];
 
   return (
-    <section className="hs-subscriptions" aria-labelledby="hs-subscriptions-title">
+    <section className="hs-subscriptions" aria-labelledby="hs-subscriptions-title" aria-busy={loading}>
       <div className="hs-section-head hs-subscriptions-head">
         <div>
           <h3 id="hs-subscriptions-title">Subscriptions</h3>
           <p>Plans, remaining allowance, reset windows, and the fastest path to each provider dashboard.</p>
         </div>
         <div className="hs-subscription-summary" aria-label="Subscription feed summary">
-          <span><strong>{connected}</strong> detected</span>
-          <span><strong>{usageFeeds}</strong> usage feeds</span>
-          <span><strong>{knownPlans}</strong> plans named</span>
-          <span><strong>{nextReset ? formatResetRelative(nextReset) : "-"}</strong> next reset</span>
+          <span><strong>{loading ? "—" : connected}</strong> detected</span>
+          <span><strong>{loading ? "—" : usageFeeds}</strong> usage feeds</span>
+          <span><strong>{loading ? "—" : knownPlans}</strong> plans named</span>
+          <span><strong>{loading ? "—" : nextReset ? formatResetRelative(nextReset) : "-"}</strong> next reset</span>
         </div>
       </div>
 
       <div className="hs-subscription-grid">
         {subscriptions.map(({ provider, row }) => {
           const gauge = row?.gauge ?? null;
+          const pending = loading && !gauge;
+          const cardState = pending ? "loading" : gauge ? "connected" : "missing";
           const plan = gauge?.kind === "quota" ? gauge.plan : gauge?.kind === "status" ? gauge.statusLabel : null;
           const latestAt = budgetLatestAt(gauge);
           const connectionLabel = gauge?.kind === "quota"
             ? "Usage connected"
             : gauge?.kind === "status"
               ? gauge.detailLabel || "Subscription detected"
-              : "Not detected";
+              : pending ? "Checking" : "Not detected";
           return (
-            <article key={provider.id} className={`hs-subscription-card hs-subscription-card--${gauge ? "connected" : "missing"}`}>
+            <article key={provider.id} className={`hs-subscription-card hs-subscription-card--${cardState}`}>
               <header className="hs-subscription-card-head">
                 <div className="hs-subscription-provider">
                   <HarnessMark harness={provider.id} size={18} title={null} className="hs-subscription-mark" />
                   <div>
                     <h4>{harnessLabel(provider.id)}</h4>
-                    <span>{plan || "Plan not reported"}</span>
+                    <span>{pending ? "Checking local plan…" : plan || "Plan not reported"}</span>
                   </div>
                 </div>
-                <span className={`hs-subscription-state hs-subscription-state--${gauge ? "connected" : "missing"}`}>
+                <span className={`hs-subscription-state hs-subscription-state--${cardState}`}>
                   {connectionLabel}
                 </span>
               </header>
 
               <p className="hs-subscription-description">{provider.description}</p>
 
-              {gauge?.kind === "quota" ? (
+              {pending ? (
+                <SubscriptionLoadingState />
+              ) : gauge?.kind === "quota" ? (
                 <div className="hs-subscription-windows">
                   {quotaWindows(gauge).map((window) => (
                     <SubscriptionQuotaWindow key={`${provider.id}:${window.label}`} gauge={gauge} window={window} />
@@ -355,7 +389,7 @@ function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
               )}
 
               <footer className="hs-subscription-footer">
-                <span>{latestAt ? `updated ${timeAgo(latestAt) || "now"}` : gauge ? "detected locally" : "waiting for provider data"}</span>
+                <span>{pending ? "checking local feed" : latestAt ? `updated ${timeAgo(latestAt) || "now"}` : gauge ? "detected locally" : "waiting for provider data"}</span>
                 <nav aria-label={`${harnessLabel(provider.id)} quick links`}>
                   {provider.links.map((link) => (
                     <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
@@ -373,38 +407,63 @@ function SubscriptionSection({ rows }: { rows: HarnessRow[] }) {
   );
 }
 
-function CloudAccountsSection({ accounts }: { accounts: CloudAccount[] }) {
-  if (accounts.length === 0) return null;
+function CloudAccountsSection({ accounts, loading }: { accounts: CloudAccount[]; loading: boolean }) {
+  if (accounts.length === 0 && !loading) return null;
   return (
-    <section className="hs-cloud-accounts" aria-labelledby="hs-cloud-accounts-title">
+    <section className="hs-cloud-accounts" aria-labelledby="hs-cloud-accounts-title" aria-busy={loading}>
       <div className="hs-section-head hs-cloud-accounts-head">
         <div>
           <h3 id="hs-cloud-accounts-title">Cloud accounts</h3>
-          <p>Only accounts detected on this machine are shown.</p>
+          <p>Infrastructure available to Scout for deployment and agent compute.</p>
         </div>
-        <span className="hs-section-meta">{accounts.length} connected</span>
+        <span className="hs-section-meta">{loading ? "checking accounts" : `${accounts.length} connected`}</span>
       </div>
       <div className="hs-cloud-grid">
-        {accounts.map((account) => (
-          <article key={account.id} className="hs-cloud-card">
-            <div>
-              <span className="hs-cloud-dot" aria-hidden="true" />
-              <div>
-                <h4>{account.label}</h4>
-                <span>{account.detailLabel}</span>
-              </div>
-            </div>
-            <span className="hs-subscription-state hs-subscription-state--connected">{account.statusLabel}</span>
-            <nav aria-label={`${account.label} quick links`}>
-              {CLOUD_PROVIDER_LINKS[account.id].map((link) => (
-                <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
-                  {link.label}
-                  <ExternalLink size={11} aria-hidden="true" />
-                </a>
-              ))}
-            </nav>
+        {loading && accounts.length === 0 ? Array.from({ length: 3 }, (_, index) => (
+          <article key={index} className="hs-cloud-card hs-cloud-card--loading" aria-hidden="true">
+            <header className="hs-cloud-card-head">
+              <span className="hs-loading-mark" />
+              <span className="hs-loading-line hs-loading-line--cloud-title" />
+            </header>
+            <span className="hs-loading-line hs-loading-line--cloud-copy" />
+            <footer className="hs-cloud-card-footer">
+              <span className="hs-loading-line hs-loading-line--cloud-meta" />
+              <span className="hs-loading-actions" />
+            </footer>
           </article>
-        ))}
+        )) : null}
+        {accounts.map((account) => {
+          const meta = CLOUD_PROVIDER_META[account.id];
+          return (
+            <article key={account.id} className="hs-cloud-card">
+              <header className="hs-cloud-card-head">
+                <div className="hs-cloud-identity">
+                  <span className="hs-cloud-mark" aria-hidden="true">{meta.mark}</span>
+                  <div>
+                    <span className="hs-cloud-category">{meta.category}</span>
+                    <h4>{account.label}</h4>
+                  </div>
+                </div>
+                <span className="hs-subscription-state hs-subscription-state--connected">{account.statusLabel}</span>
+              </header>
+              <p className="hs-cloud-description">{meta.description}</p>
+              <footer className="hs-cloud-card-footer">
+                <span className="hs-cloud-connection">
+                  <span className="hs-cloud-dot" aria-hidden="true" />
+                  {account.detailLabel}
+                </span>
+                <nav aria-label={`${account.label} quick links`}>
+                  {CLOUD_PROVIDER_LINKS[account.id].map((link) => (
+                    <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                      {link.label}
+                      <ExternalLink size={11} aria-hidden="true" />
+                    </a>
+                  ))}
+                </nav>
+              </footer>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -446,7 +505,16 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
   }, []);
 
   useEffect(() => {
-    void load(true, true);
+    let cancelled = false;
+    let refreshId: number | undefined;
+    void load(false, true).then(() => {
+      if (cancelled) return;
+      refreshId = window.setTimeout(() => void load(true), 600);
+    });
+    return () => {
+      cancelled = true;
+      if (refreshId !== undefined) window.clearTimeout(refreshId);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -485,8 +553,8 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
           </header>
 
           {error && <div className="hs-error" role="status" aria-live="polite">refresh: {error}</div>}
-          {loading ? <div className="hs-empty">Loading subscriptions.</div> : <SubscriptionSection rows={rows} />}
-          {!loading ? <CloudAccountsSection accounts={cloudAccounts} /> : null}
+          <SubscriptionSection rows={rows} loading={loading} />
+          <CloudAccountsSection accounts={cloudAccounts} loading={loading} />
         </div>
       </div>
     </div>
