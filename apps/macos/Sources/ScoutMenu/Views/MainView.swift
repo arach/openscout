@@ -132,14 +132,22 @@ struct MainView: View {
                 .font(MenuType.bodyMedium(14))
                 .foregroundStyle(ShellPalette.ink)
 
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Circle()
                     .fill(menuStatusTint)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 5, height: 5)
                 Text(menuStatusLabel)
-                    .font(MenuType.bodyMedium(10))
+                    .font(MenuType.bodyMedium(9))
                     .foregroundStyle(ShellPalette.dim)
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .opacity(controller.isRefreshing ? 1 : 0)
+                    .frame(width: 9)
+                    .accessibilityHidden(true)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(menuStatusAccessibilityLabel)
 
             Spacer()
 
@@ -171,14 +179,19 @@ struct MainView: View {
     }
 
     private var menuStatusLabel: String {
-        if controller.isRefreshing { return "Refreshing" }
         if controller.brokerActionPending { return "Starting" }
+        if !controller.hasCompletedInitialRefresh { return "Checking" }
         return controller.broker.reachable ? "Ready" : "Offline"
     }
 
     private var menuStatusTint: Color {
-        if controller.isRefreshing || controller.brokerActionPending { return ShellPalette.warning }
+        if controller.brokerActionPending { return ShellPalette.warning }
+        if !controller.hasCompletedInitialRefresh { return ShellPalette.muted }
         return controller.broker.reachable ? ShellPalette.success : ShellPalette.error
+    }
+
+    private var menuStatusAccessibilityLabel: String {
+        controller.isRefreshing ? "\(menuStatusLabel), refreshing" : menuStatusLabel
     }
 
     private var footerBar: some View {
