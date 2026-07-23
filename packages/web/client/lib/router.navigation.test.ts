@@ -27,7 +27,7 @@ const {
 
 const ORIGIN = "http://127.0.0.1:43120";
 
-/* ── URL → Route → canonical path fixtures for every view variant ── */
+/* ── URL → Route → canonical path fixtures: all 21 view variants ── */
 
 describe("route fixtures", () => {
   const fixtures: Array<{ url: string; route: Route; canonical: string }> = [
@@ -98,11 +98,7 @@ describe("route fixtures", () => {
       canonical: "/briefings/brief-1",
     },
     { url: "/activity", route: { view: "activity" }, canonical: "/activity" },
-    {
-      url: "/work/w-1",
-      route: { view: "follow", workId: "w-1", preferredView: "chat" },
-      canonical: "/follow?view=chat&workId=w-1",
-    },
+    { url: "/work/w-1", route: { view: "work", workId: "w-1" }, canonical: "/work/w-1" },
     {
       url: "/settings/agents",
       route: { view: "settings", section: "agents" },
@@ -125,8 +121,8 @@ describe("route fixtures", () => {
     },
   ];
 
-  test("fixtures cover all 20 view variants", () => {
-    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(20);
+  test("fixtures cover all 21 view variants", () => {
+    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(21);
   });
 
   for (const { url, route, canonical } of fixtures) {
@@ -231,6 +227,18 @@ describe("planNavigation URL policy", () => {
     );
     expect(carried.route).toEqual({ view: "sessions", machineId: "node-b" });
     expect(carried.href).toBe("/sessions?machineId=node-b");
+
+    const followed = planNavigation(
+      { pathname: "/", searchStr: "?machineId=node-b" },
+      { view: "follow", workId: "work-1", preferredView: "chat" },
+    );
+    expect(followed.route).toEqual({
+      view: "follow",
+      workId: "work-1",
+      preferredView: "chat",
+      machineId: "node-b",
+    });
+    expect(followed.href).toBe("/follow?view=chat&workId=work-1&machineId=node-b");
 
     // scoped → unscoped: machineId drops.
     const dropped = planNavigation(
@@ -433,6 +441,8 @@ describe("routeKey scroll ownership", () => {
     expect(routeKey({ view: "inbox", machineId: "node-a" }))
       .not.toBe(routeKey({ view: "inbox", machineId: "node-b" }));
     expect(routeKey({ view: "inbox" })).not.toBe(routeKey({ view: "inbox", machineId: "node-a" }));
+    expect(routeKey({ view: "follow", workId: "work-1", machineId: "node-a" }))
+      .not.toBe(routeKey({ view: "follow", workId: "work-1", machineId: "node-b" }));
   });
 
   test("identical routes share a scroll key", () => {

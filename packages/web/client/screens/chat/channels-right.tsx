@@ -4,7 +4,6 @@ import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
-import { routeForWorkItem } from "../../lib/operator-attention.ts";
 import type { Agent, AgentRun, Route, WorkItem } from "../../lib/types.ts";
 
 const TERMINAL_CHANNEL_RUN_STATES = new Set(["completed", "failed", "cancelled"]);
@@ -64,15 +63,7 @@ function runStatusLabel(state: string): string {
 }
 
 function routeForRun(run: AgentRun): Route | null {
-  if (run.conversationId) return { view: "conversation", conversationId: run.conversationId };
-  if (run.workId) {
-    return {
-      view: "follow",
-      workId: run.workId,
-      preferredView: "chat",
-      ...(run.agentId ? { targetAgentId: run.agentId } : {}),
-    };
-  }
+  if (run.workId) return { view: "work", workId: run.workId };
   const flightId = run.flightIds?.[0] ?? null;
   if (flightId) return { view: "follow", flightId, preferredView: "chat" };
   if (run.invocationId) return { view: "follow", invocationId: run.invocationId, preferredView: "chat" };
@@ -95,7 +86,7 @@ function workActivityItem(work: WorkItem, agents: Agent[]): ChannelActivityItem 
     detail: work.lastMeaningfulSummary ?? work.summary,
     updatedAt: work.lastMeaningfulAt || work.updatedAt,
     active: true,
-    route: routeForWorkItem(work),
+    route: { view: "work", workId: work.id },
   };
 }
 

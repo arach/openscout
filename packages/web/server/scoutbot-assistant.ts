@@ -1326,8 +1326,8 @@ function routeForHref(href: string): Record<string, unknown> | null {
         : { view: "conversation" };
     case "work":
       return rest.length > 0
-        ? { view: "follow", workId: rest.join("/"), preferredView: "chat" }
-        : { view: "inbox" };
+        ? { view: "work", workId: rest.join("/") }
+        : { view: "work" };
     case "session":
     case "sessions":
       return rest.length > 0
@@ -1551,9 +1551,7 @@ function sanitizeBriefRoute(raw: unknown): Record<string, unknown> | null {
         ? { view, conversationId: record.conversationId }
         : null;
     case "work":
-      return typeof record.workId === "string"
-        ? { view: "follow", workId: record.workId, preferredView: "chat" }
-        : null;
+      return typeof record.workId === "string" ? { view, workId: record.workId } : null;
     default:
       return null;
   }

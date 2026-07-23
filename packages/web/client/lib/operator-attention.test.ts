@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   routeForFleetAsk,
   routeForOperatorAttention,
-  routeForWorkItem,
 } from "./operator-attention.ts";
 
 describe("direct operator resolution routes", () => {
@@ -62,31 +61,5 @@ describe("direct operator resolution routes", () => {
       acceptanceState: "pending",
       updatedAt: 1,
     })).toEqual({ view: "agents-v2", agentId: "agent-1", tab: "message" });
-  });
-
-  test("falls back to messaging the responsible agent", () => {
-    expect(routeForWorkItem({
-      id: "",
-      title: "Unlinked work",
-      summary: null,
-      ownerId: "agent-1",
-      ownerName: "Agent One",
-      nextMoveOwnerId: "agent-2",
-      nextMoveOwnerName: "Agent Two",
-      conversationId: null,
-      createdAt: 1,
-      updatedAt: 1,
-      parentId: null,
-      parentTitle: null,
-      state: "open",
-      acceptanceState: "none",
-      priority: null,
-      currentPhase: "Open",
-      attention: "silent",
-      activeChildWorkCount: 0,
-      activeFlightCount: 0,
-      lastMeaningfulAt: 1,
-      lastMeaningfulSummary: null,
-    })).toEqual({ view: "agents-v2", agentId: "agent-2", tab: "message" });
   });
 });

@@ -108,23 +108,13 @@ describe("follow route resolution", () => {
       view: "conversation",
       conversationId: "conv-1",
     });
-  });
-
-  test("resolves work context to its conversation instead of a work surface", () => {
-    expect(routeForFollowTarget({
-      flightId: null,
-      invocationId: null,
-      conversationId: "conv-1",
+    expect(routeForFollowTarget(target, "work")).toEqual({
+      view: "work",
       workId: "work-1",
-      sessionId: null,
-      targetAgentId: "agent.main",
-    }, "chat")).toEqual({
-      view: "conversation",
-      conversationId: "conv-1",
     });
   });
 
-  test("uses agent messaging when chat context has no conversation", () => {
+  test("routes chat intent to the responsible agent when work has no conversation", () => {
     expect(routeForFollowTarget({
       flightId: null,
       invocationId: null,

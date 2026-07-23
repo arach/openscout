@@ -118,6 +118,7 @@ function parseFollowPreferredView(value: string | null): FollowPreferredView | u
     case "tail":
     case "session":
     case "chat":
+    case "work":
       return value;
     default:
       return undefined;
@@ -191,6 +192,8 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "channels",
   "mesh",
   "activity",
+  "work",
+  "follow",
 ]);
 
 function parseMachineId(url: URL): string | undefined {
@@ -550,7 +553,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "briefings") return { view: "briefings" };
   if (parts[0] === "activity") return scoped({ view: "activity" });
   if (parts[0] === "work" && parts[1]) {
-    return { view: "follow", workId: decodeURIComponent(parts[1]), preferredView: "chat" };
+    return scoped({ view: "work", workId: decodeURIComponent(parts[1]) });
   }
   if (parts[0] === "follow") {
     const preferredView = parseFollowPreferredView(url.searchParams.get("view"));
@@ -578,7 +581,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (workId) route.workId = workId;
     if (sessionId) route.sessionId = sessionId;
     if (targetAgentId) route.targetAgentId = targetAgentId;
-    return route;
+    return scoped(route);
   }
   if (parts[0] === "settings") {
     if (parts[1] === "agents") {
@@ -789,6 +792,8 @@ export function routePath(r: Route, pathname?: string): string {
         : "/briefings";
     case "activity":
       return pathWithMachineScope("/activity", r);
+    case "work":
+      return pathWithMachineScope(`/work/${encodeURIComponent(r.workId)}`, r);
     case "settings":
       if (r.section === "agents") {
         return r.agentId
@@ -822,6 +827,7 @@ export function routePath(r: Route, pathname?: string): string {
       if (r.workId) params.set("workId", r.workId);
       if (r.sessionId) params.set("sessionId", r.sessionId);
       if (r.targetAgentId) params.set("targetAgentId", r.targetAgentId);
+      if (r.machineId) params.set(MACHINE_SCOPE_PARAM, r.machineId);
       const search = params.toString();
       return `/follow${search ? `?${search}` : ""}`;
     }
@@ -883,6 +889,8 @@ export function routeKey(r: Route): string {
       return r.conversationId ? `messages:${r.conversationId}${scope}` : `messages${scope}`;
     case "channels":
       return r.channelId ? `channel:${r.channelId}${scope}` : `channels${scope}`;
+    case "work":
+      return `work:${r.workId}${scope}`;
     case "ops":
       return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}:${r.flightId ?? ""}:${r.invocationId ?? ""}:${r.workId ?? ""}:${r.conversationId ?? ""}:${r.sessionId ?? ""}:${r.targetAgentId ?? ""}`;
     case "search":
@@ -890,7 +898,7 @@ export function routeKey(r: Route): string {
     case "broker":
       return `broker:${r.attemptId ?? ""}`;
     case "follow":
-      return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
+      return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}${scope}`;
     case "terminal":
       return `terminal:${r.agentId ?? ""}:${r.terminalSessionId ?? ""}:${r.terminalSurfaceKey ?? ""}:${r.terminalBackend ?? ""}:${r.terminalAgent ?? ""}:${r.terminalSessionName ?? ""}:${r.terminalTabId ?? ""}:${r.mode ?? "detail"}`;
     case "repo-diff":

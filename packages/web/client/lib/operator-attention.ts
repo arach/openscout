@@ -1,5 +1,5 @@
 import { api } from "./api.ts";
-import type { FleetAsk, FleetAttentionItem, Route, WorkItem } from "./types.ts";
+import type { FleetAsk, FleetAttentionItem, Route } from "./types.ts";
 
 function directResolutionRoute({
   conversationId,
@@ -36,14 +36,6 @@ export function routeForFleetAsk(ask: FleetAsk): Route {
     conversationId: ask.conversationId,
     workId: ask.collaborationRecordId,
     agentId: ask.agentId,
-  });
-}
-
-export function routeForWorkItem(work: WorkItem): Route {
-  return directResolutionRoute({
-    conversationId: work.conversationId,
-    workId: work.id,
-    agentId: work.nextMoveOwnerId ?? work.ownerId,
   });
 }
 

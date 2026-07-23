@@ -3,7 +3,6 @@ import { workTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
-import { routeForWorkItem } from "../lib/operator-attention.ts";
 import type { Route, WorkItem } from "../lib/types.ts";
 import { StatusPill } from "./StatusPill.tsx";
 
@@ -97,8 +96,10 @@ export function WorkList({
         const attention = attentionLabel(work.attention);
         const ownerLabel = work.ownerName ?? work.ownerId ?? "Unassigned";
 
-        const onClick = clickable
-          ? () => openContent(navigate, routeForWorkItem(work), { returnTo: route })
+        const onClick = work.id
+          ? () => openContent(navigate, { view: "work", workId: work.id }, { returnTo: route })
+          : work.conversationId
+          ? () => openContent(navigate, { view: "conversation", conversationId: work.conversationId! }, { returnTo: route })
           : undefined;
 
         return (

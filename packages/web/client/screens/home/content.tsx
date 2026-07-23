@@ -135,15 +135,8 @@ function activityVerb(kind: string): string {
 
 function fleetActivityRoute(item: FleetActivity): Route | null {
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
-  if (item.recordId) {
-    return {
-      view: "follow",
-      workId: item.recordId,
-      preferredView: "chat",
-      ...(item.agentId ? { targetAgentId: item.agentId } : {}),
-    };
-  }
-  if (item.agentId) return { view: "agents-v2", agentId: item.agentId, tab: "message" };
+  if (item.recordId) return { view: "work", workId: item.recordId };
+  if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
   return null;
 }
 

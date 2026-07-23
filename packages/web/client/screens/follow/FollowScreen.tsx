@@ -5,6 +5,7 @@ import {
   routeForFollowTarget,
   targetFromFollowRoute,
 } from "../../lib/follow-route.ts";
+import { setRouteMachineScope } from "../../lib/router.ts";
 import type { FollowTarget, Route } from "../../lib/types.ts";
 import "../chat/inbox-thread-redesign.css";
 
@@ -35,15 +36,18 @@ export function FollowScreen({ route, navigate }: FollowScreenProps) {
           : fallbackTarget;
         if (cancelled) return;
         navigate(
-          routeForFollowTarget(
+          setRouteMachineScope(routeForFollowTarget(
             mergeFollowTargets(resolved, fallbackTarget),
             route.preferredView,
-          ),
+          ), route.machineId ?? null),
         );
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
-        navigate(routeForFollowTarget(fallbackTarget, route.preferredView));
+        navigate(setRouteMachineScope(
+          routeForFollowTarget(fallbackTarget, route.preferredView),
+          route.machineId ?? null,
+        ));
       }
     })();
 

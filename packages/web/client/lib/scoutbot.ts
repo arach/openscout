@@ -343,9 +343,7 @@ function normalizeRoute(raw: unknown): Route | null {
         ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
       };
     case "work":
-      return typeof record.workId === "string"
-        ? { view: "follow", workId: record.workId, preferredView: "chat" }
-        : null;
+      return typeof record.workId === "string" ? { view: "work", workId: record.workId } : null;
     case "conversation":
       return typeof record.conversationId === "string"
         ? {

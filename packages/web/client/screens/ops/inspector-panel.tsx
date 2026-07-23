@@ -12,7 +12,7 @@ import {
 } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
-import { routeForFleetAsk, routeForOperatorAttention, routeForWorkItem } from "../../lib/operator-attention.ts";
+import { routeForFleetAsk, routeForOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type {
@@ -685,7 +685,7 @@ function PlanContextInspectorPanel({
             key={work.id}
             type="button"
             className="ctx-panel-item ctx-panel-plan-context-item"
-            onClick={() => openContent(navigate, routeForWorkItem(work), { returnTo: returnRoute })}
+            onClick={() => openContent(navigate, { view: "work", workId: work.id }, { returnTo: returnRoute })}
           >
             <div className="ctx-panel-body">
               <span className="ctx-panel-name">{work.title}</span>
@@ -782,15 +782,8 @@ function planRouteForAsk(ask: FleetAsk): Route {
 
 function planRouteForRun(run: AgentRun): Route {
   if (run.conversationId) return { view: "conversation", conversationId: run.conversationId };
-  if (run.workId) {
-    return {
-      view: "follow",
-      workId: run.workId,
-      preferredView: "chat",
-      ...(run.agentId ? { targetAgentId: run.agentId } : {}),
-    };
-  }
-  return { view: "agents-v2", agentId: run.agentId, tab: "message" };
+  if (run.workId) return { view: "work", workId: run.workId };
+  return { view: "agents-v2", agentId: run.agentId };
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
