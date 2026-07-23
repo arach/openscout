@@ -1,0 +1,37 @@
+%% OpenScout blog figure: local transport vs paid model inference
+%% Render target: /blog/how-agents-learn-to-speak-scout.svg
+flowchart TB
+  subgraph localTransport["Local transport — no model meter"]
+    direction TB
+    Operator["Operator"]
+    Menu["Scout Menu<br/>native compose"]
+    Broker["Local broker<br/>records + routing"]
+    SSE["Broker SSE<br/>message.posted"]
+
+    Operator -->|"type message"| Menu
+    Menu -->|"POST /api/send"| Broker
+    Broker -->|"event stream /api/events"| SSE
+    SSE -->|"UI append"| Menu
+  end
+
+  subgraph paidInference["Paid model inference — harness account"]
+    direction TB
+    Scoutbot["Scoutbot<br/>low reasoning · allowlisted Scout MCP<br/>no shell · no codebase writes"]
+    ProjectAgent["Optional project agent<br/>role prompt · tools · AGENTS.md<br/>Scout skill · reply context"]
+    RepoTools["Repo / harness tools<br/>read · edit · shell as granted"]
+
+    Scoutbot -->|"ask when work needs a repo owner"| ProjectAgent
+    ProjectAgent --> RepoTools
+    RepoTools --> ProjectAgent
+  end
+
+  Broker -->|"wake concierge if targeted"| Scoutbot
+  Scoutbot -->|"messages_send / ask · broker writes"| Broker
+  ProjectAgent -->|"final reply / progress via broker"| Broker
+
+  classDef free fill:#ecfdf5,stroke:#059669,color:#064e3b
+  classDef paid fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+  classDef actor fill:#eff6ff,stroke:#2563eb,color:#1e3a8a
+
+  class Operator,Menu,Broker,SSE free
+  class Scoutbot,ProjectAgent,RepoTools paid
