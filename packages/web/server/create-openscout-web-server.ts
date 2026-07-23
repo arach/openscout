@@ -12,6 +12,7 @@ import {
   directChannelNaturalKey,
   epochMs,
   extractAgentSelectors,
+  flightSessionTrace,
   isOpaqueChannelId,
   resolveAgentIdentity,
   SCOUT_ROLE_CATALOG,
@@ -1715,6 +1716,7 @@ function brokerFlightToWebFlight(
     summary: flight.summary ?? null,
     startedAt: epochMs(flight.startedAt) ?? epochMs(invocation?.createdAt),
     completedAt: epochMs(flight.completedAt),
+    sessions: flightSessionTrace(flight),
   };
 }
 

@@ -115,7 +115,7 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
     case "agent-info":
       return <AgentsRight />;
     case "sessions":
-      return <SessionsRight />;
+      return route.flightId ? null : <SessionsRight />;
     case "search":
       return <SearchRight />;
     case "conversation":

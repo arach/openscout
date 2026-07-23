@@ -102,6 +102,162 @@ export interface FlightRecord {
 }
 
 /**
+ * One concrete harness session used while executing a flight. Flights are the
+ * stable coordination handle; sessions are ephemeral execution resources and
+ * may change when a dispatch is retried, resumed, or replaced.
+ */
+export interface FlightSessionTraceEntry {
+  sessionId: ScoutId;
+  endpointId?: ScoutId;
+  nodeId?: ScoutId;
+  harness?: AgentHarness;
+  transport?: string;
+  strategy?: string;
+  startedAt: number;
+  lastAcknowledgedAt: number;
+  endedAt?: number;
+}
+
+export interface FlightDispatchAcknowledgement {
+  sessionId?: ScoutId | null;
+  endpointId?: ScoutId | null;
+  nodeId?: ScoutId | null;
+  harness?: AgentHarness | null;
+  transport?: string | null;
+  strategy?: string | null;
+  acknowledgedAt?: number | null;
+}
+
+function cleanTraceString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function cleanTraceTimestamp(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function parseFlightSessionTraceEntry(value: unknown): FlightSessionTraceEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const sessionId = cleanTraceString(record.sessionId);
+  const startedAt = cleanTraceTimestamp(record.startedAt);
+  const lastAcknowledgedAt = cleanTraceTimestamp(record.lastAcknowledgedAt) ?? startedAt;
+  if (!sessionId || startedAt === undefined || lastAcknowledgedAt === undefined) return null;
+  const harness = cleanTraceString(record.harness);
+  return {
+    sessionId,
+    ...(cleanTraceString(record.endpointId) ? { endpointId: cleanTraceString(record.endpointId) } : {}),
+    ...(cleanTraceString(record.nodeId) ? { nodeId: cleanTraceString(record.nodeId) } : {}),
+    ...(harness ? { harness: harness as AgentHarness } : {}),
+    ...(cleanTraceString(record.transport) ? { transport: cleanTraceString(record.transport) } : {}),
+    ...(cleanTraceString(record.strategy) ? { strategy: cleanTraceString(record.strategy) } : {}),
+    startedAt,
+    lastAcknowledgedAt,
+    ...(cleanTraceTimestamp(record.endedAt) !== undefined
+      ? { endedAt: cleanTraceTimestamp(record.endedAt) }
+      : {}),
+  };
+}
+
+function parseDispatchAcknowledgement(value: unknown): FlightDispatchAcknowledgement | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const sessionId = cleanTraceString(record.sessionId);
+  const acknowledgedAt = cleanTraceTimestamp(record.acknowledgedAt);
+  if (!sessionId || acknowledgedAt === undefined) return null;
+  const harness = cleanTraceString(record.harness);
+  return {
+    sessionId,
+    endpointId: cleanTraceString(record.endpointId) ?? null,
+    nodeId: cleanTraceString(record.nodeId) ?? null,
+    harness: harness ? harness as AgentHarness : null,
+    transport: cleanTraceString(record.transport) ?? null,
+    strategy: cleanTraceString(record.strategy) ?? null,
+    acknowledgedAt,
+  };
+}
+
+/**
+ * Read a flight's ordered session history. Legacy records that only contain a
+ * dispatch acknowledgement are projected as a one-session trace.
+ */
+export function flightSessionTrace(
+  flightOrMetadata: Pick<FlightRecord, "metadata"> | MetadataMap | null | undefined,
+): FlightSessionTraceEntry[] {
+  const metadata = (
+    flightOrMetadata && "metadata" in flightOrMetadata
+      ? (flightOrMetadata as Pick<FlightRecord, "metadata">).metadata
+      : flightOrMetadata
+  ) as MetadataMap | null | undefined;
+  const recorded = Array.isArray(metadata?.sessionTrace)
+    ? metadata.sessionTrace
+      .map(parseFlightSessionTraceEntry)
+      .filter((entry): entry is FlightSessionTraceEntry => entry !== null)
+    : [];
+  if (recorded.length > 0) return recorded;
+
+  const dispatchAck = parseDispatchAcknowledgement(metadata?.dispatchAck);
+  if (!dispatchAck?.sessionId || dispatchAck.acknowledgedAt === null || dispatchAck.acknowledgedAt === undefined) {
+    return [];
+  }
+  return [{
+    sessionId: dispatchAck.sessionId,
+    ...(dispatchAck.endpointId ? { endpointId: dispatchAck.endpointId } : {}),
+    ...(dispatchAck.nodeId ? { nodeId: dispatchAck.nodeId } : {}),
+    ...(dispatchAck.harness ? { harness: dispatchAck.harness } : {}),
+    ...(dispatchAck.transport ? { transport: dispatchAck.transport } : {}),
+    ...(dispatchAck.strategy ? { strategy: dispatchAck.strategy } : {}),
+    startedAt: dispatchAck.acknowledgedAt,
+    lastAcknowledgedAt: dispatchAck.acknowledgedAt,
+  }];
+}
+
+/** Append a dispatch acknowledgement without losing earlier session identity. */
+export function recordFlightSessionDispatch(
+  metadata: MetadataMap | null | undefined,
+  acknowledgement: unknown,
+): MetadataMap {
+  const dispatchAck = parseDispatchAcknowledgement(acknowledgement);
+  const nextMetadata: MetadataMap = { ...(metadata ?? {}), dispatchAck: acknowledgement };
+  if (!dispatchAck?.sessionId || dispatchAck.acknowledgedAt === null || dispatchAck.acknowledgedAt === undefined) {
+    return nextMetadata;
+  }
+
+  const trace = flightSessionTrace(metadata).map((entry) => ({ ...entry }));
+  const previous = trace.at(-1);
+  if (
+    previous
+    && previous.sessionId === dispatchAck.sessionId
+    && (previous.endpointId ?? null) === (dispatchAck.endpointId ?? null)
+  ) {
+    previous.lastAcknowledgedAt = Math.max(previous.lastAcknowledgedAt, dispatchAck.acknowledgedAt);
+    previous.strategy = dispatchAck.strategy ?? previous.strategy;
+    previous.harness = dispatchAck.harness ?? previous.harness;
+    previous.transport = dispatchAck.transport ?? previous.transport;
+    previous.nodeId = dispatchAck.nodeId ?? previous.nodeId;
+    delete previous.endedAt;
+  } else {
+    if (previous && previous.endedAt === undefined) {
+      previous.endedAt = dispatchAck.acknowledgedAt;
+    }
+    trace.push({
+      sessionId: dispatchAck.sessionId,
+      ...(dispatchAck.endpointId ? { endpointId: dispatchAck.endpointId } : {}),
+      ...(dispatchAck.nodeId ? { nodeId: dispatchAck.nodeId } : {}),
+      ...(dispatchAck.harness ? { harness: dispatchAck.harness } : {}),
+      ...(dispatchAck.transport ? { transport: dispatchAck.transport } : {}),
+      ...(dispatchAck.strategy ? { strategy: dispatchAck.strategy } : {}),
+      startedAt: dispatchAck.acknowledgedAt,
+      lastAcknowledgedAt: dispatchAck.acknowledgedAt,
+    });
+  }
+  nextMetadata.sessionTrace = trace;
+  return nextMetadata;
+}
+
+/**
  * Mutable execution status for an invocation. Every field is optional — a
  * freshly-created invocation has no flight or status yet.
  *

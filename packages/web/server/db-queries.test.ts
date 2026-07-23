@@ -204,6 +204,7 @@ describe("web db query flights", () => {
           summary: "In progress",
           startedAt: 101_000,
           completedAt: null,
+          sessions: [],
         },
       ]);
     } finally {
@@ -347,6 +348,25 @@ describe("web db query flights", () => {
     const store = createSeededStore();
 
     try {
+      store.recordFlight({
+        id: "flight-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        summary: "In progress",
+        startedAt: 101,
+        metadata: {
+          dispatchAck: {
+            sessionId: "flight-session-1",
+            endpointId: "historical-endpoint",
+            harness: "claude",
+            transport: "tmux",
+            strategy: "spawn",
+            acknowledgedAt: 102,
+          },
+        },
+      });
       store.upsertEndpoint({
         id: "agent-1-endpoint",
         agentId: "agent-1",
@@ -354,9 +374,9 @@ describe("web db query flights", () => {
         harness: "codex",
         transport: "codex_app_server",
         state: "active",
-        sessionId: "codex-thread-1",
+        sessionId: "newest-agent-session",
         metadata: {
-          threadId: "codex-thread-1",
+          threadId: "newest-agent-session",
         },
       });
 
@@ -365,9 +385,12 @@ describe("web db query flights", () => {
         invocationId: "inv-1",
         conversationId: "c.conv-1",
         workId: "work-1",
-        sessionId: "codex-thread-1",
+        sessionId: "flight-session-1",
         targetAgentId: "agent-1",
       });
+      expect(queryFlights({ flightId: "flight-1", activeOnly: false })[0]?.sessions).toEqual([
+        expect.objectContaining({ sessionId: "flight-session-1", endpointId: "historical-endpoint" }),
+      ]);
     } finally {
       store.close();
     }

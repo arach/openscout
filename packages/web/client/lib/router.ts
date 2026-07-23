@@ -460,6 +460,16 @@ export function routeFromUrl(urlLike: string | URL): Route {
       conversationId: decodeURIComponent(parts[1]),
     });
   }
+  if (parts[0] === "flights" && parts[1] && parts[2] === "observe") {
+    const sessionId = url.searchParams.get("session")?.trim() || undefined;
+    const compareSessionId = url.searchParams.get("compare")?.trim() || undefined;
+    return scoped({
+      view: "sessions",
+      flightId: decodeURIComponent(parts[1]),
+      ...(sessionId ? { sessionId } : {}),
+      ...(compareSessionId ? { compareSessionId } : {}),
+    });
+  }
   if (parts[0] === "sessions" && parts[1]) {
     return scoped({
       view: "sessions",
@@ -667,7 +677,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
 }
 
 export function routePath(r: Route, pathname?: string): string {
-  const scopePath = scopeRoutePath(r, pathname);
+  const scopePath = r.view === "sessions" && r.flightId
+    ? null
+    : scopeRoutePath(r, pathname);
   if (scopePath) return scopePath;
 
   switch (r.view) {
@@ -731,6 +743,12 @@ export function routePath(r: Route, pathname?: string): string {
     case "sessions": {
       const params = new URLSearchParams();
       if (r.agentId) params.set("agentId", r.agentId);
+      if (r.flightId) {
+        if (r.sessionId) params.set("session", r.sessionId);
+        if (r.compareSessionId) params.set("compare", r.compareSessionId);
+        appendMachineScope(params, r);
+        return `/flights/${encodeURIComponent(r.flightId)}/observe${searchSuffix(params)}`;
+      }
       appendMachineScope(params, r);
       const path = r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
@@ -884,7 +902,9 @@ export function routeKey(r: Route): string {
         scope,
       ].join(":");
     case "sessions":
-      return r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
+      return r.flightId
+        ? `flight-observe:${r.flightId}:${r.sessionId ?? ""}:${r.compareSessionId ?? ""}${scope}`
+        : r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":
       return r.conversationId ? `messages:${r.conversationId}${scope}` : `messages${scope}`;
     case "channels":

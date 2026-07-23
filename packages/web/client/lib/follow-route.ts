@@ -54,6 +54,14 @@ function tailRouteForFollowTarget(target: FollowTarget): Route {
 }
 
 function observeRouteForFollowTarget(target: FollowTarget): Route | null {
+  if (target.flightId) {
+    return {
+      view: "sessions",
+      flightId: target.flightId,
+      ...(target.sessionId ? { sessionId: target.sessionId } : {}),
+      ...(target.targetAgentId ? { agentId: target.targetAgentId } : {}),
+    };
+  }
   if (target.sessionId) {
     return {
       view: "sessions",
@@ -73,8 +81,12 @@ export function routeForFollowTarget(
   if (preferredView === "work" && target.workId) {
     return { view: "work", workId: target.workId };
   }
-  if (preferredView === "session" && target.sessionId) {
-    return { view: "sessions", sessionId: target.sessionId };
+  if (preferredView === "session" && (target.flightId || target.sessionId)) {
+    return {
+      view: "sessions",
+      ...(target.flightId ? { flightId: target.flightId } : {}),
+      ...(target.sessionId ? { sessionId: target.sessionId } : {}),
+    };
   }
   if (preferredView === "chat" && target.conversationId) {
     return { view: "conversation", conversationId: target.conversationId };

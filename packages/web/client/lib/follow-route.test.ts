@@ -43,7 +43,7 @@ describe("follow route resolution", () => {
     })).toBe("flight-1|agent.main");
   });
 
-  test("defaults to observe when an agent is known", () => {
+  test("keeps a flight as the stable observe handle before a session is assigned", () => {
     expect(routeForFollowTarget({
       flightId: "flight-1",
       invocationId: "inv-1",
@@ -52,9 +52,9 @@ describe("follow route resolution", () => {
       sessionId: null,
       targetAgentId: "agent.main",
     }, undefined)).toEqual({
-      view: "agents-v2",
+      view: "sessions",
+      flightId: "flight-1",
       agentId: "agent.main",
-      tab: "observe",
     });
   });
 
@@ -68,12 +68,13 @@ describe("follow route resolution", () => {
       targetAgentId: "agent.main",
     }, undefined)).toEqual({
       view: "sessions",
+      flightId: "flight-1",
       agentId: "agent.main",
       sessionId: "session-1",
     });
   });
 
-  test("falls back to a focused tail route when no primary surface exists", () => {
+  test("keeps a sparse flight on its waiting observe surface", () => {
     expect(routeForFollowTarget({
       flightId: "flight-1",
       invocationId: "inv-1",
@@ -82,11 +83,8 @@ describe("follow route resolution", () => {
       sessionId: null,
       targetAgentId: null,
     }, undefined)).toEqual({
-      view: "ops",
-      mode: "tail",
-      tailQuery: "flight-1|inv-1",
+      view: "sessions",
       flightId: "flight-1",
-      invocationId: "inv-1",
     });
   });
 
@@ -102,6 +100,7 @@ describe("follow route resolution", () => {
 
     expect(routeForFollowTarget(target, "session")).toEqual({
       view: "sessions",
+      flightId: "flight-1",
       sessionId: "session-1",
     });
     expect(routeForFollowTarget(target, "chat")).toEqual({

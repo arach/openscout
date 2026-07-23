@@ -26,6 +26,7 @@
 import {
   AGENT_RUN_SOURCES,
   AGENT_RUN_STATES,
+  flightSessionTrace,
   projectAgentRunFromInvocationFlight,
   type AgentRun,
   type AgentRunSource,
@@ -424,6 +425,7 @@ export function queryFlights(opts?: {
     inv.collaboration_record_id,
     inv.state,
     inv.summary,
+    inv.flight_metadata_json,
     json_extract(inv.flight_metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
     json_extract(inv.flight_metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
     json_extract(inv.flight_metadata_json, '$.dispatchOutcome.checkedAt') AS dispatch_outcome_checked_at,
@@ -451,6 +453,7 @@ export function queryFlights(opts?: {
     collaboration_record_id: string | null;
     state: string;
     summary: string | null;
+    flight_metadata_json: string | null;
     dispatch_outcome_status: string | null;
     dispatch_outcome_reason: string | null;
     dispatch_outcome_checked_at: number | string | null;
@@ -478,6 +481,7 @@ export function queryFlights(opts?: {
       summary: r.summary,
       startedAt: r.started_at,
       completedAt: r.completed_at,
+      sessions: flightSessionTrace(parseJson<Record<string, unknown>>(r.flight_metadata_json, {})),
       ...(dispatchOutcome ? { dispatchOutcome } : {}),
     };
   });
@@ -560,6 +564,7 @@ export function queryFollowTarget(opts: {
          inv.conversation_id,
          inv.collaboration_record_id,
          inv.target_agent_id,
+         inv.flight_metadata_json,
          ep.transport,
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json
@@ -579,6 +584,7 @@ export function queryFollowTarget(opts: {
       conversation_id: string | null;
       collaboration_record_id: string | null;
       target_agent_id: string | null;
+      flight_metadata_json: string | null;
       transport: string | null;
       session_id: string | null;
       endpoint_metadata_json: string | null;
@@ -598,11 +604,12 @@ export function queryFollowTarget(opts: {
       target.conversationId = target.conversationId ?? row.conversation_id;
       target.workId = target.workId ?? row.collaboration_record_id;
       target.targetAgentId = target.targetAgentId ?? row.target_agent_id;
-      target.sessionId = target.sessionId ?? resolveHarnessSessionId(
-        row.transport,
-        row.session_id,
-        endpointMeta,
-      );
+      const flightSessionId = flightSessionTrace(
+        parseJson<Record<string, unknown>>(row.flight_metadata_json, {}),
+      ).at(-1)?.sessionId;
+      target.sessionId = target.sessionId
+        ?? flightSessionId
+        ?? resolveHarnessSessionId(row.transport, row.session_id, endpointMeta);
     }
   }
 
