@@ -12,6 +12,20 @@ import {
 
 type BuildMode = "dev" | "production";
 
+const SCOUT_FLAG_QUERY_KEYS = new Set([
+  "no-ops",
+  "ffBundle",
+  "ffVariant",
+  "scoutBundle",
+  "scoutExperience",
+  "ab",
+  "ffGlobal",
+  "scoutGlobalBundle",
+  "ffPersist",
+  "persistBundle",
+  "ffAudience",
+]);
+
 let cachedBuildMode: BuildMode | null = null;
 
 function readViteDevFlag(): boolean {
@@ -57,6 +71,16 @@ export function isScoutWebDevBuild(): boolean {
   return isScoutDevToolsAvailable();
 }
 
+function clearScoutFlagQueryParams(): void {
+  const url = new URL(window.location.href);
+  for (const key of [...url.searchParams.keys()]) {
+    if (SCOUT_FLAG_QUERY_KEYS.has(key) || key.startsWith("ff.")) {
+      url.searchParams.delete(key);
+    }
+  }
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 export function useScoutDevFlagControls() {
   const flags = useFeatureFlags();
 
@@ -86,6 +110,7 @@ export function useScoutDevFlagControls() {
   const resetBundle = useCallback(() => {
     flags.resetLocalOverrides();
     writeStoredScoutFlagBundle({ action: "clear" });
+    clearScoutFlagQueryParams();
     window.location.reload();
   }, [flags]);
 
