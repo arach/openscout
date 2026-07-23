@@ -227,18 +227,20 @@ and schema/protocol metadata, then require the feature set actually used:
 
 - `session.snapshot`
 - ANSI `pane.read` with revision
-- a public pane-output revision notification, when the negotiated schema exposes
-  one
+- public `events.wait` support for `pane_output_changed`, including `pane_id`
+  and `min_revision`
 - `pane.send_input` for Takeover
 - agent records and native session references for agent-state correlation
 
-Herdr 0.7.5 does not expose a general pane-output change through its public
-subscription surface: `events.subscribe` covers resource/lifecycle events, and
-`events.wait` supports agent-status matches. Although the schema contains an
-internal `pane.output_changed` event kind, OpenScout must not depend on that
-private implementation detail. Tier-one Observe therefore requires either a
-public revision-notification subscription in a future Herdr schema or a small
-upstream Herdr addition that exposes it.
+Herdr 0.7.3 and 0.7.5 expose the required revision-bearing wait through the
+public socket schema: `events.wait` accepts a `pane_output_changed` matcher with
+`pane_id` and optional `min_revision`. Tier-one Observe should keep one
+server-owned wait outstanding per observed pane, then issue the next ANSI
+`pane.read` after the revision advances. `pane.wait_for_output` is a separate
+content-matching API and is not the primitive used to mirror a pane.
+
+OpenScout must still negotiate this exact matcher from the installed schema
+rather than infer it from a version string or from an internal event enum.
 
 Installations without that capability may use activity-aware, bounded
 `pane.read` revision polling as a clearly diagnosed compatibility mode. Polling
@@ -269,6 +271,11 @@ Extend the server terminal discovery service with the Herdr adapter:
 5. Return unidentified panes as `host-pane` subjects.
 6. Subscribe to topology and agent-state events and invalidate the normalized
    snapshot cache.
+
+One Herdr socket represents one server/session, and `session.snapshot` takes no
+session selector. Discovering multiple sessions therefore means discovering and
+connecting to multiple supported socket endpoints, then calling
+`session.snapshot` once on each connection.
 
 The terminal library should group Herdr targets as:
 
@@ -303,13 +310,13 @@ Bootstrap:
 1. Read pane metadata and its current terminal dimensions.
 2. Request an ANSI `pane.read` snapshot for the visible source.
 3. Send a revisioned `terminal:snapshot` message.
-4. Start the negotiated public pane-output revision notification after that
-   revision.
+4. Start a negotiated `events.wait` loop for `pane_output_changed` with
+   `min_revision` set to that revision.
 5. On change, read and send the next complete snapshot.
 
 In compatibility mode only, step 4 is an activity-aware revision polling loop.
-The rest of the projection contract is identical, so adopting the upstream
-notification later does not change any web, bridge, or native client.
+The rest of the projection contract is identical, so changing the host-side
+wait mechanism later does not change any web, bridge, or native client.
 
 Proposed wire message:
 
@@ -528,7 +535,9 @@ reads, or general command execution.
 
 Observe and Takeover are separate server permissions. Destructive pane close or
 agent restart actions require explicit confirmation and an auditable Scout
-operator action record.
+operator action record submitted through the broker, which remains the
+canonical writer for Scout-owned records; the Herdr adapter never writes those
+records directly.
 
 ## macOS: Unified Local Integration
 
@@ -609,11 +618,11 @@ Rules:
 
 ### Phase 0 — compatibility fixture
 
-- Upgrade the development Herdr installation to a version that exposes the
-  socket schema (`herdr api schema`) and revisioned ANSI reads.
-- Contribute or coordinate the minimal upstream Herdr API addition for a public,
-  revision-bearing pane-output notification. Do not infer support from internal
-  event enums; require it in the generated schema.
+- Verify the development Herdr installation exposes the socket schema
+  (`herdr api schema`), revisioned ANSI reads, and the public
+  `events.wait`/`pane_output_changed` matcher with `min_revision`.
+- Treat those generated-schema capabilities as the compatibility boundary; do
+  not infer support from internal event enums or version strings.
 - Capture a sanitized schema and representative snapshots/events as test
   fixtures.
 - Verify ANSI reads, output revisions, semantic keys, reconnect, agent session
@@ -666,8 +675,8 @@ Rules:
 
 - Snapshot/schema fixtures decode across the supported Herdr protocol range.
 - Unknown fields are tolerated; missing required capabilities are diagnosed.
-- Tier-one mode is event-driven for output; compatibility polling is labeled and
-  covered by load/backoff tests.
+- Tier-one mode blocks on the public revision-bearing `events.wait` output
+  matcher; compatibility polling is labeled and covered by load/backoff tests.
 - Socket disconnect cancels waits and releases every local resource.
 - Reconnect always creates a fresh generation and full snapshot.
 - Native agent session references correlate without inventing harness sessions.
