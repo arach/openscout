@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import "../../scout/slots/ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { friendlyApiError, isOfflineApiError } from "../../lib/api-errors.ts";
@@ -20,6 +20,7 @@ import {
   togglePin,
   type ConversationPrefs,
 } from "../../lib/conversation-prefs.ts";
+import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import {
@@ -200,6 +201,8 @@ export function ChatLeft() {
     return sections;
   }, [activeRouteFilter, sections]);
 
+  const showContextMenu = useContextMenu();
+
   const onTogglePin = useCallback((id: string) => {
     setPrefs((prev) => togglePin(id, prev));
   }, []);
@@ -226,7 +229,7 @@ export function ChatLeft() {
     });
   };
 
-  const onSelect = (s: SessionEntry) => {
+  const onSelect = useCallback((s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
     // One address per conversation: groups always open the channel view;
     // DMs always open the messages thread. Destination never depends on tab.
@@ -240,7 +243,43 @@ export function ChatLeft() {
       ...(activeRouteFilter !== "all" ? { filter: activeRouteFilter } : {}),
       ...(activeRouteSort !== "recent" ? { sort: activeRouteSort } : {}),
     });
-  };
+  }, [navigate, activeRouteFilter, activeRouteSort]);
+
+  const openConversationMenu = useCallback(
+    (event: MouseEvent, s: SessionEntry) => {
+      const pinned = isPinned(s.id, prefs);
+      const archived = isArchived(s.id, prefs);
+      const title = conversationDisplayTitle(s);
+      const items: MenuItem[] = [
+        {
+          kind: "action",
+          label: "Open",
+          onSelect: () => onSelect(s),
+        },
+        { kind: "separator" },
+        {
+          kind: "action",
+          label: pinned ? "Unpin" : "Pin to top",
+          onSelect: () => onTogglePin(s.id),
+        },
+        {
+          kind: "action",
+          label: archived ? "Unarchive" : "Archive",
+          onSelect: () => onToggleArchive(s.id),
+        },
+        { kind: "separator" },
+        {
+          kind: "action",
+          label: "Copy name",
+          onSelect: () => {
+            void navigator.clipboard?.writeText(title).catch(() => {});
+          },
+        },
+      ];
+      showContextMenu(event, items);
+    },
+    [prefs, onSelect, onTogglePin, onToggleArchive, showContextMenu],
+  );
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => {
@@ -389,7 +428,7 @@ export function ChatLeft() {
                     pinned
                     actions={rowActions(s)}
                     onSelect={onSelect}
-                    onTogglePin={onTogglePin}
+                    onContextMenu={openConversationMenu}
                   />
                 ))}
               </RailSection>
@@ -409,7 +448,7 @@ export function ChatLeft() {
                     firstConversationId={firstConversationId}
                     actions={rowActions(s)}
                     onSelect={onSelect}
-                    onTogglePin={onTogglePin}
+                    onContextMenu={openConversationMenu}
                   />
                 ))}
               </RailSection>
@@ -433,6 +472,7 @@ export function ChatLeft() {
                     onSelect={onSelect}
                     onTogglePin={onTogglePin}
                     onToggleArchive={onToggleArchive}
+                    onContextMenu={openConversationMenu}
                   />
                 ))}
               </RailSection>
@@ -460,6 +500,7 @@ export function ChatLeft() {
                     onSelect={onSelect}
                     onTogglePin={onTogglePin}
                     onToggleArchive={onToggleArchive}
+                    onContextMenu={openConversationMenu}
                   />
                 ))}
                 {observedHidden > 0 ? (
@@ -496,7 +537,7 @@ export function ChatLeft() {
                         firstConversationId={firstConversationId}
                         actions={rowActions(s)}
                         onSelect={onSelect}
-                        onTogglePin={onTogglePin}
+                        onContextMenu={openConversationMenu}
                       />
                     ))
                   : null}
@@ -584,7 +625,7 @@ function SessionRailRow({
   depth,
   actions,
   onSelect,
-  onTogglePin,
+  onContextMenu,
 }: {
   session: SessionEntry;
   activeId: string | undefined;
@@ -597,7 +638,7 @@ function SessionRailRow({
   depth?: 0 | 1;
   actions?: ReactNode;
   onSelect: (s: SessionEntry) => void;
-  onTogglePin?: (id: string) => void;
+  onContextMenu?: (event: MouseEvent, s: SessionEntry) => void;
 }) {
   const active = s.id === activeId;
   const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
@@ -639,12 +680,7 @@ function SessionRailRow({
       actions={actions}
       tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
       onClick={() => onSelect(s)}
-      onContextMenu={onTogglePin
-        ? (e) => {
-            e.preventDefault();
-            onTogglePin(s.id);
-          }
-        : undefined}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, s) : undefined}
     />
   );
 }
@@ -663,6 +699,7 @@ function GroupOrRow({
   onSelect,
   onTogglePin,
   onToggleArchive,
+  onContextMenu,
 }: {
   group: ConversationGroup;
   isOpen: boolean;
@@ -677,6 +714,7 @@ function GroupOrRow({
   onSelect: (s: SessionEntry) => void;
   onTogglePin: (id: string) => void;
   onToggleArchive: (id: string) => void;
+  onContextMenu: (event: MouseEvent, s: SessionEntry) => void;
 }) {
   if (group.conversations.length === 1) {
     const s = group.conversations[0]!;
@@ -699,7 +737,7 @@ function GroupOrRow({
           />
         }
         onSelect={onSelect}
-        onTogglePin={onTogglePin}
+        onContextMenu={onContextMenu}
       />
     );
   }
@@ -749,7 +787,7 @@ function GroupOrRow({
               />
             }
             onSelect={onSelect}
-            onTogglePin={onTogglePin}
+            onContextMenu={onContextMenu}
           />
         ))}
     </div>
