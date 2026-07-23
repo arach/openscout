@@ -101,6 +101,7 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var menuBarSymbolName = "bolt.horizontal.circle"
     @Published private(set) var menuBarTooltip = "OpenScout"
     @Published private(set) var isRefreshing = false
+    @Published private(set) var hasCompletedInitialRefresh = false
     @Published private(set) var brokerActionPending = false
     @Published private(set) var pairingActionPending = false
     @Published private(set) var openScoutNetworkActionPending = false
@@ -126,7 +127,7 @@ final class OpenScoutAppController: ObservableObject {
     private var actionLogCollapseTask: Task<Void, Never>?
     private var consecutiveWebProbeFailures = 0
     private static let actionLogMaxEntries = 50
-    private static let fastRefreshInterval: TimeInterval = 2.5
+    private static let fastRefreshInterval: TimeInterval = 10
     private static let backgroundRefreshInterval: TimeInterval = 30
 
     private init() {}
@@ -642,6 +643,7 @@ final class OpenScoutAppController: ObservableObject {
         repeat {
             refreshQueued = false
             await refreshNow()
+            hasCompletedInitialRefresh = true
         } while refreshQueued
     }
 
