@@ -319,6 +319,7 @@ export async function runAskWithOptions(
     options.projectPath
       ? { projectPath: options.projectPath }
       : { to: to ?? "" };
+  const replyMode = options.replyMode ?? "inline";
   const receipt = await scoutAskHandler({
     senderId,
     ...target,
@@ -327,6 +328,7 @@ export async function runAskWithOptions(
     harness: parseScoutHarness(options.harness),
     session: options.session,
     labels: options.labels,
+    replyMode,
     currentDirectory,
     source: "scout-cli",
   });
@@ -339,7 +341,6 @@ export async function runAskWithOptions(
     `asking ${receipt.ids.targetAgentId ?? options.targetLabel ?? options.projectPath ?? "target"} as ${senderId} via ${renderConversationRoute(receipt.ids.conversationId)}... (flight ${receipt.ids.flightId})`,
   );
 
-  const replyMode = options.replyMode ?? "inline";
   if (replyMode !== "inline") {
     const flight = receipt.ids.flightId
       ? await loadInitialScoutAskFlight(resolveScoutBrokerUrl(), receipt.ids.flightId)

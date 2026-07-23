@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "assetRevision": "d4e3deff9ef206da",
+  "protocol": {
+    "minimum": 1,
+    "maximum": 1
+  },
+  "toolchain": {
+    "node": "22.22.2",
+    "bun": "1.3.11",
+    "vite": "^7.0.0",
+    "lockfileSha256": "ffd9fd224fbd38fc1b4bf494e224bc843506b049941a5beb4aac0e7c64b0a73e"
+  },
+  "surfaces": {
+    "lanes": {
+      "entry": "lanes/index.html",
+      "capabilities": [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "agents.list",
+        "agents.observe",
+        "tail.recent",
+        "tail.subscribe",
+        "native.setLaneSelection"
+      ],
+      "preferences": [
+        "lanes.layout",
+        "lanes.horizon",
+        "lanes.gridColumns",
+        "lanes.collapseTechnicalEvents"
+      ]
+    },
+    "dispatch": {
+      "entry": "dispatch/index.html",
+      "capabilities": [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "dispatch.diagnostics",
+        "dispatch.subscribe",
+        "dispatch.ask",
+        "dispatch.review"
+      ],
+      "preferences": [
+        "dispatch.density"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "dispatch/app.css",
+      "sha256": "aeea02b5ca0ff1d9eef0b936c6df45864b4eb494ac45fbbe764443b4f9942bd7",
+      "bytes": 4333
+    },
+    {
+      "path": "dispatch/app.js",
+      "sha256": "ff68fd4971f374a14bda4f9ececea7452505134bb07d1e7ac0c775009446b5ab",
+      "bytes": 197352
+    },
+    {
+      "path": "dispatch/index.html",
+      "sha256": "366815873e2c6ededd771c8d1a0969b9c691d9dbcd6d47a4cc1c243cd4a4917f",
+      "bytes": 611
+    },
+    {
+      "path": "lanes/app.css",
+      "sha256": "f5fb43fc67663edbb50aa76b9d4f83d532e6554988093ee48de4850e48af4acb",
+      "bytes": 250615
+    },
+    {
+      "path": "lanes/app.js",
+      "sha256": "08b6f8cfc83a62eb1127dd50a49f0b385c361b93c8936b975fe736f73573d3d0",
+      "bytes": 556464
+    },
+    {
+      "path": "lanes/index.html",
+      "sha256": "13e32ee5ace7530c012c10231c2574011d90505a3765db398d8fcaa5e944521d",
+      "bytes": 608
+    }
+  ]
+}

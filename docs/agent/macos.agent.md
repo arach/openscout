@@ -74,8 +74,9 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 | Activation policy | Scout starts `.regular`; `--hud` launch starts `.accessory` and hides non-panel windows; last window close → `.accessory`, never terminates; reopen → `.regular` |
 | Hotkeys (Carbon, sig `OSCT`) | Scout id 1: Hyper+H → HUD toggle. Helper id 2: Hyper+C → `openComms`; id 3: Hyper+T → Tail mode; id 4: Hyper+A → new agent task. |
 | Task hot corner | Helper defaults to bottom-left with a 420ms hover dwell; dragging reveals an immediate nonactivating drop receiver. Right-click the menu icon → Task Hot Corner to choose any corner or Off. The chosen physical corner applies on every display, and the triggering display id is preserved for HUD placement. Bounded transient payloads plus the acknowledged command inbox carry cold-start drops to Scout; promised files from apps such as Mail and Photos are materialized in private TTL staging. The helper never hosts the composer. |
+| Quick task confirmation | A fresh task opened directly from the menu helper requires an explicit project choice; capture drops may still infer their project from the captured files. After the broker accepts the task, the composer stays open on a durable receipt showing project, runtime/model, effort, and a broker reference, with **Open task** and **Done** actions. |
 | HUD panel | `HUDController` singleton; non-activating `OverlayPanel`, mouse-screen centered, fade in/out, outside-click dismiss (220ms), Esc cascade (cheatsheet → dock text → chip → blur → unengage → dismiss) |
-| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor; global path gated by `shouldHandleGlobalKey` (Esc always; else panel key / app active). Tabs 1-5 = agents/activity/tail/sessions/assistant; sizes compact/medium/large via `[`/`]`/⌘-arrows |
+| HUD keys | one shared `handleKeyDown` for panel `onKeyDown` + global monitor; global path gated by `shouldHandleGlobalKey` (Esc always; else panel key / app active). Tabs 1-5 = focus/threads/tail/scout/scoutbot; sizes compact/medium/large via `[`/`]`/⌘-arrows |
 | Tail mode | `TailModeController` singleton; separate non-activating `OverlayPanel` using the shared `HUDTailView` tail logic with the overlay skin/wrapper. Persistent by default, no outside-click dismiss. Placement can be attached to the nearest edge or free-floating. |
 | Main-window keys | `ScoutKeyboardEventMonitor` (local NSEvent monitor) offers Esc + bare keys to `HUDController.handleHostKeyDown` first while HUD visible; only unclaimed events drive window navigation |
 
@@ -85,7 +86,7 @@ Services-link HMAC: query `expires`+`nonce`+`sig`; SHA256 HMAC over `v1\nservice
 |---|---|---|---|
 | `ScoutTailStore` | ScoutAppCore | 1.4s poll; discovery sub-fetch ≤ 1/30s | merge-by-id, 700-event cap; feeds Tail surface + HUD tail |
 | `ScoutAgentsStore` | ScoutAppCore | push stream; 2.0s reconnect/fallback | Summary mode uses scoutd NDJSON over UDS; rich mode remains web-backed |
-| `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD activity |
+| `ScoutActivityStore` | ScoutAppCore | 2.0s | HUD focus (RECENT section) |
 | `ScoutComposeService` | ScoutAppCore | SSE reply stream | shared compose/route/assistant thread |
 | `ScoutCommsStore` | Scout | adaptive: 2.5s working / 10s idle / 30s error backoff | main-window channels/messages/agents; selected live sessions get a default inline rolling activity summary, flight-backed when available and observe-backed for organic harness turns |
 | `ScoutRepoStore` | Scout | 30 min (manual refresh primary) | shells out to git per worktree |

@@ -103,6 +103,14 @@ Happy path: `registered → waking → idle ↔ working → idle`.
 
 After broker restart: assume `reachability_unknown` until proven.
 
+Broker-created cardless sessions are disposable. The broker checks them every
+five minutes and stops an `idle` local session after 24 hours without endpoint,
+flight, work-item, or question activity. Sessions with a nonterminal flight,
+open owned work/question, or a non-idle endpoint state are never TTL candidates.
+Set `OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS` or
+`OPENSCOUT_CARDLESS_SESSION_SWEEP_INTERVAL_MS` to tune the policy; setting the
+sweep interval to `0` disables the broker sweep for debugging.
+
 ## Adapter Registry (pairing/runtime)
 
 Built-in adapter keys include: `claude-code`, `codex`, `acp`, `grok-acp`, `kimi-acp`, `pi`, `opencode`, `openai`.
@@ -110,6 +118,12 @@ Built-in adapter keys include: `claude-code`, `codex`, `acp`, `grok-acp`, `kimi-
 Kimi Code is a first-class cardless harness target: `--harness kimi` resolves
 through the catalog to the `kimi_acp` transport, which launches `kimi acp` and
 reuses the CLI's cached `kimi login` authentication state.
+
+Permission posture: broker-owned Kimi ACP invocations have no approval
+consumer, so their invocation wrapper explicitly selects Kimi's one-shot allow
+option for tool permission requests. The generic ACP adapter remains
+interactive by default; an absent allow option is cancelled rather than
+invented.
 
 Kimi's harness-owned session history is observed separately by
 `packages/runtime/src/tail/kimi-source.ts`; the ACP adapter does not import those

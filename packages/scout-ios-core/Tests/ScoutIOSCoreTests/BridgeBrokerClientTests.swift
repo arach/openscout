@@ -176,6 +176,67 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertEqual(summary.sessionId, "sess-9")
     }
 
+    // MARK: - Service budget reset windows
+
+    func testServiceBudgetWindowDecodesAbsoluteResetTime() throws {
+        let data = """
+        {"label":"7d","usedPercent":24,"reset":"6d","resetAt":1800000000000}
+        """.data(using: .utf8)!
+
+        let window = try JSONDecoder().decode(ServiceBudget.Window.self, from: data)
+
+        XCTAssertEqual(window.label, "7d")
+        XCTAssertEqual(window.usedPercent, 24)
+        XCTAssertEqual(window.resetAt, 1_800_000_000_000)
+    }
+
+    func testServiceBudgetMergePrefersCurrentResetBeforeHigherUsage() {
+        let stale = ServiceBudget(
+            provider: "codex",
+            label: "Codex",
+            plan: "",
+            windows: [.init(label: "7d", usedPercent: 93, reset: "", resetAt: 1_000)]
+        )
+        let current = ServiceBudget(
+            provider: "codex",
+            label: "Codex",
+            plan: "",
+            windows: [.init(label: "7d", usedPercent: 24, reset: "6d", resetAt: 2_000)]
+        )
+        let currentLaterSample = ServiceBudget(
+            provider: "codex",
+            label: "Codex",
+            plan: "",
+            windows: [.init(label: "7d", usedPercent: 31, reset: "6d", resetAt: 2_000)]
+        )
+
+        let merged = mergeServiceBudgets([[stale], [current], [currentLaterSample]])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].windows[0].usedPercent, 31)
+        XCTAssertEqual(merged[0].windows[0].resetAt, 2_000)
+    }
+
+    func testServiceBudgetMergePrefersTimestampedWindowOverLegacySample() {
+        let legacy = ServiceBudget(
+            provider: "codex",
+            label: "Codex",
+            plan: "",
+            windows: [.init(label: "7d", usedPercent: 99, reset: "")]
+        )
+        let current = ServiceBudget(
+            provider: "codex",
+            label: "Codex",
+            plan: "",
+            windows: [.init(label: "7d", usedPercent: 24, reset: "6d", resetAt: 2_000)]
+        )
+
+        let merged = mergeServiceBudgets([[legacy], [current]])
+
+        XCTAssertEqual(merged[0].windows[0].usedPercent, 24)
+        XCTAssertEqual(merged[0].windows[0].resetAt, 2_000)
+    }
+
     // MARK: - SessionInitiationSpec → create params
 
     func testStartSessionParamMapping() throws {

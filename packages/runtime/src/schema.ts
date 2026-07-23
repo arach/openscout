@@ -1,4 +1,5 @@
-export const CONTROL_PLANE_SCHEMA_VERSION = 15;
+export * from "./drizzle-schema.js";
+export { CONTROL_PLANE_SCHEMA_VERSION } from "./schema-version.js";
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
@@ -376,6 +377,48 @@ CREATE TABLE IF NOT EXISTS collaboration_events (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS context_blocks (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  memory_kind TEXT,
+  state TEXT NOT NULL,
+  scope_kind TEXT NOT NULL,
+  scope_id TEXT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  summary TEXT,
+  projection_mode TEXT NOT NULL,
+  mutability TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  owner_id TEXT,
+  source_refs_json TEXT NOT NULL,
+  confidence REAL,
+  token_budget INTEGER,
+  freshness_json TEXT,
+  version INTEGER NOT NULL,
+  supersedes_id TEXT,
+  content_hash TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS context_packs (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  sections_json TEXT NOT NULL,
+  context_block_ids_json TEXT NOT NULL,
+  source_refs_json TEXT NOT NULL,
+  budget_json TEXT NOT NULL,
+  limitations_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -629,6 +672,12 @@ CREATE INDEX IF NOT EXISTS idx_collaboration_records_next_move_owner_kind_state_
   ON collaboration_records (next_move_owner_id, kind, state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_context_blocks_scope_state_updated_at
+  ON context_blocks (scope_kind, scope_id, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_blocks_kind_state_updated_at
+  ON context_blocks (kind, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_packs_created_at
+  ON context_packs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
 CREATE INDEX IF NOT EXISTS idx_thread_events_conversation_seq

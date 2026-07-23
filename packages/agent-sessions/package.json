@@ -1,6 +1,6 @@
 {
   "name": "@openscout/agent-sessions",
-  "version": "0.2.76",
+  "version": "0.2.77",
   "description": "Browser-safe session boundary for OpenScout agent sessions",
   "license": "Apache-2.0",
   "type": "module",
@@ -79,6 +79,12 @@
       "types": "./dist/adapters/codex/index.d.ts",
       "import": "./dist/adapters/codex/index.js",
       "default": "./dist/adapters/codex/index.js"
+    },
+    "./adapters/cursor-acp": {
+      "bun": "./src/adapters/cursor-acp/index.ts",
+      "types": "./dist/adapters/cursor-acp/index.d.ts",
+      "import": "./dist/adapters/cursor-acp/index.js",
+      "default": "./dist/adapters/cursor-acp/index.js"
     },
     "./adapters/codex/topology": {
       "bun": "./src/adapters/codex/topology.ts",

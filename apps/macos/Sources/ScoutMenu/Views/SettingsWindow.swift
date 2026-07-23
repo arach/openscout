@@ -252,7 +252,7 @@ private struct DiagnosticsTab: View {
                 summary: webSummary(),
                 detail: webDetail(),
                 rows: [
-                    KVEntry(key: "Reachable", value: controller.webReachable ? "Yes" : "No"),
+                    KVEntry(key: "Reachable", value: webReachabilityLabel()),
                     KVEntry(key: "Started by app", value: controller.webServerStartedByApp ? "Yes" : "No"),
                 ],
                 logPath: webLogPath(),
@@ -375,15 +375,37 @@ private struct DiagnosticsTab: View {
 
     private func webStatus() -> ServiceLightStatus {
         if controller.webActionPending { return .pending }
-        return controller.webReachable ? .healthy : .fail
+        switch controller.webSurfaceStatus {
+        case .checking: return .pending
+        case .ready: return .healthy
+        case .slow: return .warn
+        case .down: return .fail
+        }
     }
 
     private func webSummary() -> String {
         if controller.webActionPending { return "Booting" }
-        return controller.webReachable ? "Ready" : "Down"
+        switch controller.webSurfaceStatus {
+        case .checking: return "Checking"
+        case .ready: return "Ready"
+        case .slow: return "Slow"
+        case .down: return "Down"
+        }
+    }
+
+    private func webReachabilityLabel() -> String {
+        switch controller.webSurfaceStatus {
+        case .checking: return "Checking"
+        case .ready: return "Yes"
+        case .slow: return "Degraded"
+        case .down: return "No"
+        }
     }
 
     private func webDetail() -> String {
+        if controller.webSurfaceStatus == .slow {
+            return "Web surface is responding slowly on \(ScoutWeb.baseURL().absoluteString). Scout will keep checking before declaring it down."
+        }
         if controller.webReachable {
             return "Web surface is responding on \(ScoutWeb.baseURL().absoluteString)."
         }

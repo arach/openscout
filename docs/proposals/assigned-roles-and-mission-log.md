@@ -189,7 +189,7 @@ One-liners:
 
 ### Slice 1 — done
 
-- Control-plane tables: `role_assignments`, `mission_log_entries` (schema v14 + migration 0003)
+- Control-plane tables: `role_assignments`, `mission_log_entries` (schema v15 + migration 0004)
 - Store: `packages/runtime/src/assigned-roles-store.ts`
 - Web API: `/api/roles/*`, `/api/missions/:id/log`
 - CLI: `scout role catalog|list|assign|revoke|log|log-append`

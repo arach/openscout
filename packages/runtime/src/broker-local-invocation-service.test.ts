@@ -362,6 +362,7 @@ describe("BrokerLocalInvocationService", () => {
       actorId: "agent-1",
       body: "done",
       replyToMessageId: "message-1",
+      audience: { notify: ["operator"] },
       metadata: expect.objectContaining({
         invocationId: "invocation-1",
         flightId: "flight-1",
@@ -369,6 +370,34 @@ describe("BrokerLocalInvocationService", () => {
         responderTransport: "pairing_bridge",
       }),
     }));
+  });
+
+  test("keeps inline and none replies durable without enqueueing requester notifications", async () => {
+    for (const replyMode of ["inline", "none"] as const) {
+      const endpoint = testEndpoint();
+      const harness = createHarness({
+        endpoint,
+        previousEndpoint: endpoint,
+        invokeResult: { output: `${replyMode} reply` },
+      });
+
+      harness.seedFlight(testFlight());
+      await harness.service.execute(testInvocation({ metadata: { replyMode } }));
+
+      expect(harness.postedMessages).toHaveLength(1);
+      expect(harness.postedMessages[0]?.body).toBe(`${replyMode} reply`);
+      expect(harness.postedMessages[0]?.audience).toEqual({ delivery: "none" });
+    }
+  });
+
+  test("enqueues requester notifications for explicit notify replies", async () => {
+    const endpoint = testEndpoint();
+    const harness = createHarness({ endpoint, previousEndpoint: endpoint });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation({ metadata: { replyMode: "notify" } }));
+
+    expect(harness.postedMessages[0]?.audience).toEqual({ notify: ["operator"] });
   });
 
   test("runs a cardless session endpoint without an agent card", async () => {

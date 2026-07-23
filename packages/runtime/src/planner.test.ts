@@ -107,4 +107,30 @@ describe("planMessageDeliveries", () => {
       }),
     ]);
   });
+
+  test("keeps store-only direct replies durable without planning a delivery", () => {
+    const directConversation: ConversationDefinition = {
+      ...conversation,
+      id: "dm.operator.fabric",
+      kind: "direct",
+      visibility: "private",
+      participantIds: ["operator", "fabric"],
+    };
+
+    const deliveries = planMessageDeliveries({
+      localNodeId: "node-1",
+      message: {
+        ...baseMessage,
+        conversationId: directConversation.id,
+        actorId: "fabric",
+        visibility: "private",
+        audience: { delivery: "none" },
+      },
+      conversation: directConversation,
+      participantRoutes: [{ ...route, targetId: "operator" }],
+      bindingRoutes: [{ ...route, targetId: "bridge", transport: "webhook" }],
+    });
+
+    expect(deliveries).toEqual([]);
+  });
 });

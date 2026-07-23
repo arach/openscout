@@ -788,17 +788,28 @@ private struct HomeLoadingSkeleton: View {
 // MARK: - FleetVitals
 
 /// The top strip: a compact activity mini-chart + each subscription's spent quota
-/// windows (Claude · Codex) — the two glance-values that actually help. If neither
-/// is available, the strip disappears rather than repeating the status bar.
+/// windows (Claude · Codex · Kimi) — the two busiest glance-values that actually
+/// help. If neither is available, the strip disappears rather than repeating the status bar.
 private struct FleetVitals: View {
     let live: Int
     let samples: [Double]
     let budgets: [ServiceBudget]
     let motionEnabled: Bool
 
-    /// Claude + Codex lead the strip; GitHub's hourly cap isn't a glance-value here.
+    /// Subscription-backed coding providers compete for the two glance slots by
+    /// highest current usage; GitHub's hourly API cap stays in the detail panel.
     private var quotaSegments: [ServiceBudget] {
-        budgets.filter { $0.provider == "claude" || $0.provider == "codex" }
+        let codingProviders = Set(["claude", "codex", "kimi"])
+        return Array(
+            budgets
+                .filter { codingProviders.contains($0.provider) }
+                .sorted { left, right in
+                    let leftUsage = left.windows.map(\.usedPercent).max() ?? 0
+                    let rightUsage = right.windows.map(\.usedPercent).max() ?? 0
+                    return leftUsage > rightUsage
+                }
+                .prefix(2)
+        )
     }
 
     private var hasPulse: Bool { samples.count >= 3 }

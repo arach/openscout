@@ -118,7 +118,7 @@ export function renderServerCommandHelp(): string {
 
 /**
  * Resolved against `import.meta.url`: published CLI has `scout-control-plane-web.mjs` beside `main.mjs`;
- * in-repo dev uses `packages/web/server/index.ts`.
+ * in-repo dev uses the Bun application server at `packages/web/server/index.ts`.
  */
 export function resolveScoutWebServerEntry(): string {
   return resolveScoutControlPlaneWebServerEntry();

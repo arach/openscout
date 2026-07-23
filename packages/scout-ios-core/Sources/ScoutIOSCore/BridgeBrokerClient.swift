@@ -171,7 +171,7 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return wire.map { $0.toSummary() }
     }
 
-    /// Operator usage-quota gauges (Claude / Codex / GitHub) with their spent
+    /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) with their spent
     /// windows, for the Home strip. Empty when the paired Mac can't report them
     /// (older bridge without the `mobile/service-budgets` procedure).
     public func serviceBudgets() async throws -> [ServiceBudget] {
@@ -1067,7 +1067,7 @@ struct MobileCommsMessage: Codable, Sendable {
 // MARK: - Service budgets (usage quota)
 
 /// A subscription's usage quota for the Home strip — one provider (Claude /
-/// Codex / GitHub) with its spent windows (e.g. a short 5h cap + a weekly cap).
+/// Codex / Kimi / GitHub) with its spent windows (e.g. a short 5h cap + a weekly cap).
 public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
     /// One spent window: a short label, how much of it is used (0–100), and a
     /// terse reset hint. `usedPercent` decodes leniently from int or double.
@@ -1075,13 +1075,17 @@ public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
         public let label: String
         public let usedPercent: Double
         public let reset: String
+        /// Absolute quota-window reset in epoch milliseconds. Older brokers omit
+        /// this field, so it remains optional for wire compatibility.
+        public let resetAt: Double?
 
-        enum CodingKeys: String, CodingKey { case label, usedPercent, reset }
+        enum CodingKeys: String, CodingKey { case label, usedPercent, reset, resetAt }
 
-        public init(label: String, usedPercent: Double, reset: String) {
+        public init(label: String, usedPercent: Double, reset: String, resetAt: Double? = nil) {
             self.label = label
             self.usedPercent = usedPercent
             self.reset = reset
+            self.resetAt = resetAt
         }
 
         public init(from decoder: Decoder) throws {
@@ -1089,6 +1093,7 @@ public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
             self.label = (try? c.decode(String.self, forKey: .label)) ?? ""
             self.usedPercent = (try? c.decode(Double.self, forKey: .usedPercent)) ?? 0
             self.reset = (try? c.decode(String.self, forKey: .reset)) ?? ""
+            self.resetAt = try? c.decode(Double.self, forKey: .resetAt)
         }
     }
 
@@ -1114,6 +1119,59 @@ public struct ServiceBudget: Codable, Sendable, Identifiable, Equatable {
         self.label = (try? c.decode(String.self, forKey: .label)) ?? ""
         self.plan = (try? c.decode(String.self, forKey: .plan)) ?? ""
         self.windows = (try? c.decode([Window].self, forKey: .windows)) ?? []
+    }
+}
+
+/// Merge account-level quota snapshots reported by several paired Macs.
+/// A later reset timestamp identifies the current quota window and always wins
+/// over a stale pre-reset percentage. Percentages are compared only when both
+/// samples belong to the same window (or both came from an older broker that
+/// did not provide reset metadata).
+public func mergeServiceBudgets(_ snapshots: [[ServiceBudget]]) -> [ServiceBudget] {
+    var byProvider: [String: ServiceBudget] = [:]
+    var providerOrder: [String] = []
+
+    for snapshot in snapshots {
+        for budget in snapshot {
+            guard let existing = byProvider[budget.provider] else {
+                byProvider[budget.provider] = budget
+                providerOrder.append(budget.provider)
+                continue
+            }
+
+            var windows = existing.windows
+            for incoming in budget.windows {
+                if let index = windows.firstIndex(where: { $0.label == incoming.label }) {
+                    windows[index] = preferredServiceBudgetWindow(windows[index], incoming)
+                } else {
+                    windows.append(incoming)
+                }
+            }
+            byProvider[budget.provider] = ServiceBudget(
+                provider: existing.provider,
+                label: existing.label.isEmpty ? budget.label : existing.label,
+                plan: existing.plan.isEmpty ? budget.plan : existing.plan,
+                windows: windows
+            )
+        }
+    }
+
+    return providerOrder.compactMap { byProvider[$0] }
+}
+
+private func preferredServiceBudgetWindow(
+    _ existing: ServiceBudget.Window,
+    _ incoming: ServiceBudget.Window
+) -> ServiceBudget.Window {
+    switch (existing.resetAt, incoming.resetAt) {
+    case let (existingReset?, incomingReset?) where incomingReset != existingReset:
+        return incomingReset > existingReset ? incoming : existing
+    case (nil, .some):
+        return incoming
+    case (.some, nil):
+        return existing
+    default:
+        return incoming.usedPercent > existing.usedPercent ? incoming : existing
     }
 }
 

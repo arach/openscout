@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scout — Mobile Chrome Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── Tokens, lifted from the iOS app ───────────────────────────────────
+     HudPalette:  bg #0A0A0A · chrome #060606 · ink #E5E5E5 · border #272727
+     ScoutInk:    muted #B8B8B8 · dim #969696   (iOS lifts, Theme.swift:317)
+     HudHairline: standard #262626
+     Accent:      emerald #10B981 → teal #0BC5A5 (ScoutCanvas.accentGradient)
+     Warm tone:   canvasTop #100E0B · floor #060504 · keyLight rgba(255,240,219,.06)
+                  cardTop #211C19 · cardBottom #171411 · cardEdgeTop #433A30
+                  inset #161310 · raised #1C1915
+  ─────────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#0A0A0A; --chrome:#060606; --ink:#E5E5E5; --muted:#B8B8B8; --dim:#969696;
+    --faint:#6b6b6b; --border:#272727; --hairline:#262626;
+    --accent:#10B981; --teal:#0BC5A5; --amber:#F2B34D;
+    --canvas-top:#100E0B; --canvas-floor:#060504;
+    --card-top:#211C19; --card-bottom:#171411; --card-edge:#433A30;
+    --inset:#161310; --raised:#1C1915;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --ui:"Inter Tight","Inter",-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+    padding:48px 32px 96px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1340px;margin:0 auto}
+  h1{font-size:15px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px}
+  .mark{display:inline-flex;width:14px;height:14px;margin-right:8px;vertical-align:-2px}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 8px;max-width:820px}
+  .sub b{color:var(--ink);font-weight:600}
+  .settled{display:flex;gap:8px;align-items:baseline;font-size:10.5px;color:var(--dim);
+    border:1px solid var(--hairline);border-left:2px solid var(--accent);
+    padding:10px 14px;margin:18px 0 48px;max-width:820px}
+  .settled b{color:var(--muted);font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:9px;flex:none}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font-size:10px;color:var(--dim);
+    border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);
+    padding:10px 0;margin:18px 0 48px}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:5px;outline:1px solid var(--border)}
+
+  /* ── Study row: phone frame + notes ─────────────────────────────────── */
+  .study{display:grid;grid-template-columns:auto 1fr;gap:40px;align-items:start;margin:0 0 72px}
+  @media (max-width:980px){.study{grid-template-columns:1fr}}
+  .study .tag{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .study .tag.rec{color:var(--accent)}
+  .study h2{font-size:14px;font-weight:600;letter-spacing:.02em;margin:6px 0 10px;font-family:var(--mono)}
+  .notes{font-size:11px;color:var(--muted);max-width:430px}
+  .notes p{margin:0 0 12px}
+  .notes ul{margin:0 0 12px;padding-left:16px}
+  .notes li{margin-bottom:6px}
+  .notes b{color:var(--ink);font-weight:600}
+  .notes .why{color:var(--dim)}
+  .callouts{margin-top:14px;border-top:1px solid var(--hairline);padding-top:12px}
+  .callouts div{display:flex;gap:8px;font-size:10px;color:var(--dim);margin-bottom:6px}
+  .callouts i{font-style:normal;color:var(--accent);min-width:16px}
+
+  /* ── Phone frame (393pt canvas, scaled) ─────────────────────────────── */
+  .framebox{width:300px;height:650px;position:relative}
+  .phone{width:393px;height:852px;transform:scale(.763);transform-origin:top left;
+    border-radius:46px;overflow:hidden;position:relative;
+    outline:1px solid #2c2c2c;outline-offset:6px;
+    background:linear-gradient(180deg,var(--canvas-top) 0%,var(--bg) 36%,var(--canvas-floor) 100%)}
+  .phone::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(360px 260px at 50% 0%,rgba(255,240,219,.055),transparent 70%)}
+
+  /* Masthead (baseline only) */
+  .mast{padding:14px 24px 0;position:relative}
+  .mast-row{display:flex;align-items:center;gap:10px}
+  .wordmark{font-family:var(--ui);font-weight:300;font-size:12.5px;letter-spacing:2.5px;white-space:nowrap;
+    color:#49504f;text-shadow:0 .7px 0 rgba(0,0,0,.8),0 -0.5px 0 rgba(150,150,150,.2)}
+  .mast-spacer{flex:1;display:flex;align-items:center;gap:6px;min-width:0}
+  .gear{width:30px;height:30px;border-radius:50%;background:var(--inset);
+    border:1px solid var(--hairline);display:flex;align-items:center;justify-content:center;color:var(--muted);flex:none}
+  .bare-gear{color:var(--faint);display:inline-flex;flex:none}
+  .hairline{height:1px;background:var(--hairline);margin-top:10px}
+
+  /* Host chip — the shipped plate */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:500;color:var(--muted);
+    background:var(--inset);border:1px solid var(--hairline);border-radius:5px;padding:3px 9px;white-space:nowrap}
+  .chip .dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  .chip.on{background:var(--raised);color:var(--ink);border-color:var(--dim)}
+  .chip.off .dot{background:var(--dim)}
+
+  /* Fake content so chrome has context */
+  .content{padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+  .eyebrow{font-size:9px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+  .fake-card{border-radius:8px;padding:14px;border:1px solid transparent;
+    background:linear-gradient(180deg,var(--card-top),var(--card-bottom));
+    border-image:linear-gradient(180deg,var(--card-edge),var(--border)) 1;
+    box-shadow:0 3px 9px rgba(0,0,0,.33)}
+  .fake-card .t{font-size:11px;color:var(--ink);font-weight:500}
+  .fake-card .s{font-size:9px;color:var(--faint);margin-top:4px}
+  .fake-row{display:flex;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px solid #1a1a1a;font-size:10px;color:var(--muted)}
+  .fake-row .dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  .fake-row.dim .dot{background:var(--faint)}
+
+  /* Contextual surface header (no-mast options): the surface's own first row
+     carries identity, host filter, and settings. */
+  .ctx-head{display:flex;align-items:center;gap:8px}
+  .ctx-head .grow{flex:1}
+  .ctx-title{font-size:9px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+
+  /* Tab bar — docked slab with lit lip (baseline height) */
+  .dock{position:absolute;left:0;right:0;bottom:0}
+  .tabs{background:var(--bg);border-top:1.5px solid var(--card-edge);
+    box-shadow:0 -6px 11px rgba(0,0,0,.6);display:flex;padding:6px 8px 0}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);
+    font-size:9px;font-weight:500;padding:6px 0 4px}
+  .tab.on{color:var(--accent)}
+  .tab svg{width:16.5px;height:16.5px}
+
+  /* Slim dock: same slab, ~35% shorter. Glyph 14, label 7.5, tighter padding. */
+  .tabs.slim{padding:3px 8px 0}
+  .tabs.slim .tab{gap:2px;font-size:7.5px;padding:3px 0 2px}
+  .tabs.slim .tab svg{width:14px;height:14px}
+
+  /* Collapsed dock: tabs gone, a grab pill hints the swipe-up restore. */
+  .grab{display:flex;justify-content:center;padding:5px 0 3px;background:var(--bg);
+    border-top:1.5px solid var(--card-edge);box-shadow:0 -6px 11px rgba(0,0,0,.6)}
+  .grab i{width:36px;height:4px;border-radius:2px;background:#3d3d3d}
+
+  /* Status strip — SETTLED. Thin one-liner over the home-indicator zone. */
+  .statusbar{background:var(--chrome);border-top:1px solid var(--hairline);
+    display:flex;align-items:center;gap:10px;padding:6px 42px 14px;font-size:9px;font-weight:500;
+    letter-spacing:.4px;color:var(--muted);min-height:30px}
+  .statusbar .grow{flex:1}
+  .statusbar .sep{color:var(--faint);font-weight:700}
+  .statusbar .dim{color:var(--dim)}
+  .statusbar .accent{color:var(--accent)}
+  .statusbar svg{width:11px;height:11px;vertical-align:-2px}
+  .pulse{width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block;
+    vertical-align:1px;box-shadow:0 0 0 0 rgba(16,185,129,.5);animation:p 2.4s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(16,185,129,.45)}70%{box-shadow:0 0 0 6px rgba(16,185,129,0)}100%{box-shadow:0 0 0 0 rgba(16,185,129,0)}}
+  .homeind{position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:120px;height:4px;border-radius:2px;background:#3a3a3a}
+
+  /* Measurement annotations */
+  .measure{position:absolute;right:6px;display:flex;align-items:center;gap:4px;
+    font-size:8px;color:var(--amber);letter-spacing:.05em}
+  .measure::before,.measure::after{content:"";width:1px;height:100%;background:var(--amber);opacity:.5}
+
+  .foot{color:var(--faint);font-size:11px;margin-top:8px;border-top:1px solid var(--hairline);padding-top:20px}
+</style>
+</head>
+<body>
+<!-- shared glyph set (approximations of Glyphs.swift hand-drawn marks) -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="g-hex" viewBox="0 0 20 20" fill="none" stroke="currentColor">
+    <polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" stroke-width="1.9" fill="currentColor" fill-opacity=".12"/>
+    <polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" stroke-width=".9" fill="currentColor" fill-opacity=".9"/>
+  </symbol>
+  <symbol id="g-home" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M3.5 9.5 10 3.8l6.5 5.7V16a.8.8 0 0 1-.8.8h-3.4v-4.3H7.7v4.3H4.3a.8.8 0 0 1-.8-.8z"/>
+  </symbol>
+  <symbol id="g-agent" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="10" cy="6.6" r="2.9"/><path d="M4.2 16.4c.8-3 3.1-4.6 5.8-4.6s5 1.6 5.8 4.6"/>
+  </symbol>
+  <symbol id="g-tail" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 12.5h3.6l2-5.5 3.4 8 2.1-4.6h3.9"/>
+  </symbol>
+  <symbol id="g-comms" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+    <path d="M3.5 5.2h13v8.2h-7.2l-3.4 2.9v-2.9H3.5z"/>
+  </symbol>
+  <symbol id="g-terminal" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 5.5 8.5 10 4 14.5"/><path d="M10 14.8h6"/>
+  </symbol>
+  <symbol id="g-plus" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M10 4.5v11M4.5 10h11"/>
+  </symbol>
+  <symbol id="g-gear" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+    <circle cx="10" cy="10" r="2.6"/>
+    <path d="M10 3.2v2M10 14.8v2M3.2 10h2M14.8 10h2M5.2 5.2l1.4 1.4M13.4 13.4l1.4 1.4M14.8 5.2l-1.4 1.4M6.6 13.4l-1.4 1.4"/>
+  </symbol>
+  <symbol id="g-signal" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <path d="M3.5 8.5a9.5 9.5 0 0 1 13 0"/><path d="M6 11.5a6 6 0 0 1 8 0"/><path d="M8.6 14.3a2.4 2.4 0 0 1 2.8 0"/>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <h1><svg class="mark" style="color:#f8f3e8"><use href="#g-hex"/></svg>Scout — Mobile Chrome Study</h1>
+  <p class="sub">Second pass. The open questions: <b>does the masthead earn its place at all</b>
+    (or should each surface own its context), <b>how slim can the dock go</b>, and
+    <b>can the dock collapse</b> out of the way. Every frame keeps the settled status strip
+    and shows Home with 2 paired hosts. Grounded in <b>apps/ios/Scout/RootView.swift</b>
+    (titleBar, dockedTabBar) and <b>StatusBar.swift</b>.</p>
+
+  <div class="settled">
+    <b>Settled</b>
+    <span>Status strip stays a thin one-liner at the bottom — layout untouched. Its content pass
+      already shipped: relative-age FETCHED that counts up live, no yellow warn tint
+      (fresh muted → dim only after a real stall).</span>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--bg)"></span>bg</span>
+    <span><span class="swatch" style="background:var(--chrome)"></span>chrome</span>
+    <span><span class="swatch" style="background:var(--inset)"></span>inset (warm)</span>
+    <span><span class="swatch" style="background:var(--card-edge)"></span>lit lip</span>
+    <span><span class="swatch" style="background:var(--accent)"></span>accent emerald</span>
+    <span><span class="swatch" style="background:var(--muted)"></span>ScoutInk.muted</span>
+    <span>type: Inter Tight (wordmark) · JetBrains Mono (readouts)</span>
+    <span style="color:var(--amber)">amber = height annotation</span>
+  </div>
+
+  <!-- ═══════════ BASELINE ═══════════ -->
+  <div class="study">
+    <div class="framebox"><div class="phone">
+      <div class="mast">
+        <div class="mast-row">
+          <span class="wordmark">SCOUT</span>
+          <span class="mast-spacer">
+            <span class="chip on"><span class="dot"></span>All</span>
+            <span class="chip"><span class="dot"></span>arach-mbp</span>
+            <span class="chip off"><span class="dot"></span>studio-mac</span>
+          </span>
+          <span class="gear"><svg width="16" height="16"><use href="#g-gear"/></svg></span>
+        </div>
+        <div class="hairline"></div>
+      </div>
+      <div class="measure" style="top:14px;height:44px">~58</div>
+      <div class="content">
+        <span class="eyebrow">Fleet</span>
+        <div class="fake-card"><div class="t">6 agents · 3 active</div><div class="s">2 hosts online · last sync just now</div></div>
+        <div class="fake-row"><span class="dot"></span>fix-auth-refresh — claude · running</div>
+        <div class="fake-row"><span class="dot"></span>docs-sweep — codex · waiting</div>
+        <div class="fake-row dim"><span class="dot"></span>nightly-rebase — claude · idle</div>
+      </div>
+      <div class="dock">
+        <div class="tabs">
+          <span class="tab on"><svg><use href="#g-home"/></svg>Home</span>
+          <span class="tab"><svg><use href="#g-agent"/></svg>Agents</span>
+          <span class="tab"><svg><use href="#g-tail"/></svg>Tail</span>
+          <span class="tab"><svg><use href="#g-comms"/></svg>Comms</span>
+          <span class="tab"><svg><use href="#g-terminal"/></svg>Term</span>
+          <span class="tab"><svg><use href="#g-plus"/></svg>New</span>
+        </div>
+        <div class="statusbar">
+          <span><svg><use href="#g-signal"/></svg> LAN</span><span class="sep">·</span>
+          <span><span class="pulse"></span> arach-mbp</span>
+          <span class="grow"></span>
+          <span>FETCHED 12s</span><span class="sep">·</span>
+          <span>6 agents</span><span class="sep">·</span>
+          <span class="accent">3 active</span>
+        </div>
+        <div class="homeind"></div>
+      </div>
+      <div class="measure" style="bottom:30px;height:56px">~62</div>
+    </div></div>
+    <div class="notes">
+      <span class="tag">Baseline</span>
+      <h2>As shipped today</h2>
+      <p>Reference frame. Masthead (~58pt: wordmark, host plates, circled gear, hairline),
+        full-height dock (~62pt: 16.5 glyphs, 9pt labels, lit lip), settled status strip.</p>
+      <p class="why">What the masthead actually carries today: identity (wordmark), the host
+        filter, and one button. None of those is inherently app-level — the filter only
+        matters on fleet surfaces, settings is one tap anywhere, and identity is a
+        nice-to-have on a single-purpose app you just opened on purpose.</p>
+      <div class="callouts">
+        <div><i>—</i><span>~120pt of every screen is chrome that mostly repeats what the surface could say itself.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ OPTION A ═══════════ -->
+  <div class="study">
+    <div class="framebox"><div class="phone">
+      <div class="content" style="padding-top:18px">
+        <div class="ctx-head">
+          <span class="ctx-title">Fleet</span>
+          <span class="grow"></span>
+          <span class="chip on"><span class="dot"></span>All</span>
+          <span class="chip"><span class="dot"></span>arach-mbp</span>
+          <span class="chip off"><span class="dot"></span>studio-mac</span>
+          <span class="bare-gear"><svg width="15" height="15"><use href="#g-gear"/></svg></span>
+        </div>
+        <div class="fake-card"><div class="t">6 agents · 3 active</div><div class="s">2 hosts online · last sync just now</div></div>
+        <div class="fake-row"><span class="dot"></span>fix-auth-refresh — claude · running</div>
+        <div class="fake-row"><span class="dot"></span>docs-sweep — codex · waiting</div>
+        <div class="fake-row dim"><span class="dot"></span>nightly-rebase — claude · idle</div>
+      </div>
+      <div class="dock">
+        <div class="tabs">
+          <span class="tab on"><svg><use href="#g-home"/></svg>Home</span>
+          <span class="tab"><svg><use href="#g-agent"/></svg>Agents</span>
+          <span class="tab"><svg><use href="#g-tail"/></svg>Tail</span>
+          <span class="tab"><svg><use href="#g-comms"/></svg>Comms</span>
+          <span class="tab"><svg><use href="#g-terminal"/></svg>Term</span>
+          <span class="tab"><svg><use href="#g-plus"/></svg>New</span>
+        </div>
+        <div class="statusbar">
+          <span><svg><use href="#g-signal"/></svg> LAN</span><span class="sep">·</span>
+          <span><span class="pulse"></span> arach-mbp</span>
+          <span class="grow"></span>
+          <span>FETCHED 12s</span><span class="sep">·</span>
+          <span>6 agents</span><span class="sep">·</span>
+          <span class="accent">3 active</span>
+        </div>
+        <div class="homeind"></div>
+      </div>
+    </div></div>
+    <div class="notes">
+      <span class="tag rec">Option A · Recommended</span>
+      <h2>No masthead — surfaces own their context</h2>
+      <p>The top bar is deleted. Each surface's first content row becomes its own
+        contextual header: section eyebrow on the left, host filter + bare gear on the
+        right — but <b>only on surfaces where a host filter means something</b>
+        (Home, Agents, Tail). Comms or New can carry their own context (a reply target,
+        a composer destination) in the same slot instead.</p>
+      <ul>
+        <li><b>~58pt of vertical space back</b> on every surface; content starts at the safe area.</li>
+        <li>The filter sits next to the data it filters — cause and effect on one screen region, no app-level bar pretending all surfaces want the same context.</li>
+        <li>No wordmark. Identity lives in the tab glyphs, the accent, the canvas — the things that are already there.</li>
+      </ul>
+      <p class="why">Cost: the contextual header is per-surface work, not one shared bar —
+        each surface opts in and the layout has to stay disciplined so the row reads as
+        chrome, not content. Settings gear repeats per surface (or moves to a long-press
+        on the Home tab — worth prototyping).</p>
+      <div class="callouts">
+        <div><i>+</i><span>Biggest reclaim; context becomes honest (each surface says what it needs).</span></div>
+        <div><i>−</i><span>Surfaces must each implement the row; inconsistency is the failure mode.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ OPTION B ═══════════ -->
+  <div class="study">
+    <div class="framebox"><div class="phone">
+      <div class="mast">
+        <div class="mast-row">
+          <span class="wordmark">SCOUT</span>
+          <span class="mast-spacer">
+            <span class="chip on"><span class="dot"></span>All</span>
+            <span class="chip"><span class="dot"></span>arach-mbp</span>
+            <span class="chip off"><span class="dot"></span>studio-mac</span>
+          </span>
+          <span class="gear"><svg width="16" height="16"><use href="#g-gear"/></svg></span>
+        </div>
+        <div class="hairline"></div>
+      </div>
+      <div class="content">
+        <span class="eyebrow">Fleet</span>
+        <div class="fake-card"><div class="t">6 agents · 3 active</div><div class="s">2 hosts online · last sync just now</div></div>
+        <div class="fake-row"><span class="dot"></span>fix-auth-refresh — claude · running</div>
+        <div class="fake-row"><span class="dot"></span>docs-sweep — codex · waiting</div>
+        <div class="fake-row dim"><span class="dot"></span>nightly-rebase — claude · idle</div>
+      </div>
+      <div class="dock">
+        <div class="tabs slim">
+          <span class="tab on"><svg><use href="#g-home"/></svg>Home</span>
+          <span class="tab"><svg><use href="#g-agent"/></svg>Agents</span>
+          <span class="tab"><svg><use href="#g-tail"/></svg>Tail</span>
+          <span class="tab"><svg><use href="#g-comms"/></svg>Comms</span>
+          <span class="tab"><svg><use href="#g-terminal"/></svg>Term</span>
+          <span class="tab"><svg><use href="#g-plus"/></svg>New</span>
+        </div>
+        <div class="statusbar">
+          <span><svg><use href="#g-signal"/></svg> LAN</span><span class="sep">·</span>
+          <span><span class="pulse"></span> arach-mbp</span>
+          <span class="grow"></span>
+          <span>FETCHED 12s</span><span class="sep">·</span>
+          <span>6 agents</span><span class="sep">·</span>
+          <span class="accent">3 active</span>
+        </div>
+        <div class="homeind"></div>
+      </div>
+      <div class="measure" style="bottom:30px;height:40px">~40</div>
+    </div></div>
+    <div class="notes">
+      <span class="tag">Option B</span>
+      <h2>Slim dock</h2>
+      <p>Masthead untouched (control variable) — only the dock diet: glyphs 16.5→14,
+        labels 9→7.5pt, padding tightened. ~62pt → ~40pt with zero structural change;
+        selection still carried purely by the accent glyph + label.</p>
+      <ul>
+        <li><b>Pure metrics change</b> — `tabButtonHeight`, `tabGlyphSize`, `tabLabelSize`,
+          `tabBarTopPadding` in ResponsiveFrame.swift. No view restructuring.</li>
+        <li>Labels get closer to the legibility floor, but at 7.5pt mono medium they're
+          still above the status strip's 9pt-effective micro type… barely. The mini keeps
+          its downscaled copy.</li>
+      </ul>
+      <p class="why">Trade-off: 44pt hit targets are gone — slim tabs land around 34–36pt.
+        Acceptable for a dock you tap deliberately, worth a device pass to confirm.
+        Ships independently of every other option.</p>
+      <div class="callouts">
+        <div><i>+</i><span>Cheapest win on the table — one file, four constants.</span></div>
+        <div><i>−</i><span>Doesn't fix the conceptual weight, just the pixels.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ OPTION C ═══════════ -->
+  <div class="study">
+    <div class="framebox"><div class="phone">
+      <div class="mast">
+        <div class="mast-row">
+          <span class="wordmark">SCOUT</span>
+          <span class="mast-spacer">
+            <span class="chip on"><span class="dot"></span>All</span>
+            <span class="chip"><span class="dot"></span>arach-mbp</span>
+            <span class="chip off"><span class="dot"></span>studio-mac</span>
+          </span>
+          <span class="gear"><svg width="16" height="16"><use href="#g-gear"/></svg></span>
+        </div>
+        <div class="hairline"></div>
+      </div>
+      <div class="content">
+        <span class="eyebrow">Fleet</span>
+        <div class="fake-card"><div class="t">6 agents · 3 active</div><div class="s">2 hosts online · last sync just now</div></div>
+        <div class="fake-row"><span class="dot"></span>fix-auth-refresh — claude · running</div>
+        <div class="fake-row"><span class="dot"></span>docs-sweep — codex · waiting</div>
+        <div class="fake-row dim"><span class="dot"></span>nightly-rebase — claude · idle</div>
+      </div>
+      <div class="dock">
+        <div class="grab"><i></i></div>
+        <div class="statusbar">
+          <span><svg><use href="#g-signal"/></svg> LAN</span><span class="sep">·</span>
+          <span><span class="pulse"></span> arach-mbp</span>
+          <span class="grow"></span>
+          <span>FETCHED 12s</span><span class="sep">·</span>
+          <span>6 agents</span><span class="sep">·</span>
+          <span class="accent">3 active</span>
+        </div>
+        <div class="homeind"></div>
+      </div>
+      <div class="measure" style="bottom:30px;height:12px">~12</div>
+    </div></div>
+    <div class="notes">
+      <span class="tag">Option C</span>
+      <h2>Collapsible dock (shown collapsed)</h2>
+      <p>Swipe down on the dock and the tab row slides away, leaving a 12pt grab strip
+        (lit lip + pill) above the always-present status line. Swipe up from the strip —
+        or tap it — and the tabs spring back. State persists per session; Terminal
+        probably pins itself collapsed, Home probably never collapses.</p>
+      <ul>
+        <li><b>The status strip is the anchor</b> — it never moves, so the collapsed state
+          still reads as a deliberate dock, not missing UI. The grab pill borrows the
+          home-indicator visual language, so the affordance is familiar.</li>
+        <li>Collapsed = reading mode. Terminal, Tail, and long Comms threads are where
+          ~50pt matters most — and where you're least likely to switch tabs mid-flow.</li>
+      </ul>
+      <p class="why">Risks: gesture collisions — surfaces scroll vertically, so the
+        collapse gesture must start on the dock itself, not the content (same rule Safari
+        uses). Discoverability needs one coaching moment. And a hidden tab bar hides
+        badge/activity signals if we ever add them to tabs.</p>
+      <div class="callouts">
+        <div><i>+</i><span>Space on demand without committing to a smaller dock forever.</span></div>
+        <div><i>−</i><span>Real interaction work: gesture, spring physics, per-surface memory.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ OPTION D ═══════════ -->
+  <div class="study">
+    <div class="framebox"><div class="phone">
+      <div class="content" style="padding-top:18px">
+        <div class="ctx-head">
+          <span class="ctx-title">Fleet</span>
+          <span class="grow"></span>
+          <span class="chip on"><span class="dot"></span>All</span>
+          <span class="chip"><span class="dot"></span>arach-mbp</span>
+          <span class="chip off"><span class="dot"></span>studio-mac</span>
+          <span class="bare-gear"><svg width="15" height="15"><use href="#g-gear"/></svg></span>
+        </div>
+        <div class="fake-card"><div class="t">6 agents · 3 active</div><div class="s">2 hosts online · last sync just now</div></div>
+        <div class="fake-row"><span class="dot"></span>fix-auth-refresh — claude · running</div>
+        <div class="fake-row"><span class="dot"></span>docs-sweep — codex · waiting</div>
+        <div class="fake-row dim"><span class="dot"></span>nightly-rebase — claude · idle</div>
+      </div>
+      <div class="dock">
+        <div class="tabs slim">
+          <span class="tab on"><svg><use href="#g-home"/></svg>Home</span>
+          <span class="tab"><svg><use href="#g-agent"/></svg>Agents</span>
+          <span class="tab"><svg><use href="#g-tail"/></svg>Tail</span>
+          <span class="tab"><svg><use href="#g-comms"/></svg>Comms</span>
+          <span class="tab"><svg><use href="#g-terminal"/></svg>Term</span>
+          <span class="tab"><svg><use href="#g-plus"/></svg>New</span>
+        </div>
+        <div class="statusbar">
+          <span><svg><use href="#g-signal"/></svg> LAN</span><span class="sep">·</span>
+          <span><span class="pulse"></span> arach-mbp</span>
+          <span class="grow"></span>
+          <span>FETCHED 12s</span><span class="sep">·</span>
+          <span>6 agents</span><span class="sep">·</span>
+          <span class="accent">3 active</span>
+        </div>
+        <div class="homeind"></div>
+      </div>
+      <div class="measure" style="bottom:30px;height:40px">~40</div>
+    </div></div>
+    <div class="notes">
+      <span class="tag">Option D</span>
+      <h2>Full reduction: A + B</h2>
+      <p>No masthead, contextual surface header (~26pt), slim dock (~40pt), settled status
+        strip. Chrome drops from ~150pt to ~66pt of fixed UI — on a 393×852 phone that's
+        nearly a fifth of the screen handed back to content, with collapse (C) still
+        available on top for reading mode.</p>
+      <ul>
+        <li><b>The end-state if A and B both feel right</b> — nothing here conflicts;
+          B's metrics change lands first, A's surface work follows surface by surface.</li>
+        <li>Sequence suggestion: B now (one file) → A on Home as the pilot surface →
+          roll the contextual header pattern to Agents/Tail → C last, once the dock's
+          final height is known.</li>
+      </ul>
+      <p class="why">What you give up for good: an app-level brand moment and a guaranteed
+        home for settings. If that starts to feel lost, the fallback identity slot is the
+        Home contextual header itself (eyebrow becomes "SCOUT — FLEET").</p>
+      <div class="callouts">
+        <div><i>+</i><span>Maximum content, every element earning its pixels.</span></div>
+        <div><i>−</i><span>Most moving parts; only worth it if A feels right on its own first.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Static study only — no production code changed. Mock type/glyphs are approximations of
+    Glyphs.swift and HudFont; palette values are exact from HudPalette.swift / Theme.swift (warm tone).
+    Height annotations are approximate point sizes at 393pt width. First-pass directions
+    (instrument masthead / mission strip / ticker slab / editorial serif) were reviewed and dropped.</p>
+</div>
+</body>
+</html>

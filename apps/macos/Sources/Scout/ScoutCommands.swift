@@ -155,13 +155,13 @@ struct ScoutCommands: Commands {
             Divider()
 
             Button("Show All Chats") {
-                guard !selectHUDTabIfVisible(.agents) else { return }
+                guard !selectHUDTabIfVisible(.focus) else { return }
                 ScoutAppCommand.filterAll.post()
             }
             .keyboardShortcut("1", modifiers: .command)
 
             Button("Show Direct Chats") {
-                guard !selectHUDTabIfVisible(.activity) else { return }
+                guard !selectHUDTabIfVisible(.threads) else { return }
                 ScoutAppCommand.filterDirect.post()
             }
             .keyboardShortcut("2", modifiers: .command)

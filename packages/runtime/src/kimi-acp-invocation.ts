@@ -1,5 +1,3 @@
-import { createKimiAcpAdapter } from "@openscout/agent-sessions";
-
 import {
   invokeAcpAgent,
   type AcpAgentInvocationResult,
@@ -7,6 +5,8 @@ import {
 
 export interface KimiAcpInvocationOptions {
   sessionId: string;
+  poolKey?: string;
+  resumeSessionId?: string;
   cwd: string;
   prompt: string;
   name?: string;
@@ -21,7 +21,11 @@ export async function invokeKimiAcpAgent(
   return await invokeAcpAgent({
     ...options,
     adapterType: "kimi-acp",
-    createAdapter: createKimiAcpAdapter,
     label: "Kimi Code ACP",
+    adapterOptions: {
+      // These broker-owned invocations have no attached approval consumer.
+      // Kimi otherwise waits indefinitely on its first ACP tool call.
+      permissionMode: "auto_approve",
+    },
   });
 }

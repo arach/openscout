@@ -19,6 +19,13 @@ migration or its `meta/NNNN_snapshot.json`: the ledger keys off the file hash
 changing a committed file re-hashes it and desyncs every database that already
 recorded the old hash. Fix mistakes with a new migration, not an edit.
 
+Migration identity is global across worktrees that share
+`OPENSCOUT_CONTROL_HOME`. A feature worktree must not install or restart the
+machine-wide Scout service against that shared database with a private
+migration chain. Run migration experiments with an isolated control home,
+service label, and ports. The machine-wide launchd service should point at one
+stable canonical runtime checkout or an installed package artifact.
+
 ## How to make a schema change
 
 Run these from `packages/runtime`.

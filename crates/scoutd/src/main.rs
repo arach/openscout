@@ -34,6 +34,8 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(18);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
+const PROCESS_SWEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const ORPHAN_ADVERTISEMENT_GRACE: Duration = Duration::from_secs(5 * 60);
 const CHILD_LOG_ROTATE_LIMIT: u64 = 512 * 1024;
 const DEFAULT_REPO_WATCH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 const REPO_WATCH_WARM_START_DELAY: Duration = Duration::from_secs(2);
@@ -85,6 +87,8 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS",
     "OPENSCOUT_REPO_SERVICE_BIN",
     "OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT",
+    "OPENSCOUT_CARDLESS_SESSION_IDLE_TTL_MS",
+    "OPENSCOUT_CARDLESS_SESSION_SWEEP_INTERVAL_MS",
     "OPENSCOUT_RUNTIME_BUILD_PIN",
     "OPENSCOUT_RUNTIME_BUILD_PIN_REASON",
     "OPENSCOUT_HOME",
@@ -446,6 +450,28 @@ struct ProcessInfo {
     command: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedProcessLease {
+    version: u32,
+    kind: String,
+    pid: u32,
+    process_group_id: u32,
+    profile_dir: PathBuf,
+    #[serde(default, rename = "outputPath")]
+    _output_path: PathBuf,
+    #[serde(default, rename = "createdAtMs")]
+    _created_at_ms: u64,
+    expires_at_ms: u128,
+}
+
+#[derive(Default)]
+struct ProcessSweepResult {
+    expired_leases: usize,
+    terminated_process_groups: usize,
+    orphaned_pairing_advertisements: usize,
+}
+
 #[derive(Clone, Debug)]
 struct DoctorReport {
     status: ServiceStatus,
@@ -568,8 +594,31 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         last_probe_exit.as_ref(),
     )?;
     let mut next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
+    let mut next_process_sweep = Instant::now();
 
     while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+        if Instant::now() >= next_process_sweep {
+            if process_sweep_enabled() {
+                match sweep_stale_managed_processes(config) {
+                    Ok(result)
+                        if result.expired_leases > 0
+                            || result.terminated_process_groups > 0
+                            || result.orphaned_pairing_advertisements > 0 =>
+                    {
+                        eprintln!(
+                            "[scoutd] process sweep: {} expired lease(s), {} terminated group(s), {} orphaned pairing advertisement(s)",
+                            result.expired_leases,
+                            result.terminated_process_groups,
+                            result.orphaned_pairing_advertisements,
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(error) => eprintln!("[scoutd] process sweep failed: {error}"),
+                }
+            }
+            next_process_sweep = Instant::now() + PROCESS_SWEEP_INTERVAL;
+        }
+
         if let Some(probe) = probe_child.as_mut() {
             if let Some(status) = probe.try_wait().map_err(|error| error.to_string())? {
                 last_probe_exit = Some(child_exit_telemetry(&status));
@@ -1374,6 +1423,11 @@ fn doctor_report(config: &Config, options: DoctorOptions) -> DoctorReport {
             warnings.push(format!("orphaned scout-web process: pid {}", process.pid));
         }
     }
+    for pid in stale_pairing_advertisement_pids(&processes) {
+        warnings.push(format!(
+            "orphaned duplicate OpenScout pairing advertisement: pid {pid}"
+        ));
+    }
 
     let repairs = doctor_repairs(config, &status, options);
 
@@ -1554,15 +1608,18 @@ fn parse_daemon_state_telemetry(raw_state: &str) -> DaemonStateTelemetry {
     }
 }
 
-fn process_snapshot() -> Vec<ProcessInfo> {
+fn all_processes_snapshot() -> Vec<ProcessInfo> {
     let output = match run_command("ps", &["-axo", "pid=,ppid=,pcpu=,pmem=,etime=,command="]) {
         Ok(output) if output.status == 0 => output.stdout,
         _ => return Vec::new(),
     };
 
-    output
-        .lines()
-        .filter_map(parse_process_line)
+    output.lines().filter_map(parse_process_line).collect()
+}
+
+fn process_snapshot() -> Vec<ProcessInfo> {
+    all_processes_snapshot()
+        .into_iter()
         .filter(|process| process_snapshot_filter(&process.command))
         .collect()
 }
@@ -1576,6 +1633,202 @@ fn process_snapshot_filter(command: &str) -> bool {
         || command_references_process(command, "scout-broker")
         || command_references_process(command, "scout-web")
         || command_references_process(command, "ScoutMenu")
+        || openscout_pairing_advertisement_key(command).is_some()
+}
+
+fn process_sweep_enabled() -> bool {
+    !matches!(
+        env::var("OPENSCOUT_PROCESS_SWEEP").ok().as_deref(),
+        Some("0" | "false" | "off")
+    )
+}
+
+fn process_lease_directory(config: &Config) -> PathBuf {
+    config.runtime_directory.join("process-leases")
+}
+
+fn elapsed_seconds(value: &str) -> Option<u64> {
+    let (days, clock) = match value.split_once('-') {
+        Some((days, clock)) => (days.parse::<u64>().ok()?, clock),
+        None => (0, value),
+    };
+    let fields = clock
+        .split(':')
+        .map(|field| field.parse::<u64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    let clock_seconds = match fields.as_slice() {
+        [minutes, seconds] => minutes.saturating_mul(60).saturating_add(*seconds),
+        [hours, minutes, seconds] => hours
+            .saturating_mul(60 * 60)
+            .saturating_add(minutes.saturating_mul(60))
+            .saturating_add(*seconds),
+        _ => return None,
+    };
+    Some(
+        days.saturating_mul(24 * 60 * 60)
+            .saturating_add(clock_seconds),
+    )
+}
+
+fn openscout_pairing_advertisement_key(command: &str) -> Option<String> {
+    if !command_references_process(command, "dns-sd") {
+        return None;
+    }
+    let parts = command.split_whitespace().collect::<Vec<_>>();
+    let register_index = parts.iter().position(|part| *part == "-R")?;
+    if parts.get(register_index + 1).copied() != Some("OpenScout") {
+        return None;
+    }
+    let fingerprint = parts.get(register_index + 2)?;
+    let service_index = parts.iter().position(|part| *part == "_oscout-pair._tcp")?;
+    let port = parts.get(service_index + 2)?.trim_end_matches('.');
+    if fingerprint.is_empty() || port.parse::<u16>().is_err() {
+        return None;
+    }
+    Some(format!("{fingerprint}:{port}"))
+}
+
+fn stale_pairing_advertisement_pids(processes: &[ProcessInfo]) -> Vec<u32> {
+    let live_keys = processes
+        .iter()
+        .filter(|process| process.ppid != 1)
+        .filter_map(|process| openscout_pairing_advertisement_key(&process.command))
+        .collect::<HashSet<_>>();
+    processes
+        .iter()
+        .filter(|process| process.ppid == 1)
+        .filter(|process| {
+            elapsed_seconds(&process.elapsed).unwrap_or(0) >= ORPHAN_ADVERTISEMENT_GRACE.as_secs()
+        })
+        .filter_map(|process| {
+            let key = openscout_pairing_advertisement_key(&process.command)?;
+            live_keys.contains(&key).then_some(process.pid)
+        })
+        .collect()
+}
+
+fn process_command_and_group(pid: u32) -> Option<(u32, String)> {
+    let output = run_command("ps", &["-p", &pid.to_string(), "-o", "pgid=,command="]).ok()?;
+    if output.status != 0 {
+        return None;
+    }
+    let mut fields = output.stdout.trim().split_whitespace();
+    let pgid = fields.next()?.parse::<u32>().ok()?;
+    let command = fields.collect::<Vec<_>>().join(" ");
+    Some((pgid, command))
+}
+
+fn safe_capture_profile(path: &Path) -> bool {
+    path.parent() == Some(env::temp_dir().as_path())
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("openscout-web-capture-"))
+}
+
+fn lease_matches_process(lease: &ManagedProcessLease, pgid: u32, command: &str) -> bool {
+    lease.version == 1
+        && lease.kind == "web_capture"
+        && lease.process_group_id == pgid
+        && safe_capture_profile(&lease.profile_dir)
+        && command.contains("--headless")
+        && command.contains("--screenshot=")
+        && command.contains(&format!("--user-data-dir={}", lease.profile_dir.display()))
+}
+
+fn send_process_group_signal(pgid: u32, signal_name: &str) -> Result<(), String> {
+    if pgid <= 1 {
+        return Err(format!("refusing to signal unsafe process group {pgid}"));
+    }
+    let status = Command::new("/bin/kill")
+        .arg(format!("-{signal_name}"))
+        .arg(format!("-{pgid}"))
+        .status()
+        .map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("kill -{signal_name} -{pgid} exited with {status}"))
+    }
+}
+
+fn cleanup_capture_profile(path: &Path) {
+    if !safe_capture_profile(path) {
+        return;
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let _ = fs::remove_file(path);
+        }
+        Ok(metadata) if metadata.is_dir() => {
+            let _ = fs::remove_dir_all(path);
+        }
+        _ => {}
+    }
+}
+
+fn sweep_expired_process_leases(config: &Config) -> Result<ProcessSweepResult, String> {
+    let lease_directory = process_lease_directory(config);
+    let entries = match fs::read_dir(&lease_directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(ProcessSweepResult::default())
+        }
+        Err(error) => return Err(format!("read {}: {error}", lease_directory.display())),
+    };
+    let now = epoch_ms();
+    let mut result = ProcessSweepResult::default();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_file() => metadata,
+            _ => continue,
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        let lease = fs::read_to_string(&path)
+            .ok()
+            .and_then(|body| serde_json::from_str::<ManagedProcessLease>(&body).ok());
+        let Some(lease) = lease else {
+            let _ = fs::remove_file(&path);
+            continue;
+        };
+        if lease.expires_at_ms > now {
+            continue;
+        }
+        result.expired_leases += 1;
+        if let Some((pgid, command)) = process_command_and_group(lease.pid) {
+            if lease_matches_process(&lease, pgid, &command) {
+                let _ = send_process_group_signal(pgid, "TERM");
+                let deadline = Instant::now() + Duration::from_millis(500);
+                while Instant::now() < deadline && pid_is_alive(lease.pid) {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                if pid_is_alive(lease.pid) {
+                    let _ = send_process_group_signal(pgid, "KILL");
+                }
+                result.terminated_process_groups += 1;
+            }
+        }
+        cleanup_capture_profile(&lease.profile_dir);
+        let _ = fs::remove_file(&path);
+    }
+    Ok(result)
+}
+
+fn sweep_stale_managed_processes(config: &Config) -> Result<ProcessSweepResult, String> {
+    let mut result = sweep_expired_process_leases(config)?;
+    let processes = all_processes_snapshot();
+    for pid in stale_pairing_advertisement_pids(&processes) {
+        if send_process_signal(pid, "TERM").is_ok() {
+            result.orphaned_pairing_advertisements += 1;
+        }
+    }
+    Ok(result)
 }
 
 fn legacy_service_labels(config: &Config) -> Vec<String> {
@@ -2990,15 +3243,16 @@ fn xml_escape(value: &str) -> String {
 mod tests {
     use super::{
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon, commits_match,
-        health_body_reports_ok, legacy_service_labels, legacy_service_targets,
-        parse_daemon_state_telemetry, parse_health_response, parse_http_status_code,
-        process_snapshot_filter, read_last_log_line_from, resolve_advertise_scope_value,
-        resolve_broker_host_value, resolve_broker_url_value, resolve_push_relay_child_environment,
-        restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
-        running_runtime_artifact, scoutd_owned_child_log_path, Config, BUILD_VERSION,
-        CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH,
-        DEFAULT_BROKER_PORT, DEFAULT_OPENSCOUT_PUSH_RELAY_URL, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
-        REPO_WATCH_WARM_PATH,
+        elapsed_seconds, health_body_reports_ok, legacy_service_labels, legacy_service_targets,
+        openscout_pairing_advertisement_key, parse_daemon_state_telemetry, parse_health_response,
+        parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
+        resolve_advertise_scope_value, resolve_broker_host_value, resolve_broker_url_value,
+        resolve_push_relay_child_environment, restart_telemetry_warnings,
+        rotate_child_log_if_needed, rotated_child_log_path, running_runtime_artifact,
+        scoutd_owned_child_log_path, stale_pairing_advertisement_pids, Config, ManagedProcessLease,
+        ProcessInfo, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST,
+        DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, DEFAULT_OPENSCOUT_PUSH_RELAY_URL,
+        LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -3234,6 +3488,82 @@ mod tests {
         ));
         assert!(process_snapshot_filter("scoutd supervise"));
         assert!(!process_snapshot_filter("/bin/zsh -l"));
+    }
+
+    #[test]
+    fn process_snapshot_filter_matches_openscout_pairing_advertisements() {
+        let command = "/usr/bin/dns-sd -R OpenScout abc123 _oscout-pair._tcp local. 43131 v=1";
+        assert!(process_snapshot_filter(command));
+        assert_eq!(
+            openscout_pairing_advertisement_key(command).as_deref(),
+            Some("abc123:43131")
+        );
+        assert!(openscout_pairing_advertisement_key(
+            "/usr/bin/dns-sd -R Talkie Bridge _talkie-bridge._tcp local. 8765"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn elapsed_seconds_parses_ps_elapsed_shapes() {
+        assert_eq!(elapsed_seconds("04:12"), Some(252));
+        assert_eq!(elapsed_seconds("03:04:12"), Some(11_052));
+        assert_eq!(elapsed_seconds("02-03:04:12"), Some(183_852));
+        assert_eq!(elapsed_seconds("bad"), None);
+    }
+
+    #[test]
+    fn stale_pairing_advertisements_require_a_live_replacement() {
+        let process = |pid, ppid, elapsed: &str, fingerprint: &str| ProcessInfo {
+            pid,
+            ppid,
+            pcpu: "0.0".to_string(),
+            pmem: "0.0".to_string(),
+            elapsed: elapsed.to_string(),
+            command: format!(
+                "/usr/bin/dns-sd -R OpenScout {fingerprint} _oscout-pair._tcp local. 43131 v=1"
+            ),
+        };
+        let processes = vec![
+            process(10, 200, "00:30", "current"),
+            process(11, 1, "01-00:00:00", "current"),
+            process(12, 1, "01-00:00:00", "only-orphan"),
+            process(13, 1, "00:30", "current"),
+        ];
+
+        assert_eq!(stale_pairing_advertisement_pids(&processes), vec![11]);
+    }
+
+    #[test]
+    fn managed_capture_lease_requires_exact_process_markers() {
+        let profile_dir = env::temp_dir().join("openscout-web-capture-test-profile");
+        let lease = ManagedProcessLease {
+            version: 1,
+            kind: "web_capture".to_string(),
+            pid: 200,
+            process_group_id: 200,
+            profile_dir: profile_dir.clone(),
+            _output_path: PathBuf::new(),
+            _created_at_ms: 0,
+            expires_at_ms: 1,
+        };
+        let command = format!(
+            "/Applications/Google Chrome --headless=new --screenshot=/tmp/page.png --user-data-dir={}",
+            profile_dir.display(),
+        );
+
+        assert!(super::lease_matches_process(&lease, 200, &command));
+        assert!(!super::lease_matches_process(&lease, 201, &command));
+        assert!(!super::lease_matches_process(
+            &lease,
+            200,
+            "/Applications/Google Chrome --headless=new --screenshot=/tmp/page.png",
+        ));
+        assert!(!super::safe_capture_profile(
+            &env::temp_dir()
+                .join("..")
+                .join("openscout-web-capture-escape")
+        ));
     }
 
     #[test]

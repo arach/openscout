@@ -98,10 +98,16 @@ public enum ScoutHUDRouter {
             return true
         case "compose", "input", "command-box", "commandbox", "capture", "quick-capture", "task", "new-task":
             prepareCommandBox(value: value)
-            HUDRunnerState.shared.open(
+            let runner = HUDRunnerState.shared
+            let opensFreshDraft = !runner.isPresented
+            runner.open(
                 closesHUDOnDismiss: true,
-                freshDraft: !HUDRunnerState.shared.isPresented
+                freshDraft: opensFreshDraft,
+                requiresProjectSelection: true
             )
+            if opensFreshDraft {
+                runner.toggleProjectChoices()
+            }
             HUDController.shared.show(captureAnchor: HUDCaptureAnchor(argument: value))
             return true
         case "task-capture":
@@ -166,13 +172,13 @@ public enum ScoutHUDRouter {
 
     private static func prepareGenericHUD() {
         if HUDState.shared.view == .tail {
-            HUDState.shared.select(.agents)
+            HUDState.shared.select(.focus)
         }
         HUDState.shared.setTailCollapsed(false)
     }
 
     private static func prepareCommandBox(value: String?) {
-        HUDState.shared.select(.agents)
+        HUDState.shared.select(.focus)
         if let value, let size = parseSize(value) {
             HUDState.shared.setSize(size)
         } else {
@@ -192,12 +198,13 @@ public enum ScoutHUDRouter {
     }
 
     private static func parseView(_ raw: String) -> HUDView? {
+        // Canonical names + backward-compat aliases for scout://hud/tab/…
         switch raw.lowercased() {
-        case "agents": return .agents
-        case "activity": return .activity
+        case "focus", "agents", "activity": return .focus
+        case "threads", "sessions": return .threads
         case "tail": return .tail
-        case "sessions": return .sessions
-        case "assistant": return .assistant
+        case "scout", "assistant": return .scout
+        case "scoutbot": return .scoutbot
         default: return nil
         }
     }

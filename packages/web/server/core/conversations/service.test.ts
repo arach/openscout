@@ -94,6 +94,62 @@ function baseSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe("getScoutConversations", () => {
+  test("applies machine scope before the recent conversation limit", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.nodes["node-2"] = { id: "node-2", name: "node-2" };
+    snapshot.actors["agent-2"] = {
+      id: "agent-2",
+      kind: "agent",
+      displayName: "Remote Agent",
+    };
+    snapshot.agents["agent-2"] = {
+      id: "agent-2",
+      kind: "agent",
+      definitionId: "remote-agent",
+      displayName: "Remote Agent",
+      agentClass: "general",
+      capabilities: ["chat"],
+      wakePolicy: "on_demand",
+      homeNodeId: "node-2",
+      authorityNodeId: "node-2",
+      advertiseScope: "local",
+    };
+    snapshot.conversations["chat_remote-agent"] = {
+      id: "chat_remote-agent",
+      kind: "direct",
+      title: "Remote Agent",
+      visibility: "private",
+      shareMode: "local",
+      authorityNodeId: "node-2",
+      participantIds: ["operator", "agent-2"],
+    };
+    snapshot.messages["msg-remote"] = {
+      id: "msg-remote",
+      conversationId: "chat_remote-agent",
+      actorId: "agent-2",
+      originNodeId: "node-2",
+      class: "agent",
+      body: "newer remote message",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations({
+      machineId: "node-1",
+      limit: 1,
+    });
+
+    expect(conversations.map((conversation) => conversation.id)).toEqual([
+      "chat_hudson-main",
+    ]);
+  });
+
   test("coalesces duplicate named channels and preserves their combined history", async () => {
     const snapshot = baseSnapshot();
     snapshot.actors["session-gauss"] = {

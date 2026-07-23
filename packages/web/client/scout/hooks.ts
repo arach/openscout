@@ -179,6 +179,8 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
   return {
     status: apiConnection.status === "offline"
       ? { label: "Scout: OFFLINE", color: "red" }
+      : apiConnection.status === "degraded"
+      ? { label: "Scout: DEGRADED", color: "amber" }
       : mesh === null
       ? { label: "Broker: …", color: "neutral" }
       : mesh.health.reachable

@@ -2,11 +2,13 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 
 import {
   createBrokerHttpRouter,
   type BrokerHttpRouterDeps,
 } from "./broker-http-router.js";
+import { migrateControlPlaneDatabaseSchema } from "./control-plane-migrations.js";
 
 class FakeResponse extends EventEmitter {
   body = "";
@@ -404,5 +406,102 @@ describe("createBrokerHttpRouter", () => {
       acknowledgedDeliveries: ["delivery-1"],
     });
     expect(harness.cursorBodies).toEqual([{ actorId: "agent-1", lastReadSeq: 7 }]);
+  });
+
+  test("routes assigned-role and mission-log writes through the broker database", async () => {
+    const unavailable = createHarness();
+    const unavailableResult = await requestRouter(
+      unavailable,
+      "GET",
+      "/v1/roles/assignments",
+    );
+    expect(unavailableResult.response.status).toBe(503);
+
+    const db = new Database(":memory:");
+    try {
+      migrateControlPlaneDatabaseSchema(db);
+      const harness = createHarness({ openRolesDb: () => db });
+
+      const catalog = await requestRouter(harness, "GET", "/v1/roles/catalog");
+      expect(catalog.response.status).toBe(200);
+      expect(catalog.body).toMatchObject({
+        roles: [expect.objectContaining({ id: "orchestrator" })],
+      });
+
+      const assigned = await requestRouter(harness, "POST", "/v1/roles/assignments", {
+        body: {
+          roleId: "orchestrator",
+          agentId: "agent-1",
+          scope: { kind: "mission", missionId: "work-1" },
+        },
+      });
+      expect(assigned.response.status).toBe(201);
+      expect(assigned.body).toMatchObject({
+        assignment: {
+          roleId: "orchestrator",
+          agentId: "agent-1",
+          active: true,
+        },
+      });
+
+      const listed = await requestRouter(
+        harness,
+        "GET",
+        "/v1/roles/assignments?missionId=work-1",
+      );
+      expect(listed.response.status).toBe(200);
+      expect(listed.body).toMatchObject({
+        assignments: [expect.objectContaining({ agentId: "agent-1" })],
+      });
+
+      const appended = await requestRouter(harness, "POST", "/v1/missions/work-1/log", {
+        body: {
+          actorId: "agent-1",
+          kind: "progress",
+          intent: "Ship the role shell",
+          status: "verified",
+        },
+      });
+      expect(appended.response.status).toBe(201);
+      expect(appended.body).toMatchObject({
+        entry: {
+          missionId: "work-1",
+          actorId: "agent-1",
+          seq: 1,
+        },
+      });
+
+      const log = await requestRouter(harness, "GET", "/v1/missions/work-1/log");
+      expect(log.response.status).toBe(200);
+      expect(log.body).toMatchObject({
+        missionId: "work-1",
+        entries: [expect.objectContaining({ status: "verified" })],
+      });
+
+      const assignmentId = (assigned.body as { assignment: { id: string } }).assignment.id;
+      const revoked = await requestRouter(
+        harness,
+        "POST",
+        `/v1/roles/assignments/${encodeURIComponent(assignmentId)}/revoke`,
+      );
+      expect(revoked.response.status).toBe(200);
+      expect(revoked.body).toMatchObject({ assignment: { active: false } });
+
+      const denied = await requestRouter(harness, "POST", "/v1/missions/work-1/log", {
+        body: {
+          actorId: "agent-1",
+          kind: "progress",
+          intent: "Write after revoke",
+          status: "should fail",
+        },
+      });
+      expect(denied.response.status).toBe(400);
+      expect(denied.body).toMatchObject({
+        error: "bad_request",
+        detail: expect.stringContaining("not an assigned mission-log writer"),
+      });
+    } finally {
+      db.close();
+    }
   });
 });

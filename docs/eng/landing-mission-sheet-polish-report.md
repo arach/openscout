@@ -66,6 +66,27 @@ Changed:
   and dominant; grid quiet and consistent; ruler/index suppressed on mobile as
   intended; hero wash retained.
 
+## Resume (2026-07-21, later) — dark-mode QA + sheet visibility
+Pass was paused then resumed. On resume the branch had merged to main
+(`codex/grouped-product-polish`, my pass landed via PR #410 `c8ef24bb`; the GA
+fix landed as `205ac0ec`), and the :3002 dev server had been stopped — restarted
+it to keep inspecting.
+
+Fresh QA in **both themes** confirmed the merged result is clean: every
+eyebrow/title dominant, ruler/index restrained, grid quiet, no regression.
+
+Key finding: `landing/src/lib/site-theme.ts` defaults **production
+(openscout.app) to dark**, so dark is the version most visitors see — and there
+the mission-sheet render sat at `opacity: 0.1`, effectively invisible. One
+restrained fix: dark hero sheet `0.1 → 0.22` so the inverted plot registers as a
+faint light-on-dark console-style backdrop. Light mode untouched; verified no
+noise introduced. **Uncommitted.**
+
+Next lever (not done, needs a call): the sheet's densest plot currently sits
+behind the console mock. To make the render more present on dark/prod, nudge its
+`background-position` into the visible gap left of the console. Left to the
+operator.
+
 ## Note on repo state
 The checkout moved during the session: branch went from
 `sco-088/anchored-l-polish` → `codex/grouped-product-polish`, and a concurrent

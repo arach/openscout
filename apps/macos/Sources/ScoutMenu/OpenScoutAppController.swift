@@ -28,6 +28,17 @@ final class OpenScoutAppController: ObservableObject {
         let surface: String
     }
 
+    enum WebSurfaceStatus: Sendable, Equatable {
+        case checking
+        case ready
+        case slow
+        case down
+
+        var isReachable: Bool {
+            self == .ready || self == .slow
+        }
+    }
+
     struct BrokerState: Sendable {
         var label: String = "OpenScout Broker"
         var brokerURL: String = "http://127.0.0.1:43110"
@@ -85,7 +96,7 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var pairing = PairingViewState()
     @Published private(set) var tailscale = TailscaleViewState()
     @Published private(set) var openScoutNetwork = OpenScoutNetworkViewState()
-    @Published private(set) var webReachable = false
+    @Published private(set) var webSurfaceStatus: WebSurfaceStatus = .checking
     @Published private(set) var lastError: String? = nil
     @Published private(set) var menuBarSymbolName = "bolt.horizontal.circle"
     @Published private(set) var menuBarTooltip = "OpenScout"
@@ -113,11 +124,16 @@ final class OpenScoutAppController: ObservableObject {
     private var statusSurfaceSources: Set<String> = []
     private var webServerProcess: Process?
     private var actionLogCollapseTask: Task<Void, Never>?
+    private var consecutiveWebProbeFailures = 0
     private static let actionLogMaxEntries = 50
     private static let fastRefreshInterval: TimeInterval = 2.5
     private static let backgroundRefreshInterval: TimeInterval = 30
 
     private init() {}
+
+    var webReachable: Bool {
+        webSurfaceStatus.isReachable
+    }
 
     var openScoutNetworkSetupActionLabel: String {
         if !openScoutNetwork.sessionAvailable {
@@ -648,7 +664,21 @@ final class OpenScoutAppController: ObservableObject {
         tailscale = await tailscaleService.loadState()
         refreshOpenScoutNetworkState()
         await reconcileOpenScoutNetworkDiscovery()
-        webReachable = await isWebSurfaceReachable()
+        let webProbe = await probeWebSurface(baseURL: webSurfaceBaseURL)
+        if webProbe == .down {
+            consecutiveWebProbeFailures += 1
+            // A single delayed/failed sample on a busy local event loop is not
+            // evidence that the service disappeared. Keep it reachable but
+            // degraded until three consecutive probes fail.
+            if webSurfaceStatus.isReachable && consecutiveWebProbeFailures < 3 {
+                webSurfaceStatus = .slow
+            } else {
+                webSurfaceStatus = .down
+            }
+        } else {
+            consecutiveWebProbeFailures = 0
+            webSurfaceStatus = webProbe
+        }
         await refreshPairingRequests()
         updateMenuBarPresentation()
     }
@@ -911,30 +941,34 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func isWebSurfaceReachable() async -> Bool {
-        return await probeWebSurfaceReachable(baseURL: webSurfaceBaseURL)
+        await probeWebSurface(baseURL: webSurfaceBaseURL).isReachable
     }
 
-    private func probeWebSurfaceReachable(baseURL: URL) async -> Bool {
+    private func probeWebSurface(baseURL: URL) async -> WebSurfaceStatus {
         guard let url = URL(string: "/api/health", relativeTo: baseURL)?.absoluteURL else {
-            return false
+            return .down
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 0.8
+        request.timeoutInterval = 2.5
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let startedAt = Date()
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                return false
+                return .down
             }
             guard (200..<300).contains(httpResponse.statusCode) else {
-                return false
+                return .down
             }
             let health = try JSONDecoder().decode(WebSurfaceHealth.self, from: data)
-            return health.ok && (health.surface == "openscout-web" || health.surface == "control-plane")
+            guard health.ok && (health.surface == "openscout-web" || health.surface == "control-plane") else {
+                return .down
+            }
+            return Date().timeIntervalSince(startedAt) > 0.8 ? .slow : .ready
         } catch {
-            return false
+            return .down
         }
     }
 

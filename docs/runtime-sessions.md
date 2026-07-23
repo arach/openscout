@@ -143,6 +143,13 @@ until an endpoint health check, attach, or wake operation confirms reachability.
 User-facing copy should render that as "session not currently reachable"; failed
 attach resolution should render as "session reference not attachable".
 
+For ACP transports, keep the OpenScout runtime session id separate from the
+provider-native ACP session id. A live endpoint retains one ACP client and
+serializes its turns. After process loss or broker restart, a new binary must
+use the provider id with `session/resume` or `session/load`. If the agent cannot
+resume or load that exact context, fail the existing-session request rather than
+silently calling `session/new`. See [SCO-090](./eng/sco-090-acp-session-continuity.md).
+
 ## Token And Coordination Accounting
 
 Scout should track the cost of coordination, not just the state of coordination.

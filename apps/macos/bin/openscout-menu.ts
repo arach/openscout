@@ -105,7 +105,7 @@ HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud state
   bun apps/macos/bin/openscout-menu.ts hud show|hide|toggle
   bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]
-  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
+  bun apps/macos/bin/openscout-menu.ts hud tab <focus|threads|tail|scout|scoutbot>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
   bun apps/macos/bin/openscout-menu.ts hud task [top-left|top-right|bottom-left|bottom-right]
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
@@ -523,7 +523,7 @@ async function main(): Promise<void> {
 
 const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
 const TAIL_STATE_PATH = "/tmp/openscout-tail-state.json";
-const HUD_TABS = ["agents", "activity", "tail", "sessions", "assistant"] as const;
+const HUD_TABS = ["focus", "threads", "tail", "scout", "scoutbot"] as const;
 const HUD_SIZES = ["compact", "medium", "large"] as const;
 const HUD_CAPTURE_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
 

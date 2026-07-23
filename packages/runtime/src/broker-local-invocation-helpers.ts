@@ -39,6 +39,30 @@ function metadataStringValue(metadata: Record<string, unknown> | undefined, key:
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+export type InvocationReplyMode = "inline" | "notify" | "none";
+
+export function invocationReplyMode(
+  invocation: InvocationRequest,
+): InvocationReplyMode | null {
+  const value = metadataStringValue(invocation.metadata, "replyMode");
+  return value === "inline" || value === "notify" || value === "none"
+    ? value
+    : null;
+}
+
+/**
+ * Older invocation producers did not declare a reply mode and expected the
+ * broker to notify the requester, so absence intentionally preserves that
+ * behavior. Inline and none callers observe the durable flight/conversation
+ * directly and must not create a second delivery attempt.
+ */
+export function shouldNotifyInvocationRequester(
+  invocation: InvocationRequest,
+): boolean {
+  const replyMode = invocationReplyMode(invocation);
+  return replyMode === null || replyMode === "notify";
+}
+
 /**
  * A status transition for an invocation's flight. Keys present in the patch
  * override the current record — including keys explicitly set to `undefined`

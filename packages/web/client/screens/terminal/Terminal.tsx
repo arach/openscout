@@ -171,6 +171,8 @@ const TERMINAL_BACKEND_OPTIONS: readonly { value: TerminalBackend; label: string
 ];
 
 const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrainsMono Nerd Font', 'JetBrainsMonoNL Nerd Font', 'MesloLGS Nerd Font Mono', 'Hack Nerd Font Mono', 'JetBrains Mono', monospace";
+const ignoreReadOnlyTerminalInput = (_value: string) => {};
+const ignoreReadOnlyTerminalRestart = () => {};
 
 function terminalTypography(): { fontFamily: string; fontSize: number } {
   if (typeof window === "undefined") {
@@ -191,7 +193,14 @@ function terminalTypography(): { fontFamily: string; fontSize: number } {
 
 function ScoutTerminalRelay(props: ComponentProps<typeof TerminalRelay>) {
   const typography = terminalTypography();
-  return <TerminalRelay {...props} fontFamily={typography.fontFamily} fontSize={typography.fontSize} />;
+  return (
+    <TerminalRelay
+      {...props}
+      renderer={props.renderer ?? "dom"}
+      fontFamily={typography.fontFamily}
+      fontSize={typography.fontSize}
+    />
+  );
 }
 
 type TerminalHomeListItem = ReturnType<typeof terminalListItems>[number];
@@ -333,7 +342,10 @@ function useTerminalRelaySession(params: {
     url: binding.scopedRelayUrl,
     healthUrl,
     autoConnect: true,
-    sessionKey: binding.relayStorageSessionKey,
+    // An observer reconnect must be a fresh tmux attach so tmux supplies an
+    // authoritative full redraw. Replaying a raw ANSI byte tail is not a
+    // valid terminal snapshot.
+    ...(readOnly ? {} : { sessionKey: binding.relayStorageSessionKey }),
     ...(binding.surfaceOptions ?? {}),
     ...(binding.orphanTTL ? { orphanTTL: binding.orphanTTL } : {}),
     ...(binding.cwd ? { cwd: binding.cwd } : {}),
@@ -349,9 +361,9 @@ function useTerminalRelaySession(params: {
     if (!readOnly) return relay;
     return {
       ...relay,
-      sendInput: () => {},
-      sendLine: () => {},
-      restart: () => {},
+      sendInput: ignoreReadOnlyTerminalInput,
+      sendLine: ignoreReadOnlyTerminalInput,
+      restart: ignoreReadOnlyTerminalRestart,
     };
   }, [readOnly, relay]);
 
@@ -970,6 +982,7 @@ function RegisteredTerminalSessions({
   if (target && mode) {
     return (
       <TerminalRelayCanvas
+        key={`${surfaceKey(target.surface)}:${mode}`}
         agent={null}
         mode={mode}
         navigate={navigate}
@@ -2820,8 +2833,8 @@ export function TerminalContent({ route, navigate }: TerminalContentProps) {
 
   const terminalSurface = resolveAgentTerminalSurface(agent);
   const relayKey = terminalSurface
-    ? `${terminalSurface.backend}:${agent.id}:${terminalSurface.sessionName}`
-    : `takeover:${agentId}`;
+    ? `${terminalSurface.backend}:${agent.id}:${terminalSurface.sessionName}:${mode ?? "takeover"}`
+    : `takeover:${agentId}:${mode ?? "takeover"}`;
 
   return (
     <TerminalTakeoverGate

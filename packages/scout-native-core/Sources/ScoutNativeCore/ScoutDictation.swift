@@ -26,6 +26,9 @@ public enum ScoutDictationToggleDecision: Equatable, Sendable {
     case probeThenStartIfIdle
     case start
     case stop
+    /// Abort an in-flight session that can't be cleanly stopped — the escape
+    /// hatch out of a hung `.processing` state so the mic is never stranded.
+    case cancel
     case ignore
 }
 
@@ -39,7 +42,9 @@ public enum ScoutDictationController {
         case .starting, .recording:
             return .stop
         case .processing:
-            return .ignore
+            // Transcription can hang or retry indefinitely; a second tap must
+            // cancel it rather than being ignored (which left the mic stuck on).
+            return .cancel
         }
     }
 }

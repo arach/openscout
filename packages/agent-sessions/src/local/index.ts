@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { createAdapter as createGrokAcpAdapter } from "../adapters/grok-acp/index.js";
 import { createAdapter as createKimiAcpAdapter } from "../adapters/kimi-acp/index.js";
+import { createAdapter as createCursorAcpAdapter } from "../adapters/cursor-acp/index.js";
 import { createAdapter as createPiAdapter } from "../adapters/pi/index.js";
 import type { SequencedEvent } from "../buffer.js";
 import type { AdapterFactory, AgentSessionStreamEvent, Session } from "../protocol/index.js";
@@ -54,9 +55,9 @@ export type {
   CodexAppServerTurnResult,
 } from "./transports/codex-app-server.js";
 
-export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp" | "kimi";
-export type LocalAgentResolvedHarness = "codex" | "pi" | "grok" | "kimi";
-export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp";
+export type LocalAgentHarness = "codex" | "pi" | "grok" | "grok-acp" | "kimi" | "cursor";
+export type LocalAgentResolvedHarness = "codex" | "pi" | "grok" | "kimi" | "cursor";
+export type LocalAgentTransport = "codex_app_server" | "pi_rpc" | "grok_acp" | "kimi_acp" | "cursor_acp";
 export type LocalAgentWarmth = "warm" | "lazy";
 
 export type LocalAgentUsage = {
@@ -98,7 +99,12 @@ export type CreateLocalAgentClientOptions = {
   transport?: LocalAgentTransport;
   cwd: string;
   systemPrompt?: string;
+  /** Stable id for the in-process SessionRegistry entry. */
+  sessionId?: string;
+  /** Provider-native id to resume or load when the harness process is cold. */
   reuseKey?: string;
+  /** Adapter-specific behavior such as Cursor interaction and permission policy. */
+  adapterOptions?: Record<string, unknown>;
   warmth?: LocalAgentWarmth;
   model?: string;
   timeoutMs?: number;
@@ -117,6 +123,7 @@ export type LocalAgentClient = {
   turn(input: string | LocalAgentClientTurnOptions): Promise<LocalAgentTurnResult>;
   close(): Promise<void>;
   interrupt?(): void;
+  isAlive?(): boolean;
 };
 
 type LocalAdapterSpec = {
@@ -158,7 +165,9 @@ function resolveLocalTransport(
       ? "pi_rpc"
       : harness === "grok"
         ? "grok_acp"
-        : "kimi_acp";
+        : harness === "kimi"
+          ? "kimi_acp"
+          : "cursor_acp";
   const transport = requested ?? defaultTransport;
 
   if (harness === "codex" && transport !== "codex_app_server") {
@@ -172,6 +181,9 @@ function resolveLocalTransport(
   }
   if (harness === "kimi" && transport !== "kimi_acp") {
     throw new Error(`Local harness kimi does not support transport ${transport}.`);
+  }
+  if (harness === "cursor" && transport !== "cursor_acp") {
+    throw new Error(`Local harness cursor does not support transport ${transport}.`);
   }
 
   return transport;
@@ -199,6 +211,13 @@ function adapterSpecForTransport(transport: LocalAgentTransport): LocalAdapterSp
     };
   }
 
+  if (transport === "cursor_acp") {
+    return {
+      adapterType: "cursor-acp",
+      createAdapter: createCursorAcpAdapter,
+    };
+  }
+
   throw new Error(`Transport ${transport} is handled outside the adapter registry.`);
 }
 
@@ -207,7 +226,8 @@ function localSessionName(harness: LocalAgentResolvedHarness): string {
     return "Local Codex";
   }
   if (harness === "pi") return "Local Pi";
-  return harness === "grok" ? "Local Grok ACP" : "Local Kimi Code ACP";
+  if (harness === "grok") return "Local Grok ACP";
+  return harness === "kimi" ? "Local Kimi Code ACP" : "Local Cursor ACP";
 }
 
 function buildAdapterOptions(options: {
@@ -215,9 +235,11 @@ function buildAdapterOptions(options: {
   systemPrompt?: string;
   model?: string;
   reuseKey?: string;
+  adapterOptions?: Record<string, unknown>;
 }): Record<string, unknown> {
   if (options.transport === "pi_rpc") {
     return {
+      ...(options.adapterOptions ?? {}),
       ...(options.model ? { model: options.model } : {}),
       ...(options.systemPrompt ? { appendSystemPrompt: options.systemPrompt } : {}),
       ...(options.reuseKey ? { sessionId: options.reuseKey } : {}),
@@ -225,7 +247,9 @@ function buildAdapterOptions(options: {
   }
 
   return {
+    ...(options.adapterOptions ?? {}),
     ...(options.reuseKey ? { sessionId: options.reuseKey, sessionMode: "auto" } : {}),
+    ...(options.transport === "cursor_acp" ? { cursorExtensions: true } : {}),
   };
 }
 
@@ -547,7 +571,7 @@ async function runCodexTurnWithAbort(
 async function createCodexLocalAgentClient(
   options: CreateLocalAgentClientOptions,
 ): Promise<LocalAgentClient> {
-  const sessionId = options.reuseKey?.trim() || randomUUID();
+  const sessionId = options.sessionId?.trim() || options.reuseKey?.trim() || randomUUID();
   let currentSessionOptions = buildCodexSessionOptions({
     sessionId,
     cwd: options.cwd,
@@ -652,7 +676,7 @@ export async function createLocalAgentClient(
       [spec.adapterType]: spec.createAdapter,
     },
   });
-  const sessionId = options.reuseKey?.trim() || randomUUID();
+  const sessionId = options.sessionId?.trim() || options.reuseKey?.trim() || randomUUID();
   const sessionSystemPromptAppliedByAdapter = transport === "pi_rpc";
   let active: ActiveLocalSession | null = null;
   let closed = false;
@@ -678,6 +702,7 @@ export async function createLocalAgentClient(
         systemPrompt: options.systemPrompt,
         model,
         reuseKey: options.reuseKey,
+        adapterOptions: options.adapterOptions,
       }),
     });
     active = {
@@ -744,6 +769,13 @@ export async function createLocalAgentClient(
       if (active) {
         registry.interrupt(active.session.id);
       }
+    },
+    isAlive(): boolean {
+      if (closed || !active) {
+        return !closed;
+      }
+      const status = registry.getSessionSnapshot(active.session.id)?.session.status;
+      return status !== "error" && status !== "closed";
     },
   };
 }

@@ -12,6 +12,8 @@ import type {
   ScoutBrokerJsonRequestTrace,
 } from "./broker-api.js";
 import { requestScoutBrokerJsonWithTrace } from "./broker-api.js";
+import { CONTROL_PLANE_SCHEMA_VERSION } from "./schema-version.js";
+import { openControlPlaneSqliteDatabase } from "./sqlite-adapter.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   openScoutNetworkDiscoveryEnabled,
@@ -781,12 +783,42 @@ type ScoutdJsonRunner = (
   timeoutMs: number,
 ) => Promise<string>;
 
+const SCHEMA_GUARDED_SERVICE_COMMANDS = new Set<BrokerServiceCommand>([
+  "install",
+  "start",
+  "restart",
+]);
+
+export function assertBrokerServiceSchemaCompatible(config: BrokerServiceConfig): void {
+  const databasePath = join(config.controlHome, "control-plane.sqlite");
+  if (!existsSync(databasePath)) return;
+
+  const database = openControlPlaneSqliteDatabase(databasePath, { readonly: true });
+  try {
+    const row = database.query<{ user_version: number }>("PRAGMA user_version").get();
+    const databaseVersion = row?.user_version ?? 0;
+    if (databaseVersion > CONTROL_PLANE_SCHEMA_VERSION) {
+      throw new Error(
+        `Refusing to change the Scout service: candidate runtime schema v${CONTROL_PLANE_SCHEMA_VERSION} ` +
+          `is older than control-plane database schema v${databaseVersion}. ` +
+          "The existing service was left untouched. Update or rebase this checkout before restarting Scout.",
+      );
+    }
+  } finally {
+    database.close?.();
+  }
+}
+
 export async function runScoutdServiceCommand(
   command: BrokerServiceCommand,
   config: BrokerServiceConfig,
   timeoutMs: number = SCOUTD_DEFAULT_TIMEOUT_MS,
   runScoutdJson: ScoutdJsonRunner = spawnScoutdJson,
 ): Promise<BrokerServiceStatus> {
+  if (SCHEMA_GUARDED_SERVICE_COMMANDS.has(command)) {
+    assertBrokerServiceSchemaCompatible(config);
+  }
+
   const scoutd = resolveScoutdCommand(config);
   if (!scoutd) {
     throw new Error(

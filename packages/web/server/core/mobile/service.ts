@@ -1275,7 +1275,7 @@ export async function getScoutMobileActivity(
 
 // -- Service budgets (usage quotas) --------------------------------------
 //
-// The phone's usage-quota readout: Claude / Codex / GitHub. Projects the web
+// The phone's usage-quota readout: Claude / Codex / Kimi / GitHub. Projects the web
 // `loadServiceBudgets()` gauges (which carry per-window quota detail) down to a
 // per-provider row that PRESERVES each provider's individual quota windows so
 // the phone can render one meter per window (e.g. Claude 5h + weekly) instead of
@@ -1283,7 +1283,7 @@ export async function getScoutMobileActivity(
 // first). Providers with at least one quota window are kept; non-quota/failed
 // providers are skipped rather than surfaced as empty rows.
 
-const MOBILE_SERVICE_BUDGET_PROVIDERS = ["claude", "codex", "github"] as const;
+const MOBILE_SERVICE_BUDGET_PROVIDERS = ["claude", "codex", "kimi", "github"] as const;
 type MobileServiceBudgetProvider = (typeof MOBILE_SERVICE_BUDGET_PROVIDERS)[number];
 
 export type ScoutMobileServiceBudgetWindow = {
@@ -1291,6 +1291,9 @@ export type ScoutMobileServiceBudgetWindow = {
   label: string;
   /// Fraction of the window used, 0-100, rounded to an integer.
   usedPercent: number;
+  /// Absolute reset time in epoch milliseconds. The phone uses this to reject
+  /// stale pre-reset samples reported by another paired Mac.
+  resetAt: number;
   /// Short reset text, e.g. "48m", "4d", "Sun"; "" when unknown or already past.
   reset: string;
 };
@@ -1299,10 +1302,7 @@ export type ScoutMobileServiceBudget = {
   provider: MobileServiceBudgetProvider;
   /// Display name, e.g. "Claude".
   label: string;
-  /// Plan/tier string from the gauge (e.g. "Max 20×", "ChatGPT Pro"); "" if none.
-  /// The service-budget aggregator does not currently surface a plan/tier, so
-  /// this is "" in practice — kept in the shape so a later plan source is a purely
-  /// additive aggregator change, not a phone-client re-decode.
+  /// Plan/tier string from the gauge (for example Kimi's membership level); "" if none.
   plan: string;
   /// Per-window meters in source order (short window first).
   windows: ScoutMobileServiceBudgetWindow[];
@@ -1311,6 +1311,7 @@ export type ScoutMobileServiceBudget = {
 const MOBILE_SERVICE_BUDGET_LABELS: Record<MobileServiceBudgetProvider, string> = {
   claude: "Claude",
   codex: "Codex",
+  kimi: "Kimi",
   github: "GitHub",
 };
 
@@ -1350,18 +1351,22 @@ function mobileServiceBudgetPlan(gauge: ServiceGauge): string {
 /// Project one quota gauge onto the phone's per-provider budget row, preserving
 /// each quota window as its own meter. Returns null for a non-quota gauge (status
 /// tiles), a provider we don't surface on mobile, or a provider with no windows.
-function mobileServiceBudgetFromGauge(gauge: ServiceGauge): ScoutMobileServiceBudget | null {
+export function mobileServiceBudgetFromGauge(gauge: ServiceGauge): ScoutMobileServiceBudget | null {
   const provider = mobileServiceBudgetProvider(gauge.id);
   if (!provider) return null;
   if (gauge.kind !== "quota") return null;
 
   // Each window carries a `fill` (0-1 fraction used). Preserve source order (the
   // aggregator already sorts short window → long window, e.g. 5h → 7d).
-  const windows: ScoutMobileServiceBudgetWindow[] = (gauge.windows ?? []).map((window) => ({
-    label: window.label,
-    usedPercent: Math.round(Math.max(0, Math.min(1, window.fill)) * 100),
-    reset: formatMobileWindowReset(window.resetAt),
-  }));
+  const now = Date.now();
+  const windows: ScoutMobileServiceBudgetWindow[] = (gauge.windows ?? [])
+    .filter((window) => Number.isFinite(window.resetAt) && window.resetAt > now)
+    .map((window) => ({
+      label: window.label,
+      usedPercent: Math.round(Math.max(0, Math.min(1, window.fill)) * 100),
+      resetAt: window.resetAt,
+      reset: formatMobileWindowReset(window.resetAt),
+    }));
   if (windows.length === 0) return null;
 
   return {

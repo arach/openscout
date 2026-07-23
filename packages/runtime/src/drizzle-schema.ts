@@ -457,6 +457,67 @@ export const collaborationEventsTable = sqliteTable("collaboration_events", {
   index("idx_collaboration_events_record_created_at").on(table.recordId, table.createdAt),
 ]);
 
+// -- context_blocks ---------------------------------------------------------
+// Constructive prompt-facing state. Source material is cited through
+// source_refs_json; provider transcripts are never copied into messages.
+export const contextBlocksTable = sqliteTable("context_blocks", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  memoryKind: text("memory_kind"),
+  state: text("state").notNull(),
+  scopeKind: text("scope_kind").notNull(),
+  scopeId: text("scope_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  summary: text("summary"),
+  projectionMode: text("projection_mode").notNull(),
+  mutability: text("mutability").notNull(),
+  createdById: text("created_by_id").notNull(),
+  ownerId: text("owner_id"),
+  sourceRefsJson: text("source_refs_json").notNull(),
+  confidence: real("confidence"),
+  tokenBudget: integer("token_budget"),
+  freshnessJson: text("freshness_json"),
+  version: integer("version").notNull(),
+  supersedesId: text("supersedes_id"),
+  contentHash: text("content_hash").notNull(),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_context_blocks_scope_state_updated_at").on(
+    table.scopeKind,
+    table.scopeId,
+    table.state,
+    desc(table.updatedAt),
+  ),
+  index("idx_context_blocks_kind_state_updated_at").on(
+    table.kind,
+    table.state,
+    desc(table.updatedAt),
+  ),
+]);
+
+// -- context_packs ----------------------------------------------------------
+// Immutable, bounded assemblies used to seed a new or forked work session.
+export const contextPacksTable = sqliteTable("context_packs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  purpose: text("purpose").notNull(),
+  targetJson: text("target_json").notNull(),
+  sectionsJson: text("sections_json").notNull(),
+  contextBlockIdsJson: text("context_block_ids_json").notNull(),
+  sourceRefsJson: text("source_refs_json").notNull(),
+  budgetJson: text("budget_json").notNull(),
+  limitationsJson: text("limitations_json").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdById: text("created_by_id").notNull(),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_context_packs_created_at").on(desc(table.createdAt)),
+]);
+
 // -- events ------------------------------------------------------------------
 export const eventsTable = sqliteTable("events", {
   id: text("id").primaryKey(),
@@ -737,6 +798,8 @@ export const controlPlaneDrizzleSchema = {
   durableSignals: durableSignalsTable,
   collaborationRecords: collaborationRecordsTable,
   collaborationEvents: collaborationEventsTable,
+  contextBlocks: contextBlocksTable,
+  contextPacks: contextPacksTable,
   events: eventsTable,
   threadEvents: threadEventsTable,
   threadCursors: threadCursorsTable,

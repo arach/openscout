@@ -382,10 +382,11 @@ struct HUDRunnerCaptureRegressionTests {
         let runner = HUDRunnerState.shared
         runner.options = try runnerOptions(defaultDirectory: root, projects: [
             (id: "default", title: "Default", root: root, harness: "codex"),
-        ])
+        ], includeRuntimeCatalog: true)
         runner.open(closesHUDOnDismiss: false, freshDraft: true)
+        defer { _ = runner.dismiss() }
         runner.selectHarness("codex")
-        runner.selectedModel = "gpt-5.6-sol"
+        runner.selectedModel = "gpt-5.6-terra"
         runner.reasoningEffort = "high"
         runner.instructions = "Create a runtime-control regression task"
         runner.beginSubmit()
@@ -394,8 +395,64 @@ struct HUDRunnerCaptureRegressionTests {
         let data = try #require(RecordingSessionURLProtocol.recorder.body())
         let spec = try JSONDecoder().decode(SessionInitiationSpec.self, from: data)
         #expect(spec.execution?.harness == "codex")
-        #expect(spec.execution?.model == "gpt-5.6-sol")
+        #expect(spec.execution?.model == "gpt-5.6-terra")
         #expect(spec.execution?.reasoningEffort == "high")
+        let completion = try #require(runner.completion)
+        #expect(runner.isPresented)
+        #expect(completion.projectPath == root.path)
+        #expect(completion.projectTitle == "Default")
+        #expect(completion.runtimeLabel.contains("GPT-5.6 Terra"))
+        #expect(completion.effortLabel == "High")
+        #expect(completion.title == "agent-test")
+    }
+
+    @MainActor
+    @Test func menuTaskRequiresAProjectChoiceAndUpdatesAutomaticIdentity() throws {
+        _ = NSApplication.shared
+        let firstRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-required-project-a-\(UUID().uuidString)", isDirectory: true)
+        let secondRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hud-runner-required-project-b-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+
+        let runner = HUDRunnerState.shared
+        runner.options = try runnerOptions(
+            defaultDirectory: firstRoot,
+            projects: [
+                (id: "first", title: "First Project", root: firstRoot, harness: "claude"),
+                (id: "second", title: "Second Project", root: secondRoot, harness: "codex"),
+            ],
+            includeRuntimeCatalog: true
+        )
+        runner.open(
+            closesHUDOnDismiss: false,
+            freshDraft: true,
+            requiresProjectSelection: true
+        )
+        defer { _ = runner.dismiss() }
+
+        #expect(runner.directory.isEmpty)
+        #expect(runner.selectedProject == nil)
+        runner.instructions = "Do the thing"
+        runner.beginSubmit()
+        #expect(runner.lastError == "Choose a project first.")
+
+        let first = try #require(runner.options?.projects.first { $0.id == "first" })
+        runner.chooseProject(first)
+        #expect(runner.directory == firstRoot.path)
+        #expect(runner.agentName == "first-project")
+        #expect(runner.displayName == "First Project")
+
+        let second = try #require(runner.options?.projects.first { $0.id == "second" })
+        runner.chooseProject(second)
+        #expect(runner.directory == secondRoot.path)
+        #expect(runner.agentName == "second-project")
+        #expect(runner.displayName == "Second Project")
     }
 
     @MainActor

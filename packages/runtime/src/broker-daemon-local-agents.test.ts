@@ -289,7 +289,7 @@ for await (const line of rl) {
       metadata: expect.objectContaining({
         cardless: true,
         pendingExternalSession: false,
-        externalSessionId: response.targetAgentId,
+        externalSessionId: "fake-grok-acp-session",
         adapterType: "grok-acp",
       }),
     }));
@@ -402,6 +402,7 @@ for await (const line of rl) {
     expect(endpoint?.metadata).toEqual(expect.objectContaining({
       cardless: true,
       pendingExternalSession: false,
+      externalSessionId: "fake-kimi-acp-session",
       adapterType: "kimi-acp",
     }));
     expect(completed.flights[response.flight!.id]).toEqual(expect.objectContaining({

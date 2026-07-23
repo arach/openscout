@@ -69,7 +69,7 @@ describe("route fixtures", () => {
       route: { view: "repos", root: "repo-a" },
       canonical: "/repos?root=repo-a",
     },
-    { url: "/harnesses", route: { view: "harnesses" }, canonical: "/harnesses" },
+    { url: "/providers", route: { view: "harnesses" }, canonical: "/providers" },
     {
       url: "/repo-diff?path=repo-a",
       route: { view: "repo-diff", path: "repo-a" },
@@ -156,6 +156,7 @@ describe("route fixtures", () => {
     // Legacy fleet / conversations aliases → home / messages.
     { url: "/fleet", canonical: "/" },
     { url: "/conversations", canonical: "/messages" },
+    { url: "/harnesses", canonical: "/providers" },
     { url: "/agents.deprecated", canonical: "/projects" },
     { url: "/agents.deprecated/hudson.main", canonical: "/agents/hudson.main" },
   ];
@@ -449,6 +450,11 @@ describe("canonicalHrefForRoute", () => {
       .toBe("/agents/hudson.main?tab=observe&ffBundle=max-pro");
     expect(canonicalHrefForRoute("/projects", "?layout=grid&ffBundle=max-pro", ""))
       .toBe("/projects?ffBundle=max-pro");
+  });
+
+  test("rewrites the legacy harnesses path without losing machine scope", () => {
+    expect(canonicalHrefForRoute("/harnesses", "?machineId=node-b", ""))
+      .toBe("/providers?machineId=node-b");
   });
 
   test("embed paths are never canonicalized", () => {
