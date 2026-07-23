@@ -147,7 +147,10 @@ describe("service budgets", () => {
 
     const statuslineDir = join(home, "Library", "Application Support", "OpenScout", "runtime", "statusline");
     mkdirSync(statuslineDir, { recursive: true });
-    const now = Date.now();
+    // Keep latest and one-minute history in the same hourly history bucket so
+    // this assertion does not change during the first minute of an hour.
+    const historyBucketMs = 60 * 60 * 1000;
+    const now = Math.floor(Date.now() / historyBucketMs) * historyBucketMs + 2 * 60 * 1000;
     const latest = {
       session_id: "claude-statusline-session",
       cwd: "/repo",

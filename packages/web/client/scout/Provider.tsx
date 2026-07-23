@@ -9,6 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useOptionalFlag } from "hudsonkit/flags";
 import {
   isSettingsHistoryEntry,
   useBrowserLocation,
@@ -27,6 +28,7 @@ import {
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
+import { ScoutbotRealtimeVoiceProvider } from "./scoutbot/ScoutbotRealtimeVoiceContext.tsx";
 import { SettingsDrawer } from "../screens/settings/SettingsDrawer.tsx";
 import { ContextCaptureHost } from "./ContextCaptureHost.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
@@ -34,6 +36,7 @@ import type { ScoutTheme } from "../lib/theme.ts";
 import { resolveScoutNativeThemeVars } from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 import type { FocusedSession } from "../lib/session-catalog.ts";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../../shared/realtime-voice.ts";
 
 declare global {
   interface Window {
@@ -253,6 +256,7 @@ export function ScoutProvider({
   initialTheme?: ScoutTheme;
 }) {
   const { route, navigate } = useRouter();
+  const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const locationState = useBrowserLocation().state;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
@@ -603,7 +607,9 @@ export function ScoutProvider({
       >
         <ContextMenuProvider>
           <ScoutbotStateProvider>
-            {children}
+            {realtimeVoiceEnabled
+              ? <ScoutbotRealtimeVoiceProvider>{children}</ScoutbotRealtimeVoiceProvider>
+              : children}
             {/* Drawer presentation for operator/comms/credentials/voice/devices.
                 Pairing + agents stay full routed SettingsScreen. URL is SoT. */}
             <SettingsDrawer

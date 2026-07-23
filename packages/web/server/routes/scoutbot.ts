@@ -100,6 +100,7 @@ export type ScoutbotWebServices = {
   assistant: ReturnType<typeof createScoutbotAssistantService>;
   reminders: ReturnType<typeof createScoutbotReminderStore>;
   credentials: ReturnType<typeof createScoutbotCredentialStore>;
+  resolveOpenAIApiKey: () => Promise<string | undefined>;
   runner: ScoutbotRunnerHandle | null;
   loadFleetHomeBrief: (force?: boolean) => Promise<FleetHomeBrief>;
   stopRunner: () => Promise<void>;
@@ -731,6 +732,13 @@ export async function createScoutbotWebServices(
   const { currentDirectory, loadOperatorAttention, loadBuildInfo } = options;
   const scoutbotReminders = createScoutbotReminderStore();
   const scoutbotCredentials = createScoutbotCredentialStore();
+  const resolveOpenAIApiKey = async (): Promise<string | undefined> => {
+    const environmentKey = process.env.OPENAI_API_KEY?.trim();
+    if (environmentKey) return environmentKey;
+    const config = await loadScoutRelayConfig().catch(() => null);
+    const configuredKey = config?.openaiApiKey?.trim();
+    return configuredKey || scoutbotCredentials.getOpenAIKey()?.trim() || undefined;
+  };
   const tailRuntime: WebTailRuntime = {
     getTailDiscovery,
     refreshTailDiscovery,
@@ -744,10 +752,7 @@ export async function createScoutbotWebServices(
       ...(await buildScoutbotAssistantControlState(currentDirectory, tailRuntime, loadOperatorAttention, loadBuildInfo, route)),
       reminders: scoutbotReminders.getState(),
     }),
-    resolveApiKey: async () => {
-      const config = await loadScoutRelayConfig().catch(() => null);
-      return config?.openaiApiKey ?? scoutbotCredentials.getOpenAIKey();
-    },
+    resolveApiKey: resolveOpenAIApiKey,
     invokeCodex: options.invokeCodex
       ?? createDefaultScoutbotCodexInvoker(currentDirectory),
   });
@@ -804,6 +809,7 @@ export async function createScoutbotWebServices(
     assistant: scoutbotAssistant,
     reminders: scoutbotReminders,
     credentials: scoutbotCredentials,
+    resolveOpenAIApiKey,
     runner: scoutbotRunner,
     loadFleetHomeBrief,
     stopRunner,

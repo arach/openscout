@@ -33,6 +33,8 @@ import {
   ScoutActivityLogStatusButton,
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
+import { ScoutbotRealtimeVoice } from "./scout/scoutbot/ScoutbotRealtimeVoice.tsx";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../shared/realtime-voice.ts";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
 import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
@@ -270,8 +272,15 @@ export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellPr
   );
 }
 
-function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState }) {
+function OpenScoutStatusBarLeft({
+  statusBar,
+  dictationActive,
+}: {
+  statusBar: ScoutStatusBarState;
+  dictationActive: boolean;
+}) {
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
+  const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const meshValueClass = statusBar.mesh.color === "amber"
     ? "text-amber-400"
     : statusBar.mesh.color === "red"
@@ -293,10 +302,15 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
         </span>
         <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
-      {scoutbotEnabled && (
+      {(scoutbotEnabled || realtimeVoiceEnabled) && (
         <>
           <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
-          <ScoutbotBroadcastChip />
+          <div className="flex items-center gap-1">
+            {scoutbotEnabled && <ScoutbotBroadcastChip />}
+            {realtimeVoiceEnabled && (
+              <ScoutbotRealtimeVoice dictationActive={dictationActive} />
+            )}
+          </div>
         </>
       )}
     </div>
@@ -1620,7 +1634,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
               <StatusBar
                 status={statusBar.status}
-                left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
+                left={(
+                  <OpenScoutStatusBarLeft
+                    statusBar={statusBar}
+                    dictationActive={scoutbotPublic.state.activity === "listening"}
+                  />
+                )}
                 right={(
                   <OpenScoutStatusBarRight
                     statusBar={statusBar}
