@@ -5,7 +5,7 @@
  * `./common.ts`. SQL helper types stay in `../internal/sql-helpers.ts`.
  */
 
-import type { AgentRun } from "@openscout/protocol";
+import type { AgentRun, FlightSessionTraceEntry } from "@openscout/protocol";
 
 import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
@@ -226,6 +226,7 @@ export type WebFlight = {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  sessions: FlightSessionTraceEntry[];
   dispatchOutcome?: {
     status: string;
     reason: string | null;

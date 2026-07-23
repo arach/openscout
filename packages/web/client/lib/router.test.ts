@@ -108,6 +108,22 @@ describe("scope route parsing", () => {
 });
 
 describe("agents route parsing", () => {
+  test("flight observe routes preserve explicit session and split selection", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:43120/flights/flight-1/observe?session=session-2&compare=session-1",
+    );
+
+    expect(route).toEqual({
+      view: "sessions",
+      flightId: "flight-1",
+      sessionId: "session-2",
+      compareSessionId: "session-1",
+    });
+    expect(routePath(route)).toBe(
+      "/flights/flight-1/observe?session=session-2&compare=session-1",
+    );
+  });
+
   test("legacy conversations path canonicalizes to messages", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/conversations")).toEqual({
       view: "messages",

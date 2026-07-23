@@ -622,11 +622,24 @@ export type Flight = {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  sessions: FlightSessionTrace[];
   dispatchOutcome?: {
     status: string;
     reason: string | null;
     checkedAt: number | null;
   } | null;
+};
+
+export type FlightSessionTrace = {
+  sessionId: string;
+  endpointId?: string;
+  nodeId?: string;
+  harness?: string;
+  transport?: string;
+  strategy?: string;
+  startedAt: number;
+  lastAcknowledgedAt: number;
+  endedAt?: number;
 };
 
 export type WorkInvocation = {
@@ -1287,7 +1300,13 @@ export type Route =
       filter?: MessagesFilter;
       sort?: MessagesSort;
     } & MachineScopedRoute)
-  | ({ view: "sessions"; sessionId?: string; agentId?: string } & MachineScopedRoute)
+  | ({
+      view: "sessions";
+      sessionId?: string;
+      agentId?: string;
+      flightId?: string;
+      compareSessionId?: string;
+    } & MachineScopedRoute)
   // `root` pre-selects a project by absolute root — used when drilling in from
   // a project surface ("Worktrees" facet) so the repos view keeps the caller's
   // scope. Deep-linkable as /repos?root=<abs>.

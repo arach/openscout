@@ -8,4 +8,5 @@ export { RawSessionsTable } from "./RawSessionsTable.tsx";
 /** @deprecated Use SessionsContent */
 export { SessionsScreen } from "./SessionsScreen.tsx";
 export { SessionRefScreen } from "./SessionRefScreen.tsx";
+export { FlightObserveScreen } from "./FlightObserveScreen.tsx";
 export { SessionEmbedScreen } from "./SessionEmbedScreen.tsx";

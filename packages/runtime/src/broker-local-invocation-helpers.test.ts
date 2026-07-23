@@ -194,6 +194,38 @@ describe("applyInvocationStatusPatch", () => {
 
     expect(next.metadata).toEqual({ dispatchAck: { strategy: "attach" } });
   });
+
+  test("dispatch patches retain the concrete session history", () => {
+    const first = applyInvocationStatusPatch(testFlight(), {
+      state: "running",
+      metadata: {
+        dispatchAck: {
+          sessionId: "session-1",
+          endpointId: "endpoint-1",
+          strategy: "spawn",
+          acknowledgedAt: 100,
+        },
+      },
+    });
+    const second = applyInvocationStatusPatch(first, {
+      state: "running",
+      metadata: {
+        dispatchAck: {
+          sessionId: "session-2",
+          endpointId: "endpoint-2",
+          strategy: "wake",
+          acknowledgedAt: 200,
+        },
+        attempt: 2,
+      },
+    });
+
+    expect(second.metadata?.sessionTrace).toEqual([
+      expect.objectContaining({ sessionId: "session-1", endedAt: 200 }),
+      expect.objectContaining({ sessionId: "session-2", startedAt: 200 }),
+    ]);
+    expect(second.metadata?.attempt).toBe(2);
+  });
 });
 
 describe("broker local invocation helpers", () => {

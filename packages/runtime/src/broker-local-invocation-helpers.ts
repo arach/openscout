@@ -1,10 +1,11 @@
-import type {
-  AgentDefinition,
-  AgentEndpoint,
-  FlightRecord,
-  InvocationRequest,
-  InvocationStatus,
-  MetadataMap,
+import {
+  recordFlightSessionDispatch,
+  type AgentDefinition,
+  type AgentEndpoint,
+  type FlightRecord,
+  type InvocationRequest,
+  type InvocationStatus,
+  type MetadataMap,
 } from "@openscout/protocol";
 
 import type { RuntimeSnapshot } from "./scout-dispatcher.js";
@@ -80,13 +81,21 @@ export function applyInvocationStatusPatch(
   patch: InvocationStatusPatch,
 ): FlightRecord {
   const { metadata, ...status } = patch;
+  let nextMetadata = "metadata" in patch
+    ? { ...(current.metadata ?? {}), ...(metadata ?? {}) }
+    : current.metadata;
+  if (metadata && Object.prototype.hasOwnProperty.call(metadata, "dispatchAck")) {
+    const { dispatchAck, sessionTrace: _ignoredSessionTrace, ...metadataPatch } = metadata;
+    nextMetadata = {
+      ...recordFlightSessionDispatch(current.metadata, dispatchAck),
+      ...metadataPatch,
+    };
+  }
   return {
     ...current,
     ...status,
     state: status.state ?? current.state,
-    ...("metadata" in patch
-      ? { metadata: { ...(current.metadata ?? {}), ...(metadata ?? {}) } }
-      : {}),
+    ...("metadata" in patch ? { metadata: nextMetadata } : {}),
   };
 }
 

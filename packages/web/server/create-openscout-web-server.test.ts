@@ -2685,6 +2685,7 @@ describe("createOpenScoutWebServer", () => {
         summary: "openscout-haydn replied.",
         startedAt: 1_779_461_800_000,
         completedAt: 1_779_461_900_000,
+        sessions: [],
       },
     ]);
   });
