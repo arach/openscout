@@ -37,7 +37,10 @@ import {
 } from "@openscout/protocol";
 
 import { db } from "./internal/db.ts";
-import { conversationIdAliases } from "./internal/conversation-ids.ts";
+import {
+  configuredOperatorActorIds,
+  conversationIdAliases,
+} from "./internal/conversation-ids.ts";
 import { coerceNumber, parseJson } from "./internal/parse.ts";
 import { resolveHarnessSessionId } from "./internal/paths.ts";
 import {
@@ -57,6 +60,16 @@ import { queryWorkItemById } from "./work.ts";
 // db-queries.ts barrel.
 import { querySessionById } from "./sessions.ts";
 import type { WebAgentRun, WebFlight, WebFollowTarget } from "./types/web.ts";
+
+function firstNonOperatorAgentId(
+  ...candidateIds: Array<string | null | undefined>
+): string | null {
+  const operatorIds = new Set(configuredOperatorActorIds());
+  for (const candidateId of candidateIds) {
+    if (candidateId && !operatorIds.has(candidateId)) return candidateId;
+  }
+  return null;
+}
 
 /* ── Row projection helpers (private) ── */
 
@@ -596,10 +609,11 @@ export function queryFollowTarget(opts: {
   if (target.workId && !target.conversationId) {
     const work = queryWorkItemById(target.workId);
     target.conversationId = work?.conversationId ?? target.conversationId;
-    target.targetAgentId = target.targetAgentId
-      ?? work?.nextMoveOwnerId
-      ?? work?.ownerId
-      ?? null;
+    target.targetAgentId = firstNonOperatorAgentId(
+      target.targetAgentId,
+      work?.nextMoveOwnerId,
+      work?.ownerId,
+    );
   }
 
   if (target.conversationId && (!target.sessionId || !target.targetAgentId)) {
@@ -607,8 +621,13 @@ export function queryFollowTarget(opts: {
     // SCO-030 may fold this back into `Conversations` once opaque ids land.
     const session = querySessionById(target.conversationId);
     target.sessionId = target.sessionId ?? session?.harnessSessionId ?? null;
-    target.targetAgentId = target.targetAgentId ?? session?.agentId ?? null;
+    target.targetAgentId = firstNonOperatorAgentId(
+      target.targetAgentId,
+      session?.agentId,
+    );
   }
+
+  target.targetAgentId = firstNonOperatorAgentId(target.targetAgentId);
 
   return target;
 }

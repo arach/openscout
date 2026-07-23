@@ -404,6 +404,37 @@ describe("web db query flights", () => {
     }
   });
 
+  test("does not route ownerless work back to the operator as an agent", () => {
+    const store = createSeededStore();
+
+    try {
+      store.recordCollaborationRecord({
+        id: "work-operator-next",
+        kind: "work_item",
+        title: "Operator decision required",
+        createdById: "agent-1",
+        ownerId: null,
+        nextMoveOwnerId: "operator",
+        state: "waiting",
+        acceptanceState: "pending",
+        requestedById: "agent-1",
+        createdAt: 301,
+        updatedAt: 301,
+      });
+
+      expect(queryFollowTarget({ workId: "work-operator-next" })).toEqual({
+        flightId: null,
+        invocationId: null,
+        conversationId: null,
+        workId: "work-operator-next",
+        sessionId: null,
+        targetAgentId: null,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   test("a superseded sibling flight id is intentionally unaddressable — the merged record is latest-flight-only", () => {
     // An invocation carries ONE current status. Once a later flight
     // supersedes flight-1, lookups by the old sibling id miss — no
