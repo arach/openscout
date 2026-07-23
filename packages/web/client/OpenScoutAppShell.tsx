@@ -49,7 +49,7 @@ import {
   sideRailHasContent,
 } from "./scout/sidebar/ScoutSideRail.tsx";
 import { CenterPaneHeader } from "./scout/sidebar/CenterPaneHeader.tsx";
-import { TopRowUtilities } from "./scout/sidebar/TopRowUtilities.tsx";
+
 import {
   RAIL_COLLAPSED_WIDTH,
   SIDEBAR_COLLAPSED_WIDTH,
@@ -1490,9 +1490,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               )}
 
               {/* SCO-087: single app-wide top row (sidebar-chrome path only).
-                  Right of the full-height sidebar; consolidates the page
-                  title/breadcrumb + secondary nav (CenterPaneHeader) with the
-                  machine scope + settings + ⌘K utilities. Owns the top drag
+                  Right of the full-height sidebar; page title/breadcrumb +
+                  secondary nav only. Scope and ⌘K live elsewhere (keyboard /
+                  other chrome) — keep this row quiet. Owns the top drag
                   region so frameless/macOS window drag keeps working. */}
               {topRowActive ? (
                 <div
@@ -1522,11 +1522,6 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                   <CenterPaneHeader
                     variant="top-row"
                     onInteractiveMouseDown={onInteractiveMouseDown}
-                    rightUtility={
-                      <TopRowUtilities
-                        onOpenCommandPalette={() => setShowCommandPalette(true)}
-                      />
-                    }
                   />
                 </div>
               ) : null}
