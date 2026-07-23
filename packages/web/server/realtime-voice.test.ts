@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { Hono } from "hono";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   SCOUT_REALTIME_VOICE_CALL_PATH,
@@ -13,6 +16,7 @@ import {
   ScoutRealtimeVoiceError,
   createScoutRealtimeVoiceCall,
   isScoutRealtimeVoiceEnabled,
+  readScoutRealtimeOffer,
   resolveScoutRealtimeVoiceAdmissionConfig,
   resolveScoutRealtimeVoiceConfig,
   validateScoutRealtimeOffer,
@@ -154,21 +158,61 @@ describe("Scout Realtime voice", () => {
     expect(error).toEqual(expect.objectContaining({ status: 429, retryAfterSeconds: 59 }));
   });
 
-  test("shares concurrency state between admission-controller instances", () => {
-    const database = new Database(":memory:");
+  test("shares concurrency state between separate SQLite connections", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openscout-realtime-admission-"));
+    const databasePath = join(directory, "admission.sqlite");
     const config = { maxConcurrentCalls: 1, startsPerMinute: 4, leaseTtlMs: 90_000 };
     const firstWorker = new ScoutRealtimeVoiceAdmission({
-      database,
+      databasePath,
       config,
       randomId: () => "lease-worker-0001",
     });
     const secondWorker = new ScoutRealtimeVoiceAdmission({
-      database,
+      databasePath,
       config,
       randomId: () => "lease-worker-0002",
     });
-    firstWorker.admit();
-    expect(() => secondWorker.admit()).toThrow(ScoutRealtimeVoiceAdmissionError);
+    try {
+      firstWorker.admit();
+      expect(() => secondWorker.admit()).toThrow(ScoutRealtimeVoiceAdmissionError);
+    } finally {
+      firstWorker.close();
+      secondWorker.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("bounds chunked SDP before buffering the whole request", async () => {
+    const request = new Request("http://localhost/realtime", {
+      method: "POST",
+      headers: { "content-type": "application/sdp" },
+      body: `v=0\r\n${"x".repeat(65 * 1024)}`,
+    });
+    const error = await readScoutRealtimeOffer(request).catch((caught) => caught);
+    expect(error).toEqual(expect.objectContaining({ status: 413 }));
+  });
+
+  test("does not expose SQLite diagnostics when admission is unavailable", async () => {
+    const admission = createTestAdmission();
+    admission.admit = () => {
+      throw new Error("database is locked at /private/control-plane.sqlite");
+    };
+    const app = new Hono();
+    mountScoutVoiceRoutes(app, {
+      realtimeVoiceEnabled: () => true,
+      realtimeVoiceAdmission: admission,
+      resolveOpenAIApiKey: async () => "sk-test",
+    });
+
+    const response = await app.request(SCOUT_REALTIME_VOICE_CALL_PATH, {
+      method: "POST",
+      headers: { "content-type": "application/sdp" },
+      body: "v=0\r\noffer\r\n",
+    });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: "Realtime voice admission is temporarily unavailable. Try again shortly.",
+    });
   });
 
   test("rejects cross-origin call attempts before resolving credentials", async () => {

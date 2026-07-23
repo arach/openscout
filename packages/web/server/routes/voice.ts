@@ -15,7 +15,7 @@ import {
   createScoutRealtimeVoiceAdmission,
   createScoutRealtimeVoiceCall,
   isScoutRealtimeVoiceEnabled,
-  validateScoutRealtimeOffer,
+  readScoutRealtimeOffer,
 } from "../realtime-voice.ts";
 import {
   SCOUT_REALTIME_VOICE_CALL_PATH,
@@ -467,7 +467,7 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
     }
     let leaseId: string | null = null;
     try {
-      const offerSdp = validateScoutRealtimeOffer(await c.req.text());
+      const offerSdp = await readScoutRealtimeOffer(c.req.raw);
       const apiKey = await deps.resolveOpenAIApiKey?.() ?? process.env.OPENAI_API_KEY?.trim();
       if (!apiKey) {
         return c.json({ error: "OpenAI API key is required to start a realtime voice call." }, 503);
@@ -488,13 +488,15 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
       });
     } catch (error) {
       if (leaseId) realtimeVoiceAdmission().release(leaseId);
-      const message = error instanceof Error ? error.message : "Could not start realtime voice.";
       const status = error instanceof ScoutRealtimeVoiceError ? error.status : 502;
+      const message = error instanceof ScoutRealtimeVoiceError
+        ? error.message
+        : "Realtime voice admission is temporarily unavailable. Try again shortly.";
       if (error instanceof ScoutRealtimeVoiceAdmissionError) {
         c.header("retry-after", String(error.retryAfterSeconds));
       } else if (status >= 500 && !c.req.raw.signal.aborted) {
         console.warn("[voice-realtime] call_failed", {
-          message,
+          message: error instanceof Error ? error.message : String(error),
           ...(error instanceof ScoutRealtimeVoiceError && error.diagnostic ? error.diagnostic : {}),
         });
       }

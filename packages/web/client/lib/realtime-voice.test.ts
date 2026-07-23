@@ -252,6 +252,47 @@ describe("Scout Realtime voice client", () => {
     expect(trackStops).toBe(1);
     expect(FakePeerConnection.latest?.closed).toBe(true);
   });
+
+  test("releases the lease when cancel lands during SDP answer body-read", async () => {
+    let bodyReadStarted = false;
+    let released = false;
+    let trackStops = 0;
+    globalThis.fetch = (async (url, init) => {
+      if (String(url).startsWith(SCOUT_REALTIME_VOICE_LEASE_PATH) && init?.method === "DELETE") {
+        released = true;
+        return new Response(null, { status: 204 });
+      }
+      bodyReadStarted = true;
+      return new Response(new ReadableStream<Uint8Array>({ start: () => {} }), {
+        status: 200,
+        headers: { [SCOUT_REALTIME_VOICE_LEASE_HEADER]: "lease-body-read" },
+      });
+    }) as typeof fetch;
+    Object.defineProperty(globalThis, "RTCPeerConnection", { configurable: true, value: FakePeerConnection });
+    Object.defineProperty(globalThis, "Audio", { configurable: true, value: FakeAudio });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia: async () => ({
+            getTracks: () => [{
+              stop: () => { trackStops += 1; },
+              addEventListener: () => {},
+            }],
+          }),
+        },
+      },
+    });
+    const controller = new AbortController();
+    const callPromise = startScoutRealtimeVoiceCall({ signal: controller.signal });
+    await waitFor(() => bodyReadStarted);
+
+    controller.abort();
+    await expect(callPromise).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
+    await waitFor(() => released);
+    expect(trackStops).toBe(1);
+    expect(FakePeerConnection.latest?.closed).toBe(true);
+  });
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

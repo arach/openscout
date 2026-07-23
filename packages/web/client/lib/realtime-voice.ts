@@ -183,11 +183,11 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
       body: offer.sdp,
       signal: callbacks.signal,
     });
+    leaseId = response.headers.get(SCOUT_REALTIME_VOICE_LEASE_HEADER)?.trim() || null;
     const answerSdp = await abortable(response.text(), callbacks.signal);
     if (!response.ok) {
       throw new Error(readRealtimeCallError(answerSdp, response.status));
     }
-    leaseId = response.headers.get(SCOUT_REALTIME_VOICE_LEASE_HEADER)?.trim() || null;
     if (!leaseId) {
       throw new Error("Scout started the audio connection without a concurrency lease. Please try again.");
     }

@@ -84,6 +84,7 @@ export class ScoutRealtimeVoiceAdmissionError extends ScoutRealtimeVoiceError {
 export class ScoutRealtimeVoiceAdmission {
   readonly config: ScoutRealtimeVoiceAdmissionConfig;
   private readonly database: Database;
+  private readonly ownsDatabase: boolean;
   private readonly now: () => number;
   private readonly randomId: () => string;
 
@@ -103,10 +104,12 @@ export class ScoutRealtimeVoiceAdmission {
     this.randomId = options.randomId ?? (() => crypto.randomUUID());
     if (options.database) {
       this.database = options.database;
+      this.ownsDatabase = false;
     } else {
       const path = options.databasePath ?? defaultRealtimeVoiceAdmissionPath();
       mkdirSync(dirname(path), { recursive: true });
       this.database = new Database(path, { create: true });
+      this.ownsDatabase = true;
     }
     this.database.exec(`PRAGMA busy_timeout = ${ADMISSION_DB_BUSY_TIMEOUT_MS};`);
     this.database.exec("PRAGMA journal_mode = WAL;");
@@ -200,6 +203,10 @@ export class ScoutRealtimeVoiceAdmission {
     ).get(now) as { count: number };
     return row.count;
   }
+
+  close(): void {
+    if (this.ownsDatabase) this.database.close();
+  }
 }
 
 export function resolveScoutRealtimeVoiceConfig(
@@ -247,6 +254,40 @@ export function validateScoutRealtimeOffer(sdp: string): string {
   // the Realtime SDP parser, so validate a trimmed view but proxy the browser's
   // exact payload rather than normalizing it.
   return sdp;
+}
+
+export async function readScoutRealtimeOffer(request: Request): Promise<string> {
+  const declaredLength = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SDP_BYTES) {
+    throw new ScoutRealtimeVoiceError("WebRTC offer SDP is too large.", 413);
+  }
+  if (!request.body) return validateScoutRealtimeOffer("");
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_SDP_BYTES) {
+        await reader.cancel("SDP offer exceeds the server limit").catch(() => {});
+        throw new ScoutRealtimeVoiceError("WebRTC offer SDP is too large.", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return validateScoutRealtimeOffer(new TextDecoder().decode(bytes));
 }
 
 export async function createScoutRealtimeVoiceCall(input: {

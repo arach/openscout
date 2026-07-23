@@ -102,7 +102,7 @@ bun test packages/web/client/lib/realtime-voice.test.ts \
   packages/web/client/scout/scoutbot/ScoutbotChat.test.tsx \
   packages/web/server/realtime-voice.test.ts \
   packages/web/server/server-core.test.ts
-# 27 pass
+# 30 pass
 
 bun run protocol:build
 bun run --cwd packages/runtime build
