@@ -51,11 +51,46 @@ describe("control-plane managed migrations", () => {
     expect(baseline.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("preserves the historical schema v14 context migration identity", () => {
+  test("preserves the historical schema v14 context migration identity at schema v15", () => {
     const contextMigration = migrations.find((migration) => migration.folderMillis === 1783665705710);
 
-    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(14);
+    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(15);
     expect(contextMigration?.hash).toBe("e576221a4547e38a8d92027deb1124055459bf800c12c562840cdcf6fbb8b560");
+  });
+
+  test("upgrades a fully ledgered schema v14 database through only the new role migration", () => {
+    const db = new Database(":memory:");
+    const v14Migrations = migrations.filter((migration) => migration.folderMillis <= 1783665705710);
+    expect(v14Migrations).toHaveLength(4);
+    db.exec(
+      'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+    );
+    for (const migration of v14Migrations) {
+      db.transaction(() => {
+        for (const statement of migration.sql) db.exec(statement);
+        db.query(
+          'INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)',
+        ).run(migration.hash, migration.folderMillis);
+      })();
+    }
+    db.exec("PRAGMA user_version = 14");
+    db.query(
+      "INSERT INTO actors (id, kind, display_name) VALUES ('actor-v14', 'agent', 'Survivor')",
+    ).run();
+    expect(
+      db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'role_assignments'").get(),
+    ).toBeNull();
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
+    expect(userVersion(db)).toBe(15);
+    expect(
+      db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'role_assignments'").get(),
+    ).toEqual({ name: "role_assignments" });
+    expect(
+      db.query("SELECT display_name FROM actors WHERE id = 'actor-v14'").get(),
+    ).toEqual({ display_name: "Survivor" });
   });
 
   test("virgin database boots through the migrator: full chain executed, ledger recorded", () => {

@@ -578,6 +578,42 @@ CREATE TABLE IF NOT EXISTS briefings (
   created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
+-- Assigned roles (orchestrator, later qa/sre). Explicit grant only; not identity.
+CREATE TABLE IF NOT EXISTS role_assignments (
+  id TEXT PRIMARY KEY,
+  role_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  scope_kind TEXT NOT NULL,
+  mission_id TEXT,
+  project_root TEXT,
+  assigned_by_id TEXT NOT NULL,
+  assigned_at INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  revoked_at INTEGER,
+  revoked_by_id TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  updated_at INTEGER NOT NULL
+);
+
+-- Mission log: cheap orchestrator situation stream (work-item mission id in v0).
+CREATE TABLE IF NOT EXISTS mission_log_entries (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL,
+  node_id TEXT,
+  at INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  actor_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  intent TEXT NOT NULL,
+  status TEXT NOT NULL,
+  checkpoint TEXT,
+  blockers_json TEXT,
+  refs_json TEXT,
+  note TEXT,
+  metadata_json TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
@@ -693,4 +729,19 @@ CREATE INDEX IF NOT EXISTS idx_briefings_created_at
   ON briefings (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_briefings_kind_created_at
   ON briefings (kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_agent_active
+  ON role_assignments (agent_id, active);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_mission_role_active
+  ON role_assignments (mission_id, role_id, active);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_role_active
+  ON role_assignments (role_id, active);
+-- Single-orchestrator-per-mission is enforced in assignRole() under
+-- BEGIN IMMEDIATE (respects enforceSingleOrchestrator: false). A partial UNIQUE
+-- index would break the documented allow-multiple override.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mission_log_entries_mission_seq
+  ON mission_log_entries (mission_id, seq);
+CREATE INDEX IF NOT EXISTS idx_mission_log_entries_mission_at
+  ON mission_log_entries (mission_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_mission_log_entries_actor_at
+  ON mission_log_entries (actor_id, at DESC);
 `;
