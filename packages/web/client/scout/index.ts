@@ -61,7 +61,7 @@ const intents: AppIntent[] = [
   },
   {
     commandId: "nav:messages-channels",
-    title: "Go to Chat - Shared",
+    title: "Go to Chat - Channels",
     description: "Navigate to the shared-channel chat browser",
     category: "navigation",
     keywords: ["channels", "channel", "group", "broadcast"],

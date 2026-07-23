@@ -16,6 +16,36 @@ export function isGroupConversation(conversation: ConversationLike): boolean {
   );
 }
 
+/**
+ * True when the human operator is a first-class participant in this conversation
+ * (a real DM or channel membership), as opposed to only observing agent-to-agent
+ * or agent-to-session traffic from the fleet.
+ */
+export function isOperatorParticipant(conversation: ConversationLike): boolean {
+  if (conversation.participantIds.includes("operator")) return true;
+  const participants = conversation.participants;
+  if (!participants?.length) return false;
+  return participants.some(
+    (p) =>
+      p.actorId === "operator"
+      || p.kind === "operator"
+      || (p.kind === "person" && p.actorId === "operator"),
+  );
+}
+
+/** Direct threads you are in (operator is a participant). */
+export function isOperatorDm(conversation: ConversationLike): boolean {
+  return isDirectConversation(conversation) && isOperatorParticipant(conversation);
+}
+
+/**
+ * Direct threads without the operator — agent↔agent or agent↔session rooms
+ * you can open and watch, but that are not "your" DMs.
+ */
+export function isObservedDirect(conversation: ConversationLike): boolean {
+  return isDirectConversation(conversation) && !isOperatorParticipant(conversation);
+}
+
 export function conversationDisplayTitle(conversation: ConversationLike): string {
   if (conversation.title && conversation.title !== conversation.id) {
     return conversation.title;

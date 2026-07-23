@@ -145,6 +145,43 @@
   user-select: none;
 }
 
+/* Chat rail: Channels → DMs → Observed */
+.ctx-panel-rail-section {
+  flex: none;
+  padding: var(--space-md) 0 var(--space-xs);
+}
+
+.ctx-panel-rail-section + .ctx-panel-rail-section {
+  margin-top: var(--space-2xs);
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  padding-top: var(--space-md);
+}
+
+.ctx-panel-rail-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.ctx-panel-more {
+  display: block;
+  width: 100%;
+  margin: var(--space-2xs) 0 0;
+  padding: var(--space-xs) var(--space-lg);
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+  color: var(--dim);
+}
+
+.ctx-panel-more:hover {
+  color: var(--accent);
+}
+
 .ctx-panel-count {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);

@@ -5,9 +5,14 @@ import {
   isActiveConversationFlight,
   isConversationWorkingTurnWithoutRecentUpdate,
   isConversationWorkingTurnWithoutRecentUpdateAnswered,
+  isGroupConversation,
+  isObservedDirect,
+  isOperatorDm,
+  isOperatorParticipant,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "./conversations.ts";
+import type { SessionEntry } from "./types.ts";
 
 describe("conversation flight presence", () => {
   test("keeps acknowledged running asks in the working state", () => {
@@ -107,5 +112,81 @@ describe("conversation flight presence", () => {
         nowMs,
       ),
     ).toBe(true);
+  });
+});
+
+function session(partial: Partial<SessionEntry> & Pick<SessionEntry, "id" | "kind">): SessionEntry {
+  return {
+    title: partial.title ?? partial.id,
+    participantIds: partial.participantIds ?? [],
+    agentId: partial.agentId ?? null,
+    agentName: partial.agentName ?? null,
+    harness: partial.harness ?? null,
+    harnessSessionId: partial.harnessSessionId ?? null,
+    harnessLogPath: partial.harnessLogPath ?? null,
+    currentBranch: partial.currentBranch ?? null,
+    preview: partial.preview ?? null,
+    messageCount: partial.messageCount ?? 0,
+    lastMessageAt: partial.lastMessageAt ?? null,
+    workspaceRoot: partial.workspaceRoot ?? null,
+    ...partial,
+  };
+}
+
+describe("conversation membership helpers", () => {
+  test("channels are group conversations, not DMs or observed directs", () => {
+    const channel = session({
+      id: "composer-kit",
+      kind: "channel",
+      participantIds: ["operator", "openscout.kimi"],
+    });
+    expect(isGroupConversation(channel)).toBe(true);
+    expect(isOperatorDm(channel)).toBe(false);
+    expect(isObservedDirect(channel)).toBe(false);
+  });
+
+  test("operator participant ids mark real DMs", () => {
+    const dm = session({
+      id: "dm-1",
+      kind: "direct",
+      participantIds: ["operator", "openscout.claude"],
+      agentId: "openscout.claude",
+      agentName: "Openscout",
+    });
+    expect(isOperatorParticipant(dm)).toBe(true);
+    expect(isOperatorDm(dm)).toBe(true);
+    expect(isObservedDirect(dm)).toBe(false);
+  });
+
+  test("person/operator participant rows also count as operator presence", () => {
+    const dm = session({
+      id: "dm-2",
+      kind: "direct",
+      participantIds: ["session-abc"],
+      participants: [
+        { actorId: "operator", kind: "person", displayName: "You", label: "You" },
+        { actorId: "session-abc", kind: "session", displayName: "Session", label: "Session" },
+      ],
+    });
+    expect(isOperatorParticipant(dm)).toBe(true);
+    expect(isOperatorDm(dm)).toBe(true);
+  });
+
+  test("agent-to-agent directs without operator are observed", () => {
+    const observed = session({
+      id: "obs-1",
+      kind: "direct",
+      title: "Openscout Pr 423",
+      participantIds: ["agent-a", "agent-b"],
+      participants: [
+        { actorId: "agent-a", kind: "agent", displayName: "A", label: "A" },
+        { actorId: "agent-b", kind: "agent", displayName: "B", label: "B" },
+      ],
+      agentId: "agent-a",
+      agentName: "Openscout Pr 423",
+    });
+    expect(isOperatorParticipant(observed)).toBe(false);
+    expect(isOperatorDm(observed)).toBe(false);
+    expect(isObservedDirect(observed)).toBe(true);
   });
 });
