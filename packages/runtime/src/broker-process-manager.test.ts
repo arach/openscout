@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { isolateOpenScoutUserDataForTests } from "./test-user-data-isolation.ts";
 
 isolateOpenScoutUserDataForTests();
@@ -8,6 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LOCAL_CONFIG_VERSION, writeLocalConfig } from "./local-config.ts";
+import { CONTROL_PLANE_SCHEMA_VERSION } from "./schema-version.ts";
 
 import {
   buildDefaultBrokerUrl,
@@ -425,6 +427,61 @@ describe("runScoutdServiceCommand shell-out", () => {
           throw new Error("scoutd start failed: service failed");
         })),
     ).rejects.toThrow(/scoutd start failed: service failed/);
+  });
+
+  test("refuses to activate a runtime older than the control-plane database", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-newer-schema-"));
+    const database = new Database(join(controlHome, "control-plane.sqlite"));
+    database.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION + 1}`);
+    database.close();
+    const guardedCommands = ["install", "start", "restart"] as const;
+
+    for (const command of guardedCommands) {
+      let runnerCalled = false;
+      await expect(
+        runScoutdServiceCommand(
+          command,
+          { ...config, controlHome },
+          45_000,
+          async () => {
+            runnerCalled = true;
+            return "{}";
+          },
+        ),
+      ).rejects.toThrow(
+        new RegExp(
+          `candidate runtime schema v${CONTROL_PLANE_SCHEMA_VERSION}.*` +
+            `database schema v${CONTROL_PLANE_SCHEMA_VERSION + 1}.*existing service was left untouched`,
+          "i",
+        ),
+      );
+      expect(runnerCalled).toBe(false);
+    }
+  });
+
+  test("keeps inspection and recovery commands available with a newer database", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-newer-schema-status-"));
+    const database = new Database(join(controlHome, "control-plane.sqlite"));
+    database.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION + 1}`);
+    database.close();
+    const scoutd = writeExecutable(join(mkdtempSync(join(tmpdir(), "openscout-scoutd-status-")), "scoutd"));
+    const runnerCalls: string[] = [];
+
+    await withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, async () => {
+      for (const command of ["status", "stop", "uninstall"] as const) {
+        await runScoutdServiceCommand(
+          command,
+          { ...config, controlHome },
+          45_000,
+          async (_path, invokedCommand) => {
+            runnerCalls.push(invokedCommand);
+            return "{}";
+          },
+        );
+      }
+    });
+
+    expect(runnerCalls).toEqual(["status", "stop", "uninstall"]);
   });
 
   test("rejects a runaway child without hanging", async () => {
