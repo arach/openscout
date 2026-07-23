@@ -23,6 +23,8 @@ Caddy is the only reverse proxy in this path. Its generated configuration uses b
 
 The chat client requests the ten most recent conversations for the active machine scope and preloads a bounded recent tail with two concurrent requests. Opened histories are retained in a ten-chat LRU cache: while a chat is resident, immutable older messages are reused and focus/reconnect recovery refreshes and merges only the latest tail. Broker events for the open chat append directly to that same cache, so routine polling does not replace the full transcript.
 
+Realtime Scoutbot voice is a flagged high-trust pilot. The client flag only exposes the control; the billable server route stays closed unless the host starts the web server with `OPENSCOUT_REALTIME_VOICE_ENABLED=1`. Each call requires explicit in-app consent, uses the configured server-side OpenAI API key, and requires a second confirmation before Scoutbot sends any proposed agent request. Host-local SQLite leases default to one active call and four starts per minute; see [`docs/artifacts/realtime-voice-design-pass.md`](../../docs/artifacts/realtime-voice-design-pass.md) for the tuning variables and boundary details.
+
 ## Public Package
 
 The standalone npm release surface is `@openscout/scout`. It includes the `scout` CLI, the local broker/runtime, and this web application server/client. Keep this package modular internally, but avoid adding a separate public npm package unless there is a clear external integration story.

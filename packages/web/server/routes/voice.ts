@@ -9,14 +9,18 @@ import {
   type ScoutSpeechTimingRequest,
 } from "../scout-voice.ts";
 import {
+  ScoutRealtimeVoiceAdmission,
+  ScoutRealtimeVoiceAdmissionError,
   ScoutRealtimeVoiceError,
+  createScoutRealtimeVoiceAdmission,
   createScoutRealtimeVoiceCall,
+  isScoutRealtimeVoiceEnabled,
   validateScoutRealtimeOffer,
 } from "../realtime-voice.ts";
 import {
   SCOUT_REALTIME_VOICE_CALL_PATH,
-  SCOUT_REALTIME_VOICE_FLAG_HEADER,
-  SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE,
+  SCOUT_REALTIME_VOICE_LEASE_HEADER,
+  SCOUT_REALTIME_VOICE_LEASE_PATH,
 } from "../../shared/realtime-voice.ts";
 import { engageScoutVoiceDictation } from "../scout-voice-engage.ts";
 import {
@@ -135,9 +139,16 @@ function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | 
 
 export type ScoutVoiceRouteDeps = {
   resolveOpenAIApiKey?: () => Promise<string | undefined>;
+  realtimeVoiceEnabled?: () => boolean;
+  realtimeVoiceAdmission?: ScoutRealtimeVoiceAdmission;
+  createRealtimeVoiceCall?: typeof createScoutRealtimeVoiceCall;
 };
 
 export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {}): void {
+  let defaultRealtimeVoiceAdmission: ScoutRealtimeVoiceAdmission | null = null;
+  const realtimeVoiceEnabled = deps.realtimeVoiceEnabled ?? (() => isScoutRealtimeVoiceEnabled());
+  const realtimeVoiceAdmission = () => deps.realtimeVoiceAdmission
+    ?? (defaultRealtimeVoiceAdmission ??= createScoutRealtimeVoiceAdmission());
   ensureScoutVoiceOrigins();
 
   app.get("/api/voice/health", async (c) => {
@@ -446,18 +457,24 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
   });
 
   app.post(SCOUT_REALTIME_VOICE_CALL_PATH, async (c) => {
-    // This is a rollout gate, not an authorization boundary. The browser only
-    // sends the marker when the registered feature flag exposed the control.
-    if (c.req.header(SCOUT_REALTIME_VOICE_FLAG_HEADER) !== SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE) {
-      return c.json({ error: "Realtime voice is not enabled." }, 404);
+    c.header("cache-control", "no-store");
+    // The browser flag controls discoverability only. The billable server path
+    // is independently closed unless the operator enables it on this host.
+    if (!realtimeVoiceEnabled()) {
+      return c.json({
+        error: "Realtime voice is disabled on this Scout host. Set OPENSCOUT_REALTIME_VOICE_ENABLED=1 and restart the web server to enable it.",
+      }, 404);
     }
+    let leaseId: string | null = null;
     try {
       const offerSdp = validateScoutRealtimeOffer(await c.req.text());
       const apiKey = await deps.resolveOpenAIApiKey?.() ?? process.env.OPENAI_API_KEY?.trim();
       if (!apiKey) {
         return c.json({ error: "OpenAI API key is required to start a realtime voice call." }, 503);
       }
-      const answerSdp = await createScoutRealtimeVoiceCall({
+      const lease = realtimeVoiceAdmission().admit();
+      leaseId = lease.id;
+      const answerSdp = await (deps.createRealtimeVoiceCall ?? createScoutRealtimeVoiceCall)({
         offerSdp,
         apiKey,
         signal: c.req.raw.signal,
@@ -466,23 +483,57 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
         headers: {
           "cache-control": "no-store",
           "content-type": "application/sdp",
+          [SCOUT_REALTIME_VOICE_LEASE_HEADER]: lease.id,
         },
       });
     } catch (error) {
+      if (leaseId) realtimeVoiceAdmission().release(leaseId);
       const message = error instanceof Error ? error.message : "Could not start realtime voice.";
       const status = error instanceof ScoutRealtimeVoiceError ? error.status : 502;
-      if (status >= 500) {
+      if (error instanceof ScoutRealtimeVoiceAdmissionError) {
+        c.header("retry-after", String(error.retryAfterSeconds));
+      } else if (status >= 500 && !c.req.raw.signal.aborted) {
         console.warn("[voice-realtime] call_failed", {
           message,
           ...(error instanceof ScoutRealtimeVoiceError && error.diagnostic ? error.diagnostic : {}),
         });
       }
-      return c.json({ error: message }, status as 400 | 413 | 502);
+      return c.json({ error: message }, status as 400 | 413 | 429 | 502);
     }
+  });
+
+  app.put(`${SCOUT_REALTIME_VOICE_LEASE_PATH}/:leaseId`, (c) => {
+    c.header("cache-control", "no-store");
+    if (!realtimeVoiceEnabled()) {
+      return c.json({ error: "Realtime voice is disabled on this Scout host." }, 404);
+    }
+    const leaseId = validRealtimeVoiceLeaseId(c.req.param("leaseId"));
+    if (!leaseId) return c.json({ error: "Realtime voice lease id is invalid." }, 400);
+    const lease = realtimeVoiceAdmission().heartbeat(leaseId);
+    if (!lease) {
+      return c.json({ error: "Realtime voice lease expired. End the call and reconnect." }, 404);
+    }
+    return c.json({ expiresAt: lease.expiresAt });
+  });
+
+  app.delete(`${SCOUT_REALTIME_VOICE_LEASE_PATH}/:leaseId`, (c) => {
+    c.header("cache-control", "no-store");
+    if (!realtimeVoiceEnabled()) {
+      return c.json({ error: "Realtime voice is disabled on this Scout host." }, 404);
+    }
+    const leaseId = validRealtimeVoiceLeaseId(c.req.param("leaseId"));
+    if (!leaseId) return c.json({ error: "Realtime voice lease id is invalid." }, 400);
+    realtimeVoiceAdmission().release(leaseId);
+    return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
   });
 
   app.get("/api/voice/defaults", (c) => {
     return c.json(resolveScoutSpeechDefaults());
   });
 
+}
+
+function validRealtimeVoiceLeaseId(value: string): string | null {
+  const candidate = value.trim();
+  return /^[a-zA-Z0-9_-]{8,128}$/.test(candidate) ? candidate : null;
 }

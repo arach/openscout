@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { startScoutRealtimeVoiceCall } from "./realtime-voice.ts";
 import {
-  SCOUT_REALTIME_VOICE_FLAG_HEADER,
-  SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE,
+  SCOUT_REALTIME_VOICE_LEASE_HEADER,
+  SCOUT_REALTIME_VOICE_LEASE_PATH,
 } from "../../shared/realtime-voice.ts";
 
 const originalFetch = globalThis.fetch;
@@ -28,8 +28,15 @@ class FakeDataChannel extends EventTarget {
 }
 
 class FakePeerConnection {
+  static latest: FakePeerConnection | null = null;
+
   connectionState: RTCPeerConnectionState = "new";
   onconnectionstatechange: (() => void) | null = null;
+  closed = false;
+
+  constructor() {
+    FakePeerConnection.latest = this;
+  }
 
   addTrack(): RTCRtpSender {
     return {} as RTCRtpSender;
@@ -50,7 +57,9 @@ class FakePeerConnection {
     this.onconnectionstatechange?.();
   }
 
-  close(): void {}
+  close(): void {
+    this.closed = true;
+  }
 }
 
 class FakeAudio {
@@ -68,6 +77,7 @@ afterEach(() => {
   Object.defineProperty(globalThis, "Audio", { configurable: true, value: originalAudio });
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: originalNavigator });
   FakeDataChannel.latest = null;
+  FakePeerConnection.latest = null;
 });
 
 describe("Scout Realtime voice client", () => {
@@ -78,14 +88,17 @@ describe("Scout Realtime voice client", () => {
     globalThis.fetch = (async (url, init) => {
       fetchCalls.push({ url: String(url), init });
       if (String(url) === "/api/voice/realtime/call") {
-        return new Response("v=0\r\nanswer\r\n", { status: 200 });
+        return new Response("v=0\r\nanswer\r\n", {
+          status: 200,
+          headers: { [SCOUT_REALTIME_VOICE_LEASE_HEADER]: "lease-client-0001" },
+        });
       }
       return new Response(JSON.stringify({
         reply: {
           body: [
             "The fleet is healthy.",
             "```scout-ui",
-            '{"type":"navigate","route":{"view":"fleet"}}',
+            '{"type":"ask-agent","targetLabel":"Hudson","body":"Check the worker pool"}',
             "```",
           ].join("\n"),
         },
@@ -105,7 +118,7 @@ describe("Scout Realtime voice client", () => {
     });
 
     let currentRoute: unknown = { view: "inbox" };
-    await startScoutRealtimeVoiceCall({
+    const call = await startScoutRealtimeVoiceCall({
       getRoute: () => currentRoute,
       onScoutbotReply: (body) => replies.push(body),
       onTrace: (event) => trace.push(event.label),
@@ -130,8 +143,7 @@ describe("Scout Realtime voice client", () => {
 
     await waitFor(() => fetchCalls.length === 2 && replies.length === 1);
 
-    expect(new Headers(fetchCalls[0]?.init?.headers).get(SCOUT_REALTIME_VOICE_FLAG_HEADER))
-      .toBe(SCOUT_REALTIME_VOICE_FLAG_HEADER_VALUE);
+    expect(new Headers(fetchCalls[0]?.init?.headers).get("content-type")).toBe("application/sdp");
     expect(fetchCalls[1]).toMatchObject({
       url: "/api/scoutbot/chat",
       init: {
@@ -152,10 +164,93 @@ describe("Scout Realtime voice client", () => {
         item: expect.objectContaining({
           type: "function_call_output",
           call_id: "call-1",
-          output: JSON.stringify({ ok: true, reply: "The fleet is healthy." }),
+          output: JSON.stringify({
+            ok: true,
+            reply: "The fleet is healthy.",
+            agentRequestPendingConfirmation: true,
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "response.create",
+        response: expect.objectContaining({
+          instructions: expect.stringContaining("has not been sent yet"),
         }),
       }),
     ]));
+    call.stop();
+    await waitFor(() => fetchCalls.some((entry) => (
+      entry.url === `${SCOUT_REALTIME_VOICE_LEASE_PATH}/lease-client-0001`
+      && entry.init?.method === "DELETE"
+    )));
+    expect(FakePeerConnection.latest?.closed).toBe(true);
+  });
+
+  test("cancels promptly while microphone permission is still resolving", async () => {
+    let resolveMedia!: (stream: MediaStream) => void;
+    const mediaPromise = new Promise<MediaStream>((resolve) => {
+      resolveMedia = resolve;
+    });
+    let trackStops = 0;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected");
+    }) as unknown as typeof fetch;
+    Object.defineProperty(globalThis, "RTCPeerConnection", { configurable: true, value: FakePeerConnection });
+    Object.defineProperty(globalThis, "Audio", { configurable: true, value: FakeAudio });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { mediaDevices: { getUserMedia: () => mediaPromise } },
+    });
+    const controller = new AbortController();
+    const callPromise = startScoutRealtimeVoiceCall({ signal: controller.signal });
+    await Promise.resolve();
+
+    controller.abort();
+    await expect(callPromise).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
+    resolveMedia({
+      getTracks: () => [{ stop: () => { trackStops += 1; } }],
+    } as unknown as MediaStream);
+    await waitFor(() => trackStops === 1);
+
+    expect(fetchCalls).toBe(0);
+    expect(FakePeerConnection.latest?.closed).toBe(true);
+  });
+
+  test("aborts the SDP request and cleans up microphone tracks", async () => {
+    let trackStops = 0;
+    let requestSignal: AbortSignal | undefined;
+    globalThis.fetch = (async (_url, init) => {
+      requestSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () => reject(requestSignal?.reason), { once: true });
+      });
+    }) as typeof fetch;
+    Object.defineProperty(globalThis, "RTCPeerConnection", { configurable: true, value: FakePeerConnection });
+    Object.defineProperty(globalThis, "Audio", { configurable: true, value: FakeAudio });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia: async () => ({
+            getTracks: () => [{
+              stop: () => { trackStops += 1; },
+              addEventListener: () => {},
+            }],
+          }),
+        },
+      },
+    });
+    const controller = new AbortController();
+    const callPromise = startScoutRealtimeVoiceCall({ signal: controller.signal });
+    await waitFor(() => Boolean(requestSignal));
+
+    controller.abort();
+    await expect(callPromise).rejects.toEqual(expect.objectContaining({ name: "AbortError" }));
+    expect(requestSignal?.aborted).toBe(true);
+    expect(trackStops).toBe(1);
+    expect(FakePeerConnection.latest?.closed).toBe(true);
   });
 });
 

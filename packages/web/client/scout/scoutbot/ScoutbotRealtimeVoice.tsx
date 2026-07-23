@@ -1,4 +1,4 @@
-import { Loader2, Radio, Square } from "lucide-react";
+import { Loader2, Radio, Send, Square, X } from "lucide-react";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -60,11 +60,27 @@ export function ScoutbotRealtimeVoice({
   dictationActive: boolean;
 }) {
   const enabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
-  const { open, setOpen, state, error, trace, startCall, endCall } = useScoutbotRealtimeVoice();
+  const {
+    open,
+    setOpen,
+    state,
+    error,
+    trace,
+    pendingAgentRequest,
+    startCall,
+    endCall,
+    confirmAgentRequest,
+    cancelAgentRequest,
+  } = useScoutbotRealtimeVoice();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState({ left: 12, bottom: 36 });
+  const [consented, setConsented] = useState(false);
 
   useEffect(() => () => setOpen(false), [setOpen]);
+
+  useEffect(() => {
+    if (!open) setConsented(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -215,6 +231,40 @@ export function ScoutbotRealtimeVoice({
                 </ol>
               )}
 
+              {pendingAgentRequest && (
+                <section className="space-y-2 rounded border border-amber-300/25 bg-amber-300/[0.06] p-2">
+                  <div>
+                    <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-amber-100">
+                      Agent request not sent
+                    </p>
+                    <p className="mt-1 text-[10px] leading-snug text-[var(--scout-chrome-ink-faint)]">
+                      Review the request for {pendingAgentRequest.targetLabel}.
+                    </p>
+                  </div>
+                  <p className="max-h-20 overflow-y-auto whitespace-pre-wrap rounded border border-[var(--scout-chrome-border-soft)] bg-black/15 px-2 py-1.5 text-[10px] leading-snug text-[var(--scout-chrome-ink)]">
+                    {pendingAgentRequest.body}
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void confirmAgentRequest()}
+                      className="flex min-h-7 items-center justify-center gap-1 rounded border border-lime-300/35 bg-lime-300/[0.1] px-2 font-mono text-[9px] uppercase tracking-[0.08em] text-lime-100 hover:bg-lime-300/15"
+                    >
+                      <Send size={9} />
+                      Send request
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelAgentRequest}
+                      className="flex min-h-7 items-center justify-center gap-1 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 px-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--scout-chrome-ink)]"
+                    >
+                      <X size={9} />
+                      Do not send
+                    </button>
+                  </div>
+                </section>
+              )}
+
               {dictationActive ? (
                 <p className="rounded border border-amber-300/20 bg-amber-300/[0.05] px-2 py-1.5 font-mono text-[9px] leading-relaxed text-amber-100/80">
                   Finish dictation before starting a live call.
@@ -229,14 +279,32 @@ export function ScoutbotRealtimeVoice({
                   {state === "connecting" ? "Cancel" : "End call"}
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => void startCall()}
-                  className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded border border-lime-300/40 bg-lime-300/[0.12] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-lime-100 transition-colors hover:bg-lime-300/20"
-                >
-                  <Radio size={11} />
-                  Start live voice
-                </button>
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2 rounded border border-[var(--scout-chrome-border-soft)] bg-black/10 p-2 text-[9px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+                    <input
+                      type="checkbox"
+                      checked={consented}
+                      onChange={(event) => setConsented(event.target.checked)}
+                      className="mt-0.5 size-3 shrink-0 accent-lime-300"
+                    />
+                    <span>
+                      Send microphone audio to OpenAI Realtime and bill the configured OpenAI API account. Scoutbot may use this page and live fleet context. Agent requests still require confirmation.
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!consented}
+                    onClick={() => {
+                      if (!consented) return;
+                      setConsented(false);
+                      void startCall();
+                    }}
+                    className="flex min-h-8 w-full items-center justify-center gap-1.5 rounded border border-lime-300/40 bg-lime-300/[0.12] px-2 font-mono text-[10px] uppercase tracking-[0.1em] text-lime-100 transition-colors hover:bg-lime-300/20 disabled:cursor-not-allowed disabled:border-[var(--scout-chrome-border-soft)] disabled:bg-black/10 disabled:text-[var(--scout-chrome-ink-ghost)]"
+                  >
+                    <Radio size={11} />
+                    Start live voice
+                  </button>
+                </div>
               )}
 
               {error && (
