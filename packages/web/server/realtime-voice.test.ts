@@ -183,11 +183,18 @@ describe("Scout Realtime voice", () => {
   });
 
   test("bounds chunked SDP before buffering the whole request", async () => {
+    const oversizedOffer = new TextEncoder().encode(`v=0\r\n${"x".repeat(65 * 1024)}`);
     const request = new Request("http://localhost/realtime", {
       method: "POST",
       headers: { "content-type": "application/sdp" },
-      body: `v=0\r\n${"x".repeat(65 * 1024)}`,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(oversizedOffer);
+          controller.close();
+        },
+      }),
     });
+    expect(request.headers.get("content-length")).toBeNull();
     const error = await readScoutRealtimeOffer(request).catch((caught) => caught);
     expect(error).toEqual(expect.objectContaining({ status: 413 }));
   });
