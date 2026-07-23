@@ -90,6 +90,10 @@ import {
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
 import {
+  buildInteractiveTerminalEnvironment,
+  buildInteractiveTerminalShellDirectives,
+} from "./terminal-environment.js";
+import {
   resolveBrokerServiceConfig,
   resolveBrokerSocketPathForBaseUrl,
 } from "./broker-process-manager.js";
@@ -3937,6 +3941,7 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
       "set -uo pipefail",
       `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
+      ...buildInteractiveTerminalShellDirectives(),
       ...buildManagedAgentShellExports({
         agentName,
         currentDirectory: projectPath,
@@ -3963,7 +3968,12 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
       projectPath,
       buildTmuxLaunchShellCommand(launchScript),
     ],
-    { timeoutMs: 5_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024 },
+    {
+      env: buildInteractiveTerminalEnvironment(),
+      timeoutMs: 5_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+    },
   );
   invalidateTmuxSessions({ reason: "local-agent.new-session" });
   const paneId = paneResult.stdout.trim();
