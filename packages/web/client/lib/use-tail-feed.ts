@@ -61,6 +61,7 @@ function documentIsHidden(): boolean {
 }
 
 export function useTailFeed(options?: {
+  enabled?: boolean;
   recentLimit?: number;
   discoveryIntervalMs?: number;
   includeTranscriptReplay?: boolean;
@@ -76,6 +77,7 @@ export function useTailFeed(options?: {
   retryInitialLoad: () => Promise<void>;
 } {
   const recentLimit = options?.recentLimit ?? DEFAULT_RECENT_LIMIT;
+  const enabled = options?.enabled ?? true;
   const discoveryIntervalMs = options?.discoveryIntervalMs ?? DEFAULT_DISCOVERY_INTERVAL_MS;
   const includeTranscriptReplay = options?.includeTranscriptReplay ?? false;
   const hydrateOnDiscovery = options?.hydrateOnDiscovery ?? includeTranscriptReplay;
@@ -94,9 +96,10 @@ export function useTailFeed(options?: {
 
   useTailEvents((event) => {
     setEvents((previous) => appendLiveTailEvent(previous, event, recentLimit));
-  });
+  }, enabled);
 
   const refreshRecent = useCallback((showLoading = false): Promise<void> => {
+    if (!enabled) return Promise.resolve();
     if (pauseWhenHidden && documentIsHidden()) return Promise.resolve();
     if (showLoading) {
       setLoadState((previous) => ({ ...previous, recent: "loading" }));
@@ -126,9 +129,10 @@ export function useTailFeed(options?: {
       });
     recentRequestRef.current = { key: requestKey, promise: request };
     return request;
-  }, [includeTranscriptReplay, pauseWhenHidden, recentLimit]);
+  }, [enabled, includeTranscriptReplay, pauseWhenHidden, recentLimit]);
 
   const refreshDiscovery = useCallback(async (showLoading = false) => {
+    if (!enabled) return;
     if (pauseWhenHidden && documentIsHidden()) return;
     if (showLoading) {
       setLoadState((previous) => ({ ...previous, discovery: "loading" }));
@@ -144,7 +148,7 @@ export function useTailFeed(options?: {
       setDiscovery((previous) => previous ?? emptyTailDiscoverySnapshot());
       setLoadState((previous) => ({ ...previous, discovery: "error" }));
     }
-  }, [discoveryLimit, discoveryScope, hydrateOnDiscovery, pauseWhenHidden, refreshRecent]);
+  }, [discoveryLimit, discoveryScope, enabled, hydrateOnDiscovery, pauseWhenHidden, refreshRecent]);
 
   const retryInitialLoad = useCallback(async () => {
     await Promise.all([
@@ -154,6 +158,7 @@ export function useTailFeed(options?: {
   }, [refreshDiscovery, refreshRecent]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const tick = () => {
       if (!cancelled) void refreshDiscovery();
@@ -173,9 +178,10 @@ export function useTailFeed(options?: {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
     };
-  }, [discoveryIntervalMs, pauseWhenHidden, refreshDiscovery]);
+  }, [discoveryIntervalMs, enabled, pauseWhenHidden, refreshDiscovery]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let started = false;
     const hydrate = () => {
@@ -194,7 +200,7 @@ export function useTailFeed(options?: {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
     };
-  }, [pauseWhenHidden, refreshRecent]);
+  }, [enabled, pauseWhenHidden, refreshRecent]);
 
   return { discovery, events, loadState, refreshDiscovery, retryInitialLoad };
 }

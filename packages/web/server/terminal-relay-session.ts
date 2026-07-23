@@ -22,7 +22,7 @@ export interface SessionInitMessage {
   orphanTTL?: number;
   /** PTY backend. 'pty' spawns a fresh process; 'tmux'/'zellij' attach to named multiplexers. */
   backend?: 'pty' | 'tmux' | 'zellij';
-  /** Client control intent. Current local relay treats this as advisory. */
+  /** Client control intent. Observe is enforced read-only and cannot size the shared terminal. */
   controlMode?: 'owner' | 'takeover' | 'observe';
   /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
   tmuxSession?: string;
@@ -47,7 +47,7 @@ export interface SessionReconnectMessage {
   rows?: number;
   /** Client-supported protocol capabilities, eg. terminal:ack. */
   clientCapabilities?: string[];
-  /** Client control intent. Current local relay treats this as advisory. */
+  /** Client control intent. Observe sessions are re-created instead of byte-tail replayed. */
   controlMode?: 'owner' | 'takeover' | 'observe';
 }
 
@@ -82,6 +82,7 @@ import {
   readTmuxSessionExists,
   readZellijSessionExists,
 } from '@openscout/runtime/system-probes';
+import { buildInteractiveTerminalEnvironment } from '@openscout/runtime/terminal-environment';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { dirname as pathDirname, resolve as pathResolve, sep as pathSep } from 'path';
@@ -147,6 +148,9 @@ export interface Session {
   /** Current terminal dimensions. */
   cols: number;
   rows: number;
+  /** Authoritative tmux window dimensions used to clamp read-only clients. */
+  tmuxSourceCols?: number;
+  tmuxSourceRows?: number;
   /** Set when ws detaches — session is reaped after orphanTTL. */
   reapTimer: ReturnType<typeof setTimeout> | null;
   /** How long this session survives without a client (ms). */
@@ -194,7 +198,7 @@ export function verifyReconnectToken(session: Session, token: unknown): boolean 
 }
 
 /** Session names get passed to tmux/zellij CLIs — keep them boring. */
-const MULTIPLEXER_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$/;
+const MULTIPLEXER_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
 
 export function isValidMultiplexerName(name: string): boolean {
   return MULTIPLEXER_NAME_RE.test(name);
@@ -283,19 +287,32 @@ export function writeSession(session: Session, data: string): boolean {
   }
 }
 
-export function resizeSession(session: Session, cols: number, rows: number): boolean {
+export async function resizeSession(session: Session, cols: number, rows: number): Promise<boolean> {
   if (session.exited) return false;
-  // Observers of a shared pty/tmux session must not resize it out from under
-  // the writer. zellij observers run their own client PTY, so their resize
-  // only affects their own view and stays allowed.
-  if (session.controlMode === 'observe' && session.backend !== 'zellij') return false;
+  let acceptedCols = cols;
+  let acceptedRows = rows;
+  if (session.controlMode === 'observe' && session.backend === 'tmux' && session.tmuxSession) {
+    // A read-only client owns only its viewport. Never resize the tmux window;
+    // cap the bridge to the authoritative grid so tmux does not draw padding.
+    const source = await readTmuxDimensions(session.tmuxSession);
+    const accepted = clampObserverDimensions({ cols, rows }, source);
+    acceptedCols = accepted.cols;
+    acceptedRows = accepted.rows;
+    session.tmuxSourceCols = source.cols;
+    session.tmuxSourceRows = source.rows;
+  } else if (session.controlMode === 'observe' && session.backend !== 'zellij') {
+    return false;
+  }
   try {
-    session.pty.resize(cols, rows);
+    session.pty.resize(acceptedCols, acceptedRows);
     if (session.backend === 'tmux' && session.tmuxSession) {
-      void resizeTmuxWindow(session.tmuxSession, cols, rows);
+      if (session.controlMode !== 'observe') {
+        await resizeTmuxWindow(session.tmuxSession, acceptedCols, acceptedRows);
+      }
     }
-    session.cols = cols;
-    session.rows = rows;
+    session.cols = acceptedCols;
+    session.rows = acceptedRows;
+    send(session.ws!, { type: 'terminal:dimensions', cols: acceptedCols, rows: acceptedRows });
     return true;
   } catch (err) {
     if (ptyFdClosed(err)) {
@@ -462,6 +479,36 @@ async function resizeTmuxWindow(name: string, cols: number, rows: number): Promi
   }
 }
 
+export interface TerminalDimensions {
+  cols: number;
+  rows: number;
+}
+
+export function clampObserverDimensions(
+  requested: TerminalDimensions,
+  source: TerminalDimensions,
+): TerminalDimensions {
+  return {
+    cols: Math.max(1, Math.min(requested.cols, source.cols)),
+    rows: Math.max(1, Math.min(requested.rows, source.rows)),
+  };
+}
+
+async function readTmuxDimensions(name: string): Promise<TerminalDimensions> {
+  const result = await execSystemFile('tmux', [
+    'display-message',
+    '-p',
+    '-t',
+    name,
+    '#{window_width} #{window_height}',
+  ], { timeoutMs: 2_000 });
+  const match = /^(\d+)\s+(\d+)$/.exec(result.stdout.trim());
+  if (!match) {
+    throw new Error(`Could not read terminal dimensions for tmux session '${name}'`);
+  }
+  return { cols: Number(match[1]), rows: Number(match[2]) };
+}
+
 /** Resolve a bootstrap file path, rejecting anything that escapes the cwd. */
 export function resolveBootstrapPath(cwd: string, relPath: string): string | null {
   const base = pathResolve(cwd);
@@ -492,6 +539,35 @@ function bootstrapFiles(cwd: string, files: Record<string, string>, sessionId: s
 }
 
 /** Spawn a PTY that attaches to a tmux session (creating it if needed). */
+export function buildTmuxAttachArgs(
+  tmuxName: string,
+  controlMode: 'owner' | 'takeover' | 'observe',
+): string[] {
+  // tmux's -r alias sets both read-only and ignore-size. The relay also drops
+  // observe input and resize messages, but these client flags keep tmux itself
+  // from treating the browser observer as a writer or a sizing authority.
+  return controlMode === 'observe'
+    ? ['-u', 'attach', '-r', '-t', tmuxName]
+    : ['-u', 'attach', '-t', tmuxName];
+}
+
+type AttachPtyOutput = (handler: (data: string) => void) => void;
+
+export function bufferPtyOutput(ptyProcess: Pick<IPty, 'onData'>): AttachPtyOutput {
+  const pending: string[] = [];
+  let handler: ((data: string) => void) | null = null;
+
+  ptyProcess.onData((data) => {
+    if (handler) handler(data);
+    else pending.push(data);
+  });
+
+  return (nextHandler) => {
+    handler = nextHandler;
+    for (const data of pending.splice(0)) nextHandler(data);
+  };
+}
+
 async function spawnTmuxSession(
   tmuxName: string,
   cols: number,
@@ -501,8 +577,15 @@ async function spawnTmuxSession(
   commandArgs: string[],
   env: Record<string, string | undefined>,
   controlMode: 'owner' | 'takeover' | 'observe',
-): Promise<IPty> {
+): Promise<{
+  ptyProcess: IPty;
+  attachOutput: AttachPtyOutput;
+  dimensions: TerminalDimensions;
+  sourceDimensions?: TerminalDimensions;
+}> {
   const exists = await tmuxSessionExists(tmuxName);
+  let dimensions = { cols, rows };
+  let sourceDimensions: TerminalDimensions | undefined;
 
   if (!exists) {
     if (controlMode === 'observe') {
@@ -530,17 +613,22 @@ async function spawnTmuxSession(
     }
     console.log(`[relay] Attaching to existing tmux session: ${tmuxName}${controlMode === 'observe' ? ' (observe)' : ''}`);
     markMuxSessionInUse('tmux', tmuxName);
+    if (controlMode === 'observe') {
+      sourceDimensions = await readTmuxDimensions(tmuxName);
+      dimensions = clampObserverDimensions(dimensions, sourceDimensions);
+    }
   }
 
   // Spawn a PTY bridge that attaches to the tmux session
   // This gives us a PTY file descriptor that pipes tmux I/O to our WebSocket
-  return pty.spawn('tmux', ['attach', '-t', tmuxName], {
+  const ptyProcess = pty.spawn('tmux', buildTmuxAttachArgs(tmuxName, controlMode), {
     name: 'xterm-256color',
-    cols,
-    rows,
+    cols: dimensions.cols,
+    rows: dimensions.rows,
     cwd,
     env,
   });
+  return { ptyProcess, attachOutput: bufferPtyOutput(ptyProcess), dimensions, sourceDimensions };
 }
 
 /** Spawn a PTY that attaches to a zellij session (creating it if needed). */
@@ -579,8 +667,8 @@ function spawnZellijSession(
 
 export async function createSession(ws: RelaySocket, msg: SessionInitMessage): Promise<Session | null> {
   const id = generateId();
-  const cols = Math.max(msg.cols || 80, 20);
-  const rows = Math.max(msg.rows || 24, 4);
+  let cols = Math.max(msg.cols || 80, 20);
+  let rows = Math.max(msg.rows || 24, 4);
   const backend = msg.backend || 'pty';
   const controlMode = msg.controlMode || 'owner';
   const tmuxName = msg.tmuxSession || `hudson-${id}`;
@@ -590,7 +678,7 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   // ---- Pre-flight: multiplexer session names reach tmux/zellij CLIs ----
   const multiplexerName = backend === 'tmux' ? tmuxName : backend === 'zellij' ? zellijName : null;
   if (multiplexerName && !isValidMultiplexerName(multiplexerName)) {
-    const reason = `Invalid ${backend} session name. Use letters, digits, dashes, and underscores (max 64 chars).`;
+    const reason = `Invalid ${backend} session name. Use only letters, digits, dashes, and underscores.`;
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
     return null;
@@ -672,22 +760,27 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
     if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
   }
 
-  const env: Record<string, string | undefined> = {
-    ...process.env,
+  const env: Record<string, string | undefined> = buildInteractiveTerminalEnvironment(process.env, {
     ...prepareZellijSocketDir(backend === 'zellij' ? msg.zellijSocketDir : undefined),
     TERM: 'xterm-256color',
-    FORCE_COLOR: '1',
-  };
+  });
   delete env.CLAUDECODE;
 
   // ---- Spawn PTY (direct or tmux-backed) ----
   let ptyProcess: IPty;
+  let attachPtyOutput: AttachPtyOutput | null = null;
   let zellijLayoutPath: string | undefined;
+  let tmuxSourceDimensions: TerminalDimensions | undefined;
 
   try {
     if (backend === 'tmux') {
       console.log(`[relay] Session ${id}: tmux backend (session: ${tmuxName}) in ${cwd} [agent: ${agent}]`);
-      ptyProcess = await spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env, controlMode);
+      const spawned = await spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env, controlMode);
+      ptyProcess = spawned.ptyProcess;
+      attachPtyOutput = spawned.attachOutput;
+      cols = spawned.dimensions.cols;
+      rows = spawned.dimensions.rows;
+      tmuxSourceDimensions = spawned.sourceDimensions;
     } else if (backend === 'zellij') {
       console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}, mode: ${controlMode}) in ${cwd} [agent: ${agent}]`);
       // Only pay for the existence check when the mux reaper is on; 'observe'
@@ -731,6 +824,10 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
     backend,
     controlMode,
     ...(backend === 'tmux' ? { tmuxSession: tmuxName } : {}),
+    ...(tmuxSourceDimensions ? {
+      tmuxSourceCols: tmuxSourceDimensions.cols,
+      tmuxSourceRows: tmuxSourceDimensions.rows,
+    } : {}),
     ...(backend === 'zellij' ? {
       zellijSession: zellijName,
       ...(msg.zellijSocketDir ? { zellijSocketDir: msg.zellijSocketDir } : {}),
@@ -745,13 +842,19 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
   // Track start time to detect immediate crashes
   const startTime = Date.now();
 
-  ptyProcess.onData((data: string) => {
-    // Append to rolling buffer (cap at MAX_BUFFER_SIZE, cut on a safe boundary)
-    session.outputBuffer = truncateOutputBuffer(session.outputBuffer + data, MAX_BUFFER_SIZE);
+  const handlePtyData = (data: string) => {
+    // An observer reconnect must come from a fresh tmux attach/full redraw.
+    // A byte-tail is not a terminal snapshot and may begin mid-escape sequence.
+    if (session.controlMode !== 'observe') {
+      session.outputBuffer = truncateOutputBuffer(session.outputBuffer + data, MAX_BUFFER_SIZE);
+    }
 
     // Forward raw data to attached client with ACK-based backpressure.
     sendTerminalOutput(session, data);
-  });
+  };
+  send(ws, { type: 'terminal:dimensions', cols, rows });
+  if (attachPtyOutput) attachPtyOutput(handlePtyData);
+  else ptyProcess.onData(handlePtyData);
 
   ptyProcess.onExit(({ exitCode }: { exitCode: number; signal?: number }) => {
     session.exited = true;
@@ -784,7 +887,7 @@ export async function createSession(ws: RelaySocket, msg: SessionInitMessage): P
 }
 
 /** Attach a WebSocket to an existing session (reconnect). */
-export function attachSession(session: Session, ws: RelaySocket, cols?: number, rows?: number, clientCapabilities?: string[]) {
+export async function attachSession(session: Session, ws: RelaySocket, cols?: number, rows?: number, clientCapabilities?: string[]) {
   // Cancel any pending reap
   if (session.reapTimer) {
     clearTimeout(session.reapTimer);
@@ -800,7 +903,7 @@ export function attachSession(session: Session, ws: RelaySocket, cols?: number, 
     const c = Math.max(cols, 20);
     const r = Math.max(rows, 4);
     if (c !== session.cols || r !== session.rows) {
-      resizeSession(session, c, r);
+      await resizeSession(session, c, r);
     }
   }
 

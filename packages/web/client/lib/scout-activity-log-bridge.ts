@@ -26,11 +26,15 @@ export function useScoutActivityLogBridge(
   useEffect(() => {
     ensureObservability();
 
-    if (apiConnection.status === 'offline') {
+    if (apiConnection.status === 'offline' || apiConnection.status === 'degraded') {
       const message = apiConnection.message?.trim() || 'Scout web API unreachable';
       if (message !== lastOfflineMessage.current) {
         lastOfflineMessage.current = message;
-        HObservabilityDefault.logger.error(message, { category: 'connection' });
+        HObservabilityDefault.logger.log(
+          apiConnection.status === 'offline' ? 'error' : 'warn',
+          message,
+          { category: 'connection' },
+        );
       }
     } else {
       lastOfflineMessage.current = null;

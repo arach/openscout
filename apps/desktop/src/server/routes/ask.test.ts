@@ -264,6 +264,7 @@ describe("ask route contract", () => {
         title: "Auth review",
         labels: ["api"],
       },
+      replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-control-plane-ask",
     });

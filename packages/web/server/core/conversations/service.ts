@@ -21,6 +21,7 @@ export type ScoutConversationListFilters = {
   limit?: number;
   kinds?: ConversationKind[];
   conversationId?: string;
+  machineId?: string;
 };
 
 /// Per-conversation ask signal surfaced to the comms list. `state` is "pending"
@@ -671,6 +672,18 @@ function coalesceDuplicateNamedChannels(
   });
 }
 
+function conversationMatchesMachine(
+  snapshot: ScoutBrokerSnapshot,
+  summary: ScoutConversationSummary,
+  machineId: string,
+): boolean {
+  if (summary.authorityNodeId === machineId) return true;
+  return summary.participantIds.some((participantId) => {
+    const agent = snapshot.agents?.[participantId];
+    return agent?.authorityNodeId === machineId || agent?.homeNodeId === machineId;
+  });
+}
+
 export async function getScoutConversations(
   filters: ScoutConversationListFilters = {},
 ): Promise<ScoutConversationSummary[]> {
@@ -818,10 +831,13 @@ export async function getScoutConversations(
       || left.title.localeCompare(right.title)
     ));
 
+  const machineId = filters.machineId?.trim() || null;
   const coalesced = coalesceDuplicateNamedChannels(
     summaries,
     snapshot,
     conversationIdFilter,
+  ).filter((summary) =>
+    !machineId || conversationMatchesMachine(snapshot, summary, machineId)
   ).sort((left, right) => (
     (right.lastMessageAt ?? 0) - (left.lastMessageAt ?? 0)
     || right.messageCount - left.messageCount

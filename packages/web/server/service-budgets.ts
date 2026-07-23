@@ -606,7 +606,19 @@ function quotaGaugeFromSnapshots(input: {
     if (row.capturedAt < minCurrentCapturedAt) continue;
     if (!input.allowExpiredWindows && quotaSnapshotIsExpired(row, now)) continue;
     const key = quotaSnapshotWindowKey(row);
-    if (!latestByWindow.has(key)) {
+    const existing = latestByWindow.get(key);
+    if (!existing) {
+      latestByWindow.set(key, row);
+      continue;
+    }
+    // A resumed harness session replays its frozen rate_limits with a FRESH
+    // capturedAt, so "latest capture wins" lets a days-old lower percentage
+    // overwrite the true current one. Usage within a window is monotonically
+    // non-decreasing (expired windows are filtered above), so the higher-usage
+    // row is always the fresher truth — never replace downward.
+    const rowFill = quotaSnapshotUsage(row)?.fill ?? Number.NEGATIVE_INFINITY;
+    const existingFill = quotaSnapshotUsage(existing)?.fill ?? Number.NEGATIVE_INFINITY;
+    if (rowFill > existingFill) {
       latestByWindow.set(key, row);
     }
   }

@@ -29,6 +29,8 @@ import {
 } from "./system-probes/index.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 import { invokeKimiAcpAgent } from "./kimi-acp-invocation.js";
+import { invokeCursorAcpAgent } from "./cursor-acp-invocation.js";
+import { shutdownAcpAgentSession } from "./acp-agent-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -87,6 +89,10 @@ import {
   relayAgentRuntimeDirectory,
   resolveOpenScoutSupportPaths,
 } from "./support-paths.js";
+import {
+  buildInteractiveTerminalEnvironment,
+  buildInteractiveTerminalShellDirectives,
+} from "./terminal-environment.js";
 import {
   resolveBrokerServiceConfig,
   resolveBrokerSocketPathForBaseUrl,
@@ -444,7 +450,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi", "cursor"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "grok-acp",
@@ -910,7 +916,7 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  if (value === "codex" || value === "claude" || value === "grok" || value === "pi") {
+  if (value === "codex" || value === "claude" || value === "grok" || value === "pi" || value === "cursor") {
     return value;
   }
   return DEFAULT_LOCAL_AGENT_HARNESS;
@@ -925,6 +931,10 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
     return "pi_rpc";
   }
 
+  if (harness === "cursor") {
+    return "cursor_acp";
+  }
+
   if (value === "claude_stream_json") {
     return "claude_stream_json";
   }
@@ -935,6 +945,14 @@ function normalizeLocalAgentTransport(value: string | undefined, harness: AgentH
 
   if (value === "pi_rpc") {
     return "pi_rpc";
+  }
+
+  if (value === "grok_acp" || value === "kimi_acp" || value === "cursor_acp") {
+    return value;
+  }
+
+  if (value === "cursor_exec") {
+    return "cursor_acp";
   }
 
   if (value === "tmux") {
@@ -1949,6 +1967,23 @@ export async function shutdownLocalSessionEndpoint(endpoint: AgentEndpoint): Pro
 
   if (endpoint.transport === "pi_rpc") {
     await shutdownPiRpcAgent(buildPiEndpointSessionOptions(endpoint));
+    return;
+  }
+
+  if (
+    endpoint.transport === "grok_acp"
+    || endpoint.transport === "kimi_acp"
+    || endpoint.transport === "cursor_acp"
+  ) {
+    await shutdownAcpAgentSession({
+      adapterType: endpoint.transport === "grok_acp"
+        ? "grok-acp"
+        : endpoint.transport === "kimi_acp"
+          ? "kimi-acp"
+          : "cursor-acp",
+      sessionId: endpointRuntimeInstanceId(endpoint),
+      poolKey: endpoint.id,
+    });
   }
 }
 
@@ -2581,6 +2616,12 @@ function isLocalAgentRecordOnline(agentName: string, record: LocalAgentRecord): 
     return isPiRpcAgentAlive(buildPiAgentSessionOptions(agentName, normalizedRecord));
   }
 
+  if (normalizedRecord.transport === "grok_acp"
+    || normalizedRecord.transport === "kimi_acp"
+    || normalizedRecord.transport === "cursor_acp") {
+    return areHarnessBinariesAvailable(normalizedRecord);
+  }
+
   return isLocalAgentSessionAlive(normalizedRecord.tmuxSession);
 }
 
@@ -2626,7 +2667,7 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
   }
 
-  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp") {
+  if (endpoint.transport === "grok_acp" || endpoint.transport === "kimi_acp" || endpoint.transport === "cursor_acp") {
     return endpoint.state !== "offline";
   }
 
@@ -3762,6 +3803,10 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
     binaries.add("pi");
   }
 
+  if (record.transport === "grok_acp") binaries.add("grok");
+  if (record.transport === "kimi_acp") binaries.add("kimi");
+  if (record.transport === "cursor_acp") binaries.add("cursor-agent");
+
   if (record.transport === "tmux") {
     binaries.add("tmux");
   }
@@ -3896,6 +3941,7 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
       "set -uo pipefail",
       `mkdir -p ${JSON.stringify(logsDir)}`,
       `cd ${JSON.stringify(projectPath)}`,
+      ...buildInteractiveTerminalShellDirectives(),
       ...buildManagedAgentShellExports({
         agentName,
         currentDirectory: projectPath,
@@ -3922,7 +3968,12 @@ async function ensureLocalAgentOnlineOnce(agentName: string, record: LocalAgentR
       projectPath,
       buildTmuxLaunchShellCommand(launchScript),
     ],
-    { timeoutMs: 5_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024 },
+    {
+      env: buildInteractiveTerminalEnvironment(),
+      timeoutMs: 5_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+    },
   );
   invalidateTmuxSessions({ reason: "local-agent.new-session" });
   const paneId = paneResult.stdout.trim();
@@ -5075,9 +5126,11 @@ export async function invokeLocalAgentEndpoint(
 
   if (!existing && endpoint.transport === "grok_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeGrokAcpAgent({
       sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
@@ -5093,12 +5146,34 @@ export async function invokeLocalAgentEndpoint(
 
   if (!existing && endpoint.transport === "kimi_acp") {
     const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
-    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const sessionId = endpointRuntimeInstanceId(endpoint);
     const result = await invokeKimiAcpAgent({
       sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
       cwd,
       prompt,
       name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Kimi Code ACP"),
+      timeoutMs: invocation.timeoutMs,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "cursor_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpointRuntimeInstanceId(endpoint);
+    const result = await invokeCursorAcpAgent({
+      sessionId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Cursor ACP"),
       timeoutMs: invocation.timeoutMs,
     });
 
@@ -5210,6 +5285,28 @@ export async function invokeLocalAgentEndpoint(
       prompt,
     });
 
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (onlineRecord.transport === "grok_acp" || onlineRecord.transport === "kimi_acp" || onlineRecord.transport === "cursor_acp") {
+    const commonOptions = {
+      sessionId: onlineRecord.tmuxSession || agentRuntimeId,
+      poolKey: endpoint.id,
+      resumeSessionId: endpointMetadataString(endpoint, "externalSessionId"),
+      cwd: onlineRecord.cwd,
+      prompt,
+      name: definitionId,
+      timeoutMs: invocation.timeoutMs,
+    };
+    const result = onlineRecord.transport === "grok_acp"
+      ? await invokeGrokAcpAgent(commonOptions)
+      : onlineRecord.transport === "kimi_acp"
+        ? await invokeKimiAcpAgent(commonOptions)
+        : await invokeCursorAcpAgent(commonOptions);
     return {
       output: result.output,
       externalSessionId: result.sessionId,

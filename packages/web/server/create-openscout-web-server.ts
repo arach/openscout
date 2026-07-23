@@ -14,6 +14,7 @@ import {
   extractAgentSelectors,
   isOpaqueChannelId,
   resolveAgentIdentity,
+  SCOUT_ROLE_CATALOG,
   type AgentEndpoint,
   type AgentHarness,
   type CollaborationEvent,
@@ -25,6 +26,13 @@ import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
 } from "@openscout/runtime";
+import {
+  webAppendMissionLog,
+  webAssignRole,
+  webListMissionLog,
+  webListRoleAssignments,
+  webRevokeRole,
+} from "./db/assigned-roles.ts";
 
 import {
   controlScoutWebPairingService,
@@ -139,7 +147,6 @@ import {
   loadSessionRefObservePayload,
 } from "./core/observe/service.ts";
 import {
-  filterTailEventsForDisplay,
   getTailDiscovery,
   refreshTailDiscovery,
   readRecentTranscriptEvents,
@@ -456,6 +463,9 @@ export type CreateOpenScoutWebServerOptions = {
     enabled?: boolean;
     brokerBaseUrl?: string;
   };
+  /** Run process-wide discovery/watch services. Embedded and test hosts can
+   * disable these to avoid owning UDP beacons and filesystem watchers. */
+  backgroundServices?: boolean;
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
   repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
@@ -727,16 +737,6 @@ function limitTailDiscoverySnapshot(
   };
 }
 
-function readTailDiscovery(
-  tailRuntime: WebTailRuntime,
-  options: { force: boolean; scope?: TailDiscoveryScope; limit?: number },
-): Promise<DiscoverySnapshot> {
-  if (!options.scope && options.limit === undefined) {
-    return tailRuntime.getTailDiscovery(options.force);
-  }
-  return tailRuntime.getTailDiscovery(options);
-}
-
 function rawFilePathFromRoute(requestUrl: string): string | null {
   const pathname = new URL(requestUrl).pathname;
   const prefix = "/api/file/raw";
@@ -797,43 +797,6 @@ function createBrokerJsonCache<T>(): BrokerJsonCache<T> {
   };
 }
 
-async function localTailRecentPayload(
-  tailRuntime: WebTailRuntime,
-  limit: number,
-  includeTranscripts: boolean,
-): Promise<TailRecentPayload> {
-  const eventsById = new Map<string, TailEvent>();
-
-  if (includeTranscripts) {
-    const discovery = await tailRuntime.getTailDiscovery();
-    const transcriptBudget = Math.max(limit, 800);
-    const transcriptEvents = filterTailEventsForDisplay(
-      await tailRuntime.readRecentTranscriptEvents(transcriptBudget, {
-        discovery,
-        perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
-      }),
-    );
-    for (const event of transcriptEvents) {
-      eventsById.set(event.id, event);
-    }
-  }
-
-  for (const event of filterTailEventsForDisplay(tailRuntime.snapshotRecentEvents(limit))) {
-    eventsById.set(event.id, event);
-  }
-
-  const events = [...eventsById.values()]
-    .sort((left, right) => left.ts - right.ts)
-    .slice(-limit);
-
-  return {
-    generatedAt: Date.now(),
-    limit,
-    cursor: events.at(-1)?.id ?? null,
-    events,
-  };
-}
-
 function headerSafe(value: string): string {
   return value.replace(/[\r\n]+/g, " ").slice(0, 180);
 }
@@ -849,7 +812,7 @@ function scheduleBrokerJsonRefresh<T>(
     let upstreamTiming: string | null = null;
     const metrics: ServerTimingMetric[] = [];
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       upstreamTiming = res.headers.get("server-timing");
       metrics.push({ name: "web-broker-fetch", dur: performance.now() - fetchStart });
       if (!res.ok) {
@@ -879,7 +842,10 @@ function scheduleBrokerJsonRefresh<T>(
 }
 
 function cachedBrokerJsonState<T>(cache: BrokerJsonCache<T>): string {
-  if (cache.data) return cache.inFlight ? "hit-refreshing" : "hit";
+  if (cache.data) {
+    if (cache.lastError) return cache.inFlight ? "stale-retrying" : "stale";
+    return cache.inFlight ? "hit-refreshing" : "hit";
+  }
   if (cache.lastError) return cache.inFlight ? "empty-retrying" : "empty-error";
   return cache.inFlight ? "empty-refreshing" : "empty";
 }
@@ -889,7 +855,6 @@ async function serveCachedBrokerJson<T>(
   cache: BrokerJsonCache<T>,
   url: URL,
   label: string,
-  fallback: () => T | Promise<T>,
   options: { forceRefresh?: boolean; transform?: (data: T) => T } = {},
 ): Promise<Response> {
   const start = performance.now();
@@ -899,12 +864,12 @@ async function serveCachedBrokerJson<T>(
     }
     await scheduleBrokerJsonRefresh(cache, url, label);
   } else {
-    scheduleBrokerJsonRefresh(cache, url, label);
+    const refresh = scheduleBrokerJsonRefresh(cache, url, label);
+    if (cache.data === null) {
+      await refresh;
+    }
   }
   const state = cachedBrokerJsonState(cache);
-  const data = options.transform
-    ? options.transform(cache.data ?? await fallback())
-    : cache.data ?? await fallback();
   c.header("Cache-Control", "no-store");
   c.header("X-OpenScout-Tail-State", state);
   if (cache.lastError) {
@@ -915,6 +880,13 @@ async function serveCachedBrokerJson<T>(
     dur: performance.now() - start,
     desc: state,
   }]));
+  if (cache.data === null) {
+    return c.json({
+      error: `${label} unavailable`,
+      ...(cache.lastError ? { detail: cache.lastError } : {}),
+    }, 502);
+  }
+  const data = options.transform ? options.transform(cache.data) : cache.data;
   return c.json(data);
 }
 
@@ -2102,7 +2074,9 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
-const AGENT_ATTENTION_TTL_MS = 2_000;
+const AGENT_ATTENTION_TTL_MS = 10_000;
+const AGENT_BACKGROUND_REFRESH_DELAY_MS = 500;
+const AGENT_BROKER_CONTEXT_TTL_MS = 5_000;
 type TmuxPaneCapture = NonNullable<CreateOpenScoutWebServerOptions["captureTmuxPane"]>;
 type AgentAttentionSnapshot = {
   index: Map<string, AgentAttentionEntry>;
@@ -2120,11 +2094,11 @@ let agentAttentionInFlight: {
 } | null = null;
 
 /**
- * Needs-attention index for /api/agents, cached briefly and coalesced: the
- * endpoint is polled every ~2.5s per client and the pairing-snapshot read
- * opens a bridge socket per call, so concurrent post-TTL polls must share one
- * rebuild. Failures yield an empty index so a broken source cannot take
- * /api/agents down with it. The sourcing lives in `core/attention` so the
+ * Needs-attention index for /api/agents, cached and coalesced. A rebuild opens
+ * the pairing bridge and inspects live terminal panes, so once a snapshot is
+ * available callers receive it immediately while an expired snapshot refreshes
+ * in the background. Failures yield an empty index so a broken source cannot
+ * take /api/agents down with it. The sourcing lives in `core/attention` so the
  * mobile agents RPC can build the identical index.
  */
 function queryAgentAttentionIndex(
@@ -2139,7 +2113,17 @@ function queryAgentAttentionSnapshot(
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
 ): Promise<AgentAttentionSnapshot> {
   const cached = agentAttentionCache;
-  if (cached && cached.capture === capture && Date.now() - cached.at < AGENT_ATTENTION_TTL_MS) {
+  if (cached && cached.capture === capture) {
+    if (Date.now() - cached.at >= AGENT_ATTENTION_TTL_MS && !agentAttentionInFlight) {
+      const promise = delay(AGENT_BACKGROUND_REFRESH_DELAY_MS)
+        .then(() => buildAgentAttentionIndexSnapshot(broker, capture))
+        .finally(() => {
+          if (agentAttentionInFlight?.promise === promise) {
+            agentAttentionInFlight = null;
+          }
+        });
+      agentAttentionInFlight = { capture, promise };
+    }
     return Promise.resolve(cached.snapshot);
   }
   if (agentAttentionInFlight?.capture === capture) {
@@ -2154,14 +2138,42 @@ function queryAgentAttentionSnapshot(
   return promise;
 }
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function createAgentBrokerContextReader(): () => Promise<ScoutBrokerContext | null> {
+  let cache: { at: number; value: ScoutBrokerContext | null } | null = null;
+  let inFlight: Promise<ScoutBrokerContext | null> | null = null;
+
+  const refresh = (delayMs: number) => {
+    if (inFlight) return inFlight;
+    const promise = delay(delayMs)
+      .then(() => loadScoutBrokerContext().catch(() => null))
+      .then((value) => {
+        cache = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        if (inFlight === promise) inFlight = null;
+      });
+    inFlight = promise;
+    return promise;
+  };
+
+  return () => {
+    if (!cache) return refresh(0);
+    if (Date.now() - cache.at >= AGENT_BROKER_CONTEXT_TTL_MS && !inFlight) {
+      void refresh(AGENT_BACKGROUND_REFRESH_DELAY_MS);
+    }
+    return Promise.resolve(cache.value);
+  };
+}
+
 async function buildAgentAttentionIndexSnapshot(
   broker: ScoutBrokerContext | null,
   capture: TmuxPaneCapture,
 ): Promise<AgentAttentionSnapshot> {
-  let snapshot: AgentAttentionSnapshot = {
-    index: new Map<string, AgentAttentionEntry>(),
-    hostItems: [],
-  };
   try {
     const pairingSnapshots = await getScoutWebPairingSessionSnapshots().catch(() => []);
     const sessionItems = pairingSnapshots.length > 0 ? projectSessionsAttention(pairingSnapshots) : [];
@@ -2205,7 +2217,7 @@ async function buildAgentAttentionIndexSnapshot(
         return result?.body ?? null;
       },
     );
-    snapshot = {
+    const snapshot = {
       hostItems,
       index: buildAgentAttentionIndex({
         sessionItems,
@@ -2220,12 +2232,18 @@ async function buildAgentAttentionIndexSnapshot(
         hostRows: hostItems,
       }),
     };
+    agentAttentionCache = { at: Date.now(), capture, snapshot };
+    return snapshot;
   } catch (error) {
     // Attention is a decoration on the agent list, never a reason to 500 it.
     console.warn("[openscout-web] attention snapshot failed", error);
+    const cached = agentAttentionCache;
+    if (cached?.capture === capture) return cached.snapshot;
+    return {
+      index: new Map<string, AgentAttentionEntry>(),
+      hostItems: [],
+    };
   }
-  agentAttentionCache = { at: Date.now(), capture, snapshot };
-  return snapshot;
 }
 
 function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAgent[] {
@@ -2241,6 +2259,7 @@ function mostRecentAgents(agents: WebAgent[], limit: number | undefined): WebAge
 function agentListSummary(agent: WebAgent) {
   return {
     id: agent.id,
+    definitionId: agent.definitionId,
     name: agent.name,
     handle: agent.handle,
     agentClass: agent.agentClass,
@@ -2253,13 +2272,33 @@ function agentListSummary(agent: WebAgent) {
     project: agent.project,
     branch: agent.branch,
     selector: agent.selector,
+    defaultSelector: agent.defaultSelector,
+    nodeQualifier: agent.nodeQualifier,
+    workspaceQualifier: agent.workspaceQualifier,
+    wakePolicy: agent.wakePolicy,
     model: agent.model,
     transport: agent.transport,
     capabilities: agent.capabilities,
+    terminalSurface: agent.terminalSurface,
+    harnessLogPath: agent.harnessLogPath,
+    authorityNodeId: agent.authorityNodeId,
     authorityNodeName: agent.authorityNodeName,
+    homeNodeId: agent.homeNodeId,
     homeNodeName: agent.homeNodeName,
+    ownerId: agent.ownerId,
+    ownerName: agent.ownerName,
+    ownerHandle: agent.ownerHandle,
     conversationId: agent.conversationId,
     harnessSessionId: agent.harnessSessionId,
+    staleLocalRegistration: agent.staleLocalRegistration,
+    retiredFromFleet: agent.retiredFromFleet,
+    replacedByAgentId: agent.replacedByAgentId,
+    providerName: agent.providerName,
+    providerUrl: agent.providerUrl,
+    protocol: agent.protocol,
+    skills: agent.skills,
+    authorityProfile: agent.authorityProfile,
+    runtimePolicy: agent.runtimePolicy,
     updatedAt: agent.updatedAt,
     createdAt: agent.createdAt,
   };
@@ -2269,6 +2308,8 @@ async function queryAgentsIncludingBrokerCards(
   limit?: number,
   includeAttention = true,
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
+  loadBrokerContext: () => Promise<ScoutBrokerContext | null> = () =>
+    loadScoutBrokerContext().catch(() => null),
 ): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -2279,7 +2320,7 @@ async function queryAgentsIncludingBrokerCards(
   const agents = queryAgents(databaseLimit)
     .map(withResolvedHarnessSessionIdentity)
     .filter((agent) => !archivedIds.has(agent.id));
-  const broker = await loadScoutBrokerContext().catch(() => null);
+  const broker = await loadBrokerContext();
   // The HUD's first page is deliberately a summary read. The full attention
   // index opens the pairing bridge and can take seconds on a busy machine, so
   // only rich callers pay that cost.
@@ -4258,21 +4299,26 @@ export async function createOpenScoutWebServer(
   const pendingPairRequests = createPendingPairRequestStore();
   // Always-on discovery beacon so idle Macs still appear in the iOS "On your
   // network" list. Stands down only when the controller has its own LAN advert.
-  const lanPairBeacon = startScoutPairLanBeacon(async () => {
-    try {
-      return (await loadPairingState(currentDirectory, false)).lanDiscoveryAdvertised;
-    } catch {
-      return false;
-    }
-  }, { webPort: options.webPort });
+  const lanPairBeacon = options.backgroundServices === false
+    ? null
+    : startScoutPairLanBeacon(async () => {
+        try {
+          return (await loadPairingState(currentDirectory, false)).lanDiscoveryAdvertised;
+        } catch {
+          return false;
+        }
+      }, { webPort: options.webPort });
   const routes = resolveOpenScoutWebRoutes(process.env);
-  startGlobalHeuristicsWatcher();
+  if (options.backgroundServices !== false) {
+    startGlobalHeuristicsWatcher();
+  }
   const app = new Hono();
   installHttpsEdgeSecurityHeaders(app, options.publicOrigin);
   const shellStateCache = createCachedSnapshot<OpenScoutWebShellState>(
     loadOpenScoutWebShellState,
     shellTtl,
   );
+  const agentBrokerContextReader = createAgentBrokerContextReader();
   const dispatchBrokerSnapshotCache = createCachedSnapshot(async () => {
     const baseUrl = resolveScoutBrokerUrl();
     const signal = AbortSignal.timeout(2_000);
@@ -4914,10 +4960,12 @@ export async function createOpenScoutWebServer(
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
     const summary = c.req.query("detail") === "summary";
+    const includeAttention = !summary || c.req.query("attention") === "1";
     const agents = await queryAgentsIncludingBrokerCards(
       limit,
-      !summary,
+      includeAttention,
       options.captureTmuxPane ?? defaultCaptureTmuxPane,
+      agentBrokerContextReader,
     );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });
@@ -5757,6 +5805,143 @@ export async function createOpenScoutWebServer(
   app.get("/api/work/:id/material", handleWorkMaterialContent);
   app.get("/api/work/:id/material/raw", handleWorkMaterialRaw);
   app.get("/api/tasks/:id", handleWorkDetail);
+
+  // Assigned roles + mission log — proxy to broker (canonical writer).
+  app.get("/api/roles/catalog", (c) => c.json({ roles: SCOUT_ROLE_CATALOG }));
+  app.get("/api/roles/assignments", async (c) => {
+    try {
+      const assignments = await webListRoleAssignments({
+        agentId: c.req.query("agentId") || undefined,
+        missionId: c.req.query("missionId") || undefined,
+        roleId: c.req.query("roleId") || undefined,
+        activeOnly: c.req.query("activeOnly") !== "0" && c.req.query("activeOnly") !== "false",
+        includeStanding: c.req.query("includeStanding") !== "0",
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
+      });
+      return c.json({ assignments });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+  app.post("/api/roles/assignments", async (c) => {
+    try {
+      const body = await c.req.json() as {
+        roleId?: string;
+        agentId?: string;
+        scope?: { kind?: string; missionId?: string; projectRoot?: string };
+        assignedById?: string;
+        enforceSingleOrchestrator?: boolean;
+        metadata?: Record<string, unknown>;
+      };
+      if (!body.roleId?.trim() || !body.agentId?.trim()) {
+        return c.json({ error: "roleId and agentId are required" }, 400);
+      }
+      const kind = (body.scope?.kind ?? "agent").trim();
+      let scope: { kind: "mission"; missionId: string } | { kind: "agent" } | { kind: "project"; projectRoot: string };
+      if (kind === "mission") {
+        if (!body.scope?.missionId?.trim()) {
+          return c.json({ error: "scope.missionId is required for mission scope" }, 400);
+        }
+        scope = { kind: "mission", missionId: body.scope.missionId.trim() };
+      } else if (kind === "project") {
+        if (!body.scope?.projectRoot?.trim()) {
+          return c.json({ error: "scope.projectRoot is required for project scope" }, 400);
+        }
+        scope = { kind: "project", projectRoot: body.scope.projectRoot.trim() };
+      } else if (kind === "agent") {
+        scope = { kind: "agent" };
+      } else {
+        return c.json({ error: `unknown scope.kind: ${kind}` }, 400);
+      }
+      const assignment = await webAssignRole({
+        roleId: body.roleId.trim(),
+        agentId: body.agentId.trim(),
+        scope,
+        assignedById: body.assignedById?.trim() || "operator",
+        enforceSingleOrchestrator: body.enforceSingleOrchestrator,
+        metadata: body.metadata,
+      });
+      return c.json({ assignment }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /unknown role|already has orchestrator|required|unknown scope/i.test(message) ? 400 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
+  app.post("/api/roles/assignments/:id/revoke", async (c) => {
+    try {
+      const id = c.req.param("id");
+      if (!id) return c.json({ error: "id is required" }, 400);
+      const body = await c.req.json().catch(() => ({})) as { revokedById?: string };
+      const assignment = await webRevokeRole({
+        assignmentId: id,
+        revokedById: body.revokedById?.trim() || "operator",
+      });
+      return c.json({ assignment });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /unknown role assignment/i.test(message) ? 404 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
+  app.get("/api/missions/:missionId/log", async (c) => {
+    try {
+      const missionId = c.req.param("missionId");
+      if (!missionId) return c.json({ error: "missionId is required" }, 400);
+      const afterSeq = parseOptionalPositiveInt(c.req.query("afterSeq"));
+      const entries = await webListMissionLog({
+        missionId,
+        limit: parseOptionalPositiveInt(c.req.query("limit")),
+        afterSeq: afterSeq ?? undefined,
+      });
+      return c.json({ missionId, entries });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+  app.post("/api/missions/:missionId/log", async (c) => {
+    try {
+      const missionId = c.req.param("missionId");
+      if (!missionId) return c.json({ error: "missionId is required" }, 400);
+      const body = await c.req.json() as {
+        actorId?: string;
+        kind?: string;
+        intent?: string;
+        status?: string;
+        checkpoint?: string;
+        nodeId?: string;
+        note?: string;
+        blockers?: Array<{ label: string; ownerId?: string }>;
+        refs?: Record<string, string>;
+        projectRoot?: string;
+      };
+      if (!body.actorId?.trim() || !body.kind || !body.intent?.trim() || !body.status?.trim()) {
+        return c.json({ error: "actorId, kind, intent, and status are required" }, 400);
+      }
+      // Client bypassPermission is intentionally ignored; projectRoot is
+      // required for project-scoped orchestrator permission matching.
+      const entry = await webAppendMissionLog(
+        {
+          missionId,
+          actorId: body.actorId.trim(),
+          kind: body.kind as import("@openscout/protocol").ScoutMissionLogKind,
+          intent: body.intent,
+          status: body.status,
+          checkpoint: body.checkpoint,
+          nodeId: body.nodeId,
+          note: body.note,
+          blockers: body.blockers,
+          refs: body.refs,
+        },
+        { projectRoot: body.projectRoot?.trim() || undefined },
+      );
+      return c.json({ entry }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /not an assigned|invalid mission log|unknown/i.test(message) ? 400 : 500;
+      return c.json({ error: message }, status);
+    }
+  });
   app.get("/api/runs", (c) => {
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
@@ -5825,6 +6010,7 @@ export async function createOpenScoutWebServer(
       query: c.req.query("query") || undefined,
       limit: Number.isFinite(rawLimit) ? Math.min(250, Math.max(1, Math.floor(rawLimit))) : undefined,
       kinds: parseConversationKinds(rawKinds),
+      machineId: c.req.query("machineId") || undefined,
     });
   };
 
@@ -7160,14 +7346,6 @@ export async function createOpenScoutWebServer(
       cache,
       url,
       "broker tail discovery",
-      async () => limitTailDiscoverySnapshot(
-        await readTailDiscovery(tailRuntime, {
-          force: forceRefresh,
-          ...(scope ? { scope } : {}),
-          ...(limitParam !== undefined ? { limit: limitParam } : {}),
-        }),
-        limitParam,
-      ),
       {
         forceRefresh,
         transform: (data) => limitTailDiscoverySnapshot(data, limitParam),
@@ -7233,7 +7411,6 @@ export async function createOpenScoutWebServer(
       cache,
       url,
       "broker tail",
-      () => localTailRecentPayload(tailRuntime, limitParam, includeTranscripts),
     );
   });
 

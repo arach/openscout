@@ -177,11 +177,15 @@ describe("agents route parsing", () => {
       preferredView: "chat",
     });
 
+    expect(routeFromUrl("http://127.0.0.1:43120/providers?machineId=node-b")).toEqual({
+      view: "harnesses",
+      machineId: "node-b",
+    });
     expect(routeFromUrl("http://127.0.0.1:43120/harnesses?machineId=node-b")).toEqual({
       view: "harnesses",
       machineId: "node-b",
     });
-    expect(routePath({ view: "harnesses", machineId: "node-b" })).toBe("/harnesses?machineId=node-b");
+    expect(routePath({ view: "harnesses", machineId: "node-b" })).toBe("/providers?machineId=node-b");
   });
 
   test("machine scope composes with existing route query params", () => {
@@ -439,13 +443,15 @@ describe("agents route parsing", () => {
     // Simple static views: URL and Route must round-trip exactly.
     for (const view of [
       "repos",
-      "harnesses",
       "mesh",
       "activity",
     ] as const) {
       expect(routeFromUrl(`http://127.0.0.1:43120/${view}`)).toEqual({ view });
       expect(routePath({ view })).toBe(`/${view}`);
     }
+    expect(routeFromUrl("http://127.0.0.1:43120/providers")).toEqual({ view: "harnesses" });
+    expect(routeFromUrl("http://127.0.0.1:43120/harnesses")).toEqual({ view: "harnesses" });
+    expect(routePath({ view: "harnesses" })).toBe("/providers");
     // Removed legacy aliases still parse, but serialize to their canonical destinations.
     expect(routeFromUrl("http://127.0.0.1:43120/fleet")).toEqual({ view: "inbox" });
     expect(routePath({ view: "inbox" })).toBe("/");

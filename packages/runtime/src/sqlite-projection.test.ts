@@ -146,7 +146,7 @@ describe("RecoverableSQLiteProjection", () => {
   });
 
   test("reports the projection failure when opening degrades", async () => {
-    const failure = new Error("schema v14 is newer than this build's v13");
+    const failure = new Error("schema v15 is newer than this build's v14");
     const { projection } = createProjectionOptions({ failOnOpen: failure });
 
     projection.warm();

@@ -1,4 +1,5 @@
-export const CONTROL_PLANE_SCHEMA_VERSION = 13;
+export * from "./drizzle-schema.js";
+export { CONTROL_PLANE_SCHEMA_VERSION } from "./schema-version.js";
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
@@ -376,6 +377,48 @@ CREATE TABLE IF NOT EXISTS collaboration_events (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS context_blocks (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  memory_kind TEXT,
+  state TEXT NOT NULL,
+  scope_kind TEXT NOT NULL,
+  scope_id TEXT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  summary TEXT,
+  projection_mode TEXT NOT NULL,
+  mutability TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  owner_id TEXT,
+  source_refs_json TEXT NOT NULL,
+  confidence REAL,
+  token_budget INTEGER,
+  freshness_json TEXT,
+  version INTEGER NOT NULL,
+  supersedes_id TEXT,
+  content_hash TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS context_packs (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  sections_json TEXT NOT NULL,
+  context_block_ids_json TEXT NOT NULL,
+  source_refs_json TEXT NOT NULL,
+  budget_json TEXT NOT NULL,
+  limitations_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_by_id TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -535,6 +578,42 @@ CREATE TABLE IF NOT EXISTS briefings (
   created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
 
+-- Assigned roles (orchestrator, later qa/sre). Explicit grant only; not identity.
+CREATE TABLE IF NOT EXISTS role_assignments (
+  id TEXT PRIMARY KEY,
+  role_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  scope_kind TEXT NOT NULL,
+  mission_id TEXT,
+  project_root TEXT,
+  assigned_by_id TEXT NOT NULL,
+  assigned_at INTEGER NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  revoked_at INTEGER,
+  revoked_by_id TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  updated_at INTEGER NOT NULL
+);
+
+-- Mission log: cheap orchestrator situation stream (work-item mission id in v0).
+CREATE TABLE IF NOT EXISTS mission_log_entries (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL,
+  node_id TEXT,
+  at INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  actor_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  intent TEXT NOT NULL,
+  status TEXT NOT NULL,
+  checkpoint TEXT,
+  blockers_json TEXT,
+  refs_json TEXT,
+  note TEXT,
+  metadata_json TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_mesh_id
   ON nodes (mesh_id);
 CREATE INDEX IF NOT EXISTS idx_agent_endpoints_agent_updated_at
@@ -593,6 +672,12 @@ CREATE INDEX IF NOT EXISTS idx_collaboration_records_next_move_owner_kind_state_
   ON collaboration_records (next_move_owner_id, kind, state, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_collaboration_events_record_created_at
   ON collaboration_events (record_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_context_blocks_scope_state_updated_at
+  ON context_blocks (scope_kind, scope_id, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_blocks_kind_state_updated_at
+  ON context_blocks (kind, state, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_context_packs_created_at
+  ON context_packs (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_kind_ts
   ON events (kind, ts);
 CREATE INDEX IF NOT EXISTS idx_thread_events_conversation_seq
@@ -644,4 +729,19 @@ CREATE INDEX IF NOT EXISTS idx_briefings_created_at
   ON briefings (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_briefings_kind_created_at
   ON briefings (kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_agent_active
+  ON role_assignments (agent_id, active);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_mission_role_active
+  ON role_assignments (mission_id, role_id, active);
+CREATE INDEX IF NOT EXISTS idx_role_assignments_role_active
+  ON role_assignments (role_id, active);
+-- Single-orchestrator-per-mission is enforced in assignRole() under
+-- BEGIN IMMEDIATE (respects enforceSingleOrchestrator: false). A partial UNIQUE
+-- index would break the documented allow-multiple override.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mission_log_entries_mission_seq
+  ON mission_log_entries (mission_id, seq);
+CREATE INDEX IF NOT EXISTS idx_mission_log_entries_mission_at
+  ON mission_log_entries (mission_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_mission_log_entries_actor_at
+  ON mission_log_entries (actor_id, at DESC);
 `;

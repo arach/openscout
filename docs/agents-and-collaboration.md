@@ -125,6 +125,93 @@ completion ("3 of 7 steps", "40%") lives on the work item and never on a questio
 When an owner hits a dependency, it moves to `waiting` and names it in `waitingOn`
 rather than going quiet.
 
+## Assigned Roles And The Mission Log
+
+Assigned roles add small, explicit duties to the collaboration model. They do
+not redefine an agent's identity, `agentClass`, or harness. A role assignment
+grants a catalogued duty to an agent at one of three scopes: a mission, a
+standing agent duty, or a project. The first built-in role is
+**orchestrator**: it owns the mission spine, may link child work and asks, and
+may append the mission log.
+
+Use a **mission-scoped** orchestrator assignment for a campaign whenever
+possible. In v0, the mission id is the root work-item id. A standing
+agent-scoped orchestrator is available for an operator deliberately running an
+ongoing orchestrator persona, but it is still a durable agent assignment—not a
+promise that one particular process or session will live forever. If its process
+dies, start a fresh session and re-steer the durable agent and mission context;
+reserve `session:<id>` continuation for the rare case where the exact prior
+harness context matters.
+
+The mission log is a cheap, structured situation stream, not a second chat
+thread. Each entry states a stable short **intent**, a short current **status**,
+and a **kind** such as `progress`, `delegation`, `waiting`, `risk`, `done`, or
+`failed`; it can also link the relevant flight, work item, message, or session.
+Put full reasoning, conversation, and evidence in the appropriate DM or work
+record. Scout observes external harness transcripts as source material and does
+not bulk-import them as mission-log or first-party chat records.
+
+The anti-spam boundary is deliberate: **no assignment, no mission log**. Scout
+never infers the duty from an agent being chatty or from its harness. A write is
+allowed only when an active assignment both applies to that mission and its role
+allows `mission_log.append`; the default policy allows one active
+mission-scoped orchestrator, unless an operator explicitly permits more.
+
+This is a coordination floor, not a rigid graph engine. An assignment grants a
+duty and optional role actions; agents remain free to choose how they work. Scout
+adds sparse lifecycle behavior and durable visibility where it can do so
+deterministically, rather than trying to turn every tool call or transcript line
+into a workflow edge.
+
+### Operating It
+
+The command surface is `scout role`:
+
+| Command | Purpose |
+|---|---|
+| `scout role catalog` | List role definitions. |
+| `scout role list [--agent <id>] [--mission <id>] [--role <id>] [--all]` | List assignments; by default only active ones. |
+| `scout role assign --role orchestrator --agent <id> --mission <workId>` | Grant the normal mission-scoped orchestrator duty. |
+| `scout role revoke <assignmentId>` | Revoke an assignment. |
+| `scout role log <missionId> [--limit N]` | Read the ordered mission log. |
+| `scout role log-append <missionId> --actor <id> --kind <kind> --intent "..." --status "..."` | Append a permitted short situation entry. |
+
+`assign` also supports `--standing` for an agent-scope duty and `--project
+<root>` for a project scope. Mission assignment enforces a single orchestrator
+by default; `--allow-multiple` is the explicit override. The role command just
+landed in the source CLI. Until the published `@openscout/scout` package includes
+it, run it from a source checkout as
+`bun run --cwd apps/desktop scout -- role <command> ...`.
+
+The web control-plane API exposes the same records:
+
+- `GET /api/roles/catalog`
+- `GET` and `POST /api/roles/assignments`
+- `POST /api/roles/assignments/:id/revoke`
+- `GET` and `POST /api/missions/:missionId/log`
+
+The log append endpoint requires `actorId`, `kind`, `intent`, and `status` and
+enforces the same assignment gate (apart from the explicit system/operator
+override used by trusted control-plane writers).
+
+### Broker Lifecycle Floor
+
+The broker supplies one deterministic lifecycle floor today. When an ask's
+flight becomes terminal, it evaluates the orchestrator lifecycle binding
+`post_ask_summary`: if the target or requester holds the applicable
+orchestrator assignment, Scout appends a concise mission-log summary. Completed
+asks produce a progress/integration summary and failed or cancelled asks produce
+a failed summary. For a mission-scoped assignment, the mission is already known.
+For a standing agent-scoped assignment, the terminal ask must carry a related
+work/mission id (for example its collaboration/work context) before Scout can
+write a mission log entry.
+
+This is intentionally not full hook automation. MCP role-assignment and
+mission-log tools, `role sit`/`role open` CLI affordances, and wiring the soft
+orchestrator prompt into harness startup remain follow-up work. The protocol
+already has a soft prompt helper, but an assignment does not yet inject it into a
+running harness automatically.
+
 ### The Sweeper
 
 The sweeper is insurance, not a planner. It periodically inspects stale non-terminal

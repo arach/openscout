@@ -20,6 +20,7 @@ import {
   dispatchAckStrategyForEndpoint,
   invocationTargetSessionId,
   isTerminalFlightState,
+  shouldNotifyInvocationRequester,
   staleLocalEndpointReason,
   type InvocationStatusPatch,
 } from "./broker-local-invocation-helpers.js";
@@ -386,9 +387,9 @@ export class BrokerLocalInvocationService {
             class: "agent",
             body: output,
             replyToMessageId: invocation.messageId,
-            audience: {
-              notify: [invocation.requesterId],
-            },
+            ...(shouldNotifyInvocationRequester(invocation)
+              ? { audience: { notify: [invocation.requesterId] } }
+              : { audience: { delivery: "none" } }),
             visibility: this.options.messageVisibilityForConversation(conversation),
             policy: "durable",
             createdAt: this.now(),

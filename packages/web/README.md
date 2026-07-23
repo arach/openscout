@@ -17,7 +17,11 @@ bun --cwd packages/web dev:server
 
 Then open the URL printed in the terminal (default port `43120`).
 
-The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
+The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local named-edge flow is name resolution first, then Caddy, then the application server: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
+
+Caddy is the only reverse proxy in this path. Its generated configuration uses bounded upstream retry waiting so short Bun restarts do not immediately become browser errors. The Bun process owns application state and background services directly; it does not spawn or balance a second request-worker pool.
+
+The chat client requests the ten most recent conversations for the active machine scope and preloads a bounded recent tail with two concurrent requests. Opened histories are retained in a ten-chat LRU cache: while a chat is resident, immutable older messages are reused and focus/reconnect recovery refreshes and merges only the latest tail. Broker events for the open chat append directly to that same cache, so routine polling does not replace the full transcript.
 
 ## Public Package
 
@@ -92,7 +96,7 @@ OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:43122 bun --cwd packages/web dev:server
 The public route table stays small and explicit:
 
 - `/api/*` is the Bun API surface
-- `/api/health` is the canonical health endpoint
+- `/api/health` is the canonical application health endpoint
 - `/ws/terminal` is the terminal/takeover WebSocket
 - `/ws/hmr` is the Vite hot-reload WebSocket in dev
 - everything else is client traffic

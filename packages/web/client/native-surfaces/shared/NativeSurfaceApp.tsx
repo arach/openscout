@@ -1,10 +1,44 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { Component, useEffect, useState } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { NativeScoutSurfaceClient, installScoutSurfacePushReceiver } from "../../surface-contract/native-scout-surface-client.ts";
 import type { SurfaceBootstrap } from "../../surface-contract/scout-surface-contract.ts";
+import "../../styles/tokens.css";
 import "./native-surface.css";
 
 type NativeSurfaceBootstrap = Partial<SurfaceBootstrap>;
+
+class NativeSurfaceErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null } as { error: Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[scout-native-surface] render failed", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <SurfaceState
+          tone="error"
+          title="Lanes renderer stopped"
+          detail={this.state.error.message || this.state.error.name || "Unknown rendering error"}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export type NativeSurfaceRenderContext = {
+  bootstrap: NativeSurfaceBootstrap;
+  client: NativeScoutSurfaceClient;
+};
 
 declare global {
   interface Window {
@@ -20,12 +54,15 @@ export function NativeSurfaceApp({
   surface,
   title,
   children,
+  renderContent,
 }: {
   surface: "lanes" | "dispatch";
   title: string;
   children?: ReactNode;
+  renderContent?: (context: NativeSurfaceRenderContext) => ReactNode;
 }) {
   const [bootstrap, setBootstrap] = useState<NativeSurfaceBootstrap | null>(readBootstrap);
+  const [client, setClient] = useState<NativeScoutSurfaceClient | null>(null);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +73,7 @@ export function NativeSurfaceApp({
       const client = new NativeScoutSurfaceClient(surface, () => ({
         hostIds: (readBootstrap()?.selectedHostIds ?? []) as [string, ...string[]],
       }));
+      setClient(client);
       void client.bootstrap()
         .then((value) => {
           window.__scoutSurfaceBootstrap = value;
@@ -43,7 +81,10 @@ export function NativeSurfaceApp({
         })
         .catch((error) => setBridgeError(error instanceof Error ? error.message : String(error)));
     }
-    return () => window.removeEventListener("scout:surface-bootstrap", onBootstrap);
+    return () => {
+      window.removeEventListener("scout:surface-bootstrap", onBootstrap);
+      setClient(null);
+    };
   }, [surface]);
 
   const advertisedSurface = bootstrap?.surface;
@@ -51,8 +92,12 @@ export function NativeSurfaceApp({
   const connectedHosts = bootstrap?.hosts?.filter((host) => host.state === "connected") ?? [];
 
   return (
-    <main className="native-surface" data-scout-surface={surface}>
-      <header className="native-surface__header">
+    <main
+      className={`native-surface${renderContent ? " native-surface--canvas" : ""}`}
+      data-scout-surface={surface}
+      data-scout-theme="dark"
+    >
+      {!renderContent ? <header className="native-surface__header">
         <div>
           <span className="native-surface__eyebrow">Scout · Local surface</span>
           <h1>{title}</h1>
@@ -60,7 +105,7 @@ export function NativeSurfaceApp({
         <span className="native-surface__revision">
           {bootstrap?.assetRevision ? bootstrap.assetRevision.slice(0, 8) : "bundled"}
         </span>
-      </header>
+      </header> : null}
 
       {bridgeError ? (
         <SurfaceState tone="error" title="Native bridge unavailable" detail={bridgeError} />
@@ -71,13 +116,15 @@ export function NativeSurfaceApp({
           detail={`Native selected ${advertisedSurface}; this bundle contains ${surface}.`}
         />
       ) : bootstrap ? (
-        connectedHosts.length > 0 ? children ?? (
+        connectedHosts.length > 0 ? (renderContent && client
+          ? <NativeSurfaceErrorBoundary>{renderContent({ bootstrap, client })}</NativeSurfaceErrorBoundary>
+          : children ?? (
           <SurfaceState
             tone="ready"
             title={`${connectedHosts.length} host${connectedHosts.length === 1 ? "" : "s"} ready`}
             detail="The signed local page is running. The typed data adapter is the next migration gate."
           />
-        ) : (
+        )) : (
           <SurfaceState
             title="No connected hosts"
             detail="The page is available offline. Connect a paired Mac to populate this surface."

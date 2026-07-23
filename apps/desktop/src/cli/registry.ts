@@ -14,6 +14,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "attention", summary: "Show recent unfinished work and local diffs" },
   { name: "diff", summary: "Inspect worktree or session-scoped diffs" },
   { name: "runtimes", summary: "Show harness catalog and readiness" },
+  { name: "role", summary: "Assign roles (orchestrator) and read/write mission logs" },
   { name: "env", summary: "Show executable and agent identity context" },
   { name: "whoami", summary: "Resolve your current Scout sender identity" },
   { name: "inbox", summary: "Read recent direct or addressed messages for this identity" },

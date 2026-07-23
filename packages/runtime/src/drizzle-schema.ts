@@ -457,6 +457,67 @@ export const collaborationEventsTable = sqliteTable("collaboration_events", {
   index("idx_collaboration_events_record_created_at").on(table.recordId, table.createdAt),
 ]);
 
+// -- context_blocks ---------------------------------------------------------
+// Constructive prompt-facing state. Source material is cited through
+// source_refs_json; provider transcripts are never copied into messages.
+export const contextBlocksTable = sqliteTable("context_blocks", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  memoryKind: text("memory_kind"),
+  state: text("state").notNull(),
+  scopeKind: text("scope_kind").notNull(),
+  scopeId: text("scope_id"),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  summary: text("summary"),
+  projectionMode: text("projection_mode").notNull(),
+  mutability: text("mutability").notNull(),
+  createdById: text("created_by_id").notNull(),
+  ownerId: text("owner_id"),
+  sourceRefsJson: text("source_refs_json").notNull(),
+  confidence: real("confidence"),
+  tokenBudget: integer("token_budget"),
+  freshnessJson: text("freshness_json"),
+  version: integer("version").notNull(),
+  supersedesId: text("supersedes_id"),
+  contentHash: text("content_hash").notNull(),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_context_blocks_scope_state_updated_at").on(
+    table.scopeKind,
+    table.scopeId,
+    table.state,
+    desc(table.updatedAt),
+  ),
+  index("idx_context_blocks_kind_state_updated_at").on(
+    table.kind,
+    table.state,
+    desc(table.updatedAt),
+  ),
+]);
+
+// -- context_packs ----------------------------------------------------------
+// Immutable, bounded assemblies used to seed a new or forked work session.
+export const contextPacksTable = sqliteTable("context_packs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  purpose: text("purpose").notNull(),
+  targetJson: text("target_json").notNull(),
+  sectionsJson: text("sections_json").notNull(),
+  contextBlockIdsJson: text("context_block_ids_json").notNull(),
+  sourceRefsJson: text("source_refs_json").notNull(),
+  budgetJson: text("budget_json").notNull(),
+  limitationsJson: text("limitations_json").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdById: text("created_by_id").notNull(),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_context_packs_created_at").on(desc(table.createdAt)),
+]);
+
 // -- events ------------------------------------------------------------------
 export const eventsTable = sqliteTable("events", {
   id: text("id").primaryKey(),
@@ -663,6 +724,56 @@ export const briefingsTable = sqliteTable("briefings", {
   index("idx_briefings_kind_created_at").on(table.kind, desc(table.createdAt)),
 ]);
 
+// -- role_assignments --------------------------------------------------------
+// Explicit assigned roles (orchestrator, later qa/sre). Not agentClass/identity.
+// See docs/proposals/assigned-roles-and-mission-log.md
+export const roleAssignmentsTable = sqliteTable("role_assignments", {
+  id: text("id").primaryKey(),
+  roleId: text("role_id").notNull(),
+  agentId: text("agent_id").notNull(),
+  /** mission | agent | project */
+  scopeKind: text("scope_kind").notNull(),
+  /** work-item id when scope_kind=mission; null for agent; unused for project */
+  missionId: text("mission_id"),
+  /** project root when scope_kind=project */
+  projectRoot: text("project_root"),
+  assignedById: text("assigned_by_id").notNull(),
+  assignedAt: integer("assigned_at").notNull(),
+  active: integer("active").notNull().default(1),
+  revokedAt: integer("revoked_at"),
+  revokedById: text("revoked_by_id"),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at").notNull().default(epochMsNow),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_role_assignments_agent_active").on(table.agentId, table.active),
+  index("idx_role_assignments_mission_role_active").on(table.missionId, table.roleId, table.active),
+  index("idx_role_assignments_role_active").on(table.roleId, table.active),
+]);
+
+// -- mission_log_entries -----------------------------------------------------
+// Cheap orchestrator situation log (not chat). mission_id is a work-item id in v0.
+export const missionLogEntriesTable = sqliteTable("mission_log_entries", {
+  id: text("id").primaryKey(),
+  missionId: text("mission_id").notNull(),
+  nodeId: text("node_id"),
+  at: integer("at").notNull(),
+  seq: integer("seq").notNull(),
+  actorId: text("actor_id").notNull(),
+  kind: text("kind").notNull(),
+  intent: text("intent").notNull(),
+  status: text("status").notNull(),
+  checkpoint: text("checkpoint"),
+  blockersJson: text("blockers_json"),
+  refsJson: text("refs_json"),
+  note: text("note"),
+  metadataJson: text("metadata_json"),
+}, (table) => [
+  uniqueIndex("idx_mission_log_entries_mission_seq").on(table.missionId, table.seq),
+  index("idx_mission_log_entries_mission_at").on(table.missionId, desc(table.at)),
+  index("idx_mission_log_entries_actor_at").on(table.actorId, desc(table.at)),
+]);
+
 export const controlPlaneDrizzleSchema = {
   nodes: nodesTable,
   actors: actorsTable,
@@ -687,6 +798,8 @@ export const controlPlaneDrizzleSchema = {
   durableSignals: durableSignalsTable,
   collaborationRecords: collaborationRecordsTable,
   collaborationEvents: collaborationEventsTable,
+  contextBlocks: contextBlocksTable,
+  contextPacks: contextPacksTable,
   events: eventsTable,
   threadEvents: threadEventsTable,
   threadCursors: threadCursorsTable,
@@ -696,4 +809,6 @@ export const controlPlaneDrizzleSchema = {
   budgetQuotaWindowSnapshots: budgetQuotaWindowSnapshotsTable,
   mobilePushRegistrations: mobilePushRegistrationsTable,
   briefings: briefingsTable,
+  roleAssignments: roleAssignmentsTable,
+  missionLogEntries: missionLogEntriesTable,
 } as const;

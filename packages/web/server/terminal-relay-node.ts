@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 
 import { sanitizeUploadName } from "./relay.ts";
+import { startProcessParentWatchdog } from "./process-parent-watchdog.ts";
 import {
   attachSession,
   createSession,
@@ -37,6 +38,9 @@ const hostname =
 const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PORT?.trim() || "3201",
   10,
+);
+const parentWatchdog = startProcessParentWatchdog(
+  process.env.OPENSCOUT_WEB_RELAY_PARENT_PID,
 );
 const UPLOAD_DIR = "/tmp/scout-uploads";
 
@@ -441,7 +445,13 @@ wss.on("connection", (ws: any) => {
         }
         relaySocket.bindSession(session);
         sessionId = session.id;
-        send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
+        send(ws, {
+          type: "session:ready",
+          sessionId: session.id,
+          reconnectToken: session.reconnectToken,
+          cols: session.cols,
+          rows: session.rows,
+        });
         if (pending) {
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
         }
@@ -470,7 +480,13 @@ wss.on("connection", (ws: any) => {
           }
           relaySocket.bindSession(session);
           sessionId = session.id;
-          send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
+          send(ws, {
+            type: "session:ready",
+            sessionId: session.id,
+            reconnectToken: session.reconnectToken,
+            cols: session.cols,
+            rows: session.rows,
+          });
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
           break;
         }
@@ -478,6 +494,7 @@ wss.on("connection", (ws: any) => {
         const requestedControlMode = msg.controlMode || "owner";
         const canReconnect = existing
           && !existing.exited
+          && existing.controlMode !== "observe"
           && existing.controlMode === requestedControlMode
           && verifyReconnectToken(existing, msg.reconnectToken);
         if (canReconnect) {
@@ -492,12 +509,14 @@ wss.on("connection", (ws: any) => {
           }
           sessionId = existing.id;
           relaySocket.bindSession(existing);
-          attachSession(existing, relaySocket, msg.cols, msg.rows, []);
+          await attachSession(existing, relaySocket, msg.cols, msg.rows, []);
           send(ws, {
             type: "session:ready",
             sessionId: existing.id,
             reconnectToken: existing.reconnectToken,
             reconnected: true,
+            cols: existing.cols,
+            rows: existing.rows,
           });
           if (pending) {
             setTimeout(() => writeSession(existing, pending.command + "\n"), 400);
@@ -532,7 +551,7 @@ wss.on("connection", (ws: any) => {
         if (session && sessionOwnsSocket(session, relaySocket)) {
           const cols = Math.max(msg.cols || 80, 20);
           const rows = Math.max(msg.rows || 24, 4);
-          resizeSession(session, cols, rows);
+          await resizeSession(session, cols, rows);
         }
         break;
       }
@@ -572,7 +591,11 @@ server.listen(port, hostname, () => {
   console.log(`[relay] Server listening on http://${hostname}:${port} (HTTP + WebSocket)`);
 });
 
+let shuttingDown = false;
 const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (parentWatchdog) clearInterval(parentWatchdog);
   console.log("\n[relay] Shutting down...");
   for (const [id] of sessions) {
     destroy(id);

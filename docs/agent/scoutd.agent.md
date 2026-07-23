@@ -134,6 +134,13 @@ the broker writer or routing path.
 | `launch_agent_path` | `~/Library/LaunchAgents/com.openscout.scoutd.plist` |
 | `runtime_entrypoint` | `packages/runtime/bin/openscout-runtime.mjs` |
 
+The machine-wide launchd service should resolve `runtime_entrypoint` from one
+stable canonical checkout or installed package artifact. Do not repoint the
+shared service at an experimental worktree: worktrees that can change the
+control-plane schema must use an isolated `OPENSCOUT_CONTROL_HOME`, service
+label, and port set so their migration ledger cannot advance the operator's
+canonical database.
+
 ## Health / Doctor
 
 Doctor merges:
