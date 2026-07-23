@@ -3,6 +3,10 @@ import { Plus } from "lucide-react";
 
 import { api } from "../../lib/api.ts";
 import {
+  RECENT_CHAT_PRELOAD_LIMIT,
+  preloadRecentConversationTails,
+} from "../../lib/chat-cache.ts";
+import {
   conversationDisplayTitle,
   isGroupConversation,
 } from "../../lib/conversations.ts";
@@ -26,7 +30,7 @@ import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
 
-const RECENT_LIMIT = 6;
+const RECENT_LIMIT = RECENT_CHAT_PRELOAD_LIMIT;
 
 export function MessagesScreen({
   conversationId,
@@ -80,15 +84,20 @@ function MessagesEmptyState({
 
   const load = useCallback(async () => {
     try {
-      const data = await api<SessionEntry[]>("/api/conversations");
+      const search = new URLSearchParams({
+        limit: String(RECENT_CHAT_PRELOAD_LIMIT),
+      });
+      if (machineId) search.set("machineId", machineId);
+      const data = await api<SessionEntry[]>(`/api/conversations?${search}`);
       setConversations(data);
+      void preloadRecentConversationTails(data);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [machineId]);
 
   useEffect(() => {
     void load();

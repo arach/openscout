@@ -22,7 +22,7 @@ mkdirSync(outputDirectory, { recursive: true });
 
 const entries = [
   {
-    input: resolve(packageDirectory, "server", "edge.ts"),
+    input: resolve(packageDirectory, "server", "index.ts"),
     output: resolve(outputDirectory, "openscout-web-server.mjs"),
     target: "bun",
   },
