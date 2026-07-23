@@ -455,9 +455,8 @@ export type CreateOpenScoutWebServerOptions = {
     enabled?: boolean;
     brokerBaseUrl?: string;
   };
-  /** Run process-wide discovery/watch services. Multi-worker deployments set
-   * this only on worker zero so UDP beacons and filesystem watchers are not
-   * duplicated in every request worker. */
+  /** Run process-wide discovery/watch services. Embedded and test hosts can
+   * disable these to avoid owning UDP beacons and filesystem watchers. */
   backgroundServices?: boolean;
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
@@ -5859,6 +5858,7 @@ export async function createOpenScoutWebServer(
       query: c.req.query("query") || undefined,
       limit: Number.isFinite(rawLimit) ? Math.min(250, Math.max(1, Math.floor(rawLimit))) : undefined,
       kinds: parseConversationKinds(rawKinds),
+      machineId: c.req.query("machineId") || undefined,
     });
   };
 

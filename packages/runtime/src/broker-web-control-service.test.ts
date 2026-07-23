@@ -140,7 +140,7 @@ describe("BrokerWebControlService", () => {
         spawns.push({ command, args, options });
         return child;
       },
-      resolveEntry: () => "/repo/packages/web/server/edge.ts",
+      resolveEntry: () => "/repo/packages/web/server/index.ts",
       resolveBun: () => ({ path: "/usr/local/bin/bun" }),
       resolveLogPath: () => "/dev/null",
       startPollTimeoutMs: 1_000,
@@ -158,7 +158,7 @@ describe("BrokerWebControlService", () => {
     expect(second.running).toBe(true);
     expect(first.pid).toBe(2468);
     expect(spawns[0]?.command).toBe("/usr/local/bin/bun");
-    expect(spawns[0]?.args).toEqual(["run", "/repo/packages/web/server/edge.ts"]);
+    expect(spawns[0]?.args).toEqual(["run", "/repo/packages/web/server/index.ts"]);
     expect(spawns[0]?.options.argv0).toBe("scout-web");
     expect(spawns[0]?.options.env).toEqual(expect.objectContaining({
       OPENSCOUT_WEB_HOST: "0.0.0.0",
@@ -175,7 +175,7 @@ describe("BrokerWebControlService", () => {
     expect(child.killed).toBe(true);
   });
 
-  test("waits for the managed edge process to exit before spawning its replacement", async () => {
+  test("waits for the managed web process to exit before spawning its replacement", async () => {
     const children = [fakeChild(1001), fakeChild(1002)];
     let spawnCount = 0;
     let healthy = false;
@@ -186,7 +186,7 @@ describe("BrokerWebControlService", () => {
       spawnProcess() {
         return children[spawnCount++]!;
       },
-      resolveEntry: () => "/repo/packages/web/server/edge.ts",
+      resolveEntry: () => "/repo/packages/web/server/index.ts",
       resolveBun: () => ({ path: "/usr/local/bin/bun" }),
       resolveLogPath: () => "/dev/null",
       startPollTimeoutMs: 1_000,

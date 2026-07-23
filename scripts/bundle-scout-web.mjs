@@ -23,7 +23,7 @@ export function getOpenScoutRepoRoot() {
  */
 export function bundleScoutWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "packages/web/server/edge.ts");
+  const entry = resolve(repoRoot, "packages/web/server/index.ts");
   const result = spawnSync(
     "bun",
     ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile, "--external", "vite"],
@@ -41,7 +41,7 @@ export function bundleScoutWebServerBun(repoRoot, outfile) {
  */
 export function bundleScoutControlPlaneWebServerBun(repoRoot, outfile) {
   mkdirSync(dirname(outfile), { recursive: true });
-  const entry = resolve(repoRoot, "packages/web/server/edge.ts");
+  const entry = resolve(repoRoot, "packages/web/server/index.ts");
   const result = spawnSync(
     "bun",
     ["build", entry, "--target=bun", "--format=esm", "--outfile", outfile, "--external", "vite"],
