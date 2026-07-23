@@ -9,6 +9,7 @@ import {
   type ScoutFlagBundle,
   writeStoredScoutFlagBundle,
 } from "./scout-flags.ts";
+import { stripScoutFlagQueryParams } from "./scout-flag-query.ts";
 
 type BuildMode = "dev" | "production";
 
@@ -57,6 +58,15 @@ export function isScoutWebDevBuild(): boolean {
   return isScoutDevToolsAvailable();
 }
 
+function clearScoutFlagQueryParams(): void {
+  const url = stripScoutFlagQueryParams(new URL(window.location.href));
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
 export function useScoutDevFlagControls() {
   const flags = useFeatureFlags();
 
@@ -86,6 +96,7 @@ export function useScoutDevFlagControls() {
   const resetBundle = useCallback(() => {
     flags.resetLocalOverrides();
     writeStoredScoutFlagBundle({ action: "clear" });
+    clearScoutFlagQueryParams();
     window.location.reload();
   }, [flags]);
 
