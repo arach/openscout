@@ -210,7 +210,7 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
-    /// Operator usage-quota gauges (Claude / Codex / GitHub) for the Home strip.
+    /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) for the Home strip.
     /// Empty until a connected bridge reports them (older bridges omit the RPC).
     var serviceBudgets: [ServiceBudget] = []
     var recentTerminals: [MobileTerminal] = []
