@@ -1,6 +1,5 @@
 export * from "./drizzle-schema.js";
-
-export const CONTROL_PLANE_SCHEMA_VERSION = 14;
+export { CONTROL_PLANE_SCHEMA_VERSION } from "./schema-version.js";
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
