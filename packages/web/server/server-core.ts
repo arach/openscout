@@ -81,8 +81,12 @@ function defaultPeerAddress(c: Context): string | undefined {
   }
 }
 
-function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean {
-  const requestUrl = new URL(c.req.url);
+export function isTrustedScoutApiRequest(
+  request: Request,
+  options: ScoutApiTrustOptions = {},
+  peerAddress?: string,
+): boolean {
+  const requestUrl = new URL(request.url);
   const hostname = normalizeHostname(requestUrl.hostname);
   const hostIsLoopbackName = isTrustedLoopbackHostname(hostname);
   const hostIsTrustedName = trustedHostSet(options).has(hostname);
@@ -98,13 +102,13 @@ function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean
   // (the Hono test harness has no socket) we fall back to the header check;
   // production requests always carry a peer address.
   if (hostIsLoopbackName && !hostIsTrustedName) {
-    const peer = (options.resolvePeerAddress ?? defaultPeerAddress)(c);
+    const peer = peerAddress;
     if (peer !== undefined && !isLoopbackAddress(peer)) {
       return false;
     }
   }
 
-  const origin = c.req.header("origin");
+  const origin = request.headers.get("origin");
   if (origin) {
     try {
       const originUrl = new URL(origin);
@@ -122,7 +126,7 @@ function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean
     }
   }
 
-  const fetchSite = c.req.header("sec-fetch-site")?.trim().toLowerCase();
+  const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site" && fetchSite !== "none") {
     return false;
   }
@@ -246,7 +250,8 @@ export function installScoutApiMiddleware(
   options: ScoutApiTrustOptions = {},
 ): void {
   app.use("/api/*", async (c, next) => {
-    if (!isTrustedApiRequest(c, options)) {
+    const peerAddress = (options.resolvePeerAddress ?? defaultPeerAddress)(c);
+    if (!isTrustedScoutApiRequest(c.req.raw, options, peerAddress)) {
       return c.json({ error: "forbidden" }, 403);
     }
 

@@ -621,11 +621,16 @@ export function AgentLaneDetailSheet({
   navigate,
   returnRoute,
   onClose,
+  navigationEnabled = true,
 }: {
   lane: AgentLane;
   navigate: (route: Route) => void;
   returnRoute: Route;
   onClose: () => void;
+  /// Browser routes (session/profile/traces/plan documents) do not exist in the
+  /// adapter-backed native embeds, which pass an inert navigate. When false,
+  /// route-jumping affordances are hidden instead of dead-clicking.
+  navigationEnabled?: boolean;
 }) {
   const { agent, observe, source, lastActiveAt } = lane;
   const { openFilePreview } = useScout();
@@ -838,25 +843,26 @@ export function AgentLaneDetailSheet({
   const traceRoute = useMemo(() => laneTraceRoute(lane), [lane]);
 
   const openSession = useCallback(() => {
-    if (!sessionRoute) return;
+    if (!navigationEnabled || !sessionRoute) return;
     openContent(navigate, sessionRoute, { returnTo: returnRoute });
     onClose();
-  }, [navigate, onClose, returnRoute, sessionRoute]);
+  }, [navigate, navigationEnabled, onClose, returnRoute, sessionRoute]);
 
   const openProfile = useCallback(() => {
+    if (!navigationEnabled) return;
     if (profileRoute) {
       openContent(navigate, profileRoute, { returnTo: returnRoute });
       onClose();
       return;
     }
     openSession();
-  }, [navigate, onClose, openSession, profileRoute, returnRoute]);
+  }, [navigate, navigationEnabled, onClose, openSession, profileRoute, returnRoute]);
 
   const openTraces = useCallback(() => {
-    if (!traceRoute) return;
+    if (!navigationEnabled || !traceRoute) return;
     openContent(navigate, traceRoute, { returnTo: returnRoute });
     onClose();
-  }, [navigate, onClose, returnRoute, traceRoute]);
+  }, [navigate, navigationEnabled, onClose, returnRoute, traceRoute]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -885,10 +891,11 @@ export function AgentLaneDetailSheet({
 
   const openDocument = useCallback(
     (documentId: string) => {
+      if (!navigationEnabled) return;
       navigate({ view: "ops", mode: "plan", planDocumentId: documentId });
       onClose();
     },
-    [navigate, onClose],
+    [navigate, navigationEnabled, onClose],
   );
 
   useEffect(() => {
@@ -1007,15 +1014,19 @@ export function AgentLaneDetailSheet({
             size={18}
             className={`s-lane-sheet-hmark${isLive ? " s-lane-sheet-hmark--working" : ""}`}
           />
-          <SheetGhost primary onClick={openSession} disabled={!sessionRoute}>
-            Open session
-          </SheetGhost>
-          {profileRoute ? (
-            <SheetGhost onClick={openProfile}>Agent profile</SheetGhost>
+          {navigationEnabled ? (
+            <>
+              <SheetGhost primary onClick={openSession} disabled={!sessionRoute}>
+                Open session
+              </SheetGhost>
+              {profileRoute ? (
+                <SheetGhost onClick={openProfile}>Agent profile</SheetGhost>
+              ) : null}
+              <SheetGhost onClick={openTraces} disabled={!traceRoute}>
+                Traces
+              </SheetGhost>
+            </>
           ) : null}
-          <SheetGhost onClick={openTraces} disabled={!traceRoute}>
-            Traces
-          </SheetGhost>
         </div>
         <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
           ×
@@ -1118,9 +1129,11 @@ export function AgentLaneDetailSheet({
                 <span className="s-lane-sheet-vitals-cmd" title={preview.headFull}>{preview.headline}</span>
                 {isLive && <span className="s-lane-sheet-vitals-caret" aria-hidden="true" />}
                 <span className="s-lane-sheet-vitals-now-acts">
-                  <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openTraces}>
-                    <ExternalLink size={11} strokeWidth={1.6} />
-                  </button>
+                  {navigationEnabled && (
+                    <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openTraces}>
+                      <ExternalLink size={11} strokeWidth={1.6} />
+                    </button>
+                  )}
                   {preview.headFull && preview.headFull !== preview.headline && (
                     <SheetCopy value={preview.headFull} label="current action" />
                   )}

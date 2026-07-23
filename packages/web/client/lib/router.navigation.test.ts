@@ -69,7 +69,7 @@ describe("route fixtures", () => {
       route: { view: "repos", root: "repo-a" },
       canonical: "/repos?root=repo-a",
     },
-    { url: "/harnesses", route: { view: "harnesses" }, canonical: "/harnesses" },
+    { url: "/providers", route: { view: "harnesses" }, canonical: "/providers" },
     {
       url: "/repo-diff?path=repo-a",
       route: { view: "repo-diff", path: "repo-a" },
@@ -156,6 +156,7 @@ describe("route fixtures", () => {
     // Legacy fleet / conversations aliases → home / messages.
     { url: "/fleet", canonical: "/" },
     { url: "/conversations", canonical: "/messages" },
+    { url: "/harnesses", canonical: "/providers" },
     { url: "/agents.deprecated", canonical: "/projects" },
     { url: "/agents.deprecated/hudson.main", canonical: "/agents/hudson.main" },
   ];
@@ -226,6 +227,18 @@ describe("planNavigation URL policy", () => {
     );
     expect(carried.route).toEqual({ view: "sessions", machineId: "node-b" });
     expect(carried.href).toBe("/sessions?machineId=node-b");
+
+    const followed = planNavigation(
+      { pathname: "/", searchStr: "?machineId=node-b" },
+      { view: "follow", workId: "work-1", preferredView: "chat" },
+    );
+    expect(followed.route).toEqual({
+      view: "follow",
+      workId: "work-1",
+      preferredView: "chat",
+      machineId: "node-b",
+    });
+    expect(followed.href).toBe("/follow?view=chat&workId=work-1&machineId=node-b");
 
     // scoped → unscoped: machineId drops.
     const dropped = planNavigation(
@@ -428,6 +441,8 @@ describe("routeKey scroll ownership", () => {
     expect(routeKey({ view: "inbox", machineId: "node-a" }))
       .not.toBe(routeKey({ view: "inbox", machineId: "node-b" }));
     expect(routeKey({ view: "inbox" })).not.toBe(routeKey({ view: "inbox", machineId: "node-a" }));
+    expect(routeKey({ view: "follow", workId: "work-1", machineId: "node-a" }))
+      .not.toBe(routeKey({ view: "follow", workId: "work-1", machineId: "node-b" }));
   });
 
   test("identical routes share a scroll key", () => {
@@ -449,6 +464,11 @@ describe("canonicalHrefForRoute", () => {
       .toBe("/agents/hudson.main?tab=observe&ffBundle=max-pro");
     expect(canonicalHrefForRoute("/projects", "?layout=grid&ffBundle=max-pro", ""))
       .toBe("/projects?ffBundle=max-pro");
+  });
+
+  test("rewrites the legacy harnesses path without losing machine scope", () => {
+    expect(canonicalHrefForRoute("/harnesses", "?machineId=node-b", ""))
+      .toBe("/providers?machineId=node-b");
   });
 
   test("embed paths are never canonicalized", () => {

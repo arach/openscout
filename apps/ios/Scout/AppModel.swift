@@ -210,7 +210,7 @@ final class AppModel {
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
-    /// Operator usage-quota gauges (Claude / Codex / GitHub) for the Home strip.
+    /// Operator usage-quota gauges (Claude / Codex / Kimi / GitHub) for the Home strip.
     /// Empty until a connected bridge reports them (older bridges omit the RPC).
     var serviceBudgets: [ServiceBudget] = []
     var recentTerminals: [MobileTerminal] = []
@@ -1791,13 +1791,18 @@ final class AppModel {
         }
         guard sawSuccessfulRead else { return }
         updateFleetStats(from: agents)
-        // Usage-quota gauges for the Home strip — read once from any connected
-        // bridge (they report the operator's local subscriptions, machine-wide).
+        // Usage-quota gauges are account-level but reported independently by
+        // every paired Mac. Merge all successful snapshots by reset identity so
+        // an older Mac's pre-reset Codex percentage cannot override the current
+        // window. Within the same window, the highest observed usage is freshest.
+        var budgetSnapshots: [[ServiceBudget]] = []
         for client in clients {
-            if let budgets = try? await client.serviceBudgets(), !budgets.isEmpty {
-                serviceBudgets = budgets
-                break
-            }
+            guard let budgets = try? await client.serviceBudgets() else { continue }
+            budgetSnapshots.append(budgets)
+        }
+        let mergedBudgets = mergeServiceBudgets(budgetSnapshots)
+        if !mergedBudgets.isEmpty {
+            serviceBudgets = mergedBudgets
         }
         // Recent terminal sessions for the Home Terminals shelf — first successful
         // read wins (an empty list is valid: no sessions registered).

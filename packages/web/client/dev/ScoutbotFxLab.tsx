@@ -550,7 +550,9 @@ const presetGridStyle: React.CSSProperties = {
 const presetCardStyle: React.CSSProperties = {
   textAlign: "left",
   background: "#0f1216",
-  border: "1px solid #1f242b",
+  borderWidth: 1,
+  borderStyle: "solid",
+  borderColor: "#1f242b",
   borderRadius: 8,
   padding: "12px 14px",
   color: "#c5cad2",
@@ -629,7 +631,9 @@ const fixtureControlsStyle: React.CSSProperties = { display: "flex", gap: 8 };
 const buttonStyle: React.CSSProperties = {
   background: "#1c2128",
   color: "#e6e8eb",
-  border: "1px solid #2a3038",
+  borderWidth: 1,
+  borderStyle: "solid",
+  borderColor: "#2a3038",
   padding: "6px 12px",
   borderRadius: 6,
   fontSize: 12,
@@ -639,7 +643,9 @@ const buttonActiveStyle: React.CSSProperties = { ...buttonStyle, background: "#2
 const buttonPrimaryStyle: React.CSSProperties = {
   background: "#2e6cdf",
   color: "#fff",
-  border: "1px solid #2e6cdf",
+  borderWidth: 1,
+  borderStyle: "solid",
+  borderColor: "#2e6cdf",
   padding: "6px 12px",
   borderRadius: 6,
   fontSize: 12,

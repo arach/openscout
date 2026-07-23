@@ -47,7 +47,7 @@ export function ScoutFeatureFlagPanel({
   const flags = useOptionalFeatureFlags();
   const { ref: panelRef, onKeyDown: onPanelKeyDown } = useFocusTrap<HTMLDivElement>(isOpen);
   const devTools = isScoutDevToolsAvailable();
-  const { activeBundle, applyBundle } = useScoutDevFlagControls();
+  const { activeBundle, applyBundle, resetBundle } = useScoutDevFlagControls();
   const rows = useMemo(() => flags?.all() ?? [], [flags]);
 
   useEffect(() => {
@@ -175,9 +175,9 @@ export function ScoutFeatureFlagPanel({
           <button
             type="button"
             className="btn btn--ghost btn--sm btn--mono"
-            onClick={() => flags.resetLocalOverrides()}
+            onClick={resetBundle}
           >
-            Reset local overrides
+            Reset flags
           </button>
         </footer>
       </div>

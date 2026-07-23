@@ -92,6 +92,10 @@ function planTargetDelivery(
 }
 
 export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryIntent[] {
+  if (input.message.audience?.delivery === "none") {
+    return [];
+  }
+
   const visibilityIds = new Set(resolveVisibilityAudience(input.message, input.conversation));
   const notifyIds = new Set(resolveNotifyAudience(input.message));
   const invokeIds = new Set(resolveInvocationAudience(input.message));

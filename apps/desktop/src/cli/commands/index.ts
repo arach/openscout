@@ -26,6 +26,7 @@ export type ScoutCommandName =
   | "pair"
   | "ps"
   | "restart"
+  | "role"
   | "runtimes"
   | "send"
   | "session"
@@ -90,6 +91,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./ps.ts")).runPsCommand;
     case "restart":
       return (await import("./restart.ts")).runRestartCommand;
+    case "role":
+      return (await import("./role.ts")).runRoleCommand;
     case "runtimes":
       return (await import("./runtimes.ts")).runRuntimesCommand;
     case "send":

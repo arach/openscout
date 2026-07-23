@@ -9,6 +9,7 @@ import {
   machineScopedAgentIds,
 } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
+import { routeForOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -99,13 +100,7 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
 
       <NeedsAttentionSection
         items={needsAttention}
-        onSelect={(item) =>
-          navigate(
-            item.conversationId
-              ? { view: "conversation", conversationId: item.conversationId }
-              : { view: "ops", mode: "mission" },
-          )
-        }
+        onSelect={(item) => navigate(routeForOperatorAttention(item))}
       />
     </div>
   );

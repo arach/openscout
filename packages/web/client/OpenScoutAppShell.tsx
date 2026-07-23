@@ -500,7 +500,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, AGENTS_RIGHT_PANEL_MIN_WIDTH)));
   }, [agentDetailOpen, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
 
-  const dispatchSheetOpen = route.view === "broker" && Boolean(selectedBrokerAttempt);
+  const dispatchSheetOpen = route.view === "broker" && Boolean(route.attemptId);
   useEffect(() => {
     if (!dispatchSheetOpen) return;
     setRightCollapsed(false);
@@ -1197,7 +1197,9 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     ...(sheet ? {
       right: 12,
       bottom: 40,
-      border: "1px solid rgba(255,255,255,0.09)",
+      borderWidth: 1,
+      borderStyle: "solid",
+      borderColor: "rgba(255,255,255,0.09)",
       borderRadius: 12,
       boxShadow: "-24px 18px 72px -18px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.025)",
     } : {}),

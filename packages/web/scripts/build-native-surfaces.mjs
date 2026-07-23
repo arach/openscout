@@ -11,12 +11,37 @@ const packageDirectory = resolve(scriptDirectory, "..");
 const repoRoot = resolve(packageDirectory, "../..");
 const outputDirectory = resolve(repoRoot, "apps/ios/Scout/Resources/WebSurfaces");
 
-const build = spawnSync(
-  "vite",
-  ["build", "--config", "vite.native-surfaces.config.ts"],
-  { cwd: packageDirectory, stdio: "inherit" },
-);
-if ((build.status ?? 1) !== 0) process.exit(build.status ?? 1);
+for (const [index, surface] of ["lanes", "dispatch"].entries()) {
+  const build = spawnSync(
+    "vite",
+    ["build", "--config", "vite.native-surfaces.config.ts", ...(index === 0 ? [] : ["--emptyOutDir", "false"])],
+    {
+      cwd: packageDirectory,
+      stdio: "inherit",
+      env: { ...process.env, SCOUT_NATIVE_SURFACE: surface },
+    },
+  );
+  if ((build.status ?? 1) !== 0) process.exit(build.status ?? 1);
+}
+
+for (const [surface, title] of [["lanes", "Scout Lanes"], ["dispatch", "Scout Dispatch"]]) {
+  writeFileSync(resolve(outputDirectory, surface, "index.html"), `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>${title}</title>
+    <link rel="stylesheet" href="./app.css" />
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+`);
+}
 
 function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");

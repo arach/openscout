@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Status:** Implementation underway — closed v1 web contract and local-surface foundation verified; production renderer cutover remains gated
+- **Status:** Phase 2 Debug adapter implemented; physical acceptance and production cutover remain gated
 - **Owner:** OpenScout
 - **Date:** 2026-07-21
 - **Scope:** Scout iPad/iOS embedded Lanes and Dispatch surfaces, their web build, HudsonUIWeb, and the native bridge to paired Macs
@@ -11,16 +11,19 @@
 
 ## Implementation snapshot — 2026-07-21
 
-The first implementation slice is complete and remains deliberately non-production while the canonical Lanes renderer is moved behind `ScoutSurfaceClient`:
+The local-surface foundation and adapter-backed Debug Lanes renderer are complete. Production cutover remains deliberately gated while streaming and Release assertions are finished:
 
 - `packages/web` now owns a closed v1 method allowlist, typed request/reply/push shapes, bounded policies, a generated golden fixture corpus, and a native `WKScriptMessageHandlerWithReply` adapter.
-- the native-surface build emits app-bundled Lanes and Dispatch entries, shared hashed assets, a content-security policy with no network access, and a deterministic hash manifest;
+- the native-surface build emits app-bundled Lanes and Dispatch entries as per-surface classic IIFEs plus CSS, a content-security policy with no network access, and a deterministic hash manifest. The classic format avoids opaque `file://` module-origin failures in device WebKit;
 - the iOS build validates the manifest before compilation and embeds `WebSurfaces` as a signed folder resource;
 - HudsonUIWeb can load a bundle entry with an explicit shared read root and supplies generic user-script, request/reply, navigation, process-reset, activity, and teardown hooks;
-- Scout iOS has a first typed-boundary bridge over its existing keyed machine clients. It exposes opaque host ids plus bootstrap, agent-list, recent-tail, cancellation, external-link, and lane-selection capabilities; unsupported methods fail closed;
-- Debug iPad builds render the signed local shell by default. `SCOUT_REMOTE_WEB_SURFACES=1` is a temporary troubleshooting escape hatch for the old host-served page. Release behavior stays on the current paired page until the shared Lanes renderer and Swift fixture parity meet the Phase 2 cutover gate.
+- Scout iOS has a typed-boundary bridge over its existing keyed machine clients. It exposes opaque host ids plus bootstrap, agent-list, bounded observe snapshots, recent-tail, cancellation, external-link, and lane-selection capabilities; unsupported methods fail closed;
+- the bundled Lanes entry mounts the canonical `AgentLanesView` through `ScoutSurfaceClient`, supplies bridge-backed fleet snapshots while disabling browser fetch/WebSocket lifecycles, namespaces colliding agent/session/event ids by host, and contains renderer failures in a visible error state;
+- Debug iPad builds render the signed local Lanes implementation by default. `SCOUT_REMOTE_WEB_SURFACES=1` remains a temporary troubleshooting escape hatch for the old host-served page. Release behavior stays on the current paired page until the remaining cutover gates pass.
 
-Verified in this slice: strict TypeScript compilation, seven web contract/manifest tests, native-asset hash validation, eight focused Hudson tests, and a two-architecture iPad Simulator build whose pre-build asset validation passed. Still required before production Lanes cutover: concrete Swift `Codable` fixture parity, physical-device module/chunk loading, the adapter-backed canonical Lanes renderer, observe/live-tail streaming, and the Release-path assertion.
+Verified in this slice: 95 focused contract, layout, model, and fleet-projection tests; native-asset hash validation; a full web client build; and Swift parser validation for the bridge changes.
+
+Still required before production Lanes cutover: concrete Swift `Codable` fixture parity, physical-device visual acceptance with live bridge data, push-based live-tail streaming and resynchronization semantics, disconnected/loading/error-state acceptance, and the Release-path assertion.
 
 ## Decision requested
 

@@ -20,6 +20,7 @@ import {
   flightTimestamp,
   homeEndpointForAgent,
   invocationTargetSessionId,
+  invocationReplyMode,
   isInactiveLocalAgent,
   isReconciledStaleFlightActivityItem,
   isTerminalFlightState,
@@ -30,6 +31,7 @@ import {
   staleLocalAgentReason,
   staleLocalEndpointReason,
   staleWorkingFlightReason,
+  shouldNotifyInvocationRequester,
 } from "./broker-local-invocation-helpers.js";
 
 function testAgent(input: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -95,6 +97,17 @@ function testFlight(input: Partial<FlightRecord> = {}): FlightRecord {
     ...input,
   };
 }
+
+describe("invocation reply mode", () => {
+  test("notifies only explicit notify and legacy invocations", () => {
+    expect(invocationReplyMode(testInvocation({ metadata: { replyMode: "inline" } }))).toBe("inline");
+    expect(shouldNotifyInvocationRequester(testInvocation({ metadata: { replyMode: "inline" } }))).toBe(false);
+    expect(shouldNotifyInvocationRequester(testInvocation({ metadata: { replyMode: "none" } }))).toBe(false);
+    expect(shouldNotifyInvocationRequester(testInvocation({ metadata: { replyMode: "notify" } }))).toBe(true);
+    expect(shouldNotifyInvocationRequester(testInvocation({ metadata: {} }))).toBe(true);
+    expect(shouldNotifyInvocationRequester(testInvocation({ metadata: { replyMode: "future-mode" } }))).toBe(true);
+  });
+});
 
 describe("applyInvocationStatusPatch", () => {
   test("patches status fields and preserves flight identity", () => {

@@ -79,6 +79,9 @@ export function routeForFollowTarget(
   if (preferredView === "chat" && target.conversationId) {
     return { view: "conversation", conversationId: target.conversationId };
   }
+  if (preferredView === "chat" && target.targetAgentId) {
+    return { view: "agents-v2", agentId: target.targetAgentId, tab: "message" };
+  }
   if (preferredView === "tail") {
     return tailRouteForFollowTarget(target);
   }

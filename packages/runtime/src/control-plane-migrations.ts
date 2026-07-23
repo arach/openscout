@@ -76,6 +76,14 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     },
   },
   {
+    id: "drop-one-orchestrator-unique-index",
+    description:
+      "Drops partial unique idx_role_assignments_one_orchestrator_per_mission so enforceSingleOrchestrator:false works; default single-orch stays app-enforced.",
+    apply(database) {
+      database.exec("DROP INDEX IF EXISTS idx_role_assignments_one_orchestrator_per_mission");
+    },
+  },
+  {
     id: "read-model-indexes",
     description: "Creates durable read indexes used by broker and dashboard queries.",
     apply(database) {

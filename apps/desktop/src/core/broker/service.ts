@@ -90,6 +90,7 @@ import {
 } from "./paths.ts";
 import { buildScoutAskMetadata } from "./ask-metadata.ts";
 import type {
+  ScoutAskReplyMode,
   ScoutAskSenderContext,
   ScoutAskWorkspace,
 } from "./ask-types.ts";
@@ -3761,6 +3762,7 @@ export async function askScoutAgentById(input: {
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
   replyToSessionId?: string;
+  replyMode?: ScoutAskReplyMode;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskByIdResult> {
@@ -3782,6 +3784,7 @@ export async function askScoutAgentById(input: {
     senderContext: input.senderContext,
     labels: input.labels,
     replyToSessionId: input.replyToSessionId,
+    replyMode: input.replyMode,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-mcp",
   });
@@ -3809,6 +3812,7 @@ export async function askScoutSessionById(input: {
   senderContext?: ScoutAskSenderContext;
   labels?: string[];
   replyToSessionId?: string;
+  replyMode?: ScoutAskReplyMode;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskByIdResult> {
@@ -3832,6 +3836,7 @@ export async function askScoutSessionById(input: {
     senderContext: input.senderContext,
     labels: input.labels,
     replyToSessionId: input.replyToSessionId,
+    replyMode: input.replyMode,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-mcp",
   });
@@ -3900,6 +3905,7 @@ export async function deliverScoutAsk(input: {
   projectAgent?: ScoutProjectAgentSpec;
   targetSessionId?: string;
   replyToSessionId?: string;
+  replyMode?: ScoutAskReplyMode;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -3938,14 +3944,12 @@ export async function deliverScoutAsk(input: {
     labels,
   });
   const replyToSessionId = input.replyToSessionId?.trim();
-  const deliveryMetadata =
-    targetSessionId || replyToSessionId
-      ? {
-          ...askMetadata,
-          ...(targetSessionId ? { targetSessionId } : {}),
-          ...(replyToSessionId ? { replyToSessionId } : {}),
-        }
-      : askMetadata;
+  const deliveryMetadata = {
+    ...askMetadata,
+    ...(targetSessionId ? { targetSessionId } : {}),
+    ...(replyToSessionId ? { replyToSessionId } : {}),
+    ...(input.replyMode ? { replyMode: input.replyMode } : {}),
+  };
   const delivery = await brokerPostDeliver(broker.baseUrl, {
     caller: {
       actorId: senderId,
@@ -4029,6 +4033,7 @@ export async function askScoutQuestion(input: {
   projectAgent?: ScoutProjectAgentSpec;
   targetSessionId?: string;
   replyToSessionId?: string;
+  replyMode?: ScoutAskReplyMode;
   currentDirectory?: string;
   source?: string;
 }): Promise<ScoutAskResult> {
@@ -4051,6 +4056,7 @@ export async function askScoutQuestion(input: {
     projectAgent: input.projectAgent,
     targetSessionId: input.targetSessionId,
     replyToSessionId: input.replyToSessionId,
+    replyMode: input.replyMode,
     currentDirectory: input.currentDirectory,
     source: input.source ?? "scout-cli",
   });

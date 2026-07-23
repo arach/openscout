@@ -2,6 +2,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 
 import {
+  isLegacyOrphanTerminalRelay,
+  isRelayCommandIdentity,
   isTerminalRelayHealthy,
   readTerminalRelayHealth,
   startManagedTerminalRelay,
@@ -43,6 +45,66 @@ describe("isTerminalRelayHealthy", () => {
     globalThis.fetch = mock(async () => Response.json({ ok: true })) as typeof fetch;
 
     await expect(isTerminalRelayHealthy("http://127.0.0.1:3201")).resolves.toBe(false);
+  });
+});
+
+describe("isLegacyOrphanTerminalRelay", () => {
+  const health = {
+    ok: true as const,
+    surface: "openscout-terminal-relay" as const,
+    pid: 24241,
+    sessions: 0,
+    attachedSessions: 0,
+  };
+
+  test("matches only an idle reparented relay whose health pid owns the listener", () => {
+    expect(isLegacyOrphanTerminalRelay({
+      health,
+      listenerPid: 24241,
+      parentPid: 1,
+      command: "scout-relay",
+    })).toBe(true);
+    expect(isLegacyOrphanTerminalRelay({
+      health: { ...health, sessions: 1 },
+      listenerPid: 24241,
+      parentPid: 1,
+      command: "scout-relay",
+    })).toBe(false);
+    expect(isLegacyOrphanTerminalRelay({
+      health: { ok: true, surface: "openscout-terminal-relay", pid: 24241 },
+      listenerPid: 24241,
+      parentPid: 1,
+      command: "scout-relay",
+    })).toBe(false);
+    expect(isLegacyOrphanTerminalRelay({
+      health,
+      listenerPid: 99999,
+      parentPid: 1,
+      command: "scout-relay",
+    })).toBe(false);
+    expect(isLegacyOrphanTerminalRelay({
+      health,
+      listenerPid: 24241,
+      parentPid: process.pid,
+      command: "scout-relay",
+    })).toBe(false);
+    expect(isLegacyOrphanTerminalRelay({
+      health,
+      listenerPid: 24241,
+      parentPid: 1,
+      command: "not-scout-relay-wrapper",
+    })).toBe(false);
+  });
+});
+
+describe("isRelayCommandIdentity", () => {
+  test("matches exact relay executable tokens and rejects near matches", () => {
+    expect(isRelayCommandIdentity("scout-relay")).toBe(true);
+    expect(isRelayCommandIdentity("node /opt/openscout/openscout-terminal-relay.mjs")).toBe(true);
+    expect(isRelayCommandIdentity("bun /src/terminal-relay-node.ts")).toBe(true);
+    expect(isRelayCommandIdentity("node /src/terminal-relay-node.ts --watch-parent 123")).toBe(true);
+    expect(isRelayCommandIdentity("not-scout-relay-wrapper")).toBe(false);
+    expect(isRelayCommandIdentity("node /tmp/openscout-terminal-relay.mjs.backup")).toBe(false);
   });
 });
 

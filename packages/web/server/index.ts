@@ -132,7 +132,7 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
 }
 
 void startTerminalRelay();
-await bootstrapProviderTelemetry();
+void bootstrapProviderTelemetry();
 
 const web = await createOpenScoutWebServer({
   currentDirectory,
@@ -297,4 +297,4 @@ process.on("SIGTERM", (signal) => { void shutdown(signal); });
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
 console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
 console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
-void warmupCaches();
+setTimeout(() => void warmupCaches(), 5_000).unref?.();

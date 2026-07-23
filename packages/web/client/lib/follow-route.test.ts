@@ -114,6 +114,21 @@ describe("follow route resolution", () => {
     });
   });
 
+  test("routes chat intent to the responsible agent when work has no conversation", () => {
+    expect(routeForFollowTarget({
+      flightId: null,
+      invocationId: null,
+      conversationId: null,
+      workId: "work-1",
+      sessionId: null,
+      targetAgentId: "agent.main",
+    }, "chat")).toEqual({
+      view: "agents-v2",
+      agentId: "agent.main",
+      tab: "message",
+    });
+  });
+
   test("merges resolved follow context over route fallbacks", () => {
     expect(mergeFollowTargets({
       flightId: "flight-1",

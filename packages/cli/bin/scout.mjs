@@ -70,7 +70,7 @@ if (bunPath) {
 
   if (isCurrentRuntimeBun()) {
     await import(pathToFileURL(bunEntry).href);
-    process.exit(0);
+    process.exit(process.exitCode ?? 0);
   }
 
   const result = spawnSync(bunPath, [bunEntry, ...process.argv.slice(2)], {

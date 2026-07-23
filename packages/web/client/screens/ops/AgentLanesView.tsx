@@ -2,6 +2,7 @@ import "./agent-lanes.css";
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -14,10 +15,11 @@ import {
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import type { TailFeedLoadPhase, TailFeedLoadState } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
+import type { ObserveCache } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
-import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
-import { useScout } from "../../scout/Provider.tsx";
+import type { Agent, ObserveEvent, Route, TailDiscoverySnapshot, TailEvent } from "../../lib/types.ts";
+import { ScoutContext } from "../../scout/Provider.tsx";
 import { defineSurface } from "../../surfaces/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
@@ -573,9 +575,21 @@ function AgentLaneColumn({
   );
 }
 
+export type AgentLanesData = {
+  agents: Agent[];
+  discovery: TailDiscoverySnapshot | null;
+  tailEvents: TailEvent[];
+  loadState: TailFeedLoadState;
+  retryInitialLoad: () => Promise<void>;
+  observeCache: ObserveCache;
+  terminalSessions?: TerminalSessionRecord[];
+  operatorName?: string;
+};
+
 export function AgentLanesView({
   navigate,
   agents: agentsProp,
+  data,
   embedded = false,
   laneSize = "lg",
   profileId: profileIdProp,
@@ -584,15 +598,18 @@ export function AgentLanesView({
 }: {
   navigate: (route: Route) => void;
   agents?: Agent[];
+  data?: AgentLanesData;
   embedded?: boolean;
   laneSize?: AgentLaneSize;
   profileId?: LaneDeckProfileId;
   harnessFilter?: string | null;
   projectFilter?: string | null;
 }) {
-  const { agents: contextAgents, onboarding } = useScout();
-  const scoutAgents = agentsProp ?? contextAgents;
-  const laneOperatorName = onboarding?.operatorName?.trim() || undefined;
+  const scoutContext = useContext(ScoutContext);
+  const scoutAgents = data?.agents ?? agentsProp ?? scoutContext?.agents ?? [];
+  const laneOperatorName = data?.operatorName?.trim()
+    || scoutContext?.onboarding?.operatorName?.trim()
+    || undefined;
   const profileId = profileIdProp ?? readLaneDeckProfileId();
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
@@ -605,7 +622,7 @@ export function AgentLanesView({
   // the user's stored horizon choice stays untouched for the lanes layout.
   const effectiveHorizon: AgentLaneHorizonKey = floorMode ? "4h" : horizon;
   const [summaryHeight, setSummaryHeight] = useState<number | null>(readStoredLaneSummaryHeight);
-  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
+  const [browserTerminalSessions, setBrowserTerminalSessions] = useState<TerminalSessionRecord[]>([]);
   const { beginResize, resetSummaryHeight, resizing: summaryResizing } = useLaneSummaryResize(setSummaryHeight);
   const handleSummaryResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
@@ -613,7 +630,8 @@ export function AgentLanesView({
   );
   const tailRecentLimit = agentLaneTailRecentLimit(effectiveHorizon);
   const traceWindowMs = agentLaneHorizonWindowMs(effectiveHorizon);
-  const { discovery, events: tailEvents, loadState, retryInitialLoad } = useTailFeed({
+  const browserTail = useTailFeed({
+    enabled: !data,
     includeTranscriptReplay: true,
     hydrateOnDiscovery: true,
     discoveryIntervalMs: embedded ? EMBEDDED_TAIL_DISCOVERY_INTERVAL_MS : 5_000,
@@ -621,6 +639,11 @@ export function AgentLanesView({
     discoveryLimit: embedded ? EMBEDDED_TAIL_DISCOVERY_LIMIT : undefined,
     pauseWhenHidden: true,
   });
+  const discovery = data?.discovery ?? browserTail.discovery;
+  const tailEvents = data?.tailEvents ?? browserTail.events;
+  const loadState = data?.loadState ?? browserTail.loadState;
+  const retryInitialLoad = data?.retryInitialLoad ?? browserTail.retryInitialLoad;
+  const terminalSessions = data?.terminalSessions ?? browserTerminalSessions;
   const returnRoute: Route = { view: "ops", mode: "lanes" };
   const horizonLabel = agentLaneHorizonLabel(effectiveHorizon);
   const clockIntervalMs = embedded ? EMBEDDED_CLOCK_INTERVAL_MS : 10_000;
@@ -634,14 +657,15 @@ export function AgentLanesView({
   }, [clockIntervalMs]);
 
   useEffect(() => {
+    if (data) return;
     let cancelled = false;
     const load = async () => {
       if (documentIsHidden()) return;
       try {
         const sessions = await fetchTerminalSessions({ includeDiscovered: false });
-        if (!cancelled) setTerminalSessions(sessions);
+        if (!cancelled) setBrowserTerminalSessions(sessions);
       } catch {
-        if (!cancelled) setTerminalSessions([]);
+        if (!cancelled) setBrowserTerminalSessions([]);
       }
     };
     void load();
@@ -659,7 +683,7 @@ export function AgentLanesView({
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
     };
-  }, [terminalPollIntervalMs]);
+  }, [data, terminalPollIntervalMs]);
 
   useEffect(() => {
     try {
@@ -686,17 +710,20 @@ export function AgentLanesView({
   }, [gridColumns]);
 
   const laneOrderRef = useRef(createStableLaneOrder());
+  const rosterIssueLogSignatureRef = useRef("");
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
   const [inspectedLaneId, setInspectedLaneId] = useState<string | null>(null);
   const observeAgents = useMemo(
     () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, effectiveHorizon)),
     [scoutAgents, now, effectiveHorizon],
   );
-  const observeCache = useObservePolling(observeAgents, {
+  const browserObserveCache = useObservePolling(observeAgents, {
+    enabled: !data,
     activeIntervalMs: embedded ? EMBEDDED_OBSERVE_ACTIVE_INTERVAL_MS : undefined,
     idleIntervalMs: embedded ? EMBEDDED_OBSERVE_IDLE_INTERVAL_MS : undefined,
     pauseWhenHidden: true,
   });
+  const observeCache = data?.observeCache ?? browserObserveCache;
   const tailLoading = loadState.discovery === "loading" || loadState.recent === "loading";
   const tailUnavailable = loadState.discovery === "error" || loadState.recent === "error";
   const tailSourceCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
@@ -732,10 +759,14 @@ export function AgentLanesView({
   }, [discovery, tailEvents, scoutAgents, terminalSessions, observeCache, now, effectiveHorizon]);
 
   useEffect(() => {
+    const signature = issues.map((issue) => `${issue.id}\0${issue.message}`).join("\n");
+    if (signature === rosterIssueLogSignatureRef.current) return;
+    rosterIssueLogSignatureRef.current = signature;
     if (issues.length === 0) return;
-    for (const issue of issues) {
-      console.warn(`[agent-lanes] ${issue.message}`, issue);
-    }
+    console.warn(
+      `[agent-lanes] ${issues.length} roster issue${issues.length === 1 ? "" : "s"}`,
+      issues,
+    );
   }, [issues]);
 
   useEffect(() => {
@@ -1075,7 +1106,7 @@ export function AgentLanesView({
           ) : null}
         </div>
       </div>
-      {issues.length > 0 ? (
+      {data == null && issues.length > 0 ? (
         <div className="s-agent-lanes-issues" role="status" aria-live="polite">
           <div className="s-agent-lanes-issues-head">
             <span className="s-agent-lanes-issues-badge">Roster issues</span>
@@ -1181,6 +1212,9 @@ export function AgentLanesView({
           lane={inspectedLane}
           navigate={navigate}
           returnRoute={returnRoute}
+          // Adapter-backed embeds have no browser routes, so hide route-jumping
+          // controls rather than rendering inert buttons.
+          navigationEnabled={data == null}
           onClose={() => setInspectedLaneId(null)}
         />
       )}

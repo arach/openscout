@@ -127,6 +127,11 @@ function createHarness(input: {
   invocation?: InvocationRequest;
   activeInvocationIds?: string[];
   now?: number;
+  onTerminalFlight?: (input: {
+    flight: FlightRecord;
+    invocation?: InvocationRequest;
+    previous: FlightRecord | undefined;
+  }) => void | Promise<void>;
 } = {}) {
   const snapshot = input.snapshot ?? testSnapshot({
     agents: { "agent-1": testAgent() },
@@ -182,6 +187,7 @@ function createHarness(input: {
       forwardedFlights.push(flight);
     },
     isInvocationActive: (invocationId) => activeInvocationIds.has(invocationId),
+    onTerminalFlight: input.onTerminalFlight,
     warn: (message) => warnings.push(message),
     now: () => input.now ?? 10_000,
   });
@@ -240,6 +246,7 @@ describe("broker flight lifecycle helpers", () => {
       completedAt: 4_000,
       output: "done",
     });
+    const terminalCallbacks: Array<{ flightId: string; invocationId?: string }> = [];
     const harness = createHarness({
       invocation,
       deliveries: [
@@ -247,6 +254,12 @@ describe("broker flight lifecycle helpers", () => {
         testDelivery({ id: "terminal-delivery", status: "failed" }),
       ],
       now: 20_000,
+      onTerminalFlight: async ({ flight, invocation: inv }) => {
+        terminalCallbacks.push({
+          flightId: flight.id,
+          invocationId: inv?.id,
+        });
+      },
     });
 
     await harness.service.recordFlight(completed);
@@ -269,6 +282,9 @@ describe("broker flight lifecycle helpers", () => {
     ]);
     expect(harness.promoted).toEqual([{ invocation, flight: completed, output: "done" }]);
     expect(harness.forwardedFlights).toEqual([completed]);
+    expect(terminalCallbacks).toEqual([
+      { flightId: "flight-1", invocationId: "invocation-1" },
+    ]);
   });
 
   test("turns completed consult flights without visible output into failures", async () => {

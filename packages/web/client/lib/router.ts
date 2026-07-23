@@ -193,6 +193,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "mesh",
   "activity",
   "work",
+  "follow",
 ]);
 
 function parseMachineId(url: URL): string | undefined {
@@ -489,7 +490,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
     const root = url.searchParams.get("root")?.trim() || undefined;
     return scoped({ view: "repos", ...(root ? { root } : {}) });
   }
-  if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
+  if (parts[0] === "providers" || parts[0] === "harnesses") {
+    return scoped({ view: "harnesses" });
+  }
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
     if (path) {
@@ -578,7 +581,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     if (workId) route.workId = workId;
     if (sessionId) route.sessionId = sessionId;
     if (targetAgentId) route.targetAgentId = targetAgentId;
-    return route;
+    return scoped(route);
   }
   if (parts[0] === "settings") {
     if (parts[1] === "agents") {
@@ -741,7 +744,7 @@ export function routePath(r: Route, pathname?: string): string {
       return `/repos${searchSuffix(params)}`;
     }
     case "harnesses":
-      return pathWithMachineScope("/harnesses", r);
+      return pathWithMachineScope("/providers", r);
     case "repo-diff": {
       const params = new URLSearchParams();
       params.set("path", r.path);
@@ -824,6 +827,7 @@ export function routePath(r: Route, pathname?: string): string {
       if (r.workId) params.set("workId", r.workId);
       if (r.sessionId) params.set("sessionId", r.sessionId);
       if (r.targetAgentId) params.set("targetAgentId", r.targetAgentId);
+      if (r.machineId) params.set(MACHINE_SCOPE_PARAM, r.machineId);
       const search = params.toString();
       return `/follow${search ? `?${search}` : ""}`;
     }
@@ -894,7 +898,7 @@ export function routeKey(r: Route): string {
     case "broker":
       return `broker:${r.attemptId ?? ""}`;
     case "follow":
-      return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
+      return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}${scope}`;
     case "terminal":
       return `terminal:${r.agentId ?? ""}:${r.terminalSessionId ?? ""}:${r.terminalSurfaceKey ?? ""}:${r.terminalBackend ?? ""}:${r.terminalAgent ?? ""}:${r.terminalSessionName ?? ""}:${r.terminalTabId ?? ""}:${r.mode ?? "detail"}`;
     case "repo-diff":

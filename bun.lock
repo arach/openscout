@@ -10,7 +10,7 @@
     },
     "apps/cloud": {
       "name": "@openscout/api",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "dependencies": {
         "@vercel/blob": "^2.3.3",
         "next": "16.1.6",
@@ -26,7 +26,7 @@
     },
     "apps/desktop": {
       "name": "@scout/app",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "bin": {
         "scout": "./bin/scout.ts",
         "pairing-runtime-controller": "./bin/pairing-runtime-controller.ts",
@@ -62,7 +62,7 @@
     },
     "apps/mesh-front-door": {
       "name": "@openscout/mesh-front-door",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "dependencies": {
         "@openscout/protocol": "workspace:*",
       },
@@ -72,7 +72,7 @@
     },
     "packages/agent-sessions": {
       "name": "@openscout/agent-sessions",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "devDependencies": {
         "@types/node": "^22",
         "bun-types": "^1.3.11",
@@ -81,7 +81,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "bin": {
         "scout": "./bin/scout",
         "openscout-runtime": "./bin/openscout-runtime.mjs",
@@ -97,14 +97,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -128,7 +128,7 @@
     },
     "packages/session-trace": {
       "name": "@openscout/session-trace",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "dependencies": {
         "@openscout/agent-sessions": "workspace:*",
       },
@@ -138,7 +138,7 @@
     },
     "packages/session-trace-react": {
       "name": "@openscout/session-trace-react",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "dependencies": {
         "@openscout/session-trace": "workspace:*",
       },
@@ -152,7 +152,7 @@
     },
     "packages/web": {
       "name": "@openscout/web",
-      "version": "0.2.76",
+      "version": "0.2.77",
       "bin": {
         "openscout-web": "./bin/openscout-web.mjs",
       },
@@ -206,6 +206,9 @@
   "trustedDependencies": [
     "sharp",
   ],
+  "patchedDependencies": {
+    "hudsonkit@0.3.3": "patches/hudsonkit@0.3.3.patch",
+  },
   "packages": {
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.104", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@ai-sdk/provider-utils": "4.0.23", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-ZKX5n74io8VIRlhIMSLWVlvT3sXC8Z7cZ9GHuWBWZDVi96+62AIsWuLGvMfcBA1STYuSoDrp6rIziZmvrTq0TA=="],
 

@@ -1291,6 +1291,9 @@ export type ScoutMobileServiceBudgetWindow = {
   label: string;
   /// Fraction of the window used, 0-100, rounded to an integer.
   usedPercent: number;
+  /// Absolute reset time in epoch milliseconds. The phone uses this to reject
+  /// stale pre-reset samples reported by another paired Mac.
+  resetAt: number;
   /// Short reset text, e.g. "48m", "4d", "Sun"; "" when unknown or already past.
   reset: string;
 };
@@ -1348,18 +1351,22 @@ function mobileServiceBudgetPlan(gauge: ServiceGauge): string {
 /// Project one quota gauge onto the phone's per-provider budget row, preserving
 /// each quota window as its own meter. Returns null for a non-quota gauge (status
 /// tiles), a provider we don't surface on mobile, or a provider with no windows.
-function mobileServiceBudgetFromGauge(gauge: ServiceGauge): ScoutMobileServiceBudget | null {
+export function mobileServiceBudgetFromGauge(gauge: ServiceGauge): ScoutMobileServiceBudget | null {
   const provider = mobileServiceBudgetProvider(gauge.id);
   if (!provider) return null;
   if (gauge.kind !== "quota") return null;
 
   // Each window carries a `fill` (0-1 fraction used). Preserve source order (the
   // aggregator already sorts short window → long window, e.g. 5h → 7d).
-  const windows: ScoutMobileServiceBudgetWindow[] = (gauge.windows ?? []).map((window) => ({
-    label: window.label,
-    usedPercent: Math.round(Math.max(0, Math.min(1, window.fill)) * 100),
-    reset: formatMobileWindowReset(window.resetAt),
-  }));
+  const now = Date.now();
+  const windows: ScoutMobileServiceBudgetWindow[] = (gauge.windows ?? [])
+    .filter((window) => Number.isFinite(window.resetAt) && window.resetAt > now)
+    .map((window) => ({
+      label: window.label,
+      usedPercent: Math.round(Math.max(0, Math.min(1, window.fill)) * 100),
+      resetAt: window.resetAt,
+      reset: formatMobileWindowReset(window.resetAt),
+    }));
   if (windows.length === 0) return null;
 
   return {

@@ -40,6 +40,11 @@ import {
   scopeInstrumentBundleLayer,
   scopeSurfaceFlagDefinition,
 } from "../scope/flags.ts";
+import {
+  SCOUT_FLAG_BUNDLE_QUERY_KEYS,
+  SCOUT_FLAG_GLOBAL_BUNDLE_QUERY_KEYS,
+  SCOUT_FLAG_PERSIST_QUERY_KEYS,
+} from "./scout-flag-query.ts";
 
 export const SCOUT_AUDIENCE_ORDER = ["everyone", "internal", "power"] as const;
 export type ScoutAudienceTier = (typeof SCOUT_AUDIENCE_ORDER)[number];
@@ -295,18 +300,24 @@ function scoutFlagBundleFromValue(value: string | null | undefined): ScoutFlagBu
   return SCOUT_FLAG_BUNDLE_ALIASES[value.trim().toLowerCase()] ?? null;
 }
 
+function firstQueryValue(
+  params: URLSearchParams,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
 function scoutFlagBundleFromUrl(params: URLSearchParams): ScoutFlagBundle | null {
-  const raw =
-    params.get("ffBundle") ??
-    params.get("ffVariant") ??
-    params.get("scoutBundle") ??
-    params.get("scoutExperience") ??
-    params.get("ab");
+  const raw = firstQueryValue(params, SCOUT_FLAG_BUNDLE_QUERY_KEYS);
   return scoutFlagBundleFromValue(raw);
 }
 
 function scoutFlagBundlePersistenceRequest(params: URLSearchParams): ScoutFlagBundlePersistenceRequest | null {
-  const direct = params.get("ffGlobal") ?? params.get("scoutGlobalBundle");
+  const direct = firstQueryValue(params, SCOUT_FLAG_GLOBAL_BUNDLE_QUERY_KEYS);
   if (direct) {
     const normalized = direct.trim().toLowerCase();
     if (SCOUT_FLAG_BUNDLE_CLEAR_ALIASES.has(normalized)) return { action: "clear" };
@@ -314,7 +325,7 @@ function scoutFlagBundlePersistenceRequest(params: URLSearchParams): ScoutFlagBu
     return bundle ? { action: "set", bundle } : null;
   }
 
-  const persist = params.get("ffPersist") ?? params.get("persistBundle");
+  const persist = firstQueryValue(params, SCOUT_FLAG_PERSIST_QUERY_KEYS);
   if (!persist) return null;
 
   const normalized = persist.trim().toLowerCase();
