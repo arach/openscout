@@ -185,6 +185,12 @@ type TerminalSurfaceCapabilities = {
 Clients render only supported actions. They must not translate every existing
 tmux control button into a Herdr command by analogy.
 
+`scrollback` is true only when the negotiated Herdr schema exposes the
+`pane.read` sources used by the adapter. The initial contract maps bounded
+scrollback reads to `source: "recent"`; an explicitly unwrapped transcript view
+may use `source: "recent_unwrapped"`. Observe continues to use the authoritative
+`source: "visible"` grid.
+
 ### Adapter contract
 
 Add a shared runtime boundary along these lines:
@@ -232,12 +238,14 @@ and schema/protocol metadata, then require the feature set actually used:
 - `pane.send_input` for Takeover
 - agent records and native session references for agent-state correlation
 
-Herdr 0.7.3 and 0.7.5 expose the required revision-bearing wait through the
-public socket schema: `events.wait` accepts a `pane_output_changed` matcher with
-`pane_id` and optional `min_revision`. Tier-one Observe should keep one
-server-owned wait outstanding per observed pane, then issue the next ANSI
-`pane.read` after the revision advances. `pane.wait_for_output` is a separate
-content-matching API and is not the primitive used to mirror a pane.
+The locally verified Herdr 0.7.3 installation exposes the required
+revision-bearing wait through the public socket schema: `events.wait` accepts a
+`pane_output_changed` matcher with `pane_id` and optional `min_revision`.
+Tier-one Observe should keep one server-owned wait outstanding per observed
+pane, then issue the next ANSI `pane.read` after the revision advances.
+`pane.wait_for_output` is a separate content-matching API and is not the
+primitive used to mirror a pane. Other Herdr versions must be accepted only
+after the installed schema proves the same capabilities.
 
 OpenScout must still negotiate this exact matcher from the installed schema
 rather than infer it from a version string or from an internal event enum.
@@ -308,7 +316,9 @@ Observe opens a server-side Herdr surface channel in read-only mode.
 Bootstrap:
 
 1. Read pane metadata and its current terminal dimensions.
-2. Request an ANSI `pane.read` snapshot for the visible source.
+2. Request `pane.read` with `source: "visible"`, `format: "ansi"`, and
+   `strip_ansi: false`; the Herdr defaults are text with ANSI stripped and are
+   not safe for this projection.
 3. Send a revisioned `terminal:snapshot` message.
 4. Start a negotiated `events.wait` loop for `pane_output_changed` with
    `min_revision` set to that revision.
@@ -599,7 +609,7 @@ type ObservedAgentSurfaceState = {
   surfaceId: string;
   harness: string | null;
   sourceSessionId: string | null;
-  state: "idle" | "working" | "blocked" | "unknown";
+  state: "idle" | "working" | "blocked" | "done" | "unknown";
   title: string | null;
   observedAt: number;
   expiresAt: number;
@@ -609,6 +619,8 @@ type ObservedAgentSurfaceState = {
 Rules:
 
 - Herdr state may update an endpoint's observed presence/status.
+- Herdr `done` is display-only observed state. It never completes a Scout work
+  item, invocation, or flight and may collapse to `unknown` after its TTL.
 - It never completes or fails a Scout flight by itself.
 - A native agent session reference may correlate the surface to a Scout session.
 - Missing or expired reports become `unknown`; they are not proof of completion.
