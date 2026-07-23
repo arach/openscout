@@ -352,6 +352,34 @@ describe("BrokerMessageService", () => {
     }));
   });
 
+  test("does not enqueue status notifications for inline and none invocations", async () => {
+    for (const replyMode of ["inline", "none"] as const) {
+      const harness = createHarness();
+      await harness.service.postInvocationStatusMessage(invocation({
+        metadata: { replyMode },
+      }), {
+        id: `flight-${replyMode}`,
+        error: `${replyMode} failed`,
+      });
+
+      expect(harness.recordedMessages).toHaveLength(1);
+      expect(harness.recordedMessages[0]?.message.audience).toEqual({ delivery: "none" });
+    }
+  });
+
+  test("enqueues status notifications for explicit notify and legacy invocations", async () => {
+    for (const metadata of [{ replyMode: "notify" }, {}]) {
+      const harness = createHarness();
+      await harness.service.postInvocationStatusMessage(invocation({ metadata }), {
+        error: "failed",
+      });
+
+      expect(harness.recordedMessages[0]?.message.audience).toEqual({
+        notify: ["operator"],
+      });
+    }
+  });
+
   test("finds the newest existing broker reply using the reply lookback window", () => {
     const olderReply = message({ id: "old", createdAt: 4_999 });
     const firstReply = message({ id: "first", createdAt: 5_000 });

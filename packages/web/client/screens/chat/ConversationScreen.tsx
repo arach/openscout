@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import type {
   ScoutDispatchRecord,
   ScoutDispatchCandidate,
 } from "@openscout/protocol";
 import { api } from "../../lib/api.ts";
+import {
+  hasCachedConversationHistory,
+  loadConversationHistory,
+  loadConversationTail,
+  readCachedConversationTail,
+  writeCachedConversationTail,
+} from "../../lib/chat-cache.ts";
 import {
   filterAgentsByMachineScope,
 } from "../../lib/machine-scope.ts";
@@ -120,6 +134,8 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
   }
 }
 
+type ConversationMessageLoadMode = "initial" | "refresh" | "none";
+
 export function ConversationScreen({
   conversationId,
   initialDraft,
@@ -140,7 +156,29 @@ export function ConversationScreen({
     [agents, machineId],
   );
   const [sessionMeta, setSessionMeta] = useState<SessionEntry | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const sessionMetaRef = useRef<SessionEntry | null>(null);
+  sessionMetaRef.current = sessionMeta;
+  const cachedTail = useMemo(
+    () => readCachedConversationTail(conversationId),
+    [conversationId],
+  );
+  const [messagesByConversationId, setMessagesByConversationId] = useState<
+    Record<string, Message[]>
+  >(() => cachedTail ? { [conversationId]: cachedTail } : {});
+  const messages = messagesByConversationId[conversationId] ?? cachedTail ?? [];
+  const setMessages = useCallback((update: SetStateAction<Message[]>) => {
+    setMessagesByConversationId((previousByConversationId) => {
+      const previous = previousByConversationId[conversationId]
+        ?? readCachedConversationTail(conversationId)
+        ?? [];
+      const next = typeof update === "function" ? update(previous) : update;
+      const cached = writeCachedConversationTail(conversationId, next);
+      return {
+        ...previousByConversationId,
+        [conversationId]: cached,
+      };
+    });
+  }, [conversationId]);
   const [currentFlight, setCurrentFlight] = useState<Flight | null>(null);
   const [turnActivity, setTurnActivity] = useState<FleetActivity[]>([]);
   const [turnAsk, setTurnAsk] = useState<FleetAsk | null>(null);
@@ -159,6 +197,8 @@ export function ConversationScreen({
   const lastForegroundRefreshAtRef = useRef(0);
   const appliedInitialDraftKeyRef = useRef<string | null>(null);
   const lastPostedReadCursorMessageIdRef = useRef<string | null>(null);
+  const activeConversationIdRef = useRef(conversationId);
+  activeConversationIdRef.current = conversationId;
 
   const agentId = sessionMeta?.agentId ?? null;
   const isDm = sessionMeta?.kind === "direct";
@@ -183,12 +223,23 @@ export function ConversationScreen({
       .catch(() => {});
   }, [conversationId, agentId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (
+    options: {
+      messageMode?: ConversationMessageLoadMode;
+      includeMetadata?: boolean;
+    } = {},
+  ) => {
+    const messageMode = options.messageMode ?? "none";
+    const includeMetadata = options.includeMetadata ?? true;
     setError(null);
     try {
-      const meta = await api<SessionEntry>(
-        `/api/session/${encodeURIComponent(conversationId)}`,
-      ).catch(() => null);
+      const meta = includeMetadata
+        ? await api<SessionEntry>(
+            `/api/session/${encodeURIComponent(conversationId)}`,
+          ).catch(() => null)
+        : sessionMetaRef.current;
+
+      if (activeConversationIdRef.current !== conversationId) return;
 
       setSessionMeta((previous) => keepPreviousIfJsonEqual(previous, meta));
       const resolvedAgentId = meta?.agentId ?? null;
@@ -206,10 +257,27 @@ export function ConversationScreen({
         return;
       }
 
+      const cachedMessages = readCachedConversationTail(canonicalConversationId);
+      const cachedMessageAt = cachedMessages?.at(-1)?.createdAt ?? null;
+      const cacheIsBehindSummary =
+        cachedMessages === null
+        || (
+          typeof meta?.lastMessageAt === "number"
+          && (cachedMessageAt === null || cachedMessageAt < meta.lastMessageAt)
+        );
+      const historyIsCached = hasCachedConversationHistory(
+        canonicalConversationId,
+      );
+      const shouldLoadHistory = messageMode === "initial" && !historyIsCached;
+      const shouldRefreshTail = messageMode === "refresh"
+        || (messageMode === "initial" && cacheIsBehindSummary);
+
       const [conversationMessages, activeFlights, fleet] = await Promise.all([
-        api<Message[]>(
-          `/api/messages?conversationId=${encodeURIComponent(canonicalConversationId)}&limit=300`,
-        ),
+        shouldLoadHistory
+          ? loadConversationHistory(canonicalConversationId)
+          : shouldRefreshTail
+            ? loadConversationTail(canonicalConversationId, { refresh: true })
+            : Promise.resolve(cachedMessages),
         api<Flight[]>(
           `/api/flights?conversationId=${encodeURIComponent(canonicalConversationId)}`,
         ),
@@ -218,11 +286,15 @@ export function ConversationScreen({
         ),
       ]);
 
-      const sortedMessages = sortMessages(conversationMessages);
+      if (activeConversationIdRef.current !== conversationId) return;
+
+      const sortedMessages = sortMessages(conversationMessages ?? []);
       const visibleMessages = sortedMessages.filter(
         (message) => !isNoisyConversationStatusMessage(message),
       );
-      setMessages((previous) => keepPreviousIfJsonEqual(previous, visibleMessages));
+      if (conversationMessages) {
+        setMessages((previous) => keepPreviousIfJsonEqual(previous, visibleMessages));
+      }
       saveLastViewed(canonicalConversationId);
       const lastMessage = sortedMessages.at(-1);
       if (
@@ -275,12 +347,13 @@ export function ConversationScreen({
         ),
       );
     } catch (cause) {
+      if (activeConversationIdRef.current !== conversationId) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [conversationId, navigate]);
+  }, [conversationId, navigate, setMessages]);
 
   useEffect(() => {
-    void load();
+    void load({ messageMode: "initial" });
   }, [load]);
 
   useEffect(() => {
@@ -846,7 +919,7 @@ export function ConversationScreen({
             setTurnActivity([]);
             setTurnAsk(null);
             setAwaitingResponseSince(null);
-            void load();
+            void load({ messageMode: "refresh", includeMetadata: false });
             return;
           }
 
@@ -869,7 +942,7 @@ export function ConversationScreen({
         }
 
         if (event.kind === "unknown") {
-          void load();
+          void load({ messageMode: "refresh" });
         }
       },
       [agentId, agentName, conversationId, isDm, load, operatorName, scopedAgents],
@@ -882,7 +955,7 @@ export function ConversationScreen({
     }
 
     const timer = setInterval(() => {
-      void load();
+      void load({ messageMode: "none", includeMetadata: false });
     }, 5000);
     return () => clearInterval(timer);
   }, [shouldPollOutstandingTurn, load]);
@@ -898,7 +971,7 @@ export function ConversationScreen({
         return;
       }
       lastForegroundRefreshAtRef.current = now;
-      void load();
+      void load({ messageMode: "refresh" });
     };
 
     window.addEventListener("focus", refreshIfVisible);
@@ -1175,7 +1248,7 @@ export function ConversationScreen({
 
       setAddParticipantOpen(false);
       setAddParticipantId("");
-      await load();
+      await load({ messageMode: "none" });
     } catch (cause) {
       setAddParticipantError(cause instanceof Error ? cause.message : String(cause));
     } finally {

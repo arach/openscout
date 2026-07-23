@@ -1791,44 +1791,16 @@ final class AppModel {
         }
         guard sawSuccessfulRead else { return }
         updateFleetStats(from: agents)
-        // Usage-quota gauges for the Home strip. Every Mac answers from its OWN
-        // statusline/provider captures, and account quota (Claude/Codex/Kimi) is fleet-wide
-        // while machine knowledge is not — a machine whose last session for a
-        // provider ran days ago confidently serves a days-old percentage.
-        // First-non-empty-wins therefore flipped the strip to the stale value
-        // whenever the sorted client order changed. Merge instead: per provider,
-        // per window label, keep the MAX usedPercent — usage is monotonically
-        // non-decreasing within a window and expired windows are already
-        // filtered server-side, so max is the freshest valid value.
-        var budgetsByProvider: [String: ServiceBudget] = [:]
-        var providerOrder: [String] = []
+        // Usage-quota gauges are account-level but reported independently by
+        // every paired Mac. Merge all successful snapshots by reset identity so
+        // an older Mac's pre-reset Codex percentage cannot override the current
+        // window. Within the same window, the highest observed usage is freshest.
+        var budgetSnapshots: [[ServiceBudget]] = []
         for client in clients {
             guard let budgets = try? await client.serviceBudgets() else { continue }
-            for budget in budgets {
-                guard let existing = budgetsByProvider[budget.provider] else {
-                    budgetsByProvider[budget.provider] = budget
-                    providerOrder.append(budget.provider)
-                    continue
-                }
-                var windows = existing.windows
-                for window in budget.windows {
-                    if let index = windows.firstIndex(where: { $0.label == window.label }) {
-                        if window.usedPercent > windows[index].usedPercent {
-                            windows[index] = window
-                        }
-                    } else {
-                        windows.append(window)
-                    }
-                }
-                budgetsByProvider[budget.provider] = ServiceBudget(
-                    provider: existing.provider,
-                    label: existing.label,
-                    plan: existing.plan,
-                    windows: windows
-                )
-            }
+            budgetSnapshots.append(budgets)
         }
-        let mergedBudgets = providerOrder.compactMap { budgetsByProvider[$0] }
+        let mergedBudgets = mergeServiceBudgets(budgetSnapshots)
         if !mergedBudgets.isEmpty {
             serviceBudgets = mergedBudgets
         }

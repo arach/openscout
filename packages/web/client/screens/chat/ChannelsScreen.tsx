@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/api.ts";
+import {
+  RECENT_CHAT_PRELOAD_LIMIT,
+  preloadRecentConversationTails,
+} from "../../lib/chat-cache.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
 import {
   conversationDisplayTitle,
@@ -698,9 +702,17 @@ export function ChannelsScreen({
   }, [channelId]);
 
   const loadSessions = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/conversations").catch(() => [] as SessionEntry[]);
+    const search = new URLSearchParams({
+      kinds: "channel,group_direct",
+      limit: String(RECENT_CHAT_PRELOAD_LIMIT),
+    });
+    if (machineId) search.set("machineId", machineId);
+    const data = await api<SessionEntry[]>(`/api/conversations?${search}`).catch(
+      () => [] as SessionEntry[],
+    );
     setSessions(data);
-  }, []);
+    void preloadRecentConversationTails(data);
+  }, [machineId]);
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
 

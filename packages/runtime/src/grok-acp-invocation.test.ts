@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
+import { shutdownAllAcpAgentSessions } from "./acp-agent-invocation.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 
 const originalPath = process.env.PATH;
@@ -12,6 +13,7 @@ const originalXaiApiKey = process.env.XAI_API_KEY;
 const originalGrokCliBin = process.env.GROK_CLI_BIN;
 const originalGrokDelay = process.env.OPENSCOUT_TEST_GROK_DELAY_MS;
 const originalGrokLog = process.env.OPENSCOUT_TEST_GROK_LOG;
+const originalGrokExitAfterPrompt = process.env.OPENSCOUT_TEST_GROK_EXIT_AFTER_PROMPT;
 const tempDirs = new Set<string>();
 
 function tempDir(): string {
@@ -22,16 +24,6 @@ function tempDir(): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForLog(logPath: string, needle: string, timeoutMs = 2_000): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() <= deadline) {
-    const content = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
-    if (content.includes(needle)) return content;
-    await sleep(20);
-  }
-  return existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
 }
 
 function writeFakeGrok(directory: string): { binDir: string; grokPath: string; logPath: string } {
@@ -45,6 +37,7 @@ import readline from "node:readline";
 
 const logPath = process.env.OPENSCOUT_TEST_GROK_LOG;
 const delayMs = Number(process.env.OPENSCOUT_TEST_GROK_DELAY_MS || "0");
+const exitAfterPrompt = process.env.OPENSCOUT_TEST_GROK_EXIT_AFTER_PROMPT === "1";
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
 function log(value) {
@@ -58,7 +51,7 @@ for await (const line of rl) {
   const id = message.id;
   const method = message.method;
   const params = message.params ?? {};
-  log(method);
+  log(method + ":" + (params.sessionId ?? ""));
 
   if (method === "initialize") {
     console.log(JSON.stringify({
@@ -68,7 +61,7 @@ for await (const line of rl) {
         protocolVersion: 1,
         agentCapabilities: {
           promptCapabilities: { image: false },
-          sessionCapabilities: { close: {} }
+          sessionCapabilities: { close: {}, resume: {} }
         },
         agentInfo: { name: "grok-acp", title: "Grok ACP", version: "test" },
         authMethods: [{ id: "xai.api_key" }]
@@ -87,6 +80,11 @@ for await (const line of rl) {
     continue;
   }
 
+  if (method === "session/resume") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+    continue;
+  }
+
   if (method === "session/prompt") {
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     console.log(JSON.stringify({
@@ -101,6 +99,7 @@ for await (const line of rl) {
       }
     }));
     console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } }));
+    if (exitAfterPrompt) setTimeout(() => process.exit(0), 10);
     continue;
   }
 
@@ -122,7 +121,8 @@ function configureFakeGrok(input: { binDir: string; grokPath: string; logPath: s
   process.env.OPENSCOUT_TEST_GROK_DELAY_MS = String(input.delayMs);
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await shutdownAllAcpAgentSessions();
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
   if (originalScoutXaiApiKey === undefined) delete process.env.SCOUT_XAI_API_KEY;
@@ -135,6 +135,8 @@ afterEach(() => {
   else process.env.OPENSCOUT_TEST_GROK_DELAY_MS = originalGrokDelay;
   if (originalGrokLog === undefined) delete process.env.OPENSCOUT_TEST_GROK_LOG;
   else process.env.OPENSCOUT_TEST_GROK_LOG = originalGrokLog;
+  if (originalGrokExitAfterPrompt === undefined) delete process.env.OPENSCOUT_TEST_GROK_EXIT_AFTER_PROMPT;
+  else process.env.OPENSCOUT_TEST_GROK_EXIT_AFTER_PROMPT = originalGrokExitAfterPrompt;
   for (const directory of tempDirs) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -142,7 +144,7 @@ afterEach(() => {
 });
 
 describe("invokeGrokAcpAgent", () => {
-  test("returns text and closes the ACP session for a sub-budget turn", async () => {
+  test("keeps one ACP process attached across sequential turns", async () => {
     const directory = tempDir();
     const { binDir, grokPath, logPath } = writeFakeGrok(directory);
     configureFakeGrok({ binDir, grokPath, logPath, delayMs: 10 });
@@ -155,8 +157,21 @@ describe("invokeGrokAcpAgent", () => {
     });
 
     expect(result.output).toContain("grok-acp-ok");
-    expect(result.sessionId).toBe("grok-fast");
-    expect(await waitForLog(logPath, "session/close")).toContain("session/close");
+    expect(result.sessionId).toBe("fake-grok-acp-session");
+
+    const second = await invokeGrokAcpAgent({
+      sessionId: "grok-fast",
+      cwd: directory,
+      prompt: "reply again",
+      timeoutMs: 2_000,
+    });
+
+    expect(second.output).toContain("grok-acp-ok");
+    const log = readFileSync(logPath, "utf8");
+    expect(log.match(/initialize:/g)).toHaveLength(1);
+    expect(log.match(/session\/new:/g)).toHaveLength(1);
+    expect(log.match(/session\/prompt:/g)).toHaveLength(2);
+    expect(log).not.toContain("session/close:");
   });
 
   test("wait-budget expiry throws requester timeout and leaves ACP session alive until turn end", async () => {
@@ -184,6 +199,37 @@ describe("invokeGrokAcpAgent", () => {
     await sleep(150);
     expect(existsSync(logPath) ? readFileSync(logPath, "utf8") : "").not.toContain("session/close");
 
-    expect(await waitForLog(logPath, "session/close", 2_000)).toContain("session/close");
+    await sleep(600);
+    expect(readFileSync(logPath, "utf8")).not.toContain("session/close:");
+  });
+
+  test("starts a new process and resumes the provider session after an idle process exit", async () => {
+    const directory = tempDir();
+    const { binDir, grokPath, logPath } = writeFakeGrok(directory);
+    configureFakeGrok({ binDir, grokPath, logPath, delayMs: 0 });
+    process.env.OPENSCOUT_TEST_GROK_EXIT_AFTER_PROMPT = "1";
+
+    const first = await invokeGrokAcpAgent({
+      sessionId: "grok-cold",
+      poolKey: "endpoint-grok-cold",
+      cwd: directory,
+      prompt: "first",
+      timeoutMs: 2_000,
+    });
+    await sleep(100);
+
+    const second = await invokeGrokAcpAgent({
+      sessionId: "grok-cold",
+      poolKey: "endpoint-grok-cold",
+      cwd: directory,
+      prompt: "second",
+      timeoutMs: 2_000,
+    });
+
+    expect(second.sessionId).toBe(first.sessionId);
+    const log = readFileSync(logPath, "utf8");
+    expect(log.match(/initialize:/g)).toHaveLength(2);
+    expect(log.match(/session\/new:/g)).toHaveLength(1);
+    expect(log).toContain("session/resume:fake-grok-acp-session");
   });
 });

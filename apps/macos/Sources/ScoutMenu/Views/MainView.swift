@@ -520,6 +520,7 @@ struct MainView: View {
 
     private var terminalTint: Color {
         if controller.webActionPending { return ShellPalette.warning }
+        if controller.webSurfaceStatus == .slow { return ShellPalette.warning }
         return controller.webReachable ? ShellPalette.success : ShellPalette.error
     }
 
@@ -543,6 +544,7 @@ struct MainView: View {
 
     private var webTint: Color {
         if controller.webActionPending { return ShellPalette.warning }
+        if controller.webSurfaceStatus == .slow { return ShellPalette.warning }
         return controller.webReachable ? ShellPalette.success : ShellPalette.error
     }
 

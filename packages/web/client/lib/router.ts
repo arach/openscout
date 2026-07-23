@@ -489,7 +489,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
     const root = url.searchParams.get("root")?.trim() || undefined;
     return scoped({ view: "repos", ...(root ? { root } : {}) });
   }
-  if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
+  if (parts[0] === "providers" || parts[0] === "harnesses") {
+    return scoped({ view: "harnesses" });
+  }
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
     if (path) {
@@ -741,7 +743,7 @@ export function routePath(r: Route, pathname?: string): string {
       return `/repos${searchSuffix(params)}`;
     }
     case "harnesses":
-      return pathWithMachineScope("/harnesses", r);
+      return pathWithMachineScope("/providers", r);
     case "repo-diff": {
       const params = new URLSearchParams();
       params.set("path", r.path);

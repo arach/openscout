@@ -8,6 +8,11 @@
  *             or the control-plane DB when available
  *   - kimi:   provider-reported Kimi Code 5-hour and weekly subscription quota
  *             from the same `/usages` endpoint used by Kimi Code's `/usage`
+ *   - cursor: locally reported Cursor membership and subscription state. Cursor
+ *             usage remains linked to its authenticated dashboard until a
+ *             documented machine-readable usage feed is available.
+ *   - minimax: provider-reported Token Plan 5-hour and weekly quota windows
+ *              from MiniMax's documented `/v1/token_plan/remains` endpoint.
  *   - github: `gh api rate_limit` resources.core (hourly window; honest about scope)
  *
  * Cached server-side so we can poll cheaply from the client.
@@ -30,6 +35,7 @@ const WEEK_MS = 7 * 24 * 3600 * 1000;
 const CODEX_LOOKBACK_DAYS = 3;
 const GH_CLI_TIMEOUT_MS = 4000;
 const KIMI_USAGE_TIMEOUT_MS = 4000;
+const MINIMAX_REMAINS_TIMEOUT_MS = 4000;
 const DB_BUSY_TIMEOUT_MS = 2_500;
 const QUOTA_HISTORY_BUCKET_MS = 60 * 60 * 1000;
 const QUOTA_HISTORY_LOOKBACK_MS = WEEK_MS;
@@ -39,6 +45,8 @@ const CLAUDE_STATUSLINE_HISTORY_MAX_BYTES = 32 * 1024 * 1024;
 const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
 const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
 const KIMI_USAGE_JSON_ENV = "OPENSCOUT_KIMI_USAGE_JSON";
+const CURSOR_STATUS_JSON_ENV = "OPENSCOUT_CURSOR_STATUS_JSON";
+const MINIMAX_REMAINS_JSON_ENV = "OPENSCOUT_MINIMAX_REMAINS_JSON";
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -85,6 +93,14 @@ export type ServiceGauge =
 export type ServiceBudgetsResponse = {
   generatedAt: number;
   gauges: ServiceGauge[];
+  cloudAccounts: CloudAccount[];
+};
+
+export type CloudAccount = {
+  id: "cloudflare" | "vercel" | "exe";
+  label: string;
+  statusLabel: string;
+  detailLabel: string;
 };
 
 let cached: { value: ServiceBudgetsResponse; expiresAt: number } | null = null;
@@ -104,14 +120,20 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
   if (!forceRefresh && inflight) return inflight;
 
   inflight = (async () => {
-    const [codex, claude, kimi, github] = await Promise.all([
+    const [codex, claude, kimi, cursor, minimax, github] = await Promise.all([
       loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
       loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
-      loadKimiGauge().catch((error) => serviceBudgetProviderFailed("kimi", error)),
+      loadKimiGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("kimi", error)),
+      loadCursorGauge().catch((error) => serviceBudgetProviderFailed("cursor", error)),
+      loadMinimaxGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("minimax", error)),
       loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
-    const gauges = [codex, claude, kimi, github].filter((g): g is ServiceGauge => g !== null);
-    const value: ServiceBudgetsResponse = { generatedAt: Date.now(), gauges };
+    const gauges = [codex, claude, kimi, cursor, minimax, github].filter((g): g is ServiceGauge => g !== null);
+    const value: ServiceBudgetsResponse = {
+      generatedAt: Date.now(),
+      gauges,
+      cloudAccounts: detectCloudAccounts(),
+    };
     cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     return value;
   })();
@@ -793,7 +815,7 @@ type KimiUsageResponse = {
   };
 };
 
-async function loadKimiGauge(): Promise<ServiceGauge | null> {
+async function loadKimiGauge(forceRefresh = false): Promise<ServiceGauge | null> {
   const persisted = loadPersistedProviderQuotaGauge({
     id: "kimi",
     label: "kimi",
@@ -801,6 +823,7 @@ async function loadKimiGauge(): Promise<ServiceGauge | null> {
     harness: "kimi",
     maxAgeMs: WEEK_MS,
   });
+  if (!forceRefresh) return persisted;
   const payload = await readKimiUsageResponse();
   // Kimi OAuth access tokens are short-lived and refreshed by Kimi Code itself.
   // A manual Scout refresh while Kimi is closed should retain the last valid,
@@ -975,7 +998,236 @@ function kimiMembershipPlan(payload: KimiUsageResponse): string | undefined {
     .replace(/(^|_)([a-z])/gu, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
 }
 
-/* ── github ─────────────────────────────────────────────────────────── */
+/* ── cursor ─────────────────────────────────────────────────────────── */
+
+type CursorSubscriptionState = {
+  membershipType?: unknown;
+  subscriptionStatus?: unknown;
+};
+
+async function loadCursorGauge(): Promise<ServiceGauge | null> {
+  const state = readCursorSubscriptionState();
+  const membership = stringValue(state?.membershipType);
+  const subscriptionStatus = stringValue(state?.subscriptionStatus);
+  if (!membership && !subscriptionStatus) return null;
+
+  const normalizedStatus = subscriptionStatus?.trim().toLowerCase();
+  return {
+    id: "cursor",
+    label: "cursor",
+    kind: "status",
+    statusLabel: cursorMembershipLabel(membership) ?? "Cursor",
+    windowLabel: "subscription",
+    detailLabel: normalizedStatus ? cursorMembershipLabel(normalizedStatus) ?? normalizedStatus : "detected locally",
+    tone: normalizedStatus === "active"
+      ? "ok"
+      : normalizedStatus?.includes("cancel") || normalizedStatus?.includes("past")
+        ? "warn"
+        : "dim",
+  };
+}
+
+function readCursorSubscriptionState(): CursorSubscriptionState | null {
+  const fixtureJson = process.env[CURSOR_STATUS_JSON_ENV];
+  if (fixtureJson?.trim()) {
+    return parseJsonRecord(fixtureJson) as CursorSubscriptionState | null;
+  }
+
+  const candidates = [
+    join(homeDir(), "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+    join(homeDir(), ".config", "Cursor", "User", "globalStorage", "state.vscdb"),
+  ];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    let cursorDb: Database | null = null;
+    try {
+      cursorDb = new Database(path, { readonly: true });
+      const readValue = (key: string): unknown => cursorDb?.query<{ value: unknown }, [string]>(
+        "SELECT value FROM ItemTable WHERE key = ?1 LIMIT 1",
+      ).get(key)?.value;
+      const membershipType = readValue("cursorAuth/stripeMembershipType");
+      const subscriptionStatus = readValue("cursorAuth/stripeSubscriptionStatus");
+      if (membershipType !== undefined || subscriptionStatus !== undefined) {
+        return { membershipType, subscriptionStatus };
+      }
+    } catch (error) {
+      debugServiceBudgetProvider("cursor", "local subscription state could not be read", error);
+    } finally {
+      cursorDb?.close();
+    }
+  }
+  return null;
+}
+
+function cursorMembershipLabel(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value
+    .trim()
+    .replace(/\+/gu, " plus ")
+    .replace(/[_-]+/gu, " ")
+    .replace(/\b\w/gu, (letter) => letter.toUpperCase());
+}
+
+/* ── minimax ───────────────────────────────────────────────────────── */
+
+type MinimaxRemainsModel = {
+  model_name?: unknown;
+  start_time?: unknown;
+  end_time?: unknown;
+  current_interval_total_count?: unknown;
+  current_interval_usage_count?: unknown;
+  current_interval_remaining_percent?: unknown;
+  weekly_start_time?: unknown;
+  weekly_end_time?: unknown;
+  current_weekly_total_count?: unknown;
+  current_weekly_usage_count?: unknown;
+  current_weekly_remaining_percent?: unknown;
+};
+
+type MinimaxRemainsResponse = {
+  model_remains?: MinimaxRemainsModel[];
+  base_resp?: {
+    status_code?: unknown;
+    status_msg?: unknown;
+  };
+};
+
+async function loadMinimaxGauge(forceRefresh = false): Promise<ServiceGauge | null> {
+  const persisted = loadPersistedProviderQuotaGauge({
+    id: "minimax",
+    label: "minimax",
+    provider: "minimax",
+    harness: "minimax",
+    maxAgeMs: WEEK_MS,
+  });
+  if (!forceRefresh) return persisted;
+  const payload = await readMinimaxRemainsResponse();
+  if (!payload) return persisted;
+
+  const capturedAt = Date.now();
+  const snapshots = minimaxQuotaSnapshots(payload, capturedAt);
+  if (snapshots.length === 0) return persisted;
+  persistQuotaSnapshots(snapshots);
+  return loadPersistedProviderQuotaGauge({
+    id: "minimax",
+    label: "minimax",
+    provider: "minimax",
+    harness: "minimax",
+    maxAgeMs: WEEK_MS,
+  }) ?? quotaGaugeFromSnapshots({ id: "minimax", label: "minimax" }, snapshots);
+}
+
+async function readMinimaxRemainsResponse(): Promise<MinimaxRemainsResponse | null> {
+  const fixtureJson = process.env[MINIMAX_REMAINS_JSON_ENV];
+  if (fixtureJson?.trim()) {
+    return parseJsonRecord(fixtureJson) as MinimaxRemainsResponse | null;
+  }
+
+  const apiKey = process.env.MINIMAX_API_KEY?.trim() || process.env.MINIMAX_TOKEN?.trim();
+  if (!apiKey) return null;
+
+  let response: Response;
+  try {
+    response = await fetch("https://www.minimax.io/v1/token_plan/remains", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: AbortSignal.timeout(MINIMAX_REMAINS_TIMEOUT_MS),
+    });
+  } catch (error) {
+    debugServiceBudgetProvider("minimax", "Token Plan request failed", error);
+    return null;
+  }
+  if (!response.ok) {
+    debugServiceBudgetProvider("minimax", "Token Plan request returned non-success status", { status: response.status });
+    return null;
+  }
+
+  try {
+    const parsed = recordValue(await response.json()) as MinimaxRemainsResponse | null;
+    if (numericValue(parsed?.base_resp?.status_code) !== 0) {
+      debugServiceBudgetProvider("minimax", "Token Plan response reported an error", {
+        status: parsed?.base_resp?.status_code,
+        message: parsed?.base_resp?.status_msg,
+      });
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    debugServiceBudgetProvider("minimax", "Token Plan response was not valid JSON", error);
+    return null;
+  }
+}
+
+function minimaxQuotaSnapshots(payload: MinimaxRemainsResponse, capturedAt: number): ServiceQuotaSnapshot[] {
+  const general = (Array.isArray(payload.model_remains) ? payload.model_remains : [])
+    .find((entry) => stringValue(entry.model_name)?.toLowerCase() === "general");
+  if (!general) return [];
+
+  return [
+    minimaxQuotaSnapshot(general, {
+      label: "5h",
+      windowKind: "primary",
+      startAt: general.start_time,
+      endAt: general.end_time,
+      total: general.current_interval_total_count,
+      used: general.current_interval_usage_count,
+      remainingPercent: general.current_interval_remaining_percent,
+      capturedAt,
+    }),
+    minimaxQuotaSnapshot(general, {
+      label: "7d",
+      windowKind: "secondary",
+      startAt: general.weekly_start_time,
+      endAt: general.weekly_end_time,
+      total: general.current_weekly_total_count,
+      used: general.current_weekly_usage_count,
+      remainingPercent: general.current_weekly_remaining_percent,
+      capturedAt,
+    }),
+  ].filter((entry): entry is ServiceQuotaSnapshot => entry !== null);
+}
+
+function minimaxQuotaSnapshot(
+  _model: MinimaxRemainsModel,
+  input: {
+    label: string;
+    windowKind: "primary" | "secondary";
+    startAt: unknown;
+    endAt: unknown;
+    total: unknown;
+    used: unknown;
+    remainingPercent: unknown;
+    capturedAt: number;
+  },
+): ServiceQuotaSnapshot | null {
+  const remainingPercent = numericValue(input.remainingPercent);
+  const total = numericValue(input.total);
+  const used = numericValue(input.used);
+  if (remainingPercent === undefined && (total === undefined || used === undefined)) return null;
+  const resetAt = timestampMs(input.endAt) ?? input.capturedAt + (input.windowKind === "primary" ? 5 * 3600_000 : WEEK_MS);
+  const startAt = timestampMs(input.startAt);
+  const windowMs = startAt === undefined ? resetAt - input.capturedAt : resetAt - startAt;
+  return {
+    provider: "minimax",
+    harness: "minimax",
+    transport: "minimax_api",
+    planType: "Token Plan",
+    label: input.label,
+    windowKind: input.windowKind,
+    usedPercent: remainingPercent === undefined ? undefined : 100 - remainingPercent,
+    percentRemaining: remainingPercent,
+    used: total && total > 0 ? used : undefined,
+    limitValue: total && total > 0 ? total : undefined,
+    resetAt,
+    windowMs,
+    capturedAt: input.capturedAt,
+    metadata: { source: "service-budgets.minimax-token-plan" },
+  };
+}
+
+/* ── github ───────────────────────────────────────────────────────────────── */
 
 type GhRateLimitResponse = {
   resources?: {
@@ -992,7 +1244,7 @@ async function loadGithubGauge(forceRefresh = false): Promise<ServiceGauge | nul
       harness: "github",
       maxAgeMs: 15 * 60 * 1000,
     });
-    if (persisted) return persisted;
+    return persisted;
   }
 
   let stdout: string;
@@ -1080,6 +1332,57 @@ function githubQuotaSnapshot(
       unitLabel: "req",
     },
   };
+}
+
+function detectCloudAccounts(): CloudAccount[] {
+  const accounts: CloudAccount[] = [];
+  const declaredAccounts = readJsonRecord(join(homeDir(), ".scout", "provider-accounts.json"));
+  const exeAccount = recordValue(declaredAccounts?.exe);
+  if (exeAccount && stringValue(exeAccount.status)?.toLowerCase() !== "inactive") {
+    accounts.push({
+      id: "exe",
+      label: "exe.dev",
+      statusLabel: "Connected",
+      detailLabel: stringValue(exeAccount.detail) ?? "Persistent VMs for remote agents",
+    });
+  }
+  const cloudflareConfig = [
+    join(homeDir(), "Library", "Preferences", ".wrangler", "config", "default.toml"),
+    join(homeDir(), ".wrangler", "config", "default.toml"),
+    join(homeDir(), ".config", ".wrangler", "config", "default.toml"),
+  ].find((path) => fileContainsAny(path, ["oauth_token", "api_token"]));
+  if (cloudflareConfig) {
+    accounts.push({
+      id: "cloudflare",
+      label: "Cloudflare",
+      statusLabel: "Connected",
+      detailLabel: "Wrangler account detected",
+    });
+  }
+
+  const vercelConfig = [
+    join(homeDir(), "Library", "Application Support", "com.vercel.cli", "config.json"),
+    join(homeDir(), ".config", "com.vercel.cli", "config.json"),
+  ].map((path) => readJsonRecord(path)).find((record) => Boolean(stringValue(record?.currentTeam)));
+  const vercelAuth = existsSync(join(homeDir(), ".local", "share", "com.vercel.cli", "auth.json"));
+  if (vercelConfig || vercelAuth) {
+    accounts.push({
+      id: "vercel",
+      label: "Vercel",
+      statusLabel: "Connected",
+      detailLabel: "Vercel account detected",
+    });
+  }
+  return accounts;
+}
+
+function fileContainsAny(path: string, needles: string[]): boolean {
+  try {
+    const content = readFileSync(path, "utf8");
+    return needles.some((needle) => content.includes(needle));
+  } catch {
+    return false;
+  }
 }
 
 function formatRequestCount(n: number): string {

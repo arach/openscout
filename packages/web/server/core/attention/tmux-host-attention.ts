@@ -27,6 +27,8 @@ const ANSI_OSC = /\x1B\][^\x07]*(?:\x07|\x1B\\)/gu;
 const MAX_SUMMARY_LENGTH = 200;
 const MAX_DETAIL_LENGTH = 500;
 const DEFAULT_CAPTURE_TIMEOUT_MS = 2_000;
+const DEFAULT_MAX_CANDIDATES = 24;
+const DEFAULT_CAPTURE_CONCURRENCY = 6;
 
 export function detectClaudeTmuxHostAttention(
   paneBody: string,
@@ -92,7 +94,12 @@ export function detectClaudeTmuxHostAttention(
 export async function collectTmuxHostAttention(
   agents: readonly WebAgent[],
   capture: TmuxHostAttentionCapture,
-  options: { now?: number; captureTimeoutMs?: number } = {},
+  options: {
+    now?: number;
+    captureTimeoutMs?: number;
+    maxCandidates?: number;
+    captureConcurrency?: number;
+  } = {},
 ): Promise<TmuxHostAttentionItem[]> {
   const candidates = agents.filter((agent) => {
     return agent.harness === "claude"
@@ -101,32 +108,72 @@ export async function collectTmuxHostAttention(
       && !agent.staleLocalRegistration
       && agent.terminalSurface?.backend === "tmux"
       && Boolean(agent.terminalSurface.sessionName.trim());
-  });
+  }).sort((left, right) =>
+    hostAttentionStateRank(left.state) - hostAttentionStateRank(right.state)
+    || (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+    || left.id.localeCompare(right.id),
+  ).slice(0, Math.max(0, options.maxCandidates ?? DEFAULT_MAX_CANDIDATES));
 
-  const items = await Promise.all(candidates.map(async (agent) => {
-    const surface = agent.terminalSurface!;
-    const paneTarget = surface.paneId?.trim() || surface.sessionName.trim();
-    try {
-      const body = await withTimeout(
-        capture(agent, paneTarget),
-        options.captureTimeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS,
-      );
-      return body
-        ? detectClaudeTmuxHostAttention(body, {
-            agentId: agent.id,
-            agentName: agent.name,
-            sessionId: surface.sessionName,
-            now: options.now,
-          })
-        : null;
-    } catch {
-      // Host attention is a best-effort decoration. Pane loss must not make
-      // the fleet API fail while tmux is exiting or changing windows.
-      return null;
-    }
-  }));
+  const items = await mapWithConcurrency(
+    candidates,
+    options.captureConcurrency ?? DEFAULT_CAPTURE_CONCURRENCY,
+    async (agent) => {
+      const surface = agent.terminalSurface!;
+      const paneTarget = surface.paneId?.trim() || surface.sessionName.trim();
+      try {
+        const body = await withTimeout(
+          capture(agent, paneTarget),
+          options.captureTimeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS,
+        );
+        return body
+          ? detectClaudeTmuxHostAttention(body, {
+              agentId: agent.id,
+              agentName: agent.name,
+              sessionId: surface.sessionName,
+              now: options.now,
+            })
+          : null;
+      } catch {
+        // Host attention is a best-effort decoration. Pane loss must not make
+        // the fleet API fail while tmux is exiting or changing windows.
+        return null;
+      }
+    },
+  );
 
   return items.filter((item): item is TmuxHostAttentionItem => Boolean(item));
+}
+
+function hostAttentionStateRank(state: string | null): number {
+  const normalized = state?.trim().toLowerCase();
+  return normalized === "needs_attention" || normalized === "needs-attention"
+    ? 0
+    : normalized === "working" || normalized === "active" || normalized === "running" || normalized === "in_turn"
+      ? 1
+      : normalized === "in_flight" || normalized === "queued" || normalized === "waking" || normalized === "dispatching"
+        ? 2
+        : 3;
+}
+
+async function mapWithConcurrency<T, U>(
+  values: readonly T[],
+  requestedConcurrency: number,
+  mapper: (value: T) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    values.length,
+    Math.max(1, Math.floor(requestedConcurrency)),
+  );
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(values[index]!);
+    }
+  }));
+  return results;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {

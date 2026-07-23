@@ -124,7 +124,7 @@ function normalizeDefaultHarness(value: string | undefined | null): AgentHarness
 
 function defaultTransportForHarness(harness: AgentHarness): RelayRuntimeTransport {
   if (harness === "codex") return "codex_app_server";
-  if (harness === "cursor") return "cursor_exec";
+  if (harness === "cursor") return "cursor_acp";
   if (harness === "pi") return "pi_rpc";
   return "tmux";
 }

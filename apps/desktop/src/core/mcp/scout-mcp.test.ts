@@ -1084,6 +1084,7 @@ describe("createScoutMcpServer", () => {
       workspace: "new_worktree",
       session: "new",
       replyToSessionId: "019ddb1b-test-thread",
+      replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });
@@ -1134,6 +1135,7 @@ describe("createScoutMcpServer", () => {
       projectPath: "/tmp/openscout-test/talkie",
       body: "How did you handle auth?",
       replyToSessionId: "019ddb1b-test-thread",
+      replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });
@@ -1499,6 +1501,7 @@ describe("createScoutMcpServer", () => {
           senderId: string;
           targetAgentId: string;
           replyToSessionId?: string;
+          replyMode?: "inline" | "notify" | "none";
           currentDirectory: string;
           source?: string;
         }
@@ -1527,6 +1530,7 @@ describe("createScoutMcpServer", () => {
         senderId,
         targetAgentId,
         replyToSessionId,
+        replyMode,
         currentDirectory,
         source,
       }) => {
@@ -1534,6 +1538,7 @@ describe("createScoutMcpServer", () => {
           senderId,
           targetAgentId,
           replyToSessionId,
+          replyMode,
           currentDirectory,
           source,
         };
@@ -1597,6 +1602,7 @@ describe("createScoutMcpServer", () => {
       senderId: "operator",
       targetAgentId: "hudson.main",
       replyToSessionId: "codex-thread-explicit",
+      replyMode: "inline",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });
@@ -1618,6 +1624,7 @@ describe("createScoutMcpServer", () => {
       | {
           targetSessionId: string;
           replyToSessionId?: string;
+          replyMode?: "inline" | "notify" | "none";
           currentDirectory: string;
         }
       | undefined;
@@ -1647,9 +1654,10 @@ describe("createScoutMcpServer", () => {
       askSessionById: async ({
         targetSessionId,
         replyToSessionId,
+        replyMode,
         currentDirectory,
       }) => {
-        receivedAsk = { targetSessionId, replyToSessionId, currentDirectory };
+        receivedAsk = { targetSessionId, replyToSessionId, replyMode, currentDirectory };
         return {
           usedBroker: true,
           conversationId: "dm.operator.hudson",
@@ -1692,6 +1700,7 @@ describe("createScoutMcpServer", () => {
     expect(receivedAsk).toEqual({
       targetSessionId: "codex-thread-target",
       replyToSessionId: "019ddb1b-test-thread",
+      replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
     });
     expect(structured.targetAgentId).toBe("hudson.main");
@@ -2231,6 +2240,7 @@ describe("createScoutMcpServer", () => {
       | {
           senderId: string;
           targetLabel: string;
+          replyMode?: "inline" | "notify" | "none";
           currentDirectory: string;
           source?: string;
         }
@@ -2261,10 +2271,11 @@ describe("createScoutMcpServer", () => {
         askQuestion: async ({
           senderId,
           targetLabel,
+          replyMode,
           currentDirectory,
           source,
         }) => {
-          receivedAsk = { senderId, targetLabel, currentDirectory, source };
+          receivedAsk = { senderId, targetLabel, replyMode, currentDirectory, source };
           return {
             usedBroker: true,
             conversationId: "dm.operator.hudson",
@@ -2333,6 +2344,7 @@ describe("createScoutMcpServer", () => {
     expect(receivedAsk).toEqual({
       senderId: "operator.main.mini",
       targetLabel: "@hudson",
+      replyMode: "none",
       currentDirectory: "/tmp/openscout-test",
       source: "scout-mcp",
     });

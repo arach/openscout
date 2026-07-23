@@ -112,5 +112,8 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "patchedDependencies": {
+    "hudsonkit@0.3.3": "patches/hudsonkit@0.3.3.patch"
   }
 }

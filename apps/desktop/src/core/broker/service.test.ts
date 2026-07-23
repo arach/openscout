@@ -703,11 +703,13 @@ describe("scoutAskHandler", () => {
           source?: string;
           askWorkspace?: string;
           senderContext?: Record<string, unknown>;
+          replyMode?: string;
         };
         invocationMetadata?: {
           source?: string;
           askWorkspace?: string;
           senderContext?: Record<string, unknown>;
+          replyMode?: string;
         };
       } | null,
     };
@@ -784,6 +786,7 @@ describe("scoutAskHandler", () => {
       harness: "claude",
       workspace: "new_worktree",
       session: "reuse",
+      replyMode: "inline",
       currentDirectory: talkieRoot,
     });
 
@@ -815,6 +818,7 @@ describe("scoutAskHandler", () => {
         cwd: talkieRoot,
         worktree: "unknown",
       },
+      replyMode: "inline",
     });
     expect(captured.delivery?.invocationMetadata).toMatchObject(
       captured.delivery?.messageMetadata ?? {},

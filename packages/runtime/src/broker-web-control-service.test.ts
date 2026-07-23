@@ -14,7 +14,9 @@ function fakeRequest(headers: Record<string, string | string[] | undefined>) {
   return { headers };
 }
 
-function fakeChild(pid = 1234): ChildProcess {
+type FakeChildProcess = ChildProcess & { emitExit: (code?: number) => void };
+
+function fakeChild(pid = 1234): FakeChildProcess {
   const listeners = new Map<string, (...args: unknown[]) => void>();
   return {
     pid,
@@ -32,7 +34,11 @@ function fakeChild(pid = 1234): ChildProcess {
     unref(this: ChildProcess) {
       return this;
     },
-  } as unknown as ChildProcess;
+    emitExit(this: ChildProcess, code = 0) {
+      (this as unknown as { exitCode: number | null }).exitCode = code;
+      listeners.get("exit")?.(code, null);
+    },
+  } as unknown as FakeChildProcess;
 }
 
 describe("BrokerWebControlService", () => {
@@ -167,5 +173,41 @@ describe("BrokerWebControlService", () => {
 
     service.stop();
     expect(child.killed).toBe(true);
+  });
+
+  test("waits for the managed web process to exit before spawning its replacement", async () => {
+    const children = [fakeChild(1001), fakeChild(1002)];
+    let spawnCount = 0;
+    let healthy = false;
+    const service = new BrokerWebControlService({
+      brokerControlUrl: "http://127.0.0.1:4321",
+      env: { OPENSCOUT_WEB_PORT: "4321" },
+      healthCheck: async () => healthy,
+      spawnProcess() {
+        return children[spawnCount++]!;
+      },
+      resolveEntry: () => "/repo/packages/web/server/index.ts",
+      resolveBun: () => ({ path: "/usr/local/bin/bun" }),
+      resolveLogPath: () => "/dev/null",
+      startPollTimeoutMs: 1_000,
+      startPollIntervalMs: 1,
+      sleep: async () => {
+        const first = children[0]!;
+        if (first.killed && first.exitCode === null) {
+          healthy = false;
+          first.emitExit();
+        } else {
+          healthy = true;
+        }
+      },
+      log() {},
+    });
+
+    await service.startIfNeeded();
+    expect(spawnCount).toBe(1);
+    const restarted = await service.restartIfManaged();
+    expect(restarted.ok).toBe(true);
+    expect(spawnCount).toBe(2);
+    expect(restarted.pid).toBe(1002);
   });
 });

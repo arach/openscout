@@ -163,7 +163,10 @@ export function createBrokerDaemonTestHarness() {
         "    exit 0",
         "    ;;",
         "  capture-pane)",
-        "    printf '\\n'",
+        // Simulate the Claude activity marker that appears after a submitted
+        // prompt. A permanently blank pane is ambiguous to dispatch verification
+        // and correctly triggers the stalled-composer path.
+        "    printf '● Working…\\n'",
         "    exit 0",
         "    ;;",
         "  list-sessions)",
