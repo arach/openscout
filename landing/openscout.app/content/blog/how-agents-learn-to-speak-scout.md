@@ -1,6 +1,6 @@
 ---
-title: What Real-Time Scout Chat Costs
-subtitle: Local transport is free of model charges. Cost shows up when a harness thinks — and agents learn Scout earlier than most operators expect.
+title: What Real-Time Typed Scout Chat Costs
+subtitle: Typed local transport is free of model charges. Cost shows up when a harness thinks — and agents learn Scout earlier than most operators expect.
 date: 2026-07-22
 author: OpenScout
 excerpt: "The Menu posts to a local broker over HTTP and SSE with no model meter on the wire. Scoutbot is a low-reasoning concierge; project agents learn send, ask, DMs, channels, and refs at session construction."
@@ -8,7 +8,7 @@ excerpt: "The Menu posts to a local broker over HTTP and SSE with no model meter
 
 People often ask two questions at once.
 
-What does real-time Scout chat cost? And when does an agent actually learn to speak Scout?
+What does real-time typed Scout chat cost? And when does an agent actually learn to speak Scout?
 
 They sound separate. In practice they are the same product boundary viewed from two sides: what the local control plane does for free, and what a model is allowed to do once it is invited into that plane.
 
@@ -57,11 +57,11 @@ That role shape is part of the cost story. Low-reasoning triage plus a narrow to
 
 If the operator only needed a durable message recorded, `send` would have been enough and no Scoutbot turn would be required. Chat becomes expensive when every casual sentence is treated as owned investigation. Scoutbot's job is to resist that inflation.
 
-## Subscription allowance versus API-token cost
+## Included usage, credits, and API-token cost
 
 Here honesty matters more than a made-up spreadsheet.
 
-Many local Codex sessions authenticate through a ChatGPT plan. OpenAI documents that Codex usage can be included in ChatGPT plans, with limits that vary by plan, and that extra local work may also run against an API key at standard API rates. Official references:
+Many local Codex sessions authenticate through a ChatGPT plan. OpenAI documents that Codex usage may draw first from usage included with the plan and then, where available, from purchased credits. Extra local work may instead run against an API key at standard API rates. These are vendor account ledgers, not OpenScout charges. Official references:
 
 - [Using Codex with your ChatGPT plan](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
 - [Codex pricing](https://learn.chatgpt.com/docs/pricing)
@@ -69,7 +69,7 @@ Many local Codex sessions authenticate through a ChatGPT plan. OpenAI documents 
 
 What that means in Scout terms:
 
-- If Scoutbot or a project agent is running through a ChatGPT-authenticated Codex path, the turn usually draws on that plan's usage allowance and rate limits, not on an OpenScout meter.
+- If Scoutbot or a project agent is running through a ChatGPT-authenticated Codex path, the turn draws on that account's included usage and, where applicable, shared credit balance and rate limits — not on an OpenScout meter.
 - If the same harness is running with an API key, the turn is metered as ordinary model usage under OpenAI's published API prices.
 - OpenScout does not publish a verified conversion from "one Menu sentence" into a fixed dollar amount. Token count depends on prompt size, reasoning effort, tool loops, and whether a project agent is also woken.
 
@@ -83,6 +83,20 @@ You can still put a useful bound around API-key use. At the rates published on J
 | GPT-4.1 mini | $0.0076 |
 
 That is not a price per chat. It is arithmetic for one declared token mix using the official per-million-token rates. A short low-effort Scoutbot status check should cost far less than a multi-file coding ask to a project agent, but the real total depends on context, caching, reasoning, and tool loops. Vendor plan limits and API rates change, so use the linked pricing pages as the source of truth rather than freezing these numbers into product guarantees.
+
+## Live voice is a separate model path
+
+The local-transport claim in this article is specifically about **typed**
+messages moving through `/api/send`, the broker, and `/api/events`. It does not
+mean microphone audio is free model transport.
+
+A live voice surface, if enabled, sends audio to a realtime model. That audio is
+processed and billed under the provider account, and a useful voice request may
+also lead to a separate Scoutbot or project-agent turn. The product must disclose
+the provider, data path, and billing boundary before starting a call. Do not use
+the typed-chat examples above to estimate live audio cost; use the current
+[OpenAI API pricing](https://platform.openai.com/docs/pricing) for the selected
+realtime model.
 
 Keep two ledgers separate even inside one turn:
 
@@ -133,6 +147,6 @@ Follow-up should reuse the returned session or flight handle. Continuity is chea
 
 OpenScout is for high-trust local developer pilots. Mesh means reachability and coordination across machines. It does not mean exactly-once delivery, global consensus, or a hosted billing plane.
 
-Do not read this post as a promise that every Menu keystroke is free forever, or that every agent will always interpret Scout perfectly. Harness auth, plan limits, and model quality still sit outside the broker. What the product can promise is narrower and more useful: the transport is local and unmetered by OpenScout, the concierge is intentionally small, project agents are taught the routing contract at construction time, and cost shows up where thinking happens.
+Do not read this post as a promise that every Menu interaction is free forever, or that every agent will always interpret Scout perfectly. Harness auth, plan limits, and model quality still sit outside the broker. What the product can promise is narrower and more useful: typed broker transport is local and unmetered by OpenScout, the concierge is intentionally small, project agents are taught the routing contract at construction time, and cost shows up where model processing happens.
 
-Real-time Scout chat is cheap when it stays a control plane. It gets expensive when you accidentally turn the control plane into the worker. The Menu, the broker, and the role prompts are all trying to keep that distinction intact.
+Real-time typed Scout chat is cheap when it stays a control plane. It gets expensive when you accidentally turn the control plane into the worker. The Menu, the broker, and the role prompts are all trying to keep that distinction intact.
