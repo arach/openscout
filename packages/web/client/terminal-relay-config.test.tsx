@@ -24,6 +24,7 @@ mock.module("react-dom/server", () => ReactDomServer);
 
 type TerminalRelayCapture = {
   relay?: { sendInput?: (value: string) => void; sendLine?: (value: string) => void; restart?: () => void };
+  renderer?: string;
 };
 let terminalRelayProps: TerminalRelayCapture | null = null;
 const baseRelaySendInput = mock((_value: string) => {});
@@ -240,13 +241,15 @@ describe("terminal relay config", () => {
       expect.objectContaining({
         backend: "tmux",
         controlMode: "observe",
-        sessionKey: "scout-tmux-agent-1-relay-agent-1-claude-observe",
         tmuxSession: "relay-agent-1-claude",
       }),
     );
+    expect(useTerminalRelayMock.mock.calls.at(-1)?.[0]).not.toHaveProperty("sessionKey");
 
     const captured = terminalRelayProps as TerminalRelayCapture | null;
     expect(captured?.relay).toBeTruthy();
+    expect(captured?.renderer).toBe("dom");
+    const firstReadOnlyRelay = captured?.relay;
     captured?.relay?.sendInput?.("whoami");
     captured?.relay?.sendLine?.("whoami");
     captured?.relay?.restart?.();
@@ -254,6 +257,17 @@ describe("terminal relay config", () => {
     expect(baseRelaySendInput).not.toHaveBeenCalled();
     expect(baseRelaySendLine).not.toHaveBeenCalled();
     expect(baseRelayRestart).not.toHaveBeenCalled();
+
+    renderToStaticMarkup(createElement(TerminalScreen, {
+      agentId: "agent-1",
+      mode: "observe",
+      navigate: () => {},
+    }));
+
+    const secondCaptured = terminalRelayProps as TerminalRelayCapture | null;
+    expect(secondCaptured?.relay?.sendInput).toBe(firstReadOnlyRelay?.sendInput);
+    expect(secondCaptured?.relay?.sendLine).toBe(firstReadOnlyRelay?.sendLine);
+    expect(secondCaptured?.relay?.restart).toBe(firstReadOnlyRelay?.restart);
   });
 
   test("SSR falls back to the default terminal relay path", () => {
