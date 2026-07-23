@@ -441,7 +441,13 @@ wss.on("connection", (ws: any) => {
         }
         relaySocket.bindSession(session);
         sessionId = session.id;
-        send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
+        send(ws, {
+          type: "session:ready",
+          sessionId: session.id,
+          reconnectToken: session.reconnectToken,
+          cols: session.cols,
+          rows: session.rows,
+        });
         if (pending) {
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
         }
@@ -470,7 +476,13 @@ wss.on("connection", (ws: any) => {
           }
           relaySocket.bindSession(session);
           sessionId = session.id;
-          send(ws, { type: "session:ready", sessionId: session.id, reconnectToken: session.reconnectToken });
+          send(ws, {
+            type: "session:ready",
+            sessionId: session.id,
+            reconnectToken: session.reconnectToken,
+            cols: session.cols,
+            rows: session.rows,
+          });
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
           break;
         }
@@ -478,6 +490,7 @@ wss.on("connection", (ws: any) => {
         const requestedControlMode = msg.controlMode || "owner";
         const canReconnect = existing
           && !existing.exited
+          && existing.controlMode !== "observe"
           && existing.controlMode === requestedControlMode
           && verifyReconnectToken(existing, msg.reconnectToken);
         if (canReconnect) {
@@ -492,12 +505,14 @@ wss.on("connection", (ws: any) => {
           }
           sessionId = existing.id;
           relaySocket.bindSession(existing);
-          attachSession(existing, relaySocket, msg.cols, msg.rows, []);
+          await attachSession(existing, relaySocket, msg.cols, msg.rows, []);
           send(ws, {
             type: "session:ready",
             sessionId: existing.id,
             reconnectToken: existing.reconnectToken,
             reconnected: true,
+            cols: existing.cols,
+            rows: existing.rows,
           });
           if (pending) {
             setTimeout(() => writeSession(existing, pending.command + "\n"), 400);
@@ -532,7 +547,7 @@ wss.on("connection", (ws: any) => {
         if (session && sessionOwnsSocket(session, relaySocket)) {
           const cols = Math.max(msg.cols || 80, 20);
           const rows = Math.max(msg.rows || 24, 4);
-          resizeSession(session, cols, rows);
+          await resizeSession(session, cols, rows);
         }
         break;
       }

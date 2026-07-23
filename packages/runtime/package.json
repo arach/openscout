@@ -37,6 +37,12 @@
       "import": "./dist/local-agents.js",
       "default": "./dist/local-agents.js"
     },
+    "./terminal-environment": {
+      "bun": "./src/terminal-environment.ts",
+      "types": "./dist/terminal-environment.d.ts",
+      "import": "./dist/terminal-environment.js",
+      "default": "./dist/terminal-environment.js"
+    },
     "./agent-workspace": {
       "bun": "./src/agent-workspace.ts",
       "types": "./dist/agent-workspace.d.ts",
