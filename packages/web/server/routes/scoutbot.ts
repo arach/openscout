@@ -267,11 +267,18 @@ function inferFleetBriefReferences(text: string): FleetHomeBriefReference[] {
         id: `${item.kind}:${item.recordId}`,
         kind: item.kind === "work_item" ? "work" : "question",
         label: item.title,
-        route: item.kind === "work_item"
-          ? { view: "work", workId: item.recordId }
-          : item.conversationId
-            ? { view: "conversation", conversationId: item.conversationId }
-            : { view: "activity" },
+        route: item.conversationId
+          ? { view: "conversation", conversationId: item.conversationId }
+          : item.kind === "work_item" && item.recordId
+            ? {
+                view: "follow",
+                workId: item.recordId,
+                preferredView: "chat",
+                ...(item.agentId ? { targetAgentId: item.agentId } : {}),
+              }
+            : item.agentId
+              ? { view: "agents-v2", agentId: item.agentId, tab: "message" }
+              : { view: "inbox" },
         detail: item.agentName ?? item.state,
       });
     }

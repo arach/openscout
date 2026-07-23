@@ -26,6 +26,7 @@ import {
 } from "../../components/MessageComposer/index.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
+import { routeForFleetAsk } from "../../lib/operator-attention.ts";
 import {
   filterAgentsByMachineScope,
   filterFleetByMachineScope,
@@ -238,12 +239,6 @@ function combineHeartrateWithTailEvents(
     count: counts[index] ?? bucket.count,
     value: (smoothed[index] ?? 0) / peak,
   }));
-}
-
-function routeForFleetAsk(ask: FleetAsk): Route {
-  if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
-  if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
-  return { view: "agents-v2", agentId: ask.agentId };
 }
 
 type HeartrateBucketView = {

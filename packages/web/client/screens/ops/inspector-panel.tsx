@@ -12,6 +12,7 @@ import {
 } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import { routeForFleetAsk, routeForOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type {
@@ -776,9 +777,7 @@ function PlanContextSection({
 }
 
 function planRouteForAsk(ask: FleetAsk): Route {
-  if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
-  if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
-  return { view: "agents-v2", agentId: ask.agentId };
+  return routeForFleetAsk(ask);
 }
 
 function planRouteForRun(run: AgentRun): Route {
@@ -788,12 +787,7 @@ function planRouteForRun(run: AgentRun): Route {
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
-  // Only work items live on the work detail page; questions belong to their
-  // conversation (or fall through to the owning agent).
-  if (item.kind === "work_item" && item.recordId) return { view: "work", workId: item.recordId };
-  if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
-  if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
-  return null;
+  return routeForOperatorAttention(item);
 }
 
 function OpsStat({

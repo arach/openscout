@@ -1330,7 +1330,7 @@ export type Route =
       sessionId?: string;
       targetAgentId?: string;
     }
-  | {
+  | ({
       view: "follow";
       preferredView?: FollowPreferredView;
       flightId?: string;
@@ -1339,7 +1339,7 @@ export type Route =
       workId?: string;
       sessionId?: string;
       targetAgentId?: string;
-    }
+    } & MachineScopedRoute)
 	  | {
 	      view: "terminal";
 	      agentId?: string;

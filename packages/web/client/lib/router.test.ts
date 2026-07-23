@@ -180,6 +180,21 @@ describe("agents route parsing", () => {
       "/work/work-1?machineId=node-b",
     );
 
+    expect(routeFromUrl(
+      "http://127.0.0.1:43120/follow?view=chat&workId=work-1&machineId=node-b",
+    )).toEqual({
+      view: "follow",
+      preferredView: "chat",
+      workId: "work-1",
+      machineId: "node-b",
+    });
+    expect(routePath({
+      view: "follow",
+      preferredView: "chat",
+      workId: "work-1",
+      machineId: "node-b",
+    })).toBe("/follow?view=chat&workId=work-1&machineId=node-b");
+
     expect(routeFromUrl("http://127.0.0.1:43120/providers?machineId=node-b")).toEqual({
       view: "harnesses",
       machineId: "node-b",

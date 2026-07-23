@@ -228,6 +228,18 @@ describe("planNavigation URL policy", () => {
     expect(carried.route).toEqual({ view: "sessions", machineId: "node-b" });
     expect(carried.href).toBe("/sessions?machineId=node-b");
 
+    const followed = planNavigation(
+      { pathname: "/", searchStr: "?machineId=node-b" },
+      { view: "follow", workId: "work-1", preferredView: "chat" },
+    );
+    expect(followed.route).toEqual({
+      view: "follow",
+      workId: "work-1",
+      preferredView: "chat",
+      machineId: "node-b",
+    });
+    expect(followed.href).toBe("/follow?view=chat&workId=work-1&machineId=node-b");
+
     // scoped → unscoped: machineId drops.
     const dropped = planNavigation(
       { pathname: "/", searchStr: "?machineId=node-b" },
@@ -429,6 +441,8 @@ describe("routeKey scroll ownership", () => {
     expect(routeKey({ view: "inbox", machineId: "node-a" }))
       .not.toBe(routeKey({ view: "inbox", machineId: "node-b" }));
     expect(routeKey({ view: "inbox" })).not.toBe(routeKey({ view: "inbox", machineId: "node-a" }));
+    expect(routeKey({ view: "follow", workId: "work-1", machineId: "node-a" }))
+      .not.toBe(routeKey({ view: "follow", workId: "work-1", machineId: "node-b" }));
   });
 
   test("identical routes share a scroll key", () => {

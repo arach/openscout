@@ -3595,11 +3595,18 @@ async function buildOperatorAttentionState(
   }
 
   for (const work of fleet.needsAttention) {
-    const route = work.kind === "work_item"
-      ? { view: "work", workId: work.recordId }
-      : work.conversationId
-        ? { view: "conversation", conversationId: work.conversationId }
-        : undefined;
+    const route = work.conversationId
+      ? { view: "conversation", conversationId: work.conversationId }
+      : work.kind === "work_item" && work.recordId
+        ? {
+            view: "follow",
+            workId: work.recordId,
+            preferredView: "chat",
+            ...(work.agentId ? { targetAgentId: work.agentId } : {}),
+          }
+        : work.agentId
+          ? { view: "agents-v2", agentId: work.agentId, tab: "message" }
+          : undefined;
     items.push({
       id: `${work.kind}:${work.recordId}`,
       kind: work.kind,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "../../scout/slots/ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { routeForFleetAsk, routeForOperatorAttention } from "../../lib/operator-attention.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -70,19 +71,11 @@ export function OpsDefaultLeft() {
   const active = (state?.activeAsks ?? []).filter((ask) => ask.status !== "needs_attention");
 
   const openAttention = (item: FleetAttentionItem) => {
-    if (item.conversationId) {
-      openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
-    } else {
-      navigate({ view: "ops", mode: "mission" });
-    }
+    openContent(navigate, routeForOperatorAttention(item), { returnTo: route });
   };
 
   const openAsk = (ask: FleetAsk) => {
-    if (ask.conversationId) {
-      openContent(navigate, { view: "conversation", conversationId: ask.conversationId }, { returnTo: route });
-    } else {
-      navigate({ view: "ops", mode: "mission" });
-    }
+    openContent(navigate, routeForFleetAsk(ask), { returnTo: route });
   };
 
   return (
