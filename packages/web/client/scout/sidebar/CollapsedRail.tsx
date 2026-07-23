@@ -18,6 +18,8 @@ export function CollapsedRail({
   top = 0,
   width = RAIL_COLLAPSED_WIDTH,
   glyph,
+  /** Scrollable content under the toggle (e.g. chat avatar stack). */
+  body,
   style,
   className = "",
 }: {
@@ -29,6 +31,7 @@ export function CollapsedRail({
   width?: number;
   /** Optional minimal state glyph below the toggle. */
   glyph?: ReactNode;
+  body?: ReactNode;
   style?: CSSProperties;
   className?: string;
 }) {
@@ -37,7 +40,7 @@ export function CollapsedRail({
       data-scout-collapsed-rail=""
       data-side={side}
       data-pane={side === "left" ? "side-rail-collapsed" : "inspector-collapsed"}
-      className={`scout-collapsed-rail${className ? ` ${className}` : ""}`}
+      className={`scout-collapsed-rail${className ? ` ${className}` : ""}${body ? " scout-collapsed-rail--rich" : ""}`}
       style={{
         position: "fixed",
         top,
@@ -69,7 +72,11 @@ export function CollapsedRail({
             : { left: 0, transform: "translateX(-50%)" }),
         }}
       />
-      {glyph ? (
+      {body ? (
+        <div className="scout-collapsed-rail-body">
+          {body}
+        </div>
+      ) : glyph ? (
         <div
           className="scout-collapsed-rail-glyph"
           aria-hidden="true"

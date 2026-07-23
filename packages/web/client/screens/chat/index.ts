@@ -1,4 +1,5 @@
 export { ChatLeft } from "./left.tsx";
+export { ChatCollapsedStrip } from "./ChatCollapsedStrip.tsx";
 export { ChatContent } from "./content.tsx";
 export { ConversationInspector as ChatRight } from "./right.tsx";
 export { ChatChannelsRight } from "./channels-right.tsx";
