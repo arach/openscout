@@ -111,11 +111,12 @@ export class BrokerOperatorAttentionService {
       channel: "system",
     });
     const itemId = `delivery:${input.requestId}`;
+    const messageId = this.options.createId("msg");
     const targetLabel = input.targetLabel.trim() || "Scout";
     const detail = input.detail.trim();
 
     await this.options.postConversationMessage({
-      id: this.options.createId("msg"),
+      id: messageId,
       conversationId: conversation.id,
       actorId: this.options.systemActorId,
       originNodeId: this.options.nodeId,
@@ -150,6 +151,8 @@ export class BrokerOperatorAttentionService {
         destination: "inbox",
         itemId,
         kind: "delivery_issue",
+        messageId,
+        conversationId: conversation.id,
         requestId: input.requestId,
         requesterId: input.requesterId,
         requesterNodeId: input.requesterNodeId,

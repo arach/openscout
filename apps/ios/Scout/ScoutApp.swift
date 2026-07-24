@@ -6,9 +6,13 @@ import UserNotifications
 
 private struct ScoutPushRoute: Sendable {
     let destination: String?
+    let kind: String?
     let conversationId: String?
     let messageId: String?
     let itemId: String?
+    let sessionId: String?
+    let turnId: String?
+    let blockId: String?
 }
 
 @MainActor
@@ -60,9 +64,13 @@ final class ScoutAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let scout = response.notification.request.content.userInfo["scout"] as? [String: Any]
         let route = ScoutPushRoute(
             destination: scout?["destination"] as? String,
+            kind: scout?["kind"] as? String,
             conversationId: scout?["conversationId"] as? String,
             messageId: scout?["messageId"] as? String,
-            itemId: scout?["itemId"] as? String
+            itemId: scout?["itemId"] as? String,
+            sessionId: scout?["sessionId"] as? String,
+            turnId: scout?["turnId"] as? String,
+            blockId: scout?["blockId"] as? String
         )
         await MainActor.run { [weak self] in
             self?.deliver(route)
@@ -73,9 +81,13 @@ final class ScoutAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         guard route.destination == nil || route.destination == "inbox" else { return }
         if let model {
             model.handleRemoteNotification(
+                kind: route.kind,
                 conversationId: route.conversationId,
                 messageId: route.messageId,
-                itemId: route.itemId
+                itemId: route.itemId,
+                sessionId: route.sessionId,
+                turnId: route.turnId,
+                blockId: route.blockId
             )
         } else {
             pendingNotificationRoute = route

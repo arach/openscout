@@ -55,6 +55,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/terminal/provision":  TRPCRoute(path: "mobile.terminalProvision",  method: .mutation),
     "mobile/terminal/status":     TRPCRoute(path: "mobile.terminalStatus",     method: .query),
     "mobile/mesh/status":         TRPCRoute(path: "mobile.meshStatus",         method: .query),
+    "mobile/inbox":               TRPCRoute(path: "mobile.inbox",              method: .query),
     "mobile/push/sync":           TRPCRoute(path: "mobile.pushSync",           method: .mutation),
 ]
 

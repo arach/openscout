@@ -48,7 +48,7 @@ final class BridgeBrokerClientTests: XCTestCase {
             "mobile/comms/conversations", "mobile/comms/messages",
             "mobile/comms/send", "mobile/comms/read", "mobile/attachments/upload",
             "mobile/terminal/provision", "mobile/terminal/status",
-            "mobile/push/sync",
+            "mobile/inbox", "mobile/push/sync",
             "question/answer", "action/decide", "turn/interrupt",
         ] {
             XCTAssertNotNil(trpcRouteMap[method], "missing route for \(method)")
@@ -74,6 +74,34 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertEqual(json["appBundleId"] as? String, "app.openscout.scout")
         XCTAssertEqual(json["apnsEnvironment"] as? String, "development")
         XCTAssertEqual(json["deviceModel"] as? String, "iPhone")
+    }
+
+    func testMobileNotificationItemDecodesLocalInboxContext() throws {
+        let data = """
+        {
+          "id": "approval:session-1:turn-1:block-1:v2",
+          "kind": "approval",
+          "createdAt": 1700000000000,
+          "sessionId": "session-1",
+          "sessionName": "Broker cleanup",
+          "adapterType": "codex",
+          "turnId": "turn-1",
+          "blockId": "block-1",
+          "version": 2,
+          "risk": "medium",
+          "title": "Approve command",
+          "description": "Run the verification command?",
+          "detail": "bun test",
+          "actionKind": "command",
+          "actionStatus": "awaiting_approval"
+        }
+        """.data(using: .utf8)!
+
+        let item = try JSONDecoder().decode(MobileNotificationItem.self, from: data)
+        XCTAssertEqual(item.kind, "approval")
+        XCTAssertEqual(item.sessionName, "Broker cleanup")
+        XCTAssertEqual(item.version, 2)
+        XCTAssertEqual(item.detail, "bun test")
     }
 
     // MARK: - Metadata-only request observability
