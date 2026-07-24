@@ -11,7 +11,7 @@ const packageDirectory = resolve(scriptDirectory, "..");
 const repoRoot = resolve(packageDirectory, "../..");
 const outputDirectory = resolve(repoRoot, "apps/ios/Scout/Resources/WebSurfaces");
 
-for (const [index, surface] of ["lanes", "dispatch"].entries()) {
+for (const [index, surface] of ["lanes", "deck", "dispatch"].entries()) {
   const build = spawnSync(
     "vite",
     ["build", "--config", "vite.native-surfaces.config.ts", ...(index === 0 ? [] : ["--emptyOutDir", "false"])],
@@ -24,7 +24,7 @@ for (const [index, surface] of ["lanes", "dispatch"].entries()) {
   if ((build.status ?? 1) !== 0) process.exit(build.status ?? 1);
 }
 
-for (const [surface, title] of [["lanes", "Scout Lanes"], ["dispatch", "Scout Dispatch"]]) {
+for (const [surface, title] of [["lanes", "Scout Lanes"], ["deck", "Scout Deck"], ["dispatch", "Scout Dispatch"]]) {
   writeFileSync(resolve(outputDirectory, surface, "index.html"), `<!doctype html>
 <html lang="en">
   <head>
@@ -84,6 +84,28 @@ const manifest = {
   surfaces: {
     lanes: {
       entry: "lanes/index.html",
+      capabilities: [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "agents.list",
+        "agents.observe",
+        "tail.recent",
+        "tail.subscribe",
+        "native.setLaneSelection",
+      ],
+      preferences: [
+        "lanes.layout",
+        "lanes.horizon",
+        "lanes.gridColumns",
+        "lanes.collapseTechnicalEvents",
+      ],
+    },
+    deck: {
+      entry: "deck/index.html",
+      wireSurface: "lanes",
       capabilities: [
         "bootstrap",
         "native.openExternalURL",
