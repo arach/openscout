@@ -76,6 +76,23 @@
   -webkit-backdrop-filter: none;
 }
 
+/* Deck speaks the Lanes wire contract, but its native shell already owns
+   identity, host scope, and messaging. Keep the embedded canvas subordinate. */
+.native-surface[data-scout-variant="deck"] .s-agent-lanes-bar {
+  padding-block: var(--space-xs);
+  background: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.native-surface[data-scout-variant="deck"] .s-agent-lanes-grid {
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+}
+
+.native-surface[data-scout-variant="deck"] .s-agent-lanes-grid[data-grid-columns="auto"] {
+  --lane-grid-min-width: 248px;
+}
+
 .s-agent-lanes-bar {
   display: flex;
   flex-wrap: wrap;

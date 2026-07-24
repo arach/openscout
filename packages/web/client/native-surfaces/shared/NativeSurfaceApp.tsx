@@ -53,11 +53,14 @@ function readBootstrap(): NativeSurfaceBootstrap | null {
 export function NativeSurfaceApp({
   surface,
   title,
+  variant,
   children,
   renderContent,
 }: {
   surface: "lanes" | "dispatch";
   title: string;
+  // Deck speaks the Lanes wire contract while using its own native shell.
+  variant?: "deck";
   children?: ReactNode;
   renderContent?: (context: NativeSurfaceRenderContext) => ReactNode;
 }) {
@@ -95,6 +98,7 @@ export function NativeSurfaceApp({
     <main
       className={`native-surface${renderContent ? " native-surface--canvas" : ""}`}
       data-scout-surface={surface}
+      data-scout-variant={variant}
       data-scout-theme="dark"
     >
       {!renderContent ? <header className="native-surface__header">

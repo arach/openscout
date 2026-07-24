@@ -6,8 +6,8 @@ import { defineConfig } from "vite";
 const nativeRoot = resolve(__dirname, "client/native-surfaces");
 const surface = process.env.SCOUT_NATIVE_SURFACE;
 
-if (surface !== "lanes" && surface !== "dispatch") {
-  throw new Error("SCOUT_NATIVE_SURFACE must be lanes or dispatch");
+if (surface !== "lanes" && surface !== "deck" && surface !== "dispatch") {
+  throw new Error("SCOUT_NATIVE_SURFACE must be lanes, deck, or dispatch");
 }
 
 export default defineConfig({
@@ -28,7 +28,11 @@ export default defineConfig({
     cssCodeSplit: false,
     lib: {
       entry: resolve(nativeRoot, surface, "main.tsx"),
-      name: surface === "lanes" ? "ScoutLanesSurface" : "ScoutDispatchSurface",
+      name: surface === "lanes"
+        ? "ScoutLanesSurface"
+        : surface === "deck"
+          ? "ScoutDeckSurface"
+          : "ScoutDispatchSurface",
       formats: ["iife"],
       fileName: () => `${surface}/app.js`,
       cssFileName: `${surface}/app`,
