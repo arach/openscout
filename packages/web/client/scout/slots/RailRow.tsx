@@ -43,6 +43,8 @@ type RailRowProps = {
   actions?: ReactNode;
   /** Show a persistent pin mark in the trailing meta area. */
   pinned?: boolean;
+  /** Side-checkout name; shows a subtle worktree glyph with a tooltip. */
+  worktreeLabel?: string;
   onClick?: (event: React.MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent) => void;
   onContextMenu?: (event: React.MouseEvent) => void;
@@ -71,6 +73,7 @@ export function RailRow({
   activityTone = "working",
   actions,
   pinned,
+  worktreeLabel,
   onClick,
   onKeyDown,
   onContextMenu,
@@ -124,6 +127,15 @@ export function RailRow({
             {pinned ? (
               <span className="rr-row-pin-mark" aria-label="Pinned" title="Pinned">
                 <PinGlyph />
+              </span>
+            ) : null}
+            {worktreeLabel ? (
+              <span
+                className="rr-row-worktree"
+                aria-label={`worktree: ${worktreeLabel}`}
+                title={`worktree: ${worktreeLabel}`}
+              >
+                <WorktreeGlyph />
               </span>
             ) : null}
             {name}
@@ -245,6 +257,29 @@ function PinGlyph() {
   return (
     <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
       <path d="M9.8 1.6 14.4 6.2a1 1 0 0 1-.2 1.6l-2.7 1.1-.9 3.4a.7.7 0 0 1-1.2.3L6.3 9.5 2.8 13 1.7 11.9l3.5-3.5L2.1 5.3a.7.7 0 0 1 .3-1.2l3.4-.9 1.1-2.7a1 1 0 0 1 1.6-.2Z" />
+    </svg>
+  );
+}
+
+/** Branch-style mark for rows running from a side checkout of the group's repo. */
+function WorktreeGlyph() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="4.5" cy="3.5" r="1.8" />
+      <circle cx="4.5" cy="12.5" r="1.8" />
+      <circle cx="11.5" cy="5.5" r="1.8" />
+      <path d="M4.5 5.3v5.4" />
+      <path d="M11.5 7.3c0 2.6-3.2 2.2-5 3.1" />
     </svg>
   );
 }

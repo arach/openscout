@@ -21,6 +21,8 @@ export type Agent = {
   capabilities: string[];
   project: string | null;
   branch: string | null;
+  /** Canonical `host/org/repo` identity for the agent's checkout. */
+  repoKey?: string | null;
   role: string | null;
   model: string | null;
   harnessSessionId: string | null;
