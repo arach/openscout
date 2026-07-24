@@ -10,6 +10,10 @@
  * Expanded panel omits onToggleCollapse; the shared RailToggle is rendered
  * externally on the panel's trailing edge.
  *
+ * Keep-alive: the expanded SidePanel (and its context body, e.g. ChatLeft) stays
+ * mounted while collapsed — only hidden with CSS — so expand does not remount
+ * and re-fetch the rail (no loading flash).
+ *
  * Content: resolveSidebarContext(route) body (scrollable) + footer pinned at
  * the panel bottom (Mesh rack/map behavior unchanged).
  */
@@ -88,20 +92,6 @@ export function ScoutSideRail({
         ? Number.parseFloat(style.top) || 0
         : 0;
 
-  if (isCollapsed) {
-    return (
-      <CollapsedRail
-        side="left"
-        title={title}
-        onToggle={onToggleCollapse}
-        edgeOffset={navRailWidth}
-        top={top}
-        style={style}
-        body={<SideRailCollapsedBody route={route} />}
-      />
-    );
-  }
-
   // SCO-088 §3: the shell owns the ghost-edge resize (handle + ghost line +
   // one-write commit), so the side rail no longer passes onResizeStart to
   // HudsonKit (that drove a live, per-frame width update). SCO-088c (Codex
@@ -111,38 +101,60 @@ export function ScoutSideRail({
 
   return (
     <>
-      <SidePanel
-        side="left"
-        title={title}
-        isCollapsed={false}
-        width={width}
-        style={{
-          // Sit beside the nav icon/expanded rail (SidePanel defaults to left: 0).
-          left: navRailWidth,
-          ...style,
-        }}
-        footer={context.footer ? context.footer : undefined}
+      {/* Expanded panel stays mounted while collapsed so list state / fetches
+          survive minimize → expand (no full rail reload). Shell insets still
+          use the 48px CollapsedRail width when isCollapsed. */}
+      <div
+        className="scout-side-rail-expanded-host"
+        data-collapsed={isCollapsed ? "true" : "false"}
+        hidden={isCollapsed}
+        aria-hidden={isCollapsed}
+        // `hidden` removes from a11y tree + hit-testing; keep in React tree.
+        style={isCollapsed ? { display: "none" } : undefined}
       >
-        <div data-pane="side-rail" data-scout-side-rail="" style={{ display: "contents" }}>
-          {context.body}
-        </div>
-      </SidePanel>
-      {/* External edge chevron — omits HudsonKit built-in collapse button. Rides
-          the drag ghost so it stays on the side rail's trailing edge. */}
-      <RailToggle
-        side="left"
-        collapsed={false}
-        label={title}
-        onToggle={onToggleCollapse}
-        className="scout-rail-toggle--panel scout-rail-toggle--side-rail"
-        style={{
-          position: "fixed",
-          left: chevronEdge,
-          top: top + 8,
-          zIndex: 45,
-          transform: "translateX(-50%)",
-        }}
-      />
+        <SidePanel
+          side="left"
+          title={title}
+          isCollapsed={false}
+          width={width}
+          style={{
+            // Sit beside the nav icon/expanded rail (SidePanel defaults to left: 0).
+            left: navRailWidth,
+            ...style,
+          }}
+          footer={context.footer ? context.footer : undefined}
+        >
+          <div data-pane="side-rail" data-scout-side-rail="" style={{ display: "contents" }}>
+            {context.body}
+          </div>
+        </SidePanel>
+        <RailToggle
+          side="left"
+          collapsed={false}
+          label={title}
+          onToggle={onToggleCollapse}
+          className="scout-rail-toggle--panel scout-rail-toggle--side-rail"
+          style={{
+            position: "fixed",
+            left: chevronEdge,
+            top: top + 8,
+            zIndex: 45,
+            transform: "translateX(-50%)",
+          }}
+        />
+      </div>
+
+      {isCollapsed ? (
+        <CollapsedRail
+          side="left"
+          title={title}
+          onToggle={onToggleCollapse}
+          edgeOffset={navRailWidth}
+          top={top}
+          style={style}
+          body={<SideRailCollapsedBody route={route} />}
+        />
+      ) : null}
     </>
   );
 }
