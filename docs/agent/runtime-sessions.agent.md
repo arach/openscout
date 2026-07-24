@@ -53,6 +53,8 @@ scout up / session start → runtime creates or attaches session → broker regi
 | `--to target:<handle>` | resolve a saved situated Scout target for convenient follow-up |
 | `--to session:<id>` | continue exact harness context |
 | `--to session:<harness>:<native-id>` | continue an exact broker-known native harness session when the id needs harness scope |
+| agent-target route alias | dereference once, then retain fresh agent/card semantics |
+| session-target route alias | dereference once and continue only the pinned exact session; expire at terminal/GC |
 | `--project <path> --harness <rt>` | broker/runtime pick or create concrete worker+session for project/capability |
 | `scout card create` | mint identity; does not start session unless commanded |
 

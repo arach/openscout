@@ -310,6 +310,18 @@ Questions answer information. Work items carry ownership.
   remediation commands instead of returning bare "not found" or "unavailable"
   errors when it has enough context to guide the next step.
 
+Route aliases use this precedence: exact typed routes; explicit `alias:<name>`;
+native agent id/name/selector/configured aliases; bare route alias in the
+caller's current project and local node; then legacy `target:<handle>`/`⌖`
+session-handle fallback. The broker never searches every project or node for a
+bare alias. `target:<name>` consults route aliases before its legacy fallback.
+
+Alias dereference happens once at acceptance. The receipt and durable message,
+invocation, flight, and work metadata retain requested alias, binding id,
+revision, scope, canonical target, authority node, and resolution time. Reusing
+the alias in a later call resolves its current binding; following a returned
+ref/session/conversation/work handle does not re-resolve it.
+
 Do not rely on body mentions for routing:
 
 ```ts

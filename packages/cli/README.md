@@ -69,6 +69,21 @@ The routing rules do not change by harness, UI, or host:
 - owned work / requested reply -> `scout ask`
 - follow-up stays in the same DM or explicit channel
 
+Short mutable callback names are broker-owned route aliases:
+
+```bash
+scout alias set review --to scope.main.arts-mac-mini-local
+scout alias set patch --to session:019eff52-9347-7470-ba5c-6bfe99d8dd83
+scout alias resolve patch
+scout alias repoint patch --to session:<new-id> --if-revision 1
+scout alias unset patch --if-revision 2
+scout ask --to alias:review "take a fresh pass"
+```
+
+Aliases are scoped to the current project/local host unless `--project` or
+`--host` is supplied. They point at existing targets and never create or rename
+cards. Native bare agent names win; `alias:<name>` is the explicit form.
+
 The lowest-churn fresh start is **capability first**: pass the project path and
 optional harness, then let the broker choose or create the concrete worker.
 Do not guess generic names like `claude.main` just because you want Claude. Use

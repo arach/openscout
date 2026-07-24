@@ -107,6 +107,12 @@ durable agent can be backed by different sessions over time. Commands that start
 or attach a harness use "session" as their public noun and fail loudly when a
 requested harness cannot be backed by a compatible session.
 
+**Route Alias.** A route alias is broker-owned mutable routing state pointing
+to one canonical durable agent id or one exact broker-known session. It is not
+an identity, card, actor, endpoint, or session. The scope key is owner realm +
+project + node + normalized name; every accepted dispatch pins the binding
+revision and canonical target so later repoints do not rewrite history.
+
 **Assigned Role.** An assigned role is an explicit, durable duty granted to an
 agent for a mission, agent, or project scope. It is not an `agentClass`, harness,
 rank, or identity attribute: it says what the agent has been asked to do in that

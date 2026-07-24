@@ -23,6 +23,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "statusline", summary: "Capture harness statusline metadata" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Hand work to one agent and wait for acknowledgement" },
+  { name: "alias", summary: "Manage scoped broker-owned route aliases" },
   { name: "wait", summary: "Wait for an ask by invocation, flight, message, or ref" },
   { name: "flight", summary: "Follow an existing ask flight" },
   { name: "label", summary: "Watch, feed, or brief related work by label" },

@@ -41,6 +41,16 @@ describe("Scout composer route operator", () => {
       label: "hudson",
       value: "hudson",
     });
+    expect(parseScoutComposerRouteTarget("alias:Review")).toEqual({
+      kind: "route_alias",
+      alias: "review",
+      value: "alias:review",
+    });
+    expect(parseScoutComposerRouteTarget("review")).toEqual({
+      kind: "agent_label",
+      label: "review",
+      value: "review",
+    });
     expect(parseScoutComposerRouteTarget("target:mw-talkie")).toEqual({
       kind: "target_handle",
       handle: "mw-talkie",

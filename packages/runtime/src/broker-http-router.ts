@@ -18,6 +18,10 @@ import type {
   ScoutDeliverRequest,
   ScoutDispatchRecord,
   NodeDefinition,
+  RouteAliasListRequest,
+  RouteAliasMutationRequest,
+  RouteAliasResolveRequest,
+  RouteAliasSetRequest,
 } from "@openscout/protocol";
 
 import type { ActiveScoutBrokerService } from "./broker-api.js";
@@ -96,6 +100,10 @@ import {
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { ThreadEventPlane } from "./thread-events.js";
+import {
+  BrokerRouteAliasError,
+  type BrokerRouteAliasService,
+} from "./broker-route-alias-service.js";
 
 export type BrokerHttpRuntime = {
   snapshot: () => { nodes: Record<string, NodeDefinition> };
@@ -162,6 +170,13 @@ export type BrokerHttpRouterDeps = {
   recordReadCursor: (cursor: ConversationReadCursor) => Promise<void>;
   acknowledgeDeliveriesForReadCursor: (cursor: ConversationReadCursor) => Promise<unknown>;
   deliveryAcceptanceService: BrokerDeliveryAcceptanceService;
+  routeAliasService?: BrokerRouteAliasService;
+  forwardRouteAliasRequest?: (input: {
+    nodeSelector: string;
+    path: string;
+    method: "GET" | "POST" | "PATCH" | "DELETE";
+    body?: unknown;
+  }) => Promise<{ status: number; body: unknown } | null>;
   /**
    * Control-plane SQLite for assigned roles / mission log. When null/undefined,
    * role routes return 503 (tables owned by migrations; broker is writer).
@@ -262,11 +277,145 @@ export function createBrokerHttpRouter(
     recordReadCursor,
     acknowledgeDeliveriesForReadCursor,
     deliveryAcceptanceService,
+    routeAliasService,
+    forwardRouteAliasRequest,
   } = deps;
 
   return async function routeRequest(request: RuntimeHttpRequestLike, response: RuntimeHttpResponseLike): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${host}:${port}`}`);
+  const forwardedNodeHeader = request.headers["x-openscout-forwarded-node-id"];
+  const forwardedNodeId = Array.isArray(forwardedNodeHeader) ? forwardedNodeHeader[0] : forwardedNodeHeader;
+  if (forwardedNodeId) {
+    const forwardedMeshHeader = request.headers["x-openscout-mesh-id"];
+    const forwardedMeshId = Array.isArray(forwardedMeshHeader) ? forwardedMeshHeader[0] : forwardedMeshHeader;
+    const origin = runtime.snapshot().nodes[forwardedNodeId];
+    if (forwardedMeshId !== meshId || !origin || origin.meshId !== meshId) {
+      json(response, 403, { error: "not_authorized", detail: "forwarded broker request failed owner-realm authentication" });
+      return;
+    }
+  }
+  const aliasItemMatch = method === "PATCH" || method === "DELETE"
+    ? url.pathname.match(/^\/v1\/aliases\/([^/]+)$/)
+    : null;
+  const aliasHistoryMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/aliases\/([^/]+)\/history$/)
+    : null;
+
+  const handleAliasError = (error: unknown): void => {
+    if (error instanceof BrokerRouteAliasError) {
+      json(response, error.code === "not_authorized" ? 403 : error.code === "unknown_alias" ? 404 : error.code === "revision_conflict" ? 409 : 400, {
+        error: error.code,
+        detail: error.message,
+        ...(error.details ?? {}),
+      });
+      return;
+    }
+    badRequest(response, error);
+  };
+
+  const forwardAliasIfRemote = async (
+    nodeSelector: string | undefined,
+    path: string,
+    aliasMethod: "GET" | "POST" | "PATCH" | "DELETE",
+    body?: unknown,
+  ): Promise<boolean> => {
+    if (!nodeSelector?.trim() || !forwardRouteAliasRequest) return false;
+    const forwarded = await forwardRouteAliasRequest({
+      nodeSelector: nodeSelector.trim(),
+      path,
+      method: aliasMethod,
+      body,
+    });
+    if (!forwarded) return false;
+    json(response, forwarded.status, forwarded.body);
+    return true;
+  };
+
+  if (url.pathname.startsWith("/v1/aliases") && !routeAliasService) {
+    json(response, 503, { error: "aliases_unavailable", detail: "route aliases require broker SQLite persistence" });
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/aliases") {
+    try {
+      const body = await readRequestBody<RouteAliasSetRequest>(request);
+      if (await forwardAliasIfRemote(body.scope?.nodeId, url.pathname, "POST", body)) return;
+      json(response, 201, { binding: routeAliasService!.set(body) });
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/aliases") {
+    try {
+      const query: RouteAliasListRequest = {
+        scope: {
+          projectKey: url.searchParams.get("projectKey") ?? undefined,
+          projectRoot: url.searchParams.get("projectRoot") ?? undefined,
+          nodeId: url.searchParams.get("nodeId") ?? undefined,
+        },
+        targetAgentId: url.searchParams.get("targetAgentId") ?? undefined,
+        targetSessionId: url.searchParams.get("targetSessionId") ?? undefined,
+        includeInactive: parseBooleanQueryParam(url.searchParams.get("includeInactive")) ?? false,
+        limit: Math.max(1, Math.min(Number.parseInt(url.searchParams.get("limit") ?? "200", 10) || 200, 1_000)),
+        caller: {
+          actorId: url.searchParams.get("actorId") ?? operatorActorId,
+          currentDirectory: url.searchParams.get("currentDirectory") ?? undefined,
+          nodeId,
+        },
+      };
+      if (await forwardAliasIfRemote(query.scope?.nodeId, `${url.pathname}${url.search}`, "GET")) return;
+      json(response, 200, { bindings: routeAliasService!.list(query) });
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/aliases/resolve") {
+    try {
+      const body = await readRequestBody<RouteAliasResolveRequest>(request);
+      if (await forwardAliasIfRemote(body.scope?.nodeId, url.pathname, "POST", body)) return;
+      json(response, 200, routeAliasService!.resolve(body));
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
+
+  if (method === "GET" && aliasHistoryMatch) {
+    try {
+      if (await forwardAliasIfRemote(url.searchParams.get("nodeId") ?? undefined, `${url.pathname}${url.search}`, "GET")) return;
+      json(response, 200, { history: routeAliasService!.history(decodeURIComponent(aliasHistoryMatch[1]!)) });
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
+
+  if (method === "PATCH" && aliasItemMatch) {
+    try {
+      const body = await readRequestBody<RouteAliasMutationRequest>(request);
+      if (await forwardAliasIfRemote(body.scope?.nodeId, url.pathname, "PATCH", body)) return;
+      json(response, 200, { binding: routeAliasService!.repoint(decodeURIComponent(aliasItemMatch[1]!), body) });
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
+
+  if (method === "DELETE" && aliasItemMatch) {
+    try {
+      const body: RouteAliasMutationRequest = await readRequestBody<RouteAliasMutationRequest>(request).catch(() => ({}));
+      if (await forwardAliasIfRemote(body.scope?.nodeId, url.pathname, "DELETE", body)) return;
+      json(response, 200, { binding: routeAliasService!.unset(decodeURIComponent(aliasItemMatch[1]!), body) });
+    } catch (error) {
+      handleAliasError(error);
+    }
+    return;
+  }
   const collaborationInvokeMatch = method === "POST"
     ? url.pathname.match(/^\/v1\/collaboration\/records\/([^/]+)\/invoke$/)
     : null;
@@ -1187,6 +1336,10 @@ export function createBrokerHttpRouter(
     const signal = requestAbortSignal(request, response);
     try {
       const payload = await readValidatedRequestBody(request, brokerDeliverRequestSchema);
+      if (
+        payload.target?.kind === "route_alias"
+        && await forwardAliasIfRemote(payload.target.scope?.nodeId, url.pathname, "POST", payload)
+      ) return;
       const result = brokerService.deliver
         ? await brokerService.deliver(payload, { signal })
         : await deliveryAcceptanceService.accept(payload, { signal });
@@ -1208,6 +1361,10 @@ export function createBrokerHttpRouter(
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
       const payload = await readValidatedRequestBody(request, brokerInvocationRequestSchema);
+      if (
+        payload.target?.kind === "route_alias"
+        && await forwardAliasIfRemote(payload.target.scope?.nodeId, url.pathname, "POST", payload)
+      ) return;
       const result = brokerService.invokeAgent
         ? await brokerService.invokeAgent(payload)
         : await handleInvocationRequest(payload);

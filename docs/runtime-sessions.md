@@ -301,6 +301,19 @@ When the broker exposes a friendly situated target, the human-typed form is
 handle as `⌖handle`. Use this for "get back to that useful situation" shorthand.
 Use `session:<harness>:<native-id>` only for exact raw harness continuation.
 
+## Route Alias Lifetime
+
+`scout alias set <name> --to <agent>` creates a durable route pointer with
+fresh-work agent semantics. `--to session:<id>` creates a durable record whose
+route is live-bound to that exact endpoint/session and therefore has existing-
+session semantics. It never floats to a replacement session for the same agent.
+
+Session-target aliases expire when the exact session is terminal or leaves the
+broker's runtime-session retention boundary; configured expiry may shorten but
+not extend that lifetime. Temporary unreachability is reported without
+substitution. Unset and expired bindings remain available to authorized history
+reads, and repointing never changes prior accepted work.
+
 ## Ask Targets And Reply Sessions
 
 An ask has two different routes:

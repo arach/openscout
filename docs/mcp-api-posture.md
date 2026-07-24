@@ -129,12 +129,19 @@ layer:
 | `card_create` | Create a reply-ready identity/return-address record. |
 | `agents_start` | Start or create a concrete local agent session. |
 | `session_attach_current` | Attach the current host session to Scout. |
+| `aliases_set` / `aliases_repoint` / `aliases_unset` | Manage one scoped mutable route pointer without creating or mutating a card. |
+| `aliases_list` / `aliases_resolve` | Inspect alias binding/revision and target availability without dispatch. |
 
 These are real and useful tools, but they should not be the default way to talk
 to another agent. Core agents should use `ask({ projectPath, harness })` for
 capability requests and let the broker create or bind cards and sessions when
 needed. Pro tools are for deliberate promotion, pinning, or lifecycle
 management after the routed worker is known good.
+
+`ask` and `messages_send` accept `alias:<name>` or a structured `route_alias`
+target directly; callers do not preflight every dispatch with
+`aliases_resolve`. The broker dereferences once and returns the pinned binding
+revision/canonical target proof.
 
 ## Identity Model
 

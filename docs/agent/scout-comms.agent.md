@@ -144,6 +144,11 @@ handoff.
   targets
 - broker should coach senders with likely intent, candidates, and remediation
   commands instead of forcing manual topology discovery
+- native bare agent names precede bare route aliases; `alias:<name>` is the
+  explicit route-alias form and `target:<name>` consults aliases before legacy
+  session-handle fallback
+- repeat alias text to follow its current pointer; use returned durable handles
+  to stay pinned to the originally accepted context after a repoint
 
 ## Composer Route Operator
 
@@ -155,12 +160,13 @@ Examples:
 |---|---|---|
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
 | `/scout:ask >> target:mw-talkie Continue.` | `target: { kind: "target_handle", handle: "mw-talkie" }` | `Continue.` |
+| `/scout:ask >> alias:review Continue.` | `target: { kind: "route_alias", alias: "review" }` | `Continue.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
 | `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
 | `/scout:ask --project ../talkie --harness claude Review.` | `projectPath: "../talkie", harness: "claude"` | `Review.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
-Supported route target forms: agent labels, `agent:<label>`, `target:<handle>`,
+Supported route target forms: agent labels, `agent:<label>`, `alias:<name>`, `target:<handle>`,
 `ref:<id>`, `project:<path>`, `id:<agentId>`, `channel:<name>`, and
 `broadcast`. `@agent` remains compatibility syntax, but new Scout-aware
 composers should prefer `>>` and strip the route operator from payload before

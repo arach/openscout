@@ -26,7 +26,7 @@ const DEFAULT_ASK_DISPATCH_SETTLE_MS = 4_000;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask [(--to <agent> | --ref <ref> | --project <path>)] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
+    "Usage: scout ask [(--to <agent> | --ref <ref> | --project <path>)] [--alias-project <path>] [--alias-host <node>] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -36,6 +36,7 @@ export function renderAskCommandHelp(): string {
     "  short @name                        -> agent card; starts fresh harness session",
     "  --to target:<name> or --to ⌖name    -> saved situated target; continues that worker",
     "  --to session:<id>                  -> continue one exact existing session",
+    "  --to alias:<name>                  -> explicit broker route alias; use --alias-project/--alias-host for cross-scope routing",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
     "  --project <path> --harness <rt>     -> capability request; broker chooses/creates worker",
     "  --harness <runtime> with no target  -> ask a compatible worker for the current project",
@@ -58,6 +59,7 @@ export function renderAskCommandHelp(): string {
     "Examples:",
     '  scout ask --to hudson "review the parser"',
     '  scout ask --to target:mw-talkie "continue the editorial pass"',
+    '  scout ask --to alias:review --alias-project ../talkie --alias-host mini "take another pass"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
     '  scout ask --harness codex "review this from a fresh Codex session"',
@@ -331,6 +333,10 @@ export async function runAskWithOptions(
     replyMode,
     currentDirectory,
     source: "scout-cli",
+    aliasScope: options.aliasProject || options.aliasHost ? {
+      ...(options.aliasProject ? { projectRoot: options.aliasProject } : {}),
+      ...(options.aliasHost ? { nodeId: options.aliasHost } : {}),
+    } : undefined,
   });
 
   if (!receipt.ok || !receipt.ids.flightId) {
