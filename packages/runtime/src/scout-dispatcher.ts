@@ -415,43 +415,76 @@ function resolveExistingHandle(
     return { kind: "unparseable", label };
   }
 
-  const identity = parseAgentIdentity(label);
-  if (!identity) {
-    return { kind: "unparseable", label };
-  }
+  // Existing-handle routing is deliberately narrower than agent-label routing.
+  // Only explicit handles/selectors are eligible: definition IDs, agent IDs,
+  // project heuristics, and local-node preferences must not influence a match.
+  const agentMatches = buildAgentLabelCandidates(snapshot, options.helpers)
+    .filter((candidate) => candidate.aliases?.some(
+      (alias) => normalizeAgentSelectorSegment(alias.replace(/^@+/, "")) === normalized,
+    ))
+    .sort((left, right) => left.agent.id.localeCompare(right.agent.id));
 
-  const candidates = buildAgentLabelCandidates(snapshot, options.helpers);
-  const diagnosis = diagnoseAgentIdentity(identity, candidates);
-  const sessionResolution = resolveSessionHandleLabel(snapshot, identity, {
-    ...options,
-    rejectAmbiguous: true,
-  });
-  if (diagnosis.kind === "resolved") {
-    if (sessionResolution) {
-      const sessionDetail = sessionResolution.kind === "resolved_session"
-        ? `session:${sessionResolution.session.sessionId}`
-        : sessionResolution.detail ?? "multiple live sessions";
-      return {
-        kind: "ambiguous",
-        label,
-        candidates: [diagnosis.match.agent],
-        detail: `${label} matches agent ${diagnosis.match.agent.id} and ${sessionDetail}; use a fully qualified agent handle or exact session:<id>`,
-      };
-    }
-    return { kind: "resolved", agent: diagnosis.match.agent };
-  }
-  if (diagnosis.kind === "ambiguous") {
+  const sessionMatches = Object.values(snapshot.actors)
+    .filter((actor) => actor.kind === "session")
+    .filter((actor) => {
+      const endpoint = homeEndpointForAgent(snapshot, actor.id);
+      const aliases = [
+        actor.handle,
+        metadataStringValue(actor.metadata, "handle"),
+        metadataStringValue(endpoint?.metadata, "handle"),
+      ].filter((value): value is string => Boolean(value));
+      return aliases.some(
+        (alias) => normalizeAgentSelectorSegment(alias.replace(/^@+/, "")) === normalized,
+      );
+    })
+    .map((actor) => {
+      const endpoint = Object.values(snapshot.endpoints)
+        .filter((candidate) => candidate.agentId === actor.id)
+        .filter((candidate) => !isStaleLocalEndpoint(snapshot, candidate))
+        .sort((left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right))[0];
+      return endpoint ? { actor, endpoint } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((left, right) => left.actor.id.localeCompare(right.actor.id));
+
+  const matchCount = agentMatches.length + sessionMatches.length;
+  if (matchCount === 0) {
     return {
-      kind: "ambiguous",
+      kind: "unknown",
       label,
-      candidates: diagnosis.candidates.map((candidate) => candidate.agent),
-      ...(sessionResolution
-        ? { detail: `${label} matches multiple agents and at least one live session; use a fully qualified agent handle or exact session:<id>` }
-        : {}),
+      detail: `no live agent handle, selector, or session handle exactly matches ${label}`,
     };
   }
 
-  return sessionResolution ?? { kind: "unknown", label };
+  if (matchCount > 1) {
+    const targets = [
+      ...agentMatches.map((candidate) => `agent:${candidate.agent.id}`),
+      ...sessionMatches.map(({ actor }) => `session:${actor.id}`),
+    ].sort((left, right) => left.localeCompare(right));
+    return {
+      kind: "ambiguous",
+      label,
+      candidates: agentMatches.map((candidate) => candidate.agent),
+      detail: `${label} matches multiple live targets: ${targets.join(", ")}; use a unique exact agent handle/selector or session:<id>`,
+    };
+  }
+
+  const agentMatch = agentMatches[0];
+  if (agentMatch) {
+    return { kind: "resolved", agent: agentMatch.agent };
+  }
+
+  const { actor, endpoint } = sessionMatches[0]!;
+  return {
+    kind: "resolved_session",
+    session: {
+      sessionId: actor.id,
+      actorId: actor.id,
+      endpoint,
+      label: actor.displayName || sessionTargetLabel(endpoint, actor.id),
+      nodeId: endpoint.nodeId,
+    },
+  };
 }
 
 function resolveTargetHandle(

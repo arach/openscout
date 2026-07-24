@@ -974,6 +974,13 @@ async function createCardlessProjectSessionForDelivery(input: {
   const { harness, transport } = resolveCardlessSessionSpawnTarget(requestedHarness, {
     claudeTransport: process.env.OPENSCOUT_CLAUDE_CARDLESS_TRANSPORT,
   });
+  const reasoningEffort = input.execution?.reasoningEffort?.trim();
+  if (reasoningEffort && (harness === "grok-acp" || harness === "kimi")) {
+    const profile = harness === "grok-acp" ? "grok" : "kimi";
+    throw new Error(
+      `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+    );
+  }
   const launchArgs = launchArgsForCardlessSession(harness, input.execution);
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;

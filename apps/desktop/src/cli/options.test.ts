@@ -144,16 +144,53 @@ describe("parseAskCommandOptions", () => {
     expect(opus.message).toBe("fix the tests");
   });
 
-  test("parses explicit profile routes without overloading --to", () => {
-    const options = parseAskCommandOptions(
-      ["--profile", "Kimi", "--effort", "medium", "review", "this"],
+  test("preserves explicit effort flags on bare runtime profiles", () => {
+    const effort = parseAskCommandOptions(
+      ["--effort", "high", "Opus", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const reasoningEffort = parseAskCommandOptions(
+      ["--reasoning-effort=xhigh", "Fable", "to", "review", "this"],
       "/tmp/workspace",
     );
 
-    expect(options.runtimeProfile).toBe("kimi");
+    expect(effort.runtimeProfile).toBe("opus");
+    expect(effort.reasoningEffort).toBe("high");
+    expect(reasoningEffort.runtimeProfile).toBe("fable");
+    expect(reasoningEffort.reasoningEffort).toBe("xhigh");
+  });
+
+  test("rejects conflicting flag and natural-language efforts", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--effort", "high", "Opus", "with", "xhigh", "effort", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("conflicting runtime profile efforts");
+  });
+
+  test("parses explicit profile routes without overloading --to", () => {
+    const options = parseAskCommandOptions(
+      ["--profile", "Opus", "--effort", "medium", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.runtimeProfile).toBe("opus");
     expect(options.reasoningEffort).toBe("medium");
     expect(options.targetLabel).toBeUndefined();
     expect(options.message).toBe("review this");
+  });
+
+  test("rejects effort for ACP runtime profiles", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--profile", "Kimi", "--effort", "medium", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("kimi runtime profile does not support reasoning effort through its ACP transport");
+    expect(() =>
+      parseAskCommandOptions(
+        ["Grok", "with", "high", "effort", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("grok runtime profile does not support reasoning effort through its ACP transport");
   });
 
   test("normalizes the agent prefix to an exact existing handle", () => {
@@ -299,8 +336,8 @@ describe("parseAskCommandOptions", () => {
 
 describe("parseImplicitAskCommandOptions", () => {
   test("recognizes reserved profiles and exact agent-prefix targets", () => {
-    const grok = parseImplicitAskCommandOptions(
-      ["Grok", "xhigh", "to", "review", "this"],
+    const opus = parseImplicitAskCommandOptions(
+      ["Opus", "xhigh", "to", "review", "this"],
       "/tmp/workspace",
     );
     const agent = parseImplicitAskCommandOptions(
@@ -308,11 +345,34 @@ describe("parseImplicitAskCommandOptions", () => {
       "/tmp/workspace",
     );
 
-    expect(grok.runtimeProfile).toBe("grok");
-    expect(grok.reasoningEffort).toBe("xhigh");
-    expect(grok.message).toBe("review this");
+    expect(opus.runtimeProfile).toBe("opus");
+    expect(opus.reasoningEffort).toBe("xhigh");
+    expect(opus.message).toBe("review this");
     expect(agent.existingTargetHandle).toBe("composer-review");
     expect(agent.message).toBe("fix the tests");
+  });
+
+  test("preserves flag effort for implicit bare profiles and rejects conflicts", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["--effort", "high", "Opus", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.runtimeProfile).toBe("opus");
+    expect(options.reasoningEffort).toBe("high");
+    expect(() =>
+      parseImplicitAskCommandOptions(
+        ["--reasoning-effort=medium", "Fable", "xhigh", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("conflicting runtime profile efforts");
+  });
+
+  test("rejects effort for implicit ACP runtime profiles", () => {
+    expect(() =>
+      parseImplicitAskCommandOptions(
+        ["--effort", "high", "Grok", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("grok runtime profile does not support reasoning effort through its ACP transport");
   });
 
   test("extracts a target agent from natural language input", () => {

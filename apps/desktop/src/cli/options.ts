@@ -323,6 +323,29 @@ function parseRuntimeProfileEffortFlag(value: string): string {
   return effort;
 }
 
+function mergeRuntimeProfileReasoningEffort(
+  flagEffort: string | undefined,
+  naturalEffort: string | undefined,
+): string | undefined {
+  if (flagEffort && naturalEffort && flagEffort !== naturalEffort) {
+    throw new ScoutCliError(
+      `conflicting runtime profile efforts: --effort ${flagEffort} and natural-language effort ${naturalEffort}`,
+    );
+  }
+  return naturalEffort ?? flagEffort;
+}
+
+function rejectUnsupportedRuntimeProfileEffort(
+  profile: string,
+  reasoningEffort: string | undefined,
+): void {
+  if (reasoningEffort && (profile === "grok" || profile === "kimi")) {
+    throw new ScoutCliError(
+      `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+    );
+  }
+}
+
 function parseContextRootPrefix(
   args: string[],
   defaultCurrentDirectory: string,
@@ -813,7 +836,10 @@ export function parseAskCommandOptions(
       message = natural.message;
     } else if (natural?.kind === "runtime_profile") {
       runtimeProfile = natural.profile;
-      reasoningEffort = natural.reasoningEffort;
+      reasoningEffort = mergeRuntimeProfileReasoningEffort(
+        reasoningEffort,
+        natural.reasoningEffort,
+      );
       message = natural.message;
     }
   }
@@ -836,6 +862,9 @@ export function parseAskCommandOptions(
   }
   if (reasoningEffort && !runtimeProfile) {
     throw new ScoutCliError("--effort/--reasoning-effort requires --profile or a reserved profile name");
+  }
+  if (runtimeProfile) {
+    rejectUnsupportedRuntimeProfileEffort(runtimeProfile, reasoningEffort);
   }
   if (runtimeProfile && (harness || session)) {
     throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
@@ -1043,6 +1072,11 @@ export function parseImplicitAskCommandOptions(
     if (!selectedProfile) {
       throw new ScoutCliError("runtime profile target is required");
     }
+    const selectedReasoningEffort = mergeRuntimeProfileReasoningEffort(
+      reasoningEffort,
+      natural?.kind === "runtime_profile" ? natural.reasoningEffort : undefined,
+    );
+    rejectUnsupportedRuntimeProfileEffort(selectedProfile, selectedReasoningEffort);
     if (harness || session) {
       throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
     }
@@ -1058,9 +1092,7 @@ export function parseImplicitAskCommandOptions(
       args: parsed.args,
       agentName,
       runtimeProfile: selectedProfile,
-      reasoningEffort: natural?.kind === "runtime_profile"
-        ? natural.reasoningEffort
-        : reasoningEffort,
+      reasoningEffort: selectedReasoningEffort,
       channel,
       timeoutSeconds,
       replyMode,

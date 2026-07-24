@@ -546,6 +546,43 @@ describe("resolveAgentLabel", () => {
 });
 
 describe("resolveBrokerRouteTarget", () => {
+  test("resolves an explicit existing selector after normalization", () => {
+    const target = makeAgent({
+      id: "composer-review.agent",
+      definitionId: "reviewer",
+      selector: "@Composer.Review",
+    });
+    const snapshot = makeSnapshot([target]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "existing_handle", handle: "composer review" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+  });
+
+  test("does not treat duplicate definition IDs or an exact agent ID as an existing handle", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({ id: "composer-review", definitionId: "composer-review" }),
+      makeAgent({ id: "composer-review.remote", definitionId: "composer-review" }),
+    ]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "existing_handle", handle: "composer-review" } },
+      { helpers },
+    );
+
+    expect(result).toEqual({
+      kind: "unknown",
+      label: "@composer-review",
+      detail: "no live agent handle, selector, or session handle exactly matches @composer-review",
+    });
+  });
+
   test("resolves an explicit existing handle exactly and never prefers a local duplicate", () => {
     const local = makeAgent({
       id: "composer-review.local",
@@ -572,6 +609,53 @@ describe("resolveBrokerRouteTarget", () => {
         "composer-review.local",
         "composer-review.remote",
       ]);
+      expect(result.detail).toContain(
+        "agent:composer-review.local, agent:composer-review.remote",
+      );
+    }
+  });
+
+  test("fails closed when multiple live sessions share an exact handle", () => {
+    const first = makeSessionActor({
+      id: "session-composer-review-one",
+      handle: "composer-review",
+    });
+    const second = makeSessionActor({
+      id: "session-composer-review-two",
+      handle: "composer-review",
+    });
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-composer-review-one",
+          agentId: first.id,
+          harness: "codex",
+          sessionId: first.id,
+        }),
+        makeEndpoint({
+          id: "endpoint-composer-review-two",
+          agentId: second.id,
+          harness: "claude",
+          sessionId: second.id,
+        }),
+      ],
+      {},
+      { [first.id]: first, [second.id]: second },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "existing_handle", handle: "composer-review" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates).toEqual([]);
+      expect(result.detail).toContain(
+        "session:session-composer-review-one, session:session-composer-review-two",
+      );
     }
   });
 
@@ -605,7 +689,9 @@ describe("resolveBrokerRouteTarget", () => {
 
     expect(result.kind).toBe("ambiguous");
     if (result.kind === "ambiguous") {
-      expect(result.detail).toContain("matches agent composer-review.agent and session:session-composer-review");
+      expect(result.detail).toContain(
+        "agent:composer-review.agent, session:session-composer-review",
+      );
     }
   });
 

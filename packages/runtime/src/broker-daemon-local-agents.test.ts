@@ -156,6 +156,58 @@ describe("broker daemon local agent routing", () => {
     ]));
   }, 15_000);
 
+  test("rejects unsupported ACP runtime profile effort before creating a session", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "profile-project");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    for (const profile of ["grok", "kimi"]) {
+      const response = await broker.postJsonStatus(harness.baseUrl, "/v1/deliver", {
+        id: `deliver-profile-${profile}-effort`,
+        caller: {
+          actorId: "operator",
+          nodeId: harness.nodeId,
+        },
+        target: {
+          kind: "runtime_profile",
+          profile,
+          projectPath: projectRoot,
+          reasoningEffort: "high",
+        },
+        body: `Review this project with the ${profile} profile.`,
+        intent: "consult",
+        ensureAwake: false,
+        createdAt: Date.now(),
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual(expect.objectContaining({
+        error: "bad_request",
+        detail: `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+      }));
+    }
+
+    const snapshot = await broker.getJson<{
+      endpoints: Record<string, { metadata?: Record<string, unknown> }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(Object.values(snapshot.endpoints).filter((endpoint) =>
+      endpoint.metadata?.cardless === true
+    )).toHaveLength(0);
+  }, 15_000);
+
   test("uses stream JSON only when the cardless Claude backup transport is explicit", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
