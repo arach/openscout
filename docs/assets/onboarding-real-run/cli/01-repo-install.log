@@ -149,14 +149,12 @@ Commands:
   latest       Show the latest Scout activity
   mcp          Run a Scout MCP server over stdio
   channel      Read channel messages or run a Claude Code channel server
-  enroll       Generate enrollment prompt
   broadcast    Broadcast to channel.shared
   up           Spawn a local agent for a project
   down         Stop one or all local agents
   ps           List configured local agents
   restart      Restart configured local agents
   menu         Launch the OpenScout macOS menu bar app
-  vantage      Build a Hudson Vantage terminal canvas plan
   config       View or set user config (name, handle, etc.)
   mesh         Mesh status and diagnostics
   pair         Pair a companion device via QR

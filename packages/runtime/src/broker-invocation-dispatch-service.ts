@@ -189,6 +189,16 @@ export class BrokerInvocationDispatchService {
     const invocation: InvocationRequest = {
       ...payload,
       targetAgentId: targetActorId,
+      ...(resolved.aliasResolution?.target.kind === "session" ? {
+        execution: {
+          ...(payload.execution ?? {}),
+          session: "existing",
+          targetSessionId: resolved.aliasResolution.target.sessionId,
+        },
+      } : {}),
+      ...(resolved.aliasResolution ? {
+        metadata: { ...(payload.metadata ?? {}), aliasResolution: resolved.aliasResolution },
+      } : {}),
     };
 
     const unavailable = resolved.kind === "resolved"

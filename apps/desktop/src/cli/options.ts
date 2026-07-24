@@ -6,6 +6,7 @@ import {
   normalizeReservedRuntimeProfileId,
   normalizeRuntimeProfileReasoningEffort,
   parseScoutComposerRoute,
+  parseScoutComposerRouteTarget,
   SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
 } from "@openscout/protocol";
 
@@ -26,6 +27,8 @@ type TargetableMessageOptions = ContextRootOptions & {
   wake: boolean;
   message: string;
   messageFile?: string;
+  aliasProject?: string;
+  aliasHost?: string;
 };
 
 export type ScoutSetupCommandOptions = {
@@ -50,6 +53,8 @@ export type ScoutAskCommandOptions = ContextRootOptions & {
   labels?: string[];
   message: string;
   promptFile?: string;
+  aliasProject?: string;
+  aliasHost?: string;
 };
 
 export type ScoutImplicitAskCommandOptions = ScoutAskCommandOptions;
@@ -82,11 +87,6 @@ export type ScoutLatestCommandOptions = ContextRootOptions & {
   conversationId?: string;
   limit: number;
   messages: boolean;
-};
-
-export type ScoutEnrollCommandOptions = ContextRootOptions & {
-  agentName: string | null;
-  task?: string;
 };
 
 export type ScoutCardCreateCommandOptions = ContextRootOptions & {
@@ -444,6 +444,12 @@ function parseComposerRoutedBody(
   if (target.kind === "existing_handle" || target.kind === "runtime_profile") {
     throw new ScoutCliError(`${target.kind} is an internal ask route and cannot be used with >>`);
   }
+  if (target.kind === "route_alias") {
+    return {
+      targetLabel: target.value ?? `alias:${target.alias}`,
+      message: parsed.body,
+    };
+  }
   if (target.kind === "target_handle") {
     return {
       targetLabel: target.value ?? `target:${target.handle}`,
@@ -597,6 +603,8 @@ export function parseSendCommandOptions(
   let wake = false;
   let harness: string | undefined;
   let messageFile: string | undefined;
+  let aliasProject: string | undefined;
+  let aliasHost: string | undefined;
   const messageParts: string[] = [];
 
   for (let index = 0; index < parsed.args.length; index += 1) {
@@ -629,6 +637,18 @@ export function parseSendCommandOptions(
     if (current === "--harness" || current.startsWith("--harness=")) {
       const value = parseFlagValue(parsed.args, index, "--harness");
       harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--alias-project" || current.startsWith("--alias-project=")) {
+      const value = parseFlagValue(parsed.args, index, "--alias-project");
+      aliasProject = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--alias-host" || current.startsWith("--alias-host=")) {
+      const value = parseFlagValue(parsed.args, index, "--alias-host");
+      aliasHost = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -669,6 +689,9 @@ export function parseSendCommandOptions(
   if (!message && !messageFile) {
     throw new ScoutCliError("no message provided");
   }
+  if ((aliasProject || aliasHost) && parseScoutComposerRouteTarget(targetLabel ?? "")?.kind !== "route_alias") {
+    throw new ScoutCliError("--alias-project/--alias-host require --to alias:<name>");
+  }
 
   return {
     currentDirectory: parsed.currentDirectory,
@@ -682,6 +705,8 @@ export function parseSendCommandOptions(
     harness,
     message,
     messageFile,
+    aliasProject,
+    aliasHost,
   };
 }
 
@@ -703,6 +728,8 @@ export function parseAskCommandOptions(
   let timeoutSeconds: number | undefined;
   let replyMode: ScoutAskCommandOptions["replyMode"];
   let promptFile: string | undefined;
+  let aliasProject: string | undefined;
+  let aliasHost: string | undefined;
   const labels: string[] = [];
   const messageParts: string[] = [];
 
@@ -755,6 +782,18 @@ export function parseAskCommandOptions(
     if (current === "--harness" || current.startsWith("--harness=")) {
       const value = parseFlagValue(parsed.args, index, "--harness");
       harness = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--alias-project" || current.startsWith("--alias-project=")) {
+      const value = parseFlagValue(parsed.args, index, "--alias-project");
+      aliasProject = resolveInputFilePath(parsed.currentDirectory, value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--alias-host" || current.startsWith("--alias-host=")) {
+      const value = parseFlagValue(parsed.args, index, "--alias-host");
+      aliasHost = value.value;
       index = value.nextIndex;
       continue;
     }
@@ -875,6 +914,9 @@ export function parseAskCommandOptions(
   if (!message && !promptFile) {
     throw new ScoutCliError("no question provided");
   }
+  if ((aliasProject || aliasHost) && parseScoutComposerRouteTarget(targetLabel ?? "")?.kind !== "route_alias") {
+    throw new ScoutCliError("--alias-project/--alias-host require --to alias:<name>");
+  }
 
   return {
     currentDirectory: parsed.currentDirectory,
@@ -894,6 +936,8 @@ export function parseAskCommandOptions(
     ...(labels.length ? { labels } : {}),
     message,
     promptFile,
+    aliasProject,
+    aliasHost,
   };
 }
 
@@ -1396,41 +1440,6 @@ export function parseLatestCommandOptions(
     conversationId,
     limit,
     messages,
-  };
-}
-
-export function parseEnrollCommandOptions(
-  args: string[],
-  defaultCurrentDirectory: string,
-): ScoutEnrollCommandOptions {
-  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
-  let agentName: string | null = null;
-  let task: string | undefined;
-
-  for (let index = 0; index < parsed.args.length; index += 1) {
-    const current = parsed.args[index] ?? "";
-    if (current === "--as" || current.startsWith("--as=")) {
-      const value = parseFlagValue(parsed.args, index, "--as");
-      agentName = value.value;
-      index = value.nextIndex;
-      continue;
-    }
-    if (current === "--task") {
-      task = parsed.args.slice(index + 1).join(" ").trim() || undefined;
-      break;
-    }
-    if (current.startsWith("--task=")) {
-      task = current.slice("--task=".length).trim() || undefined;
-      continue;
-    }
-    unexpectedArgs("enroll", args);
-  }
-
-  return {
-    currentDirectory: parsed.currentDirectory,
-    args: parsed.args,
-    agentName,
-    task,
   };
 }
 

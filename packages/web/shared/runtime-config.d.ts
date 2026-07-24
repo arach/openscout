@@ -2,7 +2,6 @@ export declare const DEFAULT_API_BASE_PATH: string;
 export declare const DEFAULT_BOOTSTRAP_SCRIPT_PATH: string;
 export declare const DEFAULT_HEALTH_PATH: string;
 export declare const DEFAULT_TERMINAL_RUN_PATH: string;
-export declare const DEFAULT_VANTAGE_OPEN_PATH: string;
 export declare const DEFAULT_UPLOAD_PATH: string;
 export declare const DEFAULT_RELAY_UPLOAD_PATH: string;
 export declare const DEFAULT_TERMINAL_RELAY_PATH: string;
@@ -16,7 +15,6 @@ export type OpenScoutWebRoutes = {
   bootstrapScriptPath: string;
   healthPath: string;
   terminalRunPath: string;
-  vantageOpenPath: string;
   uploadPath: string;
   relayUploadPath: string;
   terminalRelayPath: string;

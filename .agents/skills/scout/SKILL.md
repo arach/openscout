@@ -32,8 +32,9 @@ scout ask agent Composer Review to fix the tests # exact existing @composer-revi
 Reserved profile names `Fable`, `Kimi`, `Grok`, and `Opus` are launch
 presets, not agent names. In natural-language asks they always create a fresh
 session in the inferred current project through the broker-owned profile.
-`scout ask --profile <name> ...` is the explicit equivalent; optional effort is
-`--effort <level>`. Never rewrite one of these forms as `ask --to`.
+`scout ask --profile <name> ...` is the explicit equivalent. Fable and Opus
+accept optional `--effort <level>`; Kimi and Grok reject effort until their ACP
+transports expose that control. Never rewrite one of these forms as `ask --to`.
 
 When a human says `agent <name> to <request>`, normalize the text between
 `agent` and `to` to a lowercase dash-separated handle and resolve it exactly.

@@ -1,4 +1,4 @@
-import type { AgentHarness } from "@openscout/protocol";
+import type { AgentHarness, RouteAliasScope } from "@openscout/protocol";
 
 export type ScoutAskWorkspace = "same" | "new_worktree";
 export type ScoutAskSession = "reuse" | "new";
@@ -36,6 +36,7 @@ type ScoutAskCommandBase = {
   shouldSpeak?: boolean;
   currentDirectory?: string;
   source?: string;
+  aliasScope?: RouteAliasScope;
 };
 
 type ScoutAskTargetInput =

@@ -72,6 +72,13 @@ Target resolution returns one of:
 
 Broker should coach remediation in the error, not force `who`/`latest` preflight loops.
 
+Route aliases are broker-owned current rows plus immutable revisions in
+`route_alias_bindings` / `route_alias_revisions`; they are not
+`runtime_session_aliases`. Resolution precedence is exact typed target,
+explicit route alias, native agent identity, scoped bare route alias, then
+legacy target/session-handle fallback. Acceptance pins the alias proof and
+canonical target; repoint/unset never rewrites prior records.
+
 ## Endpoint vs Flight State
 
 Keep separate:

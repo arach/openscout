@@ -65,7 +65,7 @@ apps/desktop/
 ## Current Port Status
 
 - `core/setup` owns `setup`, `doctor`, and `runtimes` reporting.
-- `core/broker` owns `send`, `speak`, `ask`, `watch`, `who`, `enroll`, and `broadcast`.
+- `core/broker` owns `send`, `speak`, `ask`, `watch`, `who`, and `broadcast`.
 - `cli` now owns shared command context, option parsing, output mode selection, and context-root handling.
 - `pairing` and `agents` now have Scout-native command paths.
 - `monitor` now has a Scout-native terminal surface behind `scout tui`.

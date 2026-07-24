@@ -5,6 +5,7 @@ export type ScoutCommandHandler = (context: ScoutCommandContext, args: string[])
 export type ScoutCommandName =
   | "attention"
   | "ask"
+  | "alias"
   | "broadcast"
   | "card"
   | "channel"
@@ -12,7 +13,6 @@ export type ScoutCommandName =
   | "diff"
   | "down"
   | "doctor"
-  | "enroll"
   | "env"
   | "flight"
   | "init"
@@ -20,6 +20,7 @@ export type ScoutCommandName =
   | "install"
   | "label"
   | "latest"
+  | "match"
   | "mcp"
   | "menu"
   | "mesh"
@@ -37,7 +38,6 @@ export type ScoutCommandName =
   | "tail"
   | "tui"
   | "up"
-  | "vantage"
   | "wait"
   | "watch"
   | "who"
@@ -49,6 +49,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./attention.ts")).runAttentionCommand;
     case "ask":
       return (await import("./ask.ts")).runAskCommand;
+    case "alias":
+      return (await import("./alias.ts")).runAliasCommand;
     case "broadcast":
       return (await import("./broadcast.ts")).runBroadcastCommand;
     case "card":
@@ -63,8 +65,6 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./down.ts")).runDownCommand;
     case "doctor":
       return (await import("./doctor.ts")).runDoctorCommand;
-    case "enroll":
-      return (await import("./enroll.ts")).runEnrollCommand;
     case "env":
       return (await import("./env.ts")).runEnvCommand;
     case "flight":
@@ -79,6 +79,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./label.ts")).runLabelCommand;
     case "latest":
       return (await import("./latest.ts")).runLatestCommand;
+    case "match":
+      return (await import("./match.ts")).runMatchCommand;
     case "mcp":
       return (await import("./mcp.ts")).runMcpCommand;
     case "menu":
@@ -113,8 +115,6 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./tui.ts")).runTuiCommand;
     case "up":
       return (await import("./up.ts")).runUpCommand;
-    case "vantage":
-      return (await import("./vantage.ts")).runVantageCommand;
     case "wait":
       return (await import("./wait.ts")).runWaitCommand;
     case "watch":

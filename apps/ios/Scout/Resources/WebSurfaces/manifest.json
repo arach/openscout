@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "d4e3deff9ef206da",
+  "assetRevision": "96f5aff67a236efc",
   "protocol": {
     "minimum": 1,
     "maximum": 1
@@ -9,7 +9,7 @@
     "node": "22.22.2",
     "bun": "1.3.11",
     "vite": "^7.0.0",
-    "lockfileSha256": "ffd9fd224fbd38fc1b4bf494e224bc843506b049941a5beb4aac0e7c64b0a73e"
+    "lockfileSha256": "5a5e18b893c8deb686266e200a55d78f112bde1885c47f5fb5d83ddfc09c0d34"
   },
   "surfaces": {
     "lanes": {
@@ -69,13 +69,13 @@
     },
     {
       "path": "lanes/app.css",
-      "sha256": "f5fb43fc67663edbb50aa76b9d4f83d532e6554988093ee48de4850e48af4acb",
-      "bytes": 250615
+      "sha256": "134e1d991cb6792b7f4ca074f5a146bce044314b5de72ad1c3b7bf60c2c4f598",
+      "bytes": 249730
     },
     {
       "path": "lanes/app.js",
-      "sha256": "08b6f8cfc83a62eb1127dd50a49f0b385c361b93c8936b975fe736f73573d3d0",
-      "bytes": 556464
+      "sha256": "e25fc4a33405ebfe5ee33400aaa21e5ea04ef7f521ccde07f7d864dfd68614b8",
+      "bytes": 554886
     },
     {
       "path": "lanes/index.html",

@@ -3251,7 +3251,6 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"tailStreamPath":"/ws/tail"');
     expect(body).toContain('"eventsStreamPath":"/ws/events"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
-    expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
 
   test("serves registered terminal sessions", async () => {
@@ -3543,73 +3542,6 @@ describe("createOpenScoutWebServer", () => {
     });
     expect(forwardedHttpsResponse.headers.get("content-security-policy"))
       .toBe("upgrade-insecure-requests; block-all-mixed-content");
-  });
-
-  test("creates Vantage handoffs through the configured native hook", async () => {
-    const calls: Array<Record<string, unknown>> = [];
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-      createVantageHandoff: async (input) => {
-        calls.push(input);
-        return {
-          ok: true,
-          schema: "openscout.vantage.handoff.v1",
-          handoffId: "handoff-test",
-          handoffPath: "/tmp/openscout/vantage/handoff-test.json",
-          setupPath: "/tmp/openscout/vantage/handoff-test.setup.json",
-          openUrl: "openscout-vantage://handoff?id=handoff-test",
-          launch: { attempted: true, ok: true, error: null },
-          plan: {
-            schema: "scout.vantage.plan.v1",
-            createdAt: "2026-05-17T00:00:00.000Z",
-            currentDirectory: "/tmp/openscout",
-            broker: { reachable: false, baseUrl: null, nodeId: null },
-            manifest: {
-              kind: "hudson.vantage.setup",
-              schemaVersion: 1,
-              workspaceID: "openscout-openscout",
-              source: "openscout",
-              generatedAt: "2026-05-17T00:00:00.000Z",
-              currentDirectory: "/tmp/openscout",
-              broker: null,
-              focus: { agentId: "agent-1" },
-              selectedAgentIds: [],
-              selectedNativeSessionIds: [],
-              selection: [],
-              focused: null,
-              focusedNodeId: null,
-              nodes: [],
-            },
-            diagnostics: [],
-          },
-        };
-      },
-    });
-
-    const response = await server.app.request("http://localhost/api/vantage/open", {
-      method: "POST",
-      body: JSON.stringify({ agentId: "agent-1", launch: false }),
-      headers: { "content-type": "application/json" },
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      handoffId: "handoff-test",
-      openUrl: "openscout-vantage://handoff?id=handoff-test",
-    });
-    expect(calls).toEqual([
-      {
-        currentDirectory: "/tmp/openscout",
-        agentId: "agent-1",
-        agentIds: [],
-        nativeSessionIds: [],
-        nativeSessions: [],
-        launch: false,
-      },
-    ]);
   });
 
   test("reveals local paths through the configured reveal hook", async () => {

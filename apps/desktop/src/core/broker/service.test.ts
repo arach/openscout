@@ -683,7 +683,8 @@ describe("scoutAskHandler", () => {
       ids: {},
       error: {
         code: "invalid_request",
-        message: "provide either to or projectPath, not both",
+        message:
+          "provide exactly one of to, projectPath, runtimeProfile, or existingHandle",
       },
     });
   });
@@ -1439,7 +1440,7 @@ describe("scoutAskHandler", () => {
           label: "vox",
           currentDirectory: process.cwd(),
         },
-        reason: "Choose one concrete target, then retry the ask.",
+        reason: "vox matches multiple agents",
       },
     });
   }, 15000);

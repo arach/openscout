@@ -38,4 +38,17 @@ describe("buildScoutAskRoute", () => {
       value: "@composer-review",
     });
   });
+
+  test("preserves explicit route-alias scope without changing direct target semantics", () => {
+    expect(buildScoutAskRoute({
+      to: "alias:review",
+      currentDirectory: "/tmp/openscout",
+      aliasScope: { projectRoot: "/tmp/talkie", nodeId: "mini" },
+    })).toEqual({
+      kind: "route_alias",
+      alias: "review",
+      value: "alias:review",
+      scope: { projectRoot: "/tmp/talkie", nodeId: "mini" },
+    });
+  });
 });

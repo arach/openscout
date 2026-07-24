@@ -286,6 +286,14 @@ names a role or definition, `#ops` names a channel, and
 can resolve through current broker records to the right ref, session, or
 binding, but it is not itself a raw session id.
 
+A **route alias** is separate broker-owned pointer state attached after creation
+to one durable agent id or one exact broker-known session. `alias:review`
+selects it explicitly; a bare `review` consults it only after native agent
+names/selectors fail. Aliases are scoped by owner realm, canonical project, and
+authority node. Repointing changes future resolution only: acceptance pins the
+binding id/revision and canonical target into durable receipts and records.
+Route aliases never create cards, agents, actors, or sessions.
+
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
 when the caller intentionally wants to continue one concrete prior harness
@@ -303,6 +311,8 @@ Runtime launch profiles are a separate concept from the `profile:` identity
 qualifier. Leading reserved names `Fable`, `Kimi`, `Grok`, and `Opus` in CLI
 natural-language asks produce a structured `runtime_profile` route for a fresh
 current-project session. The broker owns the harness/model/default mapping.
+Fable and Opus accept broker-validated effort overrides. Kimi and Grok reject
+effort overrides until their ACP transports expose a corresponding control.
 Likewise, `agent Composer Review to ...` produces an `existing_handle` route
 for exact `@composer-review` lookup. It does not create a session, choose a
 local duplicate, or consult fuzzy aliases. See
@@ -310,7 +320,8 @@ local duplicate, or consult fuzzy aliases. See
 
 Neither route is a post-hoc alias: runtime profiles are launch presets and
 existing handles name already-known live targets. Mutable route aliases retain
-their own scoped broker records, revisions, and explicit alias target kind.
+their own scoped broker records, revisions, and explicit alias target kind;
+unknown profile or exact-handle routes never fall through to alias lookup.
 
 ### Three Layers
 
@@ -320,7 +331,9 @@ Scout separates identity into three layers, each serving a different audience:
 
 - **Minimal unique identity** is the shortest address that still resolves to exactly one agent. Scout computes it automatically from the current set of online agents. When there is only one `hudson`, `@hudson` is enough. When two exist on different machines, `@hudson.node:mini` disambiguates.
 
-- **Alias** is a human-owned shortcut. `@huddy` maps to one specific identity. If the mapping becomes ambiguous, the alias is invalid until repaired.
+- **Configured identity alias** is an input declared on an agent definition and participates in native identity resolution.
+
+- **Route alias** is mutable broker state over an already-existing agent or exact session. It has its own binding id, revision, owner/project/node scope, authorization, expiry, and audit history. It does not mutate identity.
 
 ### The Six Dimensions
 

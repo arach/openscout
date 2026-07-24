@@ -18,17 +18,19 @@ The CLI MUST NOT turn either form into a guessed `ask --to` label.
 
 `ask --to <target>` remains the explicit surface for existing target routing.
 `ask --profile <profile>` is the explicit surface for a fresh runtime-profile
-launch. A caller may add `--effort <level>` to a profile launch. Profiles own
-their harness, model, and fresh-session defaults.
+launch. A caller may add `--effort <level>` to Fable or Opus. Kimi and Grok
+currently reject effort overrides because their ACP transports expose no
+reasoning-effort control. Profiles own their harness, model, and fresh-session
+defaults.
 
 ## Reserved broker profiles
 
-| Profile | Harness | Model | Session |
-| --- | --- | --- | --- |
-| `fable` | `claude` | `fable` | fresh |
-| `kimi` | `kimi` | broker/harness default | fresh |
-| `grok` | `grok` | broker/harness default | fresh |
-| `opus` | `claude` | `opus` | fresh |
+| Profile | Harness | Model | Session | Effort override |
+| --- | --- | --- | --- | --- |
+| `fable` | `claude` | `fable` | fresh | supported |
+| `kimi` | `kimi` | broker/harness default | fresh | rejected until ACP support exists |
+| `grok` | `grok` | broker/harness default | fresh | rejected until ACP support exists |
+| `opus` | `claude` | `opus` | fresh | supported |
 
 The protocol publishes only the reserved names needed for deterministic client
 recognition. The execution definitions above are owned and applied by the
@@ -39,15 +41,16 @@ broker. Clients MUST NOT duplicate or override those mappings.
 Reserved profiles are recognized only in leading position:
 
 ```text
-Fable to review the parser
-Grok xhigh to fix the tests
+Grok to review the parser
+Fable xhigh to fix the tests
 Opus with high effort to review the patch
 ```
 
 The `to` token is optional for profiles because the leading word is reserved.
-An optional effort may be written directly after the profile or as
-`with <effort> effort`. Accepted efforts are `none`, `minimal`, `low`,
-`medium`, `high`, `xhigh`, `max`, and `ultra`.
+For Fable and Opus, an optional effort may be written directly after the
+profile or as `with <effort> effort`. Accepted efforts are `none`, `minimal`,
+`low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. Kimi and Grok fail
+closed when either natural or flag-based effort is supplied.
 
 Existing targets require the `agent` prefix and a `to` delimiter so a
 multi-word display name has a deterministic boundary:
@@ -77,11 +80,11 @@ or invalid efforts fail closed.
 ## Alias boundary
 
 Runtime profiles are launch presets, not aliases. Existing handles are exact
-references to already known targets, not mutable pointers. Post-hoc route
-aliases remain a separate broker-owned `route_alias` concept with scope,
-revision, ownership, and repointing semantics. A future alias implementation
-must not overload `runtime_profile` or `existing_handle`; explicit
-`alias:<name>` and bare-alias precedence remain separate decisions.
+references to already known targets, not mutable pointers. Implemented
+post-hoc route aliases remain a separate broker-owned `route_alias` concept
+with scope, revision, ownership, and repointing semantics. Alias lookup never
+absorbs an unknown `runtime_profile` or `existing_handle`: explicit
+`alias:<name>` and direct `--to` bare-alias fallback remain separate routes.
 
 ## Examples
 

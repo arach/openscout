@@ -310,6 +310,18 @@ Questions answer information. Work items carry ownership.
   remediation commands instead of returning bare "not found" or "unavailable"
   errors when it has enough context to guide the next step.
 
+Route aliases use this precedence: exact typed routes; explicit `alias:<name>`;
+native agent id/name/selector/configured aliases; bare route alias in the
+caller's current project and local node; then legacy `target:<handle>`/`⌖`
+session-handle fallback. The broker never searches every project or node for a
+bare alias. `target:<name>` consults route aliases before its legacy fallback.
+
+Alias dereference happens once at acceptance. The receipt and durable message,
+invocation, flight, and work metadata retain requested alias, binding id,
+revision, scope, canonical target, authority node, and resolution time. Reusing
+the alias in a later call resolves its current binding; following a returned
+ref/session/conversation/work handle does not re-resolve it.
+
 Do not rely on body mentions for routing:
 
 ```ts
@@ -380,12 +392,14 @@ Reserved profile names are `Fable`, `Kimi`, `Grok`, and `Opus`. The broker,
 not the client, owns their harness/model/fresh-session definitions. Direct
 `ask --to fable` still means existing-target routing; it must never be
 reinterpreted as a profile. The explicit profile surface is
-`ask --profile fable`.
+`ask --profile fable`. Fable and Opus accept optional effort overrides; Kimi
+and Grok reject effort until their ACP transports expose that control.
 
 `agent <name> to <request>` lowercases and dash-normalizes `<name>`, then asks
 the broker for one exact handle match. Locality and fuzzy similarity are not
 tiebreakers. Zero or multiple matches return disambiguation without delivery.
-This exact-handle route is distinct from mutable post-hoc route aliases.
+This exact-handle route is distinct from mutable post-hoc route aliases. An
+unknown exact handle never falls through to a same-named route alias.
 
 `target:<name>` is the canonical human-typed form for a Scout-saved situated
 target: profile, project, harness, rules/tool context, and current continuation

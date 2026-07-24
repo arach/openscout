@@ -120,6 +120,7 @@ function createHarness(input: {
     createdAt: number;
   }> = [];
   const recordedDispatches: Array<{ envelope: ScoutDispatchEnvelope; requesterId?: string }> = [];
+  const recordedWorkItemPayloads: ScoutDeliverRequest[] = [];
   const operatorIssues: Array<{
     kind: "unassigned_scout" | "rejected" | "unavailable";
     requestId: string;
@@ -207,9 +208,10 @@ function createHarness(input: {
     buildUnavailableDispatchEnvelope: () => {
       throw new Error("unexpected unavailable dispatch");
     },
-    recordDeliveryWorkItemIfNeeded: async () => ({
-      record: null,
-    }),
+    recordDeliveryWorkItemIfNeeded: async ({ payload }) => {
+      recordedWorkItemPayloads.push(payload);
+      return { record: null };
+    },
     deliveryWorkItemResolutionForTell: () => ({ record: null }),
     async postConversationMessage(message) {
       postedMessages.push(message);
@@ -245,6 +247,7 @@ function createHarness(input: {
     operatorSignals,
     postedMessages,
     recordedDispatches,
+    recordedWorkItemPayloads,
     service,
   };
 }
@@ -751,5 +754,60 @@ describe("BrokerDeliveryAcceptanceService", () => {
     ]);
     expect(harness.postedMessages).toEqual([]);
     expect(harness.acceptedInvocations).toEqual([]);
+  });
+
+  test("pins alias proof and exact-session semantics across receipt, message, and invocation", async () => {
+    const agent = testAgent();
+    const endpoint = testEndpoint();
+    const aliasResolution = {
+      bindingId: "alias-1",
+      revision: 4,
+      requestedAlias: "patch",
+      scope: { projectKey: "project:alpha", projectRoot: "/work/alpha", nodeId: "node-1" },
+      target: {
+        kind: "session" as const,
+        sessionId: "session-1",
+        agentId: agent.id,
+        endpointId: endpoint.id,
+        nodeId: endpoint.nodeId,
+        harness: endpoint.harness,
+      },
+      resolvedAt: 40_000,
+    };
+    const harness = createHarness({
+      resolution: { kind: "resolved", agent, aliasResolution },
+      now: 40_000,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-alias",
+      body: "continue exactly here",
+      intent: "consult",
+      target: { kind: "route_alias", alias: "patch" },
+      caller: { actorId: "operator", nodeId: "node-1", currentDirectory: "/work/alpha" },
+      workItem: { title: "Continue patch" },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "delivery",
+      accepted: true,
+      targetAgentId: agent.id,
+      targetSessionId: "session-1",
+      aliasResolution,
+      receipt: expect.objectContaining({
+        targetAgentId: agent.id,
+        targetSessionId: "session-1",
+        aliasResolution,
+      }),
+    }));
+    expect(harness.postedMessages[0]?.metadata).toEqual(expect.objectContaining({ aliasResolution }));
+    expect(harness.acceptedInvocations[0]).toEqual(expect.objectContaining({
+      targetAgentId: agent.id,
+      execution: expect.objectContaining({ session: "existing", targetSessionId: "session-1" }),
+      metadata: expect.objectContaining({ aliasResolution }),
+    }));
+    expect(harness.recordedWorkItemPayloads[0]?.workItem?.metadata).toEqual(
+      expect.objectContaining({ aliasResolution }),
+    );
   });
 });

@@ -35,6 +35,7 @@ import {
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
   type ScoutProjectAgentSpec,
+  type RouteAliasBinding,
   type ScoutRouteTarget,
   type WakePolicy,
   type ScoutReturnAddress,
@@ -299,6 +300,8 @@ export type ScoutWhoEntry = {
   messages: number;
   lastSeen: number | null;
   registrationKind: ScoutWhoRegistrationKind;
+  /** Broker-owned route pointers targeting this agent; never roster entries. */
+  aliases?: Array<Pick<RouteAliasBinding, "id" | "alias" | "revision" | "state" | "scopeProjectKey" | "scopeProjectRoot" | "scopeNodeId" | "target">>;
 };
 
 type RelayConfig = {
@@ -771,7 +774,7 @@ function renderScoutTargetLabel(targetLabel: string): string {
   }
   if (
     trimmed.startsWith("@")
-    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^(?:ref|session|alias|route-alias|route_alias|target|target-handle|target_handle|channel):/i.test(trimmed)
     || /^broadcast$/i.test(trimmed)
   ) {
     return trimmed;
@@ -789,6 +792,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.value?.trim() || `@${target.handle.trim().replace(/^@+/, "")}`;
     case "runtime_profile":
       return target.value?.trim() || `profile:${target.profile.trim()}`;
+    case "route_alias":
+      return target.value?.trim() || `alias:${target.alias.trim()}`;
     case "target_handle":
       return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
@@ -3216,7 +3221,21 @@ async function loadDiscoveredAgentMap(currentDirectory: string): Promise<Map<str
 
 export async function listScoutAgents(options: { currentDirectory?: string } = {}): Promise<ScoutWhoEntry[]> {
   const broker = await requireScoutBrokerContext();
-  const discoveredAgents = await loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd());
+  const currentDirectory = options.currentDirectory ?? process.cwd();
+  const [discoveredAgents, aliasResult] = await Promise.all([
+    loadDiscoveredAgentMap(currentDirectory),
+    brokerReadJson<{ bindings: RouteAliasBinding[] }>(
+      broker.baseUrl,
+      `/v1/aliases?${new URLSearchParams({ currentDirectory })}`,
+    ).catch(() => ({ bindings: [] })),
+  ]);
+  const aliasesByAgent = new Map<string, RouteAliasBinding[]>();
+  for (const binding of aliasResult.bindings) {
+    if (binding.state !== "active") continue;
+    const entries = aliasesByAgent.get(binding.target.agentId) ?? [];
+    entries.push(binding);
+    aliasesByAgent.set(binding.target.agentId, entries);
+  }
   const endpointsByAgent = new Map<string, ScoutBrokerEndpointRecord[]>();
   const messageStats = new Map<string, { messages: number; lastSeen: number | null }>();
 
@@ -3254,7 +3273,8 @@ export async function listScoutAgents(options: { currentDirectory?: string } = {
         ...endpoints.map((endpoint) => whoEndpointActivity(endpoint)),
       ]);
       const messages = brokerMessages?.messages ?? 0;
-      return { agentId, state, messages, lastSeen, registrationKind };
+      const aliases = aliasesByAgent.get(agentId);
+      return { agentId, state, messages, lastSeen, registrationKind, ...(aliases?.length ? { aliases } : {}) };
     })
     .sort((lhs, rhs) => {
       const stateDelta = whoStateRank(rhs.state) - whoStateRank(lhs.state);
@@ -3350,36 +3370,6 @@ export async function speakScoutText(text: string, voice: string): Promise<void>
   }
   player.stdin.end();
   await new Promise<void>((resolve) => player.on("close", () => resolve()));
-}
-
-export function buildScoutEnrollmentPrompt(input: {
-  agentId: string;
-  task?: string;
-  cliCommand?: string;
-}): string {
-  const cliCommand = input.cliCommand?.trim() || "scout";
-  const task = input.task?.trim();
-  return [
-    `You are ${input.agentId}.`,
-    "",
-    "Use the Scout CLI to coordinate with other agents working on related packages.",
-    "Do not read relay files or call broker HTTP endpoints directly.",
-    "",
-    "Scout commands:",
-    `  ${cliCommand} send --as ${input.agentId} "your message"`,
-    `  ${cliCommand} inbox --latest 10 --json`,
-    `  ${cliCommand} channel shared --latest 10 --json`,
-    `  ${cliCommand} watch`,
-    `  ${cliCommand} who`,
-    "",
-    "Rules:",
-    "  - Check recent messages before starting work",
-    "  - Send a message when you complete something other agents need to know about",
-    "  - Be specific: include file paths, version numbers, and what changed",
-    "  - Keep messages under 200 chars",
-    task ? "" : undefined,
-    task ? `Your task: ${task}` : undefined,
-  ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
 export function defaultScoutAgentNameForPath(projectPath: string): string {

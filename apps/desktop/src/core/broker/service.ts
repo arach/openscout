@@ -43,6 +43,10 @@ import {
   type WorkItemState,
   type ScoutReturnAddress,
   type ScoutRouteTarget,
+  type ScoutRendezvousRequest,
+  type ScoutRendezvousResponse,
+  type RouteAliasBinding,
+  type RouteAliasScope,
   epochMs,
   parseScoutComposerRouteTarget,
 } from "@openscout/protocol";
@@ -554,6 +558,8 @@ export type ScoutWhoEntry = {
   messages: number;
   lastSeen: number | null;
   registrationKind: ScoutWhoRegistrationKind;
+  /** Route pointers targeting this agent; never separate roster entries. */
+  aliases?: Array<Pick<RouteAliasBinding, "id" | "alias" | "revision" | "state" | "scopeProjectKey" | "scopeProjectRoot" | "scopeNodeId" | "target">>;
 };
 
 type RelayConfig = {
@@ -975,6 +981,25 @@ async function brokerPostDeliver(
   );
 }
 
+export async function matchScoutRendezvous(
+  request: ScoutRendezvousRequest,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutRendezvousResponse> {
+  return brokerPostJson<ScoutRendezvousResponse>(
+    baseUrl,
+    scoutBrokerPaths.v1.rendezvousMatch,
+    request,
+    {
+      acceptErrorJson: (value): value is ScoutRendezvousResponse =>
+        Boolean(
+          value
+          && typeof value === "object"
+          && (value as { status?: unknown }).status === "topic_busy",
+        ),
+    },
+  );
+}
+
 function renderScoutTargetLabel(targetLabel: string): string {
   const trimmed = targetLabel.trim();
   if (!trimmed) {
@@ -982,7 +1007,7 @@ function renderScoutTargetLabel(targetLabel: string): string {
   }
   if (
     trimmed.startsWith("@")
-    || /^(?:ref|session|target|target-handle|target_handle|channel):/i.test(trimmed)
+    || /^(?:ref|session|alias|route-alias|route_alias|target|target-handle|target_handle|channel):/i.test(trimmed)
     || /^broadcast$/i.test(trimmed)
   ) {
     return trimmed;
@@ -993,6 +1018,7 @@ function renderScoutTargetLabel(targetLabel: string): string {
 function routeTargetForTargetLabel(
   targetLabel: string,
   targetRef?: string,
+  aliasScope?: RouteAliasScope,
 ): { target: ScoutRouteTarget; renderedTarget: string; isBindingRef: boolean } {
   const requestedTargetRef = targetRef?.trim()
     || (targetLabel.trim().startsWith("ref:") ? targetLabel.trim().slice("ref:".length) : "");
@@ -1005,6 +1031,13 @@ function routeTargetForTargetLabel(
   }
 
   const parsed = parseScoutComposerRouteTarget(targetLabel);
+  if (parsed?.kind === "route_alias") {
+    return {
+      target: { ...parsed, ...(aliasScope ? { scope: aliasScope } : {}) },
+      renderedTarget: parsed.value ?? targetLabel.trim(),
+      isBindingRef: false,
+    };
+  }
   if (parsed?.kind === "target_handle" || parsed?.kind === "binding_ref") {
     return {
       target: parsed,
@@ -2962,6 +2995,7 @@ export async function sendScoutMessage(input: {
   source?: string;
   wake?: boolean;
   operatorSignal?: ScoutDeliverRequest["operatorSignal"];
+  aliasScope?: RouteAliasScope;
 }): Promise<ScoutMessagePostResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) {
@@ -2998,6 +3032,7 @@ export async function sendScoutMessage(input: {
     const { target, renderedTarget, isBindingRef } = routeTargetForTargetLabel(
       requestedTargetLabel ?? "",
       requestedTargetRef,
+      input.aliasScope,
     );
     const delivery = await brokerPostDeliver(broker.baseUrl, {
       caller: {
@@ -3863,6 +3898,8 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.value?.trim() || `@${target.handle.trim().replace(/^@+/, "")}`;
     case "runtime_profile":
       return target.value?.trim() || `profile:${target.profile.trim()}`;
+    case "route_alias":
+      return target.value?.trim() || `alias:${target.alias.trim()}`;
     case "target_handle":
       return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
@@ -4042,8 +4079,9 @@ export async function askScoutQuestion(input: {
   replyMode?: ScoutAskReplyMode;
   currentDirectory?: string;
   source?: string;
+  aliasScope?: RouteAliasScope;
 }): Promise<ScoutAskResult> {
-  const fallbackTarget = routeTargetForTargetLabel(input.targetLabel, input.targetRef);
+  const fallbackTarget = routeTargetForTargetLabel(input.targetLabel, input.targetRef, input.aliasScope);
   const target = input.target ?? fallbackTarget.target;
   return deliverScoutAsk({
     senderId: input.senderId,
@@ -4970,10 +5008,21 @@ export async function listScoutAgents(
   options: { currentDirectory?: string } = {},
 ): Promise<ScoutWhoEntry[]> {
   const broker = await requireScoutBrokerContext();
-  const [configuredAgentIds, discoveredAgents] = await Promise.all([
+  const currentDirectory = options.currentDirectory ?? process.cwd();
+  const aliasParams = new URLSearchParams({ currentDirectory });
+  const [configuredAgentIds, discoveredAgents, aliasResult] = await Promise.all([
     loadConfiguredAgentIds(),
-    loadDiscoveredAgentMap(options.currentDirectory ?? process.cwd()),
+    loadDiscoveredAgentMap(currentDirectory),
+    brokerReadJson<{ bindings: RouteAliasBinding[] }>(broker.baseUrl, `/v1/aliases?${aliasParams}`)
+      .catch(() => ({ bindings: [] })),
   ]);
+  const aliasesByAgent = new Map<string, RouteAliasBinding[]>();
+  for (const binding of aliasResult.bindings) {
+    if (binding.state !== "active") continue;
+    const entries = aliasesByAgent.get(binding.target.agentId) ?? [];
+    entries.push(binding);
+    aliasesByAgent.set(binding.target.agentId, entries);
+  }
   const endpointsByAgent = new Map<string, ScoutBrokerEndpointRecord[]>();
   const messageStats = new Map<
     string,
@@ -5028,7 +5077,8 @@ export async function listScoutAgents(
         ...endpoints.map((endpoint) => whoEndpointActivity(endpoint)),
       ]);
       const messages = brokerMessages?.messages ?? 0;
-      return { agentId, state, messages, lastSeen, registrationKind };
+      const aliases = aliasesByAgent.get(agentId);
+      return { agentId, state, messages, lastSeen, registrationKind, ...(aliases?.length ? { aliases } : {}) };
     })
     .sort((lhs, rhs) => {
       const stateDelta = whoStateRank(rhs.state) - whoStateRank(lhs.state);
@@ -5152,38 +5202,6 @@ export async function speakScoutText(
   }
   player.stdin.end();
   await new Promise<void>((resolve) => player.on("close", () => resolve()));
-}
-
-export function buildScoutEnrollmentPrompt(input: {
-  agentId: string;
-  task?: string;
-  cliCommand?: string;
-}): string {
-  const cliCommand = input.cliCommand?.trim() || "scout";
-  const task = input.task?.trim();
-  return [
-    `You are ${input.agentId}.`,
-    "",
-    "Use the Scout CLI to coordinate with other agents working on related packages.",
-    "Do not read relay files or call broker HTTP endpoints directly.",
-    "",
-    "Scout commands:",
-    `  ${cliCommand} send --as ${input.agentId} "your message"`,
-    `  ${cliCommand} inbox --latest 10 --json`,
-    `  ${cliCommand} channel shared --latest 10 --json`,
-    `  ${cliCommand} watch`,
-    `  ${cliCommand} who`,
-    "",
-    "Rules:",
-    "  - Check recent messages before starting work",
-    "  - Send a message when you complete something other agents need to know about",
-    "  - Be specific: include file paths, version numbers, and what changed",
-    "  - Keep messages under 200 chars",
-    task ? "" : undefined,
-    task ? `Your task: ${task}` : undefined,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
 }
 
 export function defaultScoutAgentNameForPath(projectPath: string): string {

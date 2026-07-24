@@ -359,6 +359,7 @@ export class BrokerDeliveryAcceptanceService {
         || payload.target?.kind === "agent_label"
         || payload.target?.kind === "existing_handle"
         || payload.target?.kind === "runtime_profile"
+        || payload.target?.kind === "route_alias"
         || payload.target?.kind === "target_handle"
         || payload.target?.kind === "session_id"
         || payload.target?.kind === "project_path",
@@ -669,7 +670,7 @@ export class BrokerDeliveryAcceptanceService {
           execution,
         }, {
           requesterId,
-          currentDirectory: projectPath,
+          currentDirectory: payload.caller?.currentDirectory?.trim() || projectPath,
           reason: "project delivery target",
         });
     throwIfAborted(options.signal);
@@ -724,7 +725,9 @@ export class BrokerDeliveryAcceptanceService {
           label: resolved.session.label,
           endpoint: resolved.session.endpoint as AgentEndpoint | undefined,
         };
+    const aliasResolution = resolved.aliasResolution;
     const receiptSessionId = requestedTargetSessionId
+      ?? (aliasResolution?.target.kind === "session" ? aliasResolution.target.sessionId : undefined)
       ?? (resolved.kind === "resolved_session" ? resolved.session.sessionId : undefined);
 
     const unavailable = resolved.kind === "resolved"
@@ -767,7 +770,18 @@ export class BrokerDeliveryAcceptanceService {
     });
     const workResolution = payload.intent === "consult"
       ? await this.options.recordDeliveryWorkItemIfNeeded({
-          payload,
+          payload: aliasResolution && payload.workItem
+            ? {
+                ...payload,
+                workItem: {
+                  ...payload.workItem,
+                  metadata: {
+                    ...(payload.workItem.metadata ?? {}),
+                    aliasResolution,
+                  },
+                },
+              }
+            : payload,
           requestId,
           requesterId,
           targetAgentId: target.actorId,
@@ -804,6 +818,7 @@ export class BrokerDeliveryAcceptanceService {
         ...(payload.messageMetadata ?? {}),
         ...(labels.length ? { labels } : {}),
         ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+        ...(aliasResolution ? { aliasResolution } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
         targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
@@ -852,6 +867,7 @@ export class BrokerDeliveryAcceptanceService {
         targetAgentId: target.actorId,
         targetSessionId: receiptSessionId,
         targetLabel,
+        aliasResolution,
         conversationId: conversation.id,
         messageId,
       });
@@ -864,6 +880,7 @@ export class BrokerDeliveryAcceptanceService {
         message,
         targetAgentId: target.actorId,
         ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+        ...(aliasResolution ? { aliasResolution } : {}),
         ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
       };
     }
@@ -874,6 +891,7 @@ export class BrokerDeliveryAcceptanceService {
         : {}),
       ...(payload.invocationMetadata ?? {}),
       ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+      ...(aliasResolution ? { aliasResolution } : {}),
       ...(payload.intent === "tell" && payload.invocationMetadata?.sourceIntent === undefined
         ? { sourceIntent: "direct_message" }
         : {}),
@@ -913,6 +931,7 @@ export class BrokerDeliveryAcceptanceService {
         ...invocationMetadata,
         ...(labels.length ? { labels } : {}),
         ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+        ...(aliasResolution ? { aliasResolution } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
         targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
@@ -949,11 +968,13 @@ export class BrokerDeliveryAcceptanceService {
         conversationId: conversation.id,
         messageId,
         flightId: flight.id,
+        aliasResolution,
       }),
       conversation,
       message,
       targetAgentId: target.actorId,
       ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+      ...(aliasResolution ? { aliasResolution } : {}),
       ...(sessionAlias ? { sessionAlias } : {}),
       bindingRef,
       flight,

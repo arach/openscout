@@ -1,6 +1,50 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderScoutActivityList, renderScoutMessagePostResult } from "./broker.ts";
+import { renderScoutActivityList, renderScoutAgentList, renderScoutMessagePostResult } from "./broker.ts";
+
+describe("renderScoutAgentList", () => {
+  test("renders agent and exact-session route aliases as secondary pointers, not roster rows", () => {
+    const rendered = renderScoutAgentList([{
+      agentId: "agent-reviewer",
+      state: "active",
+      messages: 0,
+      lastSeen: null,
+      registrationKind: "configured",
+      aliases: [
+        {
+          id: "alias-1",
+          alias: "review",
+          revision: 2,
+          state: "active",
+          scopeProjectKey: "project:alpha",
+          scopeProjectRoot: "/work/alpha",
+          scopeNodeId: "node-1",
+          target: { kind: "agent", agentId: "agent-reviewer", nodeId: "node-1" },
+        },
+        {
+          id: "alias-2",
+          alias: "patch",
+          revision: 1,
+          state: "active",
+          scopeProjectKey: "project:alpha",
+          scopeProjectRoot: "/work/alpha",
+          scopeNodeId: "node-1",
+          target: {
+            kind: "session",
+            sessionId: "session-exact",
+            agentId: "agent-reviewer",
+            endpointId: "endpoint-exact",
+            nodeId: "node-1",
+            harness: "codex",
+          },
+        },
+      ],
+    }]);
+
+    expect(rendered.match(/agent-reviewer/g)?.length).toBe(2);
+    expect(rendered).toContain("Aliases: review → agent-reviewer (r2), patch → session:session-exact (r1)");
+  });
+});
 
 describe("renderScoutMessagePostResult", () => {
   test("renders durable handles for normal sends", () => {

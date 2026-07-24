@@ -69,7 +69,6 @@ import { harnessFromAdapterType, invokeSession, resumeAgentSession } from "../..
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
-import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
 import { MessageComposer } from "../../components/MessageComposer/index.ts";
 
 import "./session-observe.css";
@@ -2354,11 +2353,6 @@ function SessionHeader({
               {sent ? "Sent" : "Takeover"}
             </button>
           )}
-          <VantageHandoffButton
-            agentId={agentId}
-            className="s-observe-vantage-btn"
-            statusClassName="s-observe-vantage-status"
-          />
         </div>
       </div>
 

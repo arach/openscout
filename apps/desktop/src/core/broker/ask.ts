@@ -197,6 +197,8 @@ function renderedAskTarget(target: ScoutRouteTarget): string {
       return target.value ?? `@${target.handle.replace(/^@+/, "")}`;
     case "runtime_profile":
       return target.value ?? `profile:${target.profile}`;
+    case "route_alias":
+      return target.value ?? `alias:${target.alias}`;
     case "target_handle":
       return target.value ?? `target:${target.handle}`;
     case "session_id":
@@ -237,6 +239,9 @@ function askTargetFor(to: string): ScoutRouteTarget | null {
   if (parsed.kind === "agent_label") {
     return { kind: "agent_label", label: parsed.label };
   }
+  if (parsed.kind === "route_alias") {
+    return { kind: "route_alias", alias: parsed.alias, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.value ? { value: parsed.value } : {}) };
+  }
   return null;
 }
 
@@ -266,6 +271,7 @@ export function buildScoutAskRoute(input: {
   existingHandle?: string;
   currentDirectory: string;
   reasoningEffort?: string;
+  aliasScope?: import("@openscout/protocol").RouteAliasScope;
 }): ScoutRouteTarget | null {
   if (input.runtimeProfile) {
     const target = {
@@ -295,7 +301,10 @@ export function buildScoutAskRoute(input: {
   if (!input.to) {
     return null;
   }
-  const target = askTargetFor(input.to);
+  const parsedTarget = askTargetFor(input.to);
+  const target = parsedTarget?.kind === "route_alias" && input.aliasScope
+    ? { ...parsedTarget, scope: input.aliasScope }
+    : parsedTarget;
   return target;
 }
 
@@ -360,6 +369,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     existingHandle: requestedExistingHandle,
     currentDirectory,
     reasoningEffort: command.reasoningEffort,
+    aliasScope: command.aliasScope,
   });
   if (!target) {
     return {

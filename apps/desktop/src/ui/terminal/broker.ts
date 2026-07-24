@@ -41,7 +41,7 @@ export function renderScoutAgentList(entries: ScoutWhoEntry[]): string {
         : "not seen yet";
       const registrationLabel =
         entry.registrationKind === "discovered" ? "auto-discovered" : null;
-      return [
+      const primary = [
         entry.agentId,
         entry.state,
         messageLabel,
@@ -50,6 +50,10 @@ export function renderScoutAgentList(entries: ScoutWhoEntry[]): string {
       ]
         .filter(Boolean)
         .join(" · ");
+      const aliases = entry.aliases?.length
+        ? `\n  Aliases: ${entry.aliases.map((alias) => `${alias.alias} → ${alias.target.kind === "agent" ? alias.target.agentId : `session:${alias.target.sessionId}`} (r${alias.revision})`).join(", ")}`
+        : "";
+      return `${primary}${aliases}`;
     })
     .join("\n");
 }

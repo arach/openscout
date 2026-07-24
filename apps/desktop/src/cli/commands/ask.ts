@@ -26,7 +26,7 @@ const DEFAULT_ASK_DISPATCH_SETTLE_MS = 4_000;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask [(--to <existing-target> | --ref <ref> | --project <path> | --profile <runtime-profile>)] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
+    "Usage: scout ask [(--to <existing-target> | --ref <ref> | --project <path> | --profile <runtime-profile>)] [--alias-project <path>] [--alias-host <node>] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
@@ -36,9 +36,10 @@ export function renderAskCommandHelp(): string {
     "  --to <name>                        -> existing agent/session target routing",
     "  agent <name> to <request>          -> exact normalized existing handle lookup",
     "  Fable|Kimi|Grok|Opus <request>     -> broker runtime profile; starts a fresh current-project session",
-    "  --profile <name> [--effort <level>] -> explicit broker runtime profile route",
+    "  --profile <name> [--effort <level>] -> explicit profile route; effort is supported by Fable/Opus",
     "  --to target:<name> or --to ⌖name    -> saved situated target; continues that worker",
     "  --to session:<id>                  -> continue one exact existing session",
+    "  --to alias:<name>                  -> explicit broker route alias; use --alias-project/--alias-host for cross-scope routing",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
     "  --project <path> --harness <rt>     -> capability request; broker chooses/creates worker",
     "  --harness <runtime> with no target  -> ask a compatible worker for the current project",
@@ -65,6 +66,7 @@ export function renderAskCommandHelp(): string {
     '  scout ask Opus high to review the parser',
     '  scout ask --profile kimi "review the parser"',
     '  scout ask --to target:mw-talkie "continue the editorial pass"',
+    '  scout ask --to alias:review --alias-project ../talkie --alias-host mini "take another pass"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
     '  scout ask --harness codex "review this from a fresh Codex session"',
@@ -347,6 +349,10 @@ export async function runAskWithOptions(
     replyMode,
     currentDirectory,
     source: "scout-cli",
+    aliasScope: options.aliasProject || options.aliasHost ? {
+      ...(options.aliasProject ? { projectRoot: options.aliasProject } : {}),
+      ...(options.aliasHost ? { nodeId: options.aliasHost } : {}),
+    } : undefined,
   });
 
   if (!receipt.ok || !receipt.ids.flightId) {

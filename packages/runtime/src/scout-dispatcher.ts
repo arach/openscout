@@ -19,6 +19,7 @@ import {
   type ScoutDispatchEnvelope,
   type ScoutDispatchKind,
   type ScoutId,
+  type RouteAliasDiagnosticCode,
   type ScoutRoutePolicy,
   type ScoutRouteTarget,
   normalizeAgentSelectorSegment,
@@ -64,7 +65,7 @@ export type BrokerLabelResolution =
   | { kind: "resolved_session"; session: ResolvedSessionTarget }
   | { kind: "ambiguous"; label: string; candidates: AgentDefinition[]; detail?: string }
   | { kind: "unparseable"; label: string }
-  | { kind: "unknown"; label: string; detail?: string; candidates?: AgentDefinition[] };
+  | { kind: "unknown"; label: string; detail?: string; candidates?: AgentDefinition[]; diagnosticCode?: RouteAliasDiagnosticCode };
 
 export interface BrokerRouteTargetInput {
   target?: ScoutRouteTarget | null;
@@ -104,6 +105,8 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.handle
     : target.kind === "runtime_profile"
     ? target.value ?? `profile:${target.profile}`
+    : target.kind === "route_alias"
+    ? target.value ?? `alias:${target.alias}`
     : target.kind === "target_handle"
     ? target.value ?? `target:${normalizeTargetHandleInput(target.handle)}`
     : target.kind === "session_id"
@@ -756,6 +759,12 @@ export function resolveBrokerRouteTarget(
     });
   }
 
+  // Broker-owned alias state is dereferenced by BrokerRouteAliasService before
+  // entering this pure snapshot resolver.
+  if (routeTarget?.kind === "route_alias") {
+    return { kind: "unknown", label: routeTarget.value ?? `alias:${routeTarget.alias}` };
+  }
+
   if (routeTarget?.kind === "target_handle") {
     return resolveTargetHandle(snapshot, routeTarget.handle, {
       helpers: options.helpers,
@@ -946,6 +955,7 @@ export function buildDispatchEnvelope(
           formatMinimalAgentIdentity(candidates[index]!, candidates),
         ),
       ),
+      ...(resolution.diagnosticCode ? { diagnosticCode: resolution.diagnosticCode } : {}),
       dispatchedAt,
       dispatcherNodeId,
     };

@@ -172,6 +172,16 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
     deliveryAcceptanceService: {
       accept: async () => ({ kind: "delivery", deliveryId: "fallback-delivery" }),
     },
+    rendezvousService: {
+      match: async (request: { topic: string; projectRoot: string; participantId: string }) => ({
+        status: "waiting",
+        topic: request.topic,
+        projectRoot: request.projectRoot,
+        participantId: request.participantId,
+        joinedAt: 1,
+        expiresAt: 2,
+      }),
+    },
     ...overrides,
   } as unknown as BrokerHttpRouterDeps;
 
@@ -218,6 +228,65 @@ async function requestRouter(
 }
 
 describe("createBrokerHttpRouter", () => {
+  test("forwards scoped alias writes to the authoritative broker without touching the local store", async () => {
+    const forwards: Array<{ nodeSelector: string; path: string; method: string; body?: unknown }> = [];
+    const harness = createHarness({
+      routeAliasService: {} as BrokerHttpRouterDeps["routeAliasService"],
+      forwardRouteAliasRequest: async (input) => {
+        forwards.push(input);
+        return { status: 201, body: { binding: { id: "alias-remote", revision: 1 } } };
+      },
+    });
+
+    const result = await requestRouter(harness, "POST", "/v1/aliases", {
+      body: {
+        alias: "review",
+        scope: { projectRoot: "/work/alpha", nodeId: "node-remote" },
+        target: { kind: "agent_id", agentId: "agent-remote" },
+        caller: { actorId: "operator", currentDirectory: "/work/alpha" },
+      },
+    });
+
+    expect(result.response.status).toBe(201);
+    expect(result.body).toEqual({ binding: { id: "alias-remote", revision: 1 } });
+    expect(forwards).toEqual([expect.objectContaining({
+      nodeSelector: "node-remote",
+      path: "/v1/aliases",
+      method: "POST",
+      body: expect.objectContaining({ alias: "review" }),
+    })]);
+  });
+
+  test("forwards host-qualified alias delivery wholesale so exact remote sessions resolve at authority", async () => {
+    const forwards: Array<{ nodeSelector: string; path: string; method: string; body?: unknown }> = [];
+    const harness = createHarness({
+      forwardRouteAliasRequest: async (input) => {
+        forwards.push(input);
+        return { status: 202, body: { kind: "delivery", accepted: true, aliasResolution: { bindingId: "alias-remote", revision: 3 } } };
+      },
+    });
+
+    const result = await requestRouter(harness, "POST", "/v1/deliver", {
+      body: {
+        body: "continue exactly there",
+        intent: "consult",
+        target: { kind: "route_alias", alias: "patch", scope: { projectRoot: "/work/alpha", nodeId: "node-remote" } },
+      },
+    });
+
+    expect(result.response.status).toBe(202);
+    expect(result.body).toEqual(expect.objectContaining({
+      kind: "delivery",
+      aliasResolution: { bindingId: "alias-remote", revision: 3 },
+    }));
+    expect(forwards).toEqual([expect.objectContaining({
+      nodeSelector: "node-remote",
+      path: "/v1/deliver",
+      method: "POST",
+    })]);
+    expect(harness.deliverCalls).toEqual([]);
+  });
+
   test("routes common JSON responses and CORS preflight without daemon state", async () => {
     const harness = createHarness();
 
@@ -290,6 +359,51 @@ describe("createBrokerHttpRouter", () => {
     expect(malformedSignal.response.status).toBe(400);
     expect(malformedSignal.body).toMatchObject({ error: "invalid_request" });
     expect(harness.deliverCalls).toHaveLength(3);
+  });
+
+  test("maps rendezvous results and validation failures onto HTTP statuses", async () => {
+    const requests: unknown[] = [];
+    const harness = createHarness({
+      rendezvousService: {
+        match: async (request: unknown) => {
+          requests.push(request);
+          if ((request as { topic?: string }).topic === "bad") {
+            throw new Error("topic is invalid");
+          }
+          return {
+            status: "topic_busy",
+            topic: "pair",
+            projectRoot: "/repo",
+            participantId: "agent.three",
+            participantCount: 2,
+            expiresAt: 2,
+            suggestion: "choose_another_topic",
+          };
+        },
+      },
+    } as Partial<BrokerHttpRouterDeps>);
+
+    const busy = await requestRouter(harness, "POST", "/v1/rendezvous/match", {
+      body: {
+        topic: "pair",
+        projectRoot: "/repo",
+        participantId: "agent.three",
+        waitMs: 0,
+      },
+    });
+    const invalid = await requestRouter(harness, "POST", "/v1/rendezvous/match", {
+      body: {
+        topic: "bad",
+        projectRoot: "/repo",
+        participantId: "agent.three",
+        waitMs: 0,
+      },
+    });
+
+    expect(busy.response.status).toBe(409);
+    expect(busy.body).toMatchObject({ status: "topic_busy", participantCount: 2 });
+    expect(invalid.response.status).toBe(400);
+    expect(requests).toHaveLength(2);
   });
 
   test("validates invocation requests before dispatch", async () => {

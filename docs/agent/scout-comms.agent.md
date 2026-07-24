@@ -142,6 +142,7 @@ handoff.
 - preserve `conversationId`, `messageId`, `replyToMessageId`, `flightId`
 - ambiguous target -> fail closed or ask one concise clarification
 - bare `Fable`, `Kimi`, `Grok`, and `Opus` in leading natural-target position -> structured `runtime_profile`, never `ask --to`
+- profile effort is supported for Fable/Opus; Kimi/Grok effort fails closed until their ACP transports expose it
 - `agent <name> to <request>` -> slugify `<name>` and emit structured `existing_handle`; zero/multiple exact matches fail closed
 - direct `ask --to` always remains existing-target routing; explicit fresh profiles use `ask --profile`
 - follow-up stays in same conversation/thread/question/work item
@@ -149,6 +150,12 @@ handoff.
   targets
 - broker should coach senders with likely intent, candidates, and remediation
   commands instead of forcing manual topology discovery
+- native bare agent names precede bare route aliases; `alias:<name>` is the
+  explicit route-alias form and `target:<name>` consults aliases before legacy
+  session-handle fallback
+- unknown `existing_handle` and `runtime_profile` routes never fall through to route aliases
+- repeat alias text to follow its current pointer; use returned durable handles
+  to stay pinned to the originally accepted context after a repoint
 
 ## Composer Route Operator
 
@@ -160,12 +167,13 @@ Examples:
 |---|---|---|
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
 | `/scout:ask >> target:mw-talkie Continue.` | `target: { kind: "target_handle", handle: "mw-talkie" }` | `Continue.` |
+| `/scout:ask >> alias:review Continue.` | `target: { kind: "route_alias", alias: "review" }` | `Continue.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
 | `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
 | `/scout:ask --project ../talkie --harness claude Review.` | `projectPath: "../talkie", harness: "claude"` | `Review.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
-Supported route target forms: agent labels, `agent:<label>`, `target:<handle>`,
+Supported route target forms: agent labels, `agent:<label>`, `alias:<name>`, `target:<handle>`,
 `ref:<id>`, `project:<path>`, `id:<agentId>`, `channel:<name>`, and
 `broadcast`. `@agent` remains compatibility syntax, but new Scout-aware
 composers should prefer `>>` and strip the route operator from payload before

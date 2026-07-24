@@ -68,8 +68,9 @@ scout ask --profile kimi "review the parser"
 ```
 
 The broker owns each profile's harness/model/default mapping. `--effort` is an
-optional profile override. Direct `scout ask --to fable ...` always means an
-existing target named `fable`; it is never silently converted to a profile.
+optional Fable/Opus override; Kimi and Grok reject it until their ACP transports
+expose reasoning-effort control. Direct `scout ask --to fable ...` always means
+an existing target named `fable`; it is never silently converted to a profile.
 
 For a natural-language existing target, use an explicit `agent` prefix and
 `to` delimiter:
@@ -92,6 +93,21 @@ The routing rules do not change by harness, UI, or host:
 - tell / update -> `scout send`
 - owned work / requested reply -> `scout ask`
 - follow-up stays in the same DM or explicit channel
+
+Short mutable callback names are broker-owned route aliases:
+
+```bash
+scout alias set review --to scope.main.arts-mac-mini-local
+scout alias set patch --to session:019eff52-9347-7470-ba5c-6bfe99d8dd83
+scout alias resolve patch
+scout alias repoint patch --to session:<new-id> --if-revision 1
+scout alias unset patch --if-revision 2
+scout ask --to alias:review "take a fresh pass"
+```
+
+Aliases are scoped to the current project/local host unless `--project` or
+`--host` is supplied. They point at existing targets and never create or rename
+cards. Native bare agent names win; `alias:<name>` is the explicit form.
 
 The lowest-churn fresh start is **capability first**: pass the project path and
 optional harness, then let the broker choose or create the concrete worker.
@@ -323,7 +339,6 @@ scout ask
 scout watch
 scout who
 scout latest
-scout enroll
 scout broadcast
 scout up
 scout down

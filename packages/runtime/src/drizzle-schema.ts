@@ -3,6 +3,7 @@ import type { DeliveryAttempt, DeliveryIntent } from "@openscout/protocol";
 import { desc, sql } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -134,6 +135,76 @@ export const runtimeSessionAliasesTable = sqliteTable("runtime_session_aliases",
   index("idx_runtime_session_aliases_alias").on(table.alias, desc(table.lastSeenAt)),
   index("idx_runtime_session_aliases_session").on(table.sessionId),
   index("idx_runtime_session_aliases_expires").on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
+]);
+
+// -- route_alias_bindings ---------------------------------------------------
+// User-managed route pointers. Deliberately distinct from the observed
+// runtime_session_aliases lookup index above.
+export const routeAliasBindingsTable = sqliteTable("route_alias_bindings", {
+  id: text("id").primaryKey(),
+  normalizedAlias: text("normalized_alias").notNull(),
+  displayAlias: text("display_alias"),
+  ownerRealmId: text("owner_realm_id").notNull(),
+  scopeProjectKey: text("scope_project_key").notNull(),
+  scopeProjectRoot: text("scope_project_root"),
+  scopeNodeId: text("scope_node_id").notNull(),
+  targetKind: text("target_kind").notNull(),
+  targetAgentId: text("target_agent_id"),
+  targetSessionId: text("target_session_id"),
+  targetEndpointId: text("target_endpoint_id"),
+  targetNodeId: text("target_node_id").notNull(),
+  targetHarness: text("target_harness"),
+  targetSnapshotJson: text("target_snapshot_json").notNull(),
+  state: text("state").notNull(),
+  revision: integer("revision").notNull(),
+  createdByActorId: text("created_by_actor_id").notNull(),
+  updatedByActorId: text("updated_by_actor_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  expiresAt: integer("expires_at"),
+  revokedAt: integer("revoked_at"),
+  metadataJson: text("metadata_json"),
+}, (table) => [
+  check("route_alias_bindings_target_kind_check", sql`${table.targetKind} IN ('agent', 'session')`),
+  check("route_alias_bindings_state_check", sql`${table.state} IN ('active', 'unset', 'expired')`),
+  check("route_alias_bindings_revision_check", sql`${table.revision} >= 1`),
+  check("route_alias_bindings_target_shape_check", sql`(
+    (${table.targetKind} = 'agent' AND ${table.targetAgentId} IS NOT NULL AND ${table.targetSessionId} IS NULL AND ${table.targetEndpointId} IS NULL AND ${table.targetHarness} IS NULL)
+    OR
+    (${table.targetKind} = 'session' AND ${table.targetAgentId} IS NOT NULL AND ${table.targetSessionId} IS NOT NULL AND ${table.targetEndpointId} IS NOT NULL AND ${table.targetHarness} IS NOT NULL)
+  )`),
+  uniqueIndex("idx_route_alias_bindings_active_scope")
+    .on(table.ownerRealmId, table.scopeProjectKey, table.scopeNodeId, table.normalizedAlias)
+    .where(sql`state = 'active'`),
+  index("idx_route_alias_bindings_target_agent").on(table.targetAgentId),
+  index("idx_route_alias_bindings_target_session").on(table.targetSessionId),
+  index("idx_route_alias_bindings_scope_updated").on(
+    table.ownerRealmId,
+    table.scopeProjectKey,
+    table.scopeNodeId,
+    desc(table.updatedAt),
+  ),
+  index("idx_route_alias_bindings_expires").on(table.expiresAt).where(sql`expires_at IS NOT NULL`),
+]);
+
+// -- route_alias_revisions --------------------------------------------------
+export const routeAliasRevisionsTable = sqliteTable("route_alias_revisions", {
+  id: text("id").primaryKey(),
+  bindingId: text("binding_id").notNull(),
+  revision: integer("revision").notNull(),
+  operation: text("operation").notNull(),
+  oldTargetJson: text("old_target_json"),
+  newTargetJson: text("new_target_json"),
+  oldTargetSnapshotJson: text("old_target_snapshot_json"),
+  newTargetSnapshotJson: text("new_target_snapshot_json"),
+  actorId: text("actor_id").notNull(),
+  authorityNodeId: text("authority_node_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+  reason: text("reason"),
+  requestId: text("request_id"),
+}, (table) => [
+  uniqueIndex("idx_route_alias_revisions_binding_revision").on(table.bindingId, table.revision),
+  index("idx_route_alias_revisions_binding_created").on(table.bindingId, desc(table.createdAt)),
 ]);
 
 // -- conversations -----------------------------------------------------------
@@ -781,6 +852,8 @@ export const controlPlaneDrizzleSchema = {
   agentEndpoints: agentEndpointsTable,
   runtimeSessions: runtimeSessionsTable,
   runtimeSessionAliases: runtimeSessionAliasesTable,
+  routeAliasBindings: routeAliasBindingsTable,
+  routeAliasRevisions: routeAliasRevisionsTable,
   conversations: conversationsTable,
   conversationMembers: conversationMembersTable,
   messages: messagesTable,

@@ -8,6 +8,9 @@ import {
   type ScoutDeliverRequest,
   type ScoutDeliverRouteKind,
   type ScoutDispatchRecord,
+  type RouteAliasResolutionProof,
+  type ScoutCallerContext,
+  type ScoutRouteTarget,
 } from "@openscout/protocol";
 
 import { SUPPORTED_SCOUT_HARNESSES } from "./local-agents.js";
@@ -18,10 +21,16 @@ import {
   type BrokerRouteTargetInput,
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
+import {
+  BrokerRouteAliasError,
+  type BrokerRouteAliasService,
+  type RouteAliasDispatchResolution,
+} from "./broker-route-alias-service.js";
 
 export type InvocationResolution =
-  | { kind: "resolved"; agent: AgentDefinition }
-  | BrokerLabelResolution;
+  | { kind: "resolved"; agent: AgentDefinition; aliasResolution?: RouteAliasResolutionProof }
+  | (Extract<BrokerLabelResolution, { kind: "resolved_session" }> & { aliasResolution?: RouteAliasResolutionProof })
+  | Exclude<BrokerLabelResolution, { kind: "resolved" | "resolved_session" }>;
 
 export type BrokerDeliveryRouterOptions = {
   runtimeSnapshot: () => RuntimeSnapshot;
@@ -29,6 +38,11 @@ export type BrokerDeliveryRouterOptions = {
   isInactiveLocalAgent: (agent: AgentDefinition | undefined) => boolean;
   log?: (message: string) => void;
   warn?: (message: string) => void;
+  routeAliasService?: BrokerRouteAliasService;
+  resolveRemoteRouteAlias?: (
+    target: Extract<ScoutRouteTarget, { kind: "route_alias" }>,
+    caller: ScoutCallerContext,
+  ) => Promise<RouteAliasDispatchResolution | null>;
 };
 
 export function callerContextForDelivery(
@@ -161,6 +175,7 @@ export function buildDeliveryReceipt(input: {
   conversationId: string;
   messageId: string;
   flightId?: string;
+  aliasResolution?: RouteAliasResolutionProof;
 }): ScoutDeliveryReceipt {
   return {
     requestId: input.requestId,
@@ -175,6 +190,7 @@ export function buildDeliveryReceipt(input: {
     conversationId: input.conversationId,
     messageId: input.messageId,
     ...(input.flightId ? { flightId: input.flightId } : {}),
+    ...(input.aliasResolution ? { aliasResolution: input.aliasResolution } : {}),
     acceptedAt: Date.now(),
   };
 }
@@ -212,18 +228,75 @@ export class BrokerDeliveryRouter {
       execution?: InvocationRequest["execution"];
       projectAgent?: unknown;
     },
-    _resolveOptions: {
+    resolveOptions: {
       requesterId?: string;
       currentDirectory?: string;
       reason: string;
     },
   ): Promise<InvocationResolution> {
-    return this.resolveTarget(input);
+    const caller = {
+      actorId: resolveOptions.requesterId,
+      nodeId: this.options.nodeId,
+      currentDirectory: resolveOptions.currentDirectory,
+    };
+    const target = input.target;
+    if (target?.kind === "route_alias") {
+      try {
+        const remoteAlias = await this.options.resolveRemoteRouteAlias?.(target, caller);
+        if (remoteAlias) {
+          return { ...remoteAlias.resolution, aliasResolution: remoteAlias.proof };
+        }
+        const alias = this.options.routeAliasService?.resolveForDispatch(target, caller);
+        return alias ? { ...alias.resolution, aliasResolution: alias.proof } : { kind: "unknown", label: `alias:${target.alias}` };
+      } catch (error) {
+        return {
+          kind: "unknown",
+          label: `alias:${target.alias}`,
+          detail: `alias:${target.alias} lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+          ...(error instanceof BrokerRouteAliasError ? { diagnosticCode: error.code } : {}),
+        };
+      }
+    }
+    if (target?.kind === "target_handle" && this.options.routeAliasService) {
+      try {
+        const alias = this.options.routeAliasService.resolveBareForDispatch(target.handle, caller);
+        if (alias) return { ...alias.resolution, aliasResolution: alias.proof };
+      } catch (error) {
+        return {
+          kind: "unknown",
+          label: target.value ?? `target:${target.handle}`,
+          detail: `${target.value ?? `target:${target.handle}`} alias lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+          ...(error instanceof BrokerRouteAliasError ? { diagnosticCode: error.code } : {}),
+        };
+      }
+    }
+    const native = this.resolveTarget(input);
+    if (native.kind !== "unknown" || !this.options.routeAliasService) return native;
+    const label = target?.kind === "agent_label"
+      ? target.label
+      : !target
+      ? input.targetLabel?.trim()
+      : undefined;
+    if (!label) return native;
+    try {
+      const alias = this.options.routeAliasService.resolveBareForDispatch(label, caller);
+      return alias ? { ...alias.resolution, aliasResolution: alias.proof } : native;
+    } catch (error) {
+      return {
+        kind: "unknown",
+        label,
+        detail: `${native.detail ?? `no agent matches ${label}`}; route alias ${label} lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+        ...(error instanceof BrokerRouteAliasError ? { diagnosticCode: error.code } : {}),
+      };
+    }
   }
 
   resolveInvocationTarget(
     payload: InvocationRequest & BrokerRouteTargetInput,
   ): Promise<InvocationResolution> {
+    const contextDirectory = typeof payload.context?.currentDirectory === "string"
+      ? payload.context.currentDirectory.trim() || undefined
+      : undefined;
     return this.resolveWithImplicitProjectAgent({
       target: payload.target,
       targetAgentId: payload.targetAgentId,
@@ -234,7 +307,7 @@ export class BrokerDeliveryRouter {
       projectAgent: undefined,
     }, {
       requesterId: payload.requesterId,
-      currentDirectory: projectPathRouteTarget(payload),
+      currentDirectory: contextDirectory ?? projectPathRouteTarget(payload),
       reason: "implicit project invocation card",
     });
   }
