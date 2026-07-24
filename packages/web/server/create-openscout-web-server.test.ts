@@ -35,6 +35,7 @@ const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const lanBeaconSuppressPredicates: Array<() => boolean | Promise<boolean>> = [];
 const testDirectories = new Set<string>();
 let scoutBrokerContextResult: unknown = null;
+let loadScoutBrokerContextCalls = 0;
 let scoutBrokerMessagesResult: Array<Record<string, unknown>> | null = null;
 let scoutBrokerHomeResult: Record<string, unknown> | null = null;
 let scoutBrokerSnapshotResult: Record<string, unknown> | null = null;
@@ -203,7 +204,10 @@ mock.module("./pairing-lan-beacon.ts", () => ({
 
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
-  loadScoutBrokerContext: async () => scoutBrokerContextResult,
+  loadScoutBrokerContext: async () => {
+    loadScoutBrokerContextCalls += 1;
+    return scoutBrokerContextResult;
+  },
   loadScoutReadCursors: async () => ({}),
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
   markScoutConversationRead: async () => null,
@@ -695,6 +699,7 @@ beforeEach(() => {
   querySessionByIdImpl = () => null;
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
+  loadScoutBrokerContextCalls = 0;
   scoutBrokerMessagesResult = null;
   scoutBrokerHomeResult = null;
   scoutBrokerSnapshotResult = null;
@@ -1598,6 +1603,7 @@ describe("createOpenScoutWebServer", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(loadScoutBrokerContextCalls).toBe(0);
     const agents = await response.json() as Array<Record<string, unknown>>;
     expect(agents).toHaveLength(1);
     expect(agents[0]).toMatchObject({
