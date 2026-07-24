@@ -20,7 +20,6 @@ import {
   useListArrowNav,
   useSlashToFocus,
 } from "../../lib/keyboard-nav.ts";
-import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
 import { MissionLeftAgentRow } from "./MissionLeftAgentRow.tsx";
 
 export function OpsMissionLeft() {
@@ -37,14 +36,6 @@ export function OpsMissionLeft() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const isActive = mc.activityFilter === "active";
   const selectedCount = mc.selectedIds.length;
-  const selectedVisibleAgents = visibleAgents.filter((agent) => mc.selectedIds.includes(agent.id));
-  const selectedScoutAgentIds = selectedVisibleAgents
-    .filter((agent) => agent.source === "scout")
-    .map((agent) => agent.id);
-  const selectedNativeSessionIds = selectedVisibleAgents
-    .filter((agent) => agent.source === "native")
-    .map((agent) => agent.id);
-  const selectedLaunchableCount = selectedScoutAgentIds.length + selectedNativeSessionIds.length;
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -129,18 +120,6 @@ export function OpsMissionLeft() {
         <div className="ml-selection">
           <span className="ml-selection-label">{selectedCount} selected</span>
           <div className="ml-selection-actions">
-            <VantageHandoffButton
-              agentIds={selectedScoutAgentIds}
-              nativeSessionIds={selectedNativeSessionIds}
-              className="ml-selection-btn ml-selection-btn--primary"
-              statusClassName="ml-selection-status"
-              label="Vantage"
-              openingLabel="Opening"
-              disabled={selectedLaunchableCount === 0}
-              title={selectedLaunchableCount > 0
-                ? "Open selected sessions in the native Vantage canvas"
-                : "Select Scout agents or native sessions to open in Vantage"}
-            />
             <button type="button" className="ml-selection-btn ml-selection-btn--primary" onClick={openTailForSelection}>
               Tail ↗
             </button>

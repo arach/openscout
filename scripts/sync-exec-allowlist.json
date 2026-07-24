@@ -448,13 +448,6 @@
     "owner": "web"
   },
   {
-    "path": "packages/web/server/vantage-handoff.ts",
-    "symbol": "node:child_process",
-    "category": "process-lifecycle",
-    "reason": "owns detached Vantage fallback app launch lifecycle",
-    "owner": "web"
-  },
-  {
     "path": "packages/web/server/work-materials.test.ts",
     "symbol": "node:child_process",
     "category": "test",

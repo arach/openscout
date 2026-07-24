@@ -63,7 +63,6 @@ import {
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { usePersistentState } from "@hudsonkit";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
-import { createVantageHandoff, formatVantageLinkLabel } from "../../lib/vantage.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
@@ -302,12 +301,6 @@ function useTerminalTakeoverBootstrap(
   };
 }
 
-type HandoffState =
-  | { state: "idle" }
-  | { state: "opening" }
-  | { state: "opened"; detail: string }
-  | { state: "failed"; error: string };
-
 function useTerminalRelaySession(params: {
   agentId?: string;
   agent: Agent | null;
@@ -336,8 +329,6 @@ function useTerminalRelaySession(params: {
     cwd,
     mode,
   });
-  const [handoffState, setHandoffState] = useState<HandoffState>({ state: "idle" });
-
   const relay = useTerminalRelay({
     url: binding.scopedRelayUrl,
     healthUrl,
@@ -496,42 +487,6 @@ function useTerminalRelaySession(params: {
     navigate(terminalRouteBase);
   }, [navigate, terminalRouteBase]);
 
-  const openInVantage = useCallback(() => {
-    if (handoffState.state === "opening") return;
-    setHandoffState({ state: "opening" });
-    void createVantageHandoff({ agentId: agentId ?? null, launch: true })
-      .then((handoff) => {
-        const nodeCount = handoff.plan.manifest.nodes.length;
-        const linkLabel = formatVantageLinkLabel(handoff);
-        if (nodeCount === 0) {
-          const diagnostic = handoff.plan.diagnostics.find((candidate) => candidate.severity === "warning")
-            ?? handoff.plan.diagnostics[0];
-          setHandoffState({
-            state: "failed",
-            error: diagnostic
-              ? `${linkLabel} · no windows: ${diagnostic.message}`
-              : `${linkLabel} · no Vantage windows.`,
-          });
-          return;
-        }
-        if (!handoff.launch.ok && handoff.launch.error) {
-          setHandoffState({ state: "failed", error: handoff.launch.error });
-          return;
-        }
-        const launchDetail = handoff.launch.ok ? "Vantage launch requested" : "Vantage handoff written";
-        setHandoffState({
-          state: "opened",
-          detail: `${linkLabel} · ${nodeCount} node${nodeCount === 1 ? "" : "s"} · ${launchDetail}`,
-        });
-      })
-      .catch((error) => {
-        setHandoffState({
-          state: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-  }, [agentId, handoffState.state]);
-
   const sessionMenuItems = useMemo<MenuItem[]>(() => {
     const items: MenuItem[] = [
       { kind: "action", label: "Detach Terminal Clients", onSelect: detachRelay },
@@ -540,23 +495,10 @@ function useTerminalRelaySession(params: {
       { kind: "action", label: "Restart Claude From Session", onSelect: restartResumeClaudeInstance },
       { kind: "action", label: "Force Quit Claude", onSelect: forceQuitClaudeInstance },
     ];
-    if (agentId) {
-      items.push(
-        { kind: "separator" },
-        {
-          kind: "action",
-          label: handoffState.state === "opening" ? "Opening in Vantage..." : "Open in Vantage",
-          onSelect: openInVantage,
-        },
-      );
-    }
     return items;
   }, [
-    agentId,
     detachRelay,
     forceQuitClaudeInstance,
-    handoffState.state,
-    openInVantage,
     reconnectRelay,
     restartResumeClaudeInstance,
   ]);
@@ -619,7 +561,6 @@ function useTerminalRelaySession(params: {
     readOnly,
     relay,
     terminalRelay,
-    handoffState,
     healthUrl,
     scopedRelayUrl: binding.scopedRelayUrl,
     hasViewActions: Boolean(registeredTarget || terminalSurface),
@@ -851,7 +792,7 @@ function TerminalRelayCanvas({
               {registeredTarget && (
                 <button
                   type="button"
-                  className="s-term-vantage"
+                  className="s-term-action"
                   onClick={session.openSummary}
                   title="Leave the terminal canvas and show the session summary"
                 >
@@ -861,7 +802,7 @@ function TerminalRelayCanvas({
               {session.terminalSurface && (
                 <button
                   type="button"
-                  className="s-term-vantage"
+                  className="s-term-action"
                   onClick={() => session.openMode(session.readOnly ? "takeover" : "observe")}
                   title={session.readOnly ? "Switch to interactive takeover" : "Switch to read-only terminal observe"}
                 >
@@ -875,7 +816,7 @@ function TerminalRelayCanvas({
               {session.canSignalTerminal && (
                 <button
                   type="button"
-                  className="s-term-vantage s-term-vantage--warn"
+                  className="s-term-action s-term-action--warn"
                   onClick={session.interruptTerminal}
                   title="Send Ctrl-C to the terminal"
                 >
@@ -886,7 +827,7 @@ function TerminalRelayCanvas({
               {session.canSignalTerminal && (
                 <button
                   type="button"
-                  className="s-term-vantage s-term-vantage--warn"
+                  className="s-term-action s-term-action--warn"
                   onClick={session.quitTerminal}
                   title="Send Ctrl-D / EOF to the terminal"
                 >
@@ -897,7 +838,7 @@ function TerminalRelayCanvas({
               {session.canStopTerminalJob && (
                 <button
                   type="button"
-                  className="s-term-vantage s-term-vantage--warn"
+                  className="s-term-action s-term-action--warn"
                   onClick={session.stopTerminalJob}
                   title="Stop Claude's current shell/tool job without quitting Claude"
                 >
@@ -909,22 +850,13 @@ function TerminalRelayCanvas({
           )}
           <button
             type="button"
-            className="s-term-vantage s-term-session-menu"
+            className="s-term-action s-term-session-menu"
             onClick={session.handleSessionMenu}
             title="Open session, recovery, and external handoff actions"
           >
             <MoreHorizontal size={14} strokeWidth={1.8} />
             <span>Session</span>
           </button>
-          {session.handoffState.state === "opening" && (
-            <span className="s-term-handoff">Opening Vantage...</span>
-          )}
-          {session.handoffState.state === "opened" && (
-            <span className="s-term-handoff s-term-handoff--ok">{session.handoffState.detail}</span>
-          )}
-          {session.handoffState.state === "failed" && (
-            <span className="s-term-handoff s-term-handoff--error">{session.handoffState.error}</span>
-          )}
           <div className="s-term-status">
             {session.relay.status === "connected"
               ? "LIVE"

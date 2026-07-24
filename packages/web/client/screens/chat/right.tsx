@@ -14,7 +14,6 @@ import { useTailEvents } from "../../lib/tail-events.ts";
 import { agentStateLabel, isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
-import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
 import { isNoisyConversationStatusMessage } from "../../lib/message-visibility.ts";
 import {
   compactAgentId,
@@ -679,15 +678,6 @@ export function ConversationInspector() {
                   </div>
                 )}
               </div>
-              {agentId && primarySessionId && (
-                <VantageHandoffButton
-                  agentId={agentId}
-                  className="ctx-panel-vantage-button"
-                  statusClassName="ctx-panel-vantage-status"
-                  label="Open"
-                  openingLabel="Opening..."
-                />
-              )}
             </div>
             {(showHarnessSessionDetail || harnessLogPath) && (
               <div className="ctx-panel-session-meta">
