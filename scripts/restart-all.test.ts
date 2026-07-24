@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs, parseProcessTable, verifyProcessOwnership } from "./restart-all.mjs";
+import {
+  legacyScoutServiceLabels,
+  parseArgs,
+  parseProcessTable,
+  verifyProcessOwnership,
+} from "./restart-all.mjs";
 
 describe("scout:up", () => {
   test("parses canonical lifecycle options", () => {
@@ -13,6 +18,12 @@ describe("scout:up", () => {
       verifyOnly: true,
       ios: false,
     });
+  });
+
+  test("recognizes supervisor labels replaced by the canonical service", () => {
+    expect(legacyScoutServiceLabels("dev")).toEqual(["dev.openscout", "com.openscout"]);
+    expect(legacyScoutServiceLabels("prod")).toEqual(["dev.openscout", "com.openscout"]);
+    expect(legacyScoutServiceLabels("custom")).toEqual(["com.openscout.custom"]);
   });
 
   test("accepts only the canonical supervised process tree", () => {

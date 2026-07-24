@@ -1832,16 +1832,19 @@ fn sweep_stale_managed_processes(config: &Config) -> Result<ProcessSweepResult, 
 }
 
 fn legacy_service_labels(config: &Config) -> Vec<String> {
-    let primary = match config.service_mode.as_str() {
-        "prod" => "com.openscout.broker",
-        "custom" => "com.openscout.broker.custom",
-        _ => "dev.openscout.broker",
-    };
-    let mut labels = vec![primary.to_string()];
-    if config.service_mode == "dev" {
-        labels.push("dev.openscout.broker-fallback".to_string());
+    match config.service_mode.as_str() {
+        "custom" => vec![
+            "com.openscout.custom".to_string(),
+            "com.openscout.broker.custom".to_string(),
+        ],
+        _ => vec![
+            "dev.openscout".to_string(),
+            "com.openscout".to_string(),
+            "dev.openscout.broker".to_string(),
+            "dev.openscout.broker-fallback".to_string(),
+            "com.openscout.broker".to_string(),
+        ],
     }
-    labels
 }
 
 fn legacy_service_targets(config: &Config) -> Vec<String> {
@@ -3386,14 +3389,14 @@ mod tests {
     }
 
     #[test]
-    fn dev_legacy_service_labels_include_pre_scoutd_fallback() {
+    fn primary_legacy_service_labels_include_previous_dev_and_prod_jobs() {
         let config = Config {
-            label: "dev.openscout".to_string(),
+            label: "app.openscout".to_string(),
             service_mode: "dev".to_string(),
             domain_target: "gui/501".to_string(),
-            service_target: "gui/501/dev.openscout".to_string(),
+            service_target: "gui/501/app.openscout".to_string(),
             launch_agent_path: PathBuf::from(
-                "/Users/test/Library/LaunchAgents/dev.openscout.plist",
+                "/Users/test/Library/LaunchAgents/app.openscout.plist",
             ),
             support_directory: PathBuf::from("/Users/test/Library/Application Support/OpenScout"),
             open_scout_home: PathBuf::from("/Users/test/.openscout"),
@@ -3442,15 +3445,21 @@ mod tests {
         assert_eq!(
             legacy_service_labels(&config),
             vec![
+                "dev.openscout".to_string(),
+                "com.openscout".to_string(),
                 "dev.openscout.broker".to_string(),
                 "dev.openscout.broker-fallback".to_string(),
+                "com.openscout.broker".to_string(),
             ]
         );
         assert_eq!(
             legacy_service_targets(&config),
             vec![
+                "gui/501/dev.openscout".to_string(),
+                "gui/501/com.openscout".to_string(),
                 "gui/501/dev.openscout.broker".to_string(),
                 "gui/501/dev.openscout.broker-fallback".to_string(),
+                "gui/501/com.openscout.broker".to_string(),
             ]
         );
     }

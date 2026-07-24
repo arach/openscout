@@ -387,6 +387,12 @@ function legacyServiceLoaded(label) {
   return (result.status ?? 1) === 0;
 }
 
+export function legacyScoutServiceLabels(mode) {
+  return mode === "custom"
+    ? ["com.openscout.custom"]
+    : ["dev.openscout", "com.openscout"];
+}
+
 async function waitForMacApps() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -444,8 +450,9 @@ async function verifySuite(bunBin, options) {
   const webUrl = managedWebUrlFromStatus(status, options);
   await waitForWeb(webUrl, supervisedWebLogPath(status));
   await waitForMacApps();
-  if (legacyServiceLoaded("dev.openscout")) {
-    throw new Error("Legacy launchd service dev.openscout is still loaded.");
+  const loadedLegacyLabels = legacyScoutServiceLabels(status?.mode).filter(legacyServiceLoaded);
+  if (loadedLegacyLabels.length > 0) {
+    throw new Error(`Legacy launchd services are still loaded: ${loadedLegacyLabels.join(", ")}.`);
   }
   const tree = verifyProcessOwnership(
     status,
