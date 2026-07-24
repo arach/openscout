@@ -286,6 +286,14 @@ names a role or definition, `#ops` names a channel, and
 can resolve through current broker records to the right ref, session, or
 binding, but it is not itself a raw session id.
 
+A **route alias** is separate broker-owned pointer state attached after creation
+to one durable agent id or one exact broker-known session. `alias:review`
+selects it explicitly; a bare `review` consults it only after native agent
+names/selectors fail. Aliases are scoped by owner realm, canonical project, and
+authority node. Repointing changes future resolution only: acceptance pins the
+binding id/revision and canonical target into durable receipts and records.
+Route aliases never create cards, agents, actors, or sessions.
+
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
 when the caller intentionally wants to continue one concrete prior harness
@@ -307,7 +315,9 @@ Scout separates identity into three layers, each serving a different audience:
 
 - **Minimal unique identity** is the shortest address that still resolves to exactly one agent. Scout computes it automatically from the current set of online agents. When there is only one `hudson`, `@hudson` is enough. When two exist on different machines, `@hudson.node:mini` disambiguates.
 
-- **Alias** is a human-owned shortcut. `@huddy` maps to one specific identity. If the mapping becomes ambiguous, the alias is invalid until repaired.
+- **Configured identity alias** is an input declared on an agent definition and participates in native identity resolution.
+
+- **Route alias** is mutable broker state over an already-existing agent or exact session. It has its own binding id, revision, owner/project/node scope, authorization, expiry, and audit history. It does not mutate identity.
 
 ### The Six Dimensions
 

@@ -51,14 +51,14 @@ describe("control-plane managed migrations", () => {
     expect(baseline.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("preserves the historical schema v14 context migration identity at schema v15", () => {
+  test("preserves the historical schema v14 context migration identity at schema v16", () => {
     const contextMigration = migrations.find((migration) => migration.folderMillis === 1783665705710);
 
-    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(15);
+    expect(CONTROL_PLANE_SCHEMA_VERSION).toBe(16);
     expect(contextMigration?.hash).toBe("e576221a4547e38a8d92027deb1124055459bf800c12c562840cdcf6fbb8b560");
   });
 
-  test("upgrades a fully ledgered schema v14 database through only the new role migration", () => {
+  test("upgrades a fully ledgered schema v14 database through role and route-alias migrations", () => {
     const db = new Database(":memory:");
     const v14Migrations = migrations.filter((migration) => migration.folderMillis <= 1783665705710);
     expect(v14Migrations).toHaveLength(4);
@@ -84,10 +84,13 @@ describe("control-plane managed migrations", () => {
     migrateControlPlaneDatabaseSchema(db);
 
     expect(ledgerRows(db)).toEqual(fullChainLedger);
-    expect(userVersion(db)).toBe(15);
+    expect(userVersion(db)).toBe(16);
     expect(
       db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'role_assignments'").get(),
     ).toEqual({ name: "role_assignments" });
+    expect(
+      db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'route_alias_bindings'").get(),
+    ).toEqual({ name: "route_alias_bindings" });
     expect(
       db.query("SELECT display_name FROM actors WHERE id = 'actor-v14'").get(),
     ).toEqual({ display_name: "Survivor" });

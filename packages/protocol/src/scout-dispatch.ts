@@ -1,5 +1,6 @@
 import type { AgentHarness, WakePolicy } from "./actors.js";
 import type { AdvertiseScope, DeliveryTransport, MetadataMap, ScoutId } from "./common.js";
+import type { RouteAliasDiagnosticCode, RouteAliasResolutionProof, RouteAliasScope } from "./route-aliases.js";
 
 export type ScoutDispatchKind = "ambiguous" | "unknown" | "unparseable" | "unavailable";
 
@@ -8,6 +9,7 @@ export type ScoutCandidateEndpointState = "online" | "offline" | "unknown";
 export type ScoutRouteTargetKind =
   | "agent_id"
   | "agent_label"
+  | "route_alias"
   | "target_handle"
   | "session_id"
   | "binding_ref"
@@ -29,6 +31,7 @@ export interface ScoutCallerContext {
 export type ScoutRouteTarget =
   | { kind: "agent_id"; agentId: ScoutId; value?: string }
   | { kind: "agent_label"; label: string; value?: string }
+  | { kind: "route_alias"; alias: string; scope?: RouteAliasScope; bindingId?: ScoutId; value?: string }
   | { kind: "target_handle"; handle: string; value?: string }
   | { kind: "session_id"; sessionId: ScoutId; harness?: AgentHarness; value?: string }
   | { kind: "binding_ref"; ref: string; value?: string }
@@ -88,6 +91,8 @@ export interface ScoutDispatchEnvelope {
   target?: ScoutDispatchUnavailableTarget;
   dispatchedAt: number;
   dispatcherNodeId: ScoutId;
+  diagnosticCode?: RouteAliasDiagnosticCode;
+  aliasResolution?: RouteAliasResolutionProof;
 }
 
 export interface ScoutDispatchRecord extends ScoutDispatchEnvelope {

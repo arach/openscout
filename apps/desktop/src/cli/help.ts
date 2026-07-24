@@ -42,6 +42,7 @@ export function renderScoutHelp(version = "0.2.19"): string {
     '  scout send --to hudson "ready for review"      # tell / update in a DM',
     '  scout match "review the parser"                 # ephemeral project rendezvous',
     '  scout ask --to hudson "review the parser"      # owned work; wait for ack',
+    '  scout alias set review --to hudson              # short mutable route pointer',
     '  scout ask --harness codex "review this"        # current project; fresh compatible worker',
     '  scout ask --project ../talkie --harness claude "review the spec"',
     '  scout ask --project ../talkie "compare auth"   # no agent id needed; broker routes',

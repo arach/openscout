@@ -108,6 +108,11 @@ describe("createScoutMcpServer", () => {
 
     const result = await client.listTools();
     expect(result.tools.map((tool) => tool.name)).toEqual([
+      "aliases_set",
+      "aliases_list",
+      "aliases_resolve",
+      "aliases_repoint",
+      "aliases_unset",
       "whoami",
       "messages_inbox",
       "messages_channel",
@@ -130,6 +135,8 @@ describe("createScoutMcpServer", () => {
       "labels_feed",
       "work_update",
     ]);
+    expect(result.tools.find((tool) => tool.name === "aliases_set")?.description)
+      .toContain("never creates or mutates an agent card");
     expect(result.tools.find((tool) => tool.name === "whoami")?.description)
       .toContain("Use this when host or workspace context is unclear");
     expect(result.tools.find((tool) => tool.name === "messages_send")?.description)

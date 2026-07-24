@@ -228,6 +228,65 @@ async function requestRouter(
 }
 
 describe("createBrokerHttpRouter", () => {
+  test("forwards scoped alias writes to the authoritative broker without touching the local store", async () => {
+    const forwards: Array<{ nodeSelector: string; path: string; method: string; body?: unknown }> = [];
+    const harness = createHarness({
+      routeAliasService: {} as BrokerHttpRouterDeps["routeAliasService"],
+      forwardRouteAliasRequest: async (input) => {
+        forwards.push(input);
+        return { status: 201, body: { binding: { id: "alias-remote", revision: 1 } } };
+      },
+    });
+
+    const result = await requestRouter(harness, "POST", "/v1/aliases", {
+      body: {
+        alias: "review",
+        scope: { projectRoot: "/work/alpha", nodeId: "node-remote" },
+        target: { kind: "agent_id", agentId: "agent-remote" },
+        caller: { actorId: "operator", currentDirectory: "/work/alpha" },
+      },
+    });
+
+    expect(result.response.status).toBe(201);
+    expect(result.body).toEqual({ binding: { id: "alias-remote", revision: 1 } });
+    expect(forwards).toEqual([expect.objectContaining({
+      nodeSelector: "node-remote",
+      path: "/v1/aliases",
+      method: "POST",
+      body: expect.objectContaining({ alias: "review" }),
+    })]);
+  });
+
+  test("forwards host-qualified alias delivery wholesale so exact remote sessions resolve at authority", async () => {
+    const forwards: Array<{ nodeSelector: string; path: string; method: string; body?: unknown }> = [];
+    const harness = createHarness({
+      forwardRouteAliasRequest: async (input) => {
+        forwards.push(input);
+        return { status: 202, body: { kind: "delivery", accepted: true, aliasResolution: { bindingId: "alias-remote", revision: 3 } } };
+      },
+    });
+
+    const result = await requestRouter(harness, "POST", "/v1/deliver", {
+      body: {
+        body: "continue exactly there",
+        intent: "consult",
+        target: { kind: "route_alias", alias: "patch", scope: { projectRoot: "/work/alpha", nodeId: "node-remote" } },
+      },
+    });
+
+    expect(result.response.status).toBe(202);
+    expect(result.body).toEqual(expect.objectContaining({
+      kind: "delivery",
+      aliasResolution: { bindingId: "alias-remote", revision: 3 },
+    }));
+    expect(forwards).toEqual([expect.objectContaining({
+      nodeSelector: "node-remote",
+      path: "/v1/deliver",
+      method: "POST",
+    })]);
+    expect(harness.deliverCalls).toEqual([]);
+  });
+
   test("routes common JSON responses and CORS preflight without daemon state", async () => {
     const harness = createHarness();
 

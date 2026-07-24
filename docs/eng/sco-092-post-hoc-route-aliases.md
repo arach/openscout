@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — ready for implementation planning.
+Implemented.
 
 ## Proposal ID
 

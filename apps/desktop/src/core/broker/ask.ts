@@ -187,6 +187,8 @@ function renderedAskTarget(target: ScoutRouteTarget): string {
       return target.agentId;
     case "agent_label":
       return target.label;
+    case "route_alias":
+      return target.value ?? `alias:${target.alias}`;
     case "target_handle":
       return target.value ?? `target:${target.handle}`;
     case "session_id":
@@ -227,6 +229,9 @@ function askTargetFor(to: string): ScoutRouteTarget | null {
   if (parsed.kind === "agent_label") {
     return { kind: "agent_label", label: parsed.label };
   }
+  if (parsed.kind === "route_alias") {
+    return { kind: "route_alias", alias: parsed.alias, ...(parsed.scope ? { scope: parsed.scope } : {}), ...(parsed.value ? { value: parsed.value } : {}) };
+  }
   return null;
 }
 
@@ -252,6 +257,7 @@ function isProjectRouteTarget(to: string): boolean {
 function askResolvedTargetFor(input: {
   to: string;
   projectPath?: string;
+  aliasScope?: import("@openscout/protocol").RouteAliasScope;
 }): ScoutAskResolvedTarget | null {
   if (input.projectPath) {
     const target = {
@@ -263,7 +269,10 @@ function askResolvedTargetFor(input: {
   if (!input.to) {
     return null;
   }
-  const target = askTargetFor(input.to);
+  const parsedTarget = askTargetFor(input.to);
+  const target = parsedTarget?.kind === "route_alias" && input.aliasScope
+    ? { ...parsedTarget, scope: input.aliasScope }
+    : parsedTarget;
   return target ? { target, display: renderedAskTarget(target) } : null;
 }
 
@@ -310,6 +319,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
   const resolvedTarget = askResolvedTargetFor({
     to: requestedTo,
     projectPath: targetProjectPath,
+    aliasScope: command.aliasScope,
   });
   if (!resolvedTarget) {
     return {

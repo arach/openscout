@@ -191,6 +191,16 @@ import {
 } from "./broker-endpoint-selection.js";
 import { BrokerHomeService } from "./broker-home-service.js";
 import { BrokerUnavailableTargetService } from "./broker-unavailable-target-service.js";
+import { BrokerRouteAliasStore } from "./broker-route-alias-store.js";
+import { BrokerRouteAliasError, BrokerRouteAliasService } from "./broker-route-alias-service.js";
+import {
+  openControlPlaneSqliteDatabase,
+  type ControlPlaneSqliteTransactionalDatabase,
+} from "./sqlite-adapter.js";
+import {
+  configureControlPlaneDatabase,
+  migrateControlPlaneDatabaseSchema,
+} from "./control-plane-migrations.js";
 
 const PROCESS_NAME = "scout-broker";
 
@@ -276,7 +286,27 @@ const initialSnapshot = journal.snapshot();
 const sqliteDisabled = process.env.OPENSCOUT_DISABLE_SQLITE === "1";
 const runtime = createInMemoryControlRuntime(initialSnapshot, { localNodeId: nodeId });
 replaceControlEventBacklog(runtime.recentEvents(500), 500);
+if (!sqliteDisabled) {
+  await mkdir(dirname(dbPath), { recursive: true });
+}
 const projection = new RecoverableSQLiteProjection(dbPath, journal, { disabled: sqliteDisabled });
+const routeAliasDatabase = sqliteDisabled
+  ? null
+  : openControlPlaneSqliteDatabase(dbPath, { create: true }) as ControlPlaneSqliteTransactionalDatabase;
+if (routeAliasDatabase) {
+  configureControlPlaneDatabase(routeAliasDatabase);
+  migrateControlPlaneDatabaseSchema(routeAliasDatabase);
+}
+const routeAliasService = routeAliasDatabase
+  ? new BrokerRouteAliasService({
+      store: new BrokerRouteAliasStore(routeAliasDatabase),
+      ownerRealmId: meshId,
+      nodeId,
+      operatorActorId: "operator",
+      runtimeSnapshot: () => runtime.snapshot(),
+      createId: createRuntimeId,
+    })
+  : undefined;
 const threadEvents = new ThreadEventPlane({
   nodeId,
   runtime,
@@ -421,6 +451,71 @@ const deliveryRouter = new BrokerDeliveryRouter({
   isInactiveLocalAgent,
   log: (message) => console.log(message),
   warn: (message) => console.warn(message),
+  routeAliasService,
+  resolveRemoteRouteAlias: async (target, caller) => {
+    const selector = target.scope?.nodeId?.trim();
+    if (!selector) return null;
+    const matches = Object.values(runtime.snapshot().nodes).filter((candidate) =>
+      candidate.id === selector || candidate.name === selector || candidate.hostName === selector
+    );
+    if (matches.length !== 1) {
+      throw new BrokerRouteAliasError(
+        "ambiguous_alias_scope",
+        `host ${selector} is ${matches.length ? "ambiguous" : "unknown"}; use an exact node id`,
+        { candidates: matches.map((candidate) => candidate.id) },
+      );
+    }
+    const authority = matches[0]!;
+    if (authority.id === nodeId) return null;
+    if (authority.meshId !== meshId || !authority.brokerUrl) {
+      throw new BrokerRouteAliasError(
+        authority.meshId !== meshId ? "not_authorized" : "alias_target_unavailable",
+        authority.meshId !== meshId
+          ? "alias authority is outside the local owner realm"
+          : `authoritative broker ${authority.id} is not reachable`,
+      );
+    }
+    let response: Response;
+    try {
+      response = await fetch(new URL("/v1/aliases/resolve", authority.brokerUrl), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-openscout-mesh-id": meshId,
+          "x-openscout-forwarded-node-id": nodeId,
+        },
+        body: JSON.stringify({ alias: target.alias, bindingId: target.bindingId, scope: target.scope, caller }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      throw new BrokerRouteAliasError(
+        "alias_target_unavailable",
+        `failed to reach authoritative broker ${authority.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const result = await response.json().catch(() => ({})) as import("@openscout/protocol").RouteAliasResolveResult & {
+      error?: import("@openscout/protocol").RouteAliasDiagnosticCode;
+      detail?: string;
+    };
+    if (!response.ok || !result.resolved || !result.binding || !result.proof) {
+      throw new BrokerRouteAliasError(
+        result.diagnostic?.code ?? result.error ?? "unknown_alias",
+        result.diagnostic?.detail ?? result.detail ?? `alias ${target.alias} did not resolve at ${authority.id}`,
+      );
+    }
+    const targetAgent = runtime.snapshot().agents[result.binding.target.agentId];
+    if (!targetAgent) {
+      throw new BrokerRouteAliasError(
+        "alias_target_unavailable",
+        `alias ${target.alias} resolved at ${authority.id}, but canonical agent ${result.binding.target.agentId} is not visible in this mesh snapshot`,
+      );
+    }
+    return {
+      resolution: { kind: "resolved", agent: targetAgent },
+      proof: result.proof,
+      binding: result.binding,
+    };
+  },
 });
 const resolveBrokerDeliveryTargetWithImplicitProjectAgent =
   deliveryRouter.resolveWithImplicitProjectAgent.bind(deliveryRouter);
@@ -1377,6 +1472,57 @@ const routeRequest = createBrokerHttpRouter({
   acknowledgeDeliveriesForReadCursor,
   deliveryAcceptanceService,
   rendezvousService,
+  routeAliasService,
+  forwardRouteAliasRequest: async ({ nodeSelector, path, method, body }) => {
+    const matches = Object.values(runtime.snapshot().nodes).filter((candidate) =>
+      candidate.id === nodeSelector || candidate.name === nodeSelector || candidate.hostName === nodeSelector
+    );
+    if (matches.length !== 1) {
+      return {
+        status: 400,
+        body: {
+          error: "ambiguous_alias_scope",
+          detail: `host ${nodeSelector} is ${matches.length ? "ambiguous" : "unknown"}; use an exact node id`,
+          candidates: matches.map((candidate) => candidate.id),
+        },
+      };
+    }
+    const authority = matches[0]!;
+    if (authority.id === nodeId) return null;
+    if (authority.meshId !== meshId) {
+      return { status: 403, body: { error: "not_authorized", detail: "alias authority is outside the local owner realm" } };
+    }
+    if (!authority.brokerUrl) {
+      return { status: 503, body: { error: "alias_target_unavailable", detail: `authoritative broker ${authority.id} is not reachable` } };
+    }
+    try {
+      const forwarded = await fetch(new URL(path, authority.brokerUrl), {
+        method,
+        headers: {
+          "content-type": "application/json",
+          "x-openscout-mesh-id": meshId,
+          "x-openscout-forwarded-node-id": nodeId,
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      return {
+        status: forwarded.status,
+        body: await forwarded.json().catch(() => ({
+          error: "alias_target_unavailable",
+          detail: `authoritative broker ${authority.id} returned a non-JSON response`,
+        })),
+      };
+    } catch (error) {
+      return {
+        status: 503,
+        body: {
+          error: "alias_target_unavailable",
+          detail: `failed to forward alias request to ${authority.id}: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      };
+    }
+  },
   openRolesDb: openRolesControlPlaneDb,
 });
 
@@ -1505,6 +1651,7 @@ setTimeout(() => {
   sweepIdleCardlessSessions().catch((error) => {
     console.error("[openscout-runtime] initial cardless session sweep failed:", error);
   });
+  routeAliasService?.sweepExpired();
 }, 0).unref();
 
 meshDiscoveryService.discoverPeers().catch((error) => {
@@ -1535,6 +1682,12 @@ if (Number.isFinite(cardlessSessionSweepIntervalMs) && cardlessSessionSweepInter
   }, Math.max(60_000, cardlessSessionSweepIntervalMs)).unref();
 }
 
+if (routeAliasService) {
+  setInterval(() => {
+    routeAliasService.sweepExpired();
+  }, 60_000).unref();
+}
+
 async function shutdownBroker(exitCode = 0): Promise<void> {
   if (shuttingDown) {
     return;
@@ -1551,6 +1704,7 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
   controlStreams.closeAll();
   trpcHandler.broadcastReconnectNotification();
   projection.close();
+  routeAliasDatabase?.close?.();
   await Promise.all([closeServer(socketServer), closeServer(server)]);
   await unlink(brokerSocketPath).catch(() => undefined);
   await unlink(resolveOpenScoutSupportPaths().hostInfoPath).catch(() => undefined);

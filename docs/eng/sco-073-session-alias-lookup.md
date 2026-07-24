@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed (2026-06-27) — captures operator feedback after confusing
+Superseded for user-managed aliases by [SCO-092](./sco-092-post-hoc-route-aliases.md).
+The observed `runtime_session_aliases` indexing concern remains valid and is
+intentionally separate from broker-owned route-alias bindings.
+
+Originally proposed (2026-06-27) — captures operator feedback after confusing
 `Project Chopin` cardless spawns with configured agents such as
 `scope.main.arts-mac-mini-local`.
 

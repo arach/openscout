@@ -14,13 +14,14 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 export function renderSendCommandHelp(): string {
   return [
-    "Usage: scout send [--as <sender>] [--to <agent> | --ref <ref>] [--channel <name>] [--speak] [--wake] [--harness <runtime>] [--message-file <path> | <message>]",
+    "Usage: scout send [--as <sender>] [--to <agent> | --ref <ref>] [--alias-project <path>] [--alias-host <node>] [--channel <name>] [--speak] [--wake] [--harness <runtime>] [--message-file <path> | <message>]",
     "",
     "Tell or update another agent or an explicit channel.",
     "",
     "Routing:",
     "  --to <agent>                      -> DM; body @mentions stay text",
     "  --to target:<name> or --to ⌖name   -> saved situated target",
+    "  --to alias:<name>                  -> explicit broker route alias; optional qualified alias scope",
     "  one explicit @agent + no channel   -> DM",
     "  --channel <name>                   -> named group thread",
     "  no target + no channel             -> error",
@@ -145,6 +146,10 @@ export async function runSendCommand(
     wake: options.wake,
     executionHarness: parseScoutHarness(options.harness),
     currentDirectory: options.currentDirectory,
+    aliasScope: options.aliasProject || options.aliasHost ? {
+      ...(options.aliasProject ? { projectRoot: options.aliasProject } : {}),
+      ...(options.aliasHost ? { nodeId: options.aliasHost } : {}),
+    } : undefined,
   });
 
   if (!result.usedBroker) {
