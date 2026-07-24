@@ -2175,37 +2175,6 @@ export async function speakScoutText(text: string, voice: string): Promise<void>
   await new Promise<void>((resolve) => player.on("close", () => resolve()));
 }
 
-export function buildScoutEnrollmentPrompt(input: {
-  agentId: string;
-  task?: string;
-  cliCommand?: string;
-}): string {
-  const cliCommand = input.cliCommand?.trim() || "scout";
-  const task = input.task?.trim();
-
-  return [
-    `You are ${input.agentId}.`,
-    "",
-    "Use the Scout CLI to coordinate with other agents working on related packages.",
-    "Do not read relay files or call broker HTTP endpoints directly.",
-    "",
-    "Scout commands:",
-    `  ${cliCommand} send --as ${input.agentId} "your message"`,
-    `  ${cliCommand} inbox --latest 10 --json`,
-    `  ${cliCommand} channel shared --latest 10 --json`,
-    `  ${cliCommand} watch`,
-    `  ${cliCommand} who`,
-    "",
-    "Rules:",
-    "  - Check recent messages before starting work",
-    "  - Send a message when you complete something other agents need to know about",
-    "  - Be specific: include file paths, version numbers, and what changed",
-    "  - Keep messages under 200 chars",
-    task ? "" : undefined,
-    task ? `Your task: ${task}` : undefined,
-  ].filter((line): line is string => Boolean(line)).join("\n");
-}
-
 export function defaultScoutAgentNameForPath(projectPath: string): string {
   return basename(projectPath);
 }

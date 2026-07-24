@@ -299,7 +299,6 @@ scout ask
 scout watch
 scout who
 scout latest
-scout enroll
 scout broadcast
 scout up
 scout down
