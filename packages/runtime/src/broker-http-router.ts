@@ -15,6 +15,7 @@ import type {
   InboxNackRequest,
   InvocationRequest,
   MessageRecord,
+  ScoutRendezvousRequest,
   ScoutDeliverRequest,
   ScoutDispatchRecord,
   NodeDefinition,
@@ -80,6 +81,7 @@ import type {
 import type { BrokerMeshDiscoveryService } from "./broker-mesh-discovery-service.js";
 import type { BrokerMeshHttpService } from "./broker-mesh-http-service.js";
 import type { BrokerRepoTailService } from "./broker-repo-tail-service.js";
+import type { BrokerRendezvousService } from "./broker-rendezvous-service.js";
 import type { BrokerWebControlService } from "./broker-web-control-service.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
 import type { DiscoverySnapshot, TailDiscoveryOptions, TailDiscoveryScope } from "./tail/types.js";
@@ -162,6 +164,7 @@ export type BrokerHttpRouterDeps = {
   recordReadCursor: (cursor: ConversationReadCursor) => Promise<void>;
   acknowledgeDeliveriesForReadCursor: (cursor: ConversationReadCursor) => Promise<unknown>;
   deliveryAcceptanceService: BrokerDeliveryAcceptanceService;
+  rendezvousService: BrokerRendezvousService;
   /**
    * Control-plane SQLite for assigned roles / mission log. When null/undefined,
    * role routes return 503 (tables owned by migrations; broker is writer).
@@ -262,6 +265,7 @@ export function createBrokerHttpRouter(
     recordReadCursor,
     acknowledgeDeliveriesForReadCursor,
     deliveryAcceptanceService,
+    rendezvousService,
   } = deps;
 
   return async function routeRequest(request: RuntimeHttpRequestLike, response: RuntimeHttpResponseLike): Promise<void> {
@@ -1177,6 +1181,17 @@ export function createBrokerHttpRouter(
       const message = await readRequestBody<MessageRecord>(request);
       const result = await brokerService.postConversationMessage?.(message);
       json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/rendezvous/match") {
+    try {
+      const payload = await readRequestBody<ScoutRendezvousRequest>(request);
+      const result = await rendezvousService.match(payload);
+      json(response, result.status === "topic_busy" ? 409 : 200, result);
     } catch (error) {
       badRequest(response, error);
     }

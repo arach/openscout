@@ -46,6 +46,7 @@ import { BrokerDurableActionHttpService } from "./broker-durable-action-http-ser
 import { BrokerFlightLifecycleService } from "./broker-flight-lifecycle-service.js";
 import { applyRoleLifecycleForTerminalFlight } from "./role-lifecycle.js";
 import { BrokerRepoTailService } from "./broker-repo-tail-service.js";
+import { BrokerRendezvousService } from "./broker-rendezvous-service.js";
 import { BrokerOperatorAttentionService } from "./broker-operator-attention-service.js";
 import { BrokerLocalAgentSyncService } from "./broker-local-agent-sync-service.js";
 import {
@@ -1340,6 +1341,8 @@ const brokerRepoTailService = new BrokerRepoTailService({
 
 registerActiveScoutBrokerService(brokerService);
 
+const rendezvousService = new BrokerRendezvousService();
+
 const routeRequest = createBrokerHttpRouter({
   host,
   port,
@@ -1373,6 +1376,7 @@ const routeRequest = createBrokerHttpRouter({
   recordReadCursor: recordReadCursorDurably,
   acknowledgeDeliveriesForReadCursor,
   deliveryAcceptanceService,
+  rendezvousService,
   openRolesDb: openRolesControlPlaneDb,
 });
 

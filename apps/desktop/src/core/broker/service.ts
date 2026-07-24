@@ -43,6 +43,8 @@ import {
   type WorkItemState,
   type ScoutReturnAddress,
   type ScoutRouteTarget,
+  type ScoutRendezvousRequest,
+  type ScoutRendezvousResponse,
   epochMs,
   parseScoutComposerRouteTarget,
 } from "@openscout/protocol";
@@ -971,6 +973,25 @@ async function brokerPostDeliver(
     scoutBrokerPaths.v1.deliver,
     body,
     { acceptErrorJson: isScoutDeliverResponse },
+  );
+}
+
+export async function matchScoutRendezvous(
+  request: ScoutRendezvousRequest,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutRendezvousResponse> {
+  return brokerPostJson<ScoutRendezvousResponse>(
+    baseUrl,
+    scoutBrokerPaths.v1.rendezvousMatch,
+    request,
+    {
+      acceptErrorJson: (value): value is ScoutRendezvousResponse =>
+        Boolean(
+          value
+          && typeof value === "object"
+          && (value as { status?: unknown }).status === "topic_busy",
+        ),
+    },
   );
 }
 
