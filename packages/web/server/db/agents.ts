@@ -26,15 +26,30 @@ import {
 } from "./internal/sql-helpers.ts";
 import type { WebAgent } from "./types/web.ts";
 
-function existingDirectConversationIdForAgent(agentId: string): string | null {
-  const naturalKey = directChannelNaturalKey(["operator", agentId]);
-  const row = db().prepare(
-    `SELECT id FROM conversations
-     WHERE json_extract(metadata_json, '$.naturalKey') = ?
-     ORDER BY created_at ASC
-     LIMIT 1`,
-  ).get(naturalKey) as { id: string } | null;
-  return row?.id ?? null;
+function existingDirectConversationIdsForAgents(agentIds: string[]): Map<string, string> {
+  const agentIdByNaturalKey = new Map(
+    agentIds.map((agentId) => [directChannelNaturalKey(["operator", agentId]), agentId]),
+  );
+  const conversationIdByAgentId = new Map<string, string>();
+  if (agentIdByNaturalKey.size === 0) return conversationIdByAgentId;
+
+  // Agent lists contain hundreds of rows on long-lived pilots. Reading direct
+  // conversations once avoids the former N+1 path (one prepared SQLite query
+  // per agent) while preserving the oldest-canonical-conversation rule.
+  const rows = db().prepare(
+    `SELECT id, json_extract(metadata_json, '$.naturalKey') AS natural_key
+     FROM conversations
+     WHERE kind = 'direct'
+     ORDER BY created_at ASC`,
+  ).all() as Array<{ id: string; natural_key: string | null }>;
+  for (const row of rows) {
+    if (!row.natural_key) continue;
+    const agentId = agentIdByNaturalKey.get(row.natural_key);
+    if (agentId && !conversationIdByAgentId.has(agentId)) {
+      conversationIdByAgentId.set(agentId, row.id);
+    }
+  }
+  return conversationIdByAgentId;
 }
 
 type AgentQueryRow = {
@@ -145,7 +160,11 @@ export function queryAgents(limit = 500): WebAgent[] {
     )
     .all(limit) as AgentQueryRow[];
 
-  return mapAgentRows(rows, flightPhases);
+  return mapAgentRows(
+    rows,
+    flightPhases,
+    existingDirectConversationIdsForAgents(rows.map((row) => row.id)),
+  );
 }
 
 export function queryAgentById(agentId: string): WebAgent | null {
@@ -195,12 +214,19 @@ export function queryAgentById(agentId: string): WebAgent | null {
     )
     .get(agentId) as AgentQueryRow | null;
 
-  return row ? mapAgentRows([row], flightPhases)[0] ?? null : null;
+  return row
+    ? mapAgentRows(
+        [row],
+        flightPhases,
+        existingDirectConversationIdsForAgents([row.id]),
+      )[0] ?? null
+    : null;
 }
 
 function mapAgentRows(
   rows: AgentQueryRow[],
   flightPhases: Map<string, AgentFlightPhase>,
+  conversationIdByAgentId: ReadonlyMap<string, string>,
 ): WebAgent[] {
   return rows.map((r) => {
     let capabilities: string[] = [];
@@ -244,7 +270,7 @@ function mapAgentRows(
         metadata: endpointMeta,
       }),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
-      conversationId: existingDirectConversationIdForAgent(r.id),
+      conversationId: conversationIdByAgentId.get(r.id) ?? null,
       authorityNodeId: r.authority_node_id,
       authorityNodeName: r.authority_node_name,
       homeNodeId: r.home_node_id,

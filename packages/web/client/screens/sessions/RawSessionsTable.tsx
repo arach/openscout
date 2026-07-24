@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { DataTable, type DataTableColumn } from "../../components/DataTable/DataTable.tsx";
-import { api } from "../../lib/api.ts";
+import { api, peekApiGet } from "../../lib/api.ts";
 import {
   formatAbsoluteTimestamp,
   normalizeTimestampMs,
@@ -32,6 +32,9 @@ const DISCOVERY_INTERVAL_MS = 10_000;
 const RECENT_REPLAY_LIMIT = 500;
 const RECENT_EVENT_LIMIT = 1_000;
 const ACTIVE_WINDOW_MS = 60_000;
+const DISCOVERY_PATH = "/api/tail/discover";
+const RECENT_EVENTS_PATH = `/api/tail/recent?limit=${RECENT_REPLAY_LIMIT}`;
+const ROUTE_CACHE_MAX_AGE_MS = 30_000;
 
 type SessionStatus = "run" | "idle";
 
@@ -260,8 +263,14 @@ export function RawSessionsTable({
   navigate: (r: Route) => void;
 }) {
   const { route } = useScout();
-  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
-  const [events, setEvents] = useState<TailEvent[]>([]);
+  const [initialDiscovery] = useState(() =>
+    peekApiGet<TailDiscoverySnapshot>(DISCOVERY_PATH, ROUTE_CACHE_MAX_AGE_MS),
+  );
+  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(initialDiscovery);
+  const [events, setEvents] = useState<TailEvent[]>(() =>
+    peekApiGet<{ events: TailEvent[] }>(RECENT_EVENTS_PATH, ROUTE_CACHE_MAX_AGE_MS)?.events ?? [],
+  );
+  const [loading, setLoading] = useState(initialDiscovery === null);
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -272,9 +281,11 @@ export function RawSessionsTable({
   const loadDiscovery = useCallback(async () => {
     setError(null);
     try {
-      setDiscovery(await api<TailDiscoverySnapshot>("/api/tail/discover"));
+      setDiscovery(await api<TailDiscoverySnapshot>(DISCOVERY_PATH));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -289,7 +300,7 @@ export function RawSessionsTable({
     void (async () => {
       try {
         const result = await api<{ events: TailEvent[] }>(
-          `/api/tail/recent?limit=${RECENT_REPLAY_LIMIT}`,
+          RECENT_EVENTS_PATH,
         );
         if (!cancelled) setEvents(result.events ?? []);
       } catch {
@@ -451,6 +462,7 @@ export function RawSessionsTable({
               title: "No raw sessions",
               body: query ? "No sessions match the current filter." : "No transcript sessions were discovered.",
             }}
+        loading={loading}
         density="compact"
         className="s-atop-data-table"
         ariaLabel="Raw sessions"

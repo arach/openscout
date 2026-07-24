@@ -1570,6 +1570,23 @@ describe("createOpenScoutWebServer", () => {
         },
       },
     });
+    scoutBrokerHomeResult = {
+      updatedAt: 1_700_000_200_000,
+      agents: [{
+        id: "weather-a2a.local",
+        title: "Weather A2A Agent",
+        role: null,
+        summary: null,
+        projectRoot: null,
+        state: "available",
+        reachable: true,
+        statusLabel: "Available",
+        statusDetail: null,
+        activeTask: null,
+        lastSeenAt: 1_700_000_200_000,
+      }],
+      activity: [],
+    };
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
@@ -1589,8 +1606,8 @@ describe("createOpenScoutWebServer", () => {
       updatedAt: 1_700_000_200_000,
     });
     expect(agents[0]).not.toHaveProperty("brokerActivity");
-    expect(agents[0]).toHaveProperty("authorityProfile");
-    expect(agents[0]).toHaveProperty("runtimePolicy");
+    expect(agents[0]).not.toHaveProperty("authorityProfile");
+    expect(agents[0]).not.toHaveProperty("runtimePolicy");
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {

@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import "../../scout/slots/ctx-panel.css";
 import "./left.css";
 import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
-import { api } from "../../lib/api.ts";
+import { api, peekApiGet } from "../../lib/api.ts";
 import {
   filterAgentsByMachineScope,
   filterFleetByMachineScope,
@@ -33,14 +33,18 @@ const FLEET_REFRESH_EVENTS = new Set([
 const RECENT_AGENTS_LIMIT = 4;
 const RECENT_ACTIVITY_LIMIT = 4;
 const NEEDS_ATTENTION_LIMIT = 3;
+const FLEET_PATH = "/api/fleet";
+const ROUTE_CACHE_MAX_AGE_MS = 30_000;
 
 type HomeLeftProps = {
   prepend?: ReactNode;
 };
 
 export function HomeLeft({ prepend }: HomeLeftProps) {
-  const { agents, navigate, route } = useScout();
-  const [fleet, setFleet] = useState<FleetState | null>(null);
+  const { agents, agentsLoaded, navigate, route } = useScout();
+  const [initialFleet] = useState(() => peekApiGet<FleetState>(FLEET_PATH, ROUTE_CACHE_MAX_AGE_MS));
+  const [fleet, setFleet] = useState<FleetState | null>(initialFleet);
+  const [fleetLoaded, setFleetLoaded] = useState(initialFleet !== null);
   const machineId = routeMachineId(route);
   const scopedAgentIds = useMemo(
     () => machineScopedAgentIds(agents, machineId),
@@ -56,8 +60,13 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
   );
 
   const load = useCallback(async () => {
-    const data = await api<FleetState>("/api/fleet").catch(() => null);
-    setFleet(data);
+    try {
+      setFleet(await api<FleetState>(FLEET_PATH));
+    } catch {
+      // Preserve last-known fleet data; the status bar owns connectivity errors.
+    } finally {
+      setFleetLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -88,18 +97,21 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
         agents={recentAgents}
         totalCount={scopedAgents.length}
         readyCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
+        loading={!agentsLoaded}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents-v2" })}
       />
 
       <RecentActivitySection
         items={recentActivity}
+        loading={!fleetLoaded}
         onSelect={(item) => navigate(routeForActivity(item))}
         onSeeAll={() => navigate({ view: "activity" })}
       />
 
       <NeedsAttentionSection
         items={needsAttention}
+        loading={!fleetLoaded}
         onSelect={(item) => navigate(routeForOperatorAttention(item))}
       />
     </div>
@@ -110,12 +122,14 @@ function RecentAgentsSection({
   agents,
   totalCount,
   readyCount,
+  loading,
   onSelect,
   onSeeAll,
 }: {
   agents: Agent[];
   totalCount: number;
   readyCount: number;
+  loading: boolean;
   onSelect: (agent: Agent) => void;
   onSeeAll: () => void;
 }) {
@@ -126,7 +140,9 @@ function RecentAgentsSection({
         meta={totalCount > 0 ? `${readyCount} ready · ${totalCount}` : undefined}
         onSeeAll={totalCount > 0 ? onSeeAll : undefined}
       />
-      {agents.length === 0 ? (
+      {loading ? (
+        <RailLoadingRows />
+      ) : agents.length === 0 ? (
         <div className="ctx-panel-empty">No agents yet</div>
       ) : (
         agents.map((agent) => (
@@ -154,10 +170,12 @@ function agentRowTooltip(agent: Agent): string {
 
 function RecentActivitySection({
   items,
+  loading,
   onSelect,
   onSeeAll,
 }: {
   items: FleetActivity[];
+  loading: boolean;
   onSelect: (item: FleetActivity) => void;
   onSeeAll: () => void;
 }) {
@@ -168,7 +186,9 @@ function RecentActivitySection({
         meta={items.length > 0 ? undefined : undefined}
         onSeeAll={items.length > 0 ? onSeeAll : undefined}
       />
-      {items.length === 0 ? (
+      {loading ? (
+        <RailLoadingRows />
+      ) : items.length === 0 ? (
         <div className="ctx-panel-empty">Quiet so far</div>
       ) : (
         items.map((item) => {
@@ -192,9 +212,11 @@ function RecentActivitySection({
 
 function NeedsAttentionSection({
   items,
+  loading,
   onSelect,
 }: {
   items: FleetAttentionItem[];
+  loading: boolean;
   onSelect: (item: FleetAttentionItem) => void;
 }) {
   return (
@@ -203,7 +225,9 @@ function NeedsAttentionSection({
         title="Needs attention"
         meta={items.length > 0 ? `${items.length}` : undefined}
       />
-      {items.length === 0 ? (
+      {loading ? (
+        <RailLoadingRows rows={2} />
+      ) : items.length === 0 ? (
         <div className="ctx-panel-empty">All clear</div>
       ) : (
         items.map((item) => {
@@ -222,6 +246,16 @@ function NeedsAttentionSection({
         })
       )}
     </section>
+  );
+}
+
+function RailLoadingRows({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="base-rail-loading" role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, index) => (
+        <span key={index} aria-hidden="true" />
+      ))}
+    </div>
   );
 }
 

@@ -18,6 +18,7 @@ const value: any = {
   route: { view: "agents-v2", projectSlug: "openscout" },
   navigate: () => {},
   agents: [],
+  agentsLoaded: true,
   onlineCount: 0,
   apiConnection: { status: "online", message: null, lastCheckedAt: null },
   reload: async () => {},

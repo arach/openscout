@@ -129,6 +129,29 @@ an embedded sidecar engine or separate SQLite file.
 - Large raw logs stay file-backed and are referenced by path or metadata.
 - Do not introduce a second canonical database.
 
+## Performance And Retention Policy
+
+Treat the live working set and durable retention as separate concerns:
+
+- Live UI queries must be bounded by an explicit row limit and, where the
+  product means “recent,” a time window. A 48-hour window is a good default for
+  activity feeds, not a deletion deadline.
+- Do not delete canonical messages, invocations, flights, deliveries, or
+  collaboration records merely to make a page faster. Fix unbounded reads,
+  N+1 queries, missing indexes, repeated runtime probes, and client refetches
+  first.
+- Archive only rebuildable projections or bulky file-backed artifacts. An
+  archive job must have a documented restore/rebuild path and must not break
+  foreign-key history or broker-journal recovery.
+- Introduce physical tiering only after measurements show a storage problem:
+  database bytes, row counts, p95 query latency, startup replay time, and WAL
+  checkpoint time. The current local-pilot scale does not justify a second
+  canonical archive database.
+
+In short: keep two days *hot in default views* when that matches the product,
+but keep canonical history durable until a separately designed lifecycle policy
+can preserve recovery and audit semantics.
+
 ## First Execution Slice
 
 1. Add `activity_items` to the runtime schema.

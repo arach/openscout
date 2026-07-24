@@ -6,15 +6,30 @@ import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
 
 export function HomeRight() {
-  const { agents, navigate, route } = useScout();
+  const { agents, agentsLoaded, apiConnection, navigate, route } = useScout();
   const openFromHome = (agent: Agent) =>
     openAgent(navigate, agent, { from: "home", returnTo: route });
+
+  if (!agentsLoaded) {
+    return (
+      <div className="flex h-full flex-col justify-center" aria-busy="true">
+        <div className="base-rail-loading" role="status" aria-label="Loading agent roster">
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+        </div>
+      </div>
+    );
+  }
 
   if (agents.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 text-center font-mono text-[11px] leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-        <div className="mb-1 uppercase tracking-[0.15em]">No agents</div>
-        <div>Connect an agent to see your roster here.</div>
+        <div className="mb-1 uppercase tracking-[0.15em]">
+          {apiConnection.status === "offline" ? "Roster unavailable" : "No agents"}
+        </div>
+        <div>{apiConnection.status === "offline" ? apiConnection.message : "Connect an agent to see your roster here."}</div>
       </div>
     );
   }

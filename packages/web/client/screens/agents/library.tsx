@@ -63,6 +63,7 @@ export function AgentsLibrary({
   sessionByAgentId,
   sessions,
   discovery,
+  loading,
   navigate,
   selectedAgentId,
 }: {
@@ -72,6 +73,7 @@ export function AgentsLibrary({
   conversationByAgentId: Map<string, string>;
   sessions: SessionEntry[];
   discovery: TailDiscoverySnapshot | null;
+  loading: boolean;
   topologySnapshot: HarnessTopologySnapshot | null;
   navigate: (r: Route) => void;
   // The route-selected agent, so the table can highlight the active row while
@@ -157,6 +159,18 @@ export function AgentsLibrary({
         .catch(() => {});
     },
   };
+
+  if (!selected && loading) {
+    return (
+      <div className="s-aproj" aria-busy="true">
+        <div className="ap-loading" role="status" aria-label="Loading agents">
+          {Array.from({ length: 7 }, (_, index) => (
+            <span key={index} aria-hidden="true" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!selected) {
     return (

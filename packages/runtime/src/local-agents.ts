@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -2110,10 +2110,20 @@ export async function setLocalAgentArchived(
 
 /** Ids of agents currently archived — the directory uses this to hide them. */
 export async function listArchivedLocalAgentIds(): Promise<string[]> {
-  const overrides = await readRelayAgentOverrides();
-  return Object.entries(overrides)
-    .filter(([, override]) => typeof override.archivedAt === "number")
-    .map(([agentId]) => agentId);
+  // This list is read on the hot roster path and only needs one raw flag.
+  // Avoid normalizing every relay-agent override (including harness profiles,
+  // runtime policy, and generated identities) just to inspect archivedAt.
+  try {
+    const path = resolveOpenScoutSupportPaths().relayAgentsRegistryPath;
+    const parsed = JSON.parse(await readFile(path, "utf8")) as {
+      agents?: Record<string, { archivedAt?: unknown }>;
+    };
+    return Object.entries(parsed.agents ?? {})
+      .filter(([, override]) => typeof override?.archivedAt === "number")
+      .map(([agentId]) => agentId);
+  } catch {
+    return [];
+  }
 }
 
 export async function updateLocalAgentCardLifecycle(

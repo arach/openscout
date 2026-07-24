@@ -108,6 +108,7 @@ export function NativeAgentLanes({ bootstrap, client }: NativeAgentLanesProps) {
     route: { view: "ops", mode: "lanes" },
     navigate: noOp,
     agents: snapshot.agents,
+    agentsLoaded: !loading,
     onlineCount: snapshot.agents.length,
     apiConnection: {
       status: "online",
