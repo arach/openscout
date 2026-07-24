@@ -33,10 +33,18 @@ extension HudDictation {
 @MainActor
 @Observable
 final class AppModel {
-    struct NotificationRoute: Equatable, Hashable {
+    struct NotificationRoute: Equatable, Hashable, Identifiable {
+        let kind: String?
         let conversationId: String?
         let messageId: String?
         let itemId: String?
+        let sessionId: String?
+        let turnId: String?
+        let blockId: String?
+
+        var id: String {
+            itemId ?? messageId ?? conversationId ?? sessionId ?? "notification"
+        }
     }
 
     enum ConnectionState: Equatable {
@@ -379,25 +387,41 @@ final class AppModel {
         guard destination == nil || destination == "inbox" else { return }
 
         handleRemoteNotification(
+            kind: scout?["kind"] as? String,
             conversationId: scout?["conversationId"] as? String,
             messageId: scout?["messageId"] as? String,
-            itemId: scout?["itemId"] as? String
+            itemId: scout?["itemId"] as? String,
+            sessionId: scout?["sessionId"] as? String,
+            turnId: scout?["turnId"] as? String,
+            blockId: scout?["blockId"] as? String
         )
     }
 
     func handleRemoteNotification(
+        kind: String?,
         conversationId: String?,
         messageId: String?,
-        itemId: String?
+        itemId: String?,
+        sessionId: String?,
+        turnId: String?,
+        blockId: String?
     ) {
+        let kind = Self.nonEmptyString(kind)
         let conversationId = Self.nonEmptyString(conversationId)
         let messageId = Self.nonEmptyString(messageId)
         let itemId = Self.nonEmptyString(itemId)
-        guard conversationId != nil || messageId != nil || itemId != nil else { return }
+        let sessionId = Self.nonEmptyString(sessionId)
+        let turnId = Self.nonEmptyString(turnId)
+        let blockId = Self.nonEmptyString(blockId)
+        guard conversationId != nil || messageId != nil || itemId != nil || sessionId != nil else { return }
         pendingNotificationRoute = NotificationRoute(
+            kind: kind,
             conversationId: conversationId,
             messageId: messageId,
-            itemId: itemId
+            itemId: itemId,
+            sessionId: sessionId,
+            turnId: turnId,
+            blockId: blockId
         )
     }
 

@@ -150,6 +150,7 @@ function mobileConversationLifecycleEvent(lifecycle: ScoutBrokerConversationLife
 
 async function sendMobileInboxPushNotification(item: {
   id: string;
+  kind: string;
   title: string;
   description: string;
   sessionId: string;
@@ -157,13 +158,14 @@ async function sendMobileInboxPushNotification(item: {
   blockId: string | null;
 }) {
   const result = await broadcastApnsAlertToActiveMobileDevices({
-    title: item.title,
-    body: item.description,
+    title: "Scout",
+    body: genericMobileInboxAlertBody(item.kind),
     sound: "default",
     threadId: "scout.inbox",
     payload: {
       destination: "inbox",
       itemId: item.id,
+      kind: item.kind,
       sessionId: item.sessionId,
       turnId: item.turnId,
       blockId: item.blockId,
@@ -204,6 +206,17 @@ async function sendMobileInboxPushNotification(item: {
       `APNs delivery failed for ${failure.deviceId} (${failure.tokenSuffix})`,
       { reason: failure.reason, status: failure.status, itemId: item.id },
     );
+  }
+}
+
+function genericMobileInboxAlertBody(kind: string): string {
+  switch (kind) {
+    case "approval": return "A local agent needs your approval.";
+    case "question": return "A local agent has a question.";
+    case "failed_action":
+    case "failed_turn":
+    case "session_error": return "A local agent needs review.";
+    default: return "A local agent needs your attention.";
   }
 }
 

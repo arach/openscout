@@ -143,6 +143,8 @@ describe("BrokerOperatorAttentionService", () => {
           destination: "inbox",
           itemId: "delivery:deliver-1",
           kind: "delivery_issue",
+          messageId: "msg-1",
+          conversationId: "channel.system",
           requestId: "deliver-1",
           requesterId: "remote-agent",
           requesterNodeId: "remote-node",

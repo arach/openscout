@@ -17,7 +17,7 @@
 import Foundation
 import ScoutCapabilities
 
-public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProviding, TerminalStatusProviding, @unchecked Sendable {
+public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapability, TerminalAccessProviding, TerminalStatusProviding, @unchecked Sendable {
 
     private let connection: BridgeConnection
 
@@ -463,6 +463,15 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     ) async throws -> MobilePushRegistrationResult {
         try await connection.rpc("mobile/push/sync", params: registration)
     }
+
+    public func mobileNotifications() async throws -> [MobileNotificationItem] {
+        let result: MobileNotificationInbox = try await connection.rpc("mobile/inbox", params: nil)
+        return result.items
+    }
+}
+
+private struct MobileNotificationInbox: Codable, Sendable {
+    let items: [MobileNotificationItem]
 }
 
 func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String? = nil) -> MobileCommsSendParams {

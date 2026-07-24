@@ -80,3 +80,62 @@ public protocol MobilePushRegistrationCapability: Sendable {
         _ registration: MobilePushRegistration
     ) async throws -> MobilePushRegistrationResult
 }
+
+/// Full notification context fetched from the paired Mac after an opaque APNs
+/// alert is opened. Human-readable prompt, command, failure, and path content
+/// deliberately lives here rather than in the push payload.
+public struct MobileNotificationItem: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var kind: String
+    public var createdAt: Int64
+    public var sessionId: String
+    public var sessionName: String
+    public var adapterType: String
+    public var turnId: String?
+    public var blockId: String?
+    public var version: Int?
+    public var risk: String
+    public var title: String
+    public var description: String
+    public var detail: String?
+    public var actionKind: String?
+    public var actionStatus: String?
+
+    public init(
+        id: String,
+        kind: String,
+        createdAt: Int64,
+        sessionId: String,
+        sessionName: String,
+        adapterType: String,
+        turnId: String? = nil,
+        blockId: String? = nil,
+        version: Int? = nil,
+        risk: String,
+        title: String,
+        description: String,
+        detail: String? = nil,
+        actionKind: String? = nil,
+        actionStatus: String? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.createdAt = createdAt
+        self.sessionId = sessionId
+        self.sessionName = sessionName
+        self.adapterType = adapterType
+        self.turnId = turnId
+        self.blockId = blockId
+        self.version = version
+        self.risk = risk
+        self.title = title
+        self.description = description
+        self.detail = detail
+        self.actionKind = actionKind
+        self.actionStatus = actionStatus
+    }
+}
+
+public protocol MobileNotificationCapability: Sendable {
+    func mobileNotifications() async throws -> [MobileNotificationItem]
+}

@@ -23,6 +23,7 @@ struct RootView: View {
     // dockedTabBar + status strip) exactly; `.crown` swaps in the summonable crown.
     @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
     @State private var crownAssembled = true
+    @State private var notificationLandingRoute: AppModel.NotificationRoute?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
@@ -251,6 +252,18 @@ struct RootView: View {
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
+        .sheet(item: $notificationLandingRoute) { route in
+            NotificationLandingSheet(
+                model: model,
+                route: route,
+                onOpenHome: {
+                    notificationLandingRoute = nil
+                    selectSurface(.home)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         // Settings is a full page, not a card sheet — the shell carries its own
         // close control, so present it edge-to-edge.
         .fullScreenCover(isPresented: $showSettings) {
@@ -287,17 +300,26 @@ struct RootView: View {
         }
         #endif
         .onChange(of: model.pendingNotificationRoute) { _, route in
-            guard route != nil else { return }
+            guard let route else { return }
+            openNotification(route)
+        }
+        .onAppear {
+            guard let route = model.pendingNotificationRoute else { return }
+            openNotification(route)
+        }
+        .onChange(of: surface) { _, _ in sessionStatusContext = nil }
+    }
+
+    private func openNotification(_ route: AppModel.NotificationRoute) {
+        if route.conversationId != nil {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
                 surface = .comms
             }
+            return
         }
-        .onAppear {
-            if model.pendingNotificationRoute != nil {
-                surface = .comms
-            }
-        }
-        .onChange(of: surface) { _, _ in sessionStatusContext = nil }
+
+        notificationLandingRoute = route
+        model.consumeNotificationRoute(route)
     }
 
     private var settingsContext: AppSettingsContext {
@@ -652,5 +674,250 @@ private struct EtchedScoutWordmark: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Scout")
+    }
+}
+
+/// Resolves an opaque APNs correlation id against the paired Mac and presents
+/// the actual situation locally. This keeps prompts, commands, paths, and error
+/// details out of APNs while still giving every non-conversation alert a real
+/// destination when the operator opens it.
+private struct NotificationLandingSheet: View {
+    let model: AppModel
+    let route: AppModel.NotificationRoute
+    let onOpenHome: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var item: MobileNotificationItem?
+    @State private var itemClient: (any ScoutBrokerClient)?
+    @State private var isLoading = true
+    @State private var loadError: String?
+    @State private var answer = ""
+    @State private var isSubmitting = false
+    @State private var actionResult: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Group {
+                    if isLoading {
+                        HudEmptyState(
+                            title: "Loading notification",
+                            subtitle: "Fetching details from your paired Mac.",
+                            icon: "bell"
+                        )
+                    } else if let item {
+                        notificationDetail(item)
+                    } else {
+                        HudEmptyState(
+                            title: fallbackTitle,
+                            subtitle: loadError ?? "This notification is no longer active on the paired Mac.",
+                            icon: "bell.slash"
+                        )
+                        Button("Open Home", action: onOpenHome)
+                            .buttonStyle(.borderedProminent)
+                            .tint(ScoutVibe.accent)
+                            .padding(.top, HudSpacing.lg)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(HudSpacing.xxl)
+            }
+            .background(HudPalette.bg.ignoresSafeArea())
+            .navigationTitle("Notification")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .task(id: route.id) { await load() }
+    }
+
+    @ViewBuilder
+    private func notificationDetail(_ item: MobileNotificationItem) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(kindLabel(item.kind).uppercased())
+                    .font(HudFont.mono(9, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(kindTint(item.kind))
+                Spacer()
+                Text(item.sessionName)
+                    .font(HudFont.mono(9))
+                    .foregroundStyle(ScoutInk.dim)
+                    .lineLimit(1)
+            }
+
+            Text(item.title)
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                .foregroundStyle(ScoutVibe.ink)
+
+            Text(item.description)
+                .font(HudFont.ui(HudTextSize.sm))
+                .foregroundStyle(ScoutInk.muted)
+                .textSelection(.enabled)
+
+            if let detail = item.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !detail.isEmpty,
+               detail != item.description {
+                Text(detail)
+                    .font(HudFont.mono(HudTextSize.xs))
+                    .foregroundStyle(ScoutInk.muted)
+                    .textSelection(.enabled)
+                    .padding(HudSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(ScoutSurface.inset))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            }
+
+            notificationActions(item)
+
+            if let actionResult {
+                Text(actionResult)
+                    .font(HudFont.mono(HudTextSize.xs))
+                    .foregroundStyle(actionResult == "Sent" ? ScoutVibe.accent : ScoutVibe.amber)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notificationActions(_ item: MobileNotificationItem) -> some View {
+        if item.kind == "approval",
+           item.turnId != nil, item.blockId != nil, item.version != nil {
+            HStack(spacing: HudSpacing.sm) {
+                Button("Deny") { Task { await decide(.deny, item: item) } }
+                    .buttonStyle(.bordered)
+                Button("Approve") { Task { await decide(.approve, item: item) } }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ScoutVibe.accent)
+            }
+            .disabled(isSubmitting || actionResult == "Sent")
+        } else if item.kind == "question", item.turnId != nil, item.blockId != nil {
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                TextField("Answer", text: $answer, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                Button("Send answer") { Task { await submitAnswer(item) } }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ScoutVibe.accent)
+                    .disabled(
+                        isSubmitting
+                            || actionResult == "Sent"
+                            || answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+            }
+        } else {
+            Button("Open Home", action: onOpenHome)
+                .buttonStyle(.borderedProminent)
+                .tint(ScoutVibe.accent)
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        loadError = nil
+        var completedRead = false
+
+        for machine in model.agentMachines() {
+            guard let client = machine.client,
+                  let notifications = client as? any MobileNotificationCapability else { continue }
+            do {
+                let items = try await notifications.mobileNotifications()
+                completedRead = true
+                if let match = matchingItem(in: items) {
+                    item = match
+                    itemClient = client
+                    isLoading = false
+                    return
+                }
+            } catch {
+                loadError = "Couldn’t load details from \(machine.name)."
+            }
+        }
+
+        if !completedRead, loadError == nil {
+            loadError = "Connect to the paired Mac to load this notification."
+        }
+        isLoading = false
+    }
+
+    private func matchingItem(in items: [MobileNotificationItem]) -> MobileNotificationItem? {
+        if let itemId = route.itemId,
+           let exact = items.first(where: { $0.id == itemId }) {
+            return exact
+        }
+        guard let sessionId = route.sessionId else { return nil }
+        return items.first { candidate in
+            candidate.sessionId == sessionId
+                && (route.turnId == nil || candidate.turnId == route.turnId)
+                && (route.blockId == nil || candidate.blockId == route.blockId)
+        }
+    }
+
+    private func decide(_ decision: ActionDecisionSpec.Decision, item: MobileNotificationItem) async {
+        guard let client = itemClient,
+              let turnId = item.turnId,
+              let blockId = item.blockId,
+              let version = item.version else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            _ = try await client.decideAction(ActionDecisionSpec(
+                conversationId: item.sessionId,
+                turnId: turnId,
+                blockId: blockId,
+                decision: decision,
+                version: version
+            ))
+            actionResult = "Sent"
+        } catch {
+            actionResult = "Couldn’t send the decision. Refresh and try again."
+        }
+    }
+
+    private func submitAnswer(_ item: MobileNotificationItem) async {
+        guard let client = itemClient,
+              let turnId = item.turnId,
+              let blockId = item.blockId else { return }
+        let value = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            _ = try await client.answerQuestion(QuestionAnswerSpec(
+                conversationId: item.sessionId,
+                turnId: turnId,
+                blockId: blockId,
+                answer: [value]
+            ))
+            actionResult = "Sent"
+        } catch {
+            actionResult = "Couldn’t send the answer. Refresh and try again."
+        }
+    }
+
+    private var fallbackTitle: String {
+        guard let kind = route.kind else { return "Notification unavailable" }
+        return kindLabel(kind)
+    }
+
+    private func kindLabel(_ kind: String) -> String {
+        switch kind {
+        case "approval": return "Approval needed"
+        case "question": return "Question"
+        case "failed_action": return "Action failed"
+        case "failed_turn": return "Turn failed"
+        case "session_error": return "Session error"
+        case "native_attention": return "Needs attention"
+        case "delivery_issue": return "Delivery issue"
+        default: return "Agent notification"
+        }
+    }
+
+    private func kindTint(_ kind: String) -> Color {
+        switch kind {
+        case "failed_action", "failed_turn", "session_error": return .red
+        case "approval", "question", "native_attention": return ScoutVibe.amber
+        default: return ScoutVibe.accent
+        }
     }
 }
