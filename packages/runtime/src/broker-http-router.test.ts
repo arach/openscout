@@ -172,6 +172,16 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
     deliveryAcceptanceService: {
       accept: async () => ({ kind: "delivery", deliveryId: "fallback-delivery" }),
     },
+    rendezvousService: {
+      match: async (request: { topic: string; projectRoot: string; participantId: string }) => ({
+        status: "waiting",
+        topic: request.topic,
+        projectRoot: request.projectRoot,
+        participantId: request.participantId,
+        joinedAt: 1,
+        expiresAt: 2,
+      }),
+    },
     ...overrides,
   } as unknown as BrokerHttpRouterDeps;
 
@@ -290,6 +300,51 @@ describe("createBrokerHttpRouter", () => {
     expect(malformedSignal.response.status).toBe(400);
     expect(malformedSignal.body).toMatchObject({ error: "invalid_request" });
     expect(harness.deliverCalls).toHaveLength(3);
+  });
+
+  test("maps rendezvous results and validation failures onto HTTP statuses", async () => {
+    const requests: unknown[] = [];
+    const harness = createHarness({
+      rendezvousService: {
+        match: async (request: unknown) => {
+          requests.push(request);
+          if ((request as { topic?: string }).topic === "bad") {
+            throw new Error("topic is invalid");
+          }
+          return {
+            status: "topic_busy",
+            topic: "pair",
+            projectRoot: "/repo",
+            participantId: "agent.three",
+            participantCount: 2,
+            expiresAt: 2,
+            suggestion: "choose_another_topic",
+          };
+        },
+      },
+    } as Partial<BrokerHttpRouterDeps>);
+
+    const busy = await requestRouter(harness, "POST", "/v1/rendezvous/match", {
+      body: {
+        topic: "pair",
+        projectRoot: "/repo",
+        participantId: "agent.three",
+        waitMs: 0,
+      },
+    });
+    const invalid = await requestRouter(harness, "POST", "/v1/rendezvous/match", {
+      body: {
+        topic: "bad",
+        projectRoot: "/repo",
+        participantId: "agent.three",
+        waitMs: 0,
+      },
+    });
+
+    expect(busy.response.status).toBe(409);
+    expect(busy.body).toMatchObject({ status: "topic_busy", participantCount: 2 });
+    expect(invalid.response.status).toBe(400);
+    expect(requests).toHaveLength(2);
   });
 
   test("validates invocation requests before dispatch", async () => {

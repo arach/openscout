@@ -18,6 +18,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "env", summary: "Show executable and agent identity context" },
   { name: "whoami", summary: "Resolve your current Scout sender identity" },
   { name: "inbox", summary: "Read recent direct or addressed messages for this identity" },
+  { name: "match", summary: "Rendezvous with one participant by shared project topic" },
   { name: "send", summary: "Tell one target or post to an explicit channel" },
   { name: "session", summary: "Actions on a harness session" },
   { name: "statusline", summary: "Capture harness statusline metadata" },

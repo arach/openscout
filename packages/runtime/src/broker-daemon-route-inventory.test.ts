@@ -211,6 +211,7 @@ const expectedRouteInventory = [
   "POST /v1/nodes",
   "POST /v1/pairing/attach",
   "POST /v1/pairing/detach",
+  "POST /v1/rendezvous/match",
   "POST /v1/repo-watch/warm",
   "POST /v1/roles/assignments",
   "POST /v1/roles/assignments/:id/revoke",

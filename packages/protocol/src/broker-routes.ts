@@ -23,6 +23,7 @@ export const scoutBrokerPaths = {
     invocations: "/v1/invocations",
     flights: "/v1/flights",
     deliver: "/v1/deliver",
+    rendezvousMatch: "/v1/rendezvous/match",
     activity: "/v1/activity",
     collaborationRecords: "/v1/collaboration/records",
     collaborationEvents: "/v1/collaboration/events",

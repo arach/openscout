@@ -19,6 +19,7 @@ export type ScoutCommandName =
   | "install"
   | "label"
   | "latest"
+  | "match"
   | "mcp"
   | "menu"
   | "mesh"
@@ -75,6 +76,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./label.ts")).runLabelCommand;
     case "latest":
       return (await import("./latest.ts")).runLatestCommand;
+    case "match":
+      return (await import("./match.ts")).runMatchCommand;
     case "mcp":
       return (await import("./mcp.ts")).runMcpCommand;
     case "menu":
