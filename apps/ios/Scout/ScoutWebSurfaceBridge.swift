@@ -44,13 +44,19 @@ final class ScoutWebSurfaceBridge {
 
     private weak var model: AppModel?
     private let surface: Surface
+    private let selectedMachineIds: Set<String>?
     private let epoch = UUID().uuidString.lowercased()
     private var activity: HudWebViewActivity = .hiddenWarm
     private var tasks: [String: Task<Void, Never>] = [:]
+    /// Lane selections from the embedded lanes surface, validated and resolved
+    /// against the fleet (host client + agent name) so the host view can open
+    /// the conversation natively. `nil` means the embed cleared its selection.
+    var onLaneSelection: ((ScoutLaneSelection?) -> Void)?
 
-    init(model: AppModel, surface: Surface) {
+    init(model: AppModel, surface: Surface, selectedMachineIds: Set<String>? = nil) {
         self.model = model
         self.surface = surface
+        self.selectedMachineIds = selectedMachineIds
     }
 
     lazy var integration: HudWebViewIntegration = {
@@ -161,7 +167,11 @@ final class ScoutWebSurfaceBridge {
             openExternalURL(url)
             reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
         case "native.setLaneSelection":
-            reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                try await self.setLaneSelection(request.params?.selection)
+                return ["accepted": true]
+            }
         default:
             reply.succeed(errorReply(
                 request,
@@ -226,7 +236,11 @@ final class ScoutWebSurfaceBridge {
                 "state": machine.isOnline ? "connected" : "disconnected",
             ]
         }
-        let selected = machines.filter(\.isOnline).map { hostId(for: $0.machineId) }
+        let selected = machines
+            .filter { machine in
+                machine.isOnline && (selectedMachineIds?.contains(machine.machineId) ?? true)
+            }
+            .map { hostId(for: $0.machineId) }
         let revision = model?.fleetRevision ?? 0
         return [
             "surface": surface.rawValue,
@@ -374,6 +388,76 @@ final class ScoutWebSurfaceBridge {
         Dictionary(uniqueKeysWithValues: (model?.webSurfaceMachines() ?? []).map { (hostId(for: $0.machineId), $0) })
     }
 
+    private func setLaneSelection(_ selection: LaneSelectionParams?) async throws {
+        guard let selection else {
+            onLaneSelection?(nil)
+            return
+        }
+        guard !selection.hostId.isEmpty,
+              !selection.agentId.isEmpty,
+              selection.hostId.utf8.count <= 128,
+              selection.agentId.utf8.count <= 512,
+              let machine = machineMap()[selection.hostId],
+              let client = machine.client
+        else {
+            throw SurfaceBridgeError.invalidRoute
+        }
+        let agents = try await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)
+        guard let agent = agents.first(where: { $0.id == selection.agentId }) else {
+            throw SurfaceBridgeError.invalidRoute
+        }
+        let canonicalConversationId = agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assertedConversationId = selection.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard assertedConversationId == nil || assertedConversationId == canonicalConversationId else {
+            throw SurfaceBridgeError.invalidRoute
+        }
+        onLaneSelection?(ScoutLaneSelection(
+            machineId: machine.machineId,
+            hostId: selection.hostId,
+            hostName: machine.name,
+            agentId: selection.agentId,
+            agentName: agent.title,
+            conversationId: canonicalConversationId,
+            sessionId: agent.sessionId,
+            client: client
+        ))
+    }
+
+    /// Post from the native Deck composer only after re-resolving the complete
+    /// lane route. The page selection is a hint, never write authority: every
+    /// send proves that the host remains selected and online, the agent still
+    /// exists there, and its canonical conversation has not changed.
+    func sendLaneMessage(_ body: String, to selection: ScoutLaneSelection) async throws -> String {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { throw ScoutDeckSendError.emptyMessage }
+        guard selectedMachineIds?.contains(selection.machineId) ?? true else {
+            throw ScoutDeckSendError.hostNotSelected
+        }
+        guard let machine = model?.webSurfaceMachines().first(where: { $0.machineId == selection.machineId }),
+              machine.isOnline,
+              let client = machine.client
+        else {
+            throw ScoutDeckSendError.hostDisconnected
+        }
+        let agents = try await client.listAgents(query: nil, limit: Self.maximumLaneAgentCount)
+        guard let agent = agents.first(where: { $0.id == selection.agentId }) else {
+            throw ScoutDeckSendError.laneUnavailable
+        }
+        guard let conversationId = agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !conversationId.isEmpty,
+              conversationId == selection.conversationId
+        else {
+            throw ScoutDeckSendError.routeChanged
+        }
+        return try await client.postMessage(
+            conversationId: conversationId,
+            body: text,
+            replyTo: nil,
+            attachments: nil,
+            clientMessageId: "ios-deck-\(UUID().uuidString)"
+        )
+    }
+
     private func agentPayload(_ agent: AgentSummary) -> [String: Any] {
         [
             "id": agent.id,
@@ -496,7 +580,6 @@ final class ScoutWebSurfaceBridge {
         JSONSerialization.isValidJSONObject(value) ? value : nil
     }
 }
-
 private struct RequestEnvelope: Decodable {
     let v: Int
     let id: String
@@ -512,7 +595,53 @@ private struct RequestParams: Decodable {
     let cursor: String?
     let limit: Int?
     let requestId: String?
+    let selection: LaneSelectionParams?
     let url: String?
+}
+
+private struct LaneSelectionParams: Decodable {
+    let hostId: String
+    let agentId: String
+    let conversationId: String?
+    let sessionId: String?
+}
+
+/// A lane selection from the embedded lanes surface after bridge validation:
+/// resolved to the host's broker client with display names, ready for the app
+/// to open the conversation natively (see `MissionControlSurface`).
+struct ScoutLaneSelection {
+    /// Native fleet identity retained only inside Swift; never supplied by the page.
+    let machineId: String
+    let hostId: String
+    let hostName: String
+    let agentId: String
+    let agentName: String
+    let conversationId: String?
+    let sessionId: String?
+    let client: any ScoutBrokerClient
+}
+
+private enum ScoutDeckSendError: LocalizedError {
+    case emptyMessage
+    case hostNotSelected
+    case hostDisconnected
+    case laneUnavailable
+    case routeChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyMessage:
+            return "Write a message before sending."
+        case .hostNotSelected:
+            return "That Mac is no longer selected. Select the lane again."
+        case .hostDisconnected:
+            return "That Mac disconnected. Reconnect it and try again."
+        case .laneUnavailable:
+            return "That lane is no longer available. Select it again."
+        case .routeChanged:
+            return "That lane moved to another conversation. Select it again."
+        }
+    }
 }
 
 private enum SurfaceBridgeError: Error {
