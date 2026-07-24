@@ -1,7 +1,5 @@
 import SwiftUI
 import Foundation
-import PhotosUI
-import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
@@ -29,6 +27,11 @@ struct NewSessionSurface: View {
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
+    /// One-shot prompt seed (Home's inline ask composer routes here with typed
+    /// text). Consumed on change: lands in the prompt box, focuses it, clears
+    /// itself. A binding because this surface stays mounted for the app
+    /// lifetime, so init-time state would never reseed.
+    @Binding var promptSeed: String?
 
     /// Empty until the paired Mac returns its current workspace inventory. A
     /// device must never guess the Mac account name or carry a developer-specific
@@ -37,14 +40,16 @@ struct NewSessionSurface: View {
     /// Explicitly-picked target Mac; nil follows the focused machine.
     @State private var selectedMachineId: String? = nil
     @State private var instructions: String = ""
-    /// Selected harness id (the spec's `execution.harness`) and curated model id.
-    /// Model is scoped to the harness, so changing harness resets it to Default.
-    @State private var harnessId: String = HarnessOption.catalog[0].id
-    @State private var modelId: String = ModelOption.defaultId
-    @State private var effortId: String = EffortOption.defaultId
+    /// Selected harness id (the spec's `execution.harness`), model family, and
+    /// effort. Family is scoped to the harness, so changing harness resets it
+    /// to that harness's DEFAULT-tagged family (see ModelPickerPopover).
+    @State private var harnessId: String = ComposerModelHarness.catalog[0].id
+    @State private var familyId: String = ComposerModelHarness.catalog[0].defaultFamily.id
+    @State private var effortId: String = ComposerEffortOption.defaultId
+    @State private var showModelPicker = false
     /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
     /// each carrying the harnesses actually installed there. Empty until loaded /
-    /// when offline, in which case the harness menu falls back to the curated
+    /// when offline, in which case the harness picker falls back to the curated
     /// catalog below.
     @State private var workspaces: [WorkspaceSummary] = []
     @State private var showProjectPicker = false
@@ -52,11 +57,11 @@ struct NewSessionSurface: View {
     @State private var result: SessionInitiationResult?
     @State private var errorText: String?
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var showFileImporter = false
-    @State private var showPhotoPicker = false
     @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
+    /// Nav mode (tabs/crown) — crown mode reserves no bottom chrome, so the
+    /// composer pads itself clear of the floating crown (CrownMetric.bottomReserve).
+    @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
 
     /// Shared on-device dictation (Parakeet via Vox + Apple fallback), injected at
     /// the app root — the same controller the Comms composer and Settings use.
@@ -102,68 +107,15 @@ struct NewSessionSurface: View {
         let title: String
     }
 
-    /// A curated harness + its hand-picked model menu. Until the bridge exposes
-    /// the live `harness-catalog` (with per-machine readiness), this is the two
-    /// featured workspace harnesses with a short, valid model list each — the
-    /// strings are passed verbatim to the CLI as `--model`.
-    private struct HarnessOption: Identifiable, Hashable {
-        let id: String        // spec `execution.harness`, e.g. "claude"
-        let label: String     // menu label, e.g. "Claude Code"
-        let models: [ModelOption]
+    /// The harness/family/effort catalog now lives with the picker — see
+    /// ComposerModelHarness / ComposerModelFamily / ComposerEffortOption in
+    /// ModelPickerPopover.swift (ported from the approved studio study).
 
-        static let catalog: [HarnessOption] = [
-            HarnessOption(id: "claude", label: "Claude Code", models: [
-                .defaultOption,
-                ModelOption(id: "fable", label: "Fable", value: "fable"),
-                ModelOption(id: "opus", label: "Opus", value: "opus"),
-                ModelOption(id: "claude-opus-4-8", label: "Opus 4.8", value: "claude-opus-4-8"),
-                ModelOption(id: "sonnet", label: "Sonnet", value: "sonnet"),
-                ModelOption(id: "claude-sonnet-4-6", label: "Sonnet 4.6", value: "claude-sonnet-4-6"),
-                ModelOption(id: "haiku", label: "Haiku", value: "haiku"),
-            ]),
-            HarnessOption(id: "codex", label: "Codex", models: [
-                .defaultOption,
-                ModelOption(id: "gpt-5.6-sol", label: "GPT-5.6 Sol", value: "gpt-5.6-sol"),
-                ModelOption(id: "gpt-5.6-terra", label: "GPT-5.6 Terra", value: "gpt-5.6-terra"),
-                ModelOption(id: "gpt-5.6-luna", label: "GPT-5.6 Luna", value: "gpt-5.6-luna"),
-                ModelOption(id: "gpt-5.5", label: "GPT-5.5", value: "gpt-5.5"),
-                ModelOption(id: "gpt-5.5-mini", label: "GPT-5.5 mini", value: "gpt-5.5-mini"),
-            ]),
-        ]
+    private var selectedEffort: ComposerEffortOption {
+        ComposerEffortOption.catalog.first { $0.id == effortId } ?? ComposerEffortOption.catalog[0]
     }
 
-    /// One model menu entry. `value` is the `--model` string, or nil for
-    /// "Default" — which omits the field so the harness picks its own default.
-    private struct ModelOption: Identifiable, Hashable {
-        let id: String
-        let label: String
-        let value: String?
-
-        static let defaultId = "default"
-        static let defaultOption = ModelOption(id: defaultId, label: "Default", value: nil)
-    }
-
-    /// One reasoning-effort menu entry. `value` is the spec's
-    /// `execution.reasoningEffort`; nil for "Default" (the harness decides).
-    private struct EffortOption: Identifiable, Hashable {
-        let id: String
-        let label: String
-        let value: String?
-
-        static let defaultId = "default"
-        static let catalog: [EffortOption] = [
-            EffortOption(id: defaultId, label: "Auto", value: nil),
-            EffortOption(id: "low", label: "Low", value: "low"),
-            EffortOption(id: "medium", label: "Medium", value: "medium"),
-            EffortOption(id: "high", label: "High", value: "high"),
-        ]
-    }
-
-    private var selectedEffort: EffortOption {
-        EffortOption.catalog.first { $0.id == effortId } ?? EffortOption.catalog[0]
-    }
-
-    /// One selectable harness in the menu — sourced from the connected machine
+    /// One selectable harness in the picker — sourced from the connected machine
     /// when known, else the curated fallback.
     private struct HarnessChoice: Identifiable, Hashable {
         let id: String
@@ -176,11 +128,11 @@ struct NewSessionSurface: View {
         workspaces.first { $0.root == trimmedProjectPath }
     }
 
-    /// Harness menu options: the machine's installed harnesses for the selected
+    /// Harness options: the machine's installed harnesses for the selected
     /// project when available, otherwise the curated catalog (e.g. while offline).
     private var harnessChoices: [HarnessChoice] {
         // The machine's full harness set — the union of every usable harness across
-        // its known workspaces — so the menu reflects what's actually installed on
+        // its known workspaces — so the picker reflects what's actually installed on
         // that Mac, not just one project's default. Curated fallback when offline.
         let live = workspaces.flatMap(\.harnesses).filter(\.isUsable)
         if !live.isEmpty {
@@ -190,28 +142,41 @@ struct NewSessionSurface: View {
                 .map { HarnessChoice(id: $0.harness, label: harnessLabel($0.harness), readiness: $0.readiness) }
                 .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
         }
-        return HarnessOption.catalog.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
+        return ComposerModelHarness.catalog.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
     }
 
     /// Friendly label for a harness id — the curated label when we have one, else
     /// a capitalized form of the raw id (for harnesses we don't curate models for).
     private func harnessLabel(_ id: String) -> String {
-        if let curated = HarnessOption.catalog.first(where: { $0.id == id }) { return curated.label }
+        if let curated = ComposerModelHarness.curated(id) { return curated.label }
         return id.isEmpty ? id : id.prefix(1).uppercased() + id.dropFirst()
-    }
-
-    /// Model menu for a harness — the curated list when we have one, else just
-    /// "Default" (models are free-form CLI strings, not machine-cataloged).
-    private func modelChoices(_ harness: String) -> [ModelOption] {
-        HarnessOption.catalog.first(where: { $0.id == harness })?.models ?? [.defaultOption]
     }
 
     private var selectedHarnessLabel: String {
         harnessChoices.first(where: { $0.id == harnessId })?.label ?? harnessLabel(harnessId)
     }
 
-    private var selectedModel: ModelOption {
-        modelChoices(harnessId).first { $0.id == modelId } ?? ModelOption.defaultOption
+    /// Plates for the model popover: the curated catalog trimmed to the
+    /// harnesses the selected machine actually reports, plus a single-Auto
+    /// fallback plate for any live harness we don't curate models for (so it
+    /// stays startable). Offline, `harnessChoices` IS the curated catalog.
+    private var pickerHarnesses: [ComposerModelHarness] {
+        let choices = harnessChoices
+        var plates = ComposerModelHarness.catalog.filter { entry in
+            choices.contains { $0.id == entry.id }
+        }
+        for choice in choices where !plates.contains(where: { $0.id == choice.id }) {
+            plates.append(.fallback(id: choice.id, label: choice.label))
+        }
+        return plates.isEmpty ? ComposerModelHarness.catalog : plates
+    }
+
+    /// The picked model family — resolves through the same tolerant path the
+    /// popover uses so a stale id (e.g. after a harness switch) lands on the
+    /// harness's default instead of vanishing.
+    private var selectedFamily: ComposerModelFamily {
+        let harness = pickerHarnesses.first { $0.id == harnessId } ?? pickerHarnesses[0]
+        return harness.families.first { $0.id == familyId } ?? harness.defaultFamily
     }
 
     var body: some View {
@@ -245,6 +210,28 @@ struct NewSessionSurface: View {
         }
         .padding(.leading, layout.surfacePadding)
         .padding(.vertical, layout.surfacePadding)
+        // Crown mode reserves nothing at the bottom — surfaces flow behind the
+        // chrome — but the composer's action row is INTERACTIVE, so it must
+        // clear the resting crown outright (same pattern as MissionControl).
+        .padding(.bottom, ScoutNavMode.resolve(navModeRaw) == .crown ? CrownMetric.bottomReserve : 0)
+        .overlay {
+            if showModelPicker {
+                modelPickerOverlay
+            }
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: showModelPicker)
+        .onChange(of: promptSeed) { _, seed in
+            guard let seed else { return }
+            let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                instructions = trimmed
+            } else {
+                instructions += "\n" + trimmed
+            }
+            instructionsFocused = true
+            promptSeed = nil
+        }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
                 client: activeClient,
@@ -257,14 +244,6 @@ struct NewSessionSurface: View {
             .sheet(isPresented: $showProjectPicker) {
                 ProjectPickerSheet(client: activeClient, projectPath: $projectPath)
             }
-            .onChange(of: selectedPhotoItems) { _, items in
-                guard !items.isEmpty else { return }
-                Task { await addPhotos(items) }
-            }
-            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                addFiles(result)
-            }
-            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images)
             .task(id: "\(reloadToken)|\(isActive)") {
                 guard isActive else { return }
                 await entrance.reveal(when: isActive, animated: !reduceMotion)
@@ -315,7 +294,8 @@ struct NewSessionSurface: View {
         } else {
             harnessId = valid[0]
         }
-        modelId = ModelOption.defaultId
+        // Harness changed — re-seat the family on that harness's default.
+        familyId = pickerHarnesses.first { $0.id == harnessId }?.defaultFamily.id ?? familyId
     }
 
     // MARK: - Project
@@ -371,9 +351,9 @@ struct NewSessionSurface: View {
 
     // MARK: - Instructions
 
-    /// The classic message input box: a filling prompt with, at the bottom, a
-    /// config line (model · effort) over an action row — "+" attach (left), the
-    /// dictation mic (centered), and the circular send (right).
+    /// The classic message input box: a filling prompt with, at the bottom, an
+    /// action row — "+" attach (left), and the model token + dictation mic +
+    /// circular send (right).
     private var instructionsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
             TextEditor(text: $instructions)
@@ -390,6 +370,12 @@ struct NewSessionSurface: View {
                             .padding(.top, 8)
                             .padding(.leading, 5)
                             .allowsHitTesting(false)
+                    }
+                }
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") { dismissKeyboard() }
                     }
                 }
             if voice.isListening, !voice.partialText.isEmpty {
@@ -412,22 +398,23 @@ struct NewSessionSurface: View {
         .scoutCard(cornerRadius: HudRadius.standard)
     }
 
-    /// Bottom of the box: a distinctive centered floating mic on its own line
-    /// (a live waveform spans it while recording) over the action row — "+" attach
-    /// (left) and the agent token + circular send (right).
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    /// Bottom of the box: a live waveform line while dictation is recording,
+    /// over the action row — "+" attach (left) and the model token, mic, and
+    /// circular send (right, mic immediately left of send).
     private var composerBar: some View {
         VStack(spacing: HudSpacing.sm) {
-            ZStack {
-                if voice.isListening {
-                    RecordingWaveform()
-                }
-                micButton
+            if voice.isListening {
+                RecordingWaveform()
             }
-            .frame(maxWidth: .infinity)
             HStack(spacing: HudSpacing.sm) {
-                attachMenu
+                ComposerAttachButton(attachments: $pendingAttachments, disabled: isSubmitting)
                 Spacer(minLength: HudSpacing.sm)
-                agentToken
+                modelToken
+                micButton
                 sendButton
             }
         }
@@ -435,43 +422,17 @@ struct NewSessionSurface: View {
         .tint(HudPalette.accent)
     }
 
-    /// Combined agent token — the model in bold with the effort secondary, under a
-    /// single caret. Its menu carries a section per harness (the models) plus an
-    /// Effort section, so both are set from one control.
-    private var agentToken: some View {
-        Menu {
-            ForEach(harnessChoices) { harness in
-                Section(harness.label) {
-                    ForEach(modelChoices(harness.id)) { model in
-                        Button {
-                            harnessId = harness.id
-                            modelId = model.id
-                        } label: {
-                            if harnessId == harness.id && modelId == model.id {
-                                Label(model.label, systemImage: "checkmark")
-                            } else {
-                                Text(model.label)
-                            }
-                        }
-                    }
-                }
-            }
-            Section("Effort") {
-                ForEach(EffortOption.catalog) { effort in
-                    Button {
-                        effortId = effort.id
-                    } label: {
-                        if effortId == effort.id {
-                            Label(effort.label, systemImage: "checkmark")
-                        } else {
-                            Text(effort.label)
-                        }
-                    }
-                }
-            }
+    /// The model token at rest — the family in bold with the effort secondary
+    /// under a single caret, styled after the study's bordered chip. Tapping
+    /// opens the model-picker popover (draft semantics: Done commits, scrim
+    /// tap or swipe-down cancels).
+    private var modelToken: some View {
+        Button {
+            instructionsFocused = false
+            showModelPicker = true
         } label: {
             HStack(spacing: 5) {
-                Text(modelId == ModelOption.defaultId ? selectedHarnessLabel : selectedModel.label)
+                Text(selectedFamily.displayName)
                     .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
@@ -484,23 +445,43 @@ struct NewSessionSurface: View {
                 Glyphic.chevron(.bottom, size: 9)
                     .foregroundStyle(ScoutInk.dim)
             }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(showModelPicker ? ModelPickerTone.accentSoft : ModelPickerTone.chipFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(showModelPicker ? ModelPickerTone.accentDim : ModelPickerTone.tokenEdge, lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Model: \(selectedFamily.displayName), effort \(selectedEffort.label)")
     }
 
-    /// "+" attach menu (bottom-left): photos or files, consolidated.
-    private var attachMenu: some View {
-        Menu {
-            Button { showPhotoPicker = true } label: { Label("Photo", systemImage: "photo") }
-            Button { showFileImporter = true } label: { Label("File", systemImage: "paperclip") }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(ScoutSurface.inset))
-                .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+    /// Scrim + the rising machined plate (the approved study's popover). The
+    /// scrim tap and the plate's swipe-down both CANCEL — only the plate's
+    /// Done writes the draft back into the composer state.
+    private var modelPickerOverlay: some View {
+        ZStack(alignment: .bottom) {
+            ModelPickerTone.scrim
+                .background(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .onTapGesture { showModelPicker = false }
+                .transition(.opacity)
+            ModelPickerPopover(
+                harnesses: pickerHarnesses,
+                harnessId: $harnessId,
+                familyId: $familyId,
+                effortId: $effortId,
+                onCommit: { showModelPicker = false },
+                onCancel: { showModelPicker = false }
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, 96)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        .disabled(isSubmitting)
     }
 
     /// Circular send (bottom-right) — starts the session. The accent fill is always
@@ -573,38 +554,6 @@ struct NewSessionSurface: View {
 
     private func appendDictation(_ text: String) {
         instructions = instructions.isEmpty ? text : instructions + " " + text
-    }
-
-    @MainActor
-    private func addPhotos(_ items: [PhotosPickerItem]) async {
-        defer { selectedPhotoItems = [] }
-        for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
-            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
-            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
-            pendingAttachments.append(
-                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(pendingAttachments.count + 1).\(ext)")
-            )
-        }
-    }
-
-    private func addFiles(_ result: Result<[URL], Error>) {
-        do {
-            let urls = try result.get()
-            for url in urls {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let data = try Data(contentsOf: url)
-                let type = UTType(filenameExtension: url.pathExtension)
-                let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
-                pendingAttachments.append(
-                    ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
-                )
-            }
-        } catch {
-            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        }
     }
 
     private func updatePulse(for state: HudDictation.State) {
@@ -745,7 +694,7 @@ struct NewSessionSurface: View {
         let trimmedInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         return SessionInitiationSpec(
             target: .init(projectPath: trimmedProjectPath),
-            execution: .init(harness: harnessId, model: selectedModel.value, reasoningEffort: selectedEffort.value, session: .new),
+            execution: .init(harness: harnessId, model: selectedFamily.value, reasoningEffort: selectedEffort.value, session: .new),
             agent: .init(persistence: "sticky"),
             seed: .init(
                 instructions: trimmedInstructions.isEmpty ? nil : trimmedInstructions,
