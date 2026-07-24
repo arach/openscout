@@ -5,6 +5,7 @@ export type ScoutCommandHandler = (context: ScoutCommandContext, args: string[])
 export type ScoutCommandName =
   | "attention"
   | "ask"
+  | "alias"
   | "broadcast"
   | "card"
   | "channel"
@@ -48,6 +49,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./attention.ts")).runAttentionCommand;
     case "ask":
       return (await import("./ask.ts")).runAskCommand;
+    case "alias":
+      return (await import("./alias.ts")).runAliasCommand;
     case "broadcast":
       return (await import("./broadcast.ts")).runBroadcastCommand;
     case "card":

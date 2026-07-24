@@ -28,6 +28,7 @@ export * from "./session-display-state.js";
 export * from "./capability-matrix.js";
 export * from "./debug-attach.js";
 export * from "./scout-dispatch.js";
+export * from "./route-aliases.js";
 export * from "./scout-delivery.js";
 export * from "./scout-reply-context.js";
 export * from "./scout-composer.js";

@@ -13,6 +13,7 @@ import type {
   ScoutRoutePolicy,
   ScoutRouteTarget,
 } from "./scout-dispatch.js";
+import type { RouteAliasResolutionProof } from "./route-aliases.js";
 
 export type ScoutDeliverIntent = "tell" | "consult";
 
@@ -115,6 +116,7 @@ export interface ScoutDeliveryReceipt {
   messageId: ScoutId;
   flightId?: ScoutId;
   acceptedAt: number;
+  aliasResolution?: RouteAliasResolutionProof;
 }
 
 export interface ScoutDeliveryRemediationAction {
@@ -136,6 +138,7 @@ export interface ScoutDeliverAcceptedResponse {
   targetSessionId?: ScoutId;
   sessionAlias?: string;
   bindingRef?: string;
+  aliasResolution?: RouteAliasResolutionProof;
   flight?: FlightRecord;
   workItem?: WorkItemRecord;
 }

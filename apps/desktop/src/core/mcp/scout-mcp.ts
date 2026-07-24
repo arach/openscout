@@ -8,11 +8,14 @@ import {
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
   parseAgentIdentity,
+  parseScoutComposerRouteTarget,
   type AgentIdentityCandidate,
   type AgentState,
   type ScoutAgentCard,
   type ScoutDeliverRequest,
   type ScoutReplyContext,
+  type RouteAliasBinding,
+  type RouteAliasResolveResult,
 } from "@openscout/protocol";
 import {
   findNearestProjectRoot,
@@ -474,6 +477,7 @@ type ScoutMcpDependencies = {
     source?: string;
     wake?: boolean;
     operatorSignal?: ScoutDeliverRequest["operatorSignal"];
+    aliasScope?: import("@openscout/protocol").RouteAliasScope;
   }) => Promise<ScoutMessagePostResult>;
   sendMessageToAgentIds: (input: {
     senderId: string;
@@ -2854,6 +2858,7 @@ function defaultScoutMcpDependencies(
       source,
       wake,
       operatorSignal,
+      aliasScope,
     }) =>
       sendScoutMessage({
         senderId,
@@ -2865,6 +2870,7 @@ function defaultScoutMcpDependencies(
         source,
         wake,
         operatorSignal,
+        aliasScope,
       }),
     sendMessageToAgentIds: ({
       senderId,
@@ -3018,6 +3024,171 @@ export function createScoutMcpServer(options: {
     name: "openscout",
     version: SCOUT_APP_VERSION,
   });
+
+  const aliasBrokerRequest = async <T>(path: string, init?: RequestInit): Promise<T> => {
+    const response = await fetch(new URL(path, deps.resolveBrokerUrl()), {
+      ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    });
+    const payload = await response.json().catch(() => ({})) as T & { error?: string; detail?: string };
+    if (!response.ok) throw new Error(payload.detail ?? payload.error ?? `broker returned HTTP ${response.status}`);
+    return payload;
+  };
+
+  const aliasToolCaller = async (senderId: string | undefined, currentDirectory: string) => ({
+    actorId: await resolveMcpSenderId(deps, senderId, currentDirectory, env),
+    currentDirectory,
+    metadata: {
+      ...((env.OPENSCOUT_SESSION_ID?.trim() || env.CODEX_THREAD_ID?.trim() || env.CLAUDE_CODE_SESSION_ID?.trim())
+        ? { sessionId: env.OPENSCOUT_SESSION_ID?.trim() || env.CODEX_THREAD_ID?.trim() || env.CLAUDE_CODE_SESSION_ID?.trim() }
+        : {}),
+    },
+  });
+
+  const aliasScopeSchema = {
+    projectRoot: z.string().optional(),
+    nodeId: z.string().optional(),
+    currentDirectory: z.string().optional(),
+    senderId: z.string().optional(),
+  };
+
+  server.registerTool(
+    "aliases_set",
+    {
+      title: "Set Scout Route Alias",
+      description: "Create a scoped broker-owned pointer to one existing durable agent or exact session. This never creates or mutates an agent card.",
+      inputSchema: z.object({
+        alias: z.string().min(1),
+        to: z.string().optional(),
+        self: z.enum(["session", "agent"]).optional(),
+        replace: z.boolean().optional(),
+        expectedRevision: z.number().int().positive().optional(),
+        expiresAt: z.number().int().positive().optional(),
+        ...aliasScopeSchema,
+      }),
+      annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const currentDirectory = resolveToolCurrentDirectory(input.currentDirectory, options.defaultCurrentDirectory);
+      const target = input.to ? parseScoutComposerRouteTarget(input.to) : undefined;
+      if (input.to && !target) throw new Error(`invalid route target: ${input.to}`);
+      const result = await aliasBrokerRequest<{ binding: RouteAliasBinding }>("/v1/aliases", {
+        method: "POST",
+        body: JSON.stringify({
+          alias: input.alias,
+          target,
+          self: input.self,
+          replace: input.replace,
+          expectedRevision: input.expectedRevision,
+          expiresAt: input.expiresAt,
+          scope: { projectRoot: input.projectRoot, nodeId: input.nodeId },
+          caller: await aliasToolCaller(input.senderId, currentDirectory),
+        }),
+      });
+      return { content: createTextContent(result), structuredContent: { ...result } };
+    },
+  );
+
+  server.registerTool(
+    "aliases_list",
+    {
+      title: "List Scout Route Aliases",
+      description: "List scoped route pointers without adding them to the configured-agent roster.",
+      inputSchema: z.object({
+        includeInactive: z.boolean().optional(),
+        targetAgentId: z.string().optional(),
+        targetSessionId: z.string().optional(),
+        ...aliasScopeSchema,
+      }),
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const currentDirectory = resolveToolCurrentDirectory(input.currentDirectory, options.defaultCurrentDirectory);
+      const params = new URLSearchParams({ currentDirectory });
+      if (input.projectRoot) params.set("projectRoot", input.projectRoot);
+      if (input.nodeId) params.set("nodeId", input.nodeId);
+      if (input.includeInactive) params.set("includeInactive", "true");
+      if (input.targetAgentId) params.set("targetAgentId", input.targetAgentId);
+      if (input.targetSessionId) params.set("targetSessionId", input.targetSessionId);
+      const result = await aliasBrokerRequest<{ bindings: RouteAliasBinding[] }>(`/v1/aliases?${params}`);
+      return { content: createTextContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "aliases_resolve",
+    {
+      title: "Resolve Scout Route Alias",
+      description: "Resolve one alias without waking or delivering, returning the pinned target/revision proof and separate availability state.",
+      inputSchema: z.object({ alias: z.string().min(1), bindingId: z.string().optional(), ...aliasScopeSchema }),
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const currentDirectory = resolveToolCurrentDirectory(input.currentDirectory, options.defaultCurrentDirectory);
+      const result = await aliasBrokerRequest<RouteAliasResolveResult>("/v1/aliases/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          alias: input.alias,
+          bindingId: input.bindingId,
+          scope: { projectRoot: input.projectRoot, nodeId: input.nodeId },
+          caller: await aliasToolCaller(input.senderId, currentDirectory),
+        }),
+      });
+      return { content: createTextContent(result), structuredContent: { ...result } };
+    },
+  );
+
+  const registerAliasMutationTool = (
+    name: "aliases_repoint" | "aliases_unset",
+    description: string,
+  ): void => {
+    server.registerTool(
+      name,
+      {
+        title: name === "aliases_repoint" ? "Repoint Scout Route Alias" : "Unset Scout Route Alias",
+        description,
+        inputSchema: z.object({
+          alias: z.string().min(1),
+          bindingId: z.string().optional(),
+          to: z.string().optional(),
+          expectedRevision: z.number().int().positive().optional(),
+          ...aliasScopeSchema,
+        }),
+        annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: name === "aliases_unset", openWorldHint: false },
+      },
+      async (input) => {
+        const currentDirectory = resolveToolCurrentDirectory(input.currentDirectory, options.defaultCurrentDirectory);
+        let bindingId = input.bindingId;
+        if (!bindingId) {
+          const resolved = await aliasBrokerRequest<RouteAliasResolveResult>("/v1/aliases/resolve", {
+            method: "POST",
+            body: JSON.stringify({
+              alias: input.alias,
+              scope: { projectRoot: input.projectRoot, nodeId: input.nodeId },
+              caller: await aliasToolCaller(input.senderId, currentDirectory),
+            }),
+          });
+          bindingId = resolved.binding?.id;
+        }
+        if (!bindingId) throw new Error(`unknown alias ${input.alias}`);
+        const target = input.to ? parseScoutComposerRouteTarget(input.to) : undefined;
+        if (name === "aliases_repoint" && !target) throw new Error("aliases_repoint requires to");
+        const result = await aliasBrokerRequest<{ binding: RouteAliasBinding }>(`/v1/aliases/${encodeURIComponent(bindingId)}`, {
+          method: name === "aliases_repoint" ? "PATCH" : "DELETE",
+          body: JSON.stringify({
+            target,
+            expectedRevision: input.expectedRevision,
+            scope: { projectRoot: input.projectRoot, nodeId: input.nodeId },
+            caller: await aliasToolCaller(input.senderId, currentDirectory),
+          }),
+        });
+        return { content: createTextContent(result), structuredContent: result };
+      },
+    );
+  };
+
+  registerAliasMutationTool("aliases_repoint", "Atomically move an existing alias binding to another canonical agent/session target and increment its revision.");
+  registerAliasMutationTool("aliases_unset", "Soft-revoke an alias for future dispatch while retaining authorized revision history.");
 
   server.registerTool(
     "whoami",
@@ -3793,6 +3964,8 @@ export function createScoutMcpServer(options: {
           .describe("Agent id, label, sibling, specialist, recent collaborator, target:<name>, or ⌖name."),
         targetSessionId: targetSessionIdInputSchema,
         projectPath: projectPathInputSchema,
+        aliasProject: z.string().optional().describe("Explicit project root for a to=alias:<name> target."),
+        aliasHost: z.string().optional().describe("Explicit authority node id/name for a to=alias:<name> target."),
         body: z.string().min(1),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
@@ -3848,6 +4021,8 @@ export function createScoutMcpServer(options: {
       to,
       targetSessionId,
       projectPath,
+      aliasProject,
+      aliasHost,
       body,
       currentDirectory,
       senderId,
@@ -3914,6 +4089,10 @@ export function createScoutMcpServer(options: {
             replyMode: resolvedReplyMode,
             currentDirectory: resolvedCurrentDirectory,
             source: "scout-mcp",
+            aliasScope: aliasProject || aliasHost ? {
+              ...(aliasProject ? { projectRoot: resolve(resolvedCurrentDirectory, aliasProject) } : {}),
+              ...(aliasHost ? { nodeId: aliasHost } : {}),
+            } : undefined,
           });
 
       if (resolvedReplyMode === "inline" && structuredContent.ids.flightId) {
@@ -4166,6 +4345,8 @@ export function createScoutMcpServer(options: {
         senderId: z.string().optional(),
         targetAgentId: targetAgentIdInputSchema,
         targetLabel: targetLabelInputSchema,
+        aliasProject: z.string().optional().describe("Explicit project root for targetLabel=alias:<name>."),
+        aliasHost: z.string().optional().describe("Explicit authority node id/name for targetLabel=alias:<name>."),
         channel: z.string().optional(),
         shouldSpeak: z.boolean().optional(),
         mentionAgentIds: mentionAgentIdsInputSchema,
@@ -4205,6 +4386,8 @@ export function createScoutMcpServer(options: {
       senderId,
       targetAgentId,
       targetLabel,
+      aliasProject,
+      aliasHost,
       channel,
       shouldSpeak,
       mentionAgentIds,
@@ -4344,11 +4527,14 @@ export function createScoutMcpServer(options: {
       }
 
       if (targetLabel?.trim()) {
-        const targetCheck = await diagnosePreciseTargetLabel({
-          deps,
-          targetLabel,
-          currentDirectory: resolvedCurrentDirectory,
-        });
+        const parsedRouteTarget = parseScoutComposerRouteTarget(targetLabel);
+        const targetCheck = parsedRouteTarget?.kind === "route_alias"
+          ? { blocked: false as const }
+          : await diagnosePreciseTargetLabel({
+              deps,
+              targetLabel,
+              currentDirectory: resolvedCurrentDirectory,
+            });
         if (targetCheck.blocked) {
           const structuredContent = {
             currentDirectory: resolvedCurrentDirectory,
@@ -4384,6 +4570,10 @@ export function createScoutMcpServer(options: {
           currentDirectory: resolvedCurrentDirectory,
           source: "scout-mcp",
           wake,
+          aliasScope: aliasProject || aliasHost ? {
+            ...(aliasProject ? { projectRoot: resolve(resolvedCurrentDirectory, aliasProject) } : {}),
+            ...(aliasHost ? { nodeId: aliasHost } : {}),
+          } : undefined,
         });
         const startSuggestion = result.unresolvedTargets.length > 0
           ? await buildStartSuggestionForTarget(

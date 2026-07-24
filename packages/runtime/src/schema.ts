@@ -54,6 +54,70 @@ CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_session
 CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_expires
   ON runtime_session_aliases (expires_at)
   WHERE expires_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS route_alias_bindings (
+  id TEXT PRIMARY KEY,
+  normalized_alias TEXT NOT NULL,
+  display_alias TEXT,
+  owner_realm_id TEXT NOT NULL,
+  scope_project_key TEXT NOT NULL,
+  scope_project_root TEXT,
+  scope_node_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL CHECK (target_kind IN ('agent', 'session')),
+  target_agent_id TEXT,
+  target_session_id TEXT,
+  target_endpoint_id TEXT,
+  target_node_id TEXT NOT NULL,
+  target_harness TEXT,
+  target_snapshot_json TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('active', 'unset', 'expired')),
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  created_by_actor_id TEXT NOT NULL,
+  updated_by_actor_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  revoked_at INTEGER,
+  metadata_json TEXT,
+  CONSTRAINT route_alias_bindings_target_shape_check CHECK (
+    (target_kind = 'agent' AND target_agent_id IS NOT NULL AND target_session_id IS NULL AND target_endpoint_id IS NULL AND target_harness IS NULL)
+    OR
+    (target_kind = 'session' AND target_agent_id IS NOT NULL AND target_session_id IS NOT NULL AND target_endpoint_id IS NOT NULL AND target_harness IS NOT NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS route_alias_revisions (
+  id TEXT PRIMARY KEY,
+  binding_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  operation TEXT NOT NULL,
+  old_target_json TEXT,
+  new_target_json TEXT,
+  old_target_snapshot_json TEXT,
+  new_target_snapshot_json TEXT,
+  actor_id TEXT NOT NULL,
+  authority_node_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  reason TEXT,
+  request_id TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_route_alias_bindings_active_scope
+  ON route_alias_bindings (owner_realm_id, scope_project_key, scope_node_id, normalized_alias)
+  WHERE state = 'active';
+CREATE INDEX IF NOT EXISTS idx_route_alias_bindings_target_agent
+  ON route_alias_bindings (target_agent_id);
+CREATE INDEX IF NOT EXISTS idx_route_alias_bindings_target_session
+  ON route_alias_bindings (target_session_id);
+CREATE INDEX IF NOT EXISTS idx_route_alias_bindings_scope_updated
+  ON route_alias_bindings (owner_realm_id, scope_project_key, scope_node_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_route_alias_bindings_expires
+  ON route_alias_bindings (expires_at)
+  WHERE expires_at IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_route_alias_revisions_binding_revision
+  ON route_alias_revisions (binding_id, revision);
+CREATE INDEX IF NOT EXISTS idx_route_alias_revisions_binding_created
+  ON route_alias_revisions (binding_id, created_at DESC);
 `;
 
 // Scout-owned registry of harness sessions and the disposable terminal surfaces

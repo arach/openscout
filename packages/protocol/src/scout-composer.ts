@@ -94,6 +94,12 @@ function parseTargetHandleTarget(rawValue: string): ScoutRouteTarget | null {
   return { kind: "target_handle", handle, value: `target:${handle}` };
 }
 
+function parseRouteAliasTarget(rawValue: string): ScoutRouteTarget | null {
+  const alias = rawValue.replace(/^@+/, "").trim().toLowerCase();
+  if (!isRouteValue(alias)) return null;
+  return { kind: "route_alias", alias, value: `alias:${alias}` };
+}
+
 function parseSessionRouteTarget(rawValue: string): ScoutRouteTarget | null {
   const value = rawValue.replace(/^@+/, "");
   if (!isRouteValue(value)) {
@@ -125,6 +131,9 @@ function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteT
 
   if (prefix === "agent" || prefix === "a") {
     return parseAgentLabelTarget(value);
+  }
+  if (prefix === "alias" || prefix === "route-alias" || prefix === "route_alias") {
+    return parseRouteAliasTarget(rawValue);
   }
   if (prefix === "target" || prefix === "target-handle" || prefix === "target_handle") {
     return parseTargetHandleTarget(rawValue);
