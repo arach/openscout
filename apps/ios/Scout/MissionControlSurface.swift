@@ -84,6 +84,10 @@ struct MissionControlSurface: View {
     }
 
     private var usesLocalBundledPage: Bool {
+        // Deck's native host picker and composer depend on the signed page's
+        // bridge messages. A host-served Lanes page cannot drive those native
+        // controls, so Deck always uses its bundled surface in every build.
+        if kind.isDeck { return true }
         #if DEBUG
         // Bundled pages are the normal iPad development path. Keep the old
         // host-served page available only as an explicit troubleshooting

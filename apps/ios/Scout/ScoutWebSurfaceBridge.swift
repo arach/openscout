@@ -273,7 +273,11 @@ final class ScoutWebSurfaceBridge {
         guard let requested, !requested.isEmpty, requested.count <= Self.maximumHostCount else {
             throw SurfaceBridgeError.invalidRoute
         }
-        let allowed = Set((model?.webSurfaceMachines() ?? []).map { hostId(for: $0.machineId) })
+        let allowed = Set(
+            (model?.webSurfaceMachines() ?? [])
+                .filter { selectedMachineIds?.contains($0.machineId) ?? true }
+                .map { hostId(for: $0.machineId) }
+        )
         guard requested.allSatisfy(allowed.contains) else { throw SurfaceBridgeError.invalidRoute }
         return Array(Set(requested)).sorted()
     }
@@ -398,6 +402,7 @@ final class ScoutWebSurfaceBridge {
               selection.hostId.utf8.count <= 128,
               selection.agentId.utf8.count <= 512,
               let machine = machineMap()[selection.hostId],
+              selectedMachineIds?.contains(machine.machineId) ?? true,
               let client = machine.client
         else {
             throw SurfaceBridgeError.invalidRoute
