@@ -57,6 +57,10 @@ struct StatusReadout: View, Identifiable {
 struct ScoutStatusBar: View {
     var leading: [StatusReadout] = []
     var trailing: [StatusReadout] = []
+    /// Overrides the layout's standard side inset. Crown mode uses this to
+    /// push the edge readouts clear of the corner labels that share the
+    /// indicator band when the crown is summoned.
+    var sideInset: CGFloat? = nil
     @Environment(\.scoutLayout) private var layout
 
     var body: some View {
@@ -65,7 +69,7 @@ struct ScoutStatusBar: View {
             Spacer(minLength: layout.statusCenterGap)
             run(trailing)
         }
-        .padding(.horizontal, layout.statusSideInset)
+        .padding(.horizontal, sideInset ?? layout.statusSideInset)
         .padding(.vertical, HudSpacing.xs)
         // Kept low so the taller nav above can sit lower without the footer
         // crowding it.
