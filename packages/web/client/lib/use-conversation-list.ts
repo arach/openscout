@@ -3,22 +3,22 @@ import { friendlyApiError } from "./api-errors.ts";
 import {
   getCachedConversations,
   getConversationListError,
+  getConversationListSnapshot,
   loadConversationList,
   subscribeConversationList,
 } from "./conversation-list-cache.ts";
 import { useBrokerEvents } from "./sse.ts";
-import type { SessionEntry } from "./types.ts";
-
-function snapshot(): SessionEntry[] {
-  return getCachedConversations() ?? [];
-}
 
 /**
  * Shared conversation list for ChatLeft + collapsed chip strip.
  * First subscriber loads; collapse/expand reuses the warm cache.
  */
 export function useConversationList() {
-  const sessions = useSyncExternalStore(subscribeConversationList, snapshot, snapshot);
+  const sessions = useSyncExternalStore(
+    subscribeConversationList,
+    getConversationListSnapshot,
+    getConversationListSnapshot,
+  );
   const [loading, setLoading] = useState(() => getCachedConversations() == null);
   const [loadError, setLoadError] = useState<string | null>(() => getConversationListError());
 
