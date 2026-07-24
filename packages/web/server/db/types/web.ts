@@ -62,6 +62,8 @@ export type WebAgent = {
   capabilities: string[];
   project: string | null;
   branch: string | null;
+  /** Canonical git remote identity (`host/org/repo`) for checkout grouping. */
+  repoKey?: string | null;
   role: string | null;
   model: string | null;
   harnessSessionId: string | null;

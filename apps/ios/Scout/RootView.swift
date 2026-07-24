@@ -45,6 +45,7 @@ struct RootView: View {
         case tail = "Tail"
         case comms = "Comms"
         case lanes = "Lanes"
+        case deck = "Deck"
         case dispatch = "Dispatch"
         case terminal = "Terminal"
         case new = "New"
@@ -62,6 +63,7 @@ struct RootView: View {
             case .tail: return .tail
             case .comms: return .comms
             case .lanes: return .lanes
+            case .deck: return .dispatch
             case .dispatch: return .dispatch
             case .terminal: return .terminal
             case .new: return .plus
@@ -147,6 +149,9 @@ struct RootView: View {
                             }
                             surfaceLayer(.lanes) {
                                 MissionControlSurface(model: model, kind: .lanes, isActive: surface == .lanes)
+                            }
+                            surfaceLayer(.deck) {
+                                MissionControlSurface(model: model, kind: .deck, isActive: surface == .deck)
                             }
                             surfaceLayer(.dispatch) {
                                 MissionControlSurface(model: model, kind: .dispatch, isActive: surface == .dispatch)
@@ -329,6 +334,7 @@ struct RootView: View {
         case .tail: .tail
         case .comms: .comms
         case .lanes: .lanes
+        case .deck: .dispatch
         case .dispatch: .dispatch
         case .terminal: .terminal
         case .new: .new
@@ -406,7 +412,7 @@ struct RootView: View {
     /// only at iPad width, where its dense web canvases are actually useful.
     private func visibleSurfaces(_ layout: ScoutLayoutMetrics) -> [Surface] {
         if layout.physicalWidth >= 700 { return Surface.allCases }
-        return Surface.allCases.filter { $0 != .lanes && $0 != .dispatch }
+        return Surface.allCases.filter { $0 != .lanes && $0 != .deck && $0 != .dispatch }
     }
 
     /// Leading run of the bottom status bar: how and where we're connected — the

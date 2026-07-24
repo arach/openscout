@@ -623,6 +623,47 @@ html[data-scout-double-rail] .scout-collapsed-rail[data-side="left"] {
   font-size: 10px;
 }
 
+/* Rich collapsed rail (chat avatar stack, etc.): leave room for the chevron.
+   Double-rail mode overrides padding-top so the area label lines up with the
+   primary icon rail content (see collapsed-strip.css). */
+.scout-collapsed-rail--rich {
+  align-items: stretch;
+  padding-top: 40px;
+  gap: 0;
+  overflow: hidden;
+  /* Keep-alive mounts collapse host even when expanded; skip enter animation
+     on first paint so collapse swap is a pure visibility toggle. */
+  animation: none;
+}
+
+html[data-scout-double-rail] .scout-collapsed-rail--rich,
+.scout-side-rail-collapsed-host[data-collapsed="true"] .scout-collapsed-rail {
+  /* Optional soft settle only when becoming visible — opacity only, no layout. */
+  animation: scout-rail-settle-soft 90ms var(--motion-ease-standard, ease) both;
+}
+
+@keyframes scout-rail-settle-soft {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
+}
+
+.scout-collapsed-rail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  scrollbar-width: none;
+}
+
+.scout-collapsed-rail-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 /* SCO-087: rail collapse/expand + resize commit layout in ONE write. The center
    pane (data-pane="center") and its insets carry no left/right transition, so a
    heavy page reflows at most once per toggle instead of every frame. The sidebar

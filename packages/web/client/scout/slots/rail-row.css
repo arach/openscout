@@ -372,3 +372,80 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Pin + hover actions (chat rail) */
+
+.rr-row {
+  position: relative;
+}
+
+.rr-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+}
+
+.rr-row-pin-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.rr-row-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 1px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: 0 4px 12px oklch(0.08 0.004 260 / 0.35);
+  z-index: 2;
+}
+
+.rr-row--has-actions:hover .rr-row-actions,
+.rr-row--has-actions:focus-within .rr-row-actions {
+  display: inline-flex;
+}
+
+.rr-row--has-actions:hover .rr-row-meta,
+.rr-row--has-actions:focus-within .rr-row-meta {
+  opacity: 0;
+}
+
+.rr-row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+  cursor: pointer;
+}
+
+.rr-row-action:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+}
+
+.rr-row-action--on {
+  color: var(--accent);
+}
+
+.rr-row-action--on:hover {
+  color: var(--accent);
+}

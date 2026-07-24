@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "96f5aff67a236efc",
+  "assetRevision": "6ff5cd7c346c0af1",
   "protocol": {
     "minimum": 1,
     "maximum": 1
   },
   "toolchain": {
-    "node": "22.22.2",
+    "node": "26.4.0",
     "bun": "1.3.11",
     "vite": "^7.0.0",
     "lockfileSha256": "5a5e18b893c8deb686266e200a55d78f112bde1885c47f5fb5d83ddfc09c0d34"
@@ -14,6 +14,28 @@
   "surfaces": {
     "lanes": {
       "entry": "lanes/index.html",
+      "capabilities": [
+        "bootstrap",
+        "native.openExternalURL",
+        "native.getPreferences",
+        "native.setPreferences",
+        "native.cancel",
+        "agents.list",
+        "agents.observe",
+        "tail.recent",
+        "tail.subscribe",
+        "native.setLaneSelection"
+      ],
+      "preferences": [
+        "lanes.layout",
+        "lanes.horizon",
+        "lanes.gridColumns",
+        "lanes.collapseTechnicalEvents"
+      ]
+    },
+    "deck": {
+      "entry": "deck/index.html",
+      "wireSurface": "lanes",
       "capabilities": [
         "bootstrap",
         "native.openExternalURL",
@@ -53,14 +75,29 @@
   },
   "files": [
     {
+      "path": "deck/app.css",
+      "sha256": "bfeda715b1b17e3c895c7756aa84eaaae7c7c42bdffddca724284213c5ff84e0",
+      "bytes": 250163
+    },
+    {
+      "path": "deck/app.js",
+      "sha256": "af73accd0cac4f06ff9691897b6c41fa941bdf90756577faf552867798ec478d",
+      "bytes": 554954
+    },
+    {
+      "path": "deck/index.html",
+      "sha256": "be4414eb3bb067b2819cca605d725e3aff5cf6280b7cb83941c3c95441fdd8a2",
+      "bytes": 607
+    },
+    {
       "path": "dispatch/app.css",
       "sha256": "aeea02b5ca0ff1d9eef0b936c6df45864b4eb494ac45fbbe764443b4f9942bd7",
       "bytes": 4333
     },
     {
       "path": "dispatch/app.js",
-      "sha256": "ff68fd4971f374a14bda4f9ececea7452505134bb07d1e7ac0c775009446b5ab",
-      "bytes": 197352
+      "sha256": "d90e29de4457bbc842be824090fb00014f1b6946103ed38333603b5bf11af4ea",
+      "bytes": 197391
     },
     {
       "path": "dispatch/index.html",
@@ -69,13 +106,13 @@
     },
     {
       "path": "lanes/app.css",
-      "sha256": "134e1d991cb6792b7f4ca074f5a146bce044314b5de72ad1c3b7bf60c2c4f598",
-      "bytes": 249730
+      "sha256": "b8aa9c0fdb6f07d137df7c8cbd047f536cd8a72c4c268c4471dfc2b890fcb167",
+      "bytes": 250163
     },
     {
       "path": "lanes/app.js",
-      "sha256": "e25fc4a33405ebfe5ee33400aaa21e5ea04ef7f521ccde07f7d864dfd68614b8",
-      "bytes": 554886
+      "sha256": "c22d1d0cc83afd6b43e531cd5c1355c5a2330b5ed50c578bb140a29cf3234c45",
+      "bytes": 554919
     },
     {
       "path": "lanes/index.html",

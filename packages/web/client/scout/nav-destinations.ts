@@ -536,13 +536,13 @@ const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
   { id: "nav:messages", label: "Go to Chat", destinationId: "chat", shortcut: "Cmd+3" },
   {
     id: "nav:messages-dms",
-    label: "Go to Chat — Private",
+    label: "Go to Chat — DMs",
     destinationId: "chat",
     route: { view: "messages", filter: "dm" },
   },
   {
     id: "nav:messages-channels",
-    label: "Go to Chat — Shared",
+    label: "Go to Chat — Channels",
     destinationId: "chat",
     route: { view: "messages", filter: "channel" },
   },
