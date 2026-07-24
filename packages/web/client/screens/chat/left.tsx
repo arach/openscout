@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import "../../scout/slots/ctx-panel.css";
-import { api } from "../../lib/api.ts";
-import { friendlyApiError, isOfflineApiError } from "../../lib/api-errors.ts";
+import { isOfflineApiError } from "../../lib/api-errors.ts";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
@@ -26,7 +25,6 @@ import {
   type ConversationGroup,
 } from "../../lib/conversation-groups.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
-import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import {
   isUnread,
@@ -34,6 +32,7 @@ import {
   saveLastViewed,
   type LastViewedMap,
 } from "../../lib/sessionRead.ts";
+import { useConversationList } from "../../lib/use-conversation-list.ts";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import {
@@ -63,9 +62,7 @@ const SORT_LABEL: Record<MessagesSort, string> = {
 
 export function ChatLeft() {
   const { route, navigate, agents, apiConnection } = useScout();
-  const [sessions, setSessions] = useState<SessionEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { sessions, loading, loadError, reload } = useConversationList();
   const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
   const [prefs, setPrefs] = useState<ConversationPrefs>(() => loadConversationPrefs());
   const [query, setQuery] = useState("");
@@ -73,7 +70,6 @@ export function ChatLeft() {
   const [showAllObserved, setShowAllObserved] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const asksByAgent = useFleetActiveAsks();
-  const loadedRef = useRef(false);
   const machineId = routeMachineId(route);
   const scopedAgentIds = useMemo(
     () => machineScopedAgentIds(agents, machineId),
@@ -103,28 +99,6 @@ export function ChatLeft() {
     route.view === "agent-info" ? route.conversationId :
     route.view === "agents-v2" ? route.conversationId :
     undefined;
-
-  const load = useCallback(async () => {
-    if (!loadedRef.current) setLoading(true);
-    try {
-      const data = await api<SessionEntry[]>("/api/conversations");
-      setSessions(data);
-      setLoadError(null);
-    } catch (cause) {
-      setLoadError(friendlyApiError(cause));
-    } finally {
-      loadedRef.current = true;
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  useBrokerEvents((event) => {
-    if (event.kind === "message.posted" || event.kind === "conversation.upserted") {
-      void load();
-    }
-  });
 
   // Reset observed expansion when filter/query changes so the section stays tight.
   useEffect(() => {
@@ -402,8 +376,7 @@ export function ChatLeft() {
             apiOffline={apiOffline}
             filter={activeRouteFilter}
             onRetry={() => {
-              setLoading(true);
-              void load();
+              void reload(true);
             }}
           />
         ) : (

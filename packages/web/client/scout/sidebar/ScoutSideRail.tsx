@@ -101,15 +101,14 @@ export function ScoutSideRail({
 
   return (
     <>
-      {/* Expanded panel stays mounted while collapsed so list state / fetches
-          survive minimize → expand (no full rail reload). Shell insets still
-          use the 48px CollapsedRail width when isCollapsed. */}
+      {/* Both expanded + collapsed hosts stay mounted. Collapse/expand is a CSS
+          visibility swap so neither side cold-mounts or re-fetches. Shell
+          insets still use the 48px CollapsedRail width when isCollapsed. */}
       <div
         className="scout-side-rail-expanded-host"
         data-collapsed={isCollapsed ? "true" : "false"}
         hidden={isCollapsed}
         aria-hidden={isCollapsed}
-        // `hidden` removes from a11y tree + hit-testing; keep in React tree.
         style={isCollapsed ? { display: "none" } : undefined}
       >
         <SidePanel
@@ -118,7 +117,6 @@ export function ScoutSideRail({
           isCollapsed={false}
           width={width}
           style={{
-            // Sit beside the nav icon/expanded rail (SidePanel defaults to left: 0).
             left: navRailWidth,
             ...style,
           }}
@@ -144,7 +142,13 @@ export function ScoutSideRail({
         />
       </div>
 
-      {isCollapsed ? (
+      <div
+        className="scout-side-rail-collapsed-host"
+        data-collapsed={isCollapsed ? "true" : "false"}
+        hidden={!isCollapsed}
+        aria-hidden={!isCollapsed}
+        style={!isCollapsed ? { display: "none" } : undefined}
+      >
         <CollapsedRail
           side="left"
           title={title}
@@ -154,7 +158,7 @@ export function ScoutSideRail({
           style={style}
           body={<SideRailCollapsedBody route={route} />}
         />
-      ) : null}
+      </div>
     </>
   );
 }

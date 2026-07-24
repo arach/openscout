@@ -4,9 +4,10 @@
  * With hundreds of conversations we never list everything — we show a short
  * sample of each rail band (matching the expanded IA):
  *   PIN · # channels · DMs · OBS
+ *
+ * Uses the shared conversation list cache so collapse does not re-fetch.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "../../lib/api.ts";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   conversationDisplayTitle,
   isChannelConversation,
@@ -31,7 +32,7 @@ import {
   saveLastViewed,
   type LastViewedMap,
 } from "../../lib/sessionRead.ts";
-import { useBrokerEvents } from "../../lib/sse.ts";
+import { useConversationList } from "../../lib/use-conversation-list.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { Route, SessionEntry } from "../../lib/types.ts";
 import { actorColor } from "../../lib/colors.ts";
@@ -59,7 +60,7 @@ function recencySort(list: SessionEntry[], lastViewed: LastViewedMap): SessionEn
 
 export function ChatCollapsedStrip() {
   const { route, navigate, agents } = useScout();
-  const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const { sessions } = useConversationList();
   const [prefs, setPrefs] = useState<ConversationPrefs>(() => loadConversationPrefs());
   const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
   const machineId = routeMachineId(route);
@@ -73,25 +74,6 @@ export function ChatCollapsedStrip() {
     route.view === "conversation" ? route.conversationId :
     route.view === "channels" ? route.channelId :
     undefined;
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api<SessionEntry[]>("/api/conversations");
-      setSessions(data);
-    } catch {
-      // best-effort
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useBrokerEvents((event) => {
-    if (event.kind === "message.posted" || event.kind === "conversation.upserted") {
-      void load();
-    }
-  });
 
   useEffect(() => {
     setPrefs(loadConversationPrefs());

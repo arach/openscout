@@ -631,6 +631,20 @@ html[data-scout-double-rail] .scout-collapsed-rail[data-side="left"] {
   padding-top: 40px;
   gap: 0;
   overflow: hidden;
+  /* Keep-alive mounts collapse host even when expanded; skip enter animation
+     on first paint so collapse swap is a pure visibility toggle. */
+  animation: none;
+}
+
+html[data-scout-double-rail] .scout-collapsed-rail--rich,
+.scout-side-rail-collapsed-host[data-collapsed="true"] .scout-collapsed-rail {
+  /* Optional soft settle only when becoming visible — opacity only, no layout. */
+  animation: scout-rail-settle-soft 90ms var(--motion-ease-standard, ease) both;
+}
+
+@keyframes scout-rail-settle-soft {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
 }
 
 .scout-collapsed-rail-body {
