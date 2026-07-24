@@ -35,6 +35,10 @@ import {
   isStaleLocalEndpoint,
   localEndpointPreferenceRank,
 } from "./broker-endpoint-selection.js";
+import {
+  executionForBrokerRuntimeProfile,
+  resolveBrokerRuntimeProfile,
+} from "./broker-runtime-profiles.js";
 
 export type RuntimeSnapshot = ReturnType<ReturnType<typeof createInMemoryControlRuntime>["snapshot"]>;
 
@@ -59,7 +63,7 @@ export interface ResolvedSessionTarget {
 export type BrokerLabelResolution =
   | { kind: "resolved"; agent: AgentDefinition }
   | { kind: "resolved_session"; session: ResolvedSessionTarget }
-  | { kind: "ambiguous"; label: string; candidates: AgentDefinition[] }
+  | { kind: "ambiguous"; label: string; candidates: AgentDefinition[]; detail?: string }
   | { kind: "unparseable"; label: string }
   | { kind: "unknown"; label: string; detail?: string; candidates?: AgentDefinition[]; diagnosticCode?: RouteAliasDiagnosticCode };
 
@@ -97,6 +101,10 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.agentId
     : target.kind === "agent_label"
     ? target.label
+    : target.kind === "existing_handle"
+    ? target.handle
+    : target.kind === "runtime_profile"
+    ? target.value ?? `profile:${target.profile}`
     : target.kind === "route_alias"
     ? target.value ?? `alias:${target.alias}`
     : target.kind === "target_handle"
@@ -329,8 +337,11 @@ function unknownModelQualifiedResolution(
 function resolveSessionHandleLabel(
   snapshot: RuntimeSnapshot,
   identity: AgentIdentity,
-  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
-): BrokerLabelResolution | null {
+  options: {
+    helpers: Pick<DispatcherHelpers, "isStale">;
+    rejectAmbiguous?: boolean;
+  },
+): Extract<BrokerLabelResolution, { kind: "resolved_session" | "ambiguous" }> | null {
   if (
     identity.workspaceQualifier
     || identity.nodeQualifier
@@ -366,6 +377,18 @@ function resolveSessionHandleLabel(
     return null;
   }
 
+  if (matches.length > 1 && options.rejectAmbiguous) {
+    const sessionIds = matches
+      .map(({ actor }) => `session:${actor.id}`)
+      .sort((left, right) => left.localeCompare(right));
+    return {
+      kind: "ambiguous",
+      label: identity.label,
+      candidates: [],
+      detail: `${identity.label} matches multiple live sessions: ${sessionIds.join(", ")}; use one exact session:<id> target`,
+    };
+  }
+
   const { actor, endpoint } = [...matches].sort((left, right) => (
     endpointAvailabilityScore(right.endpoint) - endpointAvailabilityScore(left.endpoint)
     || endpointLifecycleAt(right.endpoint) - endpointLifecycleAt(left.endpoint)
@@ -379,6 +402,89 @@ function resolveSessionHandleLabel(
       actorId: actor.id,
       endpoint,
       label: actor.displayName || sessionTargetLabel(endpoint, sessionId),
+      nodeId: endpoint.nodeId,
+    },
+  };
+}
+
+function resolveExistingHandle(
+  snapshot: RuntimeSnapshot,
+  handle: string,
+  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution {
+  const normalized = normalizeAgentSelectorSegment(handle.replace(/^@+/, ""));
+  const label = normalized ? `@${normalized}` : handle;
+  if (!normalized) {
+    return { kind: "unparseable", label };
+  }
+
+  // Existing-handle routing is deliberately narrower than agent-label routing.
+  // Only explicit handles/selectors are eligible: definition IDs, agent IDs,
+  // project heuristics, and local-node preferences must not influence a match.
+  const agentMatches = buildAgentLabelCandidates(snapshot, options.helpers)
+    .filter((candidate) => candidate.aliases?.some(
+      (alias) => normalizeAgentSelectorSegment(alias.replace(/^@+/, "")) === normalized,
+    ))
+    .sort((left, right) => left.agent.id.localeCompare(right.agent.id));
+
+  const sessionMatches = Object.values(snapshot.actors)
+    .filter((actor) => actor.kind === "session")
+    .filter((actor) => {
+      const endpoint = homeEndpointForAgent(snapshot, actor.id);
+      const aliases = [
+        actor.handle,
+        metadataStringValue(actor.metadata, "handle"),
+        metadataStringValue(endpoint?.metadata, "handle"),
+      ].filter((value): value is string => Boolean(value));
+      return aliases.some(
+        (alias) => normalizeAgentSelectorSegment(alias.replace(/^@+/, "")) === normalized,
+      );
+    })
+    .map((actor) => {
+      const endpoint = Object.values(snapshot.endpoints)
+        .filter((candidate) => candidate.agentId === actor.id)
+        .filter((candidate) => !isStaleLocalEndpoint(snapshot, candidate))
+        .sort((left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right))[0];
+      return endpoint ? { actor, endpoint } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    .sort((left, right) => left.actor.id.localeCompare(right.actor.id));
+
+  const matchCount = agentMatches.length + sessionMatches.length;
+  if (matchCount === 0) {
+    return {
+      kind: "unknown",
+      label,
+      detail: `no live agent handle, selector, or session handle exactly matches ${label}`,
+    };
+  }
+
+  if (matchCount > 1) {
+    const targets = [
+      ...agentMatches.map((candidate) => `agent:${candidate.agent.id}`),
+      ...sessionMatches.map(({ actor }) => `session:${actor.id}`),
+    ].sort((left, right) => left.localeCompare(right));
+    return {
+      kind: "ambiguous",
+      label,
+      candidates: agentMatches.map((candidate) => candidate.agent),
+      detail: `${label} matches multiple live targets: ${targets.join(", ")}; use a unique exact agent handle/selector or session:<id>`,
+    };
+  }
+
+  const agentMatch = agentMatches[0];
+  if (agentMatch) {
+    return { kind: "resolved", agent: agentMatch.agent };
+  }
+
+  const { actor, endpoint } = sessionMatches[0]!;
+  return {
+    kind: "resolved_session",
+    session: {
+      sessionId: actor.id,
+      actorId: actor.id,
+      endpoint,
+      label: actor.displayName || sessionTargetLabel(endpoint, actor.id),
       nodeId: endpoint.nodeId,
     },
   };
@@ -664,6 +770,11 @@ export function resolveBrokerRouteTarget(
       helpers: options.helpers,
     });
   }
+  if (routeTarget?.kind === "existing_handle") {
+    return resolveExistingHandle(snapshot, routeTarget.handle, {
+      helpers: options.helpers,
+    });
+  }
   if (!routeTarget && input.targetLabel) {
     const parsedTargetLabel = parseScoutComposerRouteTarget(input.targetLabel);
     if (parsedTargetLabel?.kind === "target_handle") {
@@ -683,8 +794,33 @@ export function resolveBrokerRouteTarget(
     }
   }
 
+  if (
+    routeTarget?.kind === "runtime_profile"
+    && !resolveBrokerRuntimeProfile(routeTarget.profile)
+  ) {
+    return {
+      kind: "unknown",
+      label: `profile:${routeTarget.profile}`,
+      detail: `unknown runtime profile "${routeTarget.profile}"`,
+    };
+  }
+  if (
+    routeTarget?.kind === "runtime_profile"
+    && !executionForBrokerRuntimeProfile({
+      profileId: routeTarget.profile,
+      reasoningEffort: routeTarget.reasoningEffort,
+    })
+  ) {
+    return {
+      kind: "unparseable",
+      label: `profile:${routeTarget.profile}`,
+    };
+  }
+
   const projectPath = routeTarget?.kind === "project_path"
     ? normalizedRouteTargetValue(routeTarget)
+    : routeTarget?.kind === "runtime_profile"
+    ? routeTarget.projectPath.trim()
     : "";
   if (projectPath) {
     return resolveProjectPathTarget(snapshot, projectPath, {
@@ -832,7 +968,7 @@ export function buildDispatchEnvelope(
   return {
     kind,
     askedLabel: resolution.label,
-    detail: `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
+    detail: resolution.detail ?? `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
     candidates: resolution.candidates.map((agent, index) =>
       summarizeDispatchCandidate(
         agent,

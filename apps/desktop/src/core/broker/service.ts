@@ -226,6 +226,7 @@ export type ScoutTargetDiagnostic =
   | {
       state: "ambiguous";
       candidates: ScoutAskAmbiguousCandidate[];
+      detail?: string;
     }
   | {
       state: "invalid" | "missing";
@@ -1065,6 +1066,7 @@ function scoutTargetDiagnosticFromDeliveryFailure(
   if (dispatch.kind === "ambiguous") {
     return {
       state: "ambiguous",
+      detail: dispatch.detail,
       candidates: dispatch.candidates.map((candidate) => ({
         agentId: candidate.agentId,
         label: candidate.label,
@@ -3892,6 +3894,10 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "existing_handle":
+      return target.value?.trim() || `@${target.handle.trim().replace(/^@+/, "")}`;
+    case "runtime_profile":
+      return target.value?.trim() || `profile:${target.profile.trim()}`;
     case "route_alias":
       return target.value?.trim() || `alias:${target.alias.trim()}`;
     case "target_handle":

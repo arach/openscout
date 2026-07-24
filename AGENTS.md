@@ -52,6 +52,9 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - Use `replyMode: "notify"` for longer-running agent work that should return quickly and report back later.
 - Capability requests start with project + harness/capability, not a guessed generic agent name: `scout ask --project /path/to/repo --harness claude "..."`.
 - Continuity requests use the returned handle (`ref`, `flightId`, `conversationId`, `workId`, or `session:<id>`), not a fresh short-name guess.
+- In natural-language CLI asks, bare reserved profile names (`Fable`, `Kimi`, `Grok`, `Opus`) mean a fresh current-project launch through the broker runtime profile. They never mean `ask --to`.
+- Natural-language existing-target asks use `agent <name> to <request>`; Scout slugifies `<name>` and requires one exact live agent/session handle match. Zero or multiple matches fail closed.
+- Explicit `scout ask --to ...` remains existing-target routing. Use `scout ask --profile <name> ...` for an explicit fresh profile launch.
 - Named long-lived siblings are deliberate promotions after routing is known good; prefer broker-suggested handles over inventing names like `claude.main`.
 
 ## Must-Read Docs

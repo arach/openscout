@@ -49,6 +49,8 @@ transcripts.
 | project/capability-routed ask | project known, concrete agent/session unknown | `scout ask --project --harness`, `ask({ projectPath, harness })` |
 | situated target follow-up | saved project/profile/harness situation | `scout ask --to target:<name>`, compact `⌖name` in agent/UI text |
 | exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `scout ask --to session:<harness>:<native-id>`, `ask({ targetSessionId })` |
+| reserved runtime profile | fresh current-project session with broker-owned harness/model defaults | `scout ask Fable to review this`, `scout ask --profile fable "review this"` |
+| exact natural existing handle | one already-known live agent/session; no locality/fuzzy tiebreak | `scout ask agent Composer Review to fix this` → exact `@composer-review` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 | operator FYI | agent-authored, no reply or lifecycle expected | `notify_operator` |
@@ -139,6 +141,10 @@ handoff.
 - body text is payload, not routing metadata
 - preserve `conversationId`, `messageId`, `replyToMessageId`, `flightId`
 - ambiguous target -> fail closed or ask one concise clarification
+- bare `Fable`, `Kimi`, `Grok`, and `Opus` in leading natural-target position -> structured `runtime_profile`, never `ask --to`
+- profile effort is supported for Fable/Opus; Kimi/Grok effort fails closed until their ACP transports expose it
+- `agent <name> to <request>` -> slugify `<name>` and emit structured `existing_handle`; zero/multiple exact matches fail closed
+- direct `ask --to` always remains existing-target routing; explicit fresh profiles use `ask --profile`
 - follow-up stays in same conversation/thread/question/work item
 - render `ScoutDispatchRecord` for ambiguous/unknown/unparseable/unavailable
   targets
@@ -147,6 +153,7 @@ handoff.
 - native bare agent names precede bare route aliases; `alias:<name>` is the
   explicit route-alias form and `target:<name>` consults aliases before legacy
   session-handle fallback
+- unknown `existing_handle` and `runtime_profile` routes never fall through to route aliases
 - repeat alias text to follow its current pointer; use returned durable handles
   to stay pinned to the originally accepted context after a repoint
 

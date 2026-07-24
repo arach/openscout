@@ -16,6 +16,7 @@ type ScoutAskCommandBase = {
   senderId: string;
   body: string;
   harness?: AgentHarness;
+  reasoningEffort?: string;
   workspace?: ScoutAskWorkspace;
   session?: ScoutAskSession;
   senderContext?: ScoutAskSenderContext;
@@ -39,9 +40,11 @@ type ScoutAskCommandBase = {
 };
 
 type ScoutAskTargetInput =
-  | { to: string; projectPath?: never }
-  | { to?: never; projectPath: string }
-  | { to?: undefined; projectPath?: undefined };
+  | { to: string; projectPath?: never; runtimeProfile?: never; existingHandle?: never }
+  | { to?: never; projectPath: string; runtimeProfile?: never; existingHandle?: never }
+  | { to?: never; projectPath?: never; runtimeProfile: string; existingHandle?: never }
+  | { to?: never; projectPath?: never; runtimeProfile?: never; existingHandle: string }
+  | { to?: undefined; projectPath?: undefined; runtimeProfile?: undefined; existingHandle?: undefined };
 
 export type ScoutAskCommand = ScoutAskCommandBase & ScoutAskTargetInput;
 

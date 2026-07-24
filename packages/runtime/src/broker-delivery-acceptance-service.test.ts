@@ -96,6 +96,7 @@ function createHarness(input: {
   snapshot?: RuntimeSnapshot;
   isOperatorTarget?: (payload: ScoutDeliverRequest) => boolean;
   isScoutTarget?: (payload: ScoutDeliverRequest) => boolean;
+  cardlessEndpointHarness?: AgentEndpoint["harness"];
   now?: number;
 } = {}) {
   const agent = testAgent();
@@ -181,6 +182,7 @@ function createHarness(input: {
         id: "endpoint-cardless",
         agentId: "cardless-agent",
         sessionId: "session-cardless",
+        harness: input.cardlessEndpointHarness ?? "codex",
       });
       return {
         kind: "resolved_session",
@@ -497,6 +499,103 @@ describe("BrokerDeliveryAcceptanceService", () => {
       execution: { session: "new", harness: "codex" },
       task: "start from this project context",
     }));
+  });
+
+  test("runtime-profile consult starts a cardless current-project session with broker-owned execution", async () => {
+    const harness = createHarness({
+      now: 20_750,
+      cardlessEndpointHarness: "claude",
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-profile-opus",
+      body: "review the parser",
+      intent: "consult",
+      target: {
+        kind: "runtime_profile",
+        profile: "opus",
+        projectPath: "/tmp/openscout",
+        reasoningEffort: "high",
+      },
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(harness.cardlessProjectSessionCalls).toEqual([{
+      projectPath: "/tmp/openscout",
+      execution: {
+        harness: "claude",
+        model: "opus",
+        reasoningEffort: "high",
+        session: "new",
+      },
+      projectAgent: undefined,
+      requesterId: "operator",
+      createdAt: 20_750,
+    }]);
+    expect(harness.acceptedInvocations[0]?.execution).toEqual({
+      harness: "claude",
+      model: "opus",
+      reasoningEffort: "high",
+      session: "existing",
+      targetSessionId: "session-cardless",
+    });
+  });
+
+  test("invalid runtime profiles fail closed before cardless session creation", async () => {
+    const harness = createHarness({
+      now: 20_875,
+      resolution: {
+        kind: "unknown",
+        label: "profile:composer-review",
+        detail: 'unknown runtime profile "composer-review"',
+      },
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-profile-unknown",
+      body: "review the parser",
+      intent: "consult",
+      target: {
+        kind: "runtime_profile",
+        profile: "composer-review",
+        projectPath: "/tmp/openscout",
+      },
+      caller: { actorId: "operator", nodeId: "node-1" },
+    });
+
+    expect(result.kind).toBe("rejected");
+    expect(harness.cardlessProjectSessionCalls).toEqual([]);
+    expect(harness.acceptedInvocations).toEqual([]);
+  });
+
+  test("runtime profiles with unsupported effort fail closed before cardless session creation", async () => {
+    for (const profile of ["kimi", "grok"]) {
+      const harness = createHarness({
+        now: 20_900,
+        resolution: {
+          kind: "unparseable",
+          label: `profile:${profile}`,
+        },
+      });
+
+      const result = await harness.service.accept({
+        id: `deliver-profile-${profile}-effort`,
+        body: "review the parser",
+        intent: "consult",
+        target: {
+          kind: "runtime_profile",
+          profile,
+          projectPath: "/tmp/openscout",
+          reasoningEffort: "high",
+        },
+        caller: { actorId: "operator", nodeId: "node-1" },
+      });
+
+      expect(result.kind).toBe("rejected");
+      expect(harness.cardlessProjectSessionCalls).toEqual([]);
+      expect(harness.acceptedInvocations).toEqual([]);
+    }
   });
 
   test("preserves requested fork execution when accepting a consult", async () => {

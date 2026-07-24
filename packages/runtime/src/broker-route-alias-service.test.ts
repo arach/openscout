@@ -128,6 +128,60 @@ describe("BrokerRouteAliasService", () => {
       .toThrow(/collides with native agent/i);
     expect(() => service.set({ alias: "review", target: { kind: "route_alias", alias: "other" }, scope: { projectRoot: PROJECT_A } }))
       .toThrow(/cannot target another alias/i);
+    expect(() => service.set({
+      alias: "profile-review",
+      target: { kind: "runtime_profile", profile: "opus", projectPath: PROJECT_A },
+      scope: { projectRoot: PROJECT_A },
+    })).toThrow(/runtime_profile is not bindable/i);
+  });
+
+  test("allows exact existing handles but never falls through from them to route aliases", async () => {
+    const { service, snapshot } = setup();
+    const binding = service.set({
+      alias: "composer-review",
+      target: { kind: "existing_handle", handle: "alpha" },
+      scope: { projectRoot: PROJECT_A },
+    });
+    expect(binding.target).toEqual({ kind: "agent", agentId: "agent-alpha", nodeId: NODE });
+
+    const router = new BrokerDeliveryRouter({
+      runtimeSnapshot: () => snapshot,
+      nodeId: NODE,
+      isInactiveLocalAgent: () => false,
+      routeAliasService: service,
+    });
+    const result = await router.resolveWithImplicitProjectAgent({
+      target: { kind: "existing_handle", handle: "composer-review", value: "@composer-review" },
+      targetLabel: "@composer-review",
+    }, {
+      requesterId: "operator",
+      currentDirectory: PROJECT_A,
+      reason: "test exact existing handle",
+    });
+
+    expect(result).toEqual({
+      kind: "unknown",
+      label: "@composer-review",
+      detail: "no live agent handle, selector, or session handle exactly matches @composer-review",
+    });
+
+    const profileResult = await router.resolveWithImplicitProjectAgent({
+      target: {
+        kind: "runtime_profile",
+        profile: "composer-review",
+        projectPath: PROJECT_A,
+      },
+      targetLabel: "composer-review",
+    }, {
+      requesterId: "operator",
+      currentDirectory: PROJECT_A,
+      reason: "test invalid runtime profile",
+    });
+    expect(profileResult).toEqual({
+      kind: "unknown",
+      label: "profile:composer-review",
+      detail: 'unknown runtime profile "composer-review"',
+    });
   });
 
   test("repoints atomically with CAS and preserves the dispatch proof revision", () => {

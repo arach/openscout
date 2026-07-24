@@ -1,6 +1,14 @@
 import { resolve } from "node:path";
 
-import { epochMs, parseScoutComposerRoute, parseScoutComposerRouteTarget } from "@openscout/protocol";
+import {
+  epochMs,
+  normalizeAgentSelectorSegment,
+  normalizeReservedRuntimeProfileId,
+  normalizeRuntimeProfileReasoningEffort,
+  parseScoutComposerRoute,
+  parseScoutComposerRouteTarget,
+  SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
+} from "@openscout/protocol";
 
 import { ScoutCliError } from "./errors.ts";
 
@@ -32,6 +40,9 @@ export type ScoutSetupCommandOptions = {
 export type ScoutAskCommandOptions = ContextRootOptions & {
   agentName: string | null;
   targetLabel?: string;
+  existingTargetHandle?: string;
+  runtimeProfile?: string;
+  reasoningEffort?: string;
   targetRef?: string;
   projectPath?: string;
   channel?: string;
@@ -219,6 +230,123 @@ function shouldInferCurrentProjectAskTarget(input: {
     && Boolean(input.harness || input.session);
 }
 
+type NaturalLanguageAskTarget =
+  | {
+      kind: "existing_handle";
+      handle: string;
+      message: string;
+    }
+  | {
+      kind: "runtime_profile";
+      profile: string;
+      reasoningEffort?: string;
+      message: string;
+    };
+
+function parseNaturalLanguageAskTarget(
+  input: string,
+  options: { allowMissingMessage?: boolean } = {},
+): NaturalLanguageAskTarget | null {
+  const trimmed = input.trim();
+  if (/^agent\b/i.test(trimmed)) {
+    const match = trimmed.match(/^agent\s+(.+?)\s+to(?:\s+(.+))?$/i);
+    if (!match) {
+      throw new ScoutCliError(
+        'existing-target asks use "agent <name> to <request>"',
+      );
+    }
+    const handle = normalizeAgentSelectorSegment(match[1] ?? "");
+    const message = (match[2] ?? "").trim();
+    if (!handle || (!message && !options.allowMissingMessage)) {
+      throw new ScoutCliError(
+        'existing-target asks use "agent <name> to <request>"',
+      );
+    }
+    return { kind: "existing_handle", handle, message };
+  }
+
+  const firstToken = trimmed.match(/^([A-Za-z][A-Za-z0-9_-]*)(.*)$/s);
+  const profile = firstToken
+    ? normalizeReservedRuntimeProfileId(firstToken[1] ?? "")
+    : null;
+  if (!profile) {
+    return null;
+  }
+
+  let remainder = (firstToken?.[2] ?? "").replace(/^[\s,;:-]+/, "");
+  let reasoningEffort: string | undefined;
+  const withEffort = remainder.match(/^with\s+(\S+)\s+effort\b[\s,;:-]*/i);
+  if (withEffort) {
+    const normalized = normalizeRuntimeProfileReasoningEffort(withEffort[1] ?? "");
+    if (!normalized) {
+      throw new ScoutCliError(`invalid runtime profile effort: ${withEffort[1]}`);
+    }
+    reasoningEffort = normalized;
+    remainder = remainder.slice(withEffort[0].length);
+  } else {
+    const effortToken = remainder.match(/^(\S+)(?:\s+|$)/);
+    const normalized = effortToken
+      ? normalizeRuntimeProfileReasoningEffort(effortToken[1] ?? "")
+      : null;
+    if (normalized && effortToken) {
+      reasoningEffort = normalized;
+      remainder = remainder.slice(effortToken[0].length);
+    }
+  }
+
+  const message = remainder.replace(/^to\b[\s,;:-]*/i, "").trim();
+  if (!message && !options.allowMissingMessage) {
+    throw new ScoutCliError(`runtime profile ${profile} requires a request`);
+  }
+  return {
+    kind: "runtime_profile",
+    profile,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    message,
+  };
+}
+
+function parseRuntimeProfileFlag(value: string): string {
+  const profile = normalizeReservedRuntimeProfileId(value);
+  if (!profile) {
+    throw new ScoutCliError(
+      `unknown runtime profile: ${value}; expected ${SCOUT_RESERVED_RUNTIME_PROFILE_IDS.join(", ")}`,
+    );
+  }
+  return profile;
+}
+
+function parseRuntimeProfileEffortFlag(value: string): string {
+  const effort = normalizeRuntimeProfileReasoningEffort(value);
+  if (!effort) {
+    throw new ScoutCliError(`invalid runtime profile effort: ${value}`);
+  }
+  return effort;
+}
+
+function mergeRuntimeProfileReasoningEffort(
+  flagEffort: string | undefined,
+  naturalEffort: string | undefined,
+): string | undefined {
+  if (flagEffort && naturalEffort && flagEffort !== naturalEffort) {
+    throw new ScoutCliError(
+      `conflicting runtime profile efforts: --effort ${flagEffort} and natural-language effort ${naturalEffort}`,
+    );
+  }
+  return naturalEffort ?? flagEffort;
+}
+
+function rejectUnsupportedRuntimeProfileEffort(
+  profile: string,
+  reasoningEffort: string | undefined,
+): void {
+  if (reasoningEffort && (profile === "grok" || profile === "kimi")) {
+    throw new ScoutCliError(
+      `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+    );
+  }
+}
+
 function parseContextRootPrefix(
   args: string[],
   defaultCurrentDirectory: string,
@@ -313,6 +441,9 @@ function parseComposerRoutedBody(
       targetLabel: target.label,
       message: parsed.body,
     };
+  }
+  if (target.kind === "existing_handle" || target.kind === "runtime_profile") {
+    throw new ScoutCliError(`${target.kind} is an internal ask route and cannot be used with >>`);
   }
   if (target.kind === "route_alias") {
     return {
@@ -587,6 +718,9 @@ export function parseAskCommandOptions(
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
   let targetLabel: string | null = null;
+  let existingTargetHandle: string | undefined;
+  let runtimeProfile: string | undefined;
+  let reasoningEffort: string | undefined;
   let targetRef: string | undefined;
   let projectPath: string | undefined;
   let channel: string | undefined;
@@ -611,6 +745,19 @@ export function parseAskCommandOptions(
     if (current === "--to" || current.startsWith("--to=")) {
       const value = parseFlagValue(parsed.args, index, "--to");
       targetLabel = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--profile" || current.startsWith("--profile=")) {
+      const value = parseFlagValue(parsed.args, index, "--profile");
+      runtimeProfile = parseRuntimeProfileFlag(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    const effortFlag = flagNameFor(current, ["--effort", "--reasoning-effort"]);
+    if (effortFlag) {
+      const value = parseFlagValue(parsed.args, index, effortFlag);
+      reasoningEffort = parseRuntimeProfileEffortFlag(value.value);
       index = value.nextIndex;
       continue;
     }
@@ -712,7 +859,7 @@ export function parseAskCommandOptions(
   }
 
   let message = messageParts.join(" ").trim();
-  if (!targetLabel) {
+  if (!targetLabel && !runtimeProfile) {
     const routed = parseComposerRoutedBody(message, "ask", parsed.currentDirectory);
     if (routed) {
       targetLabel = routed.targetLabel ?? null;
@@ -722,17 +869,47 @@ export function parseAskCommandOptions(
       message = routed.message;
     }
   }
+  if (!targetLabel && !projectPath && !runtimeProfile && message) {
+    const natural = parseNaturalLanguageAskTarget(message, {
+      allowMissingMessage: Boolean(promptFile),
+    });
+    if (natural?.kind === "existing_handle") {
+      existingTargetHandle = natural.handle;
+      message = natural.message;
+    } else if (natural?.kind === "runtime_profile") {
+      runtimeProfile = natural.profile;
+      reasoningEffort = mergeRuntimeProfileReasoningEffort(
+        reasoningEffort,
+        natural.reasoningEffort,
+      );
+      message = natural.message;
+    }
+  }
   if (shouldInferCurrentProjectAskTarget({ targetLabel, projectPath, harness, session })) {
     projectPath = parsed.currentDirectory;
     if (harness && !session) {
       session = "new";
     }
   }
-  if (targetLabel && projectPath) {
+  const targetCount = [targetLabel, projectPath, runtimeProfile, existingTargetHandle]
+    .filter(Boolean).length;
+  if (targetLabel && projectPath && !runtimeProfile && !existingTargetHandle) {
     throw new ScoutCliError("provide either --to/--ref or --project, not both");
   }
-  if (!targetLabel && !projectPath) {
-    throw new ScoutCliError("--to <name> or --project <path> is required");
+  if (targetCount > 1) {
+    throw new ScoutCliError("provide exactly one existing target, project, or runtime profile");
+  }
+  if (targetCount === 0) {
+    throw new ScoutCliError("--to <name>, --project <path>, --profile <name>, or natural target is required");
+  }
+  if (reasoningEffort && !runtimeProfile) {
+    throw new ScoutCliError("--effort/--reasoning-effort requires --profile or a reserved profile name");
+  }
+  if (runtimeProfile) {
+    rejectUnsupportedRuntimeProfileEffort(runtimeProfile, reasoningEffort);
+  }
+  if (runtimeProfile && (harness || session)) {
+    throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
   }
   if (message && promptFile) {
     rejectMixedBodySources("question");
@@ -749,6 +926,9 @@ export function parseAskCommandOptions(
     args: parsed.args,
     agentName,
     ...(targetLabel ? { targetLabel } : {}),
+    ...(existingTargetHandle ? { existingTargetHandle } : {}),
+    ...(runtimeProfile ? { runtimeProfile } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     targetRef,
     projectPath,
     channel,
@@ -770,6 +950,8 @@ export function parseImplicitAskCommandOptions(
 ): ScoutImplicitAskCommandOptions {
   const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
   let agentName: string | null = null;
+  let runtimeProfile: string | undefined;
+  let reasoningEffort: string | undefined;
   let channel: string | undefined;
   let harness: string | undefined;
   let session: ScoutAskCommandOptions["session"];
@@ -784,6 +966,19 @@ export function parseImplicitAskCommandOptions(
     if (current === "--as" || current.startsWith("--as=")) {
       const value = parseFlagValue(parsed.args, index, "--as");
       agentName = value.value;
+      index = value.nextIndex;
+      continue;
+    }
+    if (current === "--profile" || current.startsWith("--profile=")) {
+      const value = parseFlagValue(parsed.args, index, "--profile");
+      runtimeProfile = parseRuntimeProfileFlag(value.value);
+      index = value.nextIndex;
+      continue;
+    }
+    const effortFlag = flagNameFor(current, ["--effort", "--reasoning-effort"]);
+    if (effortFlag) {
+      const value = parseFlagValue(parsed.args, index, effortFlag);
+      reasoningEffort = parseRuntimeProfileEffortFlag(value.value);
       index = value.nextIndex;
       continue;
     }
@@ -864,7 +1059,9 @@ export function parseImplicitAskCommandOptions(
     throw new ScoutCliError("no question provided");
   }
 
-  const routed = parseComposerRoutedBody(input, "ask", parsed.currentDirectory);
+  const routed = runtimeProfile
+    ? null
+    : parseComposerRoutedBody(input, "ask", parsed.currentDirectory);
   if (routed) {
     const message = routed.message;
     if (message && promptFile) {
@@ -890,6 +1087,72 @@ export function parseImplicitAskCommandOptions(
       message,
       promptFile,
     };
+  }
+
+  const natural = !runtimeProfile && input
+    ? parseNaturalLanguageAskTarget(input, {
+        allowMissingMessage: Boolean(promptFile),
+      })
+    : null;
+  if (natural || runtimeProfile) {
+    const selectedProfile = natural?.kind === "runtime_profile"
+      ? natural.profile
+      : runtimeProfile;
+    if (natural?.kind === "existing_handle") {
+      if (runtimeProfile || reasoningEffort || harness || session) {
+        throw new ScoutCliError("existing agent targets cannot be combined with runtime profile options");
+      }
+      if (natural.message && promptFile) {
+        rejectMixedBodySources("question");
+      }
+      return {
+        currentDirectory: parsed.currentDirectory,
+        args: parsed.args,
+        agentName,
+        existingTargetHandle: natural.handle,
+        channel,
+        timeoutSeconds,
+        replyMode,
+        ...(labels.length ? { labels } : {}),
+        message: natural.message,
+        promptFile,
+      };
+    }
+    if (!selectedProfile) {
+      throw new ScoutCliError("runtime profile target is required");
+    }
+    const selectedReasoningEffort = mergeRuntimeProfileReasoningEffort(
+      reasoningEffort,
+      natural?.kind === "runtime_profile" ? natural.reasoningEffort : undefined,
+    );
+    rejectUnsupportedRuntimeProfileEffort(selectedProfile, selectedReasoningEffort);
+    if (harness || session) {
+      throw new ScoutCliError("runtime profiles own harness and fresh-session defaults; do not combine them with --harness/--session/--new");
+    }
+    const message = natural?.kind === "runtime_profile" ? natural.message : input;
+    if (message && promptFile) {
+      rejectMixedBodySources("question");
+    }
+    if (!message && !promptFile) {
+      throw new ScoutCliError("no question provided");
+    }
+    return {
+      currentDirectory: parsed.currentDirectory,
+      args: parsed.args,
+      agentName,
+      runtimeProfile: selectedProfile,
+      reasoningEffort: selectedReasoningEffort,
+      channel,
+      timeoutSeconds,
+      replyMode,
+      ...(labels.length ? { labels } : {}),
+      message,
+      promptFile,
+    };
+  }
+
+  if (reasoningEffort) {
+    throw new ScoutCliError("--effort/--reasoning-effort requires --profile or a reserved profile name");
   }
 
   const mentions = extractMentionTargets(input);

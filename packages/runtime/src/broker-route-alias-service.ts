@@ -428,6 +428,17 @@ export class BrokerRouteAliasService {
     if (target.kind === "route_alias") {
       throw new BrokerRouteAliasError("invalid_alias", "a route alias cannot target another alias");
     }
+    if (
+      target.kind !== "agent_id"
+      && target.kind !== "agent_label"
+      && target.kind !== "existing_handle"
+      && target.kind !== "session_id"
+    ) {
+      throw new BrokerRouteAliasError(
+        "invalid_alias",
+        `a route alias must target one existing agent or exact session; ${target.kind} is not bindable`,
+      );
+    }
     if (target.kind === "session_id") {
       const matches = Object.values(this.options.runtimeSnapshot().endpoints)
         .filter((endpoint) => endpointMatchesTargetSession(endpoint, target.sessionId))

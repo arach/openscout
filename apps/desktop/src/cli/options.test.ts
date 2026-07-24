@@ -114,6 +114,114 @@ describe("parseSendCommandOptions", () => {
 });
 
 describe("parseAskCommandOptions", () => {
+  test("keeps direct --to routing as an existing target even for a reserved profile name", () => {
+    const options = parseAskCommandOptions(
+      ["--to", "Fable", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("Fable");
+    expect(options.runtimeProfile).toBeUndefined();
+    expect(options.message).toBe("review this");
+  });
+
+  test("parses reserved bare profile names as fresh current-project routes", () => {
+    const fable = parseAskCommandOptions(
+      ["Fable", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const opus = parseAskCommandOptions(
+      ["Opus", "with", "HIGH", "effort", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(fable.runtimeProfile).toBe("fable");
+    expect(fable.projectPath).toBeUndefined();
+    expect(fable.session).toBeUndefined();
+    expect(fable.message).toBe("review this");
+    expect(opus.runtimeProfile).toBe("opus");
+    expect(opus.reasoningEffort).toBe("high");
+    expect(opus.message).toBe("fix the tests");
+  });
+
+  test("preserves explicit effort flags on bare runtime profiles", () => {
+    const effort = parseAskCommandOptions(
+      ["--effort", "high", "Opus", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const reasoningEffort = parseAskCommandOptions(
+      ["--reasoning-effort=xhigh", "Fable", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(effort.runtimeProfile).toBe("opus");
+    expect(effort.reasoningEffort).toBe("high");
+    expect(reasoningEffort.runtimeProfile).toBe("fable");
+    expect(reasoningEffort.reasoningEffort).toBe("xhigh");
+  });
+
+  test("rejects conflicting flag and natural-language efforts", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--effort", "high", "Opus", "with", "xhigh", "effort", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("conflicting runtime profile efforts");
+  });
+
+  test("parses explicit profile routes without overloading --to", () => {
+    const options = parseAskCommandOptions(
+      ["--profile", "Opus", "--effort", "medium", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.runtimeProfile).toBe("opus");
+    expect(options.reasoningEffort).toBe("medium");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("review this");
+  });
+
+  test("rejects effort for ACP runtime profiles", () => {
+    expect(() =>
+      parseAskCommandOptions(
+        ["--profile", "Kimi", "--effort", "medium", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("kimi runtime profile does not support reasoning effort through its ACP transport");
+    expect(() =>
+      parseAskCommandOptions(
+        ["Grok", "with", "high", "effort", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("grok runtime profile does not support reasoning effort through its ACP transport");
+  });
+
+  test("normalizes the agent prefix to an exact existing handle", () => {
+    const options = parseAskCommandOptions(
+      ["agent", "Composer", "Review!", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(options.existingTargetHandle).toBe("composer-review");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("fix the tests");
+  });
+
+  test("allows prompt files to supply natural profile and existing-handle bodies", () => {
+    const profile = parseAskCommandOptions(
+      ["Fable", "--prompt-file=review.md"],
+      "/tmp/workspace",
+    );
+    const agent = parseAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "--prompt-file=fix.md"],
+      "/tmp/workspace",
+    );
+
+    expect(profile.runtimeProfile).toBe("fable");
+    expect(profile.message).toBe("");
+    expect(profile.promptFile).toBe("/tmp/workspace/review.md");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("");
+    expect(agent.promptFile).toBe("/tmp/workspace/fix.md");
+  });
+
   test("accepts a prompt file as the primary body source", () => {
     const options = parseAskCommandOptions(
       ["--to", "hudson", "--prompt-file=handoff.md"],
@@ -245,6 +353,64 @@ describe("parseAskCommandOptions", () => {
 });
 
 describe("parseImplicitAskCommandOptions", () => {
+  test("recognizes reserved profiles and exact agent-prefix targets", () => {
+    const opus = parseImplicitAskCommandOptions(
+      ["Opus", "xhigh", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const agent = parseImplicitAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(opus.runtimeProfile).toBe("opus");
+    expect(opus.reasoningEffort).toBe("xhigh");
+    expect(opus.message).toBe("review this");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("fix the tests");
+  });
+
+  test("allows prompt files to supply implicit natural target bodies", () => {
+    const profile = parseImplicitAskCommandOptions(
+      ["Opus", "--prompt-file=review.md"],
+      "/tmp/workspace",
+    );
+    const agent = parseImplicitAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "--prompt-file=fix.md"],
+      "/tmp/workspace",
+    );
+
+    expect(profile.runtimeProfile).toBe("opus");
+    expect(profile.message).toBe("");
+    expect(profile.promptFile).toBe("/tmp/workspace/review.md");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("");
+    expect(agent.promptFile).toBe("/tmp/workspace/fix.md");
+  });
+
+  test("preserves flag effort for implicit bare profiles and rejects conflicts", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["--effort", "high", "Opus", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.runtimeProfile).toBe("opus");
+    expect(options.reasoningEffort).toBe("high");
+    expect(() =>
+      parseImplicitAskCommandOptions(
+        ["--reasoning-effort=medium", "Fable", "xhigh", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("conflicting runtime profile efforts");
+  });
+
+  test("rejects effort for implicit ACP runtime profiles", () => {
+    expect(() =>
+      parseImplicitAskCommandOptions(
+        ["--effort", "high", "Grok", "to", "review", "this"],
+        "/tmp/workspace",
+      )).toThrow("grok runtime profile does not support reasoning effort through its ACP transport");
+  });
+
   test("extracts a target agent from natural language input", () => {
     const options = parseImplicitAskCommandOptions(
       ["hey", "@dewey", "can", "you", "review", "our", "docs?"],

@@ -102,13 +102,19 @@ function nextCallForAskFailure(input: {
         reason: "Choose one concrete project agent, then retry the ask.",
       };
     }
+    const candidates = input.result.targetDiagnostic.candidates
+      .map((candidate) => candidate.label || candidate.agentId)
+      .filter(Boolean);
     return {
       tool: "agents_resolve",
       arguments: {
         label: input.target.display,
         currentDirectory: input.currentDirectory,
       },
-      reason: "Choose one concrete target, then retry the ask.",
+      reason: input.result.targetDiagnostic.detail
+        ?? (candidates.length > 0
+          ? `${input.target.display} matches multiple agents: ${candidates.join(", ")}. Retry with one fully qualified handle.`
+          : "Choose one concrete target, then retry the ask."),
     };
   }
 
@@ -187,6 +193,10 @@ function renderedAskTarget(target: ScoutRouteTarget): string {
       return target.agentId;
     case "agent_label":
       return target.label;
+    case "existing_handle":
+      return target.value ?? `@${target.handle.replace(/^@+/, "")}`;
+    case "runtime_profile":
+      return target.value ?? `profile:${target.profile}`;
     case "route_alias":
       return target.value ?? `alias:${target.alias}`;
     case "target_handle":
@@ -254,17 +264,39 @@ function isProjectRouteTarget(to: string): boolean {
   return parsed?.kind === "project_path";
 }
 
-function askResolvedTargetFor(input: {
+export function buildScoutAskRoute(input: {
   to: string;
   projectPath?: string;
+  runtimeProfile?: string;
+  existingHandle?: string;
+  currentDirectory: string;
+  reasoningEffort?: string;
   aliasScope?: import("@openscout/protocol").RouteAliasScope;
-}): ScoutAskResolvedTarget | null {
+}): ScoutRouteTarget | null {
+  if (input.runtimeProfile) {
+    const target = {
+      kind: "runtime_profile" as const,
+      profile: input.runtimeProfile,
+      projectPath: resolve(input.currentDirectory),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+    };
+    return target;
+  }
+  if (input.existingHandle) {
+    const handle = input.existingHandle.replace(/^@+/, "");
+    const target = {
+      kind: "existing_handle" as const,
+      handle,
+      value: `@${handle}`,
+    };
+    return target;
+  }
   if (input.projectPath) {
     const target = {
       kind: "project_path" as const,
       projectPath: input.projectPath,
     };
-    return { target, display: renderedAskTarget(target) };
+    return target;
   }
   if (!input.to) {
     return null;
@@ -273,7 +305,7 @@ function askResolvedTargetFor(input: {
   const target = parsedTarget?.kind === "route_alias" && input.aliasScope
     ? { ...parsedTarget, scope: input.aliasScope }
     : parsedTarget;
-  return target ? { target, display: renderedAskTarget(target) } : null;
+  return target;
 }
 
 export const scoutAskHandler: ScoutAskHandler = async (command) => {
@@ -283,8 +315,14 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     currentDirectory,
   );
   const requestedTo = command.to?.trim() || "";
+  const requestedRuntimeProfile = command.runtimeProfile?.trim() || "";
+  const requestedExistingHandle = command.existingHandle?.trim() || "";
   const inferredProjectPath =
-    !requestedTo && !commandProjectPath && shouldInferCurrentProjectAskTarget(command)
+    !requestedTo
+    && !requestedRuntimeProfile
+    && !requestedExistingHandle
+    && !commandProjectPath
+    && shouldInferCurrentProjectAskTarget(command)
       ? currentDirectory
       : undefined;
   const targetProjectPath = commandProjectPath ?? inferredProjectPath;
@@ -293,15 +331,23 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
     && !requestedTo
     && (inferredProjectPath || command.session === "new")
       ? { persistence: "one_time" as const }
+      : requestedRuntimeProfile
+      ? { persistence: "one_time" as const }
       : undefined;
-  if (requestedTo && commandProjectPath) {
+  const explicitTargetCount = [
+    requestedTo,
+    commandProjectPath,
+    requestedRuntimeProfile,
+    requestedExistingHandle,
+  ].filter(Boolean).length;
+  if (explicitTargetCount > 1) {
     return {
       ok: false,
       state: "failed",
       ids: {},
       error: {
         code: "invalid_request",
-        message: "provide either to or projectPath, not both",
+        message: "provide exactly one of to, projectPath, runtimeProfile, or existingHandle",
       },
     };
   }
@@ -316,12 +362,16 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
       },
     };
   }
-  const resolvedTarget = askResolvedTargetFor({
+  const target = buildScoutAskRoute({
     to: requestedTo,
     projectPath: targetProjectPath,
+    runtimeProfile: requestedRuntimeProfile,
+    existingHandle: requestedExistingHandle,
+    currentDirectory,
+    reasoningEffort: command.reasoningEffort,
     aliasScope: command.aliasScope,
   });
-  if (!resolvedTarget) {
+  if (!target) {
     return {
       ok: false,
       state: "failed",
@@ -333,6 +383,10 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
       },
     };
   }
+  const resolvedTarget = {
+    target,
+    display: renderedAskTarget(target),
+  };
 
   const senderContext = command.senderContext
     ?? await buildScoutAskSenderContext({
