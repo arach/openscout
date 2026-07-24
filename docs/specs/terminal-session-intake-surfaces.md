@@ -342,17 +342,12 @@ Still needed:
    record for "known harness session plus surfaces." The web UI needs something
    to list. This record should not import terminal scrollback as Scout messages.
 
-3. Vantage planning:
-
-   Vantage nodes currently assume `runtimeKind: "tmux"` in places. That should
-   become more like `runtimeKind: "terminal"` with `terminalSurface.backend`.
-
-4. Inspector/UI copy:
+3. Inspector/UI copy:
 
    Replace tmux-first language with session/surface language. Keep tmux/Zellij
    visible as backend badges, not the core object name.
 
-5. Zellij pane hygiene:
+4. Zellij pane hygiene:
 
    For v1, tolerate the extra shell pane. Later, use a layout file or a
    Zellij-specific startup recipe to create only the Claude pane and standard

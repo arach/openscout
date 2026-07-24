@@ -37,7 +37,6 @@ export type ScoutCommandName =
   | "tail"
   | "tui"
   | "up"
-  | "vantage"
   | "wait"
   | "watch"
   | "who"
@@ -113,8 +112,6 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./tui.ts")).runTuiCommand;
     case "up":
       return (await import("./up.ts")).runUpCommand;
-    case "vantage":
-      return (await import("./vantage.ts")).runVantageCommand;
     case "wait":
       return (await import("./wait.ts")).runWaitCommand;
     case "watch":

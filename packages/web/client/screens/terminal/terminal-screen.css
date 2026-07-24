@@ -145,7 +145,7 @@
   color: rgba(255, 255, 255, 0.42);
 }
 
-.s-term-vantage {
+.s-term-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -166,34 +166,34 @@
   flex: none;
 }
 
-.s-term-vantage:hover:not(:disabled) {
+.s-term-action:hover:not(:disabled) {
   background: rgba(94, 234, 212, 0.14);
   color: rgba(240, 255, 252, 0.95);
 }
 
-.s-term-vantage:disabled {
+.s-term-action:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
 
-.s-term-vantage--warn {
+.s-term-action--warn {
   border-color: rgba(251, 191, 36, 0.24);
   background: rgba(251, 191, 36, 0.08);
   color: rgba(255, 237, 180, 0.86);
 }
 
-.s-term-vantage--warn:hover:not(:disabled) {
+.s-term-action--warn:hover:not(:disabled) {
   background: rgba(251, 191, 36, 0.14);
   color: rgba(255, 247, 214, 0.96);
 }
 
-.s-term-vantage--danger {
+.s-term-action--danger {
   border-color: rgba(248, 113, 113, 0.28);
   background: rgba(248, 113, 113, 0.08);
   color: rgba(255, 220, 220, 0.88);
 }
 
-.s-term-vantage--danger:hover:not(:disabled) {
+.s-term-action--danger:hover:not(:disabled) {
   background: rgba(248, 113, 113, 0.15);
   color: rgba(255, 240, 240, 0.98);
 }
@@ -207,25 +207,6 @@
 .s-term-session-menu:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.9);
-}
-
-.s-term-handoff {
-  flex: 0 1 min(280px, 24vw);
-  max-width: min(280px, 24vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-sm);
-}
-
-.s-term-handoff--ok {
-  color: rgba(94, 234, 212, 0.62);
-}
-
-.s-term-handoff--error {
-  color: rgba(248, 113, 113, 0.78);
 }
 
 .s-term-registered-chip {
@@ -341,7 +322,7 @@
     display: none;
   }
 
-  .s-term-vantage {
+  .s-term-action {
     height: 28px;
     padding: 0 var(--space-md);
   }
@@ -1609,7 +1590,7 @@
   max-width: none;
 }
 
-.s-term--embedded .s-term-vantage {
+.s-term--embedded .s-term-action {
   width: 30px;
   height: 30px;
   padding: 0;
@@ -1620,10 +1601,9 @@
   display: none;
 }
 
-.s-term--embedded .s-term-vantage span,
+.s-term--embedded .s-term-action span,
 .s-term--embedded .s-term-session-menu span,
-.s-term--embedded .s-term-status,
-.s-term--embedded .s-term-handoff {
+.s-term--embedded .s-term-status {
   display: none;
 }
 

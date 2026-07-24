@@ -46,7 +46,6 @@ export * from "./session-display-projection.js";
 export * from "./issue-runner.js";
 export * from "./issue-runner-service.js";
 export * from "./session-attention.js";
-export * from "./vantage-plan.js";
 export * from "./conversations/index.js";
 export * from "./knowledge/index.js";
 export * from "./repo-watch/index.js";

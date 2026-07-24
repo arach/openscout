@@ -39,7 +39,6 @@ Scope: TypeScript under `packages/` and `apps/`, excluding `node_modules`, `dist
 | apps/macos/bin/scout-app.ts | 11 | BOOT-OK (build CLI) |
 | apps/desktop/src/cli/commands/session.ts | 10 | BOOT-OK (CLI one-shot) |
 | packages/web/server/terminal-relay-session.ts | 7 | mixed PROBE/IMPERATIVE |
-| packages/web/server/vantage-handoff.ts | 5 | mixed |
 | packages/web/server/core/pairing/runtime/bridge/server.ts | 5 | PROBE (RPC request path) |
 | packages/web/server/core/pairing/runtime/bridge/router.ts | 5 | PROBE (RPC request path) |
 | packages/runtime/src/setup.ts | 5 | BOOT-OK |
@@ -110,12 +109,6 @@ blast radius.
 ### packages/web/server/session-compaction.ts
 
 - `:22` `execFileSync tmux has-session -t <name>`. **PROBE(tmux.sessions)**
-
-### packages/web/server/vantage-handoff.ts
-
-- `:151` `tmux ls -F '#{session_name}\t#{session_created}'`. **PROBE(tmux.sessions)**
-- `:185` `tmux has-session -t <name>`. **PROBE(tmux.sessions)**
-- `:421` `pgrep -f '[T]erminiCanvas'`. **PROBE(ps.runtime)** (proposed `ps.pgrep`)
 
 ### packages/web/server/work-materials.ts
 

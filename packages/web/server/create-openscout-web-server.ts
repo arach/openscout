@@ -167,7 +167,6 @@ import {
   type KnowledgeFacets,
   type KnowledgeSourceRef,
 } from "@openscout/runtime/knowledge";
-import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
   projectSessionsAttention,
   sessionApprovalAttentionId,
@@ -192,7 +191,6 @@ import {
   type WebTailRuntime,
 } from "./routes/scoutbot.ts";
 import { mountScoutVoiceRoutes } from "./routes/voice.ts";
-import { stableHash } from "./util/stable-hash.ts";
 import {
   snapshotRecentBroadcasts,
   subscribeBroadcast,
@@ -244,11 +242,6 @@ import {
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
-import {
-  createOpenScoutVantageHandoff,
-  type OpenScoutVantageHandoff,
-  type OpenScoutVantageHandoffInput,
-} from "./vantage-handoff.ts";
 import {
   createSignedScoutServicesRestartUrl,
   parseScoutServicesRestartTarget,
@@ -347,35 +340,6 @@ function installHttpsEdgeSecurityHeaders(app: Hono, publicOrigin: string | undef
   });
 }
 
-function resolveVantageNativeSessions(
-  transcripts: readonly DiscoveredTranscript[],
-  selectedIds: readonly string[],
-): ScoutVantageNativeSession[] {
-  const selected = new Set(selectedIds);
-  return transcripts
-    .map((transcript) => toVantageNativeSession(transcript))
-    .filter((session) => selected.has(session.id));
-}
-
-function toVantageNativeSession(transcript: DiscoveredTranscript): ScoutVantageNativeSession {
-  return {
-    id: nativeSessionId(transcript),
-    source: transcript.source,
-    sessionId: transcript.sessionId,
-    transcriptPath: transcript.transcriptPath,
-    project: transcript.project,
-    harness: transcript.harness,
-    cwd: transcript.cwd,
-    mtimeMs: transcript.mtimeMs,
-    tmuxSessionName: `scout-vantage-${slugifyTmuxName(transcript.source)}-${stableHash(transcript.transcriptPath)}`,
-  };
-}
-
-function nativeSessionId(transcript: DiscoveredTranscript): string {
-  const sessionId = transcript.sessionId?.trim() || "session";
-  return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
-}
-
 function normalizeTranscriptCwd(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? resolve(expandHomePath(trimmed)) : null;
@@ -396,15 +360,6 @@ function mostRecentTranscriptForHarnessCwd(
       && Boolean(transcript.sessionId?.trim())
     )
     .sort((a, b) => b.mtimeMs - a.mtimeMs)[0] ?? null;
-}
-
-function slugifyTmuxName(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32);
-  return slug || "native";
 }
 
 export type { ScoutWebAssetMode } from "./server-core.ts";
@@ -455,7 +410,6 @@ export type CreateOpenScoutWebServerOptions = {
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
   destroyTerminalRelaySession?: (sessionId: string) => Promise<boolean>;
   destroyTerminalRelaySurface?: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
-  createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
   captureTmuxPane?: (request: TmuxPanePeekRequest) => Promise<TmuxPanePeekCapture | null> | TmuxPanePeekCapture | null;
@@ -6747,10 +6701,6 @@ export async function createOpenScoutWebServer(
         ?? agent?.harnessSessionId
         ?? "";
     }
-    if (!tmuxSessionName && harness && transcriptPath) {
-      tmuxSessionName = `scout-vantage-${slugifyTmuxName(harness)}-${stableHash(transcriptPath)}`;
-    }
-
     const result = await requestHarnessSessionCompaction({
       harness,
       sessionId,
@@ -6759,34 +6709,6 @@ export async function createOpenScoutWebServer(
       agentId,
     });
     return c.json(result, result.ok ? 200 : 422);
-  });
-
-  app.post(routes.vantageOpenPath, async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
-      agentId?: unknown;
-      agentIds?: unknown;
-      nativeSessionIds?: unknown;
-      launch?: unknown;
-    };
-    const agentIds = parseStringArray(body.agentIds);
-    const nativeSessionIds = parseStringArray(body.nativeSessionIds);
-    try {
-      const nativeSessions = nativeSessionIds.length > 0
-        ? resolveVantageNativeSessions((await tailRuntime.getTailDiscovery()).transcripts, nativeSessionIds)
-        : [];
-      const handoff = await (options.createVantageHandoff ?? createOpenScoutVantageHandoff)({
-        currentDirectory,
-        agentId: typeof body.agentId === "string" ? body.agentId.trim() || null : null,
-        agentIds,
-        nativeSessionIds,
-        nativeSessions,
-        launch: body.launch !== false,
-      });
-      return c.json(handoff);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "failed to create Vantage handoff";
-      return c.json({ error: message }, 500);
-    }
   });
 
   app.post("/api/agents/:agentId/interrupt", async (c) => {

@@ -1404,51 +1404,6 @@
   white-space: nowrap;
 }
 
-.ctx-panel-vantage-button {
-  min-height: 28px;
-  padding: 0 var(--space-md);
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: 750;
-  letter-spacing: var(--tracking-md);
-  line-height: var(--leading-none);
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.ctx-panel-vantage-button:hover {
-  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
-  color: var(--ink);
-}
-
-.ctx-panel-vantage-button:disabled {
-  cursor: progress;
-  opacity: 0.68;
-}
-
-.ctx-panel-vantage-status {
-  grid-column: 1 / -1;
-  display: block;
-  margin-top: var(--space-xs);
-  color: var(--dim);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  line-height: var(--leading-snug);
-}
-
-.ctx-panel-vantage-status--ok {
-  color: var(--green);
-}
-
-.ctx-panel-vantage-status--error {
-  color: var(--red);
-}
-
 .ctx-panel-session-meta {
   display: grid;
   gap: var(--space-xs);
