@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { readManagedInstalls } from "./managed-installs.js";
 import { resolveClaudeStatuslineDelegatePath } from "./claude-statusline.js";
 import {
+  buildRelayAgentInstance,
+  clearGitBranchCache,
   initializeOpenScoutSetup,
   installClaudeStatuslineTool,
   installScoutSkillToHarnesses,
@@ -58,6 +60,30 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("reads repository and worktree branches without requiring git probes", () => {
+    const home = join(tmpdir(), `openscout-branch-read-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const repoRoot = join(home, "repo");
+    const worktreeRoot = join(home, "worktree");
+    const worktreeGitDirectory = join(home, "repo-git", "worktrees", "worktree");
+    testDirectories.add(home);
+    mkdirSync(join(repoRoot, ".git"), { recursive: true });
+    mkdirSync(worktreeRoot, { recursive: true });
+    mkdirSync(worktreeGitDirectory, { recursive: true });
+    writeFileSync(join(repoRoot, ".git", "HEAD"), "ref: refs/heads/feature/direct-head\n", "utf8");
+    writeFileSync(join(worktreeRoot, ".git"), `gitdir: ${worktreeGitDirectory}\n`, "utf8");
+    writeFileSync(join(worktreeGitDirectory, "HEAD"), "ref: refs/heads/codex/worktree-head\n", "utf8");
+    clearGitBranchCache();
+
+    expect(buildRelayAgentInstance("repo-agent", repoRoot)).toMatchObject({
+      branch: "feature/direct-head",
+      workspaceQualifier: "feature-direct-head",
+    });
+    expect(buildRelayAgentInstance("worktree-agent", worktreeRoot)).toMatchObject({
+      branch: "codex/worktree-head",
+      workspaceQualifier: "codex-worktree-head",
+    });
+  });
+
   test("reads settings without running the clean-slate migration", async () => {
     const home = join(tmpdir(), `openscout-settings-read-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const supportDirectory = join(home, "Library", "Application Support", "OpenScout");

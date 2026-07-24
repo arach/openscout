@@ -574,7 +574,7 @@ final class ScoutCommsStore: ObservableObject {
     private func fetchAgents() async {
         defer { agentsTask = nil }
         do {
-            let next = try await ScoutCommsClient().fetchAgents()
+            let next = try await ScoutCommsClient().fetchAgents(summary: true)
             setIfChanged(next, to: \.agents)
             setIfChanged(nil, to: \.lastError)
         } catch {

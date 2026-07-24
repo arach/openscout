@@ -4,6 +4,31 @@
 - For iOS device build and deploy flows, do not guess the "latest build" by scanning DerivedData.
 - If a script needs to reuse a prior iOS build, use an explicit, stable `xcodebuild -derivedDataPath` owned by the repo workflow so the output path is deterministic.
 
+## Canonical local suite lifecycle
+
+Use one command to build and restart the complete local Scout suite:
+
+```bash
+bun run scout:up
+```
+
+It builds the packages and macOS app, restarts the `app.openscout` launchd
+service, starts the broker-managed web app, launches Scout with its embedded
+menu helper, attempts the iOS device build/install, and then verifies web
+readiness and process ownership. Use `--no-ios` when no development device is
+available, or `--require-ios` when an iOS failure must fail the command.
+
+```bash
+bun run scout:verify       # read-only readiness and ownership audit
+bun run scout:up --fresh   # also discard generated build outputs first
+```
+
+The expected service tree is `launchd -> scoutd -> base/probes -> broker/edge
+-> web`. The GUI processes are launched by LaunchServices; the only accepted
+menu helper is the one embedded inside the current `Scout.app`. Do not start a
+standalone `ScoutMenu.app` alongside this suite. `restart:all` is retained only
+as a compatibility alias for `scout:up`.
+
 ## OpenScout Push Relay Handoff
 
 OpenScout Push Relay is implemented in `apps/mesh-front-door` under the

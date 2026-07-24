@@ -25,7 +25,7 @@ const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 // Existing control-plane datasets can take well over 15 seconds to open before
 // the broker binds its health socket. Keep service start/restart bounded, but
 // allow the same readiness window used by the full restart orchestrator.
-const START_TIMEOUT: Duration = Duration::from_secs(60);
+const START_TIMEOUT: Duration = Duration::from_secs(120);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 // Graceful window scoutd gives each child (base, probe) before SIGKILL. Set above
 // base's worst-case subtree shutdown (~14s: broker 8s + kill wait + caddy) so base
@@ -235,9 +235,9 @@ impl Config {
         let label = env_nonempty("OPENSCOUT_SERVICE_LABEL")
             .or_else(|| env_nonempty("OPENSCOUT_BROKER_SERVICE_LABEL"))
             .unwrap_or_else(|| match service_mode.as_str() {
-                "prod" => "com.openscout".to_string(),
-                "custom" => "com.openscout.custom".to_string(),
-                _ => "dev.openscout".to_string(),
+                "prod" => "app.openscout".to_string(),
+                "custom" => "app.openscout.custom".to_string(),
+                _ => "app.openscout".to_string(),
             });
         let default_support_directory = home.join("Library/Application Support/OpenScout");
         let support_directory = non_tmp_path_or_default(
@@ -1832,16 +1832,19 @@ fn sweep_stale_managed_processes(config: &Config) -> Result<ProcessSweepResult, 
 }
 
 fn legacy_service_labels(config: &Config) -> Vec<String> {
-    let primary = match config.service_mode.as_str() {
-        "prod" => "com.openscout.broker",
-        "custom" => "com.openscout.broker.custom",
-        _ => "dev.openscout.broker",
-    };
-    let mut labels = vec![primary.to_string()];
-    if config.service_mode == "dev" {
-        labels.push("dev.openscout.broker-fallback".to_string());
+    match config.service_mode.as_str() {
+        "custom" => vec![
+            "com.openscout.custom".to_string(),
+            "com.openscout.broker.custom".to_string(),
+        ],
+        _ => vec![
+            "dev.openscout".to_string(),
+            "com.openscout".to_string(),
+            "dev.openscout.broker".to_string(),
+            "dev.openscout.broker-fallback".to_string(),
+            "com.openscout.broker".to_string(),
+        ],
     }
-    labels
 }
 
 fn legacy_service_targets(config: &Config) -> Vec<String> {
@@ -3386,14 +3389,14 @@ mod tests {
     }
 
     #[test]
-    fn dev_legacy_service_labels_include_pre_scoutd_fallback() {
+    fn primary_legacy_service_labels_include_previous_dev_and_prod_jobs() {
         let config = Config {
-            label: "dev.openscout".to_string(),
+            label: "app.openscout".to_string(),
             service_mode: "dev".to_string(),
             domain_target: "gui/501".to_string(),
-            service_target: "gui/501/dev.openscout".to_string(),
+            service_target: "gui/501/app.openscout".to_string(),
             launch_agent_path: PathBuf::from(
-                "/Users/test/Library/LaunchAgents/dev.openscout.plist",
+                "/Users/test/Library/LaunchAgents/app.openscout.plist",
             ),
             support_directory: PathBuf::from("/Users/test/Library/Application Support/OpenScout"),
             open_scout_home: PathBuf::from("/Users/test/.openscout"),
@@ -3442,15 +3445,21 @@ mod tests {
         assert_eq!(
             legacy_service_labels(&config),
             vec![
+                "dev.openscout".to_string(),
+                "com.openscout".to_string(),
                 "dev.openscout.broker".to_string(),
                 "dev.openscout.broker-fallback".to_string(),
+                "com.openscout.broker".to_string(),
             ]
         );
         assert_eq!(
             legacy_service_targets(&config),
             vec![
+                "gui/501/dev.openscout".to_string(),
+                "gui/501/com.openscout".to_string(),
                 "gui/501/dev.openscout.broker".to_string(),
                 "gui/501/dev.openscout.broker-fallback".to_string(),
+                "gui/501/com.openscout.broker".to_string(),
             ]
         );
     }

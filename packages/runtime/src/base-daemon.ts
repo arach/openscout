@@ -426,9 +426,16 @@ function resolvePortListenerPid(port: number): number | null {
 function findRepoMenuBundle(): string | null {
   let current = dirname(fileURLToPath(import.meta.url));
   while (true) {
-    const candidate = resolve(current, "apps", "macos", "dist", "ScoutMenu.app");
-    if (existsSync(candidate)) {
-      return candidate;
+    const distRoot = resolve(current, "apps", "macos", "dist");
+    const candidates = [
+      resolve(distRoot, "Scout.app", "Contents", "Library", "LoginItems", "ScoutMenu.app"),
+      // Backward compatibility for older builds that emitted a standalone
+      // helper. Current builds embed the helper in Scout.app, so prefer that
+      // artifact and never launch a stale sibling when both happen to exist.
+      resolve(distRoot, "ScoutMenu.app"),
+    ];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
     }
     const parent = dirname(current);
     if (parent === current) {
