@@ -60,6 +60,7 @@ import {
   type EndpointPreference,
 } from "./core/agent-endpoints.ts";
 import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
+import { resolveRepoKeysByRoot } from "./core/repo-identity.ts";
 import {
   queryDiscoveredTerminalSessions,
   terminalSurfaceKey,
@@ -2229,6 +2230,7 @@ function agentListSummary(agent: WebAgent) {
     cwd: agent.cwd,
     project: agent.project,
     branch: agent.branch,
+    repoKey: agent.repoKey ?? null,
     selector: agent.selector,
     defaultSelector: agent.defaultSelector,
     nodeQualifier: agent.nodeQualifier,
@@ -2260,6 +2262,19 @@ function agentListSummary(agent: WebAgent) {
     updatedAt: agent.updatedAt,
     createdAt: agent.createdAt,
   };
+}
+
+async function withAgentRepoKeys(agents: WebAgent[]): Promise<WebAgent[]> {
+  const roots = agents
+    .map((agent) => agent.projectRoot)
+    .filter((root): root is string => Boolean(root));
+  if (roots.length === 0) return agents;
+  const keys = await resolveRepoKeysByRoot(roots).catch(() => null);
+  if (!keys) return agents;
+  return agents.map((agent) => {
+    const repoKey = agent.projectRoot ? keys.get(agent.projectRoot) ?? null : null;
+    return repoKey ? { ...agent, repoKey } : agent;
+  });
 }
 
 const AGENT_HOME_SUMMARY_FRESH_MS = 10_000;
@@ -2366,10 +2381,10 @@ async function queryAgentsIncludingBrokerCards(
     const brokerById = new Map(brokerAgents.map((agent) => [agent.id, agent]));
     const mergedAgents = agents.map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
     const existingIds = new Set(mergedAgents.map((agent) => agent.id));
-    return mostRecentAgents([
+    return withAgentRepoKeys(mostRecentAgents([
       ...mergedAgents,
       ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
-    ], limit);
+    ], limit));
   }
   const broker = await loadBrokerContext();
   // The HUD's first page is deliberately a summary read. The full attention
@@ -2379,7 +2394,7 @@ async function queryAgentsIncludingBrokerCards(
     ? await queryAgentAttentionIndex(broker, capture)
     : new Map<string, AgentAttentionEntry>();
   if (!broker) {
-    return mostRecentAgents(applyAgentAttention(agents, attention), limit);
+    return withAgentRepoKeys(mostRecentAgents(applyAgentAttention(agents, attention), limit));
   }
   const brokerAgents = brokerCardAgentsForWeb(broker)
     .filter((agent) => !archivedIds.has(agent.id))
@@ -2394,10 +2409,10 @@ async function queryAgentsIncludingBrokerCards(
     ))
     .map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
   const existingIds = new Set(mergedAgents.map((agent) => agent.id));
-  return mostRecentAgents(applyAgentAttention([
+  return withAgentRepoKeys(mostRecentAgents(applyAgentAttention([
     ...mergedAgents,
     ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
-  ], attention), limit);
+  ], attention), limit));
 }
 
 function mergeBrokerAgentProjection(local: WebAgent, broker: WebAgent | undefined): WebAgent {
