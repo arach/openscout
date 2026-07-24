@@ -9,6 +9,15 @@ export function isDirectConversation(conversation: ConversationLike): boolean {
   return conversation.kind === "direct";
 }
 
+/** Named multi-party rooms (#channels). Not operator group DMs. */
+export function isChannelConversation(conversation: ConversationLike): boolean {
+  return conversation.kind === "channel";
+}
+
+/**
+ * Multi-party rooms that open with channel chrome historically included
+ * `group_direct`. Prefer `isChannelConversation` / `isOperatorDm` for rail IA.
+ */
 export function isGroupConversation(conversation: ConversationLike): boolean {
   return (
     conversation.kind === "channel"
@@ -33,17 +42,26 @@ export function isOperatorParticipant(conversation: ConversationLike): boolean {
   );
 }
 
-/** Direct threads you are in (operator is a participant). */
+/**
+ * Your DMs — direct or group_direct where the operator is a participant.
+ * Group DMs are not channels.
+ */
 export function isOperatorDm(conversation: ConversationLike): boolean {
-  return isDirectConversation(conversation) && isOperatorParticipant(conversation);
+  return (
+    (conversation.kind === "direct" || conversation.kind === "group_direct")
+    && isOperatorParticipant(conversation)
+  );
 }
 
 /**
- * Direct threads without the operator — agent↔agent or agent↔session rooms
- * you can open and watch, but that are not "your" DMs.
+ * Observed traffic — direct or group_direct without the operator
+ * (agent↔agent / agent↔session rooms you can watch).
  */
 export function isObservedDirect(conversation: ConversationLike): boolean {
-  return isDirectConversation(conversation) && !isOperatorParticipant(conversation);
+  return (
+    (conversation.kind === "direct" || conversation.kind === "group_direct")
+    && !isOperatorParticipant(conversation)
+  );
 }
 
 export function conversationDisplayTitle(conversation: ConversationLike): string {

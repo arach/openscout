@@ -3,11 +3,11 @@ import "../../scout/slots/ctx-panel.css";
 import { api } from "../../lib/api.ts";
 import { friendlyApiError, isOfflineApiError } from "../../lib/api-errors.ts";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
-import { agentStateRank, normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
   conversationDisplayTitle,
   conversationShortLabel,
-  isGroupConversation,
+  isChannelConversation,
   isObservedDirect,
   isOperatorDm,
 } from "../../lib/conversations.ts";
@@ -20,6 +20,11 @@ import {
   togglePin,
   type ConversationPrefs,
 } from "../../lib/conversation-prefs.ts";
+import {
+  buildConversationGroups,
+  pathBasename,
+  type ConversationGroup,
+} from "../../lib/conversation-groups.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -38,16 +43,6 @@ import {
 import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
 import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
-
-type ConversationGroup = {
-  key: string;
-  label: string;
-  isChannel: boolean;
-  conversations: SessionEntry[];
-  bestState: AgentDisplayState;
-  latestUpdate: number;
-  unreadCount: number;
-};
 
 /** How many observed groups show before "+N more" (keeps the rail scannable). */
 const OBSERVED_PREVIEW_LIMIT = 12;
@@ -164,7 +159,8 @@ export function ChatLeft() {
       .sort((a, b) => pinRank(b.id, prefs) - pinRank(a.id, prefs) || (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
 
     const unpinned = live.filter((s) => !isPinned(s.id, prefs));
-    const channels = unpinned.filter(isGroupConversation);
+    // Named #channels only — group_direct is a DM/observed room, not a channel.
+    const channels = unpinned.filter(isChannelConversation);
     const dms = unpinned.filter(isOperatorDm);
     const observed = unpinned.filter(isObservedDirect);
 
@@ -182,20 +178,20 @@ export function ChatLeft() {
   const visibleSections = useMemo(() => {
     if (activeRouteFilter === "channel") {
       return {
-        pinned: sections.pinned.filter(isGroupConversation),
+        pinned: sections.pinned.filter(isChannelConversation),
         channels: sections.channels,
         dms: [] as ConversationGroup[],
         observed: [] as ConversationGroup[],
-        archived: sections.archived.filter(isGroupConversation),
+        archived: sections.archived.filter(isChannelConversation),
       };
     }
     if (activeRouteFilter === "dm") {
       return {
-        pinned: sections.pinned.filter((s) => !isGroupConversation(s)),
+        pinned: sections.pinned.filter((s) => !isChannelConversation(s)),
         channels: [] as SessionEntry[],
         dms: sections.dms,
         observed: [] as ConversationGroup[],
-        archived: sections.archived.filter((s) => !isGroupConversation(s)),
+        archived: sections.archived.filter((s) => !isChannelConversation(s)),
       };
     }
     return sections;
@@ -231,9 +227,8 @@ export function ChatLeft() {
 
   const onSelect = useCallback((s: SessionEntry) => {
     setLastViewed(saveLastViewed(s.id));
-    // One address per conversation: groups always open the channel view;
-    // DMs always open the messages thread. Destination never depends on tab.
-    if (isGroupConversation(s)) {
+    // Named channels open the channel route; DMs + group DMs open messages.
+    if (isChannelConversation(s)) {
       navigate({ view: "channels", channelId: s.id });
       return;
     }
@@ -624,6 +619,7 @@ function SessionRailRow({
   pinned,
   depth,
   actions,
+  worktreeLabel,
   onSelect,
   onContextMenu,
 }: {
@@ -637,13 +633,15 @@ function SessionRailRow({
   pinned?: boolean;
   depth?: 0 | 1;
   actions?: ReactNode;
+  /** Side-checkout name shown as a worktree glyph (merged repo groups). */
+  worktreeLabel?: string | null;
   onSelect: (s: SessionEntry) => void;
   onContextMenu?: (event: MouseEvent, s: SessionEntry) => void;
 }) {
   const active = s.id === activeId;
   const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
   const title = conversationDisplayTitle(s);
-  const channel = isGroupConversation(s);
+  const channel = isChannelConversation(s);
   const agent = s.agentId ? agentById.get(s.agentId) : undefined;
   const ask = s.agentId ? asksByAgent.get(s.agentId) : undefined;
   const identifier = threadIdentifier(s, agent);
@@ -676,6 +674,7 @@ function SessionRailRow({
       pinned={pinned}
       activityLabel={ask ? askActivityLabel(ask) : undefined}
       activityTone={ask ? askActivityTone(ask) : undefined}
+      worktreeLabel={worktreeLabel ?? undefined}
       title={depth === 1 ? conversationChildTooltip(s, agent, ask) : undefined}
       actions={actions}
       tabIndex={rovingTabIndex(active, hasAnyActive, s.id === firstConversationId)}
@@ -766,7 +765,15 @@ function GroupOrRow({
         onClick={onToggle}
       />
       {isOpen &&
-        group.conversations.map((s) => (
+        group.conversations.map((s) => {
+          const childAgent = s.agentId ? agentById.get(s.agentId) : undefined;
+          const worktreeLabel =
+            group.canonicalRoot
+            && childAgent?.projectRoot
+            && childAgent.projectRoot !== group.canonicalRoot
+              ? pathBasename(childAgent.projectRoot)
+              : null;
+          return (
           <SessionRailRow
             key={s.id}
             session={s}
@@ -778,6 +785,7 @@ function GroupOrRow({
             hasAnyActive={hasAnyActive}
             firstConversationId={firstConversationId}
             pinned={isPinned(s.id, prefs)}
+            worktreeLabel={worktreeLabel}
             actions={
               <ConversationActions
                 pinned={isPinned(s.id, prefs)}
@@ -789,7 +797,8 @@ function GroupOrRow({
             onSelect={onSelect}
             onContextMenu={onContextMenu}
           />
-        ))}
+          );
+        })}
     </div>
   );
 }
@@ -923,93 +932,6 @@ function sortSessions(
   return sorted;
 }
 
-function buildConversationGroups(
-  sessions: SessionEntry[],
-  agentById: Map<string, Agent>,
-  lastViewed: LastViewedMap,
-  sort: MessagesSort,
-): ConversationGroup[] {
-  const buckets = new Map<string, ConversationGroup>();
-
-  for (const s of sessions) {
-    const channel = isGroupConversation(s);
-    let key: string;
-    let label: string;
-    if (channel) {
-      key = `channel:${s.id}`;
-      label = conversationDisplayTitle(s);
-    } else {
-      const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-      const project = agent?.project ?? null;
-      if (project) {
-        key = `project:${project.toLowerCase()}`;
-        label = project;
-      } else {
-        // Fall back to grouping by agent name / display title so DMs that share
-        // an agent collapse even when project metadata is missing.
-        const groupName = (s.agentName ?? conversationDisplayTitle(s)).trim();
-        if (groupName) {
-          key = `name:${groupName.toLowerCase()}`;
-          label = groupName;
-        } else {
-          key = `dm:${s.id}`;
-          label = conversationDisplayTitle(s);
-        }
-      }
-    }
-
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        key,
-        label,
-        isChannel: channel,
-        conversations: [],
-        bestState: "blocked",
-        latestUpdate: 0,
-        unreadCount: 0,
-      };
-      buckets.set(key, bucket);
-    }
-    bucket.conversations.push(s);
-    bucket.latestUpdate = Math.max(bucket.latestUpdate, s.lastMessageAt ?? 0);
-    if (isUnread(s.lastMessageAt, s.id, lastViewed)) {
-      bucket.unreadCount += 1;
-    }
-    if (!channel) {
-      const agent = s.agentId ? agentById.get(s.agentId) : undefined;
-      if (agent) {
-        const state = normalizeAgentState(agent.state);
-        if (agentStateRank(state) < agentStateRank(bucket.bestState)) {
-          bucket.bestState = state;
-        }
-      }
-    }
-  }
-
-  for (const b of buckets.values()) {
-    b.conversations.sort((a, c) => (c.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-  }
-
-  const list = Array.from(buckets.values());
-  switch (sort) {
-    case "name":
-      list.sort((a, b) => a.label.toLowerCase().localeCompare(b.label.toLowerCase()));
-      break;
-    case "unread":
-      list.sort((a, b) => {
-        if ((a.unreadCount > 0) !== (b.unreadCount > 0)) return a.unreadCount > 0 ? -1 : 1;
-        return b.latestUpdate - a.latestUpdate;
-      });
-      break;
-    case "recent":
-    default:
-      list.sort((a, b) => b.latestUpdate - a.latestUpdate);
-      break;
-  }
-  return list;
-}
-
 function conversationChildLabel(
   s: SessionEntry,
   agent: Agent | undefined,
@@ -1034,7 +956,7 @@ function conversationChildTooltip(
 }
 
 function threadIdentifier(s: SessionEntry, agent: Agent | undefined): string {
-  if (isGroupConversation(s)) {
+  if (isChannelConversation(s)) {
     return conversationShortLabel(s);
   }
   const handle = agent?.handle?.trim().replace(/^@+/, "");

@@ -5,6 +5,7 @@ import {
   isActiveConversationFlight,
   isConversationWorkingTurnWithoutRecentUpdate,
   isConversationWorkingTurnWithoutRecentUpdateAnswered,
+  isChannelConversation,
   isGroupConversation,
   isObservedDirect,
   isOperatorDm,
@@ -134,12 +135,13 @@ function session(partial: Partial<SessionEntry> & Pick<SessionEntry, "id" | "kin
 }
 
 describe("conversation membership helpers", () => {
-  test("channels are group conversations, not DMs or observed directs", () => {
+  test("named channels are channels, not DMs or observed", () => {
     const channel = session({
       id: "composer-kit",
       kind: "channel",
       participantIds: ["operator", "openscout.kimi"],
     });
+    expect(isChannelConversation(channel)).toBe(true);
     expect(isGroupConversation(channel)).toBe(true);
     expect(isOperatorDm(channel)).toBe(false);
     expect(isObservedDirect(channel)).toBe(false);
@@ -156,6 +158,32 @@ describe("conversation membership helpers", () => {
     expect(isOperatorParticipant(dm)).toBe(true);
     expect(isOperatorDm(dm)).toBe(true);
     expect(isObservedDirect(dm)).toBe(false);
+  });
+
+  test("group_direct with operator is a DM, not a channel", () => {
+    const groupDm = session({
+      id: "gdm-1",
+      kind: "group_direct",
+      participantIds: ["operator", "agent-a", "agent-b"],
+    });
+    expect(isChannelConversation(groupDm)).toBe(false);
+    expect(isOperatorDm(groupDm)).toBe(true);
+    expect(isObservedDirect(groupDm)).toBe(false);
+  });
+
+  test("group_direct without operator is observed", () => {
+    const groupObs = session({
+      id: "gobs-1",
+      kind: "group_direct",
+      participantIds: ["agent-a", "agent-b"],
+      participants: [
+        { actorId: "agent-a", kind: "agent", displayName: "A", label: "A" },
+        { actorId: "agent-b", kind: "agent", displayName: "B", label: "B" },
+      ],
+    });
+    expect(isChannelConversation(groupObs)).toBe(false);
+    expect(isOperatorDm(groupObs)).toBe(false);
+    expect(isObservedDirect(groupObs)).toBe(true);
   });
 
   test("person/operator participant rows also count as operator presence", () => {

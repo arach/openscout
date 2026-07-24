@@ -623,7 +623,9 @@ html[data-scout-double-rail] .scout-collapsed-rail[data-side="left"] {
   font-size: 10px;
 }
 
-/* Rich collapsed rail (chat avatar stack, etc.): leave room for the chevron. */
+/* Rich collapsed rail (chat avatar stack, etc.): leave room for the chevron.
+   Double-rail mode overrides padding-top so the area label lines up with the
+   primary icon rail content (see collapsed-strip.css). */
 .scout-collapsed-rail--rich {
   align-items: stretch;
   padding-top: 40px;

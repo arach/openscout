@@ -124,6 +124,68 @@
   flex: none;
 }
 
+/* Sub-bands inside a collapsed strip (e.g. chat: # / DM / Obs) */
+.collapsed-strip-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+
+.collapsed-strip-section-mark {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 28px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hud-ink, var(--ink)) 4%, transparent);
+  user-select: none;
+}
+
+.collapsed-strip-section-mark-text {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 50%, transparent);
+  line-height: 1.1;
+}
+
+.collapsed-strip-section-mark-count {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 7px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 40%, transparent);
+  line-height: 1;
+}
+
+/* Double-rail: keep area labels on a shared top grid so HOME / CHAT align. */
+html[data-scout-double-rail] .scout-collapsed-rail--rich {
+  /* Brand row is 44px + titleBarInset; match first nav icon band. */
+  padding-top: max(44px, env(safe-area-inset-top, 0px));
+}
+
+html[data-scout-double-rail] .scout-collapsed-rail-body {
+  padding-top: 4px;
+}
+
+html[data-scout-double-rail] .collapsed-strip {
+  padding-top: 0;
+}
+
+/* Fixed geometry for the area pill so HOME and CHAT match. */
+html[data-scout-double-rail] .collapsed-strip-label {
+  width: 34px;
+  min-height: 36px;
+  margin-bottom: 4px;
+}
+
 .collapsed-chip {
   position: relative;
   display: grid;
