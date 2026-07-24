@@ -8,6 +8,7 @@ import {
 export interface BrokerRuntimeProfile {
   id: ScoutReservedRuntimeProfileId;
   displayName: string;
+  supportsReasoningEffort: boolean;
   execution: InvocationExecutionPreference & { session: "new" };
 }
 
@@ -15,21 +16,25 @@ const BROKER_RUNTIME_PROFILES: Record<ScoutReservedRuntimeProfileId, BrokerRunti
   fable: {
     id: "fable",
     displayName: "Fable",
+    supportsReasoningEffort: true,
     execution: { harness: "claude", model: "fable", session: "new" },
   },
   kimi: {
     id: "kimi",
     displayName: "Kimi",
+    supportsReasoningEffort: false,
     execution: { harness: "kimi", session: "new" },
   },
   grok: {
     id: "grok",
     displayName: "Grok",
+    supportsReasoningEffort: false,
     execution: { harness: "grok", session: "new" },
   },
   opus: {
     id: "opus",
     displayName: "Opus",
+    supportsReasoningEffort: true,
     execution: { harness: "claude", model: "opus", session: "new" },
   },
 };
@@ -53,6 +58,9 @@ export function executionForBrokerRuntimeProfile(input: {
     ? normalizeRuntimeProfileReasoningEffort(input.reasoningEffort)
     : null;
   if (input.reasoningEffort && !reasoningEffort) {
+    return null;
+  }
+  if (reasoningEffort && !profile.supportsReasoningEffort) {
     return null;
   }
   return {

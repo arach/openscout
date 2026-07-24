@@ -379,6 +379,77 @@ describe("askScoutQuestion", () => {
     });
   }, 15000);
 
+  test("preserves exact session choices for session-only handle ambiguity", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const detail = "@composer-review matches multiple live targets: session:session-one, session:session-two; use one exact session:<id> target";
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/deliver") {
+        return jsonResponse({
+          kind: "rejected",
+          accepted: false,
+          reason: "ambiguous_target",
+          rejection: {
+            id: "dispatch-session-ambiguity",
+            requesterId: "operator",
+            kind: "ambiguous",
+            askedLabel: "@composer-review",
+            detail,
+            candidates: [],
+            dispatchedAt: Date.now(),
+            dispatcherNodeId: "node-1",
+          },
+        }, 422);
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await askScoutQuestion({
+      senderId: "operator",
+      target: {
+        kind: "existing_handle",
+        handle: "composer-review",
+        value: "@composer-review",
+      },
+      body: "build it for me",
+      currentDirectory: home,
+    });
+
+    expect(result.usedBroker).toBe(true);
+    expect(result.unresolvedTarget).toBe("@composer-review");
+    expect(result.targetDiagnostic).toEqual({
+      state: "ambiguous",
+      detail,
+      candidates: [],
+    });
+  }, 15000);
+
   test("refreshes stale exact targets before asking", async () => {
     const home = useIsolatedOpenScoutHome();
     const repo = join(home, "dev", "openscout");

@@ -193,10 +193,15 @@ describe("broker daemon local agent routing", () => {
         createdAt: Date.now(),
       });
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(422);
       expect(response.body).toEqual(expect.objectContaining({
-        error: "bad_request",
-        detail: `${profile} runtime profile does not support reasoning effort through its ACP transport`,
+        kind: "rejected",
+        accepted: false,
+        reason: "invalid_target",
+        rejection: expect.objectContaining({
+          kind: "unparseable",
+          askedLabel: `profile:${profile}`,
+        }),
       }));
     }
 

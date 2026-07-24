@@ -277,7 +277,7 @@ export function buildScoutAskRoute(input: {
     const target = {
       kind: "runtime_profile" as const,
       profile: input.runtimeProfile,
-      projectPath: input.currentDirectory,
+      projectPath: resolve(input.currentDirectory),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     };
     return target;

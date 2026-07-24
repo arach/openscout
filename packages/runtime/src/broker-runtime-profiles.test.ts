@@ -41,6 +41,14 @@ describe("broker runtime profiles", () => {
       profileId: "opus",
       reasoningEffort: "surprise-me",
     })).toBeNull();
+    expect(executionForBrokerRuntimeProfile({
+      profileId: "kimi",
+      reasoningEffort: "high",
+    })).toBeNull();
+    expect(executionForBrokerRuntimeProfile({
+      profileId: "grok",
+      reasoningEffort: "high",
+    })).toBeNull();
     expect(resolveBrokerRuntimeProfile("composer-review")).toBeNull();
   });
 });

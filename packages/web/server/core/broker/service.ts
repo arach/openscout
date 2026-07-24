@@ -185,6 +185,7 @@ export type ScoutTargetDiagnostic =
   | {
       state: "ambiguous";
       candidates: ScoutAskAmbiguousCandidate[];
+      detail?: string;
     }
   | {
       state: "invalid" | "missing";
@@ -841,6 +842,7 @@ function scoutTargetDiagnosticFromDeliveryFailure(
   if (dispatch.kind === "ambiguous") {
     return {
       state: "ambiguous",
+      detail: dispatch.detail,
       candidates: dispatch.candidates.map((candidate) => ({
         agentId: candidate.agentId,
         label: candidate.label,

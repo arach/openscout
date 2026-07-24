@@ -245,10 +245,11 @@ type NaturalLanguageAskTarget =
 
 function parseNaturalLanguageAskTarget(
   input: string,
+  options: { allowMissingMessage?: boolean } = {},
 ): NaturalLanguageAskTarget | null {
   const trimmed = input.trim();
   if (/^agent\b/i.test(trimmed)) {
-    const match = trimmed.match(/^agent\s+(.+?)\s+to\s+(.+)$/i);
+    const match = trimmed.match(/^agent\s+(.+?)\s+to(?:\s+(.+))?$/i);
     if (!match) {
       throw new ScoutCliError(
         'existing-target asks use "agent <name> to <request>"',
@@ -256,7 +257,7 @@ function parseNaturalLanguageAskTarget(
     }
     const handle = normalizeAgentSelectorSegment(match[1] ?? "");
     const message = (match[2] ?? "").trim();
-    if (!handle || !message) {
+    if (!handle || (!message && !options.allowMissingMessage)) {
       throw new ScoutCliError(
         'existing-target asks use "agent <name> to <request>"',
       );
@@ -294,7 +295,7 @@ function parseNaturalLanguageAskTarget(
   }
 
   const message = remainder.replace(/^to\b[\s,;:-]*/i, "").trim();
-  if (!message) {
+  if (!message && !options.allowMissingMessage) {
     throw new ScoutCliError(`runtime profile ${profile} requires a request`);
   }
   return {
@@ -869,7 +870,9 @@ export function parseAskCommandOptions(
     }
   }
   if (!targetLabel && !projectPath && !runtimeProfile && message) {
-    const natural = parseNaturalLanguageAskTarget(message);
+    const natural = parseNaturalLanguageAskTarget(message, {
+      allowMissingMessage: Boolean(promptFile),
+    });
     if (natural?.kind === "existing_handle") {
       existingTargetHandle = natural.handle;
       message = natural.message;
@@ -1087,7 +1090,9 @@ export function parseImplicitAskCommandOptions(
   }
 
   const natural = !runtimeProfile && input
-    ? parseNaturalLanguageAskTarget(input)
+    ? parseNaturalLanguageAskTarget(input, {
+        allowMissingMessage: Boolean(promptFile),
+      })
     : null;
   if (natural || runtimeProfile) {
     const selectedProfile = natural?.kind === "runtime_profile"

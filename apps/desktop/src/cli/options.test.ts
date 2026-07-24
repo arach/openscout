@@ -204,6 +204,24 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("fix the tests");
   });
 
+  test("allows prompt files to supply natural profile and existing-handle bodies", () => {
+    const profile = parseAskCommandOptions(
+      ["Fable", "--prompt-file=review.md"],
+      "/tmp/workspace",
+    );
+    const agent = parseAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "--prompt-file=fix.md"],
+      "/tmp/workspace",
+    );
+
+    expect(profile.runtimeProfile).toBe("fable");
+    expect(profile.message).toBe("");
+    expect(profile.promptFile).toBe("/tmp/workspace/review.md");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("");
+    expect(agent.promptFile).toBe("/tmp/workspace/fix.md");
+  });
+
   test("accepts a prompt file as the primary body source", () => {
     const options = parseAskCommandOptions(
       ["--to", "hudson", "--prompt-file=handoff.md"],
@@ -350,6 +368,24 @@ describe("parseImplicitAskCommandOptions", () => {
     expect(opus.message).toBe("review this");
     expect(agent.existingTargetHandle).toBe("composer-review");
     expect(agent.message).toBe("fix the tests");
+  });
+
+  test("allows prompt files to supply implicit natural target bodies", () => {
+    const profile = parseImplicitAskCommandOptions(
+      ["Opus", "--prompt-file=review.md"],
+      "/tmp/workspace",
+    );
+    const agent = parseImplicitAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "--prompt-file=fix.md"],
+      "/tmp/workspace",
+    );
+
+    expect(profile.runtimeProfile).toBe("opus");
+    expect(profile.message).toBe("");
+    expect(profile.promptFile).toBe("/tmp/workspace/review.md");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("");
+    expect(agent.promptFile).toBe("/tmp/workspace/fix.md");
   });
 
   test("preserves flag effort for implicit bare profiles and rejects conflicts", () => {

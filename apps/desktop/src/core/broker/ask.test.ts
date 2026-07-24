@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import { buildScoutAskRoute } from "./ask.ts";
@@ -24,6 +26,18 @@ describe("buildScoutAskRoute", () => {
       profile: "opus",
       projectPath: "/tmp/openscout",
       reasoningEffort: "high",
+    });
+  });
+
+  test("normalizes a runtime profile's inferred project path to an absolute path", () => {
+    expect(buildScoutAskRoute({
+      to: "",
+      runtimeProfile: "fable",
+      currentDirectory: "relative/project",
+    })).toEqual({
+      kind: "runtime_profile",
+      profile: "fable",
+      projectPath: resolve("relative/project"),
     });
   });
 

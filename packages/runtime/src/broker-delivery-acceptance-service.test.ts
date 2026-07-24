@@ -569,6 +569,35 @@ describe("BrokerDeliveryAcceptanceService", () => {
     expect(harness.acceptedInvocations).toEqual([]);
   });
 
+  test("runtime profiles with unsupported effort fail closed before cardless session creation", async () => {
+    for (const profile of ["kimi", "grok"]) {
+      const harness = createHarness({
+        now: 20_900,
+        resolution: {
+          kind: "unparseable",
+          label: `profile:${profile}`,
+        },
+      });
+
+      const result = await harness.service.accept({
+        id: `deliver-profile-${profile}-effort`,
+        body: "review the parser",
+        intent: "consult",
+        target: {
+          kind: "runtime_profile",
+          profile,
+          projectPath: "/tmp/openscout",
+          reasoningEffort: "high",
+        },
+        caller: { actorId: "operator", nodeId: "node-1" },
+      });
+
+      expect(result.kind).toBe("rejected");
+      expect(harness.cardlessProjectSessionCalls).toEqual([]);
+      expect(harness.acceptedInvocations).toEqual([]);
+    }
+  });
+
   test("preserves requested fork execution when accepting a consult", async () => {
     const harness = createHarness({ now: 21_000 });
 
