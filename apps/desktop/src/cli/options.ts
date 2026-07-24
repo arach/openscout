@@ -74,11 +74,6 @@ export type ScoutLatestCommandOptions = ContextRootOptions & {
   messages: boolean;
 };
 
-export type ScoutEnrollCommandOptions = ContextRootOptions & {
-  agentName: string | null;
-  task?: string;
-};
-
 export type ScoutCardCreateCommandOptions = ContextRootOptions & {
   projectPath: string;
   agentName?: string;
@@ -1139,41 +1134,6 @@ export function parseLatestCommandOptions(
     conversationId,
     limit,
     messages,
-  };
-}
-
-export function parseEnrollCommandOptions(
-  args: string[],
-  defaultCurrentDirectory: string,
-): ScoutEnrollCommandOptions {
-  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
-  let agentName: string | null = null;
-  let task: string | undefined;
-
-  for (let index = 0; index < parsed.args.length; index += 1) {
-    const current = parsed.args[index] ?? "";
-    if (current === "--as" || current.startsWith("--as=")) {
-      const value = parseFlagValue(parsed.args, index, "--as");
-      agentName = value.value;
-      index = value.nextIndex;
-      continue;
-    }
-    if (current === "--task") {
-      task = parsed.args.slice(index + 1).join(" ").trim() || undefined;
-      break;
-    }
-    if (current.startsWith("--task=")) {
-      task = current.slice("--task=".length).trim() || undefined;
-      continue;
-    }
-    unexpectedArgs("enroll", args);
-  }
-
-  return {
-    currentDirectory: parsed.currentDirectory,
-    args: parsed.args,
-    agentName,
-    task,
   };
 }
 

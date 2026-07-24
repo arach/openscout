@@ -33,7 +33,6 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "latest", summary: "Show the latest Scout activity" },
   { name: "mcp", summary: "Run a Scout MCP server over stdio" },
   { name: "channel", summary: "Read channel messages or run a Claude Code channel server" },
-  { name: "enroll", summary: "Generate enrollment prompt" },
   { name: "broadcast", summary: "Broadcast to channel.shared" },
   { name: "up", summary: "Spawn a local agent for a project" },
   { name: "down", summary: "Stop one or all local agents" },
