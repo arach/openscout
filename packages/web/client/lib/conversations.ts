@@ -9,10 +9,58 @@ export function isDirectConversation(conversation: ConversationLike): boolean {
   return conversation.kind === "direct";
 }
 
+/** Named multi-party rooms (#channels). Not operator group DMs. */
+export function isChannelConversation(conversation: ConversationLike): boolean {
+  return conversation.kind === "channel";
+}
+
+/**
+ * Multi-party rooms that open with channel chrome historically included
+ * `group_direct`. Prefer `isChannelConversation` / `isOperatorDm` for rail IA.
+ */
 export function isGroupConversation(conversation: ConversationLike): boolean {
   return (
     conversation.kind === "channel"
     || conversation.kind === "group_direct"
+  );
+}
+
+/**
+ * True when the human operator is a first-class participant in this conversation
+ * (a real DM or channel membership), as opposed to only observing agent-to-agent
+ * or agent-to-session traffic from the fleet.
+ */
+export function isOperatorParticipant(conversation: ConversationLike): boolean {
+  if (conversation.participantIds.includes("operator")) return true;
+  const participants = conversation.participants;
+  if (!participants?.length) return false;
+  return participants.some(
+    (p) =>
+      p.actorId === "operator"
+      || p.kind === "operator"
+      || (p.kind === "person" && p.actorId === "operator"),
+  );
+}
+
+/**
+ * Your DMs — direct or group_direct where the operator is a participant.
+ * Group DMs are not channels.
+ */
+export function isOperatorDm(conversation: ConversationLike): boolean {
+  return (
+    (conversation.kind === "direct" || conversation.kind === "group_direct")
+    && isOperatorParticipant(conversation)
+  );
+}
+
+/**
+ * Observed traffic — direct or group_direct without the operator
+ * (agent↔agent / agent↔session rooms you can watch).
+ */
+export function isObservedDirect(conversation: ConversationLike): boolean {
+  return (
+    (conversation.kind === "direct" || conversation.kind === "group_direct")
+    && !isOperatorParticipant(conversation)
   );
 }
 

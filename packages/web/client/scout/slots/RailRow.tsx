@@ -39,8 +39,13 @@ type RailRowProps = {
   activityLabel?: string;
   /** Visual tone for the compact live-work label. */
   activityTone?: "pending" | "working" | "attention";
+  /** Hover/focus trailing actions (pin, archive, …). Clicks stop propagation. */
+  actions?: ReactNode;
+  /** Show a persistent pin mark in the trailing meta area. */
+  pinned?: boolean;
   onClick?: (event: React.MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent) => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
   onPointerEnter?: (event: React.PointerEvent) => void;
   onPointerLeave?: (event: React.PointerEvent) => void;
   title?: string;
@@ -64,8 +69,11 @@ export function RailRow({
   expanded,
   activityLabel,
   activityTone = "working",
+  actions,
+  pinned,
   onClick,
   onKeyDown,
+  onContextMenu,
   onPointerEnter,
   onPointerLeave,
   title,
@@ -84,6 +92,8 @@ export function RailRow({
     unread && "rr-row--unread",
     expanded && "rr-row--expanded",
     activityLabel && "rr-row--motion",
+    pinned && "rr-row--pinned",
+    actions && "rr-row--has-actions",
   ]
     .filter(Boolean)
     .join(" ");
@@ -95,6 +105,7 @@ export function RailRow({
         className="rr-row-head"
         onClick={onClick}
         onKeyDown={onKeyDown}
+        onContextMenu={onContextMenu}
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
         title={title}
@@ -109,7 +120,14 @@ export function RailRow({
           avatarKind={avatarKind}
         />
         <span className="rr-row-body">
-          <span className="rr-row-name">{name}</span>
+          <span className="rr-row-name">
+            {pinned ? (
+              <span className="rr-row-pin-mark" aria-label="Pinned" title="Pinned">
+                <PinGlyph />
+              </span>
+            ) : null}
+            {name}
+          </span>
           {sub && <span className="rr-row-sub">{sub}</span>}
           {activityLabel && (
             <span className={`rr-row-activity rr-row-activity--${activityTone}`}>
@@ -125,6 +143,11 @@ export function RailRow({
         </span>
         {meta && <span className="rr-row-meta">{meta}</span>}
       </button>
+      {actions ? (
+        <div className="rr-row-actions" onClick={(e) => e.stopPropagation()}>
+          {actions}
+        </div>
+      ) : null}
       {expanded && detail && <div className="rr-row-detail">{detail}</div>}
     </div>
   );
@@ -216,4 +239,12 @@ function Chevron({ open }: { open: boolean }) {
 function normalizeAgentTone(tone: Tone): string {
   if (tone === "channel" || tone === "dm" || tone === "neutral") return tone;
   return agentStateCssToken(tone);
+}
+
+function PinGlyph() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <path d="M9.8 1.6 14.4 6.2a1 1 0 0 1-.2 1.6l-2.7 1.1-.9 3.4a.7.7 0 0 1-1.2.3L6.3 9.5 2.8 13 1.7 11.9l3.5-3.5L2.1 5.3a.7.7 0 0 1 .3-1.2l3.4-.9 1.1-2.7a1 1 0 0 1 1.6-.2Z" />
+    </svg>
+  );
 }
