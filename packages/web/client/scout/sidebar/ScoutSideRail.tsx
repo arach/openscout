@@ -20,8 +20,8 @@ import type { Route } from "../../lib/types.ts";
 import { useScout } from "../Provider.tsx";
 import { primaryAreaForRoute, PRIMARY_AREAS } from "../primary-areas.ts";
 import { resolveSidebarContext } from "../../screens/resolve-sidebar-context.tsx";
-import { ChatCollapsedStrip } from "../../screens/chat/ChatCollapsedStrip.tsx";
 import { CollapsedRail } from "./CollapsedRail.tsx";
+import { SideRailCollapsedBody } from "./SideRailCollapsedBody.tsx";
 import { useSidebarModel } from "./useSidebarModel.ts";
 
 /**
@@ -89,10 +89,6 @@ export function ScoutSideRail({
         : 0;
 
   if (isCollapsed) {
-    const isChat =
-      route.view === "messages"
-      || route.view === "channels"
-      || route.view === "conversation";
     return (
       <CollapsedRail
         side="left"
@@ -101,7 +97,7 @@ export function ScoutSideRail({
         edgeOffset={navRailWidth}
         top={top}
         style={style}
-        body={isChat ? <ChatCollapsedStrip /> : undefined}
+        body={<SideRailCollapsedBody route={route} />}
       />
     );
   }

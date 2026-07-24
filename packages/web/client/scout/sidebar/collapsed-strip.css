@@ -1,6 +1,6 @@
-/* Collapsed chat side-rail: avatar stack under the expand chevron */
+/* Shared minimized side-rail chip stack (chat, home, projects, …) */
 
-.chat-collapsed-strip {
+.collapsed-strip {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -10,19 +10,28 @@
   box-sizing: border-box;
 }
 
-.chat-collapsed-strip--empty {
+.collapsed-strip--empty {
   opacity: 0.45;
   padding-top: 8px;
 }
 
-.chat-collapsed-empty-mark {
+.collapsed-strip-empty-mark {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--hud-ink, var(--ink)) 50%, transparent);
+  user-select: none;
 }
 
-.chat-collapsed-chip {
+.collapsed-strip-rule {
+  width: 18px;
+  height: 1px;
+  margin: 2px 0;
+  background: color-mix(in srgb, var(--hud-ink, var(--ink)) 12%, transparent);
+  flex: none;
+}
+
+.collapsed-chip {
   position: relative;
   display: grid;
   place-items: center;
@@ -32,31 +41,40 @@
   border: 1px solid color-mix(in srgb, var(--hud-ink, var(--ink)) 10%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--hud-surface, var(--surface)) 88%, transparent);
+  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 78%, transparent);
   cursor: pointer;
   flex: none;
-  transition: background 120ms, border-color 120ms, box-shadow 120ms;
+  transition: background 120ms, border-color 120ms, box-shadow 120ms, color 120ms;
 }
 
-.chat-collapsed-chip:hover {
+.collapsed-chip:hover {
   background: color-mix(in srgb, var(--hud-accent, var(--accent)) 10%, transparent);
   border-color: color-mix(in srgb, var(--hud-accent, var(--accent)) 28%, transparent);
+  color: var(--hud-ink, var(--ink));
 }
 
-.chat-collapsed-chip--active {
+.collapsed-chip--active {
   background: color-mix(in srgb, var(--hud-accent, var(--accent)) 14%, transparent);
   border-color: color-mix(in srgb, var(--hud-accent, var(--accent)) 45%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hud-accent, var(--accent)) 30%, transparent);
+  color: var(--hud-ink, var(--ink));
 }
 
-.chat-collapsed-chip--unread {
+.collapsed-chip--unread,
+.collapsed-chip--attention {
   border-color: color-mix(in srgb, var(--hud-accent, var(--accent)) 35%, transparent);
 }
 
-.chat-collapsed-chip--channel {
+.collapsed-chip--attention {
+  border-color: color-mix(in srgb, var(--amber, #e6b84d) 50%, transparent);
+}
+
+.collapsed-chip--channel,
+.collapsed-chip--neutral {
   background: color-mix(in srgb, var(--hud-ink, var(--ink)) 5%, transparent);
 }
 
-.chat-collapsed-ava {
+.collapsed-chip-ava {
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -70,15 +88,17 @@
   user-select: none;
 }
 
-.chat-collapsed-hash {
+.collapsed-chip-glyph {
+  display: grid;
+  place-items: center;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
-  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 72%, transparent);
   user-select: none;
+  line-height: 1;
 }
 
-.chat-collapsed-dot {
+.collapsed-chip-dot {
   position: absolute;
   top: 3px;
   right: 3px;
@@ -89,7 +109,15 @@
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--hud-surface, var(--surface)) 90%, transparent);
 }
 
-.chat-collapsed-pin {
+.collapsed-chip-dot--attention {
+  background: var(--amber, #e6b84d);
+}
+
+.collapsed-chip-dot--live {
+  background: var(--green, #4ade80);
+}
+
+.collapsed-chip-pin {
   position: absolute;
   bottom: 2px;
   right: 2px;
@@ -100,3 +128,4 @@
   opacity: 0.85;
   transform: rotate(45deg);
 }
+

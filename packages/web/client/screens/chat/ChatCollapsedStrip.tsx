@@ -1,6 +1,5 @@
 /**
- * Minimized chat side-rail content: a vertical stack of conversation chips
- * (pinned first, then recent live rooms) so collapse isn't an empty strip.
+ * Minimized chat side-rail: pinned then recent conversation chips.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api.ts";
@@ -30,25 +29,13 @@ import { useBrokerEvents } from "../../lib/sse.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { Route, SessionEntry } from "../../lib/types.ts";
 import { actorColor } from "../../lib/colors.ts";
-import "./chat-collapsed-strip.css";
+import {
+  chipInitial,
+  CollapsedChip,
+  CollapsedStrip,
+} from "../../scout/sidebar/CollapsedStrip.tsx";
 
-/** How many non-pinned chips fit in the strip before we stop. */
 const RECENT_LIMIT = 10;
-
-/** Prefer a distinguishing letter when many rooms share an agent/project name. */
-function chipInitial(title: string, agentName: string | null, channel: boolean): string {
-  if (channel) return "#";
-  const base = (agentName ?? title).trim();
-  const parts = base.split(/[\s/_-]+/).filter(Boolean);
-  if (parts.length >= 2) {
-    const last = parts[parts.length - 1]!;
-    if (/^\d+$/.test(last) && parts.length >= 3) {
-      return (parts[parts.length - 2]![0] ?? "?").toUpperCase();
-    }
-    return (last[0] ?? "?").toUpperCase();
-  }
-  return (base[0] ?? "?").toUpperCase();
-}
 
 export function ChatCollapsedStrip() {
   const { route, navigate, agents } = useScout();
@@ -72,7 +59,7 @@ export function ChatCollapsedStrip() {
       const data = await api<SessionEntry[]>("/api/conversations");
       setSessions(data);
     } catch {
-      // Collapsed strip is best-effort; leave last good snapshot.
+      // best-effort
     }
   }, []);
 
@@ -86,7 +73,6 @@ export function ChatCollapsedStrip() {
     }
   });
 
-  // Prefs can change while the expanded rail is open; re-read when strip mounts.
   useEffect(() => {
     setPrefs(loadConversationPrefs());
     setLastViewed(loadLastViewedMap());
@@ -111,7 +97,10 @@ export function ChatCollapsedStrip() {
       })
       .slice(0, RECENT_LIMIT);
 
-    return [...pinned.map((s) => ({ session: s, pinned: true })), ...recent.map((s) => ({ session: s, pinned: false }))];
+    return [
+      ...pinned.map((s) => ({ session: s, pinned: true })),
+      ...recent.map((s) => ({ session: s, pinned: false })),
+    ];
   }, [sessions, scopedAgentIds, machineId, prefs, lastViewed]);
 
   const open = (s: SessionEntry) => {
@@ -123,56 +112,27 @@ export function ChatCollapsedStrip() {
     navigate({ view: "messages", conversationId: s.id } satisfies Route);
   };
 
-  if (chips.length === 0) {
-    return (
-      <div className="chat-collapsed-strip chat-collapsed-strip--empty" aria-hidden>
-        <span className="chat-collapsed-empty-mark">#</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="chat-collapsed-strip" role="list" aria-label="Recent chats">
+    <CollapsedStrip label="Recent chats" emptyMark="#">
       {chips.map(({ session: s, pinned }) => {
         const title = conversationDisplayTitle(s);
         const channel = isGroupConversation(s);
         const unread = isUnread(s.lastMessageAt, s.id, lastViewed);
-        const active = s.id === activeId;
-        const initial = chipInitial(title, s.agentName, channel);
         return (
-          <button
+          <CollapsedChip
             key={s.id}
-            type="button"
-            role="listitem"
-            className={[
-              "chat-collapsed-chip",
-              channel && "chat-collapsed-chip--channel",
-              active && "chat-collapsed-chip--active",
-              unread && "chat-collapsed-chip--unread",
-              pinned && "chat-collapsed-chip--pinned",
-            ]
-              .filter(Boolean)
-              .join(" ")}
             title={pinned ? `${title} · pinned` : title}
-            aria-label={pinned ? `${title}, pinned` : title}
-            aria-current={active ? "page" : undefined}
+            active={s.id === activeId}
+            tone={channel ? "channel" : unread ? "unread" : "default"}
+            ava={channel ? undefined : chipInitial(s.agentName ?? title)}
+            avaColor={channel ? undefined : actorColor(s.agentName ?? title)}
+            glyph={channel ? "#" : undefined}
+            dot={unread ? "unread" : null}
+            pinned={pinned}
             onClick={() => open(s)}
-          >
-            {channel ? (
-              <span className="chat-collapsed-hash">#</span>
-            ) : (
-              <span
-                className="chat-collapsed-ava"
-                style={{ background: actorColor(s.agentName ?? title) }}
-              >
-                {initial}
-              </span>
-            )}
-            {unread ? <span className="chat-collapsed-dot" aria-hidden /> : null}
-            {pinned ? <span className="chat-collapsed-pin" aria-hidden /> : null}
-          </button>
+          />
         );
       })}
-    </div>
+    </CollapsedStrip>
   );
 }
