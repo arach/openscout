@@ -23,7 +23,13 @@ struct RootView: View {
     // dockedTabBar + status strip) exactly; `.crown` swaps in the summonable crown.
     @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
     @State private var crownAssembled = true
+    @State private var showVitals = false
+    @State private var showTailSheet = false
     @State private var notificationLandingRoute: AppModel.NotificationRoute?
+    /// One-shot prompt seed from Home's inline ask composer — consumed by the
+    /// New surface (which stays mounted, so this must be a binding, not init
+    /// state) and cleared once it lands in the prompt box.
+    @State private var newComposerSeed: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
@@ -120,7 +126,10 @@ struct RootView: View {
                                     onConversationStatusContext: { sessionStatusContext = $0 },
                                     onSeeAllAgents: { selectSurface(.agents) },
                                     onSeeAllActivity: { selectSurface(.comms) },
-                                    onCompose: { selectSurface(.new) },
+                                    onCompose: { seed in
+                                        newComposerSeed = seed
+                                        selectSurface(.new)
+                                    },
                                     onConnect: { showConnection = true },
                                     reloadToken: model.fleetDataReadyToken
                                 )
@@ -175,7 +184,8 @@ struct RootView: View {
                                     client: client,
                                     reloadToken: model.dataReadyToken,
                                     isActive: surface == .new,
-                                    onConversationStatusContext: { sessionStatusContext = $0 }
+                                    onConversationStatusContext: { sessionStatusContext = $0 },
+                                    promptSeed: $newComposerSeed
                                 )
                             }
                         }
@@ -188,9 +198,16 @@ struct RootView: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if navMode == .tabs {
                             dockedTabBar(layout)
-                        } else {
-                            // Reserve room so surface content clears the floating crown bar.
-                            Color.clear.frame(height: 96)
+                        }
+                        // Crown mode reserves NOTHING at the bottom: surface
+                        // content flows through behind the floating crown, and
+                        // the crown's own drop shadows keep it legible on top.
+                    }
+                    // Crown mode reserves a top zone so surface headers clear the
+                    // permanent top strip + LED. Zero effect in tabs mode.
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if navMode == .crown {
+                            Color.clear.frame(height: CrownMetric.topReserve(for: layout))
                         }
                     }
 
@@ -219,15 +236,52 @@ struct RootView: View {
                         .offset(y: 14)
                     } else {
                         // Crown mode: the crown chrome replaces both the tab bar and
-                        // the status strip (the LED carries fleet aliveness instead).
-                        CrownNavChrome(
-                            model: model,
-                            currentSurface: surface,
-                            onSelect: { selectSurface($0) },
-                            onSettings: { showSettings = true },
-                            onConnect: { showConnection = true },
-                            assembled: $crownAssembled
-                        )
+                        // the status strip (the LED carries fleet aliveness instead) —
+                        // but on SUMMON the strip returns as a thin read-only line
+                        // popped up from the true bottom edge (same unsafe-area
+                        // discipline as tabs). It never shows at rest: the resting
+                        // crown owns the bottom. Side insets push the edge readouts
+                        // clear of the corner labels that share the indicator band —
+                        // on the wide canvas the island corners sit far inboard, so
+                        // the strip can use the rail's own inset. Painted UNDER the
+                        // crown chrome so the corners and labels draw above it.
+                        // Studio model: design/studio/views/fleet-led-carousel.tsx.
+                        Group {
+                            if crownAssembled {
+                                ScoutStatusBar(
+                                    leading: appReadouts(layout),
+                                    trailing: crownStatsReadouts(layout),
+                                    sideInset: layout.physicalWidth >= 700 ? 28 : (layout.isMiniPhone ? 56 : 68)
+                                )
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                                .ignoresSafeArea(edges: .bottom)
+                                // Same residual-inset correction as the tabs bar, so the
+                                // strip sits flush in the indicator band, not floating.
+                                // The wide canvas reads best a touch deeper still.
+                                .offset(y: layout.physicalWidth >= 700 ? 20 : 14)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            CrownNavChrome(
+                                model: model,
+                                currentSurface: surface,
+                                onSelect: { selectSurface($0) },
+                                onSettings: { showSettings = true },
+                                onConnect: { showConnection = true },
+                                onLED: { showVitals = true },
+                                onTailSummon: { showTailSheet = true },
+                                assembled: $crownAssembled
+                            )
+                        }
+                        // The chrome bleeds INTO the top safe area — without this it
+                        // starts below the island and its own safeAreaInsets.top then
+                        // double-counts, dropping the strip + LED ~50pt too low. The
+                        // bottom is deliberately untouched (the geometry there is
+                        // operator-approved).
+                        .ignoresSafeArea(edges: .top)
+                        // Hoisted to the container: an .animation modifier on the
+                        // INSERTED view itself can't animate its own insertion, so
+                        // the strip appeared instead of lifting in from the bottom.
+                        .animation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.22), value: crownAssembled)
                     }
                 }
                 .task(id: "\(model.fleetDataReadyToken)|\(surface.rawValue)") {
@@ -269,6 +323,34 @@ struct RootView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+        // Crown-mode LED quick-action: a compact vitals panel (route, hosts,
+        // refresh). The Connect corner still opens the full ConnectionView.
+        .sheet(isPresented: $showVitals) {
+            CrownVitalsPanel(model: model)
+        }
+        // Crown pro gesture (long-hold + slide up): the tail as a sheet, so it
+        // works even when the home tail module is switched off.
+        .sheet(isPresented: $showTailSheet) {
+            TailSurface(
+                model: model,
+                isActive: showTailSheet,
+                reloadToken: model.fleetDataReadyToken
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $notificationLandingRoute) { route in
+            NotificationLandingSheet(
+                model: model,
+                route: route,
+                onOpenHome: {
+                    notificationLandingRoute = nil
+                    selectSurface(.home)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         // Settings is a full page, not a card sheet — the shell carries its own
         // close control, so present it edge-to-edge.
         .fullScreenCover(isPresented: $showSettings) {
@@ -290,6 +372,13 @@ struct RootView: View {
             // `SCOUT_CROWN=collapsed` starts crown mode collapsed for the paired capture.
             if ProcessInfo.processInfo.environment["SCOUT_CROWN"] == "collapsed" {
                 crownAssembled = false
+            }
+            // `SCOUT_OPEN_VITALS=1` opens the LED vitals panel for capture.
+            if ProcessInfo.processInfo.environment["SCOUT_OPEN_VITALS"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showVitals = true
+                }
             }
             if ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS"] != nil {
                 let delayMilliseconds = Int(
@@ -473,6 +562,33 @@ struct RootView: View {
                 at: 1
             )
         }
+        return items
+    }
+
+    /// Trailing run of the CROWN-mode status line (summon-only): a trimmed
+    /// fleet rollup. No FETCHED age — the operator rates seconds-since-fetch
+    /// the least useful measure, and the vitals panel carries staleness. The
+    /// phone also drops the host count (the LED right above already carries
+    /// it); the wide canvas has the room and keeps it.
+    private func crownStatsReadouts(_ layout: ScoutLayoutMetrics) -> [StatusReadout] {
+        var items: [StatusReadout] = []
+        let machineTotal = model.pairedMachines.count
+        if layout.physicalWidth >= 700, machineTotal > 0 {
+            let online = model.pairedMachines.filter(\.isOnline).count
+            items.append(
+                StatusReadout(
+                    label: "\(online)/\(machineTotal) online",
+                    tint: online > 0 ? HudPalette.accent : ScoutInk.dim
+                )
+            )
+        }
+        items.append(StatusReadout(label: pluralized(model.agentCount, "agent"), tint: ScoutInk.muted))
+        items.append(
+            StatusReadout(
+                label: "\(model.activeAgentCount) active",
+                tint: model.activeAgentCount > 0 ? HudPalette.accent : ScoutInk.dim
+            )
+        )
         return items
     }
 

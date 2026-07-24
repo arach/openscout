@@ -92,9 +92,9 @@ struct MissionControlSurface: View {
         // Bundled pages are the normal iPad development path. Keep the old
         // host-served page available only as an explicit troubleshooting
         // escape hatch while the adapter-backed renderer migration continues.
-        ProcessInfo.processInfo.environment["SCOUT_REMOTE_WEB_SURFACES"] != "1"
+        return ProcessInfo.processInfo.environment["SCOUT_REMOTE_WEB_SURFACES"] != "1"
         #else
-        false
+        return false
         #endif
     }
 
