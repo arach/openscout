@@ -35,6 +35,7 @@ const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
 const lanBeaconSuppressPredicates: Array<() => boolean | Promise<boolean>> = [];
 const testDirectories = new Set<string>();
 let scoutBrokerContextResult: unknown = null;
+let loadScoutBrokerContextCalls = 0;
 let scoutBrokerMessagesResult: Array<Record<string, unknown>> | null = null;
 let scoutBrokerHomeResult: Record<string, unknown> | null = null;
 let scoutBrokerSnapshotResult: Record<string, unknown> | null = null;
@@ -203,7 +204,10 @@ mock.module("./pairing-lan-beacon.ts", () => ({
 
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
-  loadScoutBrokerContext: async () => scoutBrokerContextResult,
+  loadScoutBrokerContext: async () => {
+    loadScoutBrokerContextCalls += 1;
+    return scoutBrokerContextResult;
+  },
   loadScoutReadCursors: async () => ({}),
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
   markScoutConversationRead: async () => null,
@@ -695,6 +699,7 @@ beforeEach(() => {
   querySessionByIdImpl = () => null;
   queryConversationDefinitionByIdImpl = () => null;
   scoutBrokerContextResult = null;
+  loadScoutBrokerContextCalls = 0;
   scoutBrokerMessagesResult = null;
   scoutBrokerHomeResult = null;
   scoutBrokerSnapshotResult = null;
@@ -1570,6 +1575,23 @@ describe("createOpenScoutWebServer", () => {
         },
       },
     });
+    scoutBrokerHomeResult = {
+      updatedAt: 1_700_000_200_000,
+      agents: [{
+        id: "weather-a2a.local",
+        title: "Weather A2A Agent",
+        role: null,
+        summary: null,
+        projectRoot: null,
+        state: "available",
+        reachable: true,
+        statusLabel: "Available",
+        statusDetail: null,
+        activeTask: null,
+        lastSeenAt: 1_700_000_200_000,
+      }],
+      activity: [],
+    };
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
@@ -1581,6 +1603,7 @@ describe("createOpenScoutWebServer", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(loadScoutBrokerContextCalls).toBe(0);
     const agents = await response.json() as Array<Record<string, unknown>>;
     expect(agents).toHaveLength(1);
     expect(agents[0]).toMatchObject({
@@ -1589,8 +1612,8 @@ describe("createOpenScoutWebServer", () => {
       updatedAt: 1_700_000_200_000,
     });
     expect(agents[0]).not.toHaveProperty("brokerActivity");
-    expect(agents[0]).toHaveProperty("authorityProfile");
-    expect(agents[0]).toHaveProperty("runtimePolicy");
+    expect(agents[0]).not.toHaveProperty("authorityProfile");
+    expect(agents[0]).not.toHaveProperty("runtimePolicy");
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {

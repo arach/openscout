@@ -72,6 +72,7 @@ export interface ScoutContextValue {
   navigate: (r: Route, options?: NavigateOptions) => void;
 
   agents: Agent[];
+  agentsLoaded: boolean;
   onlineCount: number;
   apiConnection: ApiConnectionState;
 
@@ -259,6 +260,7 @@ export function ScoutProvider({
   const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const locationState = useBrowserLocation().state;
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
     status: "checking",
     message: null,
@@ -402,7 +404,7 @@ export function ScoutProvider({
   const reloadEventTimerRef = useRef<number | null>(null);
   const agentInventoryUrl = route.view === "ops"
     ? "/api/agents"
-    : "/api/agents?detail=summary&attention=1";
+    : "/api/agents?detail=summary";
 
   const markApiOnline = useCallback(() => {
     setApiConnection({
@@ -435,6 +437,8 @@ export function ScoutProvider({
         markApiOnline();
       } catch (cause) {
         markApiFailure(cause);
+      } finally {
+        setAgentsLoaded(true);
       }
     })();
 
@@ -573,7 +577,7 @@ export function ScoutProvider({
 
   const value = useMemo<ScoutContextValue>(
     () => ({
-      route, navigate, agents, onlineCount, apiConnection, reload,
+      route, navigate, agents, agentsLoaded, onlineCount, apiConnection, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
@@ -584,7 +588,7 @@ export function ScoutProvider({
       openContextCapture, closeContextCapture,
     }),
     [
-      route, navigate, agents, onlineCount, apiConnection, reload,
+      route, navigate, agents, agentsLoaded, onlineCount, apiConnection, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,

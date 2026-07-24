@@ -47,6 +47,35 @@
   color: var(--ink);
 }
 
+.base-rail-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg) var(--space-md);
+}
+
+.base-rail-loading span {
+  display: block;
+  width: 82%;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  animation: base-rail-loading-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.base-rail-loading span:nth-child(2n) {
+  width: 61%;
+}
+
+@keyframes base-rail-loading-pulse {
+  from { opacity: 0.45; }
+  to { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .base-rail-loading span { animation: none; }
+}
+
 /* Jump-offs row */
 
 .base-rail-section--jumps {

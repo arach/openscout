@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "../../lib/api.ts";
+import { api, peekApiGet } from "../../lib/api.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -21,6 +21,12 @@ import "./agents-screen.css";
 import "../ops/ops-atop.css";
 import "../ops/ops-screen.css";
 
+const CONVERSATIONS_PATH = "/api/conversations";
+const FLEET_PATH = "/api/fleet";
+const DISCOVERY_PATH = "/api/tail/discover";
+const TOPOLOGY_PATH = "/api/topology/snapshot?force=1";
+const ROUTE_CACHE_MAX_AGE_MS = 30_000;
+
 export function AgentsScreen({
   navigate,
   selectedAgentId,
@@ -34,11 +40,22 @@ export function AgentsScreen({
   tab?: AgentTab;
   activeRoute?: Route;
 }) {
-  const { agents, route } = useScout();
-  const [sessions, setSessions] = useState<SessionEntry[]>([]);
-  const [fleet, setFleet] = useState<FleetState | null>(null);
-  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
-  const [topologySnapshot, setTopologySnapshot] = useState<HarnessTopologySnapshot | null>(null);
+  const { agents, agentsLoaded, route } = useScout();
+  const [sessions, setSessions] = useState<SessionEntry[]>(() =>
+    peekApiGet<SessionEntry[]>(CONVERSATIONS_PATH, ROUTE_CACHE_MAX_AGE_MS) ?? [],
+  );
+  const [fleet, setFleet] = useState<FleetState | null>(() =>
+    peekApiGet<FleetState>(FLEET_PATH, ROUTE_CACHE_MAX_AGE_MS),
+  );
+  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(() =>
+    peekApiGet<TailDiscoverySnapshot>(DISCOVERY_PATH, ROUTE_CACHE_MAX_AGE_MS),
+  );
+  const [topologySnapshot, setTopologySnapshot] = useState<HarnessTopologySnapshot | null>(() =>
+    peekApiGet<HarnessTopologySnapshot>(TOPOLOGY_PATH, ROUTE_CACHE_MAX_AGE_MS),
+  );
+  const [loading, setLoading] = useState(() =>
+    peekApiGet<SessionEntry[]>(CONVERSATIONS_PATH, ROUTE_CACHE_MAX_AGE_MS) === null,
+  );
   const machineId = routeMachineId(route);
   const scopedAgents = useMemo(
     () => filterAgentsByMachineScope(agents, machineId),
@@ -47,15 +64,16 @@ export function AgentsScreen({
 
   const load = useCallback(async () => {
     const [sessionsResult, fleetResult, discoveryResult, topologyResult] = await Promise.allSettled([
-      api<SessionEntry[]>("/api/conversations"),
-      api<FleetState>("/api/fleet"),
-      api<TailDiscoverySnapshot>("/api/tail/discover"),
-      api<HarnessTopologySnapshot>("/api/topology/snapshot?force=1"),
+      api<SessionEntry[]>(CONVERSATIONS_PATH),
+      api<FleetState>(FLEET_PATH),
+      api<TailDiscoverySnapshot>(DISCOVERY_PATH),
+      api<HarnessTopologySnapshot>(TOPOLOGY_PATH),
     ]);
     if (sessionsResult.status === "fulfilled") setSessions(sessionsResult.value);
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
     if (discoveryResult.status === "fulfilled") setDiscovery(discoveryResult.value);
     if (topologyResult.status === "fulfilled") setTopologySnapshot(topologyResult.value);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -140,6 +158,7 @@ export function AgentsScreen({
           sessions={sessions}
           discovery={discovery}
           topologySnapshot={topologySnapshot}
+          loading={!agentsLoaded || loading}
           navigate={navigate}
           selectedAgentId={selectedAgent?.id ?? selectedAgentId}
         />

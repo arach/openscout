@@ -153,6 +153,7 @@ function TerminalEmbedScoutProvider({
     route,
     navigate,
     agents,
+    agentsLoaded: apiConnection.status !== "checking",
     onlineCount,
     apiConnection,
     reload,

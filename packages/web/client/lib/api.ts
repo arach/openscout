@@ -4,6 +4,8 @@ type ApiTextResponse = {
 };
 
 const inFlightGets = new Map<string, Promise<ApiTextResponse>>();
+const settledGets = new Map<string, { response: ApiTextResponse; receivedAt: number }>();
+const MAX_SETTLED_GETS = 32;
 
 function formatResponsePreview(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -58,6 +60,30 @@ async function fetchApiText(path: string, init?: RequestInit): Promise<ApiTextRe
 
 export function clearApiGetCache(): void {
   inFlightGets.clear();
+  settledGets.clear();
+}
+
+function rememberSettledGet(key: string, response: ApiTextResponse): void {
+  settledGets.delete(key);
+  settledGets.set(key, { response, receivedAt: Date.now() });
+  while (settledGets.size > MAX_SETTLED_GETS) {
+    const oldestKey = settledGets.keys().next().value;
+    if (typeof oldestKey !== "string") break;
+    settledGets.delete(oldestKey);
+  }
+}
+
+/**
+ * Synchronously read a recent successful GET response. Route components use
+ * this to paint their last-known data on remount while their normal background
+ * refresh runs; writes and regular api() reads never consume stale data.
+ */
+export function peekApiGet<T>(path: string, maxAgeMs: number, init?: RequestInit): T | null {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" || init?.body || maxAgeMs <= 0) return null;
+  const cached = settledGets.get(requestKey(path, init));
+  if (!cached || Date.now() - cached.receivedAt > maxAgeMs) return null;
+  return parseApiResponse<T>(path, cached.response.text, cached.response.contentType);
 }
 
 /** Typed fetch wrapper for Scout API endpoints. */
@@ -74,6 +100,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const existing = inFlightGets.get(key);
   if (existing) {
     const response = await existing;
+    rememberSettledGet(key, response);
     return parseApiResponse<T>(path, response.text, response.contentType);
   }
 
@@ -82,6 +109,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   try {
     const response = await request;
+    rememberSettledGet(key, response);
     return parseApiResponse<T>(path, response.text, response.contentType);
   } finally {
     inFlightGets.delete(key);

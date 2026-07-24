@@ -129,6 +129,8 @@ import {
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
   type ScoutBrokerContext,
+  type ScoutBrokerHomeAgentRecord,
+  type ScoutBrokerHomePayload,
   sendScoutConversationMessage,
   sendScoutConversationSteer,
   sendScoutDirectMessage,
@@ -2306,12 +2308,86 @@ function agentListSummary(agent: WebAgent) {
   };
 }
 
+const AGENT_HOME_SUMMARY_FRESH_MS = 10_000;
+const AGENT_HOME_SUMMARY_MAX_STALE_MS = 60_000;
+const AGENT_HOME_SUMMARY_COLD_BUDGET_MS = 75;
+
+function createAgentBrokerHomeReader(
+  load: () => Promise<ScoutBrokerHomePayload | null> = () => readScoutBrokerHome(),
+): () => Promise<ScoutBrokerHomePayload | null> {
+  let cached: { value: ScoutBrokerHomePayload; fetchedAt: number } | null = null;
+  let refresh: Promise<ScoutBrokerHomePayload | null> | null = null;
+
+  return async () => {
+    const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+    if (cached && age <= AGENT_HOME_SUMMARY_FRESH_MS) return cached.value;
+    if (!refresh) {
+      refresh = load()
+        .then((value) => {
+          if (value) cached = { value, fetchedAt: Date.now() };
+          return value;
+        })
+        .catch(() => null)
+        .finally(() => {
+          refresh = null;
+        });
+    }
+    if (cached && age <= AGENT_HOME_SUMMARY_MAX_STALE_MS) return cached.value;
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), AGENT_HOME_SUMMARY_COLD_BUDGET_MS);
+    });
+    return Promise.race([refresh, timeout]);
+  };
+}
+
+function brokerHomeAgentToWebAgent(agent: ScoutBrokerHomeAgentRecord): WebAgent {
+  return {
+    id: agent.id,
+    definitionId: agent.id,
+    name: agent.title,
+    handle: null,
+    agentClass: "general",
+    harness: null,
+    state: agent.state,
+    projectRoot: compactPath(agent.projectRoot),
+    cwd: compactPath(agent.projectRoot),
+    updatedAt: agent.lastSeenAt,
+    createdAt: null,
+    transport: null,
+    selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
+    wakePolicy: null,
+    capabilities: [],
+    project: projectNameFromRoot(agent.projectRoot),
+    branch: null,
+    role: agent.role,
+    model: null,
+    harnessSessionId: null,
+    terminalSurface: null,
+    harnessLogPath: null,
+    conversationId: null,
+    authorityNodeId: null,
+    authorityNodeName: null,
+    homeNodeId: null,
+    homeNodeName: null,
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
+  };
+}
+
 async function queryAgentsIncludingBrokerCards(
   limit?: number,
   includeAttention = true,
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
   loadBrokerContext: () => Promise<ScoutBrokerContext | null> = () =>
     loadScoutBrokerContext().catch(() => null),
+  loadBrokerHome: () => Promise<ScoutBrokerHomePayload | null> = createAgentBrokerHomeReader(),
 ): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
@@ -2320,8 +2396,27 @@ async function queryAgentsIncludingBrokerCards(
   // among the newest database rows.
   const databaseLimit = limit === undefined ? undefined : limit + archivedIds.size;
   const agents = queryAgents(databaseLimit)
-    .map(withResolvedHarnessSessionIdentity)
+    .map((agent) => includeAttention ? withResolvedHarnessSessionIdentity(agent) : agent)
     .filter((agent) => !archivedIds.has(agent.id));
+  if (!includeAttention) {
+    // Keep the frequently-polled roster off the broker's full snapshot and
+    // terminal-attention paths. SQLite remains authoritative for full agent
+    // metadata; compact home data supplies broker-only cards without transferring
+    // message history or building the terminal-attention index.
+    const home = await loadBrokerHome();
+    const brokerAgents = home
+      ? home.agents
+          .filter((agent) => !archivedIds.has(agent.id))
+          .map(brokerHomeAgentToWebAgent)
+      : [];
+    const brokerById = new Map(brokerAgents.map((agent) => [agent.id, agent]));
+    const mergedAgents = agents.map((agent) => mergeBrokerAgentProjection(agent, brokerById.get(agent.id)));
+    const existingIds = new Set(mergedAgents.map((agent) => agent.id));
+    return mostRecentAgents([
+      ...mergedAgents,
+      ...brokerAgents.filter((agent) => !existingIds.has(agent.id)),
+    ], limit);
+  }
   const broker = await loadBrokerContext();
   // The HUD's first page is deliberately a summary read. The full attention
   // index opens the pairing bridge and can take seconds on a busy machine, so
@@ -4321,6 +4416,7 @@ export async function createOpenScoutWebServer(
     shellTtl,
   );
   const agentBrokerContextReader = createAgentBrokerContextReader();
+  const agentBrokerHomeReader = createAgentBrokerHomeReader();
   const dispatchBrokerSnapshotCache = createCachedSnapshot(async () => {
     const baseUrl = resolveScoutBrokerUrl();
     const signal = AbortSignal.timeout(2_000);
@@ -4968,6 +5064,7 @@ export async function createOpenScoutWebServer(
       includeAttention,
       options.captureTmuxPane ?? defaultCaptureTmuxPane,
       agentBrokerContextReader,
+      agentBrokerHomeReader,
     );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });

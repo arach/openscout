@@ -43,6 +43,7 @@ export type DataTableProps<Row, K extends string = string> = {
   rowBindings?: (id: string) => Record<string, unknown>;
   rowState?: (id: string) => { isActive: boolean; isPinned: boolean };
   empty?: { title: string; body?: string };
+  loading?: boolean;
   rowClassName?: (row: Row) => string | undefined;
   density?: "compact" | "comfortable";
   className?: string;
@@ -149,6 +150,7 @@ export function DataTable<Row, K extends string = string>({
   rowBindings,
   rowState,
   empty = { title: "No rows" },
+  loading = false,
   rowClassName,
   density = "comfortable",
   className,
@@ -217,7 +219,7 @@ export function DataTable<Row, K extends string = string>({
 
   return (
     <div className={`dt-wrap dt-wrap--${density}${className ? ` ${className}` : ""}`}>
-      <table className="dt-table" aria-label={ariaLabel}>
+      <table className="dt-table" aria-label={ariaLabel} aria-busy={loading || undefined}>
         <thead>
           <tr>
             {normalizedColumns.map((column) => {
@@ -267,7 +269,21 @@ export function DataTable<Row, K extends string = string>({
           </tr>
         </thead>
         <tbody>
-          {sortedRows.length === 0 ? (
+          {loading && sortedRows.length === 0 ? (
+            <tr className="dt-loading-row">
+              <td colSpan={normalizedColumns.length}>
+                <div className="dt-loading" role="status" aria-label={`Loading ${ariaLabel.toLowerCase()}`}>
+                  {Array.from({ length: 7 }, (_, index) => (
+                    <div className="dt-loading-line" key={index} aria-hidden="true">
+                      {normalizedColumns.map((column) => (
+                        <span key={column.key} style={{ width: `${Math.min(column.defaultWidth, 220)}px` }} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ) : sortedRows.length === 0 ? (
             <tr className="dt-empty-row">
               <td colSpan={normalizedColumns.length}>
                 <div className="dt-empty">

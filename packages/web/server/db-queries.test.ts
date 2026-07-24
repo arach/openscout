@@ -26,6 +26,7 @@ import {
   queryWorkItems,
 } from "./db-queries.ts";
 import { SQLiteControlPlaneStore } from "../../runtime/src/sqlite-store.ts";
+import { directChannelNaturalKey } from "../../protocol/src/channel-identity.ts";
 
 const tempRoots = new Set<string>();
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
@@ -1213,6 +1214,55 @@ describe("web db message filtering", () => {
 });
 
 describe("web db query agents", () => {
+  test("resolves direct conversations for an agent list in one batch", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertActor({ id: "agent-2", kind: "agent", displayName: "Agent Two" });
+      store.upsertAgent({
+        id: "agent-2",
+        kind: "agent",
+        definitionId: "agent-2",
+        displayName: "Agent Two",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "dm.operator.agent-1",
+        kind: "direct",
+        title: "Agent One",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-1"],
+        metadata: { naturalKey: directChannelNaturalKey(["operator", "agent-1"]) },
+      });
+      store.upsertConversation({
+        id: "dm.operator.agent-2",
+        kind: "direct",
+        title: "Agent Two",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-2"],
+        metadata: { naturalKey: directChannelNaturalKey(["operator", "agent-2"]) },
+      });
+
+      expect(new Map(queryAgents(10).map((agent) => [agent.id, agent.conversationId]))).toEqual(
+        new Map([
+          ["agent-1", "dm.operator.agent-1"],
+          ["agent-2", "dm.operator.agent-2"],
+        ]),
+      );
+    } finally {
+      store.close();
+    }
+  });
+
   test("returns one row per agent using the latest endpoint and normalized state", () => {
     const store = createSeededStore();
 
