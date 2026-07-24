@@ -5,7 +5,6 @@ import {
   DEFAULT_TERMINAL_RELAY_PATH,
   DEFAULT_TERMINAL_RELAY_HEALTH_PATH,
   DEFAULT_TERMINAL_RUN_PATH,
-  DEFAULT_VANTAGE_OPEN_PATH,
   DEFAULT_VITE_HMR_PATH,
   normalizeRoutePath,
 } from "../../shared/runtime-config.js";
@@ -13,7 +12,6 @@ import {
 type ScoutBootstrapRoutes = {
   healthPath?: string;
   terminalRunPath?: string;
-  vantageOpenPath?: string;
   terminalRelayPath?: string;
   terminalRelayHealthPath?: string;
   tailStreamPath?: string;
@@ -40,7 +38,6 @@ declare global {
 const ROUTE_DEFAULTS = {
   healthPath: DEFAULT_HEALTH_PATH,
   terminalRunPath: DEFAULT_TERMINAL_RUN_PATH,
-  vantageOpenPath: DEFAULT_VANTAGE_OPEN_PATH,
   terminalRelayPath: DEFAULT_TERMINAL_RELAY_PATH,
   terminalRelayHealthPath: DEFAULT_TERMINAL_RELAY_HEALTH_PATH,
   tailStreamPath: DEFAULT_TAIL_STREAM_PATH,

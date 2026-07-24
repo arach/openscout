@@ -217,12 +217,6 @@
       "import": "./dist/harness-topology/index.js",
       "default": "./dist/harness-topology/index.js"
     },
-    "./vantage-plan": {
-      "bun": "./src/vantage-plan.ts",
-      "types": "./dist/vantage-plan.d.ts",
-      "import": "./dist/vantage-plan.js",
-      "default": "./dist/vantage-plan.js"
-    },
     "./conversations": {
       "bun": "./src/conversations/index.ts",
       "types": "./dist/conversations/index.d.ts",

@@ -42,7 +42,7 @@ enum ScoutRepoSample {
           "root": "/Users/art/dev/hudson",
           "commonGitDir": "/Users/art/dev/hudson/.git",
           "attention": "critical",
-          "attentionReasons": ["merge conflicts in main", "vantage worktree scan failed"],
+          "attentionReasons": ["merge conflicts in main", "studio worktree scan failed"],
           "stats": {
             "worktrees": 2, "dirtyWorktrees": 1, "conflictedWorktrees": 1,
             "attachedAgents": 1, "attachedSessions": 0,
@@ -74,9 +74,9 @@ enum ScoutRepoSample {
               "error": null
             },
             {
-              "id": "wt:hudson-vantage",
-              "path": "/Users/art/dev/hudson/apps/vantage",
-              "name": "vantage",
+              "id": "wt:hudson-studio",
+              "path": "/Users/art/dev/hudson/examples/studio-app",
+              "name": "studio",
               "isBare": false,
               "branch": { "name": null, "upstream": null, "head": "deadbeef12", "detached": true, "ahead": 0, "behind": 0, "isMain": false, "diverged": false },
               "status": { "clean": true, "staged": 0, "unstaged": 0, "untracked": 0, "conflicts": 0, "changedFiles": 0, "files": [] },
