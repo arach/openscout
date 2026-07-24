@@ -393,6 +393,13 @@
   opacity: 0.9;
 }
 
+.rr-row-worktree {
+  flex: none;
+  display: inline-flex;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
 .rr-row-actions {
   position: absolute;
   right: 6px;
