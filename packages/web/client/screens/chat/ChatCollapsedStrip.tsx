@@ -112,8 +112,17 @@ export function ChatCollapsedStrip() {
     navigate({ view: "messages", conversationId: s.id } satisfies Route);
   };
 
+  const unreadCount = chips.filter(({ session: s }) =>
+    isUnread(s.lastMessageAt, s.id, lastViewed),
+  ).length;
+
   return (
-    <CollapsedStrip label="Chat" emptyMark="#">
+    <CollapsedStrip
+      label="Chat"
+      emptyMark="#"
+      labelTone={unreadCount > 0 ? "accent" : "default"}
+      labelCount={unreadCount > 0 ? unreadCount : chips.length || undefined}
+    >
       {chips.map(({ session: s, pinned }) => {
         const title = conversationDisplayTitle(s);
         const channel = isGroupConversation(s);

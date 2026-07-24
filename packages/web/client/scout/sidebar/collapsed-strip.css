@@ -10,26 +10,101 @@
   box-sizing: border-box;
 }
 
+/* ── Section label pill (CollapsedStripLabel) ─────────────────────────── */
 .collapsed-strip-label {
+  --csl-ink: color-mix(in srgb, var(--hud-ink, var(--ink)) 58%, transparent);
+  --csl-bg: color-mix(in srgb, var(--hud-ink, var(--ink)) 5%, transparent);
+  --csl-edge: color-mix(in srgb, var(--hud-ink, var(--ink)) 10%, transparent);
+  --csl-mark: color-mix(in srgb, var(--hud-ink, var(--ink)) 28%, transparent);
+
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 34px;
+  margin: 0 0 2px;
+  padding: 5px 3px 4px;
+  border: 1px solid var(--csl-edge);
+  border-radius: 8px;
+  background: var(--csl-bg);
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.collapsed-strip-label-mark {
+  flex: none;
+  width: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--csl-mark);
+}
+
+.collapsed-strip-label-text {
+  display: block;
   max-width: 100%;
-  padding: 2px 2px 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   text-align: center;
-  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 48%, transparent);
-  user-select: none;
-  line-height: 1.15;
+  color: var(--csl-ink);
+  line-height: 1.1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.collapsed-strip-label-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hud-ink, var(--ink)) 8%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--csl-ink);
+  line-height: 1;
+}
+
+/* Tones */
+.collapsed-strip-label--accent {
+  --csl-ink: color-mix(in srgb, var(--hud-accent, var(--accent)) 88%, var(--hud-ink, var(--ink)));
+  --csl-bg: color-mix(in srgb, var(--hud-accent, var(--accent)) 10%, transparent);
+  --csl-edge: color-mix(in srgb, var(--hud-accent, var(--accent)) 28%, transparent);
+  --csl-mark: var(--hud-accent, var(--accent));
+}
+
+.collapsed-strip-label--attention {
+  --csl-ink: color-mix(in srgb, var(--amber, #e6b84d) 80%, var(--hud-ink, var(--ink)));
+  --csl-bg: color-mix(in srgb, var(--amber, #e6b84d) 10%, transparent);
+  --csl-edge: color-mix(in srgb, var(--amber, #e6b84d) 32%, transparent);
+  --csl-mark: var(--amber, #e6b84d);
+}
+
+.collapsed-strip-label--live {
+  --csl-ink: color-mix(in srgb, var(--green, #4ade80) 78%, var(--hud-ink, var(--ink)));
+  --csl-bg: color-mix(in srgb, var(--green, #4ade80) 9%, transparent);
+  --csl-edge: color-mix(in srgb, var(--green, #4ade80) 28%, transparent);
+  --csl-mark: var(--green, #4ade80);
+}
+
+.collapsed-strip-label--accent .collapsed-strip-label-count,
+.collapsed-strip-label--attention .collapsed-strip-label-count,
+.collapsed-strip-label--live .collapsed-strip-label-count {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: inherit;
+}
+
 .collapsed-strip--empty {
-  opacity: 0.45;
+  opacity: 0.9;
   padding-top: 8px;
 }
 

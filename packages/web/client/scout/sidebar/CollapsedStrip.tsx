@@ -5,31 +5,78 @@ import type { CSSProperties, ReactNode } from "react";
 import "./collapsed-strip.css";
 
 export type CollapsedChipTone = "default" | "channel" | "neutral" | "attention" | "unread";
+export type CollapsedLabelTone = "default" | "accent" | "attention" | "live";
+
+/**
+ * Compact section label for the 48px collapsed rail — pill + mono caption,
+ * optional count. Use inside `CollapsedStrip` or alone.
+ */
+export function CollapsedStripLabel({
+  children,
+  count,
+  tone = "default",
+  title,
+}: {
+  children: string;
+  /** Optional tabular count under the name (e.g. unread / item total). */
+  count?: number | string;
+  tone?: CollapsedLabelTone;
+  title?: string;
+}) {
+  return (
+    <div
+      className={[
+        "collapsed-strip-label",
+        tone !== "default" && `collapsed-strip-label--${tone}`,
+        count != null && "collapsed-strip-label--has-count",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={title ?? children}
+    >
+      <span className="collapsed-strip-label-mark" aria-hidden />
+      <span className="collapsed-strip-label-text">{children}</span>
+      {count != null ? (
+        <span className="collapsed-strip-label-count">{count}</span>
+      ) : null}
+    </div>
+  );
+}
 
 export function CollapsedStrip({
   label,
   emptyMark = "·",
-  /** When true (default), render a small mono caption above the chips. */
+  /** When true (default), render a pill caption above the chips. */
   showLabel = true,
+  labelTone = "default",
+  labelCount,
   children,
 }: {
   label: string;
   emptyMark?: string;
   showLabel?: boolean;
+  labelTone?: CollapsedLabelTone;
+  labelCount?: number | string;
   children: ReactNode;
 }) {
   const empty = !children || (Array.isArray(children) && children.length === 0);
+  const caption = showLabel ? (
+    <CollapsedStripLabel tone={labelTone} count={labelCount}>
+      {label}
+    </CollapsedStripLabel>
+  ) : null;
+
   if (empty) {
     return (
       <div className="collapsed-strip collapsed-strip--empty" aria-hidden>
-        {showLabel ? <span className="collapsed-strip-label">{label}</span> : null}
+        {caption}
         <span className="collapsed-strip-empty-mark">{emptyMark}</span>
       </div>
     );
   }
   return (
     <div className="collapsed-strip" role="list" aria-label={label}>
-      {showLabel ? <div className="collapsed-strip-label">{label}</div> : null}
+      {caption}
       {children}
     </div>
   );

@@ -106,7 +106,7 @@ export function InspectorCollapsedBody() {
   }
 
   return (
-    <CollapsedStrip label="Inspector" emptyMark="i">
+    <CollapsedStrip label="Detail" emptyMark="i" labelTone="default">
       {chips.map((c) => (
         <CollapsedChip
           key={c.key}
@@ -178,7 +178,12 @@ function HomeCollapsedStrip() {
   }, [scopedAgents, attentionAgents]);
 
   return (
-    <CollapsedStrip label="Home" emptyMark="H">
+    <CollapsedStrip
+      label="Home"
+      emptyMark="H"
+      labelTone={attentionAgents.length > 0 ? "attention" : "default"}
+      labelCount={attentionAgents.length > 0 ? attentionAgents.length : undefined}
+    >
       {attentionAgents.map((agent) => (
         <AgentChip
           key={`att-${agent.id}`}
@@ -227,8 +232,15 @@ function ProjectsCollapsedStrip() {
       .slice(0, LIMIT);
   }, [scoped]);
 
+  const needsTotal = projects.reduce((n, p) => n + p.needs, 0);
+
   return (
-    <CollapsedStrip label="Projects" emptyMark="P">
+    <CollapsedStrip
+      label="Projects"
+      emptyMark="P"
+      labelTone={needsTotal > 0 ? "attention" : "default"}
+      labelCount={needsTotal > 0 ? needsTotal : projects.length || undefined}
+    >
       {projects.map((p) => (
         <CollapsedChip
           key={p.name}
@@ -263,7 +275,12 @@ function TerminalCollapsedStrip() {
   const activeKey = route.view === "terminal" ? route.terminalSurfaceKey ?? null : null;
 
   return (
-    <CollapsedStrip label="Terminals" emptyMark="T">
+    <CollapsedStrip
+      label="Term"
+      emptyMark="T"
+      labelTone={items.length > 0 ? "live" : "default"}
+      labelCount={items.length || undefined}
+    >
       {items.map((item) => (
         <CollapsedChip
           key={item.key}
@@ -296,7 +313,7 @@ function OpsCollapsedStrip() {
   ];
 
   return (
-    <CollapsedStrip label="Ops" emptyMark="O">
+    <CollapsedStrip label="Ops" emptyMark="O" labelTone="default">
       {items.map((item) => (
         <CollapsedChip
           key={item.id}
@@ -327,8 +344,15 @@ function MeshCollapsedStrip() {
     [buckets],
   );
 
+  const onlineCount = top.filter((b) => b.online).length;
+
   return (
-    <CollapsedStrip label="Machines" emptyMark="M">
+    <CollapsedStrip
+      label="Mesh"
+      emptyMark="M"
+      labelTone={onlineCount > 0 ? "live" : "default"}
+      labelCount={top.length || undefined}
+    >
       {top.map((b) => (
         <CollapsedChip
           key={b.machineId}
