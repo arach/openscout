@@ -102,6 +102,7 @@ export type ScoutbotWebServices = {
   credentials: ReturnType<typeof createScoutbotCredentialStore>;
   resolveOpenAIApiKey: () => Promise<string | undefined>;
   runner: ScoutbotRunnerHandle | null;
+  waitForRunner: () => Promise<ScoutbotRunnerHandle | null>;
   loadFleetHomeBrief: (force?: boolean) => Promise<FleetHomeBrief>;
   stopRunner: () => Promise<void>;
 };
@@ -757,17 +758,40 @@ export async function createScoutbotWebServices(
       ?? createDefaultScoutbotCodexInvoker(currentDirectory),
   });
   let scoutbotRunner: ScoutbotRunnerHandle | null = null;
-  if (options.scoutbot?.enabled) {
-    try {
-      scoutbotRunner = await startScoutbotRunner({
+  let scoutbotRunnerStart: Promise<ScoutbotRunnerHandle | null> | null = null;
+  let scoutbotRunnerStopRequested = false;
+  const startRunnerIfNeeded = (): Promise<ScoutbotRunnerHandle | null> => {
+    if (!options.scoutbot?.enabled || scoutbotRunnerStopRequested) {
+      return Promise.resolve(null);
+    }
+    if (scoutbotRunner) return Promise.resolve(scoutbotRunner);
+    if (scoutbotRunnerStart) return scoutbotRunnerStart;
+
+    // Runner discovery and registration can inspect every saved agent and
+    // project. Keep it fully lazy so merely starting the HTTP server never
+    // schedules that optional scan on the request-serving event loop.
+    scoutbotRunnerStart = startScoutbotRunner({
         brokerBaseUrl: options.scoutbot.brokerBaseUrl,
         currentDirectory,
+      })
+      .then(async (runner) => {
+        if (scoutbotRunnerStopRequested) {
+          await runner.stop();
+          return null;
+        }
+        scoutbotRunner = runner;
+        return runner;
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[scoutbot] runner failed to start: ${message}`);
+        return null;
+      })
+      .finally(() => {
+        scoutbotRunnerStart = null;
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[scoutbot] runner failed to start: ${message}`);
-    }
-  }
+    return scoutbotRunnerStart;
+  };
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
@@ -799,10 +823,15 @@ export async function createScoutbotWebServices(
     return fleetHomeBriefInFlight;
   };
   const stopRunner = async () => {
+    scoutbotRunnerStopRequested = true;
+    if (scoutbotRunnerStart) await scoutbotRunnerStart;
     if (!scoutbotRunner) return;
     const runner = scoutbotRunner;
     scoutbotRunner = null;
     await runner.stop();
+  };
+  const waitForRunner = async () => {
+    return startRunnerIfNeeded();
   };
 
   return {
@@ -810,7 +839,10 @@ export async function createScoutbotWebServices(
     reminders: scoutbotReminders,
     credentials: scoutbotCredentials,
     resolveOpenAIApiKey,
-    runner: scoutbotRunner,
+    get runner() {
+      return scoutbotRunner;
+    },
+    waitForRunner,
     loadFleetHomeBrief,
     stopRunner,
   };

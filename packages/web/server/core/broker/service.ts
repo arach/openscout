@@ -91,6 +91,17 @@ export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
 
+const DEFAULT_SCOUT_BROKER_SNAPSHOT_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_SCOUT_BROKER_SNAPSHOT_BUCKET_MS = 60 * 1_000;
+const SCOUT_BROKER_CONTEXT_CACHE_TTL_MS = 5_000;
+
+type ScoutBrokerContextCacheEntry = {
+  expiresAt: number;
+  promise: Promise<ScoutBrokerContext | null>;
+};
+
+const scoutBrokerContextCache = new Map<string, ScoutBrokerContextCacheEntry>();
+
 export type ScoutBrokerContext = {
   baseUrl: string;
   node: ScoutBrokerNodeRecord;
@@ -1068,25 +1079,56 @@ export async function recordScoutBrokerReadCursor(
 
 export async function loadScoutBrokerContext(
   baseUrl = resolveScoutBrokerUrl(),
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; since?: number | null } = {},
 ): Promise<ScoutBrokerContext | null> {
-  const health = await readScoutBrokerHealth(baseUrl, { signal: options.signal });
-  if (!health.reachable || !health.ok) {
-    return null;
+  const since = options.since === undefined
+    ? Math.floor(
+        (Date.now() - DEFAULT_SCOUT_BROKER_SNAPSHOT_WINDOW_MS)
+        / DEFAULT_SCOUT_BROKER_SNAPSHOT_BUCKET_MS,
+      ) * DEFAULT_SCOUT_BROKER_SNAPSHOT_BUCKET_MS
+    : options.since;
+  const cacheKey = options.signal
+    ? null
+    : [baseUrl, resolveBrokerSocketPathForBaseUrl(baseUrl) ?? "http", since ?? "full"].join("\u0000");
+  const cached = cacheKey ? scoutBrokerContextCache.get(cacheKey) : null;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
   }
 
-  try {
-    const [node, snapshot] = await Promise.all([
-      brokerReadJson<ScoutBrokerNodeRecord>(baseUrl, scoutBrokerPaths.v1.node, { signal: options.signal }),
-      brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot, { signal: options.signal }),
-    ]);
-    if (!node.id) {
+  const promise = (async () => {
+    const health = await readScoutBrokerHealth(baseUrl, { signal: options.signal });
+    if (!health.reachable || !health.ok) {
       return null;
     }
-    return { baseUrl, node, snapshot };
-  } catch {
-    return null;
+    const snapshotPath = since && since > 0
+      ? `${scoutBrokerPaths.v1.snapshot}?since=${Math.trunc(since)}`
+      : scoutBrokerPaths.v1.snapshot;
+    try {
+      const [node, snapshot] = await Promise.all([
+        brokerReadJson<ScoutBrokerNodeRecord>(baseUrl, scoutBrokerPaths.v1.node, { signal: options.signal }),
+        brokerReadJson<ScoutBrokerSnapshot>(baseUrl, snapshotPath, { signal: options.signal }),
+      ]);
+      if (!node.id || !snapshot) {
+        return null;
+      }
+      return { baseUrl, node, snapshot };
+    } catch {
+      return null;
+    }
+  })();
+
+  if (cacheKey) {
+    scoutBrokerContextCache.set(cacheKey, {
+      expiresAt: Date.now() + SCOUT_BROKER_CONTEXT_CACHE_TTL_MS,
+      promise,
+    });
+    void promise.then((context) => {
+      if (!context && scoutBrokerContextCache.get(cacheKey)?.promise === promise) {
+        scoutBrokerContextCache.delete(cacheKey);
+      }
+    });
   }
+  return promise;
 }
 
 export async function requireScoutBrokerContext(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerContext> {

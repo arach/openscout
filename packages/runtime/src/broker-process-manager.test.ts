@@ -32,12 +32,12 @@ import {
 } from "./broker-process-manager";
 
 const config: BrokerServiceConfig = {
-  label: "dev.openscout",
+  label: "app.openscout",
   mode: "dev",
   uid: 501,
   domainTarget: "gui/501",
-  serviceTarget: "gui/501/dev.openscout",
-  launchAgentPath: "/Users/arach/Library/LaunchAgents/dev.openscout.plist",
+  serviceTarget: "gui/501/app.openscout",
+  launchAgentPath: "/Users/arach/Library/LaunchAgents/app.openscout.plist",
   supportDirectory: "/Users/arach/Library/Application Support/OpenScout",
   runtimeDirectory: "/Users/arach/Library/Application Support/OpenScout/runtime",
   logsDirectory: "/Users/arach/Library/Application Support/OpenScout/logs/broker",
@@ -321,7 +321,7 @@ describe("broker service scoutd adapter", () => {
 describe("runScoutdServiceCommand shell-out", () => {
   test("parses scoutd JSON into the normalized status shape", async () => {
     const status = {
-      label: "dev.openscout",
+      label: "app.openscout",
       mode: "dev",
       installed: true,
       loaded: true,
@@ -389,7 +389,7 @@ describe("runScoutdServiceCommand shell-out", () => {
       return JSON.stringify(status);
     }));
 
-    expect(result.label).toBe("dev.openscout");
+    expect(result.label).toBe("app.openscout");
     expect(result.mode).toBe("dev");
     expect(result.installed).toBe(true);
     expect(result.loaded).toBe(true);

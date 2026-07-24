@@ -38,6 +38,10 @@ const currentDirectory = resolveOpenScoutSetupContextRoot({
   fallbackDirectory: process.cwd(),
 });
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
+const providerTelemetryBootstrapEnabled =
+  process.env.OPENSCOUT_WEB_PROVIDER_TELEMETRY_BOOTSTRAP?.trim() === "1";
+const startupWarmupEnabled =
+  process.env.OPENSCOUT_WEB_STARTUP_WARMUP?.trim() === "1";
 const routes = resolveOpenScoutWebRoutes(process.env);
 
 function resolveStaticRoot(): string | undefined {
@@ -130,9 +134,6 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
   terminalRelay = null;
   return startTerminalRelay();
 }
-
-void startTerminalRelay();
-void bootstrapProviderTelemetry();
 
 const web = await createOpenScoutWebServer({
   currentDirectory,
@@ -297,4 +298,9 @@ process.on("SIGTERM", (signal) => { void shutdown(signal); });
 console.log(`OpenScout Web -> http://${hostname}:${server.port}`);
 console.log(`OpenScout URL -> ${applicationServerIdentity.publicOrigin ?? `http://${applicationServerIdentity.advertisedHost}:${server.port}`}`);
 console.log(`Relay WebSocket -> ws://${hostname}:${server.port}${routes.terminalRelayPath}`);
-setTimeout(() => void warmupCaches(), 5_000).unref?.();
+if (startupWarmupEnabled) {
+  setTimeout(() => void warmupCaches(), 5_000).unref?.();
+}
+if (providerTelemetryBootstrapEnabled) {
+  setTimeout(() => void bootstrapProviderTelemetry(), 30_000).unref?.();
+}

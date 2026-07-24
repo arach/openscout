@@ -542,6 +542,35 @@ describe("broker JSON transport", () => {
     }
   });
 
+  test("rejects when a Unix socket response is aborted before the JSON body completes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "openscout-broker-api-"));
+    const socketPath = join(dir, "broker.sock");
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.write('{"ok":');
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => resolve());
+    });
+
+    try {
+      await expect(requestScoutBrokerJson<{ ok: boolean }>(
+        "http://127.0.0.1:1",
+        "/health",
+        {
+          socketPath,
+          signal: AbortSignal.timeout(25),
+        },
+      )).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await unlink(socketPath).catch(() => undefined);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("falls back to HTTP when the configured Unix socket is absent", async () => {
     const dir = await mkdtemp(join(tmpdir(), "openscout-broker-api-"));
     const socketPath = join(dir, "missing.sock");

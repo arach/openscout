@@ -25,7 +25,7 @@ const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 // Existing control-plane datasets can take well over 15 seconds to open before
 // the broker binds its health socket. Keep service start/restart bounded, but
 // allow the same readiness window used by the full restart orchestrator.
-const START_TIMEOUT: Duration = Duration::from_secs(60);
+const START_TIMEOUT: Duration = Duration::from_secs(120);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 // Graceful window scoutd gives each child (base, probe) before SIGKILL. Set above
 // base's worst-case subtree shutdown (~14s: broker 8s + kill wait + caddy) so base
@@ -235,9 +235,9 @@ impl Config {
         let label = env_nonempty("OPENSCOUT_SERVICE_LABEL")
             .or_else(|| env_nonempty("OPENSCOUT_BROKER_SERVICE_LABEL"))
             .unwrap_or_else(|| match service_mode.as_str() {
-                "prod" => "com.openscout".to_string(),
-                "custom" => "com.openscout.custom".to_string(),
-                _ => "dev.openscout".to_string(),
+                "prod" => "app.openscout".to_string(),
+                "custom" => "app.openscout.custom".to_string(),
+                _ => "app.openscout".to_string(),
             });
         let default_support_directory = home.join("Library/Application Support/OpenScout");
         let support_directory = non_tmp_path_or_default(
