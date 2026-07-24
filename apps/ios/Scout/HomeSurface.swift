@@ -7,10 +7,12 @@ import ScoutIOSCore
 /// Home — the ambient fleet dashboard. A faithful native port of the
 /// `Scout Mobile.html` canvas: a compact vitals strip with a live sparkline, an
 /// attention band (Needs you), the Working strip, the broker Activity log, the
-/// recent terminal readout, and a docked "Ask the fleet" composer.
+/// recent terminal readout, the "Ask the fleet" composer, and a compact running
+/// TAIL as the last scroll section — everything in one flow that runs through
+/// behind the crown chrome (no protected bottom zone).
 ///
-/// Data provenance: Needs you / Working / Activity / the sparkline are real
-/// broker reads. The dock opens the real New-session composer.
+/// Data provenance: Needs you / Working / Activity / the sparkline / the tail
+/// are real broker reads. The dock opens the real New-session composer.
 struct HomeSurface: View {
     let model: AppModel
     let motionEnabled: Bool
@@ -24,10 +26,6 @@ struct HomeSurface: View {
     var onCompose: () -> Void = {}
     var onConnect: () -> Void = {}
     var reloadToken: Int = 0
-    /// Crown navigation replaces the docked tab bar with a floating assembly in
-    /// the bottom reserve; the pinned composer lifts off the reserve so it clears
-    /// the crown corner glyphs. Tabs mode passes false and is pixel-unchanged.
-    var crownMode: Bool = false
 
     @State private var agents: [HomeAgent] = []
     @State private var isLoading = true
@@ -37,8 +35,10 @@ struct HomeSurface: View {
     @State private var agentsScopeKey: String?
     @State private var activityScopeKey: String?
     @State private var lastActivityReadFailed = false
+    @State private var tailEvents: [TailEvent] = []
+    @State private var tailLoaded = false
+    @State private var tailIsFetching = false
     @StateObject private var entrance = CockpitEntrancePhase()
-    @AppStorage("scout.home.terminals.expanded") private var terminalsExpanded = false
 
     private enum HomeConversationRoute: Hashable, Identifiable {
         case session(id: String, title: String)
@@ -98,6 +98,14 @@ struct HomeSurface: View {
                         notConnectedState
                             .cockpitEntrance(index: 3, phase: entrance, motionEnabled: motionEnabled)
                     }
+                    if !model.recentTerminals.isEmpty {
+                        terminalsSection
+                            .cockpitEntrance(index: 4, phase: entrance, motionEnabled: motionEnabled)
+                    }
+                    askSection
+                        .cockpitEntrance(index: 5, phase: entrance, motionEnabled: motionEnabled)
+                    tailSection
+                        .cockpitEntrance(index: 6, phase: entrance, motionEnabled: motionEnabled)
                 }
             }
             .frame(width: laneWidth, alignment: .leading)
@@ -107,7 +115,6 @@ struct HomeSurface: View {
             .padding(.top, layout.surfaceTopPadding)
             .padding(.bottom, HudSpacing.md)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { bottomDock }
         .animation(.easeOut(duration: 0.22), value: isLoading)
         .refreshable { if isActive { await load() } }
         .task(id: "\(reloadKey)|\(isActive)") {
@@ -119,6 +126,18 @@ struct HomeSurface: View {
                 if Task.isCancelled { break }
                 guard route == nil else { continue }
                 await load()
+            }
+        }
+        // The tail runs on the Tail surface's faster cadence — Home's own 30s
+        // reload would leave it feeling stale.
+        .task(id: "tail|\(reloadKey)|\(isActive)") {
+            guard isActive else { return }
+            await fetchTail()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                guard route == nil else { continue }
+                await fetchTail()
             }
         }
         .navigationDestination(item: $route) { route in
@@ -316,117 +335,139 @@ struct HomeSurface: View {
         }
     }
 
-    // MARK: - Bottom dock (Terminals strip + Ask-the-fleet CTA)
-
-    /// The pinned bottom of Home: a terminal-y Terminals strip (when there are
-    /// sessions) directly above the Ask-the-fleet call-to-action. One soft
-    /// bottom-up fade backs both so scroll content dissolves beneath them.
-    private var bottomDock: some View {
-        VStack(spacing: HudSpacing.sm) {
-            if !model.recentTerminals.isEmpty { terminalsStrip }
-            askDock
-        }
-        .padding(.top, HudSpacing.sm)
-        .padding(.bottom, crownMode ? CrownMetric.homeComposerLift : 0)
-        .background(
-            LinearGradient(
-                colors: [HudPalette.bg, HudPalette.bg, HudPalette.bg.opacity(0)],
-                startPoint: .bottom, endPoint: .top
-            )
-            .allowsHitTesting(false)
-        )
-    }
+    // MARK: - In-flow bottom sections (Terminals, Ask, Tail)
 
     /// Recent terminal (harness) sessions as a row of small terminal-y wells: a
     /// metadata line (harness · session · live/age) over a CLI prompt line showing
     /// the resume command. Display-only — a truthful readout, not a fake attach.
-    private var terminalsStrip: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        terminalsExpanded.toggle()
+    /// In-flow in the scroll lane now — nothing is pinned above the crown.
+    private var terminalsSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            laneHeader("Terminals", count: model.recentTerminals.count)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: HudSpacing.sm) {
+                    ForEach(model.recentTerminals) { terminal in
+                        TerminalTile(terminal: terminal)
                     }
-                } label: {
-                    HStack(spacing: HudSpacing.xs) {
-                        Text("TERMINALS")
-                            .font(HudFont.mono(9, weight: .bold))
-                            .tracking(1.5)
-                        Text("\(model.recentTerminals.count)")
-                            .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                            .monospacedDigit()
-                        Spacer(minLength: 0)
-                        Image(systemName: terminalsExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .foregroundStyle(ScoutInk.dim)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Terminals, \(model.recentTerminals.count)")
-                .accessibilityValue(terminalsExpanded ? "Expanded" : "Collapsed")
-
-                if terminalsExpanded {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: HudSpacing.sm) {
-                            ForEach(model.recentTerminals) { terminal in
-                                TerminalTile(terminal: terminal)
-                            }
-                        }
-                        .padding(.vertical, 1)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
+                .padding(.vertical, 1)
             }
             .frame(width: laneWidth, alignment: .leading)
-            Spacer(minLength: 0)
         }
-        .padding(.leading, layout.surfacePadding)
     }
 
     /// Ask-the-fleet — the standing call-to-action to start something with the
     /// fleet. Taps through to the New composer (a real action, not a mock field).
-    private var askDock: some View {
-        HStack(spacing: 0) {
-            Button(action: onCompose) {
-                HStack(spacing: HudSpacing.sm) {
-                    Image(systemName: "mic")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(ScoutInk.dim)
-                        .frame(width: 20, height: 26)
-                    Text("Ask the fleet…")
-                        .font(HudFont.ui(HudTextSize.sm))
-                        .foregroundStyle(ScoutInk.dim)
-                    Spacer(minLength: 0)
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(HudPalette.bg)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(ScoutVibe.accent))
+    private var askSection: some View {
+        Button(action: onCompose) {
+            HStack(spacing: HudSpacing.sm) {
+                Image(systemName: "mic")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(ScoutInk.dim)
+                    .frame(width: 20, height: 26)
+                Text("Ask the fleet…")
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(ScoutInk.dim)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(HudPalette.bg)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(ScoutVibe.accent))
+            }
+            .padding(.leading, HudSpacing.md)
+            .padding(.trailing, HudSpacing.xs)
+            .padding(.vertical, HudSpacing.xs)
+            .background(
+                Capsule().fill(ScoutVibe.card)
+            )
+            .overlay(
+                Capsule().stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
+            )
+            .overlay {
+                if identityEnabled {
+                    FleetLampEdge(isLive: isFleetLive)
                 }
-                .padding(.leading, HudSpacing.md)
-                .padding(.trailing, HudSpacing.xs)
-                .padding(.vertical, HudSpacing.xs)
-                .background(
-                    Capsule().fill(ScoutVibe.card)
-                )
-                .overlay(
-                    Capsule().stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin)
-                )
-                .overlay {
-                    if identityEnabled {
-                        FleetLampEdge(isLive: isFleetLive)
+            }
+            .frame(width: laneWidth)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ask the fleet")
+    }
+
+    /// The running tail — the cross-agent event log as Home's LAST section, free
+    /// to flow through behind the crown chrome. Bare rows on the canvas in the
+    /// Tail surface's grammar (time · kind glyph · summary), newest at the
+    /// bottom, refreshed on the same cadence as the Tail surface.
+    private var tailSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            laneHeader("Tail", detail: tailDetailLabel, signal: ScoutVibe.accent)
+            VStack(spacing: 0) {
+                ForEach(tailEvents) { event in
+                    HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                        Text(Self.tailClockFormatter.string(from: Date(timeIntervalSince1970: Double(event.tsMs) / 1_000)))
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(ScoutInk.dim)
+                            .frame(width: 54, alignment: .leading)
+                        Text(tailKindGlyph(event.kind))
+                            .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                            .foregroundStyle(tailKindColor(event.kind))
+                            .fixedSize()
+                        Text(event.summary)
+                            .font(HudFont.mono(HudTextSize.xs))
+                            .foregroundStyle(HudPalette.ink)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, HudSpacing.xs)
+                    .overlay(alignment: .bottom) {
+                        HudDivider(color: HudHairline.subtle)
                     }
                 }
-                .frame(width: laneWidth)
-                .contentShape(Capsule())
+                if tailEvents.isEmpty, tailLoaded {
+                    Text("No recent events")
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutInk.dim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, HudSpacing.xs)
+                }
             }
-            .buttonStyle(.plain)
-            Spacer(minLength: 0)
         }
-        .padding(.leading, layout.surfacePadding)
-        .padding(.bottom, HudSpacing.sm)
-        .accessibilityLabel("Ask the fleet")
+    }
+
+    private var tailDetailLabel: String? {
+        guard tailLoaded else { return "loading" }
+        return "live"
+    }
+
+    private static let tailClockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private func tailKindGlyph(_ kind: TailEvent.Kind) -> String {
+        switch kind {
+        case .user: return ">"
+        case .assistant: return "<"
+        case .tool: return "*"
+        case .toolResult: return "="
+        case .system: return "~"
+        case .other: return "·"
+        }
+    }
+
+    private func tailKindColor(_ kind: TailEvent.Kind) -> Color {
+        switch kind {
+        case .user: return Color(red: 0.50, green: 0.68, blue: 0.95)
+        case .assistant: return Color(red: 0.45, green: 0.78, blue: 0.55)
+        case .tool: return Color(red: 0.88, green: 0.62, blue: 0.38)
+        case .toolResult: return Color(red: 0.52, green: 0.72, blue: 0.70)
+        case .system: return ScoutInk.muted
+        case .other: return ScoutInk.dim
+        }
     }
 
     // MARK: - Activity
@@ -650,6 +691,41 @@ struct HomeSurface: View {
         await model.refreshFleetStats()
         isLoading = false
         await entrance.reveal(when: isActive, animated: instrumentMotionIsActive)
+    }
+
+    /// Home's compact tail: the newest few cross-agent events across all readable
+    /// machines, newest LAST so the section reads like a running log. Same merge
+    /// discipline as the Tail surface, smaller window.
+    private func fetchTail() async {
+        guard !tailIsFetching else { return }
+        tailIsFetching = true
+        defer { tailIsFetching = false }
+
+        let machines = model.agentMachines()
+        var snapshot: [TailEvent] = []
+        var sawRead = false
+        for machine in machines {
+            guard let client = machine.client else { continue }
+            if let rows = try? await client.recentTail(limit: 20) {
+                sawRead = true
+                snapshot.append(contentsOf: rows)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        guard sawRead else { return }
+
+        let newestFirst = snapshot.sorted {
+            if $0.tsMs == $1.tsMs { return $0.id > $1.id }
+            return $0.tsMs > $1.tsMs
+        }
+        // The wide canvas has the vertical room — let the log run further down
+        // toward the chrome instead of stopping short with dead canvas below.
+        let cap = layout.physicalWidth >= 700 ? 16 : 8
+        let next = Array(newestFirst.prefix(cap).reversed())
+        if next.map(\.id) != tailEvents.map(\.id) {
+            tailEvents = next
+        }
+        tailLoaded = true
     }
 }
 
@@ -1226,7 +1302,20 @@ private struct WorkingCard: View {
             .padding(HudSpacing.md)
             .frame(width: 172, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(ScoutVibe.card))
+            // Machined top rim light (the crown treatment): a crisp lit lip so
+            // the card reads raised, not taped-on.
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(isLive ? 0.16 : 0.10), .clear],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: HudStrokeWidth.thin
+                    )
+            }
             .overlay(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).stroke(ScoutVibe.hairline, lineWidth: HudStrokeWidth.thin))
+            .shadow(color: .black.opacity(0.35), radius: 6, y: 3)
             .contentShape(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous))
         }
         .buttonStyle(.plain)
