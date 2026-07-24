@@ -11,9 +11,15 @@ let cache: SessionEntry[] | null = null;
 let inflight: Promise<SessionEntry[]> | null = null;
 let lastError: string | null = null;
 const listeners = new Set<Listener>();
+const EMPTY_CONVERSATIONS: SessionEntry[] = [];
 
 export function getCachedConversations(): SessionEntry[] | null {
   return cache;
+}
+
+/** React external-store snapshots must preserve identity until the store changes. */
+export function getConversationListSnapshot(): SessionEntry[] {
+  return cache ?? EMPTY_CONVERSATIONS;
 }
 
 export function getConversationListError(): string | null {
