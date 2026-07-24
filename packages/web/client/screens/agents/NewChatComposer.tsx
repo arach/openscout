@@ -9,7 +9,18 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { FileText, Loader2, Search } from "lucide-react";
+import {
+  ArrowUpRight,
+  FileText,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Quote,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   MessageComposer,
   type MessageComposerDictationStatus,
@@ -20,6 +31,7 @@ import {
   type ContextCaptureDraft,
 } from "../../lib/context-capture-draft.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
+import { routeMachineId, routePath } from "../../lib/router.ts";
 import {
   dataTransferMayContainFiles,
   isRoutableMediaFile,
@@ -43,6 +55,11 @@ import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
 type SubmitPhase = "idle" | "uploading" | "starting";
+
+type ComposerContextItem = {
+  label: string;
+  value: string;
+};
 
 function previewUrl(file: File): string {
   return URL.createObjectURL(file);
@@ -102,10 +119,37 @@ function AttachmentPreview({
   );
 }
 
+function formatContextBody(message: string, context: ComposerContextItem[]): string {
+  const parts: string[] = [];
+  for (const item of context) {
+    if (!item.value.trim()) continue;
+    if (item.label === "Page" || item.label === "URL") {
+      parts.push(`${item.label}: ${item.value.trim()}`);
+    } else {
+      parts.push(
+        `${item.label}:\n${item.value
+          .trim()
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n")}`,
+      );
+    }
+  }
+  const trimmedMessage = message.trim();
+  if (trimmedMessage) {
+    parts.push(trimmedMessage);
+  }
+  return parts.join("\n\n");
+}
+
 /**
  * Route a capture or start a fresh conversation. Pick the agent, choose
  * existing chat vs new session when available, attach screenshots/videos, and
  * land in the message tab with the broker delivery already sent.
+ *
+ * The layout mirrors the Studio Scout drawer: a context sidebar (page, URL,
+ * selection, notes) beside the shared MessageComposer. Context is folded into
+ * the outgoing message body so routing/session semantics stay unchanged.
  */
 export function NewChatComposer({
   agents,
@@ -179,6 +223,57 @@ export function NewChatComposer({
   const dragDepthRef = useRef(0);
   const projectSelectionTouchedRef = useRef(Boolean(initialProjectPath));
 
+  // Studio-style context stays additive to project-based routing: the
+  // selected page, browser selection, and operator notes are folded into the
+  // first message without changing the broker's launch semantics.
+  const [selection, setSelection] = useState("");
+  const [notes, setNotes] = useState<string[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [pageTitle] = useState(() =>
+    typeof document !== "undefined" ? document.title || "OpenScout" : "OpenScout"
+  );
+  const [pageUrl, setPageUrl] = useState(() =>
+    typeof window !== "undefined" ? window.location.href : ""
+  );
+  const [appliedContext, setAppliedContext] = useState<ComposerContextItem[]>([]);
+
+  useEffect(() => {
+    const rememberSelection = () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+      const next = window.getSelection()?.toString().trim() ?? "";
+      if (next) setSelection(next.slice(0, 1_200));
+    };
+    document.addEventListener("selectionchange", rememberSelection);
+    return () => document.removeEventListener("selectionchange", rememberSelection);
+  }, []);
+
+  const draftContext = useMemo<ComposerContextItem[]>(() => {
+    const items: ComposerContextItem[] = [
+      { label: "Page", value: pageTitle },
+      { label: "URL", value: pageUrl },
+    ];
+    if (selection) items.push({ label: "Selection", value: selection });
+    notes.forEach((note, index) => items.push({ label: `Note ${index + 1}`, value: note }));
+    return items.filter((item) => item.value);
+  }, [notes, pageTitle, pageUrl, selection]);
+
+  const contextChanged = JSON.stringify(draftContext) !== JSON.stringify(appliedContext);
+
+  useEffect(() => {
+    setAppliedContext(draftContext);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const onPopState = () => setPageUrl(window.location.href);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const applyContextUpdate = useCallback(() => {
+    setAppliedContext(draftContext);
+  }, [draftContext]);
+
   const projectTargets = useMemo(
     () => buildProjectLaunchTargets(
       configuration?.projects ?? [],
@@ -217,7 +312,15 @@ export function NewChatComposer({
   const isDraggingFiles = dragDepth > 0;
   const canUseExistingChat = projectMatchesRouteAgent
     && Boolean(routeAgent?.conversationId || initialConversationId || routeContext.conversationId);
-  const title = hasAttachments ? "Route capture" : "New chat";
+  const machineId = routeMachineId(route);
+  const agentConversationRoute: Route | null = routeAgent?.conversationId
+    ? {
+        view: "conversation",
+        conversationId: routeAgent.conversationId,
+        ...(machineId ? { machineId } : {}),
+      }
+    : null;
+  const title = hasAttachments ? "Route capture" : "New message";
   const committedMessage = message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
@@ -449,6 +552,13 @@ export function NewChatComposer({
     }
   };
 
+  function addNote() {
+    const note = noteDraft.trim();
+    if (!note || notes.length >= 8) return;
+    setNotes((current) => [...current, note.slice(0, 2_000)]);
+    setNoteDraft("");
+  }
+
   const start = async () => {
     if ((!selectedProject && !routeAgent) || isStarting) return;
     setState("starting");
@@ -461,13 +571,15 @@ export function NewChatComposer({
         setPhase("starting");
       }
 
+      const body = formatContextBody(message, appliedContext);
+
       if (hasAttachments && routeAgent && canUseExistingChat && mode === "existing-chat") {
         const resolvedMode = mode === "existing-chat" && canUseExistingChat
           ? "existing-chat"
           : "new-session";
         const result = await routeCaptureToAgent(routeAgent, {
           mode: resolvedMode,
-          message: committedMessage,
+          message: body,
           attachments,
         });
         navigate({
@@ -485,8 +597,8 @@ export function NewChatComposer({
         ? await startProjectSession({
             projectPath: selectedProject.root,
             harness: selectedProject.defaultHarness,
-            ...(committedMessage
-              ? { instructions: committedMessage }
+            ...(body
+              ? { instructions: body }
               : hasAttachments
                 ? { instructions: "Shared capture for context." }
                 : {}),
@@ -494,9 +606,9 @@ export function NewChatComposer({
           })
         : await startAgentSession(
             routeAgent!,
-            committedMessage || attachments.length > 0
+            body || attachments.length > 0
               ? {
-                  ...(committedMessage ? { instructions: committedMessage } : {}),
+                  ...(body ? { instructions: body } : {}),
                   ...(attachments.length > 0 ? { attachments } : {}),
                 }
               : undefined,
@@ -546,24 +658,48 @@ export function NewChatComposer({
         tabIndex={-1}
       >
         <header className="s-newchat-head">
-          <span className="s-newchat-title">{title}</span>
+          <div className="s-newchat-head-ident">
+            <MessageSquareText size={15} aria-hidden="true" />
+            <div>
+              <span className="s-newchat-title">{title}</span>
+              <span className="s-newchat-subtitle">
+                {selectedProject ? `/${selectedProject.title}` : routeAgent?.name ?? "Pick a project"}
+              </span>
+            </div>
+          </div>
           <div className="s-newchat-head-status">
             <span role="status" aria-live="polite">
               {dictationCloseReason ? "" : preservationNotice}
             </span>
             <span role="alert">{dictationCloseReason}</span>
           </div>
-          <button
-            type="button"
-            className="s-newchat-close"
-            onClick={requestClose}
-            disabled={isStarting}
-            aria-disabled={Boolean(dictationCloseReason) || undefined}
-            aria-label={dictationCloseReason ?? "Close (Esc)"}
-            title={dictationCloseReason ?? "Close (Esc)"}
-          >
-            ✕
-          </button>
+          <div className="s-newchat-head-actions">
+            {agentConversationRoute ? (
+              <a
+                href={routePath(agentConversationRoute)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate(agentConversationRoute);
+                  onClose();
+                }}
+                className="s-newchat-head-link"
+                aria-label="Open agent chat"
+              >
+                <ArrowUpRight size={14} />
+              </a>
+            ) : null}
+            <button
+              type="button"
+              className="s-newchat-close"
+              onClick={requestClose}
+              disabled={isStarting}
+              aria-disabled={Boolean(dictationCloseReason) || undefined}
+              aria-label={dictationCloseReason ?? "Close (Esc)"}
+              title={dictationCloseReason ?? "Close (Esc)"}
+            >
+              <X size={15} />
+            </button>
+          </div>
         </header>
 
         {isDraggingFiles ? (
@@ -573,7 +709,8 @@ export function NewChatComposer({
         ) : null}
 
         <div className="s-newchat-body">
-          <div className="s-newchat-field">
+          <section className="s-newchat-routing">
+            <div className="s-newchat-field">
             <label className="s-newchat-field-label" htmlFor="s-newchat-project-search">Project</label>
             <div className="s-newchat-project-picker">
               <Search size={13} aria-hidden="true" className="s-newchat-project-search-icon" />
@@ -666,95 +803,171 @@ export function NewChatComposer({
             </div>
           )}
 
-          {projectLoadError && projectTargets.length === 0 ? (
-            <div className="s-newchat-error" role="alert">{projectLoadError}</div>
-          ) : null}
+          </section>
 
-          {hasAttachments && canUseExistingChat ? (
-            <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
+          {/* Studio-style attached context */}
+          <section className="s-newchat-context">
+            <div className="s-newchat-context-eyebrow">Attached context</div>
+            <div className="s-newchat-context-list">
+              {draftContext.map((item, index) => {
+                const noteIndex = item.label.startsWith("Note ")
+                  ? Number.parseInt(item.label.slice(5), 10) - 1
+                  : -1;
+                return (
+                  <div key={`${item.label}:${index}`} className="s-newchat-context-card">
+                    <div className="s-newchat-context-card-head">
+                      <span>{item.label}</span>
+                      {item.label === "Selection" || noteIndex >= 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.label === "Selection") setSelection("");
+                            else setNotes((current) => current.filter((_, candidate) => candidate !== noteIndex));
+                          }}
+                          aria-label={item.label === "Selection" ? "Remove selected text" : `Remove ${item.label.toLowerCase()}`}
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      ) : null}
+                    </div>
+                    <p>{item.value}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="s-newchat-context-note">
+              <label htmlFor="newchat-context-note">
+                <Quote size={10} aria-hidden="true" /> Add a note
+              </label>
+              <textarea
+                id="newchat-context-note"
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    addNote();
+                  }
+                }}
+                rows={3}
+                maxLength={2_000}
+                placeholder="Decision, constraint, or question…"
+                disabled={isStarting}
+              />
               <button
                 type="button"
-                className={`s-newchat-mode-btn${mode === "existing-chat" ? " s-newchat-mode-btn--on" : ""}`}
-                disabled={isStarting}
-                onClick={() => setMode("existing-chat")}
+                onClick={addNote}
+                disabled={!noteDraft.trim() || notes.length >= 8 || isStarting}
               >
-                Existing chat
+                <Plus size={10} aria-hidden="true" /> Add note
               </button>
+            </div>
+
+            {contextChanged ? (
               <button
                 type="button"
-                className={`s-newchat-mode-btn${mode === "new-session" ? " s-newchat-mode-btn--on" : ""}`}
+                onClick={applyContextUpdate}
+                className="s-newchat-context-update"
                 disabled={isStarting}
-                onClick={() => setMode("new-session")}
               >
-                New chat
+                <RefreshCw size={10} aria-hidden="true" /> Update context
               </button>
-            </div>
-          ) : null}
+            ) : null}
+          </section>
 
-          {files.length > 0 ? (
-            <div className="s-newchat-attachments" aria-label="Attached captures">
-              {files.map((file, index) => (
-                <AttachmentPreview
-                  key={`${file.name}:${file.size}:${index}`}
-                  file={file}
-                  onRemove={() => setFiles((current) => current.filter((_, i) => i !== index))}
-                />
-              ))}
-            </div>
-          ) : null}
+          {/* Composer */}
+          <section className="s-newchat-composer">
+            {projectLoadError && projectTargets.length === 0 ? (
+              <div className="s-newchat-error" role="alert">{projectLoadError}</div>
+            ) : null}
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            disabled={isStarting}
-            onChange={(event) => {
-              addFiles([...(event.target.files ?? [])]);
-              event.target.value = "";
-            }}
-          />
-          {attachmentFeedback ? (
-            <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
-              {attachmentFeedback}
-            </div>
-          ) : null}
-
-          {error && <div className="s-newchat-error" role="alert">{error}</div>}
-          {isStarting && (
-            <div className="s-newchat-progress" role="status" aria-live="polite">
-              <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
-              <div className="s-newchat-progress-copy">
-                <span className="s-newchat-progress-title">{phaseLabel}</span>
-                <span className="s-newchat-progress-detail">{progressDetail}</span>
-                {committedMessage && (
-                  <span className="s-newchat-progress-message">{committedMessage}</span>
-                )}
+            {hasAttachments && canUseExistingChat ? (
+              <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
+                <button
+                  type="button"
+                  className={`s-newchat-mode-btn${mode === "existing-chat" ? " s-newchat-mode-btn--on" : ""}`}
+                  disabled={isStarting}
+                  onClick={() => setMode("existing-chat")}
+                >
+                  Existing chat
+                </button>
+                <button
+                  type="button"
+                  className={`s-newchat-mode-btn${mode === "new-session" ? " s-newchat-mode-btn--on" : ""}`}
+                  disabled={isStarting}
+                  onClick={() => setMode("new-session")}
+                >
+                  New chat
+                </button>
               </div>
-            </div>
-          )}
+            ) : null}
 
-          <MessageComposer
-            density="panel"
-            value={message}
-            onChange={setMessage}
-            onSend={() => void start()}
-            textareaRef={textRef}
-            placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
-            disabled={isStarting || (!selectedProject && !routeAgent)}
-            sending={isStarting}
-            canSend={Boolean(selectedProject || routeAgent) && !isStarting}
-            onDictationStatusChange={setDictationStatus}
-            showAttach
-            onAttach={() => fileInputRef.current?.click()}
-            attachTitle="Attach file — or paste / drop"
-            attachAriaLabel="Attach file"
-            sendTitle={hasAttachments ? "Route (Cmd+Enter)" : "Start chat (Cmd+Enter)"}
-            sendAriaLabel={hasAttachments ? "Route capture" : "Start chat"}
-            tools={(
-              <span className="s-msg-compose-tools-hint" aria-hidden="true">⌘↵</span>
+            {files.length > 0 ? (
+              <div className="s-newchat-attachments" aria-label="Attached captures">
+                {files.map((file, index) => (
+                  <AttachmentPreview
+                    key={`${file.name}:${file.size}:${index}`}
+                    file={file}
+                    onRemove={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              disabled={isStarting}
+              onChange={(event) => {
+                addFiles([...(event.target.files ?? [])]);
+                event.target.value = "";
+              }}
+            />
+            {attachmentFeedback ? (
+              <div className="s-newchat-attachment-feedback" role="status" aria-live="polite">
+                {attachmentFeedback}
+              </div>
+            ) : null}
+
+            {error && <div className="s-newchat-error" role="alert">{error}</div>}
+            {isStarting && (
+              <div className="s-newchat-progress" role="status" aria-live="polite">
+                <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
+                <div className="s-newchat-progress-copy">
+                  <span className="s-newchat-progress-title">{phaseLabel}</span>
+                  <span className="s-newchat-progress-detail">{progressDetail}</span>
+                  {committedMessage && (
+                    <span className="s-newchat-progress-message">{committedMessage}</span>
+                  )}
+                </div>
+              </div>
             )}
-          />
+
+            <MessageComposer
+              density="panel"
+              value={message}
+              onChange={setMessage}
+              onSend={() => void start()}
+              textareaRef={textRef}
+              placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
+              disabled={isStarting || (!selectedProject && !routeAgent)}
+              sending={isStarting}
+              canSend={Boolean(selectedProject || routeAgent) && !isStarting}
+              onDictationStatusChange={setDictationStatus}
+              showAttach
+              onAttach={() => fileInputRef.current?.click()}
+              attachTitle="Attach file — or paste / drop"
+              attachAriaLabel="Attach file"
+              sendTitle={hasAttachments ? "Route (Cmd+Enter)" : "Start chat (Cmd+Enter)"}
+              sendAriaLabel={hasAttachments ? "Route capture" : "Start chat"}
+              tools={(
+                <span className="s-msg-compose-tools-hint" aria-hidden="true">⌘↵</span>
+              )}
+            />
+          </section>
         </div>
       </div>
     </div>
