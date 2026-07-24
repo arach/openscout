@@ -12,6 +12,7 @@
 		0C108ED9BC912B95D9C107A5 /* WebSurfaces in Resources */ = {isa = PBXBuildFile; fileRef = A93C0A052854DF158E6F267C /* WebSurfaces */; };
 		109D78896721BD92A860051C /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCACC27493279D3F73F7112 /* AppSettingsView.swift */; };
 		11202BD4A0AC58ECA7DD9896 /* ConversationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAECB6E30580F94A5B1C2EB8 /* ConversationSurface.swift */; };
+		12856A540C87EC1A00C63BAC /* ComposerKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8933E55164CF59F7C7E73C8 /* ComposerKit.swift */; };
 		14F08F2F75CF5F96EA75BEE5 /* TailSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB98C7CE1E51DB391A2D819A /* TailSurface.swift */; };
 		303328DF199EE1CE7C92FF06 /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249B0F2A9EE4C13ECCA19AF9 /* StatusBar.swift */; };
 		326E75ED261973A9CD055271 /* ResponsiveFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D794A6F847385880257434 /* ResponsiveFrame.swift */; };
@@ -27,6 +28,7 @@
 		741F2DAB4801448A9F10E6A4 /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = F960FAE5750A226F975A1D4A /* ScoutCapabilities */; };
 		85B694654037EF9C27946559 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 40896C5C3766C4916251E5A6 /* Assets.xcassets */; };
 		9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */; };
+		9AFD3A2D7E8A36B31474BE5F /* ModelPickerPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */; };
 		9BDEC97D48105B41E523268A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A316466B11B7AC47D040624 /* ConnectionView.swift */; };
 		B4ABFE9168E650E489CB69B9 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DFB2A1CDEC721D8EA6132A /* Theme.swift */; };
 		B5906155C97B01F118DD0A6A /* HudsonTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 786902EB94C9072D331CC743 /* HudsonTerminal */; };
@@ -72,6 +74,8 @@
 		9DED02FFDAD0ED3E523A9B0E /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		A3EA06DF3A1A0BCFCD51F73C /* TerminalIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalIdentity.swift; sourceTree = "<group>"; };
 		A93C0A052854DF158E6F267C /* WebSurfaces */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebSurfaces; path = Scout/Resources/WebSurfaces; sourceTree = SOURCE_ROOT; };
+		AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerPopover.swift; sourceTree = "<group>"; };
+		B8933E55164CF59F7C7E73C8 /* ComposerKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerKit.swift; sourceTree = "<group>"; };
 		BCE6AE0FA16BF46CEE025503 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		C2A9756949044BB4C30C7783 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		C2B8504A784962A834C94F75 /* NewSessionSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSurface.swift; sourceTree = "<group>"; };
@@ -139,6 +143,7 @@
 				3DCACC27493279D3F73F7112 /* AppSettingsView.swift */,
 				40896C5C3766C4916251E5A6 /* Assets.xcassets */,
 				419862F7904F1963377872F4 /* CommsSurface.swift */,
+				B8933E55164CF59F7C7E73C8 /* ComposerKit.swift */,
 				9A316466B11B7AC47D040624 /* ConnectionView.swift */,
 				6D6169E474B4A7208F0E38C3 /* ConnectScreen.swift */,
 				DAECB6E30580F94A5B1C2EB8 /* ConversationSurface.swift */,
@@ -148,6 +153,7 @@
 				E204EEA7E7F90B8A9AE38FFF /* Info.plist */,
 				D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */,
 				34E79CC5635705D5309ACA11 /* MissionControlSurface.swift */,
+				AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */,
 				C2B8504A784962A834C94F75 /* NewSessionSurface.swift */,
 				968AD5AEE705455890FF8202 /* PairingView.swift */,
 				96D794A6F847385880257434 /* ResponsiveFrame.swift */,
@@ -295,6 +301,7 @@
 				64ECE2518093B8B754483519 /* AppModel.swift in Sources */,
 				109D78896721BD92A860051C /* AppSettingsView.swift in Sources */,
 				BEAE4D10226EAD1A7F75A3B4 /* CommsSurface.swift in Sources */,
+				12856A540C87EC1A00C63BAC /* ComposerKit.swift in Sources */,
 				F5FAEF989FB9533485D7A3D9 /* ConnectScreen.swift in Sources */,
 				9BDEC97D48105B41E523268A /* ConnectionView.swift in Sources */,
 				11202BD4A0AC58ECA7DD9896 /* ConversationSurface.swift in Sources */,
@@ -303,6 +310,7 @@
 				023EE611E907C05E112C7048 /* HomeSurface.swift in Sources */,
 				9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */,
 				FC7B708016BE0921AB2FD052 /* MissionControlSurface.swift in Sources */,
+				9AFD3A2D7E8A36B31474BE5F /* ModelPickerPopover.swift in Sources */,
 				0B61140F772CEDBA893A95E6 /* NewSessionSurface.swift in Sources */,
 				D519634F832221E01877AE42 /* PairingView.swift in Sources */,
 				326E75ED261973A9CD055271 /* ResponsiveFrame.swift in Sources */,

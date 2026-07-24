@@ -32,7 +32,7 @@ xcodebuild \
   -destination "id=$DEVICE_ID" \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
-  build 2>&1 | tail -5
+  build -quiet
 
 echo ""
 
