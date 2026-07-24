@@ -546,6 +546,115 @@ describe("resolveAgentLabel", () => {
 });
 
 describe("resolveBrokerRouteTarget", () => {
+  test("resolves an explicit existing handle exactly and never prefers a local duplicate", () => {
+    const local = makeAgent({
+      id: "composer-review.local",
+      definitionId: "composer-review",
+      handle: "composer-review",
+      authorityNodeId: "node.local",
+    });
+    const remote = makeAgent({
+      id: "composer-review.remote",
+      definitionId: "composer-review",
+      handle: "composer-review",
+      authorityNodeId: "node.remote",
+    });
+    const snapshot = makeSnapshot([local, remote]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "existing_handle", handle: "composer-review" } },
+      { preferLocalNodeId: "node.local", helpers },
+    );
+
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates.map((candidate) => candidate.id)).toEqual([
+        "composer-review.local",
+        "composer-review.remote",
+      ]);
+    }
+  });
+
+  test("fails closed when an exact existing handle names both an agent and a session", () => {
+    const agent = makeAgent({
+      id: "composer-review.agent",
+      definitionId: "composer-review",
+      handle: "composer-review",
+    });
+    const sessionActor = makeSessionActor({
+      id: "session-composer-review",
+      handle: "composer-review",
+    });
+    const snapshot = makeSnapshot(
+      [agent],
+      [makeEndpoint({
+        id: "endpoint-composer-review",
+        agentId: sessionActor.id,
+        harness: "codex",
+        sessionId: sessionActor.id,
+      })],
+      {},
+      { [sessionActor.id]: sessionActor },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "existing_handle", handle: "composer-review" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.detail).toContain("matches agent composer-review.agent and session:session-composer-review");
+    }
+  });
+
+  test("resolves runtime profiles through their explicit current-project route", () => {
+    const projectRoot = "/tmp/openscout";
+    const target = makeAgent({ id: "openscout.main", definitionId: "openscout-app" });
+    const snapshot = makeSnapshot(
+      [target],
+      [makeEndpoint({
+        id: "endpoint.openscout",
+        agentId: target.id,
+        harness: "claude",
+        projectRoot,
+      })],
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: {
+          kind: "runtime_profile",
+          profile: "fable",
+          projectPath: projectRoot,
+        },
+      },
+      { helpers },
+    );
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
+    }
+
+    expect(resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: {
+          kind: "runtime_profile",
+          profile: "composer-review",
+          projectPath: projectRoot,
+        },
+      },
+      { helpers },
+    )).toEqual({
+      kind: "unknown",
+      label: "profile:composer-review",
+      detail: 'unknown runtime profile "composer-review"',
+    });
+  });
+
   test("resolves typed agent-label targets without caller-side preflight", () => {
     const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
     const result = resolveBrokerRouteTarget(

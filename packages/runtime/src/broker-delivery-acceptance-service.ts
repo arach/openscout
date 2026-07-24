@@ -28,6 +28,7 @@ import {
   remediationForDispatch,
   type InvocationResolution,
 } from "./broker-delivery-routing.js";
+import { executionForBrokerRuntimeProfile } from "./broker-runtime-profiles.js";
 import type { DeliveryWorkItemResolution } from "./broker-work-item-store.js";
 import {
   askedLabelForRouteTarget,
@@ -356,6 +357,8 @@ export class BrokerDeliveryAcceptanceService {
     const hasAgentTarget = Boolean(
       payload.target?.kind === "agent_id"
         || payload.target?.kind === "agent_label"
+        || payload.target?.kind === "existing_handle"
+        || payload.target?.kind === "runtime_profile"
         || payload.target?.kind === "target_handle"
         || payload.target?.kind === "session_id"
         || payload.target?.kind === "project_path",
@@ -640,8 +643,14 @@ export class BrokerDeliveryAcceptanceService {
     }
 
     const projectPath = projectPathRouteTarget(payload);
+    const validRuntimeProfileRoute = payload.target?.kind !== "runtime_profile"
+      || Boolean(executionForBrokerRuntimeProfile({
+        profileId: payload.target.profile,
+        reasoningEffort: payload.target.reasoningEffort,
+      }));
     const shouldCreateCardlessProjectSession =
       Boolean(projectPath)
+      && validRuntimeProfileRoute
       && payload.intent === "consult"
       && !payload.targetAgentId?.trim()
       && !requestedTargetSessionId

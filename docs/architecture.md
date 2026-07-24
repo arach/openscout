@@ -299,6 +299,19 @@ Specialized profiles may become first-class over time. For example,
 and instructions. That is a specialization layered onto the project identity,
 not the default routing model.
 
+Runtime launch profiles are a separate concept from the `profile:` identity
+qualifier. Leading reserved names `Fable`, `Kimi`, `Grok`, and `Opus` in CLI
+natural-language asks produce a structured `runtime_profile` route for a fresh
+current-project session. The broker owns the harness/model/default mapping.
+Likewise, `agent Composer Review to ...` produces an `existing_handle` route
+for exact `@composer-review` lookup. It does not create a session, choose a
+local duplicate, or consult fuzzy aliases. See
+[`runtime-profile-and-existing-handle-routing.md`](./eng/runtime-profile-and-existing-handle-routing.md).
+
+Neither route is a post-hoc alias: runtime profiles are launch presets and
+existing handles name already-known live targets. Mutable route aliases retain
+their own scoped broker records, revisions, and explicit alias target kind.
+
 ### Three Layers
 
 Scout separates identity into three layers, each serving a different audience:

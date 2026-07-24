@@ -34,6 +34,10 @@ import {
   isStaleLocalEndpoint,
   localEndpointPreferenceRank,
 } from "./broker-endpoint-selection.js";
+import {
+  executionForBrokerRuntimeProfile,
+  resolveBrokerRuntimeProfile,
+} from "./broker-runtime-profiles.js";
 
 export type RuntimeSnapshot = ReturnType<ReturnType<typeof createInMemoryControlRuntime>["snapshot"]>;
 
@@ -58,7 +62,7 @@ export interface ResolvedSessionTarget {
 export type BrokerLabelResolution =
   | { kind: "resolved"; agent: AgentDefinition }
   | { kind: "resolved_session"; session: ResolvedSessionTarget }
-  | { kind: "ambiguous"; label: string; candidates: AgentDefinition[] }
+  | { kind: "ambiguous"; label: string; candidates: AgentDefinition[]; detail?: string }
   | { kind: "unparseable"; label: string }
   | { kind: "unknown"; label: string; detail?: string; candidates?: AgentDefinition[] };
 
@@ -96,6 +100,10 @@ function normalizedRouteTargetValue(target: ScoutRouteTarget | null | undefined)
     ? target.agentId
     : target.kind === "agent_label"
     ? target.label
+    : target.kind === "existing_handle"
+    ? target.handle
+    : target.kind === "runtime_profile"
+    ? target.value ?? `profile:${target.profile}`
     : target.kind === "target_handle"
     ? target.value ?? `target:${normalizeTargetHandleInput(target.handle)}`
     : target.kind === "session_id"
@@ -326,8 +334,11 @@ function unknownModelQualifiedResolution(
 function resolveSessionHandleLabel(
   snapshot: RuntimeSnapshot,
   identity: AgentIdentity,
-  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
-): BrokerLabelResolution | null {
+  options: {
+    helpers: Pick<DispatcherHelpers, "isStale">;
+    rejectAmbiguous?: boolean;
+  },
+): Extract<BrokerLabelResolution, { kind: "resolved_session" | "ambiguous" }> | null {
   if (
     identity.workspaceQualifier
     || identity.nodeQualifier
@@ -363,6 +374,18 @@ function resolveSessionHandleLabel(
     return null;
   }
 
+  if (matches.length > 1 && options.rejectAmbiguous) {
+    const sessionIds = matches
+      .map(({ actor }) => `session:${actor.id}`)
+      .sort((left, right) => left.localeCompare(right));
+    return {
+      kind: "ambiguous",
+      label: identity.label,
+      candidates: [],
+      detail: `${identity.label} matches multiple live sessions: ${sessionIds.join(", ")}; use one exact session:<id> target`,
+    };
+  }
+
   const { actor, endpoint } = [...matches].sort((left, right) => (
     endpointAvailabilityScore(right.endpoint) - endpointAvailabilityScore(left.endpoint)
     || endpointLifecycleAt(right.endpoint) - endpointLifecycleAt(left.endpoint)
@@ -379,6 +402,56 @@ function resolveSessionHandleLabel(
       nodeId: endpoint.nodeId,
     },
   };
+}
+
+function resolveExistingHandle(
+  snapshot: RuntimeSnapshot,
+  handle: string,
+  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution {
+  const normalized = normalizeAgentSelectorSegment(handle.replace(/^@+/, ""));
+  const label = normalized ? `@${normalized}` : handle;
+  if (!normalized) {
+    return { kind: "unparseable", label };
+  }
+
+  const identity = parseAgentIdentity(label);
+  if (!identity) {
+    return { kind: "unparseable", label };
+  }
+
+  const candidates = buildAgentLabelCandidates(snapshot, options.helpers);
+  const diagnosis = diagnoseAgentIdentity(identity, candidates);
+  const sessionResolution = resolveSessionHandleLabel(snapshot, identity, {
+    ...options,
+    rejectAmbiguous: true,
+  });
+  if (diagnosis.kind === "resolved") {
+    if (sessionResolution) {
+      const sessionDetail = sessionResolution.kind === "resolved_session"
+        ? `session:${sessionResolution.session.sessionId}`
+        : sessionResolution.detail ?? "multiple live sessions";
+      return {
+        kind: "ambiguous",
+        label,
+        candidates: [diagnosis.match.agent],
+        detail: `${label} matches agent ${diagnosis.match.agent.id} and ${sessionDetail}; use a fully qualified agent handle or exact session:<id>`,
+      };
+    }
+    return { kind: "resolved", agent: diagnosis.match.agent };
+  }
+  if (diagnosis.kind === "ambiguous") {
+    return {
+      kind: "ambiguous",
+      label,
+      candidates: diagnosis.candidates.map((candidate) => candidate.agent),
+      ...(sessionResolution
+        ? { detail: `${label} matches multiple agents and at least one live session; use a fully qualified agent handle or exact session:<id>` }
+        : {}),
+    };
+  }
+
+  return sessionResolution ?? { kind: "unknown", label };
 }
 
 function resolveTargetHandle(
@@ -655,6 +728,11 @@ export function resolveBrokerRouteTarget(
       helpers: options.helpers,
     });
   }
+  if (routeTarget?.kind === "existing_handle") {
+    return resolveExistingHandle(snapshot, routeTarget.handle, {
+      helpers: options.helpers,
+    });
+  }
   if (!routeTarget && input.targetLabel) {
     const parsedTargetLabel = parseScoutComposerRouteTarget(input.targetLabel);
     if (parsedTargetLabel?.kind === "target_handle") {
@@ -674,8 +752,33 @@ export function resolveBrokerRouteTarget(
     }
   }
 
+  if (
+    routeTarget?.kind === "runtime_profile"
+    && !resolveBrokerRuntimeProfile(routeTarget.profile)
+  ) {
+    return {
+      kind: "unknown",
+      label: `profile:${routeTarget.profile}`,
+      detail: `unknown runtime profile "${routeTarget.profile}"`,
+    };
+  }
+  if (
+    routeTarget?.kind === "runtime_profile"
+    && !executionForBrokerRuntimeProfile({
+      profileId: routeTarget.profile,
+      reasoningEffort: routeTarget.reasoningEffort,
+    })
+  ) {
+    return {
+      kind: "unparseable",
+      label: `profile:${routeTarget.profile}`,
+    };
+  }
+
   const projectPath = routeTarget?.kind === "project_path"
     ? normalizedRouteTargetValue(routeTarget)
+    : routeTarget?.kind === "runtime_profile"
+    ? routeTarget.projectPath.trim()
     : "";
   if (projectPath) {
     return resolveProjectPathTarget(snapshot, projectPath, {
@@ -822,7 +925,7 @@ export function buildDispatchEnvelope(
   return {
     kind,
     askedLabel: resolution.label,
-    detail: `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
+    detail: resolution.detail ?? `${resolution.label} matches ${resolution.candidates.length} agents; pick one`,
     candidates: resolution.candidates.map((agent, index) =>
       summarizeDispatchCandidate(
         agent,

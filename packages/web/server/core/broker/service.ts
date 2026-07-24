@@ -785,6 +785,10 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
       return target.agentId.trim();
     case "agent_label":
       return target.label.trim();
+    case "existing_handle":
+      return target.value?.trim() || `@${target.handle.trim().replace(/^@+/, "")}`;
+    case "runtime_profile":
+      return target.value?.trim() || `profile:${target.profile.trim()}`;
     case "target_handle":
       return target.value?.trim() || `target:${target.handle.trim()}`;
     case "session_id":
@@ -804,7 +808,7 @@ function renderedScoutAskBodyTargetLabel(
   target: ScoutRouteTarget | undefined,
   renderedTarget: string,
 ): string {
-  if (target?.kind === "project_path") {
+  if (target?.kind === "project_path" || target?.kind === "runtime_profile") {
     return "";
   }
   if (target?.kind === "target_handle") {

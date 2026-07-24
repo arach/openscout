@@ -26,14 +26,17 @@ const DEFAULT_ASK_DISPATCH_SETTLE_MS = 4_000;
 
 export function renderAskCommandHelp(): string {
   return [
-    "Usage: scout ask [(--to <agent> | --ref <ref> | --project <path>)] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
+    "Usage: scout ask [(--to <existing-target> | --ref <ref> | --project <path> | --profile <runtime-profile>)] [--as <sender>] [--channel <name>] [--label <label>] [--timeout <seconds>] [--reply-mode inline|notify|none] [--no-wait] [--harness <runtime>] [--new] [--prompt-file <path> | <message>]",
     "",
     "Ask one agent to do work or return a concrete answer.",
     "",
     "Routing:",
     "  one target + no channel            -> DM",
     "  --channel <name>                   -> named group thread",
-    "  short @name                        -> agent card; starts fresh harness session",
+    "  --to <name>                        -> existing agent/session target routing",
+    "  agent <name> to <request>          -> exact normalized existing handle lookup",
+    "  Fable|Kimi|Grok|Opus <request>     -> broker runtime profile; starts a fresh current-project session",
+    "  --profile <name> [--effort <level>] -> explicit broker runtime profile route",
     "  --to target:<name> or --to ⌖name    -> saved situated target; continues that worker",
     "  --to session:<id>                  -> continue one exact existing session",
     "  --project <path>                   -> ask by repo/workspace path; Scout resolves the concrete worker",
@@ -57,6 +60,10 @@ export function renderAskCommandHelp(): string {
     "",
     "Examples:",
     '  scout ask --to hudson "review the parser"',
+    '  scout ask agent Composer Review to fix the tests',
+    '  scout ask Fable to review the parser',
+    '  scout ask Opus high to review the parser',
+    '  scout ask --profile kimi "review the parser"',
     '  scout ask --to target:mw-talkie "continue the editorial pass"',
     '  scout ask --ref 7f3a9c21 "continue from that result"',
     '  scout ask --project ../talkie "how did you handle auth?"',
@@ -218,7 +225,9 @@ function formatScoutAskReceiptError(
     ? renderScoutTargetLabel(targetLabel)
     : "the requested project";
   if (receipt.state === "ambiguous") {
-    return `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
+    return receipt.next?.reason
+      ? `${receipt.next.reason} Nothing was sent.`
+      : `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle or exact session:<id> to disambiguate.`;
   }
   if (receipt.error) {
     return receipt.error.message;
@@ -244,6 +253,9 @@ export function formatScoutAskRoutingError(
       .filter((label) => label.length > 0);
     if (rendered.length > 0) {
       return `target ${renderedTarget} matches multiple agents: ${rendered.join(", ")}. Re-run with the fully qualified form (e.g. \`scout ask --to ${rendered[0].replace(/^@/, "")} ...\`).`;
+    }
+    if (diagnostic.detail) {
+      return `${diagnostic.detail} Nothing was sent.`;
     }
     return `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
   }
@@ -310,13 +322,16 @@ export async function runAskWithOptions(
   const to = options.targetRef
     ? `ref:${options.targetRef}`
     : options.targetLabel;
-  if (to && options.projectPath) {
-    throw new Error("provide either to or projectPath, not both");
-  }
   const target:
-    | { to: string; projectPath?: never }
-    | { to?: never; projectPath: string } =
-    options.projectPath
+    | { to: string; projectPath?: never; runtimeProfile?: never; existingHandle?: never }
+    | { to?: never; projectPath: string; runtimeProfile?: never; existingHandle?: never }
+    | { to?: never; projectPath?: never; runtimeProfile: string; existingHandle?: never }
+    | { to?: never; projectPath?: never; runtimeProfile?: never; existingHandle: string } =
+    options.runtimeProfile
+      ? { runtimeProfile: options.runtimeProfile }
+      : options.existingTargetHandle
+      ? { existingHandle: options.existingTargetHandle }
+      : options.projectPath
       ? { projectPath: options.projectPath }
       : { to: to ?? "" };
   const replyMode = options.replyMode ?? "inline";
@@ -326,6 +341,7 @@ export async function runAskWithOptions(
     body,
     channel: options.channel,
     harness: parseScoutHarness(options.harness),
+    reasoningEffort: options.reasoningEffort,
     session: options.session,
     labels: options.labels,
     replyMode,
@@ -334,11 +350,16 @@ export async function runAskWithOptions(
   });
 
   if (!receipt.ok || !receipt.ids.flightId) {
-    throw new Error(formatScoutAskReceiptError(receipt, options.targetLabel));
+    throw new Error(formatScoutAskReceiptError(
+      receipt,
+      options.targetLabel
+        ?? options.existingTargetHandle
+        ?? (options.runtimeProfile ? `profile:${options.runtimeProfile}` : undefined),
+    ));
   }
 
   context.stderr(
-    `asking ${receipt.ids.targetAgentId ?? options.targetLabel ?? options.projectPath ?? "target"} as ${senderId} via ${renderConversationRoute(receipt.ids.conversationId)}... (flight ${receipt.ids.flightId})`,
+    `asking ${receipt.ids.targetAgentId ?? options.targetLabel ?? options.existingTargetHandle ?? options.runtimeProfile ?? options.projectPath ?? "target"} as ${senderId} via ${renderConversationRoute(receipt.ids.conversationId)}... (flight ${receipt.ids.flightId})`,
   );
 
   if (replyMode !== "inline") {
@@ -383,7 +404,7 @@ export async function runAskWithOptions(
       id: receipt.ids.flightId,
       invocationId: receipt.ids.invocationId ?? receipt.ids.flightId,
       requesterId: senderId,
-      targetAgentId: receipt.ids.targetAgentId ?? options.targetLabel ?? options.projectPath ?? "target",
+      targetAgentId: receipt.ids.targetAgentId ?? options.targetLabel ?? options.existingTargetHandle ?? options.runtimeProfile ?? options.projectPath ?? "target",
       state: "queued",
     };
   }

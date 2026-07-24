@@ -1044,7 +1044,16 @@ function launchArgsForCardlessSession(
     ]);
   }
   if (harness === "claude") {
-    return model ? ["--model", model] : [];
+    return [
+      ...(model ? ["--model", model] : []),
+      ...(reasoningEffort ? ["--effort", reasoningEffort] : []),
+    ];
+  }
+  if (harness === "grok") {
+    return [
+      ...(model ? ["--model", model] : []),
+      ...(reasoningEffort ? ["--reasoning-effort", reasoningEffort] : []),
+    ];
   }
   return [];
 }

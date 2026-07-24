@@ -365,6 +365,28 @@ The shared parser can recognize direct agent ids for clients that pass
 `targetAgentId`. CLI composer routing currently uses labels, refs, and project
 paths for asks; `channel:<name>` and `broadcast` are send/update routes.
 
+### Natural-language profile and existing-handle targets
+
+The CLI has two deterministic natural-language forms that do not use the
+composer `>>` grammar:
+
+| Input | Structured target | Meaning |
+| --- | --- | --- |
+| `Fable to review this` | `{ kind: "runtime_profile", profile: "fable", projectPath: <current> }` | fresh broker-profile launch |
+| `Opus high to review this` | runtime profile plus `reasoningEffort: "high"` | fresh launch with effort override |
+| `agent Composer Review to fix this` | `{ kind: "existing_handle", handle: "composer-review" }` | exact existing agent/session handle |
+
+Reserved profile names are `Fable`, `Kimi`, `Grok`, and `Opus`. The broker,
+not the client, owns their harness/model/fresh-session definitions. Direct
+`ask --to fable` still means existing-target routing; it must never be
+reinterpreted as a profile. The explicit profile surface is
+`ask --profile fable`.
+
+`agent <name> to <request>` lowercases and dash-normalizes `<name>`, then asks
+the broker for one exact handle match. Locality and fuzzy similarity are not
+tiebreakers. Zero or multiple matches return disambiguation without delivery.
+This exact-handle route is distinct from mutable post-hoc route aliases.
+
 `target:<name>` is the canonical human-typed form for a Scout-saved situated
 target: profile, project, harness, rules/tool context, and current continuation
 handle. Agent-authored prompts and compact UI may use `⌖name` for the same

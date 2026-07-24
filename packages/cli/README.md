@@ -58,6 +58,30 @@ scout hey @hudson please inspect the failing test
 scout --as vox --timeout 900 @talkie take another pass on the keyboard port
 ```
 
+Reserved leading profile names are deterministic fresh-session routes for the
+current project, not shorthand agent names:
+
+```bash
+scout ask Fable to review the parser
+scout ask Opus high to fix the tests
+scout ask --profile kimi "review the parser"
+```
+
+The broker owns each profile's harness/model/default mapping. `--effort` is an
+optional profile override. Direct `scout ask --to fable ...` always means an
+existing target named `fable`; it is never silently converted to a profile.
+
+For a natural-language existing target, use an explicit `agent` prefix and
+`to` delimiter:
+
+```bash
+scout ask agent Composer Review to fix the tests
+```
+
+Scout normalizes that name to exact handle `@composer-review`. Zero or multiple
+agent/session matches fail with disambiguation instead of choosing by locality
+or similarity.
+
 ## One Routing Model
 
 The routing rules do not change by harness, UI, or host:

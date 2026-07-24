@@ -11,6 +11,7 @@ import {
 } from "@openscout/protocol";
 
 import { SUPPORTED_SCOUT_HARNESSES } from "./local-agents.js";
+import { executionForBrokerRuntimeProfile } from "./broker-runtime-profiles.js";
 import {
   resolveBrokerRouteTarget,
   type BrokerLabelResolution,
@@ -64,6 +65,12 @@ export function supportedRouteModel(value: string | undefined): string | undefin
 }
 
 export function executionWithRouteParams(payload: ScoutDeliverRequest): InvocationRequest["execution"] | undefined {
+  if (payload.target?.kind === "runtime_profile") {
+    return executionForBrokerRuntimeProfile({
+      profileId: payload.target.profile,
+      reasoningEffort: payload.target.reasoningEffort,
+    }) ?? payload.execution;
+  }
   const label = agentLabelForRouteParams(payload);
   const identity = label
     ? parseAgentIdentity(label.startsWith("@") ? label : `@${label}`)
@@ -87,9 +94,10 @@ export function executionWithRouteParams(payload: ScoutDeliverRequest): Invocati
 }
 
 export function projectPathRouteTarget(input: BrokerRouteTargetInput): string | undefined {
-  return input.target?.kind === "project_path"
-    ? input.target.projectPath.trim() || undefined
-    : undefined;
+  if (input.target?.kind === "project_path" || input.target?.kind === "runtime_profile") {
+    return input.target.projectPath.trim() || undefined;
+  }
+  return undefined;
 }
 
 export function shouldMaterializeProjectAgent(input: {

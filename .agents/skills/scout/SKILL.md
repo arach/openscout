@@ -25,7 +25,21 @@ scout ask --to x "msg"     # card/label ask; fresh session, returns ids + lifecy
 scout ask --to session:<id> "msg" # continue one exact existing session
 scout ask --project ../x "msg" # project known; concrete agent/session chosen by Scout
 scout ask --project ../x --harness claude "msg" # capability known; broker picks/creates worker
+scout ask Fable to review this       # reserved broker profile; fresh current-project session
+scout ask agent Composer Review to fix the tests # exact existing @composer-review handle
 ```
+
+Reserved profile names `Fable`, `Kimi`, `Grok`, and `Opus` are launch
+presets, not agent names. In natural-language asks they always create a fresh
+session in the inferred current project through the broker-owned profile.
+`scout ask --profile <name> ...` is the explicit equivalent; optional effort is
+`--effort <level>`. Never rewrite one of these forms as `ask --to`.
+
+When a human says `agent <name> to <request>`, normalize the text between
+`agent` and `to` to a lowercase dash-separated handle and resolve it exactly.
+For example, `agent Composer Review` means `@composer-review`. Zero or multiple
+matches require disambiguation; do not choose by locality or similarity.
+Direct `scout ask --to <target>` continues to mean an existing target.
 
 When the workspace is known and there is one intended recipient, use that direct path first. Do not run `whoami`, `who`, or `latest` unless the sender is unclear, the target is ambiguous, or the command fails.
 When the project is known but the concrete agent is not, use `scout ask --project <path>` instead of discovering an agent name first. When the desired capability matters, add `--harness <claude|codex|...>`. Do **not** guess generic handles such as `claude.main` as a first move.

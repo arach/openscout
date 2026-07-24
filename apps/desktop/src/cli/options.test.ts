@@ -114,6 +114,59 @@ describe("parseSendCommandOptions", () => {
 });
 
 describe("parseAskCommandOptions", () => {
+  test("keeps direct --to routing as an existing target even for a reserved profile name", () => {
+    const options = parseAskCommandOptions(
+      ["--to", "Fable", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("Fable");
+    expect(options.runtimeProfile).toBeUndefined();
+    expect(options.message).toBe("review this");
+  });
+
+  test("parses reserved bare profile names as fresh current-project routes", () => {
+    const fable = parseAskCommandOptions(
+      ["Fable", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const opus = parseAskCommandOptions(
+      ["Opus", "with", "HIGH", "effort", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(fable.runtimeProfile).toBe("fable");
+    expect(fable.projectPath).toBeUndefined();
+    expect(fable.session).toBeUndefined();
+    expect(fable.message).toBe("review this");
+    expect(opus.runtimeProfile).toBe("opus");
+    expect(opus.reasoningEffort).toBe("high");
+    expect(opus.message).toBe("fix the tests");
+  });
+
+  test("parses explicit profile routes without overloading --to", () => {
+    const options = parseAskCommandOptions(
+      ["--profile", "Kimi", "--effort", "medium", "review", "this"],
+      "/tmp/workspace",
+    );
+
+    expect(options.runtimeProfile).toBe("kimi");
+    expect(options.reasoningEffort).toBe("medium");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("review this");
+  });
+
+  test("normalizes the agent prefix to an exact existing handle", () => {
+    const options = parseAskCommandOptions(
+      ["agent", "Composer", "Review!", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(options.existingTargetHandle).toBe("composer-review");
+    expect(options.targetLabel).toBeUndefined();
+    expect(options.message).toBe("fix the tests");
+  });
+
   test("accepts a prompt file as the primary body source", () => {
     const options = parseAskCommandOptions(
       ["--to", "hudson", "--prompt-file=handoff.md"],
@@ -245,6 +298,23 @@ describe("parseAskCommandOptions", () => {
 });
 
 describe("parseImplicitAskCommandOptions", () => {
+  test("recognizes reserved profiles and exact agent-prefix targets", () => {
+    const grok = parseImplicitAskCommandOptions(
+      ["Grok", "xhigh", "to", "review", "this"],
+      "/tmp/workspace",
+    );
+    const agent = parseImplicitAskCommandOptions(
+      ["agent", "Composer", "Review", "to", "fix", "the", "tests"],
+      "/tmp/workspace",
+    );
+
+    expect(grok.runtimeProfile).toBe("grok");
+    expect(grok.reasoningEffort).toBe("xhigh");
+    expect(grok.message).toBe("review this");
+    expect(agent.existingTargetHandle).toBe("composer-review");
+    expect(agent.message).toBe("fix the tests");
+  });
+
   test("extracts a target agent from natural language input", () => {
     const options = parseImplicitAskCommandOptions(
       ["hey", "@dewey", "can", "you", "review", "our", "docs?"],

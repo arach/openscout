@@ -13,6 +13,7 @@ import {
   callerContextForDelivery,
   executionWithRouteParams,
   normalizeScoutLabels,
+  projectPathRouteTarget,
   remediationForDispatch,
   shouldMaterializeProjectAgent,
 } from "./broker-delivery-routing.js";
@@ -97,6 +98,22 @@ describe("broker delivery routing", () => {
     expect(executionWithRouteParams(testPayload({
       targetLabel: "session:codex:native-thread-123",
     }))).toBeUndefined();
+
+    const profilePayload = testPayload({
+      target: {
+        kind: "runtime_profile",
+        profile: "Opus",
+        projectPath: "/tmp/openscout",
+        reasoningEffort: "HIGH",
+      },
+    });
+    expect(executionWithRouteParams(profilePayload)).toEqual({
+      harness: "claude",
+      model: "opus",
+      reasoningEffort: "high",
+      session: "new",
+    });
+    expect(projectPathRouteTarget(profilePayload)).toBe("/tmp/openscout");
   });
 
   test("captures implicit project-card materialization policy", () => {

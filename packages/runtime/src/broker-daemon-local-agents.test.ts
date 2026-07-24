@@ -93,6 +93,69 @@ describe("broker daemon local agent routing", () => {
     ]));
   }, 15_000);
 
+  test("applies a broker runtime profile to a fresh current-project session", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "profile-project");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+      },
+    });
+
+    const response = await broker.postJson<{
+      accepted: boolean;
+      targetAgentId?: string;
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-profile-opus",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "runtime_profile",
+        profile: "opus",
+        projectPath: projectRoot,
+        reasoningEffort: "high",
+      },
+      body: "Review this project with the Opus profile.",
+      intent: "consult",
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    const snapshot = await broker.getJson<{
+      endpoints: Record<string, {
+        agentId: string;
+        harness?: string;
+        projectRoot?: string;
+        metadata?: Record<string, unknown>;
+      }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        harness: "claude",
+        projectRoot,
+        metadata: expect.objectContaining({
+          model: "opus",
+          reasoningEffort: "high",
+          launchArgs: ["--model", "opus", "--effort", "high"],
+        }),
+      }),
+    ]));
+  }, 15_000);
+
   test("uses stream JSON only when the cardless Claude backup transport is explicit", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
