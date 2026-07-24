@@ -1090,8 +1090,12 @@ export async function loadScoutBrokerContext(
   const cacheKey = options.signal
     ? null
     : [baseUrl, resolveBrokerSocketPathForBaseUrl(baseUrl) ?? "http", since ?? "full"].join("\u0000");
+  const now = Date.now();
+  for (const [key, entry] of scoutBrokerContextCache) {
+    if (entry.expiresAt <= now) scoutBrokerContextCache.delete(key);
+  }
   const cached = cacheKey ? scoutBrokerContextCache.get(cacheKey) : null;
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached && cached.expiresAt > now) {
     return cached.promise;
   }
 
@@ -1119,7 +1123,7 @@ export async function loadScoutBrokerContext(
 
   if (cacheKey) {
     scoutBrokerContextCache.set(cacheKey, {
-      expiresAt: Date.now() + SCOUT_BROKER_CONTEXT_CACHE_TTL_MS,
+      expiresAt: now + SCOUT_BROKER_CONTEXT_CACHE_TTL_MS,
       promise,
     });
     void promise.then((context) => {
