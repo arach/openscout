@@ -756,10 +756,39 @@ function readNodeAliasSync(): string | null {
   }
 }
 
+function readGitHeadBranch(projectRoot: string): { found: boolean; branch: string | null } {
+  const dotGitPath = join(projectRoot, ".git");
+  let gitDirectory = dotGitPath;
+  try {
+    const marker = readFileSync(dotGitPath, "utf8");
+    const match = /^gitdir:\s*(.+)\s*$/imu.exec(marker);
+    if (!match?.[1]) return { found: false, branch: null };
+    gitDirectory = isAbsolute(match[1])
+      ? match[1]
+      : resolve(projectRoot, match[1]);
+  } catch {
+    // A normal checkout has a .git directory, not a gitdir marker file.
+  }
+
+  try {
+    const head = readFileSync(join(gitDirectory, "HEAD"), "utf8").trim();
+    const match = /^ref:\s*refs\/heads\/(.+)$/u.exec(head);
+    return { found: true, branch: match?.[1]?.trim() || null };
+  } catch {
+    return { found: false, branch: null };
+  }
+}
+
 function detectGitBranchUncached(projectRoot: string): string | null {
+  // Repo roots and worktrees expose the branch through .git/HEAD. Reading it
+  // directly avoids spawning hundreds of git processes while resolving saved
+  // relay agents during web startup and attention polling.
+  const direct = readGitHeadBranch(projectRoot);
+  if (direct.found) return direct.branch;
+
   // Prefer `symbolic-ref` so we still get a branch name on unborn HEADs
   // (freshly initialized repos with no commits yet). Fall back to
-  // `rev-parse --abbrev-ref HEAD` for detached-HEAD detection.
+  // `rev-parse --abbrev-ref HEAD` for project paths below a repository root.
   try {
     const branch = execFileSync(
       "git",
@@ -785,11 +814,10 @@ function detectGitBranchUncached(projectRoot: string): string | null {
 }
 
 // Per-projectRoot branch cache. `readRelayAgentOverrides` is called on every
-// mobile createSession RPC and iterates every stored override — without this
-// memo, we'd shell out to git 30+ times per call (~200ms). The cache assumes
-// branch changes are rare relative to RPC cadence; callers that need a fresh
-// read can clear via clearGitBranchCache().
-const GIT_BRANCH_CACHE_TTL_MS = 15_000;
+// mobile createSession RPC and iterates every stored override. Branch changes
+// are rare relative to those reads, and mutation paths can explicitly clear
+// the cache when fresh identity is required.
+const GIT_BRANCH_CACHE_TTL_MS = 5 * 60_000;
 type GitBranchCacheEntry = { branch: string | null; expiresAt: number };
 const gitBranchCache = new Map<string, GitBranchCacheEntry>();
 

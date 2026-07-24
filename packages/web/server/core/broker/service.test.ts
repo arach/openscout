@@ -15,6 +15,7 @@ import {
 
 import {
   askScoutQuestion,
+  loadScoutBrokerContext,
   loadScoutMessages,
   openScoutPeerSession,
   readScoutBrokerHealth,
@@ -121,6 +122,89 @@ describe("resolveScoutBrokerUrl", () => {
     process.env.OPENSCOUT_BROKER_URL = "http://mesh.example.test:43110";
 
     expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:43110");
+  });
+});
+
+describe("loadScoutBrokerContext", () => {
+  test("requests a 24-hour working-set snapshot by default", async () => {
+    useIsolatedOpenScoutHome();
+    let snapshotSince: number | null = null;
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (url.pathname === "/v1/snapshot") {
+        snapshotSince = Number(url.searchParams.get("since"));
+        return jsonResponse({
+          nodes: {},
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          bindings: {},
+          messages: {},
+          readCursors: {},
+          invocations: {},
+          flights: {},
+          collaborationRecords: {},
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    const expectedSince = Date.now() - 24 * 60 * 60 * 1_000;
+    const context = await loadScoutBrokerContext();
+
+    expect(context?.node.id).toBe("node-1");
+    expect(snapshotSince).toBeGreaterThanOrEqual(expectedSince - 60 * 1_000);
+    expect(snapshotSince).toBeLessThanOrEqual(Date.now() - 24 * 60 * 60 * 1_000);
+  });
+
+  test("coalesces concurrent reads for the same bounded snapshot", async () => {
+    useIsolatedOpenScoutHome();
+    let snapshotRequests = 0;
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (url.pathname === "/v1/snapshot") {
+        snapshotRequests += 1;
+        await Bun.sleep(10);
+        return jsonResponse({
+          nodes: {},
+          actors: {},
+          agents: {},
+          endpoints: {},
+          conversations: {},
+          bindings: {},
+          messages: {},
+          readCursors: {},
+          invocations: {},
+          flights: {},
+          collaborationRecords: {},
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    const contexts = await Promise.all([
+      loadScoutBrokerContext(undefined, { since: 1234 }),
+      loadScoutBrokerContext(undefined, { since: 1234 }),
+      loadScoutBrokerContext(undefined, { since: 1234 }),
+    ]);
+
+    expect(contexts.every((context) => context?.node.id === "node-1")).toBe(true);
+    expect(snapshotRequests).toBe(1);
   });
 });
 

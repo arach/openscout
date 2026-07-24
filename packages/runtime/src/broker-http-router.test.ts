@@ -228,6 +228,24 @@ async function requestRouter(
 }
 
 describe("createBrokerHttpRouter", () => {
+  test("passes snapshot cutoffs to the broker service", async () => {
+    const queries: unknown[] = [];
+    const harness = createHarness({
+      brokerService: {
+        ...createHarness().deps.brokerService,
+        readSnapshot: async (query) => {
+          queries.push(query);
+          return { nodes: {} } as never;
+        },
+      },
+    });
+
+    const result = await requestRouter(harness, "GET", "/v1/snapshot?since=1234");
+
+    expect(result.response.status).toBe(200);
+    expect(queries).toEqual([{ since: 1234 }]);
+  });
+
   test("forwards scoped alias writes to the authoritative broker without touching the local store", async () => {
     const forwards: Array<{ nodeSelector: string; path: string; method: string; body?: unknown }> = [];
     const harness = createHarness({

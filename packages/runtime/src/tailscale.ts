@@ -22,6 +22,12 @@ export type {
 export { tailscaleSelfWebHosts, tailscaleStatusProbe } from "./system-probes/tailscale-status.js";
 
 const DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS = 1_500;
+const SYNC_TAILSCALE_STATUS_CACHE_MS = 30_000;
+let syncStatusCache: {
+  key: string;
+  at: number;
+  value: TailscaleStatusJson | null;
+} | null = null;
 
 function readStatusJsonFromFileSync(filePath: string): TailscaleStatusJson {
   const raw = readFileSync(filePath, "utf8");
@@ -52,6 +58,16 @@ function readStatusJsonSync(env: RuntimeEnv = process.env): TailscaleStatusJson 
     return null;
   }
 
+  const cacheKey = [
+    tailscaleBin,
+    env.OPENSCOUT_TAILSCALE_AUTO_HOSTS ?? "",
+    env.OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS ?? "",
+  ].join("\0");
+  const cached = syncStatusCache;
+  if (env === process.env && cached?.key === cacheKey && Date.now() - cached.at < SYNC_TAILSCALE_STATUS_CACHE_MS) {
+    return cached.value;
+  }
+
   try {
     const stdout = execFileSync(tailscaleBin, ["status", "--json"], {
       encoding: "utf8",
@@ -59,8 +75,11 @@ function readStatusJsonSync(env: RuntimeEnv = process.env): TailscaleStatusJson 
       timeout: statusTimeoutMs(env),
       windowsHide: true,
     });
-    return parseTailscaleStatusJson(stdout);
+    const value = parseTailscaleStatusJson(stdout);
+    if (env === process.env) syncStatusCache = { key: cacheKey, at: Date.now(), value };
+    return value;
   } catch {
+    if (env === process.env) syncStatusCache = { key: cacheKey, at: Date.now(), value: null };
     return null;
   }
 }

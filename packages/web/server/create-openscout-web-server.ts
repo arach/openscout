@@ -2154,8 +2154,13 @@ async function buildAgentAttentionIndexSnapshot(
       }
     }
 
-    const databaseAgents = queryAgents().map(withResolvedHarnessSessionIdentity);
-    const brokerAgents = broker ? brokerCardAgentsForWeb(broker).map(withResolvedHarnessSessionIdentity) : [];
+    // Host attention only needs the current tmux surface metadata. Resolving
+    // Claude transcript identities here synchronously scans transcript
+    // directories for every historical roster row before the 24-candidate
+    // host-attention cap is applied, which can block the web event loop for
+    // minutes on a long-lived installation.
+    const databaseAgents = queryAgents();
+    const brokerAgents = broker ? brokerCardAgentsForWeb(broker) : [];
     const candidatesById = new Map(databaseAgents.map((agent) => [agent.id, agent]));
     for (const agent of brokerAgents) {
       candidatesById.set(agent.id, mergeBrokerAgentProjection(candidatesById.get(agent.id) ?? agent, agent));
@@ -2352,7 +2357,8 @@ function brokerHomeAgentToWebAgent(agent: ScoutBrokerHomeAgentRecord): WebAgent 
 
 async function queryAgentsIncludingBrokerCards(
   limit?: number,
-  includeAttention = true,
+  includeRichBrokerContext = true,
+  includeAttention = false,
   capture: TmuxPaneCapture = defaultCaptureTmuxPane,
   loadBrokerContext: () => Promise<ScoutBrokerContext | null> = () =>
     loadScoutBrokerContext().catch(() => null),
@@ -2365,9 +2371,8 @@ async function queryAgentsIncludingBrokerCards(
   // among the newest database rows.
   const databaseLimit = limit === undefined ? undefined : limit + archivedIds.size;
   const agents = queryAgents(databaseLimit)
-    .map((agent) => includeAttention ? withResolvedHarnessSessionIdentity(agent) : agent)
     .filter((agent) => !archivedIds.has(agent.id));
-  if (!includeAttention) {
+  if (!includeRichBrokerContext) {
     // Keep the frequently-polled roster off the broker's full snapshot and
     // terminal-attention paths. SQLite remains authoritative for full agent
     // metadata; compact home data supplies broker-only cards without transferring
@@ -2389,7 +2394,7 @@ async function queryAgentsIncludingBrokerCards(
   const broker = await loadBrokerContext();
   // The HUD's first page is deliberately a summary read. The full attention
   // index opens the pairing bridge and can take seconds on a busy machine, so
-  // only rich callers pay that cost.
+  // only callers that explicitly request attention pay that cost.
   const attention = includeAttention
     ? await queryAgentAttentionIndex(broker, capture)
     : new Map<string, AgentAttentionEntry>();
@@ -2397,8 +2402,7 @@ async function queryAgentsIncludingBrokerCards(
     return withAgentRepoKeys(mostRecentAgents(applyAgentAttention(agents, attention), limit));
   }
   const brokerAgents = brokerCardAgentsForWeb(broker)
-    .filter((agent) => !archivedIds.has(agent.id))
-    .map(withResolvedHarnessSessionIdentity);
+    .filter((agent) => !archivedIds.has(agent.id));
   const brokerById = new Map(brokerAgents.map((agent) => [agent.id, agent]));
   const canonicalScoutbot = brokerById.get("scoutbot");
   const mergedAgents = agents
@@ -4429,9 +4433,9 @@ export async function createOpenScoutWebServer(
     invokeCodex: options.scoutbotAssistant?.invokeCodex,
     scoutbot: options.scoutbot,
   });
-  let scoutbotRunner = scoutbot.runner;
   const resolveSessionRequestConversationId = async (conversationId: string): Promise<string | null> => {
     if (isOpaqueChannelId(conversationId)) return conversationId;
+    const scoutbotRunner = scoutbot.runner ?? await scoutbot.waitForRunner();
     if (!isLegacyScoutbotConversationId(conversationId) || !scoutbotRunner) return null;
     try {
       const threadList = await scoutbotRunner.getThreads();
@@ -5025,12 +5029,13 @@ export async function createOpenScoutWebServer(
   );
   app.get("/api/agents", async (c) => {
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
-    const limit = requestedLimit === undefined ? undefined : Math.min(requestedLimit, 100);
+    const limit = Math.min(requestedLimit ?? 100, 100);
     const summary = c.req.query("detail") === "summary";
-    const includeAttention = !summary || c.req.query("attention") === "1";
+    const attentionRequested = c.req.query("attention") === "1";
     const agents = await queryAgentsIncludingBrokerCards(
       limit,
-      includeAttention,
+      !summary || attentionRequested,
+      attentionRequested,
       options.captureTmuxPane ?? defaultCaptureTmuxPane,
       agentBrokerContextReader,
       agentBrokerHomeReader,
@@ -6788,6 +6793,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/scoutbot/threads", async (c) => {
+    const scoutbotRunner = scoutbot.runner ?? await scoutbot.waitForRunner();
     if (!scoutbotRunner) {
       return c.json({ error: "scoutbot runner is not enabled" }, 503);
     }
@@ -7116,6 +7122,7 @@ export async function createOpenScoutWebServer(
       return c.json(outcome.result);
     }
 
+    const scoutbotRunner = scoutbot.runner;
     if (scoutbotRunner) {
       try {
         const result = await scoutbotRunner.postOperatorMessage({
@@ -7525,20 +7532,9 @@ export async function createOpenScoutWebServer(
     defaultViteUrl: "http://127.0.0.1:43122",
   });
 
-  const warmTailRuntime = async () => {
-    const discovery = await tailRuntime.refreshTailDiscovery("shallow");
-    await tailRuntime.readRecentTranscriptEvents(500, {
-      discovery,
-      perTranscriptLineLimit: 200,
-    });
-  };
-
   const warmupCaches = () =>
     Promise.allSettled([
-      shellStateCache.refresh(),
-      loadPairingState(currentDirectory, true),
       warmOpenScoutBuildInfo(currentDirectory),
-      warmTailRuntime(),
     ]).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
@@ -7558,7 +7554,6 @@ export async function createOpenScoutWebServer(
     lanPairBeacon?.stop();
     pendingPairRequests.dispose();
     await scoutbot.stopRunner();
-    scoutbotRunner = null;
   };
 
   return { app, warmupCaches, stop };

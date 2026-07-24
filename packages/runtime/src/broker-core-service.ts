@@ -45,7 +45,7 @@ import { loadOpenScoutRuntimeBuildIdentity } from "./build-info.js";
 import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
 import { listBrokerMessages } from "./broker-core-message-read-model.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
-import type { RuntimeRegistrySnapshot } from "./registry.js";
+import { queryRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "./registry.js";
 import type { ActivityItem } from "./sqlite-store.js";
 
 type BrokerCoreRuntime = {
@@ -833,7 +833,7 @@ export function createBrokerCoreService(
     },
     readHome: deps.readHome,
     readNode: async () => deps.localNode,
-    readSnapshot: async () => deps.runtime.snapshot(),
+    readSnapshot: async (query) => queryRuntimeRegistrySnapshot(deps.runtime.snapshot(), query),
     ...(readCapabilities
       ? {
           readCapabilities: async (query) => await readCapabilities(query),

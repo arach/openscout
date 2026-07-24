@@ -557,7 +557,7 @@ export function createBrokerHttpRouter(
   }
 
   if (method === "GET" && url.pathname === "/v1/snapshot") {
-    json(response, 200, await brokerService.readSnapshot());
+    json(response, 200, await brokerService.readSnapshot({ since: parseSince(url) }));
     return;
   }
 

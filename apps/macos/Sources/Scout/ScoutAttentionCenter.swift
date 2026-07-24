@@ -97,7 +97,14 @@ final class ScoutAttentionCenter: NSObject, ObservableObject, UNUserNotification
             log.info("attention: notifications unavailable (no bundle identifier) — running badge + tracker only")
         }
 
-        let store = ScoutAgentsStore(pollInterval: 2.5)
+        // Attention is a live broker projection, not a reason to rescan every
+        // historical agent and transcript. Prefer scoutd's native summary
+        // stream; its web fallback is bounded and summary-only.
+        let store = ScoutAgentsStore(
+            pollInterval: 2.5,
+            pageSize: 100,
+            requestsSummary: true
+        )
         self.store = store
         store.$agents
             .compactMap { $0 }

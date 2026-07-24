@@ -1480,8 +1480,8 @@ describe("createOpenScoutWebServer", () => {
     expect(listResponse.status).toBe(200);
     const agents = await listResponse.json() as Array<Record<string, unknown>>;
     expect(agents.map((agent) => agent.id)).toEqual([
-      "local-agent",
       "weather-a2a.local",
+      "local-agent",
     ]);
     const a2aAgent = agents.find((agent) => agent.id === "weather-a2a.local");
     expect(a2aAgent).toMatchObject({
@@ -1555,6 +1555,26 @@ describe("createOpenScoutWebServer", () => {
       "local-agent-4",
     ]);
     expect(queryAgentsLimits).toContain(5);
+  });
+
+  test("bounds the default agents API roster", async () => {
+    queryAgentsResult = Array.from({ length: 101 }, (_, index) => ({
+      id: `local-agent-${index + 1}`,
+      definitionId: `local-agent-${index + 1}`,
+      name: `Local Agent ${index + 1}`,
+      updatedAt: 1_700_000_000_000 - index,
+    }));
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toHaveLength(100);
+    expect(queryAgentsLimits).toContain(100);
   });
 
   test("serves a lightweight agent summary without rich broker activity", async () => {
@@ -2480,7 +2500,7 @@ describe("createOpenScoutWebServer", () => {
       captureTmuxPane,
     });
 
-    const agentResponse = await server.app.request("http://localhost/api/agents");
+    const agentResponse = await server.app.request("http://localhost/api/agents?attention=1");
     const agents = await agentResponse.json() as Array<{ id: string; state: string; pendingAsk?: string }>;
     expect(agents.find((agent) => agent.id === agentId)).toMatchObject({
       state: "needs_attention",

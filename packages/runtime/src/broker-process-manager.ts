@@ -385,12 +385,12 @@ function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
 
   switch (mode) {
     case "prod":
-      return "com.openscout";
+      return "app.openscout";
     case "custom":
-      return "com.openscout.custom";
+      return "app.openscout.custom";
     case "dev":
     default:
-      return "dev.openscout";
+      return "app.openscout";
   }
 }
 

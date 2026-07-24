@@ -27,7 +27,7 @@ import type {
   ThreadWatchRenewResponse,
 } from "@openscout/protocol";
 
-import type { RuntimeRegistrySnapshot } from "./registry.js";
+import type { RuntimeRegistrySnapshot, RuntimeRegistrySnapshotQuery } from "./registry.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { InvocationLifecycleSummary } from "./invocation-lifecycle-read-model.js";
 
@@ -174,7 +174,7 @@ export type ActiveScoutBrokerService = {
   readHealth: () => Promise<ScoutBrokerHealthPayload>;
   readHome?: () => Promise<unknown>;
   readNode: () => Promise<NodeDefinition>;
-  readSnapshot: () => Promise<RuntimeRegistrySnapshot>;
+  readSnapshot: (query?: RuntimeRegistrySnapshotQuery) => Promise<RuntimeRegistrySnapshot>;
   readCapabilities?: (
     query?: ScoutBrokerCapabilitiesQuery,
   ) => Promise<ScoutCapabilityMatrixSnapshot>;
@@ -345,6 +345,17 @@ function requestBrokerOverUnixSocket<T>(
       headers["content-length"] = Buffer.byteLength(body).toString();
     }
 
+    let settled = false;
+    const cleanupAbortListener = () => {
+      options.signal?.removeEventListener("abort", handleAbort);
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanupAbortListener();
+      reject(error);
+    };
+
     const request = httpRequest(
       {
         socketPath,
@@ -353,34 +364,36 @@ function requestBrokerOverUnixSocket<T>(
         headers,
       },
       (response) => {
-        let text = "";
-        response.setEncoding("utf8");
+        const chunks: Buffer[] = [];
         response.on("data", (chunk) => {
-          text += String(chunk);
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         });
+        response.on("aborted", () => {
+          rejectOnce(new Error("Scout broker response aborted"));
+        });
+        response.on("error", rejectOnce);
         response.on("end", () => {
-          options.signal?.removeEventListener("abort", handleAbort);
+          if (settled) return;
+          settled = true;
+          cleanupAbortListener();
           resolve({
             ok: Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300),
             status: response.statusCode ?? 0,
-            text,
+            text: Buffer.concat(chunks).toString("utf8"),
           });
         });
       },
     );
 
     const handleAbort = () => {
-      request.destroy(
-        options.signal?.reason instanceof Error
-          ? options.signal.reason
-          : new Error("Scout broker request aborted"),
-      );
+      const error = options.signal?.reason instanceof Error
+        ? options.signal.reason
+        : new Error("Scout broker request aborted");
+      rejectOnce(error);
+      request.destroy(error);
     };
 
-    request.on("error", (error) => {
-      options.signal?.removeEventListener("abort", handleAbort);
-      reject(error);
-    });
+    request.on("error", rejectOnce);
     if (options.signal) {
       if (options.signal.aborted) {
         handleAbort();
@@ -617,7 +630,9 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
   }
 
   if (url.pathname === "/v1/snapshot") {
-    return handled(await service.readSnapshot() as T);
+    return handled(await service.readSnapshot({
+      since: parsePositiveInt(url.searchParams.get("since")) ?? null,
+    }) as T);
   }
 
   if (url.pathname === "/v1/capabilities") {
