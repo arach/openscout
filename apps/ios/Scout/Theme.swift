@@ -243,7 +243,11 @@ struct ScoutCanvas: View {
 /// A cached, deterministic 48px monochrome tile. The texture is generated once
 /// for the process, then composited by the GPU as an ImagePaint; there is no
 /// TimelineView and no per-frame noise work while the key-light animates.
-private struct ScoutFilmGrain: View {
+/// Also overlaid (stronger, shape-clipped) on crown chrome for the reference
+/// designs' machined/leathery feel.
+struct ScoutFilmGrain: View {
+    var grainOpacity: Double = 0.028
+
     private static let tile: CGImage = {
         let side = 48
         var state: UInt32 = 0x5C0A_7E11
@@ -279,7 +283,7 @@ private struct ScoutFilmGrain: View {
                 )
             )
             .blendMode(.softLight)
-            .opacity(0.028)
+            .opacity(grainOpacity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
