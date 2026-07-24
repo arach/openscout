@@ -10,6 +10,24 @@
   box-sizing: border-box;
 }
 
+.collapsed-strip-label {
+  flex: none;
+  max-width: 100%;
+  padding: 2px 2px 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  color: color-mix(in srgb, var(--hud-ink, var(--ink)) 48%, transparent);
+  user-select: none;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .collapsed-strip--empty {
   opacity: 0.45;
   padding-top: 8px;

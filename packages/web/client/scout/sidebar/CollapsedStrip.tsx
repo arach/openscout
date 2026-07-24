@@ -9,22 +9,27 @@ export type CollapsedChipTone = "default" | "channel" | "neutral" | "attention" 
 export function CollapsedStrip({
   label,
   emptyMark = "·",
+  /** When true (default), render a small mono caption above the chips. */
+  showLabel = true,
   children,
 }: {
   label: string;
   emptyMark?: string;
+  showLabel?: boolean;
   children: ReactNode;
 }) {
   const empty = !children || (Array.isArray(children) && children.length === 0);
   if (empty) {
     return (
       <div className="collapsed-strip collapsed-strip--empty" aria-hidden>
+        {showLabel ? <span className="collapsed-strip-label">{label}</span> : null}
         <span className="collapsed-strip-empty-mark">{emptyMark}</span>
       </div>
     );
   }
   return (
     <div className="collapsed-strip" role="list" aria-label={label}>
+      {showLabel ? <div className="collapsed-strip-label">{label}</div> : null}
       {children}
     </div>
   );

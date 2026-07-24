@@ -113,7 +113,7 @@ export function ChatCollapsedStrip() {
   };
 
   return (
-    <CollapsedStrip label="Recent chats" emptyMark="#">
+    <CollapsedStrip label="Chat" emptyMark="#">
       {chips.map(({ session: s, pinned }) => {
         const title = conversationDisplayTitle(s);
         const channel = isGroupConversation(s);

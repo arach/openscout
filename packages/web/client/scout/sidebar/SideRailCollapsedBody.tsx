@@ -178,7 +178,7 @@ function HomeCollapsedStrip() {
   }, [scopedAgents, attentionAgents]);
 
   return (
-    <CollapsedStrip label="Home context" emptyMark="H">
+    <CollapsedStrip label="Home" emptyMark="H">
       {attentionAgents.map((agent) => (
         <AgentChip
           key={`att-${agent.id}`}
@@ -296,7 +296,7 @@ function OpsCollapsedStrip() {
   ];
 
   return (
-    <CollapsedStrip label="Ops modes" emptyMark="O">
+    <CollapsedStrip label="Ops" emptyMark="O">
       {items.map((item) => (
         <CollapsedChip
           key={item.id}
