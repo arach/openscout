@@ -12,7 +12,6 @@ export type ScoutCommandName =
   | "diff"
   | "down"
   | "doctor"
-  | "enroll"
   | "env"
   | "flight"
   | "init"
@@ -63,8 +62,6 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./down.ts")).runDownCommand;
     case "doctor":
       return (await import("./doctor.ts")).runDoctorCommand;
-    case "enroll":
-      return (await import("./enroll.ts")).runEnrollCommand;
     case "env":
       return (await import("./env.ts")).runEnvCommand;
     case "flight":

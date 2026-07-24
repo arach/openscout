@@ -149,7 +149,6 @@ Commands:
   latest       Show the latest Scout activity
   mcp          Run a Scout MCP server over stdio
   channel      Read channel messages or run a Claude Code channel server
-  enroll       Generate enrollment prompt
   broadcast    Broadcast to channel.shared
   up           Spawn a local agent for a project
   down         Stop one or all local agents
