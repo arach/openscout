@@ -15,9 +15,9 @@ import {
 describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
   test("breadcrumb renders for sample detail routes", () => {
     expect(routeBreadcrumbForRoute({ view: "terminal" })).toBe("Terminals");
-    expect(routeBreadcrumbForRoute({ view: "repos" })).toBe("Repos");
-    expect(routeBreadcrumbForRoute({ view: "code" })).toBe("Code");
-    expect(routeBreadcrumbForRoute({ view: "ops", mode: "lanes" })).toBe("Lanes");
+    expect(routeBreadcrumbForRoute({ view: "repos" })).toBe("Repositories");
+    expect(routeBreadcrumbForRoute({ view: "code" })).toBe("Code Browser");
+    expect(routeBreadcrumbForRoute({ view: "ops", mode: "lanes" })).toBe("Agent Lanes");
     expect(routeBreadcrumbForRoute({ view: "broker" })).toBe("Dispatch");
   });
 
@@ -31,7 +31,7 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
 
   test("area sub-nav strip is present for projects/sessions mouse paths", () => {
     const projects = areaSubNavForRoute({ view: "agents-v2" });
-    expect(projects?.items.map((i) => i.label)).toEqual(["Projects", "Repos", "Code"]);
+    expect(projects?.items.map((i) => i.label)).toEqual(["Projects", "Repositories", "Code Browser"]);
 
     const terminals = areaSubNavForRoute({ view: "terminal" });
     expect(terminals?.items.map((i) => i.id)).toEqual(["sessions", "terminals"]);
@@ -80,7 +80,7 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
     }
   });
 
-  test("title bar owns Ops and Chat secondary strips", () => {
+  test("title bar owns Operations and Messages secondary strips", () => {
     expect(secondaryNavKindForRoute({ view: "ops", mode: "lanes" })).toBe("ops");
     expect(secondaryNavKindForRoute({ view: "mesh" })).toBe("ops");
     expect(secondaryNavKindForRoute({ view: "harnesses" })).toBe("ops");
@@ -94,7 +94,7 @@ describe("center-pane header seam projections (SCO-085 / SCO-086)", () => {
   // superseded). hasSecondaryNavRow now gates whether the INLINE tab cluster (and
   // its slash separator) render beside the section name — either the Ops/Chat
   // strip OR the projects/sessions area sub-nav.
-  test("hasSecondaryNavRow is true for Ops/Chat and area-sub-nav routes", () => {
+  test("hasSecondaryNavRow is true for Operations/Messages and area-sub-nav routes", () => {
     // Ops / Chat secondary strips.
     expect(hasSecondaryNavRow({ view: "ops", mode: "lanes" })).toBe(true);
     expect(hasSecondaryNavRow({ view: "mesh" })).toBe(true);

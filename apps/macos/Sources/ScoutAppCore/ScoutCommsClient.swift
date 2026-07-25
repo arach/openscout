@@ -75,12 +75,13 @@ public struct ScoutCommsClient: Sendable {
     /// caller fires this when a conversation is opened, so any failure must stay
     /// out of the UI — we log and move on. The server defaults `actorId` to
     /// "operator", so we omit it here.
+    @discardableResult
     public func advanceReadCursor(
         cId: String,
         lastReadMessageId: String?,
         lastReadSeq: Int? = nil,
         lastReadAt: TimeInterval? = nil
-    ) async {
+    ) async -> Bool {
         // Conversation ids mint as "c.<uuid>" (no path separators), so a single
         // path segment is safe; appending(path:) percent-encodes any stray
         // reserved characters for us.
@@ -106,9 +107,11 @@ public struct ScoutCommsClient: Sendable {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             try await ScoutHTTP.send(request)
+            return true
         } catch {
-            guard !ScoutAppError.isCancellation(error) else { return }
+            guard !ScoutAppError.isCancellation(error) else { return false }
             Self.log.warning("advanceReadCursor failed for \(cId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

@@ -50,7 +50,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let currentBranch: String?
     public let parentConversationId: String?
     public let anchorMessageId: String?
-    public let unreadCount: Int
+    public private(set) var unreadCount: Int
     public let ask: ScoutChannelAsk?
 
     public var id: String { cId }
@@ -150,6 +150,13 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
 
     public var ageLabel: String {
         ScoutRelativeTime.format(lastMessageAt)
+    }
+
+    /// Clear the presentation-side unread count as soon as this conversation is
+    /// shown or explicitly marked read. The broker read cursor remains the
+    /// durable source of truth; the next channels refresh reconciles this value.
+    public mutating func markRead() {
+        unreadCount = 0
     }
 
     enum CodingKeys: String, CodingKey {

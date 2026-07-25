@@ -1300,7 +1300,7 @@ function embedFilterLabel(filters: AgentLaneEmbedFilters): string {
 
 export const scoutSurface = defineSurface({
   id: "lanes",
-  label: "Lanes",
+  label: "Agent Lanes",
   route: { view: "ops", mode: "lanes" },
   webPath: "/ops/lanes",
   screen: "AgentLanesView",

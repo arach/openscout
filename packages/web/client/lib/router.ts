@@ -144,6 +144,12 @@ function parseDiffInclude(value: string | null): "changed" | "all" | undefined {
   return value === "all" || value === "touched" ? "all" : value === "changed" ? "changed" : undefined;
 }
 
+function parsePositiveLine(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
     case "mission":
@@ -548,14 +554,31 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "code") {
     const wt = url.searchParams.get("wt")?.trim() || undefined;
+    const line = parsePositiveLine(url.searchParams.get("line"));
+    const rawEndLine = parsePositiveLine(url.searchParams.get("endLine"));
+    const endLine = line && rawEndLine && rawEndLine >= line ? rawEndLine : undefined;
     if (parts[1]) {
       const project = decodeURIComponent(parts[1]);
       const path = parts.length > 2 ? parts.slice(2).map(decodeURIComponent).join("/") : undefined;
-      return { view: "code", project, ...(path ? { path } : {}), ...(wt ? { wt } : {}) };
+      return {
+        view: "code",
+        project,
+        ...(path ? { path } : {}),
+        ...(wt ? { wt } : {}),
+        ...(line ? { line } : {}),
+        ...(endLine ? { endLine } : {}),
+      };
     }
     const root = url.searchParams.get("root")?.trim() || undefined;
     const file = url.searchParams.get("file")?.trim() || undefined;
-    return { view: "code", ...(root ? { root } : {}), ...(file ? { file } : {}), ...(wt ? { wt } : {}) };
+    return {
+      view: "code",
+      ...(root ? { root } : {}),
+      ...(file ? { file } : {}),
+      ...(wt ? { wt } : {}),
+      ...(line ? { line } : {}),
+      ...(endLine ? { endLine } : {}),
+    };
   }
   if (parts[0] === "briefings" && parts[1]) {
     return { view: "briefings", briefingId: decodeURIComponent(parts[1]) };
@@ -791,16 +814,18 @@ export function routePath(r: Route, pathname?: string): string {
       return `/dispatch${searchSuffix(params)}`;
     }
     case "code": {
+      const params = new URLSearchParams();
+      if (r.wt) params.set("wt", r.wt);
+      if (r.line) params.set("line", String(r.line));
+      if (r.line && r.endLine && r.endLine >= r.line) params.set("endLine", String(r.endLine));
       if (r.project) {
         const segments = [encodeURIComponent(r.project)];
         if (r.path) segments.push(...r.path.split("/").map(encodeURIComponent));
         const base = `/code/${segments.join("/")}`;
-        return r.wt ? `${base}?wt=${encodeURIComponent(r.wt)}` : base;
+        return `${base}${searchSuffix(params)}`;
       }
-      const params = new URLSearchParams();
       if (r.root) params.set("root", r.root);
       if (r.file) params.set("file", r.file);
-      if (r.wt) params.set("wt", r.wt);
       const search = params.toString();
       return search ? `/code?${search}` : "/code";
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createHighlighterCore, type HighlighterCore } from "shiki/core";
 import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 
@@ -177,9 +177,20 @@ async function highlight(code: string, lang: string): Promise<string> {
 
 /** Read-only code pane: renders plain text immediately, upgrades in place
     once the TextMate tokens are ready — no blank flash on big files. */
-export function ShikiPane({ code, path }: { code: string; path: string }) {
+export function ShikiPane({
+  code,
+  path,
+  focusLine,
+  endLine,
+}: {
+  code: string;
+  path: string;
+  focusLine?: number;
+  endLine?: number;
+}) {
   const lang = useMemo(() => langFor(path), [path]);
   const [html, setHtml] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setHtml(null);
@@ -197,14 +208,33 @@ export function ShikiPane({ code, path }: { code: string; path: string }) {
     };
   }, [code, path, lang]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const lines = Array.from(container.querySelectorAll<HTMLElement>(".line"));
+    for (const line of lines) {
+      delete line.dataset.focusLine;
+      delete line.dataset.focusStart;
+    }
+    if (!focusLine || lines.length === 0) return;
+    const start = Math.min(Math.max(1, focusLine), lines.length);
+    const end = Math.min(Math.max(start, endLine ?? start), lines.length);
+    for (let index = start; index <= end; index += 1) {
+      lines[index - 1]!.dataset.focusLine = "true";
+    }
+    const target = lines[start - 1];
+    target.dataset.focusStart = "true";
+    target.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [code, endLine, focusLine, html]);
+
   if (html) {
     // Shiki output is fully escaped; file contents never reach the DOM raw.
-    return <div className="s-code-shiki" dangerouslySetInnerHTML={{ __html: html }} />;
+    return <div ref={containerRef} className="s-code-shiki" dangerouslySetInnerHTML={{ __html: html }} />;
   }
 
   const lines = code.split("\n");
   return (
-    <div className="s-code-shiki">
+    <div ref={containerRef} className="s-code-shiki">
       <pre className="shiki">
         <code>
           {lines.map((line, index) => (

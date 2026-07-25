@@ -194,6 +194,45 @@ private struct ScoutThreadCompactMessageRow: View {
     }
 }
 
+private enum ScoutRealtimeVoiceStatus: Equatable {
+    case ready
+    case connecting
+    case live
+    case stopping
+    case error
+
+    init?(webState: String) {
+        switch webState {
+        case "idle", "ended": self = .ready
+        case "connecting": self = .connecting
+        case "live": self = .live
+        case "stopping": self = .stopping
+        case "error": self = .error
+        default: return nil
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ready: return "VOICE"
+        case .connecting: return "VOICE CONNECTING"
+        case .live: return "VOICE LIVE"
+        case .stopping: return "VOICE STOPPING"
+        case .error: return "VOICE ERROR"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .ready: return "play.fill"
+        case .connecting: return "ellipsis"
+        case .live: return "waveform"
+        case .stopping: return "stop.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
@@ -213,6 +252,13 @@ struct ScoutRootView: View {
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
     @ObservedObject private var activityLog = HudLogStore.shared
     @State private var showingActivityLog = false
+    @AppStorage(ScoutRealtimeVoiceSettings.enabledKey) private var realtimeVoiceEnabled = false
+    @State private var showingRealtimeVoice = false
+    @State private var realtimeVoiceSurfaceMounted = false
+    @State private var realtimeVoiceStatus = ScoutRealtimeVoiceStatus.ready
+    @State private var realtimeVoiceStopRequest: UUID?
+    @State private var realtimeVoiceLeaseId: String?
+    @State private var realtimeVoiceStopDeadline: Task<Void, Never>?
     @State private var section: ScoutSection = .comms
     @State private var codeLinkQueryItems: [URLQueryItem] = []
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
@@ -220,6 +266,16 @@ struct ScoutRootView: View {
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var agentsFilterQuery = ""
     @State private var agentsLiveOnly = false
+    /// Which implementation draws the Comms transcript — Settings › Appearance ›
+    /// Conversations. `shared` mounts the web `/embed/thread` surface so web,
+    /// macOS and iOS draw the conversation body from one implementation instead
+    /// of three; the native stack below is untouched and still builds.
+    @AppStorage(ScoutCommsSettings.threadRendererKey)
+    private var threadRendererRaw = ScoutThreadRenderer.fallback.rawValue
+    /// Settings › Appearance › Conversations. Passed to the embed as the
+    /// `treatment` query param, which re-renders the surface on change.
+    @AppStorage(ScoutCommsSettings.threadPresentationKey)
+    private var threadPresentationRaw = ScoutThreadPresentation.fallback.rawValue
     @AppStorage("scout.agents.showProjects") private var agentsShowProjects = true
     @AppStorage("scout.agents.sortMode") private var agentsSortModeRaw = ScoutAgentSortMode.alpha.rawValue
     @State private var channelFilter: ScoutChannelFilter = .all
@@ -246,6 +302,8 @@ struct ScoutRootView: View {
 
     private static let messageListBottomAnchor = "scout.messageList.bottom"
     private static let activeTurnAnchor = "scout.messageList.activeTurn"
+    /// Mirrors SCOUT_REALTIME_VOICE_FLAG in packages/web/shared/realtime-voice.ts.
+    private static let realtimeVoiceFlag = "surface.realtime-voice"
     @State private var suggestions: [MessageSuggestion] = []
     @State private var selectedSuggestionIndex = 0
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
@@ -444,6 +502,18 @@ struct ScoutRootView: View {
         ))
         .hudsonSidebarMotionMode(.smoothFade)
         .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
+        .overlay(alignment: .bottomTrailing) {
+            realtimeVoiceOverlay
+        }
+        .onChange(of: realtimeVoiceEnabled) { _, enabled in
+            if !enabled {
+                stopRealtimeVoice()
+            }
+        }
+        .onChange(of: showingRealtimeVoice) { _, showing in
+            guard showing else { return }
+            realtimeVoiceSurfaceMounted = true
+        }
         .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
             ScoutLogPanel(title: "Activity Log") {
                 showingActivityLog = false
@@ -1557,7 +1627,8 @@ struct ScoutRootView: View {
                 onStartBroker: { store.startBroker() },
                 onOpenMenuBar: { ScoutServicesHelper.openMenuBarHelper() },
                 onRetryPending: retryPendingConversation,
-                onSelectPending: selectPendingConversation
+                onSelectPending: selectPendingConversation,
+                onMarkRead: { channel in store.markChannelRead(channel.cId) }
             ) { channel in
                 store.selectChannel(channel.cId)
             }
@@ -2287,7 +2358,44 @@ struct ScoutRootView: View {
         )
     }
 
+    private var threadRenderer: ScoutThreadRenderer {
+        ScoutThreadRenderer(rawValue: threadRendererRaw) ?? .fallback
+    }
+
+    private var threadPresentation: ScoutThreadPresentation {
+        ScoutThreadPresentation(rawValue: threadPresentationRaw) ?? .fallback
+    }
+
+    @ViewBuilder
     private var messageList: some View {
+        if threadRenderer == .shared, let conversationId = store.selectedCId {
+            webThreadTranscript(conversationId: conversationId)
+        } else {
+            nativeMessageList
+        }
+    }
+
+    /// The conversation, drawn by the same component the web app renders at
+    /// /chat — not an embed-only variant of it. Keyed on the conversation so
+    /// switching threads reloads rather than reusing a web view still scrolled
+    /// to the previous thread's tail.
+    private func webThreadTranscript(conversationId: String) -> some View {
+        ScoutWebEmbedContent(
+            surface: .thread,
+            extraQueryItems: [
+                URLQueryItem(name: "conversationId", value: conversationId),
+                // This window keeps its native composer — for the pasteboard,
+                // drag-drop, dictation and ⌘↩ it can reach and a web view
+                // can't. Without this the embed stacks a second one under it.
+                URLQueryItem(name: "composer", value: "0"),
+                URLQueryItem(name: "treatment", value: threadPresentation.rawValue),
+            ],
+            showsHeader: false
+        )
+        .id(conversationId)
+    }
+
+    private var nativeMessageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: HudSpacing.xxxl) {
@@ -3952,10 +4060,388 @@ struct ScoutRootView: View {
             .help("Open activity log")
 
             Spacer()
+
+            if realtimeVoiceEnabled {
+                realtimeVoiceStatusButton
+            }
         }
         .padding(.horizontal, HudSpacing.xxl)
         .frame(height: 24)
         .background(ScoutDesign.band)
+    }
+
+    private var realtimeVoiceStatusButton: some View {
+        HStack(spacing: 0) {
+            Button(action: toggleRealtimeVoicePanel) {
+                HStack(spacing: HudSpacing.xs) {
+                    Image(systemName: realtimeVoiceStatus.systemImage)
+                        .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                    Text(realtimeVoiceStatus.label)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .tracking(0.7)
+                }
+                .padding(.horizontal, HudSpacing.md)
+                .padding(.vertical, HudSpacing.xxs)
+            }
+            .buttonStyle(.plain)
+            .help(realtimeVoiceStatusHelp)
+            .accessibilityLabel(realtimeVoiceStatusHelp)
+
+            if realtimeVoiceCallActive {
+                Rectangle()
+                    .fill(realtimeVoiceStatusColor.opacity(0.24))
+                    .frame(width: HudStrokeWidth.thin, height: 13)
+                Button(action: stopRealtimeVoice) {
+                    Image(systemName: "stop.fill")
+                        .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                        .padding(.horizontal, HudSpacing.sm)
+                        .padding(.vertical, HudSpacing.xxs)
+                }
+                .buttonStyle(.plain)
+                .help("Stop realtime voice")
+                .accessibilityLabel("Stop realtime voice")
+            }
+        }
+        .foregroundStyle(realtimeVoiceStatusColor)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                .fill(realtimeVoiceStatusFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                .stroke(realtimeVoiceStatusColor.opacity(0.32), lineWidth: HudStrokeWidth.thin)
+        )
+    }
+
+    @ViewBuilder
+    private var realtimeVoiceOverlay: some View {
+        if realtimeVoiceSurfaceMounted {
+            ScoutWebEmbedContent(
+                surface: .voice,
+                extraQueryItems: [
+                    URLQueryItem(name: "ff.\(Self.realtimeVoiceFlag)", value: "on"),
+                    URLQueryItem(name: "dictationActive", value: realtimeVoiceDictationActive ? "1" : "0"),
+                ],
+                showsHeader: false,
+                onRealtimeVoiceStateChange: handleRealtimeVoiceState,
+                onRealtimeVoiceAction: handleRealtimeVoiceAction,
+                realtimeVoiceStopRequest: realtimeVoiceStopRequest
+            )
+            .frame(width: 332, height: 340)
+            .background(ScoutDesign.bg)
+            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            }
+            .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
+            .padding(.trailing, HudSpacing.xxl)
+            .padding(.bottom, 32)
+            .opacity(showingRealtimeVoice ? 1 : 0.001)
+            .scaleEffect(showingRealtimeVoice ? 1 : 0.96, anchor: .bottomTrailing)
+            .offset(y: showingRealtimeVoice ? 0 : 10)
+            .allowsHitTesting(showingRealtimeVoice)
+            .accessibilityHidden(!showingRealtimeVoice)
+            .animation(.easeOut(duration: 0.16), value: showingRealtimeVoice)
+        }
+    }
+
+    private var realtimeVoiceDictationActive: Bool {
+        voice.state.isCaptureActive || voice.state.isProcessing
+    }
+
+    private var realtimeVoiceCallActive: Bool {
+        realtimeVoiceStatus == .connecting
+            || realtimeVoiceStatus == .live
+            || realtimeVoiceStatus == .stopping
+    }
+
+    private func toggleRealtimeVoicePanel() {
+        if realtimeVoiceSurfaceMounted {
+            showingRealtimeVoice.toggle()
+        } else {
+            realtimeVoiceStopRequest = nil
+            realtimeVoiceStatus = .ready
+            realtimeVoiceSurfaceMounted = true
+            showingRealtimeVoice = true
+        }
+    }
+
+    private func stopRealtimeVoice() {
+        guard realtimeVoiceStatus != .stopping else { return }
+        guard realtimeVoiceCallActive else {
+            showingRealtimeVoice = false
+            realtimeVoiceStatus = .ready
+            ScoutRealtimeVoiceStatusBridge.post(.idle)
+            return
+        }
+        let request = UUID()
+        realtimeVoiceStatus = .stopping
+        ScoutRealtimeVoiceStatusBridge.post(.stopping)
+        realtimeVoiceStopRequest = request
+        realtimeVoiceStopDeadline?.cancel()
+        realtimeVoiceStopDeadline = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await forceStopRealtimeVoice(request: request)
+        }
+    }
+
+    private func handleRealtimeVoiceState(_ rawState: String, leaseId: String?) {
+        if let leaseId, !leaseId.isEmpty {
+            realtimeVoiceLeaseId = leaseId
+        }
+        if rawState == "minimize" {
+            showingRealtimeVoice = false
+            return
+        }
+        if realtimeVoiceStatus == .stopping, rawState != "ended" {
+            // A late WebRTC callback cannot resurrect a call after the footer
+            // has entered its acknowledged stop transaction.
+            return
+        }
+        if rawState == "idle", realtimeVoiceSurfaceMounted, realtimeVoiceStatus == .connecting {
+            // The embedded provider reports its initial state before autoStart
+            // runs. The native footer already owns the connecting transition.
+            return
+        }
+        guard let next = ScoutRealtimeVoiceStatus(webState: rawState) else { return }
+        realtimeVoiceStatus = next
+        switch rawState {
+        case "connecting": ScoutRealtimeVoiceStatusBridge.post(.connecting)
+        case "live": ScoutRealtimeVoiceStatusBridge.post(.live)
+        case "error": ScoutRealtimeVoiceStatusBridge.post(.error)
+        case "ended":
+            realtimeVoiceStopDeadline?.cancel()
+            realtimeVoiceStopDeadline = nil
+            ScoutRealtimeVoiceStatusBridge.post(.idle)
+            realtimeVoiceStopRequest = nil
+            realtimeVoiceLeaseId = nil
+            showingRealtimeVoice = false
+        default: break
+        }
+    }
+
+    /// Normal stop waits for the web call to close RTC and DELETE its lease.
+    /// If the content process or fetch is wedged, the deadline tears down the
+    /// media-owning WebView and independently revokes the one known host lease.
+    private func forceStopRealtimeVoice(request: UUID) async {
+        guard realtimeVoiceStopRequest == request,
+              realtimeVoiceStatus == .stopping else { return }
+        showingRealtimeVoice = false
+        realtimeVoiceSurfaceMounted = false
+
+        let leaseId = realtimeVoiceLeaseId
+        let released = if let leaseId {
+            await Self.revokeRealtimeVoiceLease(leaseId)
+        } else {
+            true
+        }
+
+        guard realtimeVoiceStopRequest == request else { return }
+        realtimeVoiceStopDeadline = nil
+        realtimeVoiceStopRequest = nil
+        realtimeVoiceLeaseId = nil
+        if released {
+            realtimeVoiceStatus = .ready
+            ScoutRealtimeVoiceStatusBridge.post(.idle)
+        } else {
+            realtimeVoiceStatus = .error
+            ScoutRealtimeVoiceStatusBridge.post(.error)
+            store.lastError = "Realtime voice audio was closed, but Scout could not confirm the server lease was released. It will expire automatically."
+        }
+    }
+
+    private static func revokeRealtimeVoiceLease(_ leaseId: String) async -> Bool {
+        var request = URLRequest(
+            url: ScoutWeb.baseURL()
+                .appending(path: "api/voice/realtime/lease")
+                .appending(path: leaseId)
+        )
+        request.httpMethod = "DELETE"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 2
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        } catch {
+            return false
+        }
+    }
+
+    /// The voice WebView owns WebRTC only. Scoutbot's typed UI actions cross
+    /// the native bridge and resolve to the closest first-class macOS surface,
+    /// so navigation never replaces the live call document.
+    private func handleRealtimeVoiceAction(_ action: ScoutRealtimeVoiceNativeAction) {
+        switch action.type {
+        case "navigate":
+            guard let route = action.route else {
+                reportUnsupportedRealtimeVoiceAction("That navigation request was incomplete.")
+                return
+            }
+            if navigateFromRealtimeVoice(to: route) {
+                // Navigation happens in the native shell. Minimize the control
+                // surface so the requested destination is immediately visible;
+                // the footer keeps the call and its activity log reachable.
+                showingRealtimeVoice = false
+            } else {
+                reportUnsupportedRealtimeVoiceAction(
+                    "Live voice cannot open ‘\(route.view)’ in this macOS build yet."
+                )
+            }
+        case "refresh":
+            store.refresh(force: true)
+            if section == .repos {
+                repos.refresh(force: true)
+            }
+        case "view-file":
+            guard let path = action.path?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !path.isEmpty else {
+                reportUnsupportedRealtimeVoiceAction("That file request did not include a path.")
+                return
+            }
+            fileViewer.open(path: path, line: nil)
+        case "open-scoutbot":
+            // The active live-voice surface is already Scoutbot. Keep it alive
+            // instead of opening a second assistant/PiP surface.
+            showingRealtimeVoice = true
+        default:
+            reportUnsupportedRealtimeVoiceAction(
+                "Live voice cannot perform ‘\(action.type)’ in this macOS build yet."
+            )
+        }
+    }
+
+    @discardableResult
+    private func navigateFromRealtimeVoice(to route: ScoutRealtimeVoiceNativeAction.Route) -> Bool {
+        switch route.view {
+        case "inbox", "messages", "channels", "search":
+            section = .comms
+            if let conversationId = route.conversationId ?? route.channelId {
+                openChannelFromExternalCommand(conversationId)
+            }
+            return true
+        case "conversation":
+            if let conversationId = route.conversationId {
+                openChannelFromExternalCommand(conversationId)
+            } else {
+                section = .comms
+            }
+            return true
+        case "agent-info":
+            if let conversationId = route.conversationId {
+                store.selectChannel(conversationId)
+            }
+            section = .agents
+            return true
+        case "agents-v2", "sessions", "harnesses":
+            section = .agents
+            agentsShowProjects = true
+            if let projectSlug = route.projectSlug, !projectSlug.isEmpty {
+                agentsFilterQuery = projectSlug
+            }
+            if let agentId = route.agentId ?? route.selectedAgentId {
+                store.selectAgent(agentId)
+            }
+            return true
+        case "terminal":
+            section = .terminals
+            if let agentId = route.agentId {
+                store.selectAgent(agentId)
+            }
+            return true
+        case "repos", "repo-diff":
+            section = .repos
+            return true
+        case "code":
+            codeLinkQueryItems = [
+                URLQueryItem(name: "root", value: route.root),
+                URLQueryItem(name: "file", value: route.file),
+                URLQueryItem(name: "project", value: route.project),
+                URLQueryItem(name: "path", value: route.path),
+                URLQueryItem(name: "wt", value: route.wt),
+                URLQueryItem(name: "line", value: route.line.map(String.init)),
+                URLQueryItem(name: "endLine", value: route.endLine.map(String.init)),
+            ].filter { $0.value?.isEmpty == false }
+            section = .code
+            return true
+        case "settings":
+            if route.section == "voice" {
+                UserDefaults.standard.set("voice", forKey: ScoutSettingsNavigation.selectedSectionKey)
+            }
+            section = .settings
+            return true
+        case "activity":
+            section = .tail
+            return true
+        case "ops":
+            switch route.mode {
+            case "lanes": section = .lanes
+            case "agents": section = .agents
+            case "tail", "atop": section = .tail
+            default: section = .dispatch
+            }
+            return true
+        case "follow":
+            switch route.preferredView {
+            case "chat":
+                if let conversationId = route.conversationId {
+                    openChannelFromExternalCommand(conversationId)
+                } else {
+                    section = .comms
+                }
+            case "session":
+                section = .agents
+                if let agentId = route.agentId {
+                    store.selectAgent(agentId)
+                }
+            case "work": section = .dispatch
+            default: section = .tail
+            }
+            return true
+        case "work", "broker", "mesh", "briefings":
+            section = .dispatch
+            return true
+        default:
+            // No native parity yet. Keep the WebRTC surface intact and leave
+            // the current native destination unchanged.
+            return false
+        }
+    }
+
+    private func reportUnsupportedRealtimeVoiceAction(_ message: String) {
+        store.lastError = message
+    }
+
+    private var realtimeVoiceStatusColor: Color {
+        switch realtimeVoiceStatus {
+        case .ready: return ScoutPalette.muted
+        case .connecting: return ScoutPalette.statusWarn
+        case .live: return ScoutPalette.statusOk
+        case .stopping: return ScoutPalette.statusWarn
+        case .error: return ScoutPalette.statusError
+        }
+    }
+
+    private var realtimeVoiceStatusFill: Color {
+        switch realtimeVoiceStatus {
+        case .ready: return ScoutDesign.surface.opacity(0.55)
+        case .connecting: return ScoutPalette.statusWarn.opacity(0.08)
+        case .live: return ScoutPalette.statusOk.opacity(0.10)
+        case .stopping: return ScoutPalette.statusWarn.opacity(0.08)
+        case .error: return ScoutPalette.statusError.opacity(0.08)
+        }
+    }
+
+    private var realtimeVoiceStatusHelp: String {
+        switch realtimeVoiceStatus {
+        case .ready: return "Start realtime voice"
+        case .connecting: return showingRealtimeVoice ? "Minimize realtime voice" : "Show realtime voice"
+        case .live: return showingRealtimeVoice ? "Minimize realtime voice" : "Show realtime voice"
+        case .stopping: return "Stopping realtime voice"
+        case .error: return showingRealtimeVoice ? "Minimize realtime voice error" : "Show realtime voice error"
+        }
     }
 
     private var statusPreviewMessage: String? {

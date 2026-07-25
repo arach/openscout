@@ -1328,7 +1328,16 @@ export type Route =
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker"; attemptId?: string }
-  | { view: "code"; root?: string; file?: string; project?: string; path?: string; wt?: string }
+  | {
+      view: "code";
+      root?: string;
+      file?: string;
+      project?: string;
+      path?: string;
+      wt?: string;
+      line?: number;
+      endLine?: number;
+    }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)
   | ({ view: "work"; workId: string } & MachineScopedRoute)

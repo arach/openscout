@@ -1,8 +1,10 @@
 import {
   SCOUT_REALTIME_SCOUTBOT_CHAT_PATH,
+  SCOUT_REALTIME_VOICE_FAR_FIELD_INPUT,
   SCOUT_REALTIME_VOICE_CALL_PATH,
   SCOUT_REALTIME_VOICE_LEASE_HEADER,
   SCOUT_REALTIME_VOICE_LEASE_PATH,
+  SCOUT_REALTIME_VOICE_NEAR_FIELD_INPUT,
 } from "../../shared/realtime-voice.ts";
 import { extractScoutbotUiActions, stripScoutbotUiFences } from "./scoutbot.ts";
 
@@ -11,11 +13,15 @@ const REALTIME_VOICE_HEARTBEAT_MS = 25_000;
 export type ScoutRealtimeVoiceConnectionState = "connecting" | "live" | "ended" | "error";
 
 export type ScoutRealtimeVoiceCall = {
-  stop: () => void;
+  /** Host-local admission lease for native stop reconciliation. */
+  leaseId: string;
+  /** Resolves only after the host-local concurrency lease has been released. */
+  stop: () => Promise<void>;
 };
 
 export type ScoutRealtimeVoiceTraceEvent = {
   id: string;
+  at: number;
   label: string;
   detail?: string;
 };
@@ -37,7 +43,11 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
   onTrace?: (event: ScoutRealtimeVoiceTraceEvent) => void;
   /** Read the route at the moment Scoutbot handles a turn, not only when the call started. */
   getRoute?: () => unknown;
+  /** Host-specific navigation capabilities for honest voice guidance. */
+  getUiContext?: () => unknown;
   route?: unknown;
+  /** Native Scout input preference, matched to WebKit's device labels when available. */
+  inputDeviceName?: string | null;
   signal?: AbortSignal;
 } = {}): Promise<ScoutRealtimeVoiceCall> {
   throwIfAborted(callbacks.signal);
@@ -60,26 +70,41 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
     traceSequence += 1;
     callbacks.onTrace?.({
       id: `voice-${traceSequence}`,
+      at: Date.now(),
       label,
       ...(detail ? { detail } : {}),
     });
   };
 
-  const stop = () => {
-    if (stopped) return;
+  let stopPromise: Promise<void> | null = null;
+  const stop = (): Promise<void> => {
+    if (stopPromise) return stopPromise;
     stopped = true;
-    callbacks.signal?.removeEventListener("abort", stop);
+    callbacks.signal?.removeEventListener("abort", stopAfterAbort);
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     mediaStream?.getTracks().forEach((track) => track.stop());
     audio.pause();
     audio.srcObject = null;
     peerConnection.close();
-    if (leaseId) void releaseRealtimeVoiceLease(leaseId);
+    const leaseToRelease = leaseId;
     leaseId = null;
-    callbacks.onState?.("ended");
+    stopPromise = (async () => {
+      if (leaseToRelease) await releaseRealtimeVoiceLease(leaseToRelease);
+      callbacks.onState?.("ended");
+    })();
+    return stopPromise;
   };
-  callbacks.signal?.addEventListener("abort", stop, { once: true });
+  const stopQuietly = () => {
+    void stop().catch((error) => {
+      callbacks.onError?.(
+        error instanceof Error ? error.message : "Could not release the realtime voice lease.",
+      );
+      callbacks.onState?.("error");
+    });
+  };
+  const stopAfterAbort = () => { stopQuietly(); };
+  callbacks.signal?.addEventListener("abort", stopAfterAbort, { once: true });
 
   peerConnection.ontrack = ({ streams }) => {
     const stream = streams[0];
@@ -103,13 +128,13 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
       trace("Realtime channel connected", "Scoutbot bridge is ready");
     } else if (peerConnection.connectionState === "failed" || peerConnection.connectionState === "disconnected") {
       callbacks.onError?.("Realtime voice connection ended unexpectedly.");
-      stop();
+      stopQuietly();
     }
   };
 
   try {
-    mediaStream = await abortableMediaStream(
-      navigator.mediaDevices.getUserMedia({ audio: true }),
+    mediaStream = await acquireRealtimeVoiceMediaStream(
+      callbacks.inputDeviceName,
       callbacks.signal,
     );
     throwIfAborted(callbacks.signal);
@@ -120,6 +145,9 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
     const events = peerConnection.createDataChannel("oai-events");
     const handledFunctionCallIds = new Set<string>();
     let functionQueue = Promise.resolve();
+    let responseActive = false;
+    let responseRequestInFlight: string | null = null;
+    const pendingResponseInstructions: string[] = [];
     const sendRealtimeEvent = (payload: unknown): boolean => {
       if (stopped || events.readyState !== "open") return false;
       try {
@@ -130,17 +158,40 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
         return false;
       }
     };
+    const flushResponseQueue = () => {
+      if (responseActive || responseRequestInFlight || pendingResponseInstructions.length === 0) return;
+      const instructions = pendingResponseInstructions.shift();
+      if (!instructions) return;
+      responseRequestInFlight = instructions;
+      if (!sendRealtimeEvent({ type: "response.create", response: { instructions } })) {
+        responseRequestInFlight = null;
+        pendingResponseInstructions.unshift(instructions);
+        return;
+      }
+      // Treat a sent response.create as active immediately. Waiting for the
+      // provider's response.created event leaves a race where a second local
+      // tool result can issue another response.create against the same turn.
+      responseActive = true;
+    };
+    const requestResponse = (instructions: string) => {
+      pendingResponseInstructions.push(instructions);
+      flushResponseQueue();
+    };
     events.addEventListener("open", () => {
       if (stopped) return;
-      trace("Scoutbot bridge ready", "Live fleet context is available");
+      const inputProfile = realtimeVoiceInputProfile(callbacks.inputDeviceName);
       if (!sendRealtimeEvent({
-        type: "response.create",
-        response: {
-          instructions: "Open with one brief audible greeting: 'Hi, I’m Scoutbot. I can check the fleet and coordinate through Scout. What would you like to work on?'",
+        type: "session.update",
+        session: {
+          type: "realtime",
+          audio: { input: inputProfile },
         },
       })) {
-        callbacks.onError?.("Could not request Scout's opening greeting.");
+        callbacks.onError?.("Could not configure Scout's realtime microphone processing.");
+        return;
       }
+      trace("Scoutbot bridge ready", "Live fleet context is available");
+      requestResponse("Open with one brief audible greeting: 'Hi, I’m Scoutbot. I can check the fleet and coordinate through Scout. What would you like to work on?'");
     });
     events.addEventListener("error", () => {
       if (!stopped) callbacks.onError?.("Realtime voice events channel closed unexpectedly.");
@@ -148,10 +199,26 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
     events.addEventListener("message", (event) => {
       const payload = parseRealtimeEvent(event.data);
       if (payload?.type === "error") {
+        if (isActiveResponseError(payload.message)) {
+          if (responseRequestInFlight) {
+            pendingResponseInstructions.unshift(responseRequestInFlight);
+            responseRequestInFlight = null;
+          }
+          responseActive = true;
+          trace("Scoutbot reply queued", "Waiting for the current spoken response to finish");
+          return;
+        }
         callbacks.onError?.(payload.message ?? "OpenAI Realtime reported an error.");
         return;
       }
+      if (payload?.type === "response.created") {
+        responseActive = true;
+        responseRequestInFlight = null;
+        return;
+      }
       if (payload?.type !== "response.done") return;
+      responseActive = false;
+      responseRequestInFlight = null;
       for (const functionCall of extractFunctionCalls(payload)) {
         if (functionCall.name !== "ask_scoutbot" || handledFunctionCallIds.has(functionCall.callId)) continue;
         handledFunctionCallIds.add(functionCall.callId);
@@ -159,14 +226,17 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
           .then(() => fulfillScoutbotFunctionCall({
             functionCall,
             route: callbacks.getRoute?.() ?? callbacks.route,
+            uiContext: callbacks.getUiContext?.(),
             onReply: callbacks.onScoutbotReply,
             onTrace: trace,
             send: sendRealtimeEvent,
+            requestResponse,
           }))
           .catch((error) => {
             callbacks.onError?.(error instanceof Error ? error.message : "Scoutbot could not complete the voice request.");
           });
       }
+      flushResponseQueue();
     });
 
     const offer = await abortable(peerConnection.createOffer(), callbacks.signal);
@@ -202,13 +272,13 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
             return;
           }
           callbacks.onError?.("Realtime voice lost its server lease. Reconnect to continue safely.");
-          stop();
+          stopQuietly();
         })
         .catch(() => {
           heartbeatFailures += 1;
           if (heartbeatFailures < 2 || stopped) return;
           callbacks.onError?.("Realtime voice could not renew its server lease. Check the connection and try again.");
-          stop();
+          stopQuietly();
         });
     }, REALTIME_VOICE_HEARTBEAT_MS);
     await abortable(
@@ -217,9 +287,9 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
     );
     throwIfAborted(callbacks.signal);
 
-    return { stop };
+    return { leaseId, stop };
   } catch (error) {
-    stop();
+    await stop();
     throw error;
   }
 }
@@ -227,9 +297,11 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
 async function fulfillScoutbotFunctionCall(input: {
   functionCall: ScoutRealtimeFunctionCall;
   route: unknown;
+  uiContext?: unknown;
   onReply?: (body: string) => void;
   onTrace: (label: string, detail?: string) => void;
   send: (payload: unknown) => boolean;
+  requestResponse: (instructions: string) => void;
 }): Promise<void> {
   const request = readScoutbotRequest(input.functionCall.arguments);
   if (!request) {
@@ -243,7 +315,7 @@ async function fulfillScoutbotFunctionCall(input: {
     const response = await fetch(SCOUT_REALTIME_SCOUTBOT_CHAT_PATH, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ body: request, route: input.route }),
+      body: JSON.stringify({ body: request, route: input.route, uiContext: input.uiContext }),
     });
     const raw = await response.text();
     if (!response.ok) {
@@ -276,6 +348,7 @@ function sendScoutbotFunctionOutput(
   input: {
     functionCall: ScoutRealtimeFunctionCall;
     send: (payload: unknown) => boolean;
+    requestResponse: (instructions: string) => void;
   },
   output: { ok: boolean; reply?: string; error?: string; agentRequestPendingConfirmation?: boolean },
 ): void {
@@ -288,16 +361,20 @@ function sendScoutbotFunctionOutput(
     },
   });
   if (!sent) return;
-  input.send({
-    type: "response.create",
-    response: {
-      instructions: output.ok
-        ? output.agentRequestPendingConfirmation
-          ? "Answer using the Scoutbot result. Say clearly that the agent request is ready for operator confirmation and has not been sent yet. Be concise and do not mention tools, JSON, fences, or implementation details."
-          : "Answer using the Scoutbot result. Speak the useful answer naturally and concisely. Do not mention tools, JSON, fences, or implementation details."
-        : "Briefly tell the operator that Scoutbot could not complete the live lookup and state the returned error plainly.",
-    },
-  });
+  input.requestResponse(
+    output.ok
+      ? output.agentRequestPendingConfirmation
+        ? "Answer using the Scoutbot result. Say clearly that the agent request is ready for operator confirmation and has not been sent yet. Be concise and do not mention tools, JSON, fences, or implementation details."
+        : "Answer using the Scoutbot result. Speak the useful answer naturally and concisely. Do not mention tools, JSON, fences, or implementation details."
+      : "Briefly tell the operator that Scoutbot could not complete the live lookup and state the returned error plainly.",
+  );
+}
+
+export function isActiveResponseError(message: string | undefined): boolean {
+  const normalized = message?.toLowerCase() ?? "";
+  return normalized.includes("active response in progress")
+    || normalized.includes("conversation already has an active response")
+    || normalized.includes("response is already in progress");
 }
 
 function parseRealtimeEvent(value: unknown): {
@@ -419,6 +496,92 @@ async function abortableMediaStream(
   });
 }
 
+const REALTIME_SPEECH_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+};
+
+const NEAR_FIELD_INPUT_LABEL = /\b(?:airpods?|earbuds?|earphones?|headsets?|headphones?|buds?|hands[- ]?free)\b/iu;
+
+function realtimeVoiceInputProfile(inputDeviceName: string | null | undefined) {
+  return NEAR_FIELD_INPUT_LABEL.test(inputDeviceName?.trim() ?? "")
+    ? SCOUT_REALTIME_VOICE_NEAR_FIELD_INPUT
+    : SCOUT_REALTIME_VOICE_FAR_FIELD_INPUT;
+}
+
+async function acquireRealtimeVoiceMediaStream(
+  inputDeviceName: string | null | undefined,
+  signal?: AbortSignal,
+): Promise<MediaStream> {
+  const preferredBeforeCapture = await findBrowserAudioInput(inputDeviceName);
+  let stream = await abortableMediaStream(
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...REALTIME_SPEECH_CONSTRAINTS,
+        ...(preferredBeforeCapture
+          ? { deviceId: { exact: preferredBeforeCapture.deviceId } }
+          : {}),
+      },
+    }),
+    signal,
+  );
+
+  // WebKit may hide device labels until the origin has opened its first
+  // permitted stream. Resolve the native preference again after that grant and
+  // switch without dropping the working default stream if the preferred device
+  // cannot be opened.
+  if (!preferredBeforeCapture && inputDeviceName?.trim()) {
+    const preferredAfterCapture = await findBrowserAudioInput(inputDeviceName);
+    const currentLabel = stream.getAudioTracks?.()[0]?.label?.trim().toLocaleLowerCase() ?? "";
+    if (preferredAfterCapture && preferredAfterCapture.label.trim().toLocaleLowerCase() !== currentLabel) {
+      try {
+        const preferredStream = await abortableMediaStream(
+          navigator.mediaDevices.getUserMedia({
+            audio: {
+              ...REALTIME_SPEECH_CONSTRAINTS,
+              deviceId: { exact: preferredAfterCapture.deviceId },
+            },
+          }),
+          signal,
+        );
+        stream.getTracks().forEach((track) => track.stop());
+        stream = preferredStream;
+      } catch (error) {
+        if (signal?.aborted) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw error;
+        }
+      }
+    }
+  }
+
+  for (const track of stream.getAudioTracks?.() ?? []) {
+    track.contentHint = "speech";
+  }
+  return stream;
+}
+
+async function findBrowserAudioInput(
+  inputDeviceName: string | null | undefined,
+): Promise<MediaDeviceInfo | null> {
+  const requested = inputDeviceName?.trim().toLocaleLowerCase();
+  if (!requested || typeof navigator.mediaDevices.enumerateDevices !== "function") return null;
+  try {
+    const inputs = (await navigator.mediaDevices.enumerateDevices())
+      .filter((device) => device.kind === "audioinput" && device.deviceId && device.label.trim());
+    return inputs.find((device) => device.label.trim().toLocaleLowerCase() === requested)
+      ?? inputs.find((device) => {
+        const label = device.label.trim().toLocaleLowerCase();
+        return label.includes(requested) || requested.includes(label);
+      })
+      ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw abortReason(signal);
 }
@@ -437,12 +600,11 @@ async function heartbeatRealtimeVoiceLease(leaseId: string): Promise<boolean> {
 }
 
 async function releaseRealtimeVoiceLease(leaseId: string): Promise<void> {
-  try {
-    await fetch(`${SCOUT_REALTIME_VOICE_LEASE_PATH}/${encodeURIComponent(leaseId)}`, {
-      method: "DELETE",
-      keepalive: true,
-    });
-  } catch {
-    // The short lease expires server-side if the browser disappears entirely.
+  const response = await fetch(`${SCOUT_REALTIME_VOICE_LEASE_PATH}/${encodeURIComponent(leaseId)}`, {
+    method: "DELETE",
+    keepalive: true,
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`Could not release realtime voice lease (HTTP ${response.status}).`);
   }
 }

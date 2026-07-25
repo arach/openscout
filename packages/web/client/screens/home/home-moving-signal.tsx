@@ -14,6 +14,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import type { ObserveCache } from "../../lib/observe.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import { normalizeTimestampMs } from "../../lib/time.ts";
@@ -400,13 +401,16 @@ export function HomeMovingSignalList({
         </div>
       )}
 
-      {selected ? (
-        <SignalOverlay
-          row={selected}
-          onClose={() => setSelectedId(null)}
-          navigate={navigate}
-        />
-      ) : null}
+      {selected && typeof document !== "undefined"
+        ? createPortal(
+            <SignalOverlay
+              row={selected}
+              onClose={() => setSelectedId(null)}
+              navigate={navigate}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

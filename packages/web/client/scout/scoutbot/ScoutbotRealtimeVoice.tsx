@@ -18,7 +18,7 @@ export function ScoutbotRealtimeVoice({
   const enabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   // The chip owns the trigger and the popover shell; call state and controls
   // live in ScoutbotRealtimeVoiceCall, shared with the macOS embed.
-  const { open, setOpen, state, startCall } = useScoutbotRealtimeVoice();
+  const { open, setOpen, state } = useScoutbotRealtimeVoice();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState({ left: 12, bottom: 36 });
 
@@ -67,7 +67,7 @@ export function ScoutbotRealtimeVoice({
       : "Scoutbot voice is live"
     : open
       ? "Hide Scoutbot voice"
-      : "Start Scoutbot voice";
+      : "Open Scoutbot voice controls";
   const portalHost = typeof document === "undefined"
     ? null
     : document.querySelector<HTMLElement>("[data-scout-theme]") ?? document.body;
@@ -77,14 +77,7 @@ export function ScoutbotRealtimeVoice({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => {
-          if (active) {
-            setOpen((value) => !value);
-            return;
-          }
-          setOpen(true);
-          void startCall();
-        }}
+        onClick={() => setOpen((value) => !value)}
         title={title}
         aria-label={title}
         aria-expanded={open}

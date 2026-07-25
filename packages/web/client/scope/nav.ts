@@ -12,9 +12,9 @@ const SCOPE_NAV_REGISTRY: ReadonlyArray<{
   label: string;
   segment: ScopeRouteSegment;
 }> = [
-  { key: "lanes", label: "Lanes", segment: SCOPE_ROUTE_SEGMENTS.lanes },
+  { key: "lanes", label: "Agent Lanes", segment: SCOPE_ROUTE_SEGMENTS.lanes },
   { key: "sessions", label: "Sessions", segment: SCOPE_ROUTE_SEGMENTS.sessions },
-  { key: "tail", label: "Tail", segment: SCOPE_ROUTE_SEGMENTS.tail },
+  { key: "tail", label: "Live Activity", segment: SCOPE_ROUTE_SEGMENTS.tail },
   { key: "agents", label: "Agents", segment: SCOPE_ROUTE_SEGMENTS.agents },
 ];
 

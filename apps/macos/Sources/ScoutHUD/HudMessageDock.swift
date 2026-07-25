@@ -831,14 +831,14 @@ private struct MicGlyphShape: Shape {
 // ─── Speaker toggle (spoken agent replies) ──────────────────────────
 
 /// One obvious switch for spoken agent replies. Toggles the UserDefaults
-/// gate "scout.voiceRepliesEnabled" via HUDReplySpeaker (default OFF).
+/// gate "scout.voiceRepliesEnabled" via ScoutReplySpeaker (default OFF).
 /// Accent stroke when ON; a soft halo pulses while a reply is actually
 /// being spoken. Same hand-drawn stroke family as MicGlyphShape.
 private struct SpeakerButton: View {
     let box: CGFloat
     let glyph: CGFloat
 
-    @ObservedObject private var speaker = HUDReplySpeaker.shared
+    @ObservedObject private var speaker = ScoutReplySpeaker.shared
     @State private var pulse = false
 
     private var isOn: Bool { speaker.enabled }

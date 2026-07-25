@@ -952,12 +952,14 @@ export function mountScoutbotRoutes(
     const body = (await c.req.json().catch(() => ({}))) as {
       body?: string;
       route?: unknown;
+      uiContext?: unknown;
     };
 
     try {
       return c.json(await assistant.respond({
         body: body.body ?? "",
         route: body.route,
+        uiContext: body.uiContext,
       }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Scoutbot assistant failed";

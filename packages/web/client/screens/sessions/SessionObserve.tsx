@@ -477,8 +477,16 @@ function ThinkBlock({ event, laneMode = false }: { event: SessionEvent; laneMode
   }
 
   return (
-    <div className={`s-observe-block${laneMode ? " s-observe-think--lane" : ""}`}>
-      <div className="s-observe-think-label">thinking</div>
+    <div
+      className={[
+        "s-observe-block",
+        laneMode && "s-observe-think--lane",
+        event.live && "s-observe-think--live",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="s-observe-think-label">{event.live ? "thinking" : "reasoning"}</div>
       <LaneExpandableText
         text={text}
         className="s-observe-think-text"

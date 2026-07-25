@@ -9,10 +9,10 @@ import {
 } from "./topNavConfig.ts";
 
 describe("top nav config", () => {
-  test("is a single personality: Home · Projects · Sessions · Chat", () => {
+  test("is a single personality: Home · Projects · Sessions · Messages", () => {
     expect(topNavItems()).toBe(TOP_NAV_ITEMS);
     expect(TOP_NAV_ITEMS.map((item) => item.key)).toEqual(["home", "agents", "sessions", "chat"]);
-    expect(TOP_NAV_ITEMS.map((item) => item.label)).toEqual(["Home", "Projects", "Sessions", "Chat"]);
+    expect(TOP_NAV_ITEMS.map((item) => item.label)).toEqual(["Home", "Projects", "Sessions", "Messages"]);
     expect(TOP_NAV_ITEMS.map((item) => item.route)).toEqual([
       { view: "inbox" },
       { view: "agents-v2" },

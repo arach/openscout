@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
+import { scoutbotUiContext } from "../../shared/scoutbot-navigation.ts";
 import {
   extractScoutbotUiActions,
+  forwardScoutbotUiActionToNativeHost,
   resolveScoutbotAgentId,
   stripScoutbotUiFences,
 } from "./scoutbot.ts";
@@ -136,6 +138,8 @@ describe("extractScoutbotUiActions + stripScoutbotUiFences", () => {
         { type: "navigate", route: { view: "messages", filter: "dm", sort: "unread" } },
         { type: "navigate", route: { view: "settings", section: "voice" } },
         { type: "navigate", route: { view: "repos", root: "/work/openscout" } },
+        { type: "navigate", route: { view: "code", project: "openscout", path: "README.md", line: 12, endLine: 16 } },
+        { type: "navigate", route: { view: "code", projectSlug: "blink", relativePath: "Sources/App.swift", worktree: "main" } },
       ]),
       "```",
     ].join("\n");
@@ -145,7 +149,68 @@ describe("extractScoutbotUiActions + stripScoutbotUiFences", () => {
       { type: "navigate", route: { view: "messages", filter: "dm", sort: "unread" } },
       { type: "navigate", route: { view: "settings", section: "voice" } },
       { type: "navigate", route: { view: "repos", root: "/work/openscout" } },
+      { type: "navigate", route: { view: "code", project: "openscout", path: "README.md", line: 12, endLine: 16 } },
+      { type: "navigate", route: { view: "code", project: "blink", path: "Sources/App.swift", wt: "main" } },
     ]);
+  });
+});
+
+describe("forwardScoutbotUiActionToNativeHost", () => {
+  test("hands navigation to a native embed instead of its local router", () => {
+    const messages: unknown[] = [];
+    const action = { type: "navigate", route: { view: "settings", section: "voice" } } as const;
+
+    expect(forwardScoutbotUiActionToNativeHost(action, {
+      webkit: {
+        messageHandlers: {
+          scoutRealtimeVoice: { postMessage: (message) => messages.push(message) },
+        },
+      },
+    })).toBe(true);
+    expect(messages).toEqual([{ kind: "ui-action", action }]);
+  });
+
+  test("falls back to web navigation outside a native embed", () => {
+    expect(forwardScoutbotUiActionToNativeHost(
+      { type: "navigate", route: { view: "inbox" } },
+      {},
+    )).toBe(false);
+  });
+});
+
+describe("Scoutbot host navigation catalogs", () => {
+  test("describes the web shell with product names instead of route aliases", () => {
+    const context = scoutbotUiContext("web");
+    expect(context.destinations.map(({ label }) => label)).toEqual([
+      "Home",
+      "Projects",
+      "Sessions",
+      "Messages",
+      "Dispatch",
+      "Search",
+      "Operations",
+      "Repositories",
+      "Code Browser",
+      "Terminals",
+      "Settings",
+    ]);
+  });
+
+  test("advertises only first-class macOS destinations and Code deep actions", () => {
+    const context = scoutbotUiContext("macos");
+    expect(context.destinations.map(({ label }) => label)).toEqual([
+      "Comms",
+      "Projects",
+      "Terminals",
+      "Tail",
+      "Dispatch",
+      "Agent Lanes",
+      "Repositories",
+      "Code Browser",
+      "Settings",
+    ]);
+    const code = context.destinations.find(({ id }) => id === "code-browser");
+    expect(code?.deepActions).toContain("Focus a line with line and optional endLine.");
   });
 });
 

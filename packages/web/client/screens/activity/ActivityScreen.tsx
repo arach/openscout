@@ -200,7 +200,7 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
     <div className="sys-surface-page">
       <div className="sys-page-head">
         <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Activity</h2>
+          <h2 className="sys-page-title">Activity Log</h2>
           <p className="sys-page-subtitle">
             Broker events, task execution, and collaboration handoffs.
           </p>

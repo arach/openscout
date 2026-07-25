@@ -21,6 +21,7 @@ import { friendlyApiError, isOfflineApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
+  forwardScoutbotUiActionToNativeHost,
   resolveScoutbotAgent,
   resolveScoutbotAgentId,
   type ScoutbotUiAction,
@@ -513,6 +514,7 @@ export function ScoutProvider({
   const closeFilePreview = useCallback(() => setFilePreviewPath(null), []);
 
   const applyScoutbotUiAction = useCallback((action: ScoutbotUiAction) => {
+    if (forwardScoutbotUiActionToNativeHost(action)) return;
     switch (action.type) {
       case "navigate":
         navigate(action.route);

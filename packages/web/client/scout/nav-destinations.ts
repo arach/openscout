@@ -108,7 +108,7 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
   },
   {
     id: "chat",
-    label: "Chat",
+    label: "Messages",
     route: { view: "messages" },
     active: (route) =>
       route.view === "messages" ||
@@ -134,7 +134,7 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
   },
   {
     id: "tail",
-    label: "Tail",
+    label: "Live Activity",
     route: { view: "ops", mode: "tail" },
     active: (route) => route.view === "ops" && route.mode === "tail",
   },
@@ -146,13 +146,13 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
   },
   {
     id: "activity",
-    label: "Activity",
+    label: "Activity Log",
     route: { view: "activity" },
     active: (route) => route.view === "activity",
   },
   {
     id: "mesh",
-    label: "Mesh",
+    label: "Network",
     route: { view: "mesh" },
     active: (route) => route.view === "mesh",
   },
@@ -165,32 +165,32 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
   },
   {
     id: "lanes",
-    label: "Lanes",
+    label: "Agent Lanes",
     route: { view: "ops", mode: "lanes" },
     active: (route) => route.view === "ops" && route.mode === "lanes",
   },
   {
     id: "repos",
-    label: "Repos",
+    label: "Repositories",
     route: { view: "repos" },
     // SCO-085: repo-diff is a Repos detail surface — keep Repos sub-nav active.
     active: (route) => route.view === "repos" || route.view === "repo-diff",
   },
   {
     id: "code",
-    label: "Code",
+    label: "Code Browser",
     route: { view: "code" },
     active: (route) => route.view === "code",
   },
   {
     id: "providers",
-    label: "Providers",
+    label: "Agent Providers",
     route: { view: "harnesses" },
     active: (route) => route.view === "harnesses",
   },
   {
     id: "runtime",
-    label: "Runtime",
+    label: "Runtime Monitor",
     route: { view: "ops", mode: "atop" },
     active: (route) => route.view === "ops" && route.mode === "atop",
     capability: "ops.control",
@@ -203,7 +203,7 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
   },
   {
     id: "agent-config",
-    label: "Config",
+    label: "Agent Configuration",
     route: { view: "settings", section: "agents" },
     active: (route) => route.view === "settings" && route.section === "agents",
   },
@@ -259,7 +259,7 @@ const TOP_TAB_PROJECTION: readonly TopTabProjection[] = [
   { destinationId: "home", key: "home" },
   { destinationId: "projects", key: "agents", label: "Projects" },
   { destinationId: "sessions", key: "sessions" },
-  { destinationId: "chat", key: "chat", label: "Chat" },
+  { destinationId: "chat", key: "chat", label: "Messages" },
 ];
 
 export function projectTopNavItems(): TopNavItem[] {
@@ -355,7 +355,7 @@ function projectSecondaryGroup(
 export function projectAgentsSecondaryNav(): SecondaryNavGroup[] {
   return [
     projectSecondaryGroup([
-      { destinationId: "agent-config", id: "config", label: "Config" },
+      { destinationId: "agent-config", id: "config", label: "Agent Configuration" },
     ]),
   ];
 }
@@ -390,7 +390,7 @@ export function projectOpsSecondaryNav(): SecondaryNavGroup[] {
     projectSecondaryGroup([
       { destinationId: "lanes", id: "lanes" },
       { destinationId: "mission-control", id: "control" },
-      { destinationId: "providers", id: "harnesses", label: "Providers" },
+      { destinationId: "providers", id: "harnesses", label: "Agent Providers" },
       { destinationId: "mesh", id: "mesh" },
       { destinationId: "tail", id: "tail" },
       { destinationId: "runtime", id: "runtime" },
@@ -415,20 +415,20 @@ export type GoShortcutProjection = {
  */
 export const GO_SHORTCUT_PROJECTION: readonly GoShortcutProjection[] = [
   { key: "h", label: "Go home", destinationId: "home" },
-  { key: "i", label: "Go to chat inbox", destinationId: "chat" },
-  { key: "c", label: "Go to chat", destinationId: "chat" },
+  { key: "i", label: "Go to messages", destinationId: "chat" },
+  { key: "c", label: "Go to messages", destinationId: "chat" },
   { key: "p", label: "Go to projects", destinationId: "projects" },
   { key: "s", label: "Go to sessions", destinationId: "sessions" },
   { key: "t", label: "Go to terminals", destinationId: "terminals" },
-  { key: "r", label: "Go to repos", destinationId: "repos" },
+  { key: "r", label: "Go to repositories", destinationId: "repos" },
   { key: "f", label: "Go to search", destinationId: "search" },
-  { key: "l", label: "Go to tail", destinationId: "tail" },
+  { key: "l", label: "Go to live activity", destinationId: "tail" },
   // Default ops entry uses bare `{ view: "ops" }` (mode undefined), matching
   // the historical shortcut — not the explicit mission mode in the catalog.
-  { key: "o", label: "Go to ops", destinationId: "mission-control", route: { view: "ops" } },
+  { key: "o", label: "Go to operations", destinationId: "mission-control", route: { view: "ops" } },
   { key: "d", label: "Go to dispatch", destinationId: "dispatch" },
-  { key: "m", label: "Go to mesh", destinationId: "mesh" },
-  { key: "a", label: "Go to activity", destinationId: "activity" },
+  { key: "m", label: "Go to network", destinationId: "mesh" },
+  { key: "a", label: "Go to activity log", destinationId: "activity" },
 ];
 
 export type GoShortcut = {
@@ -482,7 +482,7 @@ const JUMP_DOCK_PROJECTION: readonly JumpDockProjection[] = [
   {
     destinationId: "mission-control",
     id: "ops",
-    label: "Ops",
+    label: "Operations",
     icon: Compass,
     route: { view: "ops", mode: "mission" },
     opsGated: true,

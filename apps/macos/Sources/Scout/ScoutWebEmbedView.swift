@@ -57,6 +57,44 @@ private enum ScoutWebEmbedLoadPhase: Equatable {
     case failed(String)
 }
 
+struct ScoutRealtimeVoiceNativeAction: Decodable, Equatable {
+    struct Route: Decodable, Equatable {
+        let view: String
+        let conversationId: String?
+        let channelId: String?
+        let agentId: String?
+        let selectedAgentId: String?
+        let sessionId: String?
+        let projectSlug: String?
+        let section: String?
+        let root: String?
+        let file: String?
+        let project: String?
+        let path: String?
+        let wt: String?
+        let line: Int?
+        let endLine: Int?
+        let mode: String?
+        let preferredView: String?
+    }
+
+    let type: String
+    let route: Route?
+    let path: String?
+    let mode: String?
+}
+
+private struct ScoutRealtimeVoiceNativeEnvelope: Decodable {
+    let kind: String
+    let action: ScoutRealtimeVoiceNativeAction
+}
+
+private struct ScoutRealtimeVoiceNativeStateEnvelope: Decodable {
+    let kind: String
+    let state: String
+    let leaseId: String?
+}
+
 /// Generic chrome-free web surface host for screens that self-declare embeddability on web.
 struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
     let surface: ScoutEmbedSurfaceId
@@ -64,6 +102,9 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
     var extraQueryItems: [URLQueryItem] = []
     var loadingLaneSize: ScoutAgentLaneSize?
     var showsHeader: Bool
+    var onRealtimeVoiceStateChange: (String, String?) -> Void
+    var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+    var realtimeVoiceStopRequest: UUID?
     @ViewBuilder var additionalTrailing: () -> AdditionalTrailing
 
     @Environment(\.colorScheme) private var colorScheme
@@ -75,13 +116,19 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
         extraQueryItems: [URLQueryItem] = [],
         loadingLaneSize: ScoutAgentLaneSize? = nil,
         showsHeader: Bool = true,
-        @ViewBuilder additionalTrailing: @escaping () -> AdditionalTrailing = { EmptyView() }
+        @ViewBuilder additionalTrailing: @escaping () -> AdditionalTrailing = { EmptyView() },
+        onRealtimeVoiceStateChange: @escaping (String, String?) -> Void = { _, _ in },
+        onRealtimeVoiceAction: @escaping (ScoutRealtimeVoiceNativeAction) -> Void = { _ in },
+        realtimeVoiceStopRequest: UUID? = nil
     ) {
         self.surface = surface
         self.subtitle = subtitle
         self.extraQueryItems = extraQueryItems
         self.loadingLaneSize = loadingLaneSize
         self.showsHeader = showsHeader
+        self.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
+        self.onRealtimeVoiceAction = onRealtimeVoiceAction
+        self.realtimeVoiceStopRequest = realtimeVoiceStopRequest
         self.additionalTrailing = additionalTrailing
     }
 
@@ -104,6 +151,9 @@ struct ScoutWebEmbedContent<AdditionalTrailing: View>: View {
                 url: url,
                 reloadToken: reloadToken,
                 loadingLaneSize: loadingLaneSize,
+                onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
+                onRealtimeVoiceAction: onRealtimeVoiceAction,
+                realtimeVoiceStopRequest: realtimeVoiceStopRequest,
                 onReload: { reloadToken = UUID() }
             )
         }
@@ -166,6 +216,9 @@ struct ScoutWebEmbedHost: View {
     let url: URL
     let reloadToken: UUID
     var loadingLaneSize: ScoutAgentLaneSize?
+    var onRealtimeVoiceStateChange: (String, String?) -> Void = { _, _ in }
+    var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void = { _ in }
+    var realtimeVoiceStopRequest: UUID?
     var onReload: () -> Void = {}
 
     @State private var phase: ScoutWebEmbedLoadPhase = .loading
@@ -177,7 +230,15 @@ struct ScoutWebEmbedHost: View {
 
     var body: some View {
         ZStack {
-            ScoutWebEmbedWebView(surface: surface, url: url, reloadToken: reloadToken, phase: $phase)
+            ScoutWebEmbedWebView(
+                surface: surface,
+                url: url,
+                reloadToken: reloadToken,
+                phase: $phase,
+                onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
+                onRealtimeVoiceAction: onRealtimeVoiceAction,
+                realtimeVoiceStopRequest: realtimeVoiceStopRequest
+            )
                 .opacity(isReady ? 1 : 0.001)
                 .allowsHitTesting(isReady)
 
@@ -244,22 +305,39 @@ private struct ScoutWebEmbedErrorView: View {
 
 #if os(macOS)
 private struct ScoutWebEmbedWebView: NSViewRepresentable {
+    private static let realtimeVoiceMessageHandler = "scoutRealtimeVoice"
+
     let surface: ScoutEmbedSurfaceId
     let url: URL
     let reloadToken: UUID
     @Binding var phase: ScoutWebEmbedLoadPhase
+    let onRealtimeVoiceStateChange: (String, String?) -> Void
+    let onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+    let realtimeVoiceStopRequest: UUID?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surface: surface, phase: $phase)
+        Coordinator(
+            surface: surface,
+            phase: $phase,
+            onRealtimeVoiceStateChange: onRealtimeVoiceStateChange,
+            onRealtimeVoiceAction: onRealtimeVoiceAction
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        if surface == .voice {
+            configuration.userContentController.add(
+                context.coordinator,
+                name: Self.realtimeVoiceMessageHandler
+            )
+        }
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         webView.setValue(false, forKey: "drawsBackground")
         if #available(macOS 13.3, *) {
@@ -269,6 +347,10 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
+        context.coordinator.onRealtimeVoiceAction = onRealtimeVoiceAction
+        context.coordinator.realtimeVoiceStopRequest = realtimeVoiceStopRequest
+        context.coordinator.deliverRealtimeVoiceStopRequest(in: webView)
         guard context.coordinator.currentURL != url
             || context.coordinator.reloadToken != reloadToken else { return }
         context.coordinator.currentURL = url
@@ -280,15 +362,99 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringCacheData, timeoutInterval: 30))
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: realtimeVoiceMessageHandler
+        )
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         let surface: ScoutEmbedSurfaceId
         @Binding var phase: ScoutWebEmbedLoadPhase
+        var onRealtimeVoiceStateChange: (String, String?) -> Void
+        var onRealtimeVoiceAction: (ScoutRealtimeVoiceNativeAction) -> Void
+        var realtimeVoiceStopRequest: UUID?
+        var deliveredRealtimeVoiceStopRequest: UUID?
         var currentURL: URL?
         var reloadToken: UUID?
 
-        init(surface: ScoutEmbedSurfaceId, phase: Binding<ScoutWebEmbedLoadPhase>) {
+        init(
+            surface: ScoutEmbedSurfaceId,
+            phase: Binding<ScoutWebEmbedLoadPhase>,
+            onRealtimeVoiceStateChange: @escaping (String, String?) -> Void,
+            onRealtimeVoiceAction: @escaping (ScoutRealtimeVoiceNativeAction) -> Void
+        ) {
             self.surface = surface
             _phase = phase
+            self.onRealtimeVoiceStateChange = onRealtimeVoiceStateChange
+            self.onRealtimeVoiceAction = onRealtimeVoiceAction
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard message.name == ScoutWebEmbedWebView.realtimeVoiceMessageHandler else { return }
+            if let state = message.body as? String,
+               ["idle", "connecting", "live", "ended", "error", "minimize"].contains(state) {
+                onRealtimeVoiceStateChange(state, nil)
+                return
+            }
+            guard JSONSerialization.isValidJSONObject(message.body),
+                  let data = try? JSONSerialization.data(withJSONObject: message.body)
+            else { return }
+            if let stateEnvelope = try? JSONDecoder().decode(
+                ScoutRealtimeVoiceNativeStateEnvelope.self,
+                from: data
+            ), stateEnvelope.kind == "session-state" {
+                onRealtimeVoiceStateChange(stateEnvelope.state, stateEnvelope.leaseId)
+                return
+            }
+            if let actionEnvelope = try? JSONDecoder().decode(
+                ScoutRealtimeVoiceNativeEnvelope.self,
+                from: data
+            ), actionEnvelope.kind == "ui-action" {
+                onRealtimeVoiceAction(actionEnvelope.action)
+            }
+        }
+
+        func deliverRealtimeVoiceStopRequest(in webView: WKWebView) {
+            guard surface == .voice,
+                  readyURL == currentURL,
+                  let request = realtimeVoiceStopRequest,
+                  deliveredRealtimeVoiceStopRequest != request
+            else { return }
+            deliveredRealtimeVoiceStopRequest = request
+            Task { @MainActor [weak self, weak webView] in
+                guard let webView else { return }
+                do {
+                    let value = try await webView.callAsyncJavaScript(
+                        """
+                        if (typeof window.__scoutRealtimeVoiceStop === 'function') {
+                            const stopped = await window.__scoutRealtimeVoiceStop();
+                            return stopped ? 'stopped' : 'failed';
+                        }
+                        window.__scoutRealtimeVoiceStopRequested = true;
+                        window.dispatchEvent(new CustomEvent('scout:realtime-voice-stop'));
+                        return 'queued';
+                        """,
+                        arguments: [:],
+                        in: nil,
+                        contentWorld: .page
+                    )
+                    if value as? String == "stopped" {
+                        self?.onRealtimeVoiceStateChange("ended", nil)
+                    }
+                } catch {
+                    _ = try? await webView.evaluateJavaScript(
+                        "window.__scoutRealtimeVoiceStopRequested = true; "
+                        + "window.dispatchEvent(new CustomEvent('scout:realtime-voice-stop'));"
+                    )
+                }
+            }
         }
 
         private let minimumLoaderDwell: TimeInterval = 0.28
@@ -318,6 +484,31 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
             }
 
             decisionHandler(.allow)
+        }
+
+        /// Without a UI delegate answering this, WebKit denies getUserMedia
+        /// outright and the live-voice surface could never open a call.
+        /// Granted narrowly: microphone only, and only for the local Scout web
+        /// origin this view navigated to. Whether the mic is available at all
+        /// is still the app's own TCC grant (Settings › Voice › Microphone).
+        func webView(
+            _ webView: WKWebView,
+            requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+            initiatedByFrame frame: WKFrameInfo,
+            type: WKMediaCaptureType,
+            decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
+        ) {
+            guard type == .microphone, let currentURL, Self.origin(origin, matches: currentURL) else {
+                decisionHandler(.deny)
+                return
+            }
+            decisionHandler(.grant)
+        }
+
+        private static func origin(_ origin: WKSecurityOrigin, matches url: URL) -> Bool {
+            guard origin.protocol == url.scheme, origin.host == url.host else { return false }
+            let urlPort = url.port ?? (url.scheme == "https" ? 443 : 80)
+            return origin.port == 0 || origin.port == urlPort
         }
 
         func webView(
@@ -369,12 +560,14 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
                     if ready && elapsed >= self.minimumLoaderDwell {
                         self.readyURL = url
                         self.setPhase(.ready)
+                        self.deliverRealtimeVoiceStopRequest(in: webView)
                         return
                     }
 
                     if elapsed >= self.maximumRenderWait {
                         self.readyURL = url
                         self.setPhase(.ready)
+                        self.deliverRealtimeVoiceStopRequest(in: webView)
                         return
                     }
 
@@ -449,6 +642,39 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
                   const viteUnavailable = bodyText.includes('Vite dev server unavailable');
                   return {
                     ready: Boolean(root),
+                    viteUnavailable
+                  };
+                })()
+                """
+            case .thread:
+                // The feed mounts before the transcript fetch resolves, so
+                // waiting on the container alone would call an empty thread
+                // ready and flash a blank panel. Hold until a turn has actually
+                // rendered — or until the surface says, in its own words, that
+                // there is nothing to show.
+                return """
+                (() => {
+                  const feed = document.querySelector('.s-thread-feed');
+                  const turns = document.querySelectorAll('.s-thread-msg').length;
+                  const empty = document.querySelector('.s-thread-empty');
+                  const bodyText = document.body?.innerText || '';
+                  const viteUnavailable = bodyText.includes('Vite dev server unavailable');
+                  return {
+                    ready: Boolean(feed) && (turns > 0 || Boolean(empty)),
+                    viteUnavailable
+                  };
+                })()
+                """
+            case .voice:
+                // Either the call panel or the flag-off explanation counts as
+                // rendered — both are the surface having something to say.
+                return """
+                (() => {
+                  const root = document.querySelector('[data-scout-surface="voice"]');
+                  const bodyText = document.body?.innerText || '';
+                  const viteUnavailable = bodyText.includes('Vite dev server unavailable');
+                  return {
+                    ready: Boolean(root) && bodyText.trim().length > 8,
                     viteUnavailable
                   };
                 })()

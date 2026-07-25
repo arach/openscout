@@ -57,6 +57,41 @@ export type ScoutbotUiAction =
       reason?: string;
     };
 
+type ScoutNativeUiActionHost = {
+  webkit?: {
+    messageHandlers?: {
+      scoutRealtimeVoice?: {
+        postMessage: (message: unknown) => void;
+      };
+    };
+  };
+};
+
+export function isScoutNativeUiActionHost(
+  host: ScoutNativeUiActionHost = globalThis.window as unknown as ScoutNativeUiActionHost,
+): boolean {
+  return Boolean(host.webkit?.messageHandlers?.scoutRealtimeVoice);
+}
+
+/**
+ * Native embeds own app navigation. The voice WebView only owns the realtime
+ * transport and call UI, so a Scoutbot action must leave that document instead
+ * of asking its embedded router to become the destination screen.
+ */
+export function forwardScoutbotUiActionToNativeHost(
+  action: ScoutbotUiAction,
+  host: ScoutNativeUiActionHost = globalThis.window as unknown as ScoutNativeUiActionHost,
+): boolean {
+  const handler = host.webkit?.messageHandlers?.scoutRealtimeVoice;
+  if (!handler) return false;
+  try {
+    handler.postMessage({ kind: "ui-action", action });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isScoutbotAgent(agent: Agent): boolean {
   const candidates = [
     agent.id,
@@ -390,15 +425,36 @@ function normalizeRoute(raw: unknown): Route | null {
           : {}),
         ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
       };
-    case "code":
+    case "code": {
+      const project = firstString(
+        record.project,
+        record.projectSlug,
+        record.project_slug,
+        record.projectName,
+        record.project_name,
+        record.repository,
+        record.repo,
+      );
+      const path = firstString(record.path, record.relativePath, record.relative_path);
+      const wt = firstString(record.wt, record.worktree, record.worktreeName, record.worktree_name);
+      const line = typeof record.line === "number" && Number.isSafeInteger(record.line) && record.line > 0
+        ? record.line
+        : undefined;
+      const rawEndLine = typeof record.endLine === "number" && Number.isSafeInteger(record.endLine) && record.endLine > 0
+        ? record.endLine
+        : undefined;
+      const endLine = line && rawEndLine && rawEndLine >= line ? rawEndLine : undefined;
       return {
         view: "code",
         ...(typeof record.root === "string" ? { root: record.root } : {}),
         ...(typeof record.file === "string" ? { file: record.file } : {}),
-        ...(typeof record.project === "string" ? { project: record.project } : {}),
-        ...(typeof record.path === "string" ? { path: record.path } : {}),
-        ...(typeof record.wt === "string" ? { wt: record.wt } : {}),
+        ...(project ? { project } : {}),
+        ...(path ? { path } : {}),
+        ...(wt ? { wt } : {}),
+        ...(line ? { line } : {}),
+        ...(endLine ? { endLine } : {}),
       };
+    }
     case "briefings":
       return {
         view: "briefings",

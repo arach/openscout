@@ -1,4 +1,6 @@
 import HudsonUI
+import HudsonVoice
+import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI
@@ -36,11 +38,15 @@ private enum ScoutSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "Theme, accent, and window material."
         case .terminal: return "Workspace view, font, and shell presentation."
-        case .voice: return "Dictation engine and live capture state."
+        case .voice: return "Dictation, spoken replies, and live capture state."
         case .notifications: return "How Scout tells you an agent needs you."
         case .about: return "Local build details."
         }
     }
+}
+
+enum ScoutSettingsNavigation {
+    static let selectedSectionKey = "scout.settings.selectedSection"
 }
 
 /// Native settings surface for the Scout desktop app.
@@ -48,6 +54,7 @@ struct ScoutSettingsView: View {
     @ObservedObject var appearance: ScoutAppearance
     @ObservedObject private var attention = ScoutAttentionCenter.shared
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
+    @ObservedObject private var speaker = ScoutReplySpeaker.shared
     /// When the dictation engine entered its current state — drives the live
     /// duration counter that makes a hung state self-evident.
     @State private var voiceStateEnteredAt = Date()
@@ -57,7 +64,22 @@ struct ScoutSettingsView: View {
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var terminalFontFamily = ScoutTerminalSettings.defaultFontFamily
     @AppStorage(ScoutTerminalSettings.fontSizeKey) private var terminalFontSize = ScoutTerminalSettings.defaultFontSize
     @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showNativeTerminalHeaders = true
-    @State private var selectedSection: ScoutSettingsSection = .appearance
+    @AppStorage(ScoutCommsSettings.threadPresentationKey)
+    private var threadPresentationRaw = ScoutThreadPresentation.fallback.rawValue
+    /// Settings owns the one-time capability opt-in. Starting and stopping a
+    /// billable call belongs to the persistent status bar in the main window.
+    @AppStorage(ScoutRealtimeVoiceSettings.enabledKey) private var liveVoiceEnabled = false
+    @AppStorage(ScoutSpeechSettings.modelKey) private var ttsModel = ScoutSpeechSettings.defaultModel
+    @AppStorage(ScoutSpeechSettings.voiceKey) private var ttsVoice = ScoutSpeechSettings.defaultVoice
+    @State private var speechModels: [HudSpeechModel] = []
+    @State private var speechVoices: [HudSpeechVoice] = []
+    @State private var voicesError: String?
+    /// In-flight key text, keyed by provider. Never persisted here — committed
+    /// straight to the Keychain.
+    @State private var keyDrafts: [String: String] = [:]
+
+    @AppStorage(ScoutSettingsNavigation.selectedSectionKey)
+    private var selectedSectionRaw = ScoutSettingsSection.appearance.rawValue
     /// Accent currently hovered in the swatch row — previews into the theme
     /// cards when `previewAccentsOnHover` is on. Contained to this panel.
     @State private var hoverAccent: ScoutAccentPalette?
@@ -66,6 +88,14 @@ struct ScoutSettingsView: View {
     /// active, otherwise the committed selection.
     private var previewAccent: ScoutAccentPalette {
         hoverAccent ?? appearance.accentPalette
+    }
+
+    private var selectedSection: ScoutSettingsSection {
+        ScoutSettingsSection(rawValue: selectedSectionRaw) ?? .appearance
+    }
+
+    private var threadPresentation: ScoutThreadPresentation {
+        ScoutThreadPresentation(rawValue: threadPresentationRaw) ?? .fallback
     }
 
     private let settingsSidebarWidth: CGFloat = 190
@@ -108,7 +138,7 @@ struct ScoutSettingsView: View {
     private func settingsSidebarItem(_ section: ScoutSettingsSection) -> some View {
         let selected = selectedSection == section
         return Button {
-            selectedSection = section
+            selectedSectionRaw = section.rawValue
         } label: {
             HStack(spacing: HudSpacing.sm) {
                 Image(systemName: section.icon)
@@ -279,6 +309,143 @@ struct ScoutSettingsView: View {
                 }
             }
 
+            settingsBlock(title: "Live voice") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("Hold a spoken conversation with Scoutbot. Audio goes to OpenAI Realtime and bills the configured OpenAI API account, so it stays off until you turn it on.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    settingRow(title: "Enable") {
+                        Toggle("", isOn: $liveVoiceEnabled)
+                            .toggleStyle(.switch)
+                            .tint(ScoutPalette.accent)
+                            .labelsHidden()
+                    }
+
+                    if liveVoiceEnabled {
+                        HStack(spacing: HudSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(ScoutPalette.statusOk)
+                            Text("Enabled — use Voice in the bottom status bar to start or stop a call.")
+                                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                                .foregroundStyle(ScoutPalette.muted)
+                        }
+                    }
+                }
+            }
+
+            settingsBlock(title: "Spoken replies") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("Scout can read Scoutbot's replies aloud as they arrive. Only new replies are spoken — never history, and never your own messages.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    settingRow(title: "Speak replies") {
+                        Toggle("", isOn: Binding(
+                            get: { speaker.enabled },
+                            set: { speaker.setEnabled($0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .tint(ScoutPalette.accent)
+                        .labelsHidden()
+                    }
+
+                    settingRow(title: "Voice") {
+                        HStack(spacing: HudSpacing.md) {
+                            Picker("Voice", selection: $ttsVoice) {
+                                ForEach(speechVoices, id: \.id) { voice in
+                                    Text(voice.name).tag(voice.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 180)
+                            .disabled(speechVoices.isEmpty)
+
+                            Picker("Model", selection: $ttsModel) {
+                                ForEach(speechModels, id: \.id) { model in
+                                    Text("\(model.provider.label) · \(model.name)").tag(model.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 240)
+                            .onChange(of: ttsModel) { _, _ in Task { await loadSpeechVoices() } }
+                        }
+                    }
+
+                    if let voicesError {
+                        settingRow(title: "") {
+                            Text(voicesError)
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.statusWarn)
+                        }
+                    }
+
+                    // Keys live in the login Keychain. Synthesis runs inside
+                    // this app, so the key has to be here rather than on a
+                    // server — and a provider without one is listed as
+                    // unavailable instead of failing when you press play.
+                    ForEach(speechProviders, id: \.id) { provider in
+                        settingRow(title: provider.label) {
+                            HStack(spacing: HudSpacing.md) {
+                                SecureField(
+                                    ScoutSpeechCredentials.preview(for: provider) ?? "API key",
+                                    text: keyBinding(for: provider)
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 240)
+
+                                if ScoutSpeechCredentials.hasKey(for: provider) {
+                                    Button("Clear") {
+                                        ScoutSpeechCredentials.setKey(nil, for: provider)
+                                        keyDrafts[provider.id] = ""
+                                        ScoutReplySpeaker.refreshCredentials()
+                                        Task { await loadSpeechCatalog() }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.accent)
+                                }
+                            }
+                        }
+                    }
+
+                    settingRow(title: "Last spoken") {
+                        HStack(spacing: HudSpacing.sm) {
+                            // Reported, not configured: this is what actually
+                            // spoke last, so a silent fallback to on-device
+                            // speech is visible instead of implied.
+                            Text(speaker.route.label)
+                                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                                .foregroundStyle(ScoutPalette.ink)
+                            Text(speaker.route.detail)
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.dim)
+                        }
+                    }
+
+                    settingRow(title: "Try it") {
+                        HStack(spacing: HudSpacing.md) {
+                            Button(speaker.isSpeaking ? "Speaking…" : "Hear it") {
+                                speaker.speakNow("Scout here. Spoken replies are on.")
+                            }
+                            .buttonStyle(.plain)
+                            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                            .foregroundStyle(speaker.isSpeaking ? ScoutPalette.muted : ScoutPalette.accent)
+                            .disabled(speaker.isSpeaking)
+
+                            if speaker.isSpeaking {
+                                Button("Stop") { speaker.stopSpeaking() }
+                                    .buttonStyle(.plain)
+                                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.accent)
+                            }
+                        }
+                    }
+                }
+            }
+
             settingsBlock(title: "Microphone") {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
                     micAccessRow
@@ -313,6 +480,7 @@ struct ScoutSettingsView: View {
             voiceStateEnteredAt = Date()
         }
         .task { loadVoiceInputs() }
+        .task { await loadSpeechCatalog() }
     }
 
     private var micAccessRow: some View {
@@ -337,6 +505,51 @@ struct ScoutSettingsView: View {
                     .foregroundStyle(ScoutPalette.accent)
                 }
             }
+        }
+    }
+
+    /// Providers Scout can hold a key for. `system` needs none and is never
+    /// listed as something to configure.
+    private var speechProviders: [HudSpeechProvider] {
+        HudSpeechProvider.allCases.filter(\.requiresCredential)
+    }
+
+    private func keyBinding(for provider: HudSpeechProvider) -> Binding<String> {
+        Binding(
+            get: { keyDrafts[provider.id] ?? "" },
+            set: { next in
+                keyDrafts[provider.id] = next
+                // Commit on entry; a key half-typed is simply not a key yet.
+                guard next.count > 12 else { return }
+                ScoutSpeechCredentials.setKey(next, for: provider)
+                ScoutReplySpeaker.refreshCredentials()
+                Task { await loadSpeechCatalog() }
+            }
+        )
+    }
+
+    /// Models and voices come from the engine, so the pickers can't drift from
+    /// what it can actually synthesize.
+    private func loadSpeechCatalog() async {
+        let models = await ScoutReplySpeaker.speechModels()
+        speechModels = models.filter(\.available)
+        if !speechModels.contains(where: { $0.id == ttsModel }), let first = speechModels.first {
+            ttsModel = first.id
+        }
+        await loadSpeechVoices()
+    }
+
+    private func loadSpeechVoices() async {
+        do {
+            let voices = try await ScoutReplySpeaker.speechVoices(modelId: ttsModel)
+            speechVoices = voices
+            voicesError = nil
+            if !voices.contains(where: { $0.id == ttsVoice }) {
+                ttsVoice = voices.first(where: \.isDefault)?.id ?? voices.first?.id ?? ttsVoice
+            }
+        } catch {
+            speechVoices = []
+            voicesError = error.localizedDescription
         }
     }
 
@@ -502,6 +715,33 @@ struct ScoutSettingsView: View {
                         .toggleStyle(.switch)
                         .tint(ScoutPalette.accent)
                         .labelsHidden()
+                }
+            }
+
+            settingsBlock(title: "Conversations") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("How a thread is laid out for reading. Long agent turns run wide by default; each of these trades that width for something different.")
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    settingRow(title: "Presentation") {
+                        HStack(spacing: HudSpacing.xl) {
+                            Picker("Presentation", selection: $threadPresentationRaw) {
+                                ForEach(ScoutThreadPresentation.allCases) { presentation in
+                                    Text(presentation.title).tag(presentation.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .tint(ScoutPalette.accent)
+                            .labelsHidden()
+                            .frame(width: 340)
+
+                            Text(threadPresentation.detail)
+                                .font(HudFont.ui(HudTextSize.xs))
+                                .foregroundStyle(ScoutPalette.dim)
+                        }
+                    }
                 }
             }
         }

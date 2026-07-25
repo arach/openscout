@@ -76,7 +76,7 @@ export const PRIMARY_AREAS: readonly PrimaryArea[] = [
   },
   {
     id: "chat",
-    label: "Chat",
+    label: "Messages",
     icon: MessageSquare,
     defaultRoute: { view: "messages" },
     section: "navigate",
@@ -97,7 +97,7 @@ export const PRIMARY_AREAS: readonly PrimaryArea[] = [
   },
   {
     id: "ops",
-    label: "Ops",
+    label: "Operations",
     icon: Compass,
     // Catalog default is Mission Control; gate policy may redirect to Tail.
     defaultRoute: { view: "ops", mode: "mission" },

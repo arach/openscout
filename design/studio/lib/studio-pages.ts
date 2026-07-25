@@ -755,6 +755,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Reply and thread as first-class moves in the Comms surface, staged by backing: Current (the shipped custody-caption baseline, plus the orphan row branch-from-message mints today), Reply-to (phase 1 — hover Reply, composer target chip, chain gathered behind a hairline rail; replyToMessageId already decodes, only the send path is new), Sub-thread (phase 2 — an anchored child conversation via parent_conversation_id + message_id with a faces·count·recency stub, expanded inline; the list gains no row and branch-from-message anchors here). Data contract separates the phase-1 client fields from the phase-2 server population.",
   },
   {
+    href: "/studies/message-panel-readability",
+    label: "Message Panel · Readability",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/views/message-panel-readability.tsx",
+      "packages/web/client/screens/chat/conversation-screen.css",
+      "packages/web/client/screens/chat/ConversationScreen.tsx",
+      "packages/web/client/app.css",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+    ],
+    blurb:
+      "An audit of the thread body, staged as a live A/B on one real information-heavy thread (#scout-web-theme, five turns, longest 2,816 chars) with the content held fixed. The headline defect is typographic and invisible to a screenshot: web renders 12px/1.5 across a 760px card — ~122 characters per line against a ~85 ceiling — so the page carries a ruler that measures chars-per-line off the live DOM at the current width. Seven more findings with file:line evidence (cards fighting content, right-aligned bubbles inside a multi-actor log, no same-author grouping, uniform weight regardless of length, accent-bordered code chips, relative-only time, ungated autoscroll). Cross-surface table shows web is the outlier against macOS and iOS, which are already flat and measured. §4 proposes the arrival transition — in-flight row and landed turn sharing one grid slot so the swap is a crossfade with zero layout shift — plus the unread rule no surface has.",
+  },
+  {
     href: "/studies/scout-conversation-presentations",
     label: "Scout Comms · Presentations",
     bucket: "studies",

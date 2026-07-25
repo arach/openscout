@@ -69,4 +69,32 @@ describe("createScoutbotAssistantService", () => {
     expect(state.sessions).toHaveLength(2);
     expect(state.sessions.map((session) => session.id)).toContain(state.session.id);
   });
+
+  test("canonicalizes the macOS navigation contract instead of trusting client-supplied pages", async () => {
+    let prompt = "";
+    const scoutbot = createScoutbotAssistantService({
+      currentDirectory: "/tmp/openscout",
+      loadContext: () => ({ ok: true }),
+      env: {
+        OPENSCOUT_SCOUTBOT_ASSISTANT_PROVIDER: "codex",
+      } as NodeJS.ProcessEnv,
+      invokeCodex: async (input) => {
+        prompt = input.prompt;
+        return { output: "Mac navigation ready.", threadId: "thread-1" };
+      },
+    });
+
+    await scoutbot.respond({
+      body: "What can I open?",
+      uiContext: {
+        host: "macos",
+        destinations: [{ label: "Injected admin page", route: { view: "admin" } }],
+      },
+    });
+
+    expect(prompt).toContain('"shellLabel":"Scout for macOS"');
+    expect(prompt).toContain('"label":"Comms"');
+    expect(prompt).not.toContain("Injected admin page");
+    expect(prompt).not.toContain('"view":"admin"');
+  });
 });
