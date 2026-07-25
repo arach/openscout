@@ -27,7 +27,7 @@ const {
 
 const ORIGIN = "http://127.0.0.1:43120";
 
-/* ── URL → Route → canonical path fixtures: all 21 view variants ── */
+/* ── URL → Route → canonical path fixtures: all 22 view variants ── */
 
 describe("route fixtures", () => {
   const fixtures: Array<{ url: string; route: Route; canonical: string }> = [
@@ -110,6 +110,7 @@ describe("route fixtures", () => {
       canonical: "/briefings/brief-1",
     },
     { url: "/activity", route: { view: "activity" }, canonical: "/activity" },
+    { url: "/voice", route: { view: "voice" }, canonical: "/voice" },
     { url: "/work/w-1", route: { view: "work", workId: "w-1" }, canonical: "/work/w-1" },
     {
       url: "/settings/agents",
@@ -133,8 +134,8 @@ describe("route fixtures", () => {
     },
   ];
 
-  test("fixtures cover all 21 view variants", () => {
-    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(21);
+  test("fixtures cover all 22 view variants", () => {
+    expect(new Set(fixtures.map((f) => f.route.view)).size).toBe(22);
   });
 
   for (const { url, route, canonical } of fixtures) {
@@ -533,6 +534,8 @@ describe("Phase B selection state in the URL", () => {
       section: "comms",
     });
     expect(routePath({ view: "settings", section: "voice" })).toBe("/settings/voice");
+    expect(routeFromUrl("http://127.0.0.1:43120/voice")).toEqual({ view: "voice" });
+    expect(routePath({ view: "voice" })).toBe("/voice");
     expect(routePath({ view: "settings", section: "pairing" })).toBe("/settings");
     expect(routePath({ view: "settings", section: "agents" })).toBe("/settings/agents");
   });

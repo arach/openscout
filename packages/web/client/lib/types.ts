@@ -1340,6 +1340,7 @@ export type Route =
     }
   | { view: "briefings"; briefingId?: string }
   | ({ view: "activity" } & MachineScopedRoute)
+  | { view: "voice" }
   | ({ view: "work"; workId: string } & MachineScopedRoute)
   | {
       view: "settings";

@@ -9,6 +9,7 @@ import {
   ScoutbotRealtimeVoiceCallHeader,
 } from "./ScoutbotRealtimeVoiceCall.tsx";
 import { useScoutbotRealtimeVoice } from "./ScoutbotRealtimeVoiceContext.tsx";
+import { useScout } from "../Provider.tsx";
 
 export function ScoutbotRealtimeVoice({
   dictationActive,
@@ -19,6 +20,7 @@ export function ScoutbotRealtimeVoice({
   // The chip owns the trigger and the popover shell; call state and controls
   // live in ScoutbotRealtimeVoiceCall, shared with the macOS embed.
   const { open, setOpen, state } = useScoutbotRealtimeVoice();
+  const { navigate } = useScout();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [popoverPosition, setPopoverPosition] = useState({ left: 12, bottom: 36 });
 
@@ -43,7 +45,7 @@ export function ScoutbotRealtimeVoice({
       const trigger = triggerRef.current;
       if (!trigger) return;
       const rect = trigger.getBoundingClientRect();
-      const popoverWidth = Math.min(280, window.innerWidth - 16);
+      const popoverWidth = Math.min(384, window.innerWidth - 16);
       setPopoverPosition({
         left: Math.max(8, Math.min(rect.left, window.innerWidth - popoverWidth - 8)),
         bottom: Math.max(36, window.innerHeight - rect.top + 8),
@@ -116,13 +118,19 @@ export function ScoutbotRealtimeVoice({
           />
           <div
             id="scoutbot-realtime-voice-menu"
-            className="fixed z-[81] flex max-h-[calc(100vh-3rem)] w-[min(17.5rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-md border border-[var(--scout-chrome-border-soft)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur"
+            className="fixed z-[81] flex h-[min(30rem,calc(100vh-3rem))] min-h-80 w-[min(24rem,calc(100vw-1rem))] min-w-72 resize flex-col overflow-hidden rounded-md border border-[var(--scout-chrome-border-soft)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur"
             style={{ left: popoverPosition.left, bottom: popoverPosition.bottom }}
             role="dialog"
             aria-label="Scoutbot live voice"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <ScoutbotRealtimeVoiceCallHeader state={state} />
+            <ScoutbotRealtimeVoiceCallHeader
+              state={state}
+              onExpand={() => {
+                setOpen(false);
+                navigate({ view: "voice" });
+              }}
+            />
 
             <ScoutbotRealtimeVoiceCall dictationActive={dictationActive} />
 

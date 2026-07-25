@@ -41,6 +41,7 @@ const SYSTEM_VIEWS = new Set<Route["view"]>([
   "work",
   "follow",
   "settings",
+  "voice",
 ]);
 
 /** True for the chrome/ops surfaces that live under the System dropdown. */
@@ -79,6 +80,7 @@ export function topNavKeyForRoute(route: Route): TopNavKey {
     case "work":
     case "follow":
     case "settings":
+    case "voice":
       return "system";
     case "inbox":
     case "activity":

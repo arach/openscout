@@ -47,8 +47,8 @@ Hierarchy when live:
 - Status trigger becomes `VOICE LIVE` only while live
 - Settings owns the persistent operator opt-in and disclosure that microphone audio is sent to OpenAI Realtime and billed to the configured OpenAI API account
 - The footer Voice play control is the explicit per-call activation; disabling the setting hides the control and ends an active call
-- Spoken navigation uses the existing allowlisted `scout-ui` action bridge, while durable agent requests remain separate and require confirmation
-- Agent-request actions are shown as unsent proposals with explicit **Send request** / **Do not send** controls
+- Spoken navigation uses the existing allowlisted `scout-ui` action bridge, while explicitly requested durable agent asks are sent immediately through the broker and report their delivery receipt or failure
+- The selected durable Scoutbot chat survives call stop/minimize; the voice controls expose explicit **New** and recent-chat switching, and switching ends an active microphone connection before changing context
 
 ### Right-sidebar relationship
 

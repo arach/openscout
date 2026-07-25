@@ -61,7 +61,7 @@ export function ScoutbotSettingsPanel({
           </div>
         </div>
         <label className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
-          Model
+          Preferred model
           <input
             value={modelDraft}
             onChange={(event) => onModelDraft(event.target.value)}

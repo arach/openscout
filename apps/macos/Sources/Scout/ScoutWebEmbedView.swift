@@ -399,7 +399,7 @@ private struct ScoutWebEmbedWebView: NSViewRepresentable {
         ) {
             guard message.name == ScoutWebEmbedWebView.realtimeVoiceMessageHandler else { return }
             if let state = message.body as? String,
-               ["idle", "connecting", "live", "ended", "error", "minimize"].contains(state) {
+               ["idle", "connecting", "live", "ended", "error", "minimize", "expand", "restore"].contains(state) {
                 onRealtimeVoiceStateChange(state, nil)
                 return
             }

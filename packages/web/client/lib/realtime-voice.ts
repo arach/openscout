@@ -22,8 +22,19 @@ export type ScoutRealtimeVoiceCall = {
 export type ScoutRealtimeVoiceTraceEvent = {
   id: string;
   at: number;
+  kind?: ScoutRealtimeVoiceTraceKind;
   label: string;
   detail?: string;
+};
+
+export type ScoutRealtimeVoiceTraceKind = "voice" | "scoutbot" | "navigation" | "agent" | "error";
+
+export type ScoutRealtimeVoiceReplyActions = {
+  agentRequests: {
+    requested: number;
+    sent: number;
+    failed: number;
+  };
 };
 
 type ScoutRealtimeFunctionCall = {
@@ -39,7 +50,9 @@ type ScoutbotChatResult = {
 export async function startScoutRealtimeVoiceCall(callbacks: {
   onState?: (state: ScoutRealtimeVoiceConnectionState) => void;
   onError?: (message: string) => void;
-  onScoutbotReply?: (body: string) => void;
+  onScoutbotReply?: (
+    body: string,
+  ) => ScoutRealtimeVoiceReplyActions | Promise<ScoutRealtimeVoiceReplyActions>;
   onTrace?: (event: ScoutRealtimeVoiceTraceEvent) => void;
   /** Read the route at the moment Scoutbot handles a turn, not only when the call started. */
   getRoute?: () => unknown;
@@ -66,11 +79,16 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
   let heartbeatFailures = 0;
   let traceSequence = 0;
 
-  const trace = (label: string, detail?: string) => {
+  const trace = (
+    label: string,
+    detail?: string,
+    kind: ScoutRealtimeVoiceTraceKind = "voice",
+  ) => {
     traceSequence += 1;
     callbacks.onTrace?.({
       id: `voice-${traceSequence}`,
       at: Date.now(),
+      kind,
       label,
       ...(detail ? { detail } : {}),
     });
@@ -205,7 +223,7 @@ export async function startScoutRealtimeVoiceCall(callbacks: {
             responseRequestInFlight = null;
           }
           responseActive = true;
-          trace("Scoutbot reply queued", "Waiting for the current spoken response to finish");
+          trace("Scoutbot reply queued", "Waiting for the current spoken response to finish", "scoutbot");
           return;
         }
         callbacks.onError?.(payload.message ?? "OpenAI Realtime reported an error.");
@@ -298,19 +316,21 @@ async function fulfillScoutbotFunctionCall(input: {
   functionCall: ScoutRealtimeFunctionCall;
   route: unknown;
   uiContext?: unknown;
-  onReply?: (body: string) => void;
-  onTrace: (label: string, detail?: string) => void;
+  onReply?: (
+    body: string,
+  ) => ScoutRealtimeVoiceReplyActions | Promise<ScoutRealtimeVoiceReplyActions>;
+  onTrace: (label: string, detail?: string, kind?: ScoutRealtimeVoiceTraceKind) => void;
   send: (payload: unknown) => boolean;
   requestResponse: (instructions: string) => void;
 }): Promise<void> {
   const request = readScoutbotRequest(input.functionCall.arguments);
   if (!request) {
-    input.onTrace("Scoutbot request could not be read");
+    input.onTrace("Scoutbot request could not be read", undefined, "error");
     sendScoutbotFunctionOutput(input, { ok: false, error: "The voice request did not include a usable Scoutbot prompt." });
     return;
   }
 
-  input.onTrace("Scoutbot is checking the control plane", request);
+  input.onTrace("Scoutbot is checking the control plane", request, "scoutbot");
   try {
     const response = await fetch(SCOUT_REALTIME_SCOUTBOT_CHAT_PATH, {
       method: "POST",
@@ -327,19 +347,30 @@ async function fulfillScoutbotFunctionCall(input: {
       throw new Error("Scoutbot returned an empty reply.");
     }
 
-    input.onReply?.(body);
+    const agentRequestCount = extractScoutbotUiActions(body)
+      .filter((action) => action.type === "ask-agent")
+      .length;
+    const replyActions = input.onReply
+      ? await input.onReply(body)
+      : {
+          agentRequests: {
+            requested: agentRequestCount,
+            sent: 0,
+            failed: agentRequestCount,
+          },
+        };
     const spokenReply = stripScoutbotUiFences(body);
-    const agentRequestPendingConfirmation = extractScoutbotUiActions(body)
-      .some((action) => action.type === "ask-agent");
-    input.onTrace("Scoutbot reply ready");
+    input.onTrace("Scoutbot reply ready", undefined, "scoutbot");
     sendScoutbotFunctionOutput(input, {
       ok: true,
       reply: spokenReply,
-      ...(agentRequestPendingConfirmation ? { agentRequestPendingConfirmation: true } : {}),
+      ...(replyActions.agentRequests.requested > 0
+        ? { agentRequests: replyActions.agentRequests }
+        : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Scoutbot could not complete the voice request.";
-    input.onTrace("Scoutbot request failed", message);
+    input.onTrace("Scoutbot request failed", message, "error");
     sendScoutbotFunctionOutput(input, { ok: false, error: message });
   }
 }
@@ -350,7 +381,12 @@ function sendScoutbotFunctionOutput(
     send: (payload: unknown) => boolean;
     requestResponse: (instructions: string) => void;
   },
-  output: { ok: boolean; reply?: string; error?: string; agentRequestPendingConfirmation?: boolean },
+  output: {
+    ok: boolean;
+    reply?: string;
+    error?: string;
+    agentRequests?: ScoutRealtimeVoiceReplyActions["agentRequests"];
+  },
 ): void {
   const sent = input.send({
     type: "conversation.item.create",
@@ -361,10 +397,13 @@ function sendScoutbotFunctionOutput(
     },
   });
   if (!sent) return;
+  const agentRequests = output.agentRequests;
   input.requestResponse(
     output.ok
-      ? output.agentRequestPendingConfirmation
-        ? "Answer using the Scoutbot result. Say clearly that the agent request is ready for operator confirmation and has not been sent yet. Be concise and do not mention tools, JSON, fences, or implementation details."
+      ? agentRequests && agentRequests.requested > 0
+        ? agentRequests.failed > 0
+          ? "Answer using the Scoutbot result. Say clearly that Scoutbot tried to send the agent request automatically but delivery failed, and tell the operator to check the activity log. Be concise and do not mention tools, JSON, fences, or implementation details."
+          : "Answer using the Scoutbot result. Say clearly that the agent request was sent automatically. Do not claim the requested work is complete. Be concise and do not mention tools, JSON, fences, or implementation details."
         : "Answer using the Scoutbot result. Speak the useful answer naturally and concisely. Do not mention tools, JSON, fences, or implementation details."
       : "Briefly tell the operator that Scoutbot could not complete the live lookup and state the returned error plainly.",
   );

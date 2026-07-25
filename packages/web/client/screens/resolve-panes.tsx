@@ -19,6 +19,7 @@ import { SessionsContent, SessionsRight } from "./sessions/index.ts";
 import { SettingsContent } from "./settings/index.ts";
 import { TerminalContent, TerminalLeft, TerminalRight } from "./terminal/index.ts";
 import { WorkContent, WorkRight } from "./work/index.ts";
+import { RealtimeVoicePage } from "./voice/RealtimeVoiceScreen.tsx";
 
 type Navigate = ReturnType<typeof useScout>["navigate"];
 
@@ -83,6 +84,8 @@ export function resolveContentPane(
       return <BriefingsContent route={route} navigate={navigate} />;
     case "activity":
       return <ActivityContent route={route} navigate={navigate} />;
+    case "voice":
+      return <RealtimeVoicePage />;
     case "ops":
       return <OpsContent route={route} navigate={navigate} />;
     case "terminal":

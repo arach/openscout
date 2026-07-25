@@ -1,5 +1,5 @@
 import { useOptionalFlag } from "hudsonkit/flags";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   SCOUT_REALTIME_VOICE_FLAG,
@@ -37,11 +37,23 @@ export function RealtimeVoiceScreen({
   const { enabled: operatorEnabled, state, leaseId, startCall, endCall } = useScoutbotRealtimeVoice();
   const autoStartAttemptedRef = useRef(false);
   const stopInFlightRef = useRef<Promise<boolean> | null>(null);
+  const [layout, setLayout] = useState<"compact" | "page">(() => (
+    window.innerWidth >= 720 && window.innerHeight >= 520 ? "page" : "compact"
+  ));
   const nativeHandler = (
     window as unknown as {
       webkit?: { messageHandlers?: { scoutRealtimeVoice?: { postMessage: (message: unknown) => void } } };
     }
   ).webkit?.messageHandlers?.scoutRealtimeVoice;
+
+  useEffect(() => {
+    const updateLayout = () => {
+      setLayout(window.innerWidth >= 720 && window.innerHeight >= 520 ? "page" : "compact");
+    };
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, []);
 
   useEffect(() => {
     nativeHandler?.postMessage({ kind: "session-state", state, leaseId });
@@ -113,17 +125,49 @@ export function RealtimeVoiceScreen({
       <ScoutbotRealtimeVoiceCallHeader
         state={state}
         onMinimize={nativeHandler ? () => nativeHandler.postMessage("minimize") : undefined}
+        onExpand={nativeHandler ? () => nativeHandler.postMessage(layout === "page" ? "restore" : "expand") : undefined}
+        layout={layout}
       />
-      <ScoutbotRealtimeVoiceCall dictationActive={dictationActive} />
+      <ScoutbotRealtimeVoiceCall dictationActive={dictationActive} layout={layout} />
     </div>
+  );
+}
+
+/** Full routed workspace for longer calls and a readable, scrollable audit trail. */
+export function RealtimeVoicePage() {
+  const enabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
+  const { enabled: operatorEnabled, state } = useScoutbotRealtimeVoice();
+
+  if (!enabled || !operatorEnabled) {
+    return <RealtimeVoiceScreen />;
+  }
+
+  return (
+    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[var(--scout-chrome-bg)]">
+      <div className="border-b border-[var(--scout-chrome-border-soft)] px-6 py-5">
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+          Scoutbot
+        </p>
+        <h1 className="mt-1 text-xl font-medium text-[var(--scout-chrome-ink)]">Live voice</h1>
+        <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[var(--scout-chrome-ink-faint)]">
+          Hold a live conversation, inspect navigation attempts, and audit what Scoutbot tried without leaving the call.
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 p-5">
+        <section className="mx-auto flex h-full min-h-[26rem] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[var(--scout-chrome-border-soft)] bg-[color-mix(in_srgb,var(--scout-chrome-bg)_96%,black)] shadow-[0_18px_48px_rgba(0,0,0,0.24)]">
+          <ScoutbotRealtimeVoiceCallHeader state={state} layout="page" />
+          <ScoutbotRealtimeVoiceCall dictationActive={false} layout="page" />
+        </section>
+      </div>
+    </main>
   );
 }
 
 export const scoutSurface = defineSurface({
   id: "voice",
   label: "Live voice",
-  route: { view: "settings", section: "voice" },
-  webPath: "/settings/voice",
+  route: { view: "voice" },
+  webPath: "/voice",
   screen: "RealtimeVoiceScreen",
   embed: {
     path: "/embed/voice",

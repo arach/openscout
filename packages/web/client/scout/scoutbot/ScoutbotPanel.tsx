@@ -38,6 +38,7 @@ import { ScoutbotIconButton, ScoutVoiceSetupPanel } from "./ScoutbotControls.tsx
 import { ScoutbotSettingsPanel } from "./ScoutbotSettingsPanel.tsx";
 import {
   SCOUTBOT_REALTIME_REPLY_EVENT,
+  SCOUTBOT_SESSION_CHANGED_EVENT,
   useScoutbotRealtimeVoice,
 } from "./ScoutbotRealtimeVoiceContext.tsx";
 import {
@@ -342,6 +343,7 @@ export function ScoutbotPanel({
       syncLastMessages(state.session);
       setSessionPickerOpen(false);
       setChatExpanded(false);
+      window.dispatchEvent(new CustomEvent(SCOUTBOT_SESSION_CHANGED_EVENT, { detail: { id: state.session.id } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not switch session.");
     } finally {
@@ -374,6 +376,7 @@ export function ScoutbotPanel({
       setSessionPickerOpen(false);
       setAskStatus("New chat ready");
       setComposeFocusNonce((nonce) => nonce + 1);
+      window.dispatchEvent(new CustomEvent(SCOUTBOT_SESSION_CHANGED_EVENT, { detail: { id: state.session.id } }));
     } catch (err) {
       setAskStatus(null);
       setError(err instanceof Error ? err.message : "Could not start a new chat.");
@@ -396,6 +399,7 @@ export function ScoutbotPanel({
       syncLastMessages(state.session);
       setChatExpanded(false);
       setAskStatus("session archived");
+      window.dispatchEvent(new CustomEvent(SCOUTBOT_SESSION_CHANGED_EVENT, { detail: { id: state.session.id } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not archive session.");
     } finally {
@@ -482,8 +486,16 @@ export function ScoutbotPanel({
       setAskStatus("Scoutbot replied by voice");
       void loadScoutbotSession();
     };
+    const handleSessionChange = () => {
+      setAskStatus("Scoutbot chat changed");
+      void loadScoutbotSession();
+    };
     window.addEventListener(SCOUTBOT_REALTIME_REPLY_EVENT, handleRealtimeReply);
-    return () => window.removeEventListener(SCOUTBOT_REALTIME_REPLY_EVENT, handleRealtimeReply);
+    window.addEventListener(SCOUTBOT_SESSION_CHANGED_EVENT, handleSessionChange);
+    return () => {
+      window.removeEventListener(SCOUTBOT_REALTIME_REPLY_EVENT, handleRealtimeReply);
+      window.removeEventListener(SCOUTBOT_SESSION_CHANGED_EVENT, handleSessionChange);
+    };
   }, [loadScoutbotSession]);
 
   const askScoutbot = useCallback(async (body: string) => {

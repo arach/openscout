@@ -29,6 +29,7 @@ export const ROUTE_VIEW_LABELS: Record<string, string> = {
   follow: "Follow",
   code: "Code Browser",
   ops: "Operations",
+  voice: "Live Voice",
 };
 
 /**
@@ -56,6 +57,7 @@ export function routeBreadcrumbForRoute(route: Route): string | null {
     case "activity":
     case "follow":
     case "terminal":
+    case "voice":
       return ROUTE_VIEW_LABELS[route.view] ?? route.view;
     case "ops": {
       if (route.mode === "tail") return "Live Activity";

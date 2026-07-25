@@ -141,6 +141,7 @@ export const ROUTE_AREA_BY_VIEW = {
   mesh: "ops",
   harnesses: "ops",
   settings: "settings",
+  voice: "settings",
 } as const satisfies Record<Route["view"], PrimaryAreaId>;
 
 const AREA_BY_ID: ReadonlyMap<PrimaryAreaId, PrimaryArea> = new Map(
