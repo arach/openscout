@@ -26,6 +26,17 @@ mock.module(new URL("../scout/Provider.tsx", import.meta.url).pathname, () => ({
 const { MessageMarkup } = await import("./message-markup.tsx");
 
 describe("MessageMarkup rendering", () => {
+  test("renders escaped line breaks as separate message blocks", () => {
+    const html = renderToStaticMarkup(createElement(MessageMarkup, {
+      text: "Summary\\n\\nDetails\\n\\n- one\\n- two",
+    }));
+
+    expect(html).not.toContain("\\n");
+    expect(html).toContain('<p class="s-message-markup-paragraph"><span>Summary</span></p>');
+    expect(html).toContain('<p class="s-message-markup-paragraph"><span>Details</span></p>');
+    expect(html).toContain('<ul class="s-message-markup-list"><li>');
+  });
+
   test("renders bare URLs as clickable links", () => {
     const html = renderToStaticMarkup(createElement(MessageMarkup, {
       text: "URL · http://localhost:3500/talkie-marks",
