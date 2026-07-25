@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
+import { useOptionalFlag } from "hudsonkit/flags";
 
 import { api } from "../../lib/api.ts";
 import {
@@ -18,8 +19,7 @@ import {
   type ScoutRealtimeVoiceConnectionState,
   type ScoutRealtimeVoiceTraceEvent,
 } from "../../lib/realtime-voice.ts";
-import { usePersistentBoolean } from "../../lib/persistent-state.ts";
-import { SCOUT_REALTIME_VOICE_PREFERENCE_KEY } from "../../../shared/realtime-voice.ts";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../../../shared/realtime-voice.ts";
 import {
   extractScoutbotUiActions,
   type ScoutbotUiAction,
@@ -63,7 +63,7 @@ const ScoutbotRealtimeVoiceContext = createContext<ScoutbotRealtimeVoiceContextV
 
 export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNode }) {
   const { route, applyScoutbotUiAction } = useScout();
-  const [enabled] = usePersistentBoolean(SCOUT_REALTIME_VOICE_PREFERENCE_KEY, false);
+  const enabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<ScoutRealtimeVoiceConnectionState | "idle">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +130,7 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
 
   const startCall = useCallback(async () => {
     if (!enabled) {
-      setError("Enable realtime voice in Settings → Voice before starting a call.");
+      setError("Turn on live voice in Settings → Voice before starting a call.");
       setOpen(false);
       return;
     }

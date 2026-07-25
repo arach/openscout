@@ -34,11 +34,7 @@ import {
 } from "./components/ScoutActivityLogOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { ScoutbotRealtimeVoice } from "./scout/scoutbot/ScoutbotRealtimeVoice.tsx";
-import {
-  SCOUT_REALTIME_VOICE_FLAG,
-  SCOUT_REALTIME_VOICE_PREFERENCE_KEY,
-} from "../shared/realtime-voice.ts";
-import { usePersistentBoolean } from "./lib/persistent-state.ts";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../shared/realtime-voice.ts";
 import { useScoutActivityLogBridge } from "./lib/scout-activity-log-bridge.ts";
 import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keyboard-nav.ts";
 import {
@@ -285,9 +281,7 @@ function OpenScoutStatusBarLeft({
   dictationActive: boolean;
 }) {
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
-  const realtimeVoiceAvailable = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
-  const [realtimeVoicePreference] = usePersistentBoolean(SCOUT_REALTIME_VOICE_PREFERENCE_KEY, false);
-  const realtimeVoiceEnabled = realtimeVoiceAvailable && realtimeVoicePreference;
+  const realtimeVoiceEnabled = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
   const meshValueClass = statusBar.mesh.color === "amber"
     ? "text-amber-400"
     : statusBar.mesh.color === "red"

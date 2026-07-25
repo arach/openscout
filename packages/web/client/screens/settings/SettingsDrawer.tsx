@@ -34,11 +34,7 @@ import {
   type ScoutVoiceSettings,
 } from "../../lib/scout-voice.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
-import { usePersistentBoolean } from "../../lib/persistent-state.ts";
-import {
-  SCOUT_REALTIME_VOICE_FLAG,
-  SCOUT_REALTIME_VOICE_PREFERENCE_KEY,
-} from "../../../shared/realtime-voice.ts";
+import { SCOUT_REALTIME_VOICE_FLAG } from "../../../shared/realtime-voice.ts";
 import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissionsPanel.tsx";
 import "./settings-drawer.css";
 import "./voice-permissions-panel.css";
@@ -460,10 +456,6 @@ const VOICE_ENGINE_OPTIONS: { id: ScoutVoicePreference; label: string; sub: stri
 
 function VoiceSection() {
   const realtimeVoiceAvailable = useOptionalFlag(SCOUT_REALTIME_VOICE_FLAG, false);
-  const [realtimeVoiceEnabled, setRealtimeVoiceEnabled] = usePersistentBoolean(
-    SCOUT_REALTIME_VOICE_PREFERENCE_KEY,
-    false,
-  );
   const [settings, setSettings] = useState<ScoutVoiceSettings | null>(null);
   const [devices, setDevices] = useState<ScoutVoiceInputDevice[]>([]);
   const [history, setHistory] = useState<ScoutVoiceSessionHistoryEntry[]>([]);
@@ -548,31 +540,23 @@ function VoiceSection() {
       {error && <div className="s-settings-field-hint" style={{ color: "var(--amber)" }}>{error}</div>}
 
       <SectionRule label="Realtime conversation" right="footer control" />
-      <label
+      <div
         className="s-settings-realtime-voice"
-        data-enabled={(realtimeVoiceAvailable && realtimeVoiceEnabled) || undefined}
+        data-enabled={realtimeVoiceAvailable || undefined}
         data-unavailable={!realtimeVoiceAvailable || undefined}
       >
-        <input
-          type="checkbox"
-          checked={realtimeVoiceEnabled}
-          disabled={!realtimeVoiceAvailable}
-          onChange={(event) => setRealtimeVoiceEnabled(event.currentTarget.checked)}
-        />
         <span className="s-settings-realtime-voice-copy">
-          <strong>Enable realtime voice</strong>
+          <strong>{realtimeVoiceAvailable ? "Realtime voice enabled" : "Realtime voice disabled"}</strong>
           <span>
-            Shows the Voice play control in the footer. Starting a call sends microphone audio to OpenAI Realtime and bills the configured OpenAI API account. Voice may read live Scout context and navigate this app; agent requests still require confirmation.
+            Starting a call sends microphone audio to OpenAI Realtime and bills the configured OpenAI API account. Voice may read live Scout context and navigate this app; agent requests still require confirmation.
           </span>
           {!realtimeVoiceAvailable ? (
-            <em>This build does not expose the realtime voice pilot.</em>
-          ) : realtimeVoiceEnabled ? (
-            <em>Enabled · use Voice in the footer to start or manage a call.</em>
+            <em>Turn on Live voice in the host app's Settings → Voice.</em>
           ) : (
-            <em>Disabled · no realtime call can start from this browser.</em>
+            <em>Use Voice in the footer to start or manage a call.</em>
           )}
         </span>
-      </label>
+      </div>
 
       <VoiceHostStatusBanner
         hostOnline={hostOnline}
