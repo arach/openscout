@@ -614,7 +614,7 @@ export function CodeContent({
             </div>
           ) : null}
           {fileMode === "changes" && canShowChanges && root && selectedFile ? (
-            <CodeDiffPane root={root} file={selectedFile} />
+            <CodeDiffPane key={`${root}\0${selectedFile}`} root={root} file={selectedFile} />
           ) : fileLoading ? (
             <div className="s-code-empty">Loading {selectedFile ? pathLeaf(selectedFile) : "file"}…</div>
           ) : fileError ? (

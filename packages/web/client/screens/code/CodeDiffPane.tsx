@@ -83,7 +83,7 @@ export function CodeDiffPane({ root, file }: { root: string; file: string }) {
   if (!snapshot || !layer || !selectedFileKey) {
     return (
       <div className="s-code-empty">
-        No tracked patch is available for this file. Untracked files do not have a Git baseline yet.
+        No tracked patch is available. The file is clean, or it is untracked and has no Git baseline yet.
       </div>
     );
   }
