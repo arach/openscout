@@ -6,6 +6,8 @@ import type { Route } from "../../lib/types.ts";
 import { fetchRepoWatchSnapshot, getCachedRepoWatchSnapshot } from "../../scout/repo-watch/api.ts";
 import type { RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
 import { defineSurface } from "../../surfaces/types.ts";
+import { CodeDiffPane } from "./CodeDiffPane.tsx";
+import { relativeFilePath } from "./code-diff-model.ts";
 import { ShikiPane } from "./ShikiPane.tsx";
 import { readLastRoot, readStoredTree, writeLastRoot, writeStoredTree } from "./code-tree-store.ts";
 import "./code-screen.css";
@@ -113,8 +115,11 @@ function diffBadge(status: string): string {
     case "conflicted":
       return "C";
     case "staged":
+      return "S";
     case "unstaged":
       return "M";
+    case "staged+unstaged":
+      return "SM";
     default:
       return status.charAt(0).toUpperCase();
   }
@@ -186,6 +191,7 @@ export function CodeContent({
   const [fileLoading, setFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const [fileMode, setFileMode] = useState<"source" | "changes">("source");
 
   useEffect(() => {
     if (snapshot) return;
@@ -451,11 +457,24 @@ export function CodeContent({
     return dirs;
   }, [root, changedByPath]);
 
-  const relativeTitle = filePreview && filePreview.kind === "file" && root && filePreview.path.startsWith(`${root}/`)
-    ? filePreview.path.slice(root.length + 1)
+  // Repo Watch intentionally caps its per-file preview list and may still be
+  // warming when an explicit ?root= link opens. The path-filtered Git request
+  // is authoritative, so every rooted file gets the Changes affordance.
+  const canShowChanges = Boolean(
+    root && selectedFile && relativeFilePath(root, selectedFile),
+  );
+
+  useEffect(() => {
+    // Preserve the operator's mode while stepping through rooted files; reset
+    // to Source once there is no file target for Changes to render.
+    if (!canShowChanges) setFileMode("source");
+  }, [canShowChanges]);
+
+  const relativeTitle = selectedFile && root && selectedFile.startsWith(`${root}/`)
+    ? selectedFile.slice(root.length + 1)
     : filePreview?.kind === "file"
       ? filePreview.title
-      : null;
+      : selectedFile ? pathLeaf(selectedFile) : null;
 
   const copyFile = useCallback(async () => {
     if (!filePreview || filePreview.kind !== "file" || !filePreview.previewable) return;
@@ -548,31 +567,63 @@ export function CodeContent({
           )}
         </div>
         <div className="s-code-main">
-          {fileLoading ? (
+          {selectedFile ? (
+            <div className="s-code-fileHead">
+              <span className="s-code-filePath">{relativeTitle}</span>
+              {canShowChanges ? (
+                <div className="s-code-fileMode" role="tablist" aria-label="File view">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={fileMode === "source"}
+                    data-selected={fileMode === "source" || undefined}
+                    onClick={() => setFileMode("source")}
+                  >
+                    Source
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={fileMode === "changes"}
+                    data-selected={fileMode === "changes" || undefined}
+                    onClick={() => setFileMode("changes")}
+                  >
+                    Changes
+                  </button>
+                </div>
+              ) : null}
+              {filePreview?.kind === "file" ? (
+                <span className="s-code-fileMeta">
+                  {formatBytes(filePreview.sizeBytes)}
+                  {filePreview.previewable && filePreview.truncated ? " · truncated" : ""}
+                </span>
+              ) : null}
+              {filePreview?.kind === "file" && filePreview.previewable ? (
+                <>
+                  <button
+                    type="button"
+                    className="s-code-fileAction"
+                    onClick={() => void copyFile()}
+                    title="Copy file contents"
+                  >
+                    {copyStatus === "copied" ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+                    {copyStatus === "copied" ? "Copied" : "Copy"}
+                  </button>
+                  <a className="s-code-fileAction" href={filePreview.rawUrl} target="_blank" rel="noreferrer">
+                    Raw
+                  </a>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {fileMode === "changes" && canShowChanges && root && selectedFile ? (
+            <CodeDiffPane key={`${root}\0${selectedFile}`} root={root} file={selectedFile} />
+          ) : fileLoading ? (
             <div className="s-code-empty">Loading {selectedFile ? pathLeaf(selectedFile) : "file"}…</div>
           ) : fileError ? (
             <div className="s-code-empty">{fileError}</div>
           ) : filePreview && filePreview.kind === "file" && filePreview.previewable ? (
             <>
-              <div className="s-code-fileHead">
-                <span className="s-code-filePath">{relativeTitle}</span>
-                <span className="s-code-fileMeta">
-                  {formatBytes(filePreview.sizeBytes)}
-                  {filePreview.truncated ? " · truncated" : ""}
-                </span>
-                <button
-                  type="button"
-                  className="s-code-fileAction"
-                  onClick={() => void copyFile()}
-                  title="Copy file contents"
-                >
-                  {copyStatus === "copied" ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
-                  {copyStatus === "copied" ? "Copied" : "Copy"}
-                </button>
-                <a className="s-code-fileAction" href={filePreview.rawUrl} target="_blank" rel="noreferrer">
-                  Raw
-                </a>
-              </div>
               {filePreview.truncated ? (
                 <div className="s-code-fileNote">
                   Showing the first {formatBytes(256 * 1024)} of {formatBytes(filePreview.sizeBytes)} ·{" "}

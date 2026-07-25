@@ -230,6 +230,37 @@
   white-space: nowrap;
 }
 
+.s-code-fileMode {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.s-code-fileMode button {
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.s-code-fileMode button:hover {
+  color: var(--ink);
+}
+
+.s-code-fileMode button[data-selected] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--ink);
+}
+
 .s-code-fileAction {
   display: inline-flex;
   align-items: center;
@@ -264,6 +295,58 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* File-scoped diff mode. The shared renderer owns the line treatment; Code
+   supplies only the compact layer switcher and a bounded flex host. */
+.s-code-diff {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.s-code-diffLayers {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-code-diffLayer {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.s-code-diffLayer span {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-code-diffLayer:hover,
+.s-code-diffLayer[data-selected] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.s-code-diffLayer[data-selected] {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.s-code-diff > .rd-surface {
+  flex: 1;
 }
 
 .s-code-shiki pre {
