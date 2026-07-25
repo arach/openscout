@@ -271,6 +271,8 @@ struct ScoutRootView: View {
     @State private var realtimeVoicePanelExpanded = false
     @State private var section: ScoutSection = .comms
     @State private var codeLinkQueryItems: [URLQueryItem] = []
+    @State private var terminalLinkRoutePath: String?
+    @State private var terminalLinkRequestID: UUID?
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
     @AppStorage("scout.inspector.collapsed") private var inspectorCollapsed = false
     @State private var agentContentMode: ScoutAgentContentMode = .roster
@@ -403,11 +405,17 @@ struct ScoutRootView: View {
         }
     }
 
-    /// scout://code/<project>/<relative/file/path>[?wt=…] — same link grammar the
-    /// web serves at /code/<project>/<path>; extra query params pass through so
-    /// the absolute ?root=/&file= form works too.
+    /// Handles native code links plus exact terminal-surface links emitted by
+    /// the web UI. Code query params pass through to the embedded code browser.
     private func handleScoutDeepLink(_ url: URL) {
         guard url.scheme?.lowercased() == "scout" else { return }
+        if url.host?.lowercased() == "terminal" {
+            guard let routePath = ScoutTerminalDeepLink.routePath(from: url) else { return }
+            terminalLinkRoutePath = routePath
+            terminalLinkRequestID = UUID()
+            section = .terminals
+            return
+        }
         guard url.host?.lowercased() == "code" else { return }
         var items: [URLQueryItem] = []
         let segments = url.pathComponents.filter { $0 != "/" }
@@ -545,6 +553,9 @@ struct ScoutRootView: View {
             if let url = ScoutExternalCommand.takePendingCodeLinkURL() {
                 handleScoutDeepLink(url)
             }
+            if let url = ScoutExternalCommand.takePendingTerminalLinkURL() {
+                handleScoutDeepLink(url)
+            }
             syncScopedStoreLifecycles()
             ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: section == .comms)
         }
@@ -557,6 +568,11 @@ struct ScoutRootView: View {
             guard let url = notification.userInfo?["url"] as? URL else { return }
             handleScoutDeepLink(url)
             _ = ScoutExternalCommand.takePendingCodeLinkURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openTerminalLinkNotificationName)) { notification in
+            guard let url = notification.userInfo?["url"] as? URL else { return }
+            handleScoutDeepLink(url)
+            _ = ScoutExternalCommand.takePendingTerminalLinkURL()
         }
         .onDisappear {
             store.stop()
@@ -1611,9 +1627,13 @@ struct ScoutRootView: View {
 
     private var terminalContent: some View {
         #if HUDSON_TERMINAL
-        ScoutTerminalContent(workspaceStore: terminalWorkspaces)
+        ScoutTerminalContent(
+            workspaceStore: terminalWorkspaces,
+            routePath: terminalLinkRoutePath,
+            routeRequestID: terminalLinkRequestID
+        )
         #else
-        ScoutTerminalContent()
+        ScoutTerminalContent(routePath: terminalLinkRoutePath, routeRequestID: terminalLinkRequestID)
         #endif
     }
 

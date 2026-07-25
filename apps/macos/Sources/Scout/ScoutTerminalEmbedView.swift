@@ -370,6 +370,8 @@ struct ScoutTerminalContent: View {
         }
     }
     #endif
+    var routePath: String? = nil
+    var routeRequestID: UUID? = nil
 
     @ViewBuilder
     var body: some View {
@@ -378,10 +380,12 @@ struct ScoutTerminalContent: View {
             renderer: rendererBinding,
             workspaceStore: workspaceStore,
             nativeModel: workspaceStore.selectedWorkspace.shells.native,
-            webModel: workspaceStore.selectedWorkspace.shells.web
+            webModel: workspaceStore.selectedWorkspace.shells.web,
+            requestedRoutePath: routePath,
+            requestedRouteID: routeRequestID
         )
         #else
-        ScoutTerminalWebContent()
+        ScoutTerminalWebContent(routePath: routePath, routeRequestID: routeRequestID)
         #endif
     }
 }
@@ -392,6 +396,8 @@ private struct ScoutTerminalActiveWorkspaceContent: View {
     @ObservedObject var workspaceStore: ScoutTerminalWorkspaceStore
     @ObservedObject var nativeModel: ScoutNativeTerminalGridModel
     @ObservedObject var webModel: ScoutTerminalWebTabsModel
+    let requestedRoutePath: String?
+    let requestedRouteID: UUID?
     @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showNativeHeaders = true
 
     private var shellCount: Int {
@@ -431,6 +437,11 @@ private struct ScoutTerminalActiveWorkspaceContent: View {
             async let native: Void = nativeModel.loadIfNeeded()
             async let web: Void = webModel.loadTerminalContext()
             _ = await (native, web)
+        }
+        .task(id: requestedRouteID) {
+            guard let requestedRoutePath else { return }
+            renderer = .xterm
+            webModel.openDeepLink(routePath: requestedRoutePath)
         }
     }
 
@@ -2089,6 +2100,8 @@ private struct ScoutTerminalWebContent: View {
     @ObservedObject var model: ScoutTerminalWebTabsModel
     #endif
     var showsChrome = true
+    var routePath: String? = nil
+    var routeRequestID: UUID? = nil
 
     var body: some View {
         #if HUDSON_TERMINAL
@@ -2100,16 +2113,18 @@ private struct ScoutTerminalWebContent: View {
                 showsChrome: showsChrome
             )
         } else {
-            ScoutTerminalSingleWebContent()
+            ScoutTerminalSingleWebContent(routePath: routePath, routeRequestID: routeRequestID)
         }
         #else
-        ScoutTerminalSingleWebContent()
+        ScoutTerminalSingleWebContent(routePath: routePath, routeRequestID: routeRequestID)
         #endif
     }
 }
 
 private struct ScoutTerminalSingleWebContent: View {
     var renderer: Binding<ScoutTerminalRenderer>? = nil
+    var routePath: String? = nil
+    var routeRequestID: UUID? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var fontFamily = ScoutTerminalSettings.defaultFontFamily
@@ -2119,6 +2134,7 @@ private struct ScoutTerminalSingleWebContent: View {
     private var url: URL {
         scoutTerminalEmbedURL(
             colorScheme: colorScheme,
+            routePath: routePath ?? "/terminal",
             cacheBuster: reloadToken.uuidString,
             fontFamily: fontFamily,
             fontSize: fontSize
@@ -2134,6 +2150,7 @@ private struct ScoutTerminalSingleWebContent: View {
         }
         .background(ScoutDesign.bg)
         .onChange(of: colorScheme) { _, _ in reloadToken = UUID() }
+        .onChange(of: routeRequestID) { _, _ in reloadToken = UUID() }
     }
 
     private var header: some View {
@@ -2927,6 +2944,27 @@ final class ScoutTerminalWebTabsModel: ObservableObject {
             badge: "attach",
             icon: "link",
             routePath: target.routePath,
+            acceptsProjectDestinations: false
+        ))
+    }
+
+    func openDeepLink(routePath: String) {
+        guard let components = URLComponents(string: routePath),
+              components.path == "/terminal"
+        else { return }
+        let values = Dictionary(
+            components.queryItems?.compactMap { item in item.value.map { (item.name, $0) } } ?? [],
+            uniquingKeysWith: { first, _ in first }
+        )
+        let surfaceKey = values["surface"] ?? "terminal"
+        let sessionName = surfaceKey.split(separator: ":", maxSplits: 1).last.map(String.init) ?? surfaceKey
+        appendOrSelect(ScoutTerminalWebTab(
+            id: "deep-link-\(values["session"] ?? sessionName)",
+            title: sessionName,
+            subtitle: values["session"] ?? "linked terminal",
+            badge: surfaceKey.hasPrefix("tmux:") ? "tmux" : "attach",
+            icon: surfaceKey.hasPrefix("tmux:") ? "rectangle.split.2x1" : "link",
+            routePath: routePath,
             acceptsProjectDestinations: false
         ))
     }

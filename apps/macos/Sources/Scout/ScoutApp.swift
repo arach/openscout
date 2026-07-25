@@ -65,6 +65,23 @@ enum ScoutExternalCommand {
         defer { pendingCodeLinkURL = nil }
         return pendingCodeLinkURL
     }
+
+    static let openTerminalLinkNotificationName = Notification.Name("app.openscout.scout.open-terminal-link")
+    private static var pendingTerminalLinkURL: URL?
+
+    static func openTerminalLink(_ url: URL) {
+        pendingTerminalLinkURL = url
+        NotificationCenter.default.post(
+            name: openTerminalLinkNotificationName,
+            object: nil,
+            userInfo: ["url": url]
+        )
+    }
+
+    static func takePendingTerminalLinkURL() -> URL? {
+        defer { pendingTerminalLinkURL = nil }
+        return pendingTerminalLinkURL
+    }
 }
 
 @main
@@ -195,6 +212,11 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         }
         if url.host?.lowercased() == "code" {
             ScoutExternalCommand.openCodeLink(url)
+            showMainWindows()
+            return
+        }
+        if url.host?.lowercased() == "terminal" {
+            ScoutExternalCommand.openTerminalLink(url)
             showMainWindows()
             return
         }

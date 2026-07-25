@@ -1,6 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { InboxSession } from "./projects-inbox-model.ts";
+import type { TerminalSessionRecord } from "@openscout/protocol";
+import {
+  nativeTerminalDeepLink,
+  resolveProjectSessionTmuxTarget,
+} from "./project-session-terminal.ts";
 
 // @ts-expect-error Bun tests load React's runtime entrypoint directly to avoid local TS path aliases.
 const React = await import("../../../node_modules/react/index.js");
@@ -110,5 +115,40 @@ describe("ProjectsInbox ThreadRow", () => {
     expect(html).toContain('aria-label="Selected session"');
     expect(html).toContain('data-session-ref="test-session"');
     expect(html).toContain("Resolved test-session");
+  });
+
+  test("resolves a historical session agent to its discovered tmux surface", () => {
+    const terminalSessions = [{
+      id: "discovered.tmux.pomo",
+      agentId: null,
+      harness: "tmux",
+      cwd: "/workspace/pomo",
+      sourceSessionId: null,
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "session-ms0hf3f7-3ngln1",
+        paneId: null,
+        socketDir: null,
+        attachCommand: ["tmux", "attach", "-t", "session-ms0hf3f7-3ngln1"],
+        observeCommand: null,
+        relay: null,
+        state: "live",
+      }],
+      metadata: { registryState: "discovered" },
+    }] as TerminalSessionRecord[];
+
+    const target = resolveProjectSessionTmuxTarget(terminalSessions, {
+      agentId: "session-ms0hf3f7-3ngln1.main.arts-mac-mini-local",
+      sessionRefs: ["chn-0050e6389d0d48bab991d5cb9a3c4ecd"],
+    });
+
+    expect(target).toEqual({
+      terminalSessionId: "discovered.tmux.pomo",
+      terminalSurfaceKey: "tmux:session-ms0hf3f7-3ngln1",
+      sessionName: "session-ms0hf3f7-3ngln1",
+    });
+    expect(nativeTerminalDeepLink(target!, "takeover")).toBe(
+      "scout://terminal?session=discovered.tmux.pomo&surface=tmux%3Asession-ms0hf3f7-3ngln1&mode=takeover",
+    );
   });
 });

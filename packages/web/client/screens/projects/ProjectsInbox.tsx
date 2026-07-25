@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, ChevronRight, Folder, FolderPlus, Search } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, ExternalLink, Folder, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
@@ -12,12 +12,19 @@ import type { RepoWatchProject, RepoWatchSnapshot, RepoWatchWorktree } from "../
 import { agentLive, reviewChurnOf } from "../../scout/repo-watch/ui.ts";
 import type { ScoutRepoDiffSnapshot } from "../../scout/repo-diff/types.ts";
 import { formatClockTimestamp, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
+import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import type { ObserveData, ObserveUsageMeta, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
+import { openContent } from "../../scout/slots/openContent.ts";
 import { pathLeaf } from "../agents/model.ts";
 import { SessionRefScreen, type SessionRefLookup } from "../sessions/SessionRefScreen.tsx";
 import { AddProjectForm } from "./AddProjectForm.tsx";
 import { shortHomePath } from "./project-overview-helpers.ts";
+import {
+  nativeTerminalDeepLink,
+  resolveProjectSessionTmuxTarget,
+  type ProjectSessionTmuxTarget,
+} from "./project-session-terminal.ts";
 import { refreshProjectsInbox, useProjectsInbox } from "./useProjectsInbox.ts";
 import { onVisible, useProjectRepositoryState } from "./useProjectRepositoryState.ts";
 import {
@@ -653,6 +660,7 @@ function ProjectSessionOverview({
   navigate: Navigate;
   nowMs: number;
 }) {
+  const [terminalTarget, setTerminalTarget] = useState<ProjectSessionTmuxTarget | null>(null);
   const agentName = session?.agentName ?? route.selectedAgentId ?? route.agentId ?? "Session";
   const harness = session?.harness ?? "session";
   const data = lookup?.kind === "observe" ? lookup.observe.data : null;
@@ -667,6 +675,11 @@ function ProjectSessionOverview({
   const statusLabel = session?.working ? `live · last ${lastLabel}` : lastLabel !== "—" ? `last ${lastLabel}` : "trace resolving";
   const headline = sessionHeadline(session?.work, agentName, sessionRef);
   const refLabel = shortSessionRef(sessionRef);
+  const lookupSession = lookup?.session ?? null;
+  const terminalAgentId = lookup?.kind === "observe"
+    ? lookup.observe.agentId ?? lookupSession?.agentId ?? session?.agentId
+    : lookupSession?.agentId ?? session?.agentId;
+  const terminalLookupRef = lookup?.kind === "observe" ? lookup.observe.sessionId : lookupSession?.harnessSessionId;
   const metaItems = [
     agentName,
     harness,
@@ -677,6 +690,36 @@ function ProjectSessionOverview({
     turnCount != null ? `turn ${compactNumber(turnCount)}` : null,
     refLabel,
   ].filter((item): item is string => Boolean(item) && item !== "—");
+
+  useEffect(() => {
+    let active = true;
+    setTerminalTarget(null);
+    if (!terminalAgentId && !terminalLookupRef && !sessionRef) return () => { active = false; };
+
+    void fetchTerminalSessions({ includeDiscovered: true })
+      .then((terminalSessions) => {
+        if (!active) return;
+        setTerminalTarget(resolveProjectSessionTmuxTarget(terminalSessions, {
+          agentId: terminalAgentId,
+          sessionRefs: [sessionRef, terminalLookupRef, session?.sessionId],
+        }));
+      })
+      .catch(() => {
+        if (active) setTerminalTarget(null);
+      });
+
+    return () => { active = false; };
+  }, [session?.sessionId, sessionRef, terminalAgentId, terminalLookupRef]);
+
+  const openWebTerminal = () => {
+    if (!terminalTarget) return;
+    openContent(navigate, {
+      view: "terminal",
+      terminalSessionId: terminalTarget.terminalSessionId,
+      terminalSurfaceKey: terminalTarget.terminalSurfaceKey,
+      mode: "takeover",
+    }, { returnTo: route });
+  };
 
   return (
     <section className="pi-sessionOverview" aria-label="Session overview">
@@ -697,6 +740,18 @@ function ProjectSessionOverview({
             </span>
           ))}
         </div>
+        {terminalTarget ? (
+          <div className="pi-sessionTerminalActions" aria-label="tmux terminal actions">
+            <span className="pi-sessionTerminalName" title={terminalTarget.sessionName}>
+              tmux · {terminalTarget.sessionName}
+            </span>
+            <button type="button" onClick={openWebTerminal}>Open in web terminal</button>
+            <a href={nativeTerminalDeepLink(terminalTarget, "takeover")}>
+              Open in native terminal
+              <ExternalLink size={11} strokeWidth={1.8} aria-hidden />
+            </a>
+          </div>
+        ) : null}
       </section>
 
       <ProjectSessionGlance
