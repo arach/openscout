@@ -8,6 +8,7 @@ import {
   requestMissionCanvasFocus,
   setMissionActivityFilter,
   setMissionActivityWindow,
+  setMissionGroupMode,
   setMissionQuery,
   setMissionSourceFilter,
   toggleMissionSelected,
@@ -111,6 +112,33 @@ export function OpsMissionLeft() {
               onClick={() => setMissionActivityWindow(opt.value)}
             >
               {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="ml-section ml-section--grouping">
+        <div className="ml-section-label">Group by</div>
+        <div className="ml-chips ml-chips--grouping">
+          {([
+            ["activity", "Activity"],
+            ["workspace", "Project"],
+            ["harness", "Harness"],
+            ["state", "Status"],
+            ["source", "Source"],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={[
+                "ml-chip",
+                "ml-chip--group",
+                mc.groupMode === mode && "ml-chip--group-active",
+              ].filter(Boolean).join(" ")}
+              aria-pressed={mc.groupMode === mode}
+              onClick={() => setMissionGroupMode(mode)}
+            >
+              {label}
             </button>
           ))}
         </div>

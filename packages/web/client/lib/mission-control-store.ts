@@ -2,7 +2,12 @@ import { useSyncExternalStore } from "react";
 
 export type MissionActivityFilter = "active" | "live" | "all";
 export type MissionSourceFilter = "all" | "scout" | "native";
-export type MissionGroupMode = "activity" | "workspace";
+export type MissionGroupMode =
+  | "activity"
+  | "workspace"
+  | "harness"
+  | "state"
+  | "source";
 export type MissionActivityState = "active" | "recent" | "idle";
 
 export const MISSION_ACTIVITY_WINDOWS = [
