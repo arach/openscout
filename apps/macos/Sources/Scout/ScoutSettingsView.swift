@@ -71,8 +71,8 @@ struct ScoutSettingsView: View {
     @AppStorage(ScoutRealtimeVoiceSettings.enabledKey) private var liveVoiceEnabled = false
     @AppStorage(ScoutSpeechSettings.modelKey) private var ttsModel = ScoutSpeechSettings.defaultModel
     @AppStorage(ScoutSpeechSettings.voiceKey) private var ttsVoice = ScoutSpeechSettings.defaultVoice
-    @State private var speechModels: [HudSpeechModel] = []
-    @State private var speechVoices: [HudSpeechVoice] = []
+    @State private var speechModels: [ScoutSpeechModel] = []
+    @State private var speechVoices: [ScoutSpeechVoice] = []
     @State private var voicesError: String?
     /// In-flight key text, keyed by provider. Never persisted here — committed
     /// straight to the Keychain.
@@ -510,11 +510,11 @@ struct ScoutSettingsView: View {
 
     /// Providers Scout can hold a key for. `system` needs none and is never
     /// listed as something to configure.
-    private var speechProviders: [HudSpeechProvider] {
-        HudSpeechProvider.allCases.filter(\.requiresCredential)
+    private var speechProviders: [ScoutSpeechProvider] {
+        ScoutSpeechProvider.allCases.filter(\.requiresCredential)
     }
 
-    private func keyBinding(for provider: HudSpeechProvider) -> Binding<String> {
+    private func keyBinding(for provider: ScoutSpeechProvider) -> Binding<String> {
         Binding(
             get: { keyDrafts[provider.id] ?? "" },
             set: { next in
