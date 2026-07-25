@@ -1472,6 +1472,43 @@
 .pi-sessionMeta svg {
   flex: none;
 }
+.pi-sessionTerminalActions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 3px;
+}
+.pi-sessionTerminalActions button,
+.pi-sessionTerminalActions a {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--pi-hairline-strong);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--hud-surface) 16%, transparent);
+  color: var(--pi-muted);
+  font: 650 9.5px/1 var(--pi-mono);
+  text-decoration: none;
+  cursor: pointer;
+}
+.pi-sessionTerminalActions button:hover,
+.pi-sessionTerminalActions a:hover {
+  border-color: color-mix(in srgb, var(--pi-accent) 36%, var(--pi-hairline-strong));
+  background: color-mix(in srgb, var(--pi-accent) 8%, transparent);
+  color: var(--pi-ink);
+}
+.pi-sessionTerminalName {
+  min-width: 0;
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--pi-dim);
+  font: 600 9.5px/1 var(--pi-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .pi-sessionGlance {
   flex: none;
@@ -2576,6 +2613,15 @@
 
   .pi-sessionState {
     margin-left: 0;
+  }
+
+  .pi-sessionTerminalActions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .pi-sessionTerminalName {
+    flex-basis: 100%;
   }
 
   .pi-sessionSignals {
