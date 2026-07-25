@@ -7,6 +7,7 @@ import { fetchRepoWatchSnapshot, getCachedRepoWatchSnapshot } from "../../scout/
 import type { RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
 import { defineSurface } from "../../surfaces/types.ts";
 import { CodeDiffPane } from "./CodeDiffPane.tsx";
+import { relativeFilePath } from "./code-diff-model.ts";
 import { ShikiPane } from "./ShikiPane.tsx";
 import { readLastRoot, readStoredTree, writeLastRoot, writeStoredTree } from "./code-tree-store.ts";
 import "./code-screen.css";
@@ -459,7 +460,9 @@ export function CodeContent({
   // Repo Watch intentionally caps its per-file preview list and may still be
   // warming when an explicit ?root= link opens. The path-filtered Git request
   // is authoritative, so every rooted file gets the Changes affordance.
-  const canShowChanges = Boolean(root && selectedFile);
+  const canShowChanges = Boolean(
+    root && selectedFile && relativeFilePath(root, selectedFile),
+  );
 
   useEffect(() => {
     // Preserve the operator's mode while stepping through rooted files; reset

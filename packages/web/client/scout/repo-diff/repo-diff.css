@@ -7,12 +7,13 @@
  * --accent / --green / --amber / --red / --border / --font-mono), so it
  * inherits the active Scout theme rather than the studio's palette.
  *
- * Everything is scoped to `.rd-viewer`. The Pierre `CodeView` body paints
- * itself (Shiki theme via `render.preferredTheme`); these rules style the
- * chrome around it.
+ * Everything is scoped to `.rd-viewer` or the Code surface's compact
+ * `.s-code-diff` host. The Pierre `CodeView` body paints itself (Shiki theme
+ * via `render.preferredTheme`); these rules style the chrome around it.
  * ───────────────────────────────────────────────────────────────────── */
 
-.rd-viewer {
+.rd-viewer,
+.s-code-diff {
   --rd-mono: var(--font-mono, ui-monospace, monospace);
   --rd-line: color-mix(in srgb, var(--ink) 9%, transparent);
   --rd-line-strong: color-mix(in srgb, var(--ink) 16%, transparent);

@@ -3,24 +3,20 @@ import { fetchRepoDiffSnapshot } from "../../scout/repo-diff/cache.ts";
 import { DiffSurface } from "../../scout/repo-diff/DiffSurface.tsx";
 import { fileKey, LAYER_LABELS, layerChurn } from "../../scout/repo-diff/model.ts";
 import type {
-  RepoDiffLayer,
   RepoDiffLayerKind,
   ScoutRepoDiffSnapshot,
 } from "../../scout/repo-diff/types.ts";
 import { usePierreRuntime } from "../../scout/repo-diff/usePierreRuntime.ts";
+import {
+  diffFileIndex,
+  FILE_DIFF_LAYERS,
+  firstChangedLayer,
+  relativeFilePath,
+} from "./code-diff-model.ts";
 import "../../scout/repo-diff/repo-diff.css";
 
-const FILE_DIFF_LAYERS: RepoDiffLayerKind[] = ["unstaged", "staged"];
 const ignoreLineContext = () => {};
 const ignoreSelectionContext = () => {};
-
-function relativeFilePath(root: string, file: string): string {
-  return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
-}
-
-function firstChangedLayer(snapshot: ScoutRepoDiffSnapshot): RepoDiffLayerKind | null {
-  return snapshot.layers.find((layer) => layer.files.length > 0)?.kind ?? null;
-}
 
 /** A path-filtered working-tree diff for the Code reader.
  *
@@ -43,6 +39,11 @@ export function CodeDiffPane({ root, file }: { root: string; file: string }) {
     setError(null);
     setActiveLayer(null);
 
+    if (!relativePath) {
+      setPhase("ready");
+      return;
+    }
+
     void fetchRepoDiffSnapshot(root, FILE_DIFF_LAYERS, {
       files: [relativePath],
       tier: "patch",
@@ -50,7 +51,7 @@ export function CodeDiffPane({ root, file }: { root: string; file: string }) {
       (record) => {
         if (cancelled) return;
         setSnapshot(record.snapshot);
-        setActiveLayer(firstChangedLayer(record.snapshot));
+        setActiveLayer(firstChangedLayer(record.snapshot.layers, relativePath));
         setPhase("ready");
       },
       (reason) => {
@@ -66,13 +67,18 @@ export function CodeDiffPane({ root, file }: { root: string; file: string }) {
   }, [relativePath, root]);
 
   const changedLayers = useMemo(
-    () => snapshot?.layers.filter((layer) => layer.files.length > 0) ?? [],
-    [snapshot],
+    () => relativePath
+      ? snapshot?.layers.filter((layer) => diffFileIndex(layer, relativePath) >= 0) ?? []
+      : [],
+    [relativePath, snapshot],
   );
   const layer = changedLayers.find((candidate) => candidate.kind === activeLayer)
     ?? changedLayers[0]
     ?? null;
-  const selectedFileKey = layer?.files[0] ? fileKey(layer.files[0], 0) : null;
+  const selectedFileIndex = layer && relativePath ? diffFileIndex(layer, relativePath) : -1;
+  const selectedFileKey = layer && selectedFileIndex >= 0
+    ? fileKey(layer.files[selectedFileIndex]!, selectedFileIndex)
+    : null;
 
   if (phase === "loading") {
     return <div className="s-code-empty">Loading file changes…</div>;
