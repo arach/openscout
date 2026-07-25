@@ -108,6 +108,7 @@ Supported actions:
 - `navigate` with a whitelisted OpenScout route, such as `{"view":"fleet"}` or `{"view":"ops","mode":"tail"}`.
 - `open-scoutbot` with optional `mode: "ask"` to bring the Scoutbot DM forward.
 - `refresh` to reload web-visible broker state.
+- `ask-agent` to send an explicitly requested coordination ask through the broker; Scoutbot dispatches it immediately and reports the delivery receipt or failure.
 - `reminder` with `body` plus `delayMs`, `delayMinutes`, or `dueAt` to create an operator-side Scoutbot reminder.
 
 This keeps Scoutbot's UI control explicit and auditable: natural-language replies do not move the app unless they include the structured action block.
@@ -140,6 +141,8 @@ OpenScout voice mode uses a Scout-owned web contract:
 - if Scout voice is unavailable, the UI degrades to Scout service restart/retry guidance instead of blocking Scoutbot
 
 The voice path is Scoutbot-direct: speech is transcribed into the in-app assistant loop, and optional spoken replies synthesize Scoutbot's direct response through Scout voice. Durable agent coordination remains a separate Scout broker action.
+
+Realtime voice treats the selected Scoutbot assistant chat as the durable context and the WebRTC microphone connection as disposable transport. Ending or minimizing a call does not create a chat. The voice controls can explicitly start a new chat or restore a recent one; switching chats ends any active microphone connection before changing context. When the operator explicitly asks Scoutbot to coordinate with an agent, the client sends the structured `ask-agent` action without a second confirmation and waits for the broker receipt before speaking a delivery result. This does not bypass downstream agent sandbox, permission, review, or merge gates.
 
 Implementation detail: the current Scout web service still adapts to the existing local ASR/TTS runtime behind `packages/web/server/scout-voice.ts`. Web UI code should depend on `packages/web/client/lib/scout-voice.ts` and `/api/voice/*`, not on the adapter. The intended native direction is Scout-owned hosting backed by HudsonKit/HudsonVoice, with Vox/Parakeet hidden behind that boundary where used.
 

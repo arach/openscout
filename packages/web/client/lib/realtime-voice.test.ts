@@ -121,7 +121,12 @@ describe("Scout Realtime voice client", () => {
     const call = await startScoutRealtimeVoiceCall({
       getRoute: () => currentRoute,
       getUiContext: () => ({ host: "macos" }),
-      onScoutbotReply: (body) => replies.push(body),
+      onScoutbotReply: (body) => {
+        replies.push(body);
+        return {
+          agentRequests: { requested: 1, sent: 1, failed: 0 },
+        };
+      },
       onTrace: (event) => trace.push(event.label),
     });
     expect(call.leaseId).toBe("lease-client-0001");
@@ -195,14 +200,14 @@ describe("Scout Realtime voice client", () => {
           output: JSON.stringify({
             ok: true,
             reply: "The fleet is healthy.",
-            agentRequestPendingConfirmation: true,
+            agentRequests: { requested: 1, sent: 1, failed: 0 },
           }),
         }),
       }),
       expect.objectContaining({
         type: "response.create",
         response: expect.objectContaining({
-          instructions: expect.stringContaining("has not been sent yet"),
+          instructions: expect.stringContaining("was sent automatically"),
         }),
       }),
     ]));

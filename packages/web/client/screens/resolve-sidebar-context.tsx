@@ -88,6 +88,7 @@ export function resolveSidebarContext(
 
     // ── Settings ───────────────────────────────────────────────────────
     case "settings":
+    case "voice":
       return { body: null, footer: null };
 
     default: {

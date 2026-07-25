@@ -585,6 +585,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "briefings") return { view: "briefings" };
   if (parts[0] === "activity") return scoped({ view: "activity" });
+  if (parts[0] === "voice") return { view: "voice" };
   if (parts[0] === "work" && parts[1]) {
     return scoped({ view: "work", workId: decodeURIComponent(parts[1]) });
   }
@@ -835,6 +836,8 @@ export function routePath(r: Route, pathname?: string): string {
         : "/briefings";
     case "activity":
       return pathWithMachineScope("/activity", r);
+    case "voice":
+      return "/voice";
     case "work":
       return pathWithMachineScope(`/work/${encodeURIComponent(r.workId)}`, r);
     case "settings":

@@ -233,6 +233,13 @@ private enum ScoutRealtimeVoiceStatus: Equatable {
     }
 }
 
+private enum ScoutRealtimeVoicePanelMetrics {
+    static let defaultSize = CGSize(width: 440, height: 500)
+    static let minimumSize = CGSize(width: 360, height: 340)
+    static let windowInset: CGFloat = 20
+    static let footerClearance: CGFloat = 32
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
@@ -259,6 +266,9 @@ struct ScoutRootView: View {
     @State private var realtimeVoiceStopRequest: UUID?
     @State private var realtimeVoiceLeaseId: String?
     @State private var realtimeVoiceStopDeadline: Task<Void, Never>?
+    @State private var realtimeVoicePanelSize = ScoutRealtimeVoicePanelMetrics.defaultSize
+    @State private var realtimeVoiceResizeStartSize: CGSize?
+    @State private var realtimeVoicePanelExpanded = false
     @State private var section: ScoutSection = .comms
     @State private var codeLinkQueryItems: [URLQueryItem] = []
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
@@ -4116,33 +4126,106 @@ struct ScoutRootView: View {
     @ViewBuilder
     private var realtimeVoiceOverlay: some View {
         if realtimeVoiceSurfaceMounted {
-            ScoutWebEmbedContent(
-                surface: .voice,
-                extraQueryItems: [
-                    URLQueryItem(name: "ff.\(Self.realtimeVoiceFlag)", value: "on"),
-                    URLQueryItem(name: "dictationActive", value: realtimeVoiceDictationActive ? "1" : "0"),
-                ],
-                showsHeader: false,
-                onRealtimeVoiceStateChange: handleRealtimeVoiceState,
-                onRealtimeVoiceAction: handleRealtimeVoiceAction,
-                realtimeVoiceStopRequest: realtimeVoiceStopRequest
-            )
-            .frame(width: 332, height: 340)
-            .background(ScoutDesign.bg)
-            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            GeometryReader { proxy in
+                let maxWidth = max(
+                    ScoutRealtimeVoicePanelMetrics.minimumSize.width,
+                    proxy.size.width - (ScoutRealtimeVoicePanelMetrics.windowInset * 2)
+                )
+                let maxHeight = max(
+                    ScoutRealtimeVoicePanelMetrics.minimumSize.height,
+                    proxy.size.height
+                        - ScoutRealtimeVoicePanelMetrics.windowInset
+                        - ScoutRealtimeVoicePanelMetrics.footerClearance
+                )
+                let panelWidth = realtimeVoicePanelExpanded
+                    ? maxWidth
+                    : min(maxWidth, max(ScoutRealtimeVoicePanelMetrics.minimumSize.width, realtimeVoicePanelSize.width))
+                let panelHeight = realtimeVoicePanelExpanded
+                    ? maxHeight
+                    : min(maxHeight, max(ScoutRealtimeVoicePanelMetrics.minimumSize.height, realtimeVoicePanelSize.height))
+                ZStack(alignment: .bottomTrailing) {
+                    Color.clear.allowsHitTesting(false)
+
+                    ScoutWebEmbedContent(
+                        surface: .voice,
+                        extraQueryItems: [
+                            URLQueryItem(name: "ff.\(Self.realtimeVoiceFlag)", value: "on"),
+                            URLQueryItem(name: "dictationActive", value: realtimeVoiceDictationActive ? "1" : "0"),
+                        ],
+                        showsHeader: false,
+                        onRealtimeVoiceStateChange: handleRealtimeVoiceState,
+                        onRealtimeVoiceAction: handleRealtimeVoiceAction,
+                        realtimeVoiceStopRequest: realtimeVoiceStopRequest
+                    )
+                    .frame(width: panelWidth, height: panelHeight)
+                    .background(ScoutDesign.bg)
+                    .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                            .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if !realtimeVoicePanelExpanded {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                                .foregroundStyle(ScoutPalette.muted)
+                                .frame(width: 24, height: 24)
+                                .background(ScoutDesign.surface)
+                                .clipShape(Circle())
+                                .overlay {
+                                    Circle()
+                                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                                }
+                                .shadow(color: Color.black.opacity(0.24), radius: 5, y: 2)
+                                .offset(x: -10, y: -10)
+                                .contentShape(Circle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            if realtimeVoiceResizeStartSize == nil {
+                                                realtimeVoiceResizeStartSize = CGSize(
+                                                    width: panelWidth,
+                                                    height: panelHeight
+                                                )
+                                            }
+                                            guard let start = realtimeVoiceResizeStartSize else { return }
+                                            realtimeVoicePanelSize = CGSize(
+                                                width: min(
+                                                    maxWidth,
+                                                    max(
+                                                        ScoutRealtimeVoicePanelMetrics.minimumSize.width,
+                                                        start.width - value.translation.width
+                                                    )
+                                                ),
+                                                height: min(
+                                                    maxHeight,
+                                                    max(
+                                                        ScoutRealtimeVoicePanelMetrics.minimumSize.height,
+                                                        start.height - value.translation.height
+                                                    )
+                                                )
+                                            )
+                                        }
+                                        .onEnded { _ in
+                                            realtimeVoiceResizeStartSize = nil
+                                        }
+                                )
+                                .help("Drag to resize live voice")
+                                .accessibilityLabel("Resize live voice panel")
+                        }
+                    }
+                    .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
+                    .padding(.trailing, ScoutRealtimeVoicePanelMetrics.windowInset)
+                    .padding(.bottom, ScoutRealtimeVoicePanelMetrics.footerClearance)
+                    .opacity(showingRealtimeVoice ? 1 : 0.001)
+                    .scaleEffect(showingRealtimeVoice ? 1 : 0.96, anchor: .bottomTrailing)
+                    .offset(y: showingRealtimeVoice ? 0 : 10)
+                    .allowsHitTesting(showingRealtimeVoice)
+                    .accessibilityHidden(!showingRealtimeVoice)
+                    .animation(.easeOut(duration: 0.16), value: showingRealtimeVoice)
+                    .animation(.easeOut(duration: 0.2), value: realtimeVoicePanelExpanded)
+                }
             }
-            .shadow(color: Color.black.opacity(0.28), radius: 18, y: 8)
-            .padding(.trailing, HudSpacing.xxl)
-            .padding(.bottom, 32)
-            .opacity(showingRealtimeVoice ? 1 : 0.001)
-            .scaleEffect(showingRealtimeVoice ? 1 : 0.96, anchor: .bottomTrailing)
-            .offset(y: showingRealtimeVoice ? 0 : 10)
-            .allowsHitTesting(showingRealtimeVoice)
-            .accessibilityHidden(!showingRealtimeVoice)
-            .animation(.easeOut(duration: 0.16), value: showingRealtimeVoice)
         }
     }
 
@@ -4158,7 +4241,11 @@ struct ScoutRootView: View {
 
     private func toggleRealtimeVoicePanel() {
         if realtimeVoiceSurfaceMounted {
-            showingRealtimeVoice.toggle()
+            if showingRealtimeVoice {
+                collapseRealtimeVoicePanel()
+            } else {
+                showingRealtimeVoice = true
+            }
         } else {
             realtimeVoiceStopRequest = nil
             realtimeVoiceStatus = .ready
@@ -4167,10 +4254,18 @@ struct ScoutRootView: View {
         }
     }
 
+    private func collapseRealtimeVoicePanel() {
+        showingRealtimeVoice = false
+        realtimeVoicePanelExpanded = false
+        if !realtimeVoiceCallActive, realtimeVoiceLeaseId == nil {
+            realtimeVoiceSurfaceMounted = false
+        }
+    }
+
     private func stopRealtimeVoice() {
         guard realtimeVoiceStatus != .stopping else { return }
         guard realtimeVoiceCallActive else {
-            showingRealtimeVoice = false
+            collapseRealtimeVoicePanel()
             realtimeVoiceStatus = .ready
             ScoutRealtimeVoiceStatusBridge.post(.idle)
             return
@@ -4192,7 +4287,17 @@ struct ScoutRootView: View {
             realtimeVoiceLeaseId = leaseId
         }
         if rawState == "minimize" {
-            showingRealtimeVoice = false
+            collapseRealtimeVoicePanel()
+            return
+        }
+        if rawState == "expand" {
+            realtimeVoicePanelExpanded = true
+            showingRealtimeVoice = true
+            return
+        }
+        if rawState == "restore" {
+            realtimeVoicePanelExpanded = false
+            showingRealtimeVoice = true
             return
         }
         if realtimeVoiceStatus == .stopping, rawState != "ended" {
@@ -4218,6 +4323,8 @@ struct ScoutRootView: View {
             realtimeVoiceStopRequest = nil
             realtimeVoiceLeaseId = nil
             showingRealtimeVoice = false
+            realtimeVoiceSurfaceMounted = false
+            realtimeVoicePanelExpanded = false
         default: break
         }
     }
@@ -4284,7 +4391,7 @@ struct ScoutRootView: View {
                 // Navigation happens in the native shell. Minimize the control
                 // surface so the requested destination is immediately visible;
                 // the footer keeps the call and its activity log reachable.
-                showingRealtimeVoice = false
+                collapseRealtimeVoicePanel()
             } else {
                 reportUnsupportedRealtimeVoiceAction(
                     "Live voice cannot open ‘\(route.view)’ in this macOS build yet."
