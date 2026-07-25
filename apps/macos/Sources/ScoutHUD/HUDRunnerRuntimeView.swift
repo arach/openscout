@@ -631,7 +631,7 @@ enum HUDRunnerRuntimeFormatter {
         switch harness {
         case "claude":
             preference = [
-                "claude-opus-4-8",
+                "claude-opus-5",
                 "opus",
                 "claude-sonnet-4-6",
                 "sonnet",

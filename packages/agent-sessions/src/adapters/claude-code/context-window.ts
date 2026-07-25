@@ -3,7 +3,7 @@ import { catalogContextWindowTokens } from "../../model-catalog.js";
 /** Conservative fallback when even the catalog doesn't recognize the model. */
 export const CLAUDE_DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 
-/** True for an Anthropic/Claude model id ("claude-opus-4-8", "sonnet", …). */
+/** True for an Anthropic/Claude model id ("claude-opus-5", "sonnet", …). */
 export function isClaudeModel(model: string | null | undefined): boolean {
   return /opus|sonnet|haiku|claude/u.test(model?.trim().toLowerCase() ?? "");
 }

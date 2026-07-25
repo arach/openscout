@@ -52,7 +52,7 @@ function shortSession(value: string | null | undefined): string | null {
 }
 
 /** Tidy a raw model id into a readable display name.
- *  "claude-opus-4-8" → "opus-4.8", "anthropic/claude-sonnet-4-6" → "sonnet-4.6". */
+ *  "claude-opus-5" → "opus-5", "anthropic/claude-sonnet-4-6" → "sonnet-4.6". */
 function formatModelName(model: string | null | undefined): string | null {
   const raw = model?.trim();
   if (!raw) return null;

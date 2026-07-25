@@ -13,12 +13,15 @@ import { MODEL_CONTEXT_WINDOWS } from "./model-windows.generated.js";
  */
 
 /**
- * Hand overrides — win over the generated catalog. For (a) models only listed by
- * aggregator providers on models.dev (absent from our native-only catalog) and
- * (b) known catalog errors. Keep this tiny; prefer fixing the generator. This is
- * also the trust valve: if models.dev ever gets a model wrong, pin it here.
+ * Hand overrides — win over the generated catalog. For (a) models absent from
+ * the checked-in native catalog, including newly released and aggregator-only
+ * models, and (b) known catalog errors. Keep this tiny; prefer fixing the
+ * generator. This is also the trust valve: if models.dev ever gets a model
+ * wrong, pin it here.
  */
 export const MODEL_WINDOW_OVERRIDES: Record<string, number> = {
+  // Released after the checked-in models.dev snapshot.
+  "claude-opus-5": 1_000_000,
   // Grok variants carried only by aggregator providers (not under xai natively).
   "grok-4": 256_000,
   "grok-code-fast-1": 256_000,

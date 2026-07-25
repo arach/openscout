@@ -105,7 +105,7 @@ import Testing
 
     let claudeOpus = HUDRunnerRuntimePreset(
         harness: "claude",
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         effort: "medium"
     )
     let codexSol = HUDRunnerRuntimePreset(
@@ -522,7 +522,7 @@ struct HUDRunnerCaptureRegressionTests {
         runner.selectRuntimePreset(
             HUDRunnerRuntimePreset(
                 harness: "claude",
-                model: "claude-opus-4-8",
+                model: "claude-opus-5",
                 effort: "medium"
             )
         )
@@ -577,7 +577,7 @@ struct HUDRunnerCaptureRegressionTests {
         runner.selectRuntimePreset(
             HUDRunnerRuntimePreset(
                 harness: "claude",
-                model: "claude-opus-4-8",
+                model: "claude-opus-5",
                 effort: "medium"
             )
         )
@@ -664,7 +664,7 @@ private func runnerOptions(
         "persistence": "sticky",
     ]
     if includeRuntimeCatalog {
-        defaults["model"] = "claude-opus-4-8"
+        defaults["model"] = "claude-opus-5"
         defaults["reasoningEffort"] = "medium"
     }
     let object: [String: Any] = [
@@ -676,8 +676,8 @@ private func runnerOptions(
         ] : [],
         "models": includeRuntimeCatalog ? [
             [
-                "id": "claude-opus-4-8",
-                "label": "Opus 4.8",
+                "id": "claude-opus-5",
+                "label": "Opus 5",
                 "harnesses": ["claude"],
                 "source": "test",
             ],

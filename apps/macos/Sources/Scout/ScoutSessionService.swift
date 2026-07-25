@@ -39,7 +39,7 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
         .init(id: "claude", label: "Claude Code", models: [
             .init(harness: "claude", value: "fable", label: "Fable", detail: "Claude Code alias"),
             .init(harness: "claude", value: "opus", label: "Opus", detail: "Claude Code alias"),
-            .init(harness: "claude", value: "claude-opus-4-8", label: "Opus 4.8", detail: "Pinned ID"),
+            .init(harness: "claude", value: "claude-opus-5", label: "Opus 5", detail: "Pinned ID"),
             .init(harness: "claude", value: "sonnet", label: "Sonnet", detail: "Claude Code alias"),
             .init(harness: "claude", value: "claude-sonnet-4-6", label: "Sonnet 4.6", detail: "Pinned ID"),
             .init(harness: "claude", value: "haiku", label: "Haiku", detail: "Claude Code alias"),
