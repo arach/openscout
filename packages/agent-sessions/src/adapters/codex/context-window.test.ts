@@ -40,7 +40,7 @@ describe("codex context-window", () => {
     expect(isGpt5Family("gpt-5.3-codex")).toBe(true);
     expect(isGpt5Family("GPT_5.4")).toBe(true);
     expect(isGpt5Family("gpt-4.1")).toBe(false);
-    expect(isGpt5Family("claude-opus-4-8")).toBe(false);
+    expect(isGpt5Family("claude-opus-5")).toBe(false);
     expect(isGpt5Family(null)).toBe(false);
   });
 });

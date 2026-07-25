@@ -27,11 +27,11 @@ import HudsonUI
 struct ComposerModelFamily: Identifiable, Hashable {
     let id: String          // selection id — the --model value, or "auto"
     let label: String       // bold family name, e.g. "Opus"
-    let sublabel: String    // dim version, e.g. "4.8"
+    let sublabel: String    // dim version, e.g. "5"
     let value: String?
     let isDefault: Bool
 
-    /// Token/summary rendering, e.g. "Opus 4.8" or "5.6 sol".
+    /// Token/summary rendering, e.g. "Opus 5" or "5.6 sol".
     var displayName: String { sublabel.isEmpty ? label : "\(label) \(sublabel)" }
 }
 
@@ -51,7 +51,7 @@ struct ComposerModelHarness: Identifiable, Hashable {
 
     static let catalog: [ComposerModelHarness] = [
         ComposerModelHarness(id: "claude", label: "Claude Code", short: "Claude", monogram: "✳", families: [
-            ComposerModelFamily(id: "claude-opus-4-8", label: "Opus", sublabel: "4.8", value: "claude-opus-4-8", isDefault: true),
+            ComposerModelFamily(id: "claude-opus-5", label: "Opus", sublabel: "5", value: "claude-opus-5", isDefault: true),
             ComposerModelFamily(id: "claude-sonnet-4-6", label: "Sonnet", sublabel: "4.6", value: "claude-sonnet-4-6", isDefault: false),
             ComposerModelFamily(id: "fable", label: "Fable", sublabel: "alpha", value: "fable", isDefault: false),
         ]),

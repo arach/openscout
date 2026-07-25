@@ -136,7 +136,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public var branch: String?
     /// Working-tree posture (ahead/behind/dirty). Nil when unknown.
     public var git: GitState?
-    /// Precise model id (e.g. "claude-opus-4-8"), distinct from the harness family.
+    /// Precise model id (e.g. "claude-opus-5"), distinct from the harness family.
     public var model: String?
     /// What the agent is doing right now — the most-recent action, not a clock.
     public var statusLabel: String?

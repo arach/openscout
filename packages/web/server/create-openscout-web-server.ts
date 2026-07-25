@@ -3966,12 +3966,12 @@ const HUD_PROJECT_MARKERS = [
 
 const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
   {
-    id: "claude-opus-4-8",
-    label: "Opus 4.8",
+    id: "claude-opus-5",
+    label: "Opus 5",
     harnesses: ["claude"],
     source: "default",
     family: "Opus",
-    version: "4.8",
+    version: "5",
   },
   {
     id: "claude-sonnet-4-6",

@@ -26,6 +26,7 @@ describe("inferModelContextWindowTokens (dispatch)", () => {
   });
 
   test("Claude resolves PER VERSION from the catalog", () => {
+    expect(inferModelContextWindowTokens({ model: "claude-opus-5" })).toBe(1_000_000);
     expect(inferModelContextWindowTokens({ model: "claude-opus-4-8" })).toBe(1_000_000);
     expect(inferModelContextWindowTokens({ model: "claude-sonnet-4-6" })).toBe(1_000_000);
     expect(inferModelContextWindowTokens({ model: "claude-opus-4-5" })).toBe(200_000);
@@ -58,6 +59,6 @@ describe("inferModelContextWindowTokens (dispatch)", () => {
 
   test("normalization tolerates underscores, casing, and whitespace", () => {
     expect(inferModelContextWindowTokens({ model: "GPT_5.5" })).toBe(258_400);
-    expect(inferModelContextWindowTokens({ model: "  Claude-OPUS-4-8 " })).toBe(1_000_000);
+    expect(inferModelContextWindowTokens({ model: "  Claude-OPUS-5 " })).toBe(1_000_000);
   });
 });

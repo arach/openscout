@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { catalogContextWindowTokens, MODEL_WINDOW_OVERRIDES } from "./model-catalog.js";
 
 describe("model catalog (models.dev-backed)", () => {
-  test("Claude windows are per VERSION (4.8 ≠ 4.5)", () => {
+  test("Claude windows are per VERSION (5 ≠ 4.5)", () => {
+    expect(catalogContextWindowTokens("claude-opus-5")).toBe(1_000_000);
     expect(catalogContextWindowTokens("claude-opus-4-8")).toBe(1_000_000);
     expect(catalogContextWindowTokens("claude-opus-4-5")).toBe(200_000);
     expect(catalogContextWindowTokens("claude-sonnet-4-6")).toBe(1_000_000);
@@ -28,7 +29,9 @@ describe("model catalog (models.dev-backed)", () => {
     expect(catalogContextWindowTokens("anthropic/claude-sonnet-4-6:medium")).toBe(1_000_000);
   });
 
-  test("overrides win and cover aggregator-only models", () => {
+  test("overrides win and cover models missing from the generated catalog", () => {
+    expect(MODEL_WINDOW_OVERRIDES["claude-opus-5"]).toBe(1_000_000);
+    expect(catalogContextWindowTokens("claude-opus-5")).toBe(1_000_000);
     expect(MODEL_WINDOW_OVERRIDES["grok-4"]).toBe(256_000);
     expect(catalogContextWindowTokens("grok-4")).toBe(256_000);
     expect(catalogContextWindowTokens("grok-code-fast-1")).toBe(256_000);

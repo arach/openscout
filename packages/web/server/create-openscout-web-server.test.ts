@@ -4388,7 +4388,7 @@ describe("createOpenScoutWebServer", () => {
         handle: "agent-one",
         state: "working",
         harness: "claude",
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         projectRoot,
         cwd: projectRoot,
         harnessSessionId: "session-1",
@@ -4430,7 +4430,7 @@ describe("createOpenScoutWebServer", () => {
     expect(payload.defaults).toEqual(expect.objectContaining({
       directory: projectRoot,
       harness: "claude",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
       reasoningEffort: "medium",
       persistence: "sticky",
     }));
@@ -4439,6 +4439,12 @@ describe("createOpenScoutWebServer", () => {
       supports: expect.arrayContaining(["claude", "codex"]),
     }));
     expect(payload.harnesses.map((entry) => entry.id)).toEqual(expect.arrayContaining(["claude", "codex"]));
+    expect(payload.models).toContainEqual(expect.objectContaining({
+      id: "claude-opus-5",
+      family: "Opus",
+      version: "5",
+      harnesses: ["claude"],
+    }));
     expect(payload.models).toContainEqual(expect.objectContaining({
       id: "gpt-5.6-sol",
       family: "GPT",
@@ -4471,7 +4477,7 @@ describe("createOpenScoutWebServer", () => {
       id: "agent-1",
       name: "Agent One",
       harness: "claude",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
       projectRoot,
       cwd: projectRoot,
     }];
