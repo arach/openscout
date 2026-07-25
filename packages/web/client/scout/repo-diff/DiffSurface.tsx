@@ -39,6 +39,7 @@ export function DiffSurface({
   onRetryPierre,
   onIncludeLineContext,
   onIncludeSelectionContext,
+  contextActions = true,
 }: {
   layer: RepoDiffLayer | null;
   patchLayer: RepoDiffLayer | null;
@@ -54,6 +55,9 @@ export function DiffSurface({
   onRetryPierre: () => void;
   onIncludeLineContext: (line: RepoDiffLineContext) => void;
   onIncludeSelectionContext: (selection: RepoDiffSelectionContext) => void;
+  /** Hide review-only line/selection actions when the renderer is reused as a
+   *  compact read-only diff, such as the Code surface's file toggle. */
+  contextActions?: boolean;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [selectionChip, setSelectionChip] = useState<{ left: number; top: number } | null>(null);
@@ -105,10 +109,11 @@ export function DiffSurface({
     return null;
   }, [parsed, selectedFile]);
   const lineContexts = useMemo(
-    () => parseRepoDiffLineContexts(renderLayer, selectedFile),
-    [renderLayer, selectedFile],
+    () => contextActions ? parseRepoDiffLineContexts(renderLayer, selectedFile) : [],
+    [contextActions, renderLayer, selectedFile],
   );
   const includeSelection = useCallback(() => {
+    if (!contextActions) return;
     const selection = selectionContextFromWindow({
       activeLayer: layer?.kind ?? null,
       selectedFile,
@@ -119,8 +124,12 @@ export function DiffSurface({
       window.getSelection()?.removeAllRanges();
       setSelectionChip(null);
     }
-  }, [layer?.kind, onIncludeSelectionContext, selectedFile]);
+  }, [contextActions, layer?.kind, onIncludeSelectionContext, selectedFile]);
   const updateSelectionChip = useCallback(() => {
+    if (!contextActions) {
+      setSelectionChip(null);
+      return;
+    }
     const root = surfaceRef.current;
     const selection = selectionContextFromWindow({
       activeLayer: layer?.kind ?? null,
@@ -145,9 +154,10 @@ export function DiffSurface({
       left: Math.min(Math.max(rect.right - rootRect.left + 8, 8), maxLeft),
       top: Math.min(Math.max(rect.top - rootRect.top - 2, 8), maxTop),
     });
-  }, [layer?.kind, selectedFile]);
+  }, [contextActions, layer?.kind, selectedFile]);
 
   useEffect(() => {
+    if (!contextActions) return;
     const onSelectionChange = () => {
       requestAnimationFrame(updateSelectionChip);
     };
@@ -155,7 +165,7 @@ export function DiffSurface({
     return () => {
       document.removeEventListener("selectionchange", onSelectionChange);
     };
-  }, [updateSelectionChip]);
+  }, [contextActions, updateSelectionChip]);
 
   if (!layer) {
     return (
@@ -288,7 +298,7 @@ export function DiffSurface({
           </span>
         </div>
       ) : null}
-      {selectionChip ? (
+      {contextActions && selectionChip ? (
         <button
           type="button"
           className="rd-selection-context-chip"

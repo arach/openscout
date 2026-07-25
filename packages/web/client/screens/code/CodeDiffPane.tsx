@@ -1,0 +1,134 @@
+import { useEffect, useMemo, useState } from "react";
+import { fetchRepoDiffSnapshot } from "../../scout/repo-diff/cache.ts";
+import { DiffSurface } from "../../scout/repo-diff/DiffSurface.tsx";
+import { fileKey, LAYER_LABELS, layerChurn } from "../../scout/repo-diff/model.ts";
+import type {
+  RepoDiffLayer,
+  RepoDiffLayerKind,
+  ScoutRepoDiffSnapshot,
+} from "../../scout/repo-diff/types.ts";
+import { usePierreRuntime } from "../../scout/repo-diff/usePierreRuntime.ts";
+import "../../scout/repo-diff/repo-diff.css";
+
+const FILE_DIFF_LAYERS: RepoDiffLayerKind[] = ["unstaged", "staged"];
+const ignoreLineContext = () => {};
+const ignoreSelectionContext = () => {};
+
+function relativeFilePath(root: string, file: string): string {
+  return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file;
+}
+
+function firstChangedLayer(snapshot: ScoutRepoDiffSnapshot): RepoDiffLayerKind | null {
+  return snapshot.layers.find((layer) => layer.files.length > 0)?.kind ?? null;
+}
+
+/** A path-filtered working-tree diff for the Code reader.
+ *
+ * The full Repo Diff viewer owns review chrome, comments, and a files rail. The
+ * Code surface needs only the selected file, so it uses the same native Git
+ * snapshot and Pierre renderer without duplicating those surrounding tools.
+ */
+export function CodeDiffPane({ root, file }: { root: string; file: string }) {
+  const relativePath = useMemo(() => relativeFilePath(root, file), [file, root]);
+  const [snapshot, setSnapshot] = useState<ScoutRepoDiffSnapshot | null>(null);
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [error, setError] = useState<string | null>(null);
+  const [activeLayer, setActiveLayer] = useState<RepoDiffLayerKind | null>(null);
+  const { pierre, pierrePhase, pierreError, retryPierre } = usePierreRuntime(snapshot);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSnapshot(null);
+    setPhase("loading");
+    setError(null);
+    setActiveLayer(null);
+
+    void fetchRepoDiffSnapshot(root, FILE_DIFF_LAYERS, {
+      files: [relativePath],
+      tier: "patch",
+    }).then(
+      (record) => {
+        if (cancelled) return;
+        setSnapshot(record.snapshot);
+        setActiveLayer(firstChangedLayer(record.snapshot));
+        setPhase("ready");
+      },
+      (reason) => {
+        if (cancelled) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+        setPhase("error");
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [relativePath, root]);
+
+  const changedLayers = useMemo(
+    () => snapshot?.layers.filter((layer) => layer.files.length > 0) ?? [],
+    [snapshot],
+  );
+  const layer = changedLayers.find((candidate) => candidate.kind === activeLayer)
+    ?? changedLayers[0]
+    ?? null;
+  const selectedFileKey = layer?.files[0] ? fileKey(layer.files[0], 0) : null;
+
+  if (phase === "loading") {
+    return <div className="s-code-empty">Loading file changes…</div>;
+  }
+  if (phase === "error") {
+    return <div className="s-code-empty">{error ?? "Couldn’t load this file’s changes."}</div>;
+  }
+  if (!snapshot || !layer || !selectedFileKey) {
+    return (
+      <div className="s-code-empty">
+        No tracked patch is available for this file. Untracked files do not have a Git baseline yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="s-code-diff">
+      {changedLayers.length > 1 ? (
+        <div className="s-code-diffLayers" role="tablist" aria-label="Change layer">
+          {changedLayers.map((candidate) => {
+            const churn = layerChurn(candidate);
+            const selected = candidate.kind === layer.kind;
+            return (
+              <button
+                key={candidate.kind}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                className="s-code-diffLayer"
+                data-selected={selected || undefined}
+                onClick={() => setActiveLayer(candidate.kind)}
+              >
+                {LAYER_LABELS[candidate.kind]}
+                <span>+{churn.add} −{churn.del}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      <DiffSurface
+        layer={layer}
+        patchLayer={layer}
+        patchPhase="ready"
+        patchError={null}
+        selectedFileKey={selectedFileKey}
+        renderKey={snapshot.render.renderKey}
+        theme={snapshot.render.preferredTheme}
+        layout="split"
+        pierre={pierre}
+        pierrePhase={pierrePhase}
+        pierreError={pierreError}
+        onRetryPierre={retryPierre}
+        onIncludeLineContext={ignoreLineContext}
+        onIncludeSelectionContext={ignoreSelectionContext}
+        contextActions={false}
+      />
+    </div>
+  );
+}
