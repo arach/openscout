@@ -3,6 +3,22 @@ import ScoutCapabilities
 import XCTest
 
 final class ScoutCommsModelsTests: XCTestCase {
+    func testChannelCanClearUnreadCountOptimistically() throws {
+        let json = """
+        {
+          "id": "c.thread",
+          "kind": "direct",
+          "title": "Agent",
+          "unreadCount": 3
+        }
+        """
+
+        var channel = try JSONDecoder().decode(ScoutChannel.self, from: Data(json.utf8))
+        channel.markRead()
+
+        XCTAssertEqual(channel.unreadCount, 0)
+    }
+
     func testMessageDecodesAttachments() throws {
         let json = """
         {

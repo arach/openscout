@@ -110,7 +110,15 @@ enum ScoutAppBridge {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = activates
         configuration.addsToRecentItems = false
+        configuration.createsNewApplicationInstance = true
         configuration.arguments = arguments
+
+        // A legacy OpenScout.app can share Scout's bundle identifier. Do not
+        // let LaunchServices redirect this explicit embedded-app launch to that
+        // stale registration.
+        for app in runningScoutApplications where app.bundleURL?.standardizedFileURL != scoutURL.standardizedFileURL {
+            app.terminate()
+        }
 
         NSWorkspace.shared.openApplication(at: scoutURL, configuration: configuration) { _, error in
             if let error {
@@ -126,7 +134,14 @@ enum ScoutAppBridge {
     }
 
     private static var runningScoutApp: NSRunningApplication? {
-        NSWorkspace.shared.runningApplications.first {
+        guard let scoutURL = scoutApplicationURL()?.standardizedFileURL else { return nil }
+        return runningScoutApplications.first {
+            $0.bundleURL?.standardizedFileURL == scoutURL
+        }
+    }
+
+    private static var runningScoutApplications: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == scoutBundleIdentifier
         }
     }
@@ -154,10 +169,6 @@ enum ScoutAppBridge {
     }
 
     private static func scoutApplicationURL() -> URL? {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: scoutBundleIdentifier) {
-            return url
-        }
-
         let bundleURL = Bundle.main.bundleURL
         let fileManager = FileManager.default
         let embeddedMainApp = bundleURL
@@ -176,6 +187,10 @@ enum ScoutAppBridge {
             if fileManager.fileExists(atPath: sibling.path) {
                 return sibling
             }
+        }
+
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: scoutBundleIdentifier) {
+            return url
         }
 
         return nil

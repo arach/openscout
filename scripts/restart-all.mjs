@@ -403,7 +403,7 @@ async function waitForMacApps() {
   throw new Error("Scout and its embedded menu helper did not both launch within 30 seconds.");
 }
 
-export function verifyProcessOwnership(status, processes, expectedMenuBundlePath) {
+export function verifyProcessOwnership(status, processes, expectedAppBundlePath, expectedMenuBundlePath) {
   const scoutdPid = status?.scoutdState?.scoutdPid ?? status?.pid;
   const basePid = status?.scoutdState?.basePid;
   const probePid = status?.scoutdState?.probePid;
@@ -428,6 +428,10 @@ export function verifyProcessOwnership(status, processes, expectedMenuBundlePath
 
   const apps = processesNamed(processes, "Scout");
   if (apps.length !== 1) throw new Error(`Expected exactly one Scout app; found ${apps.length}.`);
+  const expectedAppExecutable = join(expectedAppBundlePath, "Contents", "MacOS", "Scout");
+  if (!apps[0].args.includes(expectedAppExecutable)) {
+    throw new Error(`Scout is not running from the canonical app bundle: ${apps[0].args}`);
+  }
   const menus = processesNamed(processes, "ScoutMenu");
   if (menus.length !== 1) throw new Error(`Expected exactly one ScoutMenu helper; found ${menus.length}.`);
   const expectedMenuExecutable = join(expectedMenuBundlePath, "Contents", "MacOS", "ScoutMenu");
@@ -457,6 +461,7 @@ async function verifySuite(bunBin, options) {
   const tree = verifyProcessOwnership(
     status,
     readProcessTable(),
+    resolve(repoRoot, "apps", "macos", "dist", "Scout.app"),
     resolve(repoRoot, "apps", "macos", "dist", "Scout.app", "Contents", "Library", "LoginItems", "ScoutMenu.app"),
   );
   const agents = await fetch(new URL("/api/agents?detail=summary&limit=1", webUrl), {

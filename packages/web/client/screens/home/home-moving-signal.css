@@ -138,9 +138,9 @@
 
 /* Centered glass overlay */
 .s-moving-signal-overlay-root {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 8;
+  z-index: 80;
   display: grid;
   place-items: center;
   box-sizing: border-box;

@@ -12,23 +12,23 @@ export const ROUTE_VIEW_LABELS: Record<string, string> = {
   conversation: "Conversation",
   "agent-info": "Agent",
   "agents-v2": "Projects",
-  messages: "Chat",
+  messages: "Messages",
   sessions: "Sessions",
   terminal: "Terminals",
-  repos: "Repos",
+  repos: "Repositories",
   "repo-diff": "Diff",
-  harnesses: "Providers",
+  harnesses: "Agent Providers",
   search: "Search",
   channels: "Channels",
-  activity: "Activity",
+  activity: "Activity Log",
   briefings: "Briefings",
-  mesh: "Mesh",
+  mesh: "Network",
   broker: "Dispatch",
   settings: "Settings",
   work: "Work",
   follow: "Follow",
-  code: "Code",
-  ops: "Ops",
+  code: "Code Browser",
+  ops: "Operations",
 };
 
 /**
@@ -58,14 +58,14 @@ export function routeBreadcrumbForRoute(route: Route): string | null {
     case "terminal":
       return ROUTE_VIEW_LABELS[route.view] ?? route.view;
     case "ops": {
-      if (route.mode === "tail") return "Tail";
-      if (route.mode === "lanes") return "Lanes";
-      if (route.mode === "atop") return "Runtime";
+      if (route.mode === "tail") return "Live Activity";
+      if (route.mode === "lanes") return "Agent Lanes";
+      if (route.mode === "atop") return "Runtime Monitor";
       if (route.mode === "plan") return "Plans";
       if (route.mode === "mission" || route.mode === "issues" || route.mode === undefined) {
         return "Mission Control";
       }
-      return ROUTE_VIEW_LABELS.ops ?? "Ops";
+      return ROUTE_VIEW_LABELS.ops ?? "Operations";
     }
     case "settings":
       return "Settings";

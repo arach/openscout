@@ -56,6 +56,9 @@ let package = Package(
             dependencies: [
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
                 .product(name: "ScoutCapabilities", package: "scout-native-core"),
+                // Speech synthesis runs in-process through HudsonVoice, so
+                // spoken replies don't depend on a separate daemon.
+                .product(name: "HudsonVoice", package: "hudson"),
             ],
             path: "Sources/ScoutAppCore"
         ),

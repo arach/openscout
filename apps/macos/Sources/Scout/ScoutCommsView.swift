@@ -390,6 +390,7 @@ struct ScoutConversationListBar: View {
     let onOpenMenuBar: () -> Void
     let onRetryPending: (ScoutPendingConversation) -> Void
     let onSelectPending: (ScoutPendingConversation) -> Void
+    let onMarkRead: (ScoutChannel) -> Void
     let select: (ScoutChannel) -> Void
 
     @AppStorage(ScoutDesignPreview.glow) private var glowOn = false
@@ -545,7 +546,8 @@ struct ScoutConversationListBar: View {
                                 ScoutConversationRow(
                                     channel: channel,
                                     isSelected: selectedCId == channel.cId,
-                                    isNew: newChannelIds.contains(channel.cId)
+                                    isNew: newChannelIds.contains(channel.cId),
+                                    markRead: { onMarkRead(channel) }
                                 ) {
                                     select(channel)
                                 }
@@ -1011,6 +1013,7 @@ struct ScoutConversationRow: View {
     let channel: ScoutChannel
     let isSelected: Bool
     var isNew: Bool = false
+    let markRead: () -> Void
     let action: () -> Void
 
     @State private var isHovering = false
@@ -1105,6 +1108,13 @@ struct ScoutConversationRow: View {
         .animation(.easeOut(duration: 0.10), value: isSelected)
         .onAppear { if isNew { playReveal() } }
         .onChange(of: isNew) { _, now in if now { playReveal() } }
+        .contextMenu {
+            if isUnread {
+                Button("Mark as Read", systemImage: "envelope.open") {
+                    markRead()
+                }
+            }
+        }
     }
 
     /// One-shot accent wash + left rule that fades as a row first arrives.

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { scoutbotUiContext } from "../shared/scoutbot-navigation.ts";
 
 export type ScoutbotAssistantMessageRole = "user" | "assistant";
 
@@ -124,6 +125,7 @@ export type ScoutbotAssistantContextSnapshot = {
   generatedAt: string;
   currentDirectory: string;
   currentRoute?: unknown;
+  uiContext?: unknown;
   state: Record<string, unknown>;
 };
 
@@ -178,7 +180,7 @@ export type ScoutbotAssistantService = {
   resetSession: () => ScoutbotAssistantSessionState;
   switchSession: (id: string) => ScoutbotAssistantSessionState;
   archiveSession: (id: string) => ScoutbotAssistantSessionState;
-  respond: (input: { body: string; route?: unknown }) => Promise<ScoutbotAssistantReply>;
+  respond: (input: { body: string; route?: unknown; uiContext?: unknown }) => Promise<ScoutbotAssistantReply>;
   createBrief: (input: {
     route?: unknown;
     ttlMs?: number | null;
@@ -275,7 +277,7 @@ const MIN_BRIEF_TTL_MS = 30_000;
 
 const DEFAULT_SYSTEM_PROMPT = [
   "You are Scoutbot, the in-app OpenScout control-plane assistant.",
-  "You are not a peer agent in the Scout fleet. You are the operator's direct loop inside the web app.",
+  "You are not a peer agent in the Scout fleet. You are the operator's direct loop inside the active OpenScout app surface.",
   "Use the provided Scout state snapshot and current UI route to answer state questions quickly and concretely.",
   "When the operator asks for navigation or UI actions, include a single fenced JSON block after your human reply.",
   "The fence language tag MUST be exactly `scout-ui` (open with ```scout-ui), never `json` or any other tag.",
@@ -283,8 +285,9 @@ const DEFAULT_SYSTEM_PROMPT = [
   "When the operator wants to read a specific file (a spec, doc, transcript, or source file) and you know its absolute path, emit {\"type\":\"view-file\",\"path\":\"/abs/path/to/file.md\"} so the in-app preview opens automatically. Do not just narrate the path.",
   "When the operator explicitly asks you to ask, delegate to, or get an answer from a specific Scout agent, emit {\"type\":\"ask-agent\",\"targetLabel\":\"agent handle or selector\",\"body\":\"the exact request to send\"}; do not use ask-agent unless the operator clearly requested durable coordination.",
   "Navigation is an allowlisted, non-destructive UI action and does not require agent-request confirmation. Use ask-agent only for durable coordination, never for navigation.",
-  "Supported navigate views include home/inbox, projects/agents-v2, messages/chat, sessions, repos, repo-diff, harnesses, search, channels, mesh, broker, code, briefings, activity, settings, terminal, work, conversation, and ops.",
-  "For specific destinations include known route fields, for example {\"type\":\"navigate\",\"route\":{\"view\":\"settings\",\"section\":\"voice\"}} or {\"type\":\"navigate\",\"route\":{\"view\":\"projects\",\"projectSlug\":\"openscout\"}}.",
+  "The context includes uiContext for the active app shell. Treat its destinations, human labels, deep actions, and rules as the complete navigation contract for this turn.",
+  "Never recite internal route view names or aliases to the operator. In human replies say product names such as Messages, Operations, Repositories, and Code Browser.",
+  "For a UI action, copy the route shape supplied by the matching uiContext destination and add only deep-action fields that destination explicitly allows.",
   "Do not create or imply durable Scout messages, work items, or agent asks unless the operator explicitly requests coordination.",
   "If durable coordination is needed, say that it should go through Scout broker records and be clear about the intended target.",
   "The operator's fleet INCLUDES organic harness sessions (Claude, Codex, etc.) listed under harnessActivity, not just registered Scout agents. Count harnessActivity.processes as active work and harnessActivity.transcripts as recent runs. If registered agents are idle but harnessActivity has running processes or recent transcripts, never say 'nothing is happening'. Frame it as: 'no Scout-registered agents are active, but N organic sessions are running.'",
@@ -394,10 +397,11 @@ export function createScoutbotAssistantService(input: {
       env.OPENAI_API_KEY,
       await input.resolveApiKey?.(),
     );
-  const contextSnapshot = async (route?: unknown): Promise<ScoutbotAssistantContextSnapshot> => ({
+  const contextSnapshot = async (route?: unknown, uiContext?: unknown): Promise<ScoutbotAssistantContextSnapshot> => ({
     generatedAt: new Date().toISOString(),
     currentDirectory: input.currentDirectory,
     ...(route !== undefined ? { currentRoute: route } : {}),
+    uiContext: canonicalScoutbotUiContext(uiContext),
     state: await input.loadContext(route),
   });
 
@@ -436,14 +440,14 @@ export function createScoutbotAssistantService(input: {
       enforceSessionRetention();
       return snapshot();
     },
-    respond: async ({ body, route }) => {
+    respond: async ({ body, route, uiContext }) => {
       const trimmed = body.trim();
       if (!trimmed) {
         throw new ScoutbotAssistantError("body is required", 400);
       }
 
       const session = ensureSession();
-      const context = await contextSnapshot(route);
+      const context = await contextSnapshot(route, uiContext);
       const response = await callAssistantModel({
         apiKey: await resolveApiKey(),
         codexInvoker: input.invokeCodex,
@@ -627,6 +631,13 @@ export function createScoutbotAssistantService(input: {
       return brief;
     },
   };
+}
+
+function canonicalScoutbotUiContext(value: unknown) {
+  const host = value && typeof value === "object" && (value as { host?: unknown }).host === "macos"
+    ? "macos"
+    : "web";
+  return scoutbotUiContext(host);
 }
 
 export class ScoutbotAssistantError extends Error {

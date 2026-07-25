@@ -22,6 +22,7 @@ import {
   SCOUT_REALTIME_VOICE_LEASE_HEADER,
   SCOUT_REALTIME_VOICE_LEASE_PATH,
 } from "../../shared/realtime-voice.ts";
+import { synthesizeOpenAISpeech } from "../openai-speech.ts";
 import { engageScoutVoiceDictation } from "../scout-voice-engage.ts";
 import {
   ScoutVoiceSessionError,
@@ -451,6 +452,35 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
         signal: c.req.raw.signal,
       }));
     } catch (error) {
+      // Vox is a separate app; when its daemon is down every request here
+      // fails and callers drop to the on-device system voice. Reach OpenAI
+      // with the key Scout already holds instead — a chosen voice shouldn't
+      // silently become the robot one because another process isn't running.
+      const apiKey = await deps.resolveOpenAIApiKey?.().catch(() => undefined)
+        ?? process.env.OPENAI_API_KEY?.trim();
+      if (apiKey && !c.req.raw.signal.aborted) {
+        const defaults = resolveScoutSpeechDefaults();
+        try {
+          return c.json({
+            ...await synthesizeOpenAISpeech({
+              text,
+              apiKey,
+              modelId: body.modelId ?? defaults.modelId,
+              voiceId: body.voiceId ?? defaults.voiceId,
+              speed: body.speed,
+              instructions: optionalString(body.instructions),
+              signal: c.req.raw.signal,
+            }),
+            // Named so a caller can tell a direct call from a Vox one and
+            // report it honestly rather than claiming the configured route.
+            route: "openai-direct",
+          });
+        } catch (fallbackError) {
+          console.warn("[voice-speak] openai_fallback_failed", {
+            message: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          });
+        }
+      }
       const message = error instanceof Error ? error.message : "Voice speech failed";
       return c.json({ error: message }, 503);
     }

@@ -93,6 +93,18 @@ describe("route fixtures", () => {
       canonical: "/code?root=repo-a",
     },
     {
+      url: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44",
+      route: {
+        view: "code",
+        project: "openscout",
+        path: "packages/web/client.ts",
+        wt: "voice-nav",
+        line: 40,
+        endLine: 44,
+      },
+      canonical: "/code/openscout/packages/web/client.ts?wt=voice-nav&line=40&endLine=44",
+    },
+    {
       url: "/briefings/brief-1",
       route: { view: "briefings", briefingId: "brief-1" },
       canonical: "/briefings/brief-1",

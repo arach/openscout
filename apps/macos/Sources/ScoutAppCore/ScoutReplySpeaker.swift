@@ -1,40 +1,83 @@
 import AVFoundation
 import Combine
 import Foundation
+import HudsonVoice
 import os.log
-import ScoutAppCore
 
-// HUDReplySpeaker — optional spoken agent replies for the HUD.
+// ScoutReplySpeaker — optional spoken Scoutbot replies.
+//
+// Lives in ScoutAppCore beside ScoutComposeService so the HUD dock and the
+// main app window share one speaker: a single gate, one dedupe set, and one
+// thing to stop. Two speakers reading the same thread would talk over each
+// other.
 //
 // Observes ScoutComposeService.$assistantThread (the same native scoutbot
 // reply stream the dock renders) and, when the gate is ON, speaks each new
-// assistant message aloud. It speaks exactly what the HUD shows — no wider
+// assistant message aloud. It speaks exactly what the app shows — no wider
 // actor filter, no reformatting of the source thread.
 //
-// Gated by UserDefaults "scout.voiceRepliesEnabled" (default OFF). On enable
-// (and at init) it primes on the current thread so history is never spoken —
-// only messages arriving after the gate is on. Message ids are deduped so the
-// same reply is never spoken twice, even across gate toggles.
+// Gated by UserDefaults "scout.voiceRepliesEnabled" (default OFF), reachable
+// from Settings › Voice and the dock's speaker chip. On enable (and at init)
+// it primes on the current thread so history is never spoken — only messages
+// arriving after the gate is on. Message ids are deduped so the same reply is
+// never spoken twice, even across gate toggles.
 //
-// Synthesis path: POST /api/voice/speak → base64 WAV → AVAudioPlayer. When Vox
-// is down or the request fails, it falls back to an in-process
-// AVSpeechSynthesizer so the toggle is never a lie.
+// Synthesis runs in-process through HudsonVoice: no local service, no HTTP,
+// no daemon that can be down while the app is up. The operator's key is lent
+// from the Keychain per synthesizer. If synthesis fails for any reason —
+// missing key, provider outage — it falls back to AVSpeechSynthesizer so the
+// toggle is never a lie, and says so.
 //
 // Half-duplex: `stopSpeaking()` is called by HUDDockState.beginHoldToTalk()
 // so pressing to talk cuts any in-progress reply playback.
 @MainActor
-final class HUDReplySpeaker: ObservableObject {
-    static let shared = HUDReplySpeaker()
+public final class ScoutReplySpeaker: ObservableObject {
+    public static let shared = ScoutReplySpeaker()
 
     /// UserDefaults gate. Default OFF. Referenced by the dock's speaker chip
-    /// via `HUDReplySpeaker.shared` and read/written here.
-    static let voiceRepliesDefaultsKey = "scout.voiceRepliesEnabled"
+    /// via `ScoutReplySpeaker.shared` and read/written here.
+    public static let voiceRepliesDefaultsKey = "scout.voiceRepliesEnabled"
 
     /// True while the gate is on. The dock chip reflects this (accent).
-    @Published private(set) var enabled: Bool
-    /// True while audio (Vox or fallback) is actively playing. The chip
+    @Published public private(set) var enabled: Bool
+    /// True while audio (synthesized or system) is actively playing. The chip
     /// pulses on this.
-    @Published private(set) var isSpeaking = false
+    @Published public private(set) var isSpeaking = false
+    /// What actually spoke last — reported rather than configured, so Settings
+    /// can't claim a chosen voice while the system fallback does the work.
+    @Published public private(set) var route: SpeechRoute = .unused
+
+    /// Which synthesizer produced the last utterance.
+    public enum SpeechRoute: Equatable {
+        /// Nothing has been spoken since launch.
+        case unused
+        /// A speech provider synthesized it, in-process.
+        case provider(name: String, model: String, voice: String)
+        /// Synthesis was unavailable; the OS voice covered.
+        case device(reason: String?)
+
+        public var label: String {
+            switch self {
+            case .unused: return "Not used yet"
+            case .provider(_, let model, let voice): return "\(model) · \(voice)"
+            case .device: return "System voice"
+            }
+        }
+
+        public var detail: String {
+            switch self {
+            case .unused:
+                return "Turn this on and the next Scoutbot reply is spoken."
+            case .provider(let name, _, _):
+                return "Synthesized by \(name)."
+            case .device(let reason):
+                guard let reason, !reason.isEmpty else {
+                    return "Speech synthesis was unavailable — macOS spoke it instead."
+                }
+                return reason
+            }
+        }
+    }
 
     private let defaults: UserDefaults
     private let compose: ScoutComposeService
@@ -51,7 +94,7 @@ final class HUDReplySpeaker: ObservableObject {
     private var synthDelegate: SynthDelegate?
     private var speakTask: Task<Void, Never>?
 
-    init(defaults: UserDefaults = .standard, compose: ScoutComposeService = .shared) {
+    public init(defaults: UserDefaults = .standard, compose: ScoutComposeService = .shared) {
         self.defaults = defaults
         self.compose = compose
         self.enabled = defaults.bool(forKey: Self.voiceRepliesDefaultsKey)
@@ -68,7 +111,7 @@ final class HUDReplySpeaker: ObservableObject {
 
     // MARK: - Gate
 
-    func setEnabled(_ on: Bool) {
+    public func setEnabled(_ on: Bool) {
         guard on != enabled else { return }
         enabled = on
         defaults.set(on, forKey: Self.voiceRepliesDefaultsKey)
@@ -80,7 +123,7 @@ final class HUDReplySpeaker: ObservableObject {
         }
     }
 
-    func toggle() { setEnabled(!enabled) }
+    public func toggle() { setEnabled(!enabled) }
 
     /// Seed the dedupe set with everything currently in the thread so it's
     /// treated as history — never spoken.
@@ -94,7 +137,7 @@ final class HUDReplySpeaker: ObservableObject {
 
     /// Stop any in-progress playback immediately. Called by
     /// HUDDockState.beginHoldToTalk() so talking cuts the reply.
-    func stopSpeaking() {
+    public func stopSpeaking() {
         speakTask?.cancel()
         speakTask = nil
         player?.stop()
@@ -123,7 +166,7 @@ final class HUDReplySpeaker: ObservableObject {
 
     /// Pure: which assistant messages have not yet been spoken. Kept static +
     /// dependency-free so it's trivially testable.
-    static func newMessagesToSpeak(
+    public static func newMessagesToSpeak(
         thread: [ScoutAssistantMessage],
         spoken: Set<String>
     ) -> [ScoutAssistantMessage] {
@@ -131,8 +174,14 @@ final class HUDReplySpeaker: ObservableObject {
     }
 
     private func speak(message: ScoutAssistantMessage) {
-        let raw = Self.plainText(from: message.body)
-        let spoken = Self.cap(Self.toSpokenText(raw), maxChars: 600)
+        speakNow(Self.plainText(from: message.body))
+    }
+
+    /// Speak a line immediately, through the same path as a reply. Independent
+    /// of the gate — an explicit request (the Settings "Hear it" button) is its
+    /// own consent.
+    public func speakNow(_ text: String) {
+        let spoken = Self.cap(Self.toSpokenText(text), maxChars: 600)
         guard !spoken.isEmpty else { return }
         speakTask?.cancel()
         speakTask = Task { @MainActor [weak self] in
@@ -141,12 +190,36 @@ final class HUDReplySpeaker: ObservableObject {
     }
 
     private func synthesize(_ text: String) async {
-        if let audio = await Self.requestSpeechAudio(text: text), !Task.isCancelled {
-            if playAudio(audio) { return }
+        let modelId = ScoutSpeechSettings.model()
+        let voiceId = ScoutSpeechSettings.voice()
+        var failure: String?
+
+        do {
+            let audio = try await Self.synthesizer.synthesize(
+                text,
+                modelId: modelId,
+                voiceId: voiceId
+            )
+            guard !Task.isCancelled else { return }
+            if playAudio(audio.data) {
+                route = .provider(
+                    name: audio.provider.label,
+                    model: audio.modelId,
+                    voice: audio.voiceId
+                )
+                return
+            }
+            failure = "The synthesized audio could not be played — macOS spoke it instead."
+        } catch {
+            guard !Task.isCancelled else { return }
+            // Report the reason rather than a generic fallback: a missing key
+            // and a provider outage want different responses from the operator.
+            failure = error.localizedDescription
+            log.warning("speech synthesis failed: \(error.localizedDescription, privacy: .public)")
         }
+
         guard !Task.isCancelled else { return }
-        // Vox unavailable / decode failed — fall back to on-device speech so
-        // the toggle is never a lie.
+        route = .device(reason: failure)
         speakWithSynth(text)
     }
 
@@ -181,37 +254,33 @@ final class HUDReplySpeaker: ObservableObject {
         synth.speak(utterance)
     }
 
-    private static func requestSpeechAudio(text: String) async -> Data? {
-        let url = ScoutWeb.baseURL().appendingPathComponent("api/voice/speak")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 20
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                return nil
-            }
-            let decoded = try JSONDecoder().decode(SpeakResponse.self, from: data)
-            return Data(base64Encoded: decoded.audioBase64)
-        } catch {
-            return nil
-        }
+    /// The in-process engine, holding whatever keys Scout has. Shared so a
+    /// single registry is built rather than one per utterance.
+    private static let synthesizer = HudSpeechSynthesizer(
+        credentials: ScoutSpeechCredentials.all()
+    )
+
+    /// Re-lend keys after the operator edits one in Settings.
+    public static func refreshCredentials() {
+        let credentials = ScoutSpeechCredentials.all()
+        Task { await synthesizer.updateCredentials(credentials) }
     }
 
-    private struct SpeakResponse: Decodable {
-        let audioBase64: String
-        let contentType: String?
+    /// Models the engine can actually reach, for the Settings picker.
+    public static func speechModels() async -> [HudSpeechModel] {
+        await synthesizer.models()
+    }
+
+    public static func speechVoices(modelId: String) async throws -> [HudSpeechVoice] {
+        try await synthesizer.voices(modelId: modelId)
     }
 }
 
 // MARK: - Pure text helpers (Swift analog of web toSpokenScoutText)
 
-extension HUDReplySpeaker {
+extension ScoutReplySpeaker {
     /// Flatten the dock's message spans back to a single string.
-    static func plainText(from spans: [ScoutAssistantSpan]) -> String {
+    public static func plainText(from spans: [ScoutAssistantSpan]) -> String {
         spans.map { span in
             switch span {
             case .text(let value),
@@ -228,7 +297,7 @@ extension HUDReplySpeaker {
     /// heading markers, reduce links to their visible text, collapse
     /// whitespace. Mirrors packages/web/client/lib/spoken-text.ts intent
     /// (a pragmatic subset — the audible essentials, not the id-spelling).
-    static func toSpokenText(_ input: String) -> String {
+    public static func toSpokenText(_ input: String) -> String {
         var text = input
         func replace(_ pattern: String, _ template: String) {
             text = text.replacingOccurrences(
@@ -260,7 +329,7 @@ extension HUDReplySpeaker {
 
     /// Cap at ~maxChars, preferring a sentence boundary, then a word
     /// boundary, then a hard cut.
-    static func cap(_ text: String, maxChars: Int) -> String {
+    public static func cap(_ text: String, maxChars: Int) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > maxChars else { return trimmed }
         let slice = String(trimmed.prefix(maxChars))

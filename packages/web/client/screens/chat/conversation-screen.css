@@ -2600,3 +2600,363 @@ button.s-thread-sidebar-participant:focus-visible {
   background: var(--accent);
   flex-shrink: 0;
 }
+
+/* ── Arrival ──────────────────────────────────────────────────────────────
+   A landed turn used to simply appear; the only motion in the thread was the
+   permalink flash. Kept quiet on purpose — opacity plus a 4px rise, both
+   compositor-only, so a busy channel never feels like it is twitching. The
+   first paint staggers its last few rows (delay set inline, capped in the
+   component) so the thread assembles instead of blinking in. */
+
+@keyframes s-thread-msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-thread-msg--enter {
+  animation: s-thread-msg-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+  will-change: opacity, transform;
+}
+
+/* ── Loading ──────────────────────────────────────────────────────────────
+   Shown before the transcript lands. An empty feed claims "no messages",
+   which is a different statement from "not yet" — and the difference is most
+   visible behind a native web view, where the host is booting too. Ghost
+   turns in the shape of the real ones, so the switch reads as the thread
+   filling in rather than a bounce through zero. */
+
+.s-thread-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xl);
+  padding: var(--space-2xl) 0;
+  max-width: min(100%, 760px);
+}
+
+.s-thread-skeleton-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-thread-skeleton-turn {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: flex-start;
+}
+
+.s-thread-skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.s-thread-skeleton-avatar,
+.s-thread-skeleton-line {
+  /* One sweep travels across the whole group rather than each bar running its
+     own loop, which reads as a shimmer instead of a flicker. */
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--ink) 5%, transparent) 0%,
+      color-mix(in srgb, var(--ink) 9%, transparent) 40%,
+      color-mix(in srgb, var(--ink) 5%, transparent) 80%
+    );
+  background-size: 280% 100%;
+  border-radius: var(--radius-sm);
+  animation: s-thread-skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+.s-thread-skeleton-avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--radius-md);
+}
+
+.s-thread-skeleton-line {
+  height: 9px;
+}
+
+.s-thread-skeleton-line--head {
+  width: 30%;
+}
+
+.s-thread-skeleton-line--short {
+  width: 62%;
+}
+
+.s-thread-skeleton-turn:nth-child(3) .s-thread-skeleton-line {
+  animation-delay: 0.12s;
+}
+
+.s-thread-skeleton-turn:nth-child(4) .s-thread-skeleton-line {
+  animation-delay: 0.24s;
+}
+
+@keyframes s-thread-skeleton-sweep {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-thread-msg--enter {
+    animation: none;
+  }
+
+  .s-thread-skeleton-avatar,
+  .s-thread-skeleton-line {
+    animation: none;
+  }
+}
+
+/* ══ Presentations ═════════════════════════════════════════════════════════
+   Three ways to read the same thread, ported from the studio study at
+   /studies/message-panel-readability. The shipping look ("standard") is the
+   bordered card at ~122 chars per line; each treatment below trades that for
+   something specific, and says which trade it is making.
+
+   All three drop the card chrome and the right-aligned operator turn: a log,
+   a margin and a document each read down one column, and a bubble that jumps
+   to the other side breaks the column they depend on.                      */
+
+.s-thread-layout[data-thread-treatment] .s-thread-feed-block,
+.s-thread-layout[data-thread-treatment] .s-thread-feed-block--you,
+.s-thread-layout[data-thread-treatment] .s-thread-feed-block--full-width .s-thread-msg {
+  max-width: 100%;
+  align-self: stretch;
+  align-items: stretch;
+}
+
+.s-thread-layout[data-thread-treatment] .s-thread-msg-card,
+.s-thread-layout[data-thread-treatment] .s-thread-msg--you .s-thread-msg-card,
+.s-thread-layout[data-thread-treatment] .s-thread-msg--tool .s-thread-msg-card,
+.s-thread-layout[data-thread-treatment] .s-thread-msg[data-class="status"] .s-thread-msg-card {
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
+/* ── Ledger ──────────────────────────────────────────────────────────────
+   A log file. Time, author and body on one baseline, one hairline row per
+   turn. Measure is deliberately sacrificed for how much thread fits on
+   screen — for fast, tool-heavy conversations you monitor rather than read
+   through.                                                                */
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-feed {
+  gap: 0;
+  padding: var(--space-sm) 0 var(--space-xl);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-card {
+  padding: 5px var(--space-xl);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-card:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-card-content {
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+/* Anything that is not the byline or the prose — attachments, tool output —
+   takes its own line rather than being squeezed into the baseline row. */
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-card-content > *:not(.s-thread-msg-header):not(.s-thread-msg-body) {
+  flex: 1 0 100%;
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-header {
+  flex: none;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-meta {
+  flex: none;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-avatar,
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-avatar--nav,
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-handle {
+  display: none;
+}
+
+/* Clock first, in a fixed column, so the rows scan as a log. */
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-time {
+  order: -1;
+  flex: none;
+  width: 4.5ch;
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-actor {
+  width: 17ch;
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-thread-layout[data-thread-treatment="ledger"] .s-thread-msg-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ── Rail ────────────────────────────────────────────────────────────────
+   Metadata becomes a true margin: right-aligned against a vertical hairline
+   so the prose edge is one hard line down the page and the eye never hunts
+   for where a turn begins.                                                */
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-feed {
+  gap: 0;
+  padding: var(--space-xl) var(--space-2xl) var(--space-xl);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-feed-block + .s-thread-feed-block {
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card {
+  position: relative;
+  padding: var(--space-md) 0;
+}
+
+/* One unbroken prose edge. Drawn on the card rather than each child, so a
+   turn with attachments under it doesn't leave the line in segments. */
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card::before {
+  content: "";
+  position: absolute;
+  left: 132px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card-content {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  column-gap: 0;
+  align-items: start;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-header {
+  grid-column: 1;
+  grid-row: 1;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: var(--space-3xs);
+  padding-right: var(--space-lg);
+  min-width: 0;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-card-content > *:not(.s-thread-msg-header) {
+  grid-column: 2;
+  padding-left: var(--space-lg);
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-meta {
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3xs);
+  width: 100%;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-handle,
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-time {
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.s-thread-layout[data-thread-treatment="rail"] .s-thread-msg-body {
+  max-width: 68ch;
+  font-size: 12.5px;
+  line-height: 1.58;
+}
+
+/* ── Document ────────────────────────────────────────────────────────────
+   Editorial. No avatars — identity is a small-caps byline, not a picture.
+   Wide leading, tight measure, and file chips demoted to plain mono, because
+   in a document a filename is a word rather than a button.                */
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-feed {
+  gap: 0;
+  padding: var(--space-2xl) var(--space-3xl) var(--space-2xl);
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-feed-block + .s-thread-feed-block {
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-card {
+  padding: var(--space-xl) 0;
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-avatar,
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-avatar--nav,
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-handle {
+  display: none;
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-header {
+  margin-bottom: var(--space-xs);
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-actor {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-time {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-body {
+  max-width: 62ch;
+  font-size: 13.5px;
+  line-height: 1.78;
+}
+
+.s-thread-layout[data-thread-treatment="document"] .s-thread-msg-body .s-inline-code {
+  background: none;
+  border-color: transparent;
+  padding: 0;
+  color: var(--muted);
+}

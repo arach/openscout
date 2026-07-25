@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var contextMenu: NSMenu!
     private var taskHotkeyRegistered = false
     private var cancellables = Set<AnyCancellable>()
+    private var realtimeVoiceState = ScoutRealtimeVoiceStatusBridge.State.idle
+    private var realtimeVoicePulsePhase = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         HudLoggerSinks.install(HudLogStore.shared)
@@ -38,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self,
             selector: #selector(handleOpenScoutNetworkAuthSaved(_:)),
             name: ScoutServiceURLRelay.openScoutNetworkAuthSavedNotificationName,
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleRealtimeVoiceState(_:)),
+            name: ScoutRealtimeVoiceStatusBridge.notificationName,
             object: nil
         )
 
@@ -108,6 +116,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
+        Timer.publish(every: 0.48, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self, self.realtimeVoiceState == .live else { return }
+                self.realtimeVoicePulsePhase.toggle()
+                guard let button = self.statusItem.button else { return }
+                self.configureStatusButton(
+                    button,
+                    symbolName: self.controller.menuBarSymbolName,
+                    tooltip: self.controller.menuBarTooltip
+                )
+            }
+            .store(in: &cancellables)
+
         controller.start()
     }
 
@@ -124,6 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         DistributedNotificationCenter.default().removeObserver(
             self,
             name: ScoutServiceURLRelay.openScoutNetworkAuthSavedNotificationName,
+            object: nil
+        )
+        DistributedNotificationCenter.default().removeObserver(
+            self,
+            name: ScoutRealtimeVoiceStatusBridge.notificationName,
             object: nil
         )
         controller.stop()
@@ -263,19 +290,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.image = menuBarImage(fallbackSymbolName: symbolName)
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
-        button.toolTip = tooltip
-        button.setAccessibilityLabel("OpenScout menu")
+        let voiceDetail = switch realtimeVoiceState {
+        case .idle: ""
+        case .connecting: " Realtime voice is connecting."
+        case .live: " Realtime voice is live."
+        case .stopping: " Realtime voice is stopping."
+        case .error: " Realtime voice needs attention."
+        }
+        button.toolTip = tooltip + voiceDetail
+        button.setAccessibilityLabel(
+            realtimeVoiceState == .live ? "OpenScout menu, realtime voice live" : "OpenScout menu"
+        )
         button.setAccessibilityHelp("Click to choose Scout, HUD, or Tail. Right-click for quick actions.")
     }
 
     private func menuBarImage(fallbackSymbolName _: String) -> NSImage? {
-        let image = scoutStatusGlyphImage()
+        let image = scoutStatusGlyphImage(
+            voiceState: realtimeVoiceState,
+            pulsePhase: realtimeVoicePulsePhase
+        )
         image.isTemplate = true
         image.accessibilityDescription = "Scout"
         return image
     }
 
-    private func scoutStatusGlyphImage() -> NSImage {
+    private func scoutStatusGlyphImage(
+        voiceState: ScoutRealtimeVoiceStatusBridge.State,
+        pulsePhase: Bool
+    ) -> NSImage {
         let size = NSSize(width: 20, height: 20)
         return NSImage(size: size, flipped: false) { rect in
             func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
@@ -314,8 +356,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let ink = NSColor.black
             stroke(outer, closed: true, lineWidth: 2.15, color: ink)
 
+            switch voiceState {
+            case .idle:
+                break
+            case .connecting:
+                let dot = NSBezierPath(ovalIn: NSRect(x: rect.midX - 1.4, y: rect.midY - 1.4, width: 2.8, height: 2.8))
+                ink.setFill()
+                dot.fill()
+            case .stopping:
+                let stop = NSBezierPath(
+                    roundedRect: NSRect(x: rect.midX - 2.2, y: rect.midY - 2.2, width: 4.4, height: 4.4),
+                    xRadius: 0.8,
+                    yRadius: 0.8
+                )
+                ink.setFill()
+                stop.fill()
+            case .live:
+                let heights: [CGFloat] = pulsePhase ? [3.0, 7.0, 4.5] : [5.0, 3.5, 7.0]
+                for (index, height) in heights.enumerated() {
+                    let x = rect.midX - 3.0 + CGFloat(index) * 3.0
+                    let bar = NSBezierPath(
+                        roundedRect: NSRect(x: x - 0.7, y: rect.midY - height / 2, width: 1.4, height: height),
+                        xRadius: 0.7,
+                        yRadius: 0.7
+                    )
+                    ink.setFill()
+                    bar.fill()
+                }
+            case .error:
+                let mark = NSBezierPath()
+                mark.lineWidth = 1.6
+                mark.lineCapStyle = .round
+                mark.move(to: NSPoint(x: rect.midX, y: rect.midY + 3.2))
+                mark.line(to: NSPoint(x: rect.midX, y: rect.midY - 0.7))
+                ink.setStroke()
+                mark.stroke()
+                let dot = NSBezierPath(ovalIn: NSRect(x: rect.midX - 0.8, y: rect.midY - 4.0, width: 1.6, height: 1.6))
+                ink.setFill()
+                dot.fill()
+            }
+
             return true
         }
+    }
+
+    @objc
+    private func handleRealtimeVoiceState(_ notification: Notification) {
+        guard let state = ScoutRealtimeVoiceStatusBridge.state(from: notification) else { return }
+        realtimeVoiceState = state
+        if state != .live {
+            realtimeVoicePulsePhase = false
+        }
+        guard let button = statusItem?.button else { return }
+        configureStatusButton(
+            button,
+            symbolName: controller.menuBarSymbolName,
+            tooltip: controller.menuBarTooltip
+        )
     }
 
     @objc

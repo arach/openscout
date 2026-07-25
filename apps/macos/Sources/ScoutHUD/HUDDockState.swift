@@ -155,7 +155,7 @@ public final class HUDDockState: ObservableObject {
     @discardableResult
     func beginHoldToTalk() -> UUID? {
         guard !voiceSendArmed else { return nil }
-        HUDReplySpeaker.shared.stopSpeaking()
+        ScoutReplySpeaker.shared.stopSpeaking()
         let token = UUID()
         holdToken = token
         voiceSendArmed = true

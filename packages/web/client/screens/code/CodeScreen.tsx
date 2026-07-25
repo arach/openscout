@@ -162,6 +162,8 @@ export function CodeContent({
   project: projectProp,
   path: pathProp,
   wt: wtProp,
+  line: lineProp,
+  endLine: endLineProp,
   embedded = false,
 }: {
   route?: Extract<Route, { view: "code" }>;
@@ -171,6 +173,8 @@ export function CodeContent({
   project?: string;
   path?: string;
   wt?: string;
+  line?: number;
+  endLine?: number;
   embedded?: boolean;
 }) {
   const initialRoot = rootProp ?? route?.root ?? null;
@@ -178,6 +182,8 @@ export function CodeContent({
   const linkProject = projectProp ?? route?.project ?? null;
   const linkPath = pathProp ?? route?.path ?? null;
   const linkWt = wtProp ?? route?.wt ?? null;
+  const initialLine = lineProp ?? route?.line;
+  const initialEndLine = endLineProp ?? route?.endLine;
 
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(() => getCachedRepoWatchSnapshot());
   // With no explicit target, reopen where the operator last was — the surface
@@ -192,6 +198,20 @@ export function CodeContent({
   const [fileError, setFileError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const [fileMode, setFileMode] = useState<"source" | "changes">("source");
+  const [focusedLines, setFocusedLines] = useState<{ line: number; endLine?: number } | null>(() => (
+    initialLine && initialLine > 0
+      ? { line: initialLine, ...(initialEndLine && initialEndLine >= initialLine ? { endLine: initialEndLine } : {}) }
+      : null
+  ));
+
+  useEffect(() => {
+    setFocusedLines(initialLine && initialLine > 0
+      ? {
+          line: initialLine,
+          ...(initialEndLine && initialEndLine >= initialLine ? { endLine: initialEndLine } : {}),
+        }
+      : null);
+  }, [initialEndLine, initialLine]);
 
   useEffect(() => {
     if (snapshot) return;
@@ -418,6 +438,7 @@ export function CodeContent({
   }, [childrenByPath, loadDir]);
 
   const selectFile = useCallback((path: string) => {
+    setFocusedLines(null);
     setSelectedFile(path);
     if (root) syncUrl(root, path);
   }, [root, syncUrl]);
@@ -495,6 +516,7 @@ export function CodeContent({
           onChange={(event) => {
             const value = event.currentTarget.value || null;
             setSelectedFile(null);
+            setFocusedLines(null);
             setRoot(value);
             if (value) syncUrl(value, null);
           }}
@@ -596,6 +618,7 @@ export function CodeContent({
                 <span className="s-code-fileMeta">
                   {formatBytes(filePreview.sizeBytes)}
                   {filePreview.previewable && filePreview.truncated ? " · truncated" : ""}
+                  {focusedLines ? ` · L${focusedLines.line}${focusedLines.endLine ? `–${focusedLines.endLine}` : ""}` : ""}
                 </span>
               ) : null}
               {filePreview?.kind === "file" && filePreview.previewable ? (
@@ -630,7 +653,12 @@ export function CodeContent({
                   <a href={filePreview.rawUrl} target="_blank" rel="noreferrer">open raw</a>
                 </div>
               ) : null}
-              <ShikiPane code={filePreview.content} path={filePreview.path} />
+              <ShikiPane
+                code={filePreview.content}
+                path={filePreview.path}
+                focusLine={focusedLines?.line}
+                endLine={focusedLines?.endLine}
+              />
             </>
           ) : filePreview && filePreview.kind === "file" ? (
             <div className="s-code-empty">
@@ -648,7 +676,7 @@ export function CodeContent({
 
 export const scoutSurface = defineSurface({
   id: "code",
-  label: "Code",
+  label: "Code Browser",
   route: { view: "code" },
   webPath: "/code",
   screen: "CodeContent",
@@ -664,6 +692,14 @@ export const scoutSurface = defineSurface({
       project: params.get("project")?.trim() || undefined,
       path: params.get("path")?.trim() || undefined,
       wt: params.get("wt")?.trim() || undefined,
+      line: positiveEmbedLine(params.get("line")),
+      endLine: positiveEmbedLine(params.get("endLine")),
     }),
   },
 });
+
+function positiveEmbedLine(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}

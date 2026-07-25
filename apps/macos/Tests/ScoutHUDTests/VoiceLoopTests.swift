@@ -74,7 +74,7 @@ import ScoutAppCore
     ]
     // Priming seeds the dedupe set with everything currently on screen.
     let primed = Set(thread.map(\.id))
-    let fresh = HUDReplySpeaker.newMessagesToSpeak(thread: thread, spoken: primed)
+    let fresh = ScoutReplySpeaker.newMessagesToSpeak(thread: thread, spoken: primed)
     #expect(fresh.isEmpty)
 }
 
@@ -88,7 +88,7 @@ import ScoutAppCore
         ScoutAssistantMessage(id: "you", source: .operatorYou, at: "10:01", body: [.text("mine")]),
         ScoutAssistantMessage(id: "m2", source: .scout, at: "10:02", body: [.text("new reply")]),
     ]
-    let fresh = HUDReplySpeaker.newMessagesToSpeak(thread: thread, spoken: primed)
+    let fresh = ScoutReplySpeaker.newMessagesToSpeak(thread: thread, spoken: primed)
     #expect(fresh.map(\.id) == ["m2"])
 }
 
@@ -100,26 +100,26 @@ import ScoutAppCore
     ]
     // First pass: m2 is fresh.
     var spoken: Set<String> = ["m1"]
-    let firstPass = HUDReplySpeaker.newMessagesToSpeak(thread: thread, spoken: spoken)
+    let firstPass = ScoutReplySpeaker.newMessagesToSpeak(thread: thread, spoken: spoken)
     #expect(firstPass.map(\.id) == ["m2"])
     // Mark spoken (what handleThread does), then a re-emission yields nothing.
     spoken.formUnion(firstPass.map(\.id))
-    let secondPass = HUDReplySpeaker.newMessagesToSpeak(thread: thread, spoken: spoken)
+    let secondPass = ScoutReplySpeaker.newMessagesToSpeak(thread: thread, spoken: spoken)
     #expect(secondPass.isEmpty)
 }
 
 // Markdown flattening drops code blocks, emphasis, and reduces links.
 @MainActor
 @Test func spokenTextFlattensMarkdown() {
-    let flat = HUDReplySpeaker.toSpokenText("**Bold** and `code` and [click](https://x.io)")
+    let flat = ScoutReplySpeaker.toSpokenText("**Bold** and `code` and [click](https://x.io)")
     #expect(flat == "Bold and code and click")
-    #expect(HUDReplySpeaker.toSpokenText("```\nlet x = 1\n```").contains("code omitted"))
+    #expect(ScoutReplySpeaker.toSpokenText("```\nlet x = 1\n```").contains("code omitted"))
 }
 
 // The cap prefers a sentence boundary within the limit.
 @MainActor
 @Test func capPrefersSentenceBoundary() {
     let text = "First sentence. Second sentence that runs on and on and on."
-    let capped = HUDReplySpeaker.cap(text, maxChars: 20)
+    let capped = ScoutReplySpeaker.cap(text, maxChars: 20)
     #expect(capped == "First sentence.")
 }

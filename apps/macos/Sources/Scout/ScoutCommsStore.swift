@@ -88,6 +88,10 @@ final class ScoutCommsStore: ObservableObject {
     /// every heartbeat — we only re-mark when the selection or its newest
     /// message actually changes.
     private var lastAdvancedReadCursor: String?
+    /// Cursor target currently being persisted. Kept separate from the last
+    /// successful target so a transient POST failure never permanently
+    /// deduplicates the retry.
+    private var pendingReadCursor: String?
 
     var selectedChannel: ScoutChannel? {
         guard let selectedCId else { return nil }
@@ -187,6 +191,7 @@ final class ScoutCommsStore: ObservableObject {
         selectedFlightIdHint = nil
         selectedAgentNameHint = nil
         observeRequestId = nil
+        pendingReadCursor = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
         setIfChanged(false, to: \.isStartingBroker)
@@ -292,16 +297,31 @@ final class ScoutCommsStore: ObservableObject {
         }
     }
 
+    /// Explicit row action for unread conversations. Opening a conversation
+    /// already calls the same path automatically; this gives the operator a
+    /// standard context-menu fallback without changing the selection.
+    func markChannelRead(_ cId: String) {
+        let channel = channels.first(where: { $0.cId == cId })
+        markConversationRead(
+            cId: cId,
+            targetVersion: channel?.lastMessageAt.map { String(Int($0)) },
+            requiresSelection: false
+        )
+    }
+
     /// Advance the operator's read cursor for `cId` to its newest known message.
-    /// Best-effort and fire-and-forget — the client swallows errors so this never
-    /// surfaces in the UI. Only the currently-selected conversation is marked,
-    /// and a dedup key prevents the steady-state poll (which also calls
-    /// loadMessages) from re-POSTing the same cursor on every heartbeat. The
-    /// next server refresh of `channels` clears the unread badge — we don't
-    /// locally mutate the channel here (its `unreadCount` is an immutable model
-    /// field), so there's nothing to fight the refresh.
-    private func markConversationRead(cId: String, latest: ScoutMessage? = nil) {
-        guard selectedCId == cId else { return }
+    /// Best-effort and fire-and-forget — failures stay out of the UI but remain
+    /// retryable. A dedup key prevents the steady-state poll (which also calls
+    /// loadMessages) from re-POSTing an already-persisted cursor on every
+    /// heartbeat. The local unread count clears immediately, then an immediate
+    /// channels refresh reconciles it with the broker after a successful POST.
+    private func markConversationRead(
+        cId: String,
+        latest: ScoutMessage? = nil,
+        targetVersion: String? = nil,
+        requiresSelection: Bool = true
+    ) {
+        guard !requiresSelection || selectedCId == cId else { return }
 
         let latestId = latest?.id
         // Key = conversation + its newest message. Same key ⇒ nothing new to
@@ -309,23 +329,45 @@ final class ScoutCommsStore: ObservableObject {
         // landing while this one is open, advances the key again. The "now"
         // placeholder lets the on-select (pre-messages) call advance once, then
         // be superseded by the exact-id call when messages arrive.
-        let dedupKey = "\(cId):\(latestId ?? "now")"
-        guard dedupKey != lastAdvancedReadCursor else { return }
-        lastAdvancedReadCursor = dedupKey
+        let dedupKey = "\(cId):\(latestId ?? targetVersion ?? "now")"
+        guard dedupKey != lastAdvancedReadCursor,
+              dedupKey != pendingReadCursor else { return }
+        pendingReadCursor = dedupKey
+
+        // The conversation is already visible (or the operator explicitly
+        // chose Mark as Read), so clear the row immediately instead of leaving
+        // the accent/count up until the next 10-second channels poll.
+        clearUnreadCount(cId: cId)
 
         readCursorTask?.cancel()
-        readCursorTask = Task { [weak self, latestId] in
+        readCursorTask = Task { [weak self, latestId, dedupKey] in
             let client = ScoutCommsClient()
-            await client.advanceReadCursor(
+            let advanced = await client.advanceReadCursor(
                 cId: cId,
                 lastReadMessageId: latestId,
                 lastReadSeq: nil
             )
             await MainActor.run {
-                guard let self, self.selectedCId == cId else { return }
-                self.loadReadCursors(cId: cId)
+                guard let self else { return }
+                if self.pendingReadCursor == dedupKey {
+                    self.pendingReadCursor = nil
+                }
+                guard advanced else { return }
+                self.lastAdvancedReadCursor = dedupKey
+                if self.selectedCId == cId {
+                    self.loadReadCursors(cId: cId)
+                }
+                // Reconcile immediately with the broker rather than waiting for
+                // the adaptive poll. This also proves the durable cursor stuck.
+                self.loadChannels(force: true)
             }
         }
+    }
+
+    private func clearUnreadCount(cId: String) {
+        guard let index = channels.firstIndex(where: { $0.cId == cId }),
+              channels[index].unreadCount > 0 else { return }
+        channels[index].markRead()
     }
 
     func loadObserve(agentId: String, force: Bool = false) {

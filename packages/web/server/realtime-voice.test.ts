@@ -98,7 +98,7 @@ describe("Scout Realtime voice", () => {
     });
     expect(stacked.status).toBe(429);
     expect(stacked.headers.get("retry-after")).toBe("90");
-    expect(await stacked.json()).toEqual({ error: expect.stringContaining("already active") });
+    expect(await stacked.json()).toEqual({ error: expect.stringContaining("still active") });
 
     const heartbeat = await app.request(`${SCOUT_REALTIME_VOICE_LEASE_PATH}/${leaseId}`, {
       method: "PUT",
@@ -272,7 +272,20 @@ describe("Scout Realtime voice", () => {
     expect(JSON.parse(String(form.get("session")))).toEqual({
       type: "realtime",
       model: "gpt-test-realtime",
-      audio: { output: { voice: "marin" } },
+      audio: {
+        input: {
+          noise_reduction: { type: "far_field" },
+          turn_detection: {
+            type: "server_vad",
+            threshold: 0.6,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500,
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
+        output: { voice: "marin" },
+      },
       instructions: "Use concise replies.",
       tools: [
         {

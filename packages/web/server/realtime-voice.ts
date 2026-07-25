@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { SCOUT_REALTIME_VOICE_FAR_FIELD_INPUT } from "../shared/realtime-voice.ts";
 import { resolveDbPath } from "./db/internal/db.ts";
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -170,7 +171,7 @@ export class ScoutRealtimeVoiceAdmission {
     const decision = decide();
     if (decision.kind === "concurrency") {
       throw new ScoutRealtimeVoiceAdmissionError(
-        "Another realtime voice call is already active on this Scout host. End it or try again shortly.",
+        "Realtime voice is still active on this Scout host. Stop it from the footer, or wait a moment for it to finish closing.",
         decision.retryAfterSeconds,
       );
     }
@@ -301,7 +302,10 @@ export async function createScoutRealtimeVoiceCall(input: {
   const session = JSON.stringify({
     type: "realtime",
     model: config.model,
-    audio: { output: { voice: config.voice } },
+    audio: {
+      input: SCOUT_REALTIME_VOICE_FAR_FIELD_INPUT,
+      output: { voice: config.voice },
+    },
     instructions: config.instructions,
     tools: [SCOUTBOT_REALTIME_TOOL],
     tool_choice: "auto",

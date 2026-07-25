@@ -365,6 +365,19 @@
   counter-reset: codeline;
 }
 
+.s-code-shiki .line {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.s-code-shiki .line[data-focus-line] {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+.s-code-shiki .line[data-focus-start] {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
 .s-code-shiki .line::before {
   counter-increment: codeline;
   content: counter(codeline);

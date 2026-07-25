@@ -7,6 +7,8 @@ enum ScoutEmbedSurfaceId: String, CaseIterable, Identifiable, Sendable {
     case dispatch
     case lanes
     case code
+    case thread
+    case voice
 
     var id: String { rawValue }
 }
@@ -72,6 +74,34 @@ enum ScoutEmbedSurfaceRegistry {
             profile: "macos.code",
             systemImage: "chevron.left.forwardslash.chevron.right",
             section: .code
+        ),
+        // The conversation transcript, shared with web and iOS so the reading
+        // layout is decided once instead of three times (this app's
+        // ScoutSharedUI/MessageMarkupParser + iOS MessageMarkupView are the
+        // other two). `section` is nil on purpose: unlike the surfaces above
+        // this is not a nav destination, it renders inside Comms beside the
+        // native composer.
+        ScoutEmbedSurface(
+            id: .thread,
+            label: "Thread",
+            shellPath: "/chat",
+            embedPath: "/embed/thread",
+            profile: "macos.thread",
+            systemImage: "bubble.left.and.bubble.right",
+            section: nil
+        ),
+        // The live Scoutbot call. Embedded rather than reimplemented: the web
+        // client already holds the WebRTC peer connection, the lease/admission
+        // handshake, and the ask_scoutbot tool loop. `section` is nil — it
+        // mounts from the footer status control, not the nav rail.
+        ScoutEmbedSurface(
+            id: .voice,
+            label: "Live voice",
+            shellPath: "/settings/voice",
+            embedPath: "/embed/voice",
+            profile: "macos.voice",
+            systemImage: "waveform",
+            section: nil
         ),
     ]
 

@@ -559,7 +559,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
           <header className="hs-page-head">
             <div className="hs-title-group">
               <span className="hs-kicker">ops / provider central</span>
-              <h2>Providers</h2>
+              <h2>Agent Providers</h2>
               <p>See what you pay for, how much remains, and where to use it.</p>
             </div>
             <button

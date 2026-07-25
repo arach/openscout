@@ -25,6 +25,7 @@ import {
   type ScoutSpeechHandle,
 } from "../../lib/scout-voice.ts";
 import { SCOUT_REALTIME_VOICE_FLAG } from "../../../shared/realtime-voice.ts";
+import { scoutbotUiContext } from "../../../shared/scoutbot-navigation.ts";
 import { useScout } from "../Provider.tsx";
 import {
   useScoutbotStatePublisher,
@@ -501,6 +502,7 @@ export function ScoutbotPanel({
         body: JSON.stringify({
           body: trimmed,
           route,
+          uiContext: scoutbotUiContext("web"),
         }),
       });
       setSessionState({

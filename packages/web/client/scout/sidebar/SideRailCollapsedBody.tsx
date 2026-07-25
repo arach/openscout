@@ -98,7 +98,7 @@ export function InspectorCollapsedBody() {
   if (route.view === "ops") {
     chips.push({
       key: "ops",
-      title: "Ops",
+      title: "Operations",
       glyph: <LayoutGrid size={14} strokeWidth={1.7} aria-hidden />,
       active: true,
       onClick: () => navigate(route),
@@ -308,12 +308,12 @@ function OpsCollapsedStrip() {
   const items = [
     { id: "mission" as const, title: "Mission", glyph: <ListTodo size={13} strokeWidth={1.7} aria-hidden /> },
     { id: "agents" as const, title: "Agents", glyph: <Users size={13} strokeWidth={1.7} aria-hidden /> },
-    { id: "lanes" as const, title: "Lanes", glyph: <LayoutGrid size={13} strokeWidth={1.7} aria-hidden /> },
+    { id: "lanes" as const, title: "Agent Lanes", glyph: <LayoutGrid size={13} strokeWidth={1.7} aria-hidden /> },
     { id: "plan" as const, title: "Plan", glyph: <Activity size={13} strokeWidth={1.7} aria-hidden /> },
   ];
 
   return (
-    <CollapsedStrip label="Ops" emptyMark="O" labelTone="default">
+    <CollapsedStrip label="Operations" emptyMark="O" labelTone="default">
       {items.map((item) => (
         <CollapsedChip
           key={item.id}
@@ -348,7 +348,7 @@ function MeshCollapsedStrip() {
 
   return (
     <CollapsedStrip
-      label="Mesh"
+      label="Network"
       emptyMark="M"
       labelTone={onlineCount > 0 ? "live" : "default"}
       labelCount={top.length || undefined}

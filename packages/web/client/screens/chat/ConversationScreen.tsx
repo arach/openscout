@@ -68,6 +68,7 @@ import type {
   Route,
   SessionEntry,
 } from "../../lib/types.ts";
+import { defineSurface } from "../../surfaces/types.ts";
 import "./conversation-screen.css";
 import "../ops/ops-screen.css";
 import {
@@ -136,18 +137,36 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 type ConversationMessageLoadMode = "initial" | "refresh" | "none";
 
+export const THREAD_TREATMENTS = ["standard", "ledger", "rail", "document"] as const;
+export type ThreadTreatment = (typeof THREAD_TREATMENTS)[number];
+
+function asThreadTreatment(value: string | null | undefined): ThreadTreatment {
+  const candidate = value?.trim() as ThreadTreatment | undefined;
+  return candidate && THREAD_TREATMENTS.includes(candidate) ? candidate : "standard";
+}
+
 export function ConversationScreen({
   conversationId,
   initialDraft,
   navigate,
   embedded,
   showBackNav = true,
+  showComposer = true,
+  treatment = "standard",
 }: {
   conversationId: string;
   initialDraft?: string;
   navigate: (r: Route) => void;
   embedded?: boolean;
   showBackNav?: boolean;
+  /// How the thread is presented — see the "Presentations" block in
+  /// conversation-screen.css. "standard" is the shipping bordered card;
+  /// ledger/rail/document come from the readability study.
+  treatment?: ThreadTreatment;
+  /// A host that supplies its own composer (the macOS window keeps a native
+  /// one, for the pasteboard, drag-drop and dictation it can reach) turns this
+  /// off. Default on so every other host gets a complete conversation.
+  showComposer?: boolean;
 }) {
   const { agents, route } = useScout();
   const machineId = routeMachineId(route);
@@ -166,6 +185,43 @@ export function ConversationScreen({
     Record<string, Message[]>
   >(() => cachedTail ? { [conversationId]: cachedTail } : {});
   const messages = messagesByConversationId[conversationId] ?? cachedTail ?? [];
+
+  /* Arrival + loading.
+   *
+   * Two gaps this closes. First, the transcript fetch leaves the feed empty for
+   * a beat — worse behind a web view, where the host is also booting — and an
+   * empty feed reads as "no messages" rather than "not yet". Ghost turns say
+   * the honest thing. Second, a landed turn simply appeared; the only motion in
+   * the thread was a permalink flash.
+   *
+   * Deliberately quiet: opacity and a 4px rise, composited, ~220ms. No
+   * character streaming, no bouncing dots. The first paint staggers a few rows
+   * so the thread assembles rather than blinking in, capped so a 300-message
+   * history never becomes a wave. */
+  const [threadSettled, setThreadSettled] = useState(() => cachedTail !== null);
+  const seenMessageIdsRef = useRef<Set<string> | null>(null);
+  const enteringIds = useMemo(() => {
+    const seen = seenMessageIdsRef.current;
+    if (seen === null) return null; // first paint — staggered below
+    return new Set(messages.filter((m) => !seen.has(m.id)).map((m) => m.id));
+  }, [messages]);
+  const isFirstPaint = seenMessageIdsRef.current === null && messages.length > 0;
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const seen = seenMessageIdsRef.current ?? new Set<string>();
+    for (const message of messages) seen.add(message.id);
+    seenMessageIdsRef.current = seen;
+  }, [messages]);
+
+  // A conversation switch is a different thread: forget what was on screen so
+  // the new one gets its own entrance instead of inheriting the old one's.
+  useEffect(() => {
+    seenMessageIdsRef.current = null;
+    setThreadSettled(readCachedConversationTail(conversationId) !== null);
+  }, [conversationId]);
+
+  const showThreadSkeleton = !threadSettled && messages.length === 0;
   const setMessages = useCallback((update: SetStateAction<Message[]>) => {
     setMessagesByConversationId((previousByConversationId) => {
       const previous = previousByConversationId[conversationId]
@@ -295,6 +351,7 @@ export function ConversationScreen({
       if (conversationMessages) {
         setMessages((previous) => keepPreviousIfJsonEqual(previous, visibleMessages));
       }
+      setThreadSettled(true);
       saveLastViewed(canonicalConversationId);
       const lastMessage = sortedMessages.at(-1);
       if (
@@ -1257,7 +1314,10 @@ export function ConversationScreen({
   }, [addParticipantId, load, sessionMeta]);
 
   return (
-    <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
+    <div
+      className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}
+      data-thread-treatment={treatment === "standard" ? undefined : treatment}
+    >
       <div className="s-thread-center">
         {!embedded && (
           <ConversationHeader
@@ -1316,7 +1376,21 @@ export function ConversationScreen({
 
         <div className="s-thread-feed">
           <div className="s-thread-feed-spacer" />
-          {messages.length === 0 ? (
+          {showThreadSkeleton ? (
+            <div className="s-thread-skeleton" aria-busy="true" aria-live="polite">
+              <span className="s-thread-skeleton-label">Loading conversation…</span>
+              {[0, 1, 2].map((row) => (
+                <div className="s-thread-skeleton-turn" key={row}>
+                  <span className="s-thread-skeleton-avatar" />
+                  <div className="s-thread-skeleton-lines">
+                    <span className="s-thread-skeleton-line s-thread-skeleton-line--head" />
+                    <span className="s-thread-skeleton-line" />
+                    <span className="s-thread-skeleton-line s-thread-skeleton-line--short" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : messages.length === 0 ? (
             showEmptyMotionPanel ? (
               <ThreadMotionPanel
                 agentName={agentName}
@@ -1420,9 +1494,21 @@ export function ConversationScreen({
                       "s-thread-msg",
                       isYou && "s-thread-msg--you",
                       isToolMessage && "s-thread-msg--tool",
+                      (isFirstPaint || enteringIds?.has(message.id)) && "s-thread-msg--enter",
                     ]
                       .filter(Boolean)
                       .join(" ")}
+                    /* Stagger only the tail of the first paint; a turn that
+                       lands later is one event and gets no delay. */
+                    style={
+                      isFirstPaint
+                        ? {
+                            animationDelay: `${
+                              Math.max(0, 7 - (messages.length - 1 - index)) * 26
+                            }ms`,
+                          }
+                        : undefined
+                    }
                     data-class={rowClass}
                     onContextMenu={(e) => onMessageContextMenu(e, message)}
                   >
@@ -1730,6 +1816,7 @@ export function ConversationScreen({
           </div>
         )}
 
+        {showComposer && (
         <ConversationComposer
           composeRef={composeRef}
           draft={draft}
@@ -1752,6 +1839,7 @@ export function ConversationScreen({
           onInterrupt={() => void interrupt()}
           sendReceipt={sendReceipt}
         />
+        )}
       </div>
 
     </div>
@@ -1776,3 +1864,42 @@ function ReplyGlyph() {
     </svg>
   );
 }
+
+/**
+ * Thread — the conversation surface, embeddable.
+ *
+ * Native hosts render THIS component, not an embed-only variant of it. macOS
+ * and iOS each carry their own transcript renderer today (ScoutSharedUI's
+ * MessageMarkupParser + ScoutRootView on macOS, MessageMarkupView on iOS);
+ * pointing their web views here is what collapses that to one implementation.
+ * A purpose-built embed screen would only have made it three.
+ *
+ * So there is nothing to keep in sync: whatever lands on the conversation
+ * lands on every surface, and any regression here is a regression everywhere —
+ * which is the point, and the cost.
+ */
+export const scoutSurface = defineSurface({
+  id: "thread",
+  label: "Thread",
+  route: { view: "conversation", conversationId: "" },
+  webPath: "/chat",
+  screen: "ConversationScreen",
+  embed: {
+    path: "/embed/thread",
+    profile: "macos.thread",
+    rootClassName: "s-thread-embed",
+    chrome: { showSecondaryNav: false, showPageStatusBar: false },
+    hosts: { macos: true },
+    resolveEmbedProps: (params) => ({
+      conversationId: params.get("conversationId")?.trim() || "",
+      embedded: true,
+      // The host owns navigation; an in-embed back arrow would strand the user
+      // inside a pane that has nowhere to go back to.
+      showBackNav: false,
+      // `composer=0` from a host that supplies its own. Two stacked composers
+      // is the failure mode this exists to prevent.
+      showComposer: params.get("composer") !== "0",
+      treatment: asThreadTreatment(params.get("treatment")),
+    }),
+  },
+});
