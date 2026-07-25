@@ -126,6 +126,27 @@ describe("extractScoutbotUiActions + stripScoutbotUiFences", () => {
     ]);
     expect(stripScoutbotUiFences(body)).toBe("Reply text.");
   });
+
+  test("normalizes the primary app destinations used by voice navigation", () => {
+    const body = [
+      "Opening those views.",
+      "```scout-ui",
+      JSON.stringify([
+        { type: "navigate", route: { view: "projects", projectSlug: "openscout" } },
+        { type: "navigate", route: { view: "messages", filter: "dm", sort: "unread" } },
+        { type: "navigate", route: { view: "settings", section: "voice" } },
+        { type: "navigate", route: { view: "repos", root: "/work/openscout" } },
+      ]),
+      "```",
+    ].join("\n");
+
+    expect(extractScoutbotUiActions(body)).toEqual([
+      { type: "navigate", route: { view: "agents-v2", projectSlug: "openscout" } },
+      { type: "navigate", route: { view: "messages", filter: "dm", sort: "unread" } },
+      { type: "navigate", route: { view: "settings", section: "voice" } },
+      { type: "navigate", route: { view: "repos", root: "/work/openscout" } },
+    ]);
+  });
 });
 
 describe("resolveScoutbotAgentId", () => {

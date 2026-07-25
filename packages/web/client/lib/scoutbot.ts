@@ -309,12 +309,14 @@ function normalizeRoute(raw: unknown): Route | null {
   const view = typeof record.view === "string" ? record.view : "";
 
   switch (view) {
+    case "home":
     case "inbox":
       return { view: "inbox" };
     case "fleet":
       // Deprecated alias of Home — steer scoutbot navigations to the real route.
       return { view: "inbox" };
     case "agents":
+    case "projects":
     case "agents-v2":
       return {
         view: "agents-v2",
@@ -324,10 +326,49 @@ function normalizeRoute(raw: unknown): Route | null {
         ...(typeof record.projectSlug === "string" ? { projectSlug: record.projectSlug } : {}),
         ...(record.tab === "profile" || record.tab === "observe" || record.tab === "message" ? { tab: record.tab } : {}),
       };
+    case "chat":
+    case "messages":
+      return {
+        view: "messages",
+        ...(typeof record.conversationId === "string" ? { conversationId: record.conversationId } : {}),
+        ...(record.filter === "all" || record.filter === "dm" || record.filter === "channel"
+          ? { filter: record.filter }
+          : {}),
+        ...(record.sort === "recent" || record.sort === "name" || record.sort === "unread"
+          ? { sort: record.sort }
+          : {}),
+      };
     case "sessions":
       return {
         view: "sessions",
         ...(typeof record.sessionId === "string" ? { sessionId: record.sessionId } : {}),
+      };
+    case "repos":
+      return {
+        view: "repos",
+        ...(typeof record.root === "string" ? { root: record.root } : {}),
+      };
+    case "harnesses":
+      return { view: "harnesses" };
+    case "repo-diff":
+      return typeof record.path === "string"
+        ? {
+            view: "repo-diff",
+            path: record.path,
+            ...(typeof record.sessionId === "string" ? { sessionId: record.sessionId } : {}),
+            ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
+          }
+        : null;
+    case "search":
+      return {
+        view: "search",
+        ...(record.mode === "knowledge" || record.mode === "indexer" ? { mode: record.mode } : {}),
+        ...(typeof record.hitId === "string" ? { hitId: record.hitId } : {}),
+      };
+    case "channels":
+      return {
+        view: "channels",
+        ...(typeof record.channelId === "string" ? { channelId: record.channelId } : {}),
       };
     case "mesh":
       return { view: "mesh" };
@@ -336,7 +377,33 @@ function normalizeRoute(raw: unknown): Route | null {
     case "activity":
       return { view: "activity" };
     case "settings":
-      return { view: "settings" };
+      return {
+        view: "settings",
+        ...(record.section === "pairing"
+          || record.section === "agents"
+          || record.section === "operator"
+          || record.section === "comms"
+          || record.section === "credentials"
+          || record.section === "voice"
+          || record.section === "devices"
+          ? { section: record.section }
+          : {}),
+        ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
+      };
+    case "code":
+      return {
+        view: "code",
+        ...(typeof record.root === "string" ? { root: record.root } : {}),
+        ...(typeof record.file === "string" ? { file: record.file } : {}),
+        ...(typeof record.project === "string" ? { project: record.project } : {}),
+        ...(typeof record.path === "string" ? { path: record.path } : {}),
+        ...(typeof record.wt === "string" ? { wt: record.wt } : {}),
+      };
+    case "briefings":
+      return {
+        view: "briefings",
+        ...(typeof record.briefingId === "string" ? { briefingId: record.briefingId } : {}),
+      };
     case "terminal":
       return {
         view: "terminal",

@@ -3,6 +3,7 @@ export {
   MessageComposerSendIcon,
   type MessageComposerChangeMeta,
   type MessageComposerDensity,
+  type MessageComposerDictationStatus,
   type MessageComposerProps,
 } from "./MessageComposer.tsx";
 export {
