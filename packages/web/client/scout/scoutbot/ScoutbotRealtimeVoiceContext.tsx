@@ -18,6 +18,8 @@ import {
   type ScoutRealtimeVoiceConnectionState,
   type ScoutRealtimeVoiceTraceEvent,
 } from "../../lib/realtime-voice.ts";
+import { usePersistentBoolean } from "../../lib/persistent-state.ts";
+import { SCOUT_REALTIME_VOICE_PREFERENCE_KEY } from "../../../shared/realtime-voice.ts";
 import {
   extractScoutbotUiActions,
   type ScoutbotUiAction,
@@ -28,6 +30,7 @@ import type { ScoutbotAskAgentResult } from "./scoutbot-model.ts";
 export const SCOUTBOT_REALTIME_REPLY_EVENT = "scout:scoutbot-realtime-reply";
 
 type ScoutbotRealtimeVoiceContextValue = {
+  enabled: boolean;
   open: boolean;
   state: ScoutRealtimeVoiceConnectionState | "idle";
   error: string | null;
@@ -41,6 +44,7 @@ type ScoutbotRealtimeVoiceContextValue = {
 };
 
 const DEFAULT_REALTIME_VOICE_CONTEXT: ScoutbotRealtimeVoiceContextValue = {
+  enabled: false,
   open: false,
   state: "idle",
   error: null,
@@ -59,6 +63,7 @@ const ScoutbotRealtimeVoiceContext = createContext<ScoutbotRealtimeVoiceContextV
 
 export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNode }) {
   const { route, applyScoutbotUiAction } = useScout();
+  const [enabled] = usePersistentBoolean(SCOUT_REALTIME_VOICE_PREFERENCE_KEY, false);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<ScoutRealtimeVoiceConnectionState | "idle">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +98,12 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
   }, []);
 
   useEffect(() => {
+    if (enabled) return;
+    setOpen(false);
+    if (callRef.current || state === "connecting" || state === "live") endCall();
+  }, [enabled, endCall, state]);
+
+  useEffect(() => {
     disposedRef.current = false;
     return () => {
       disposedRef.current = true;
@@ -118,6 +129,11 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
   }, [appendTrace]);
 
   const startCall = useCallback(async () => {
+    if (!enabled) {
+      setError("Enable realtime voice in Settings → Voice before starting a call.");
+      setOpen(false);
+      return;
+    }
     if (startingRef.current || state === "connecting" || state === "live") return;
     startingRef.current = true;
     abortControllerRef.current?.abort();
@@ -173,7 +189,7 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
       }
       startingRef.current = false;
     }
-  }, [applyReplyActions, state]);
+  }, [applyReplyActions, enabled, state]);
 
   const confirmAgentRequest = useCallback(async () => {
     if (confirmingAgentRequestRef.current) return;
@@ -197,6 +213,7 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
 
   const value = useMemo<ScoutbotRealtimeVoiceContextValue>(
     () => ({
+      enabled,
       open,
       state,
       error,
@@ -209,6 +226,7 @@ export function ScoutbotRealtimeVoiceProvider({ children }: { children: ReactNod
       cancelAgentRequest,
     }),
     [
+      enabled,
       open,
       state,
       error,

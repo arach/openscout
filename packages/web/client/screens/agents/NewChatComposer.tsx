@@ -1,14 +1,24 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { FileText, Loader2 } from "lucide-react";
-import { MessageComposer } from "../../components/MessageComposer/index.ts";
+import { FileText, Loader2, Search } from "lucide-react";
+import {
+  MessageComposer,
+  type MessageComposerDictationStatus,
+} from "../../components/MessageComposer/index.ts";
+import { api } from "../../lib/api.ts";
+import {
+  dictationBlocksContextCaptureClose,
+  type ContextCaptureDraft,
+} from "../../lib/context-capture-draft.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   dataTransferMayContainFiles,
@@ -19,11 +29,16 @@ import {
 } from "../../lib/media-blobs.ts";
 import { resolveCaptureRouteContext } from "../../lib/media-route.ts";
 import {
+  buildProjectLaunchTargets,
+  chooseInitialProjectLaunchTarget,
   routeCaptureToAgent,
+  searchProjectLaunchTargets,
   startAgentSession,
+  startProjectSession,
   type CaptureDeliveryMode,
+  type ProjectLaunchTarget,
 } from "../../lib/session-start.ts";
-import type { Agent, Route } from "../../lib/types.ts";
+import type { Agent, AgentConfigurationState, Route } from "../../lib/types.ts";
 import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
@@ -31,6 +46,19 @@ type SubmitPhase = "idle" | "uploading" | "starting";
 
 function previewUrl(file: File): string {
   return URL.createObjectURL(file);
+}
+
+function shortProjectPath(path: string): string {
+  return path.replace(/^\/Users\/[^/]+/u, "~");
+}
+
+function projectTitleFromPath(path: string): string {
+  return path.split("/").filter(Boolean).at(-1) ?? path;
+}
+
+function isDirectProjectPath(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.startsWith("/") || trimmed.startsWith("~/");
 }
 
 function AttachmentPreview({
@@ -89,7 +117,12 @@ export function NewChatComposer({
   initialMessage,
   initialFiles,
   initialAttachmentFeedback,
+  initialProjectPath,
+  initialProjectQuery,
   defaultMode,
+  draftRestored = false,
+  onDraftChange,
+  onDraftConsumed,
 }: {
   agents: Agent[];
   navigate: Navigate;
@@ -100,16 +133,27 @@ export function NewChatComposer({
   initialMessage?: string;
   initialFiles?: File[];
   initialAttachmentFeedback?: string;
+  initialProjectPath?: string;
+  initialProjectQuery?: string;
   defaultMode?: CaptureDeliveryMode;
+  draftRestored?: boolean;
+  onDraftChange?: (draft: ContextCaptureDraft) => void;
+  onDraftConsumed?: () => void;
 }) {
   const routeContext = useMemo(() => resolveCaptureRouteContext(route, agents), [route, agents]);
   const sorted = useMemo(
     () => [...agents].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
     [agents],
   );
-  const [agentId, setAgentId] = useState(
-    () => initialAgentId ?? routeContext.agentId ?? sorted[0]?.id ?? "",
-  );
+  const routeAgentId = initialAgentId ?? routeContext.agentId ?? null;
+  const routeAgent = sorted.find((candidate) => candidate.id === routeAgentId) ?? null;
+  const preferredProjectRoot = routeAgent?.projectRoot ?? routeAgent?.cwd ?? null;
+  const [configuration, setConfiguration] = useState<AgentConfigurationState | null>(null);
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const [projectPath, setProjectPath] = useState(() => initialProjectPath || preferredProjectRoot || "");
+  const [projectQuery, setProjectQuery] = useState(() => initialProjectQuery || routeAgent?.project || "");
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [activeProjectIndex, setActiveProjectIndex] = useState(0);
   const [message, setMessage] = useState(() => initialMessage ?? "");
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
@@ -123,17 +167,56 @@ export function NewChatComposer({
   const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(
     () => initialAttachmentFeedback ?? null,
   );
+  const [dictationStatus, setDictationStatus] = useState<MessageComposerDictationStatus | null>(null);
+  const [preservationNotice, setPreservationNotice] = useState<string | null>(
+    () => draftRestored ? "Restored your unsent draft." : null,
+  );
   const [dragDepth, setDragDepth] = useState(0);
   const { ref, onKeyDown } = useFocusTrap<HTMLDivElement>(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const projectInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
+  const projectSelectionTouchedRef = useRef(Boolean(initialProjectPath));
 
-  const agent = sorted.find((candidate) => candidate.id === agentId) ?? null;
+  const projectTargets = useMemo(
+    () => buildProjectLaunchTargets(
+      configuration?.projects ?? [],
+      agents,
+      configuration?.context.defaultHarness ?? "claude",
+    ),
+    [agents, configuration],
+  );
+  const knownSelectedProject = projectTargets.find((candidate) => candidate.root === projectPath) ?? null;
+  const selectedProject: ProjectLaunchTarget | null = knownSelectedProject ?? (projectPath
+    ? {
+        id: `direct:${projectPath}`,
+        title: projectTitleFromPath(projectPath),
+        root: projectPath,
+        defaultHarness: configuration?.context.defaultHarness ?? routeAgent?.harness ?? "claude",
+        source: "agent",
+        registrationKind: null,
+      }
+    : null);
+  const filteredProjects = useMemo(
+    () => searchProjectLaunchTargets(projectTargets, projectQuery).slice(0, 40),
+    [projectQuery, projectTargets],
+  );
+  const directPathCandidate = isDirectProjectPath(projectQuery)
+    && !projectTargets.some((candidate) => candidate.root === projectQuery.trim())
+    ? projectQuery.trim()
+    : null;
+  const projectOptionCount = filteredProjects.length + (directPathCandidate ? 1 : 0);
+  const projectMatchesRouteAgent = Boolean(
+    routeAgent
+    && selectedProject
+    && [routeAgent.projectRoot, routeAgent.cwd].some((root) => root?.trim() === selectedProject.root),
+  );
   const hasAttachments = files.length > 0;
   const isStarting = state === "starting";
   const isDraggingFiles = dragDepth > 0;
-  const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
+  const canUseExistingChat = projectMatchesRouteAgent
+    && Boolean(routeAgent?.conversationId || initialConversationId || routeContext.conversationId);
   const title = hasAttachments ? "Route capture" : "New chat";
   const committedMessage = message.trim();
   const phaseLabel = phase === "uploading"
@@ -142,15 +225,26 @@ export function NewChatComposer({
       ? "Routing capture"
       : "Sending message";
   const progressDetail = hasAttachments
-    ? "Submitted. Opening the chat when the broker returns it."
+    ? `Submitted to ${selectedProject?.title ?? routeAgent?.name ?? "Scout"}. Opening the chat when the broker returns it.`
     : committedMessage
-      ? "Submitting your first message to Scout."
-      : "Starting a new chat with Scout.";
+      ? `Routing your first message through /${selectedProject?.title ?? routeAgent?.name ?? "project"}.`
+      : `Starting a project-routed chat in /${selectedProject?.title ?? routeAgent?.name ?? "project"}.`;
+  const dictationCloseReason = dictationBlocksContextCaptureClose(dictationStatus?.state)
+    ? dictationStatus?.state === "recording"
+      ? "Voice is recording. Stop the mic before closing."
+      : "Finishing your transcript. This draft will stay open until it lands."
+    : null;
 
   const requestClose = useCallback(() => {
     if (isStarting) return;
+    if (dictationBlocksContextCaptureClose(dictationStatus?.state)) return;
     onClose();
-  }, [isStarting, onClose]);
+  }, [dictationStatus?.state, isStarting, onClose]);
+
+  const retainOnBackdropClick = useCallback(() => {
+    setPreservationNotice("Draft kept open. Use Esc or × when you are ready to close it.");
+    requestAnimationFrame(() => textRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -164,8 +258,74 @@ export function NewChatComposer({
   }, [requestClose]);
 
   useEffect(() => {
+    if (!preservationNotice) return;
+    const timeout = window.setTimeout(() => setPreservationNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [preservationNotice]);
+
+  useEffect(() => {
     textRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<AgentConfigurationState>("/api/agent-config/snapshot")
+      .then((snapshot) => {
+        if (cancelled) return;
+        setConfiguration(snapshot);
+        setProjectLoadError(null);
+      })
+      .catch((caught) => {
+        if (cancelled) return;
+        setProjectLoadError(caught instanceof Error ? caught.message : "Could not load projects.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (projectSelectionTouchedRef.current || projectTargets.length === 0) return;
+    const initial = chooseInitialProjectLaunchTarget(projectTargets, {
+      preferredRoot: preferredProjectRoot,
+      currentDirectory: configuration?.context.currentDirectory,
+    });
+    if (!initial) return;
+    setProjectPath(initial.root);
+    setProjectQuery(initial.title);
+  }, [configuration?.context.currentDirectory, preferredProjectRoot, projectTargets]);
+
+  useEffect(() => {
+    if (projectPickerOpen || !selectedProject) return;
+    setProjectQuery(selectedProject.title);
+  }, [projectPickerOpen, selectedProject]);
+
+  useLayoutEffect(() => {
+    onDraftChange?.({
+      ...(routeAgentId ? { agentId: routeAgentId } : {}),
+      ...(initialConversationId ?? routeContext.conversationId
+        ? { conversationId: initialConversationId ?? routeContext.conversationId ?? undefined }
+        : {}),
+      message,
+      files,
+      attachmentFeedback,
+      mode,
+      projectPath,
+      projectQuery: selectedProject?.title ?? projectQuery,
+    });
+  }, [
+    attachmentFeedback,
+    files,
+    initialConversationId,
+    message,
+    mode,
+    onDraftChange,
+    projectPath,
+    projectQuery,
+    routeAgentId,
+    routeContext.conversationId,
+    selectedProject?.title,
+  ]);
 
   const addFiles = useCallback((incoming: File[], action = "Added") => {
     if (isStarting) return;
@@ -241,8 +401,56 @@ export function NewChatComposer({
     acceptTransfer(event.clipboardData, "Pasted");
   }, [acceptTransfer, isStarting]);
 
+  const selectProject = (project: ProjectLaunchTarget) => {
+    projectSelectionTouchedRef.current = true;
+    setProjectPath(project.root);
+    setProjectQuery(project.title);
+    setProjectPickerOpen(false);
+    setActiveProjectIndex(0);
+    requestAnimationFrame(() => textRef.current?.focus());
+  };
+
+  const selectDirectPath = (path: string) => {
+    const trimmed = path.trim();
+    if (!trimmed) return;
+    projectSelectionTouchedRef.current = true;
+    setProjectPath(trimmed);
+    setProjectQuery(projectTitleFromPath(trimmed));
+    setProjectPickerOpen(false);
+    setActiveProjectIndex(0);
+    requestAnimationFrame(() => textRef.current?.focus());
+  };
+
+  const handleProjectKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setProjectPickerOpen(true);
+      setActiveProjectIndex((current) => {
+        if (projectOptionCount === 0) return 0;
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        return (current + delta + projectOptionCount) % projectOptionCount;
+      });
+      return;
+    }
+    if (event.key === "Enter" && projectPickerOpen) {
+      event.preventDefault();
+      const project = filteredProjects[activeProjectIndex];
+      if (project) selectProject(project);
+      else if (directPathCandidate && activeProjectIndex === filteredProjects.length) {
+        selectDirectPath(directPathCandidate);
+      }
+      return;
+    }
+    if (event.key === "Escape" && projectPickerOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      setProjectPickerOpen(false);
+      if (selectedProject) setProjectQuery(selectedProject.title);
+    }
+  };
+
   const start = async () => {
-    if (!agent || isStarting) return;
+    if ((!selectedProject && !routeAgent) || isStarting) return;
     setState("starting");
     setPhase(files.length > 0 ? "uploading" : "starting");
     setError(null);
@@ -253,11 +461,11 @@ export function NewChatComposer({
         setPhase("starting");
       }
 
-      if (hasAttachments) {
+      if (hasAttachments && routeAgent && canUseExistingChat && mode === "existing-chat") {
         const resolvedMode = mode === "existing-chat" && canUseExistingChat
           ? "existing-chat"
           : "new-session";
-        const result = await routeCaptureToAgent(agent, {
+        const result = await routeCaptureToAgent(routeAgent, {
           mode: resolvedMode,
           message: committedMessage,
           attachments,
@@ -268,11 +476,31 @@ export function NewChatComposer({
           conversationId: result.conversationId,
           tab: "message",
         });
+        onDraftConsumed?.();
         onClose();
         return;
       }
 
-      const result = await startAgentSession(agent, committedMessage ? { instructions: committedMessage } : undefined);
+      const result = selectedProject
+        ? await startProjectSession({
+            projectPath: selectedProject.root,
+            harness: selectedProject.defaultHarness,
+            ...(committedMessage
+              ? { instructions: committedMessage }
+              : hasAttachments
+                ? { instructions: "Shared capture for context." }
+                : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
+          })
+        : await startAgentSession(
+            routeAgent!,
+            committedMessage || attachments.length > 0
+              ? {
+                  ...(committedMessage ? { instructions: committedMessage } : {}),
+                  ...(attachments.length > 0 ? { attachments } : {}),
+                }
+              : undefined,
+          );
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
         throw new Error("Message sent, but no Chat was returned.");
@@ -281,6 +509,7 @@ export function NewChatComposer({
         view: "conversation",
         conversationId,
       });
+      onDraftConsumed?.();
       onClose();
     } catch (caught) {
       setError(
@@ -298,7 +527,7 @@ export function NewChatComposer({
   return (
     <div
       className="s-newchat-backdrop"
-      onClick={requestClose}
+      onClick={retainOnBackdropClick}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -318,12 +547,20 @@ export function NewChatComposer({
       >
         <header className="s-newchat-head">
           <span className="s-newchat-title">{title}</span>
+          <div className="s-newchat-head-status">
+            <span role="status" aria-live="polite">
+              {dictationCloseReason ? "" : preservationNotice}
+            </span>
+            <span role="alert">{dictationCloseReason}</span>
+          </div>
           <button
             type="button"
             className="s-newchat-close"
             onClick={requestClose}
             disabled={isStarting}
-            aria-label="Close (Esc)"
+            aria-disabled={Boolean(dictationCloseReason) || undefined}
+            aria-label={dictationCloseReason ?? "Close (Esc)"}
+            title={dictationCloseReason ?? "Close (Esc)"}
           >
             ✕
           </button>
@@ -336,34 +573,102 @@ export function NewChatComposer({
         ) : null}
 
         <div className="s-newchat-body">
-          <label className="s-newchat-field">
-            <span className="s-newchat-field-label">Agent</span>
-            <select
-              className="s-newchat-select"
-              value={agentId}
-              disabled={isStarting}
-              onChange={(event) => setAgentId(event.target.value)}
-            >
-              {sorted.length === 0 ? (
-                <option value="">No agents available</option>
-              ) : (
-                sorted.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name}
-                    {candidate.project ? ` · ${candidate.project}` : ""}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
+          <div className="s-newchat-field">
+            <label className="s-newchat-field-label" htmlFor="s-newchat-project-search">Project</label>
+            <div className="s-newchat-project-picker">
+              <Search size={13} aria-hidden="true" className="s-newchat-project-search-icon" />
+              <input
+                ref={projectInputRef}
+                id="s-newchat-project-search"
+                className="s-newchat-project-search"
+                type="search"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={projectPickerOpen}
+                aria-controls="s-newchat-project-results"
+                aria-activedescendant={projectPickerOpen && projectOptionCount > 0
+                  ? `s-newchat-project-option-${activeProjectIndex}`
+                  : undefined}
+                value={projectQuery}
+                placeholder={configuration ? "Search projects or enter a path…" : "Loading projects…"}
+                disabled={isStarting}
+                spellCheck={false}
+                autoComplete="off"
+                onFocus={() => {
+                  setProjectPickerOpen(true);
+                  setProjectQuery("");
+                  setActiveProjectIndex(0);
+                }}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setProjectPickerOpen(false);
+                    if (selectedProject) setProjectQuery(selectedProject.title);
+                  }, 120);
+                }}
+                onChange={(event) => {
+                  setProjectQuery(event.currentTarget.value);
+                  setProjectPickerOpen(true);
+                  setActiveProjectIndex(0);
+                }}
+                onKeyDown={handleProjectKeyDown}
+              />
+              {projectPickerOpen ? (
+                <div id="s-newchat-project-results" className="s-newchat-project-results" role="listbox">
+                  {filteredProjects.map((project, index) => (
+                    <button
+                      key={project.root}
+                      id={`s-newchat-project-option-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={project.root === projectPath}
+                      className="s-newchat-project-option"
+                      data-active={index === activeProjectIndex || undefined}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveProjectIndex(index)}
+                      onClick={() => selectProject(project)}
+                    >
+                      <span className="s-newchat-project-option-title">/{project.title}</span>
+                      <span className="s-newchat-project-option-path">{shortProjectPath(project.root)}</span>
+                    </button>
+                  ))}
+                  {directPathCandidate ? (
+                    <button
+                      id={`s-newchat-project-option-${filteredProjects.length}`}
+                      type="button"
+                      role="option"
+                      aria-selected={directPathCandidate === projectPath}
+                      className="s-newchat-project-option s-newchat-project-option--path"
+                      data-active={activeProjectIndex === filteredProjects.length || undefined}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveProjectIndex(filteredProjects.length)}
+                      onClick={() => selectDirectPath(directPathCandidate)}
+                    >
+                      <span className="s-newchat-project-option-title">Use this project path</span>
+                      <span className="s-newchat-project-option-path">{shortProjectPath(directPathCandidate)}</span>
+                    </button>
+                  ) : null}
+                  {filteredProjects.length === 0 && !directPathCandidate ? (
+                    <div className="s-newchat-project-empty">
+                      No project matched. Enter an absolute path such as ~/dev/my-project.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
 
-          {agent && (
+          {selectedProject && (
             <div className="s-newchat-target">
-              {agent.project && <span className="s-newchat-chip">{agent.project}</span>}
-              {agent.harness && <span className="s-newchat-chip">{agent.harness}</span>}
-              {agent.model && <span className="s-newchat-chip">{agent.model}</span>}
+              <span className="s-newchat-chip">/{selectedProject.title}</span>
+              <span className="s-newchat-chip" title={selectedProject.root}>{shortProjectPath(selectedProject.root)}</span>
+              <span className="s-newchat-chip">{selectedProject.defaultHarness}</span>
+              <span className="s-newchat-chip">new worker</span>
             </div>
           )}
+
+          {projectLoadError && projectTargets.length === 0 ? (
+            <div className="s-newchat-error" role="alert">{projectLoadError}</div>
+          ) : null}
 
           {hasAttachments && canUseExistingChat ? (
             <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
@@ -436,27 +741,18 @@ export function NewChatComposer({
             onSend={() => void start()}
             textareaRef={textRef}
             placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
-            disabled={isStarting || !agent}
+            disabled={isStarting || (!selectedProject && !routeAgent)}
             sending={isStarting}
-            canSend={Boolean(agent) && !isStarting}
+            canSend={Boolean(selectedProject || routeAgent) && !isStarting}
+            onDictationStatusChange={setDictationStatus}
             showAttach
             onAttach={() => fileInputRef.current?.click()}
-            attachTitle="Attach file"
+            attachTitle="Attach file — or paste / drop"
             attachAriaLabel="Attach file"
             sendTitle={hasAttachments ? "Route (Cmd+Enter)" : "Start chat (Cmd+Enter)"}
             sendAriaLabel={hasAttachments ? "Route capture" : "Start chat"}
             tools={(
-              <span className="s-newchat-hint">
-                {isStarting
-                  ? phase === "uploading"
-                    ? "Uploading…"
-                    : hasAttachments
-                      ? "Routing…"
-                      : "Sending…"
-                  : hasAttachments
-                    ? "⌘↵ to route · paste or drop captures"
-                    : "⌘↵ to start · paste or drop captures"}
-              </span>
+              <span className="s-msg-compose-tools-hint" aria-hidden="true">⌘↵</span>
             )}
           />
         </div>

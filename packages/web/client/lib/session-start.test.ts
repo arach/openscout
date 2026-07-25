@@ -2,10 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import type { Agent } from "./types.ts";
 import {
+  buildProjectLaunchTargets,
+  chooseInitialProjectLaunchTarget,
   harnessFromAdapterType,
   invokeSession,
   resumeAgentSession,
+  searchProjectLaunchTargets,
   startAgentSession,
+  startProjectSession,
 } from "./session-start.ts";
 
 const agent = {
@@ -107,6 +111,45 @@ describe("startAgentSession", () => {
     expect(result.conversationId).toBe("chat:resumed");
   });
 
+  test("starts a one-time project-routed chat without requiring an existing agent", async () => {
+    let requestBody: unknown = null;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = init?.body ? JSON.parse(String(init.body)) : null;
+      return new Response(JSON.stringify({
+        conversationId: "chat:project",
+        agentId: "agent:provisional",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await startProjectSession({
+      projectPath: " /work/any-project ",
+      harness: " codex ",
+      instructions: " Start here. ",
+      attachments: [{
+        url: "http://localhost:43122/api/blobs/capture-2",
+        mediaType: "image/png",
+        fileName: "capture.png",
+      }],
+    });
+
+    expect(requestBody).toEqual({
+      target: { projectPath: "/work/any-project" },
+      execution: { session: "new", harness: "codex" },
+      agent: { persistence: "one_time" },
+      seed: {
+        instructions: "Start here.",
+        attachments: [{
+          url: "http://localhost:43122/api/blobs/capture-2",
+          mediaType: "image/png",
+          fileName: "capture.png",
+        }],
+      },
+    });
+  });
+
   test("invokes a bare observed session using its own execution metadata", async () => {
     let requestBody: unknown = null;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -147,5 +190,71 @@ describe("startAgentSession", () => {
     expect(harnessFromAdapterType("claude-code")).toBe("claude");
     expect(harnessFromAdapterType("CODEX_APP_SERVER")).toBe("codex");
     expect(harnessFromAdapterType("unknown-adapter")).toBeUndefined();
+  });
+});
+
+describe("project-routed New Chat targets", () => {
+  const inventory = [
+    {
+      id: "project:arc",
+      title: "Arc",
+      root: "/Users/test/dev/arc",
+      source: "inferred",
+      registrationKind: "discovered",
+      defaultHarness: "claude",
+      projectConfigPath: null,
+    },
+    {
+      id: "project:openscout",
+      title: "OpenScout",
+      root: "/Users/test/dev/openscout/",
+      source: "manifest",
+      registrationKind: "configured",
+      defaultHarness: "codex",
+      projectConfigPath: "/Users/test/dev/openscout/.openscout/project.json",
+    },
+  ];
+
+  test("uses the full project inventory and only fills missing roots from agents", () => {
+    const targets = buildProjectLaunchTargets(inventory, [
+      agent,
+      {
+        ...agent,
+        id: "agent:arc-old",
+        project: "Old Arc",
+        projectRoot: "/Users/test/dev/arc",
+      },
+    ] as Agent[]);
+
+    expect(targets.map((target) => target.root)).toEqual([
+      "/Users/test/dev/arc",
+      "/Users/test/dev/openscout",
+      "/work/openscout",
+    ]);
+    expect(targets.find((target) => target.root.endsWith("/arc"))).toMatchObject({
+      title: "Arc",
+      source: "inventory",
+      defaultHarness: "claude",
+    });
+  });
+
+  test("searches names and full paths with exact matches ranked first", () => {
+    const targets = buildProjectLaunchTargets(inventory, []);
+    expect(searchProjectLaunchTargets(targets, "open").map((target) => target.title)).toEqual(["OpenScout"]);
+    expect(searchProjectLaunchTargets(targets, "dev arc").map((target) => target.title)).toEqual(["Arc"]);
+  });
+
+  test("prefers route context, then the deepest project containing cwd", () => {
+    const targets = buildProjectLaunchTargets([
+      ...inventory,
+      { ...inventory[0]!, id: "project:nested", title: "Nested", root: "/Users/test/dev/arc/packages/nested" },
+    ], []);
+    expect(chooseInitialProjectLaunchTarget(targets, {
+      preferredRoot: "/Users/test/dev/openscout",
+      currentDirectory: "/Users/test/dev/arc/packages/nested/src",
+    })?.title).toBe("OpenScout");
+    expect(chooseInitialProjectLaunchTarget(targets, {
+      currentDirectory: "/Users/test/dev/arc/packages/nested/src",
+    })?.title).toBe("Nested");
   });
 });

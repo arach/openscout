@@ -15,6 +15,7 @@ import { VoiceWaveform } from "./VoiceWaveform.tsx";
 import "./message-composer.css";
 
 export type MessageComposerDensity = "panel" | "thread" | "compact" | "bare";
+export type MessageComposerDictationStatus = MicStatus;
 
 export type MessageComposerChangeMeta = {
   caret: number;
@@ -42,6 +43,8 @@ export type MessageComposerProps = {
   sendAriaLabel?: string;
   stopAriaLabel?: string;
   showDictation?: boolean;
+  /** Reports dictation lifecycle so a containing focus surface can preserve it. */
+  onDictationStatusChange?: (status: MessageComposerDictationStatus) => void;
   /** Left toolbar: paperclip / add attachment. */
   showAttach?: boolean;
   onAttach?: () => void;
@@ -173,6 +176,7 @@ export function MessageComposer({
   sendAriaLabel = "Send message (Cmd+Enter)",
   stopAriaLabel = "Stop agent",
   showDictation = true,
+  onDictationStatusChange,
   showAttach = false,
   onAttach,
   attachTitle = "Add attachment",
@@ -267,6 +271,11 @@ export function MessageComposer({
     // Focus the field after stop so editing is immediate.
     requestAnimationFrame(() => localRef.current?.focus());
   };
+
+  const handleDictationStatus = useCallback((next: MicStatus) => {
+    setVoiceStatus(next);
+    onDictationStatusChange?.(next);
+  }, [onDictationStatusChange]);
 
   const rootClass = [
     "s-msg-compose",
@@ -404,7 +413,7 @@ export function MessageComposer({
           {showDictation ? (
             <DictationMic
               onAppend={handleDictationAppend}
-              onStatus={setVoiceStatus}
+              onStatus={handleDictationStatus}
               disabled={disabled || sending}
             />
           ) : null}

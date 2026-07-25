@@ -4282,7 +4282,10 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
       capabilities: agent.capabilities,
       conversationId: agent.conversationId,
     })),
-    projects: (setup?.projectInventory ?? []).slice(0, 120).map((project) => ({
+    // Project pickers must search the canonical inventory, not a recent-agent
+    // approximation or an arbitrary first-page cap. These rows are compact and
+    // already deduplicated by canonical project root in setup.
+    projects: (setup?.projectInventory ?? []).map((project) => ({
       id: project.agentId,
       title: project.displayName,
       root: project.projectRoot,

@@ -3,6 +3,8 @@ export const SCOUT_REALTIME_VOICE_CALL_PATH = "/api/voice/realtime/call";
 export const SCOUT_REALTIME_VOICE_LEASE_PATH = "/api/voice/realtime/lease";
 export const SCOUT_REALTIME_VOICE_LEASE_HEADER = "x-openscout-realtime-voice-lease";
 export const SCOUT_REALTIME_VOICE_FLAG = "surface.realtime-voice";
+/** Browser-local operator opt-in. The build flag exposes capability; this setting enables use. */
+export const SCOUT_REALTIME_VOICE_PREFERENCE_KEY = "openscout.realtimeVoice.enabled";
 
 // The Realtime function handler delegates through the existing Scoutbot control
 // loop instead of giving the browser direct access to broker records.

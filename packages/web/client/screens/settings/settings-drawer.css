@@ -457,3 +457,56 @@
     grid-row: 4;
   }
 }
+
+.s-settings-realtime-voice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  cursor: pointer;
+}
+
+.s-settings-realtime-voice[data-enabled="true"] {
+  border-color: color-mix(in srgb, var(--green) 36%, var(--border));
+  background: color-mix(in srgb, var(--green) 6%, var(--surface));
+}
+
+.s-settings-realtime-voice[data-unavailable="true"] {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.s-settings-realtime-voice > input {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  accent-color: var(--green);
+}
+
+.s-settings-realtime-voice-copy {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.s-settings-realtime-voice-copy strong {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.s-settings-realtime-voice-copy > span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.s-settings-realtime-voice-copy em {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-style: normal;
+}

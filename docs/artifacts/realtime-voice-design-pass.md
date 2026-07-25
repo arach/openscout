@@ -45,7 +45,9 @@ Hierarchy when live:
 - Active: last 2 activity events only
 - Quieter start/end buttons (ghost lime / soft red, not solid lime / hard red)
 - Status trigger becomes `VOICE LIVE` only while live
-- Requires explicit consent before every attempt: microphone audio is sent to OpenAI Realtime and billed to the configured OpenAI API account
+- Settings owns the persistent operator opt-in and disclosure that microphone audio is sent to OpenAI Realtime and billed to the configured OpenAI API account
+- The footer Voice play control is the explicit per-call activation; disabling the setting hides the control and ends an active call
+- Spoken navigation uses the existing allowlisted `scout-ui` action bridge, while durable agent requests remain separate and require confirmation
 - Agent-request actions are shown as unsent proposals with explicit **Send request** / **Do not send** controls
 
 ### Right-sidebar relationship
@@ -110,12 +112,14 @@ bun run --cwd packages/web build:client
 bun run --cwd packages/web build:server
 ```
 
-The targeted tests cover cancellation, server enablement, origin rejection, admission, heartbeat/release, rate limiting, and upstream-failure cleanup. A browser pass on the worktree build verified that Start is disabled before consent, enabled after consent, Cancel returns promptly while microphone acquisition is pending, and consent resets before the next attempt.
+The targeted tests cover cancellation, server enablement, origin rejection, admission, heartbeat/release, rate limiting, and upstream-failure cleanup. The UI contract is now a persistent Settings opt-in plus an explicit footer start for every call; cancellation still returns promptly while microphone acquisition is pending.
 
 ## Preserved
 
 - Feature flag remains the UI rollout/discoverability gate
+- Settings remains the operator enablement gate; the footer remains the call start/stop surface
 - WebRTC start/end + Scoutbot function-call bridge unchanged
+- Allowlisted app navigation is applied locally; agent asks remain proposed actions until confirmed
 - Non-realtime Scoutbot chat, dictation, and voice replies unchanged when flag off or call idle
 
 ## Remaining concerns

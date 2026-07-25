@@ -307,12 +307,13 @@ export function DictationMic({
       liveRef.current = null;
       stopLevelSources();
       setSessionState("idle");
+      const recoverablePartial = partialRef.current.trim();
       setPartialText("");
       partialRef.current = "";
       setLastError(null);
       historyRef.current.clear();
       setLevelsTick((n) => n + 1);
-      const text = final.text?.trim();
+      const text = final.text?.trim() || recoverablePartial;
       if (text) {
         onAppend(text);
       } else {
@@ -323,11 +324,19 @@ export function DictationMic({
       liveRef.current = null;
       stopLevelSources();
       setSessionState("idle");
+      const recoverablePartial = partialRef.current.trim();
       setPartialText("");
       partialRef.current = "";
       historyRef.current.clear();
       setLevelsTick((n) => n + 1);
       const message = error instanceof Error ? error.message : "Scout voice recording failed.";
+      if (recoverablePartial) {
+        onAppend(recoverablePartial);
+        if (!(error instanceof Error && error.name === "AbortError")) {
+          reportError(`Recording ended early, but Scout recovered the partial transcript. ${message}`);
+        }
+        return;
+      }
       if (error instanceof Error && error.name === "AbortError") return;
       reportError(message);
       void probeVoice(true);
@@ -351,14 +360,20 @@ export function DictationMic({
       try { await live.cancel(); } catch { /* swallow */ }
       liveRef.current = null;
       setSessionState("idle");
+      const recoverablePartial = partialRef.current.trim();
       setPartialText("");
       partialRef.current = "";
       historyRef.current.clear();
       setLevelsTick((n) => n + 1);
       const message = error instanceof Error ? error.message : "Scout voice recording did not finish.";
-      reportError(message);
+      if (recoverablePartial) {
+        onAppend(recoverablePartial);
+        reportError(`Recording ended early, but Scout recovered the partial transcript. ${message}`);
+      } else {
+        reportError(message);
+      }
     }
-  }, [reportError, stopLevelSources]);
+  }, [onAppend, reportError, stopLevelSources]);
 
   const onClick = useCallback(() => {
     if (sessionState === "recording") {

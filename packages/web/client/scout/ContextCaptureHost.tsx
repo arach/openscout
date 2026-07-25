@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { isEditableTarget } from "../lib/keyboard-nav-core.ts";
 import {
+  contextCaptureDraftHasContent,
+  mergeContextCaptureDraft,
+  type ContextCaptureDraft,
+} from "../lib/context-capture-draft.ts";
+import {
   dataTransferMayContainFiles,
   isRoutableMediaFile,
   readTransferredFiles,
@@ -28,7 +33,10 @@ export function ContextCaptureHost({
   const routeContext = resolveCaptureRouteContext(route, scopedAgents);
   const [dragDepth, setDragDepth] = useState(0);
   const [captureFeedback, setCaptureFeedback] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ContextCaptureDraft | null>(null);
   const dragDepthRef = useRef(0);
+
+  const restoredDraft = request ? mergeContextCaptureDraft(draft, request) : null;
 
   const openCapture = useCallback((files: File[], attachmentFeedback?: string) => {
     if (files.length === 0) return;
@@ -150,12 +158,17 @@ export function ContextCaptureHost({
           route={route}
           navigate={navigate}
           onClose={onClose}
-          initialAgentId={request.agentId}
-          initialConversationId={request.conversationId}
-          initialMessage={request.message}
-          initialFiles={request.files}
-          initialAttachmentFeedback={request.attachmentFeedback}
-          defaultMode={request.preferExistingChat ? "existing-chat" : undefined}
+          initialAgentId={restoredDraft?.agentId}
+          initialConversationId={restoredDraft?.conversationId}
+          initialMessage={restoredDraft?.message}
+          initialFiles={restoredDraft?.files}
+          initialAttachmentFeedback={restoredDraft?.attachmentFeedback ?? undefined}
+          initialProjectPath={restoredDraft?.projectPath}
+          initialProjectQuery={restoredDraft?.projectQuery}
+          defaultMode={restoredDraft?.mode}
+          draftRestored={contextCaptureDraftHasContent(draft)}
+          onDraftChange={setDraft}
+          onDraftConsumed={() => setDraft(null)}
         />
       ) : null}
     </>
