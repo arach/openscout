@@ -462,8 +462,8 @@ export function CodeContent({
   const canShowChanges = Boolean(root && selectedFile);
 
   useEffect(() => {
-    // Preserve the operator's mode while stepping through changed files, but a
-    // clean file always has only its source to show.
+    // Preserve the operator's mode while stepping through rooted files; reset
+    // to Source once there is no file target for Changes to render.
     if (!canShowChanges) setFileMode("source");
   }, [canShowChanges]);
 
