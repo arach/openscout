@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, Folder, FolderPlus, Search } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, Folder, FolderPlus, Search } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
@@ -49,7 +49,7 @@ type ProjectPickOption = {
   lastActivityAt: number;
 };
 
-function ThreadRow({
+export function ThreadRow({
   thread,
   crossProject,
   selected,
@@ -1886,6 +1886,8 @@ function ProjectOverviewWithRepository({
   navigate,
   nowMs,
 }: {
+  project: InboxProject | null;
+  threads: InboxThread[];
   sessions: InboxSession[];
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: Navigate;
@@ -2042,7 +2044,16 @@ export function ProjectsInbox({
         </div>
       )}
 
-      {scoped && mode === "overview" ? (
+      {selectedSessionRef ? (
+        <SelectedSessionMain
+          session={selectedSession}
+          sessionRef={selectedSessionRef}
+          threads={threadsForProject(model.threads, route.projectSlug!)}
+          route={route}
+          navigate={navigate}
+          nowMs={nowMs}
+        />
+      ) : scoped && mode === "overview" ? (
         <ProjectOverviewWithRepository
           project={scopedProject}
           threads={threadsForProject(model.threads, route.projectSlug!)}
