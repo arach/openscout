@@ -278,12 +278,6 @@ struct ScoutRootView: View {
     @State private var agentContentMode: ScoutAgentContentMode = .roster
     @State private var agentsFilterQuery = ""
     @State private var agentsLiveOnly = false
-    /// Which implementation draws the Comms transcript — Settings › Appearance ›
-    /// Conversations. `shared` mounts the web `/embed/thread` surface so web,
-    /// macOS and iOS draw the conversation body from one implementation instead
-    /// of three; the native stack below is untouched and still builds.
-    @AppStorage(ScoutCommsSettings.threadRendererKey)
-    private var threadRendererRaw = ScoutThreadRenderer.fallback.rawValue
     /// Settings › Appearance › Conversations. Passed to the embed as the
     /// `treatment` query param, which re-renders the surface on change.
     @AppStorage(ScoutCommsSettings.threadPresentationKey)
@@ -437,7 +431,7 @@ struct ScoutRootView: View {
 
     @ViewBuilder
     private func captureEnabledContent(layout: ScoutShellLayout) -> some View {
-        content(layout: layout)
+        persistentContent(layout: layout)
             .dropDestination(for: URL.self) { urls, _ in
                 stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
             } isTargeted: { captureDropTargeted = $0 }
@@ -447,6 +441,28 @@ struct ScoutRootView: View {
                 }
             }
             .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
+    }
+
+    /// Native terminal renderers own AppKit views that cannot be torn down and
+    /// recreated like ordinary SwiftUI content without losing their live
+    /// canvas attachment. Keep the terminal page mounted at window scope and
+    /// only hide it while another section is selected.
+    @ViewBuilder
+    private func persistentContent(layout: ScoutShellLayout) -> some View {
+        #if HUDSON_TERMINAL
+        ZStack {
+            terminalContent
+                .opacity(section == .terminals ? 1 : 0)
+                .allowsHitTesting(section == .terminals)
+                .accessibilityHidden(section != .terminals)
+
+            if section != .terminals {
+                content(layout: layout)
+            }
+        }
+        #else
+        content(layout: layout)
+        #endif
     }
 
     private func navigationSidebar(layout: ScoutShellLayout) -> some View {
@@ -729,8 +745,17 @@ struct ScoutRootView: View {
     private func handleAppCommand(_ command: ScoutAppCommand) {
         guard !modalPresented else { return }
         switch command {
-        case .newConversation:
-            startNewConversation()
+        case .newItem:
+            switch ScoutNewItemDestination.resolve(sectionRawValue: section.rawValue) {
+            case .conversation:
+                startNewConversation()
+            case .terminalShell:
+                #if HUDSON_TERMINAL
+                startNewTerminalShell()
+                #else
+                startNewConversation()
+                #endif
+            }
         case .moveDown:
             moveSelection(1)
         case .moveUp:
@@ -1093,6 +1118,22 @@ struct ScoutRootView: View {
             fromConversationId: nil
         )
     }
+
+    #if HUDSON_TERMINAL
+    private func startNewTerminalShell() {
+        let rendererRaw = UserDefaults.standard.string(
+            forKey: ScoutTerminalSettings.rendererKey
+        )
+        let renderer = rendererRaw.flatMap(ScoutTerminalRenderer.init(rawValue:)) ?? .xterm
+        let shells = terminalWorkspaces.selectedWorkspace.shells
+        switch renderer {
+        case .native:
+            shells.native.addLocalShell()
+        case .xterm:
+            shells.web.addTerminalTab(backend: "pty", agent: "shell")
+        }
+    }
+    #endif
 
     private func startConversationInProject(_ group: ScoutAgentsTreeModel.ProjectGroup) {
         repos.refresh()
@@ -1687,11 +1728,7 @@ struct ScoutRootView: View {
             if let channel = store.selectedChannel {
                 VStack(spacing: 0) {
                     chatHeader
-                    if let ask = channel.ask {
-                        ScoutPinnedAskBand(ask: ask)
-                    }
-                    messageList
-                    composer
+                    webConversationDetail(conversationId: channel.cId)
                 }
             } else if let pending = selectedPendingConversation {
                 pendingConversationDetail(pending)
@@ -1721,7 +1758,7 @@ struct ScoutRootView: View {
             if store.messages.isEmpty {
                 pendingConversationThread(pending)
             } else {
-                messageList
+                nativeMessageList
             }
             composer
         }
@@ -2388,36 +2425,20 @@ struct ScoutRootView: View {
         )
     }
 
-    private var threadRenderer: ScoutThreadRenderer {
-        ScoutThreadRenderer(rawValue: threadRendererRaw) ?? .fallback
-    }
-
     private var threadPresentation: ScoutThreadPresentation {
         ScoutThreadPresentation(rawValue: threadPresentationRaw) ?? .fallback
     }
 
-    @ViewBuilder
-    private var messageList: some View {
-        if threadRenderer == .shared, let conversationId = store.selectedCId {
-            webThreadTranscript(conversationId: conversationId)
-        } else {
-            nativeMessageList
-        }
-    }
-
-    /// The conversation, drawn by the same component the web app renders at
-    /// /chat — not an embed-only variant of it. Keyed on the conversation so
-    /// switching threads reloads rather than reusing a web view still scrolled
-    /// to the previous thread's tail.
-    private func webThreadTranscript(conversationId: String) -> some View {
+    /// The complete conversation body, including its composer, is drawn by the
+    /// same component as the web app. Keeping the transcript and input together
+    /// preserves one presentation, one draft model, and one dictation path.
+    /// Keying on the conversation prevents a web view still showing the prior
+    /// thread's tail from being reused after selection changes.
+    private func webConversationDetail(conversationId: String) -> some View {
         ScoutWebEmbedContent(
             surface: .thread,
             extraQueryItems: [
                 URLQueryItem(name: "conversationId", value: conversationId),
-                // This window keeps its native composer — for the pasteboard,
-                // drag-drop, dictation and ⌘↩ it can reach and a web view
-                // can't. Without this the embed stacks a second one under it.
-                URLQueryItem(name: "composer", value: "0"),
                 URLQueryItem(name: "treatment", value: threadPresentation.rawValue),
             ],
             showsHeader: false

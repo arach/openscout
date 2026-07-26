@@ -61,6 +61,8 @@ struct ScoutSettingsView: View {
     @State private var voiceInputDevices: [ScoutVoiceInputDevice] = []
     @State private var voiceInputDeviceId: String = ""
     @AppStorage(ScoutTerminalSettings.rendererKey) private var terminalRenderer = ScoutTerminalRenderer.xterm.rawValue
+    @AppStorage(ScoutTerminalSettings.defaultBackendKey)
+    private var terminalDefaultBackend = ScoutTerminalDefaultBackend.automatic.rawValue
     @AppStorage(ScoutTerminalSettings.fontFamilyKey) private var terminalFontFamily = ScoutTerminalSettings.defaultFontFamily
     @AppStorage(ScoutTerminalSettings.fontSizeKey) private var terminalFontSize = ScoutTerminalSettings.defaultFontSize
     @AppStorage(ScoutTerminalSettings.showNativeHeadersKey) private var showNativeTerminalHeaders = true
@@ -220,16 +222,32 @@ struct ScoutSettingsView: View {
     private var terminalPage: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
             settingsBlock(title: "Workspace canvas") {
-                settingRow(title: "Show first") {
-                    Picker("Visible shell renderer", selection: $terminalRenderer) {
-                        ForEach(ScoutTerminalRenderer.allCases, id: \.rawValue) { renderer in
-                            Text(renderer.title).tag(renderer.rawValue)
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    settingRow(title: "Show first") {
+                        Picker("Visible shell renderer", selection: $terminalRenderer) {
+                            ForEach(ScoutTerminalRenderer.allCases, id: \.rawValue) { renderer in
+                                Text(renderer.title).tag(renderer.rawValue)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .tint(ScoutPalette.accent)
+                        .labelsHidden()
+                        .frame(width: 300)
                     }
-                    .pickerStyle(.segmented)
-                    .tint(ScoutPalette.accent)
-                    .labelsHidden()
-                    .frame(width: 300)
+
+                    settingRow(title: "New native terminals") {
+                        Picker("Default terminal backend", selection: $terminalDefaultBackend) {
+                            ForEach(ScoutTerminalDefaultBackend.allCases, id: \.rawValue) { backend in
+                                Text(backend.title).tag(backend.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 300)
+                    }
+
+                    Text(selectedTerminalBackend.detail)
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
                 }
             }
 
@@ -290,6 +308,10 @@ struct ScoutSettingsView: View {
     private var terminalFontChoices: [String] {
         let choices = ScoutTerminalSettings.availableFontFamilies
         return choices.contains(terminalFontFamily) ? choices : [terminalFontFamily] + choices
+    }
+
+    private var selectedTerminalBackend: ScoutTerminalDefaultBackend {
+        ScoutTerminalDefaultBackend(rawValue: terminalDefaultBackend) ?? .automatic
     }
 
     private var voicePage: some View {

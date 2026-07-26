@@ -17,6 +17,32 @@ public struct ScoutChannelAsk: Decodable, Sendable, Equatable {
     public let state: ScoutAskState
 }
 
+public enum ScoutTurnState: String, Decodable, Sendable, Equatable {
+    case queued
+    case working
+    case waiting
+    case completed
+    case failed
+    case replied
+}
+
+public enum ScoutTurnOwner: String, Decodable, Sendable, Equatable {
+    case agent
+    case `operator`
+    case none
+}
+
+public struct ScoutChannelTurn: Decodable, Sendable, Equatable {
+    public let messageId: String
+    public let invocationId: String?
+    public let flightId: String?
+    public let from: String
+    public let text: String
+    public let state: ScoutTurnState
+    public let nextMoveOwner: ScoutTurnOwner
+    public let updatedAt: TimeInterval
+}
+
 public struct ScoutChannelParticipant: Identifiable, Decodable, Sendable, Equatable {
     public let actorId: String
     public let kind: String?
@@ -52,6 +78,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let anchorMessageId: String?
     public private(set) var unreadCount: Int
     public let ask: ScoutChannelAsk?
+    public let turn: ScoutChannelTurn?
 
     public var id: String { cId }
     public var chatId: String { cId }
@@ -181,6 +208,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         case anchorMessageId
         case unreadCount
         case ask
+        case turn
     }
 
     public init(from decoder: Decoder) throws {
@@ -208,6 +236,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         anchorMessageId = try c.decodeIfPresent(String.self, forKey: .anchorMessageId)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
         ask = try c.decodeIfPresent(ScoutChannelAsk.self, forKey: .ask)
+        turn = try c.decodeIfPresent(ScoutChannelTurn.self, forKey: .turn)
     }
 
     private func displayName(for participant: String) -> String {
