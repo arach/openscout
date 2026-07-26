@@ -424,7 +424,14 @@ export class BrokerLocalInvocationService {
         }
       }
     } catch (error) {
-      await this.handleExecutionError({ error, invocation, target, runningEndpoint, runningFlight });
+      await this.handleExecutionError({
+        error,
+        invocation,
+        target,
+        runningEndpoint,
+        runningFlight,
+        priorEndpointState: endpoint.state,
+      });
     }
   }
 
@@ -474,8 +481,16 @@ export class BrokerLocalInvocationService {
     target: LocalInvocationTargetIdentity;
     runningEndpoint: AgentEndpoint;
     runningFlight: FlightRecord;
+    priorEndpointState: AgentEndpoint["state"];
   }): Promise<void> {
-    const { error, invocation, target, runningEndpoint, runningFlight } = input;
+    const {
+      error,
+      invocation,
+      target,
+      runningEndpoint,
+      runningFlight,
+      priorEndpointState,
+    } = input;
     const message = error instanceof Error ? error.message : String(error);
     if (isRequesterWaitTimeoutError(error)) {
       const currentFlight = this.options.runtime.flightForInvocation(invocation.id);
@@ -529,7 +544,11 @@ export class BrokerLocalInvocationService {
 
       await this.options.persistEndpoint({
         ...runningEndpoint,
-        state: "offline",
+        // A stalled submit verification says nothing about endpoint liveness:
+        // every tmux operation, including the final pane capture, succeeded.
+        // Restore the state we replaced with "active" for this invocation and
+        // leave offline transitions to an actual endpoint/session probe.
+        state: priorEndpointState,
         metadata: {
           ...(runningEndpoint.metadata ?? {}),
           lastError: message,

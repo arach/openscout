@@ -102,6 +102,38 @@ describe("tmux prompt delivery", () => {
     expect(strategy.verify(pendingTail)).toBe(false);
   });
 
+  test("verifier accepts a prompt queued while Claude is actively working", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const queuedTail = paneTail([
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+      "  ✻ Working… (esc to interrupt) · 12.4k tokens",
+    ]);
+
+    expect(strategy.verify(queuedTail)).toBe(true);
+  });
+
+  test("verifier does not mistake an idle token counter for queued acceptance", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const pendingTail = paneTail([
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ draft still pending in the composer",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+      "  -- INSERT -- ⏵⏵ bypass permissions on · 12.4k tokens",
+    ]);
+
+    expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
   test("verifier accepts harness activity emitted after the submitted prompt", () => {
     const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
     const acceptedTail = paneTail([

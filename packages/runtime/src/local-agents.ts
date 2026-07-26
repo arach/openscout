@@ -3262,6 +3262,15 @@ const TMUX_PASTE_DRAIN_MS = 150;
 const TMUX_VERIFY_FIRST_SAMPLE_MS = 250;
 const TMUX_VERIFY_SECOND_SAMPLE_MS = 750;
 const TMUX_VERIFY_RETRY_SAMPLE_MS = 400;
+const TMUX_VERIFY_POLL_MS = 250;
+// After the submit + retry samples (~1.4s) we keep sampling to a deadline rather
+// than declaring a stall. A harness that is mid-turn drains its composer only
+// once the turn yields — it is busy redrawing a live transcript — so a working
+// agent routinely needs more than 1.4s to acknowledge a pasted prompt. The old
+// fixed-sample budget reported those agents as stalled, which then latched their
+// endpoint offline and failed every queued delivery as `agent_offline`.
+const TMUX_VERIFY_IDLE_DEADLINE_MS = 4_000;
+const TMUX_VERIFY_BUSY_DEADLINE_MS = 15_000;
 const TMUX_CAPTURE_TAIL_LINES = 20;
 const TMUX_DEFAULT_COLUMNS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_COLUMNS, 160);
 const TMUX_DEFAULT_ROWS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_ROWS, 48);
@@ -3345,6 +3354,17 @@ export async function sendTmuxPrompt(
     await execSystemFile("tmux", ["send-keys", "-t", sessionName, "Enter"], { timeoutMs: 2_000 });
     if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_RETRY_SAMPLE_MS)) {
       return { submitted: true, retries: 1 };
+    }
+
+    // Not acknowledged yet — but "not yet" is not "stalled". Keep sampling to a
+    // deadline sized by what the pane is actually doing: a visibly busy harness
+    // gets the long grace period, an idle one stays close to the old budget.
+    const deadlineAt = Date.now()
+      + tmuxVerifyDeadlineMs(await captureTmuxPaneTail(sessionName, TMUX_CAPTURE_TAIL_LINES));
+    while (Date.now() < deadlineAt) {
+      if (await dispatchVerifiedAfter(sessionName, effectiveStrategy, TMUX_VERIFY_POLL_MS)) {
+        return { submitted: true, retries: 1 };
+      }
     }
 
     throw new DispatchStalledError({
@@ -3463,6 +3483,15 @@ function tmuxPaneTailShowsClaudePromptAccepted(paneTail: string): boolean {
     return tmuxPaneTailShowsHarnessActivity(cleanedTail);
   }
 
+  // Claude keeps accepted steering/queued input visible in the composer while
+  // the current turn is running. In that state a non-empty composer does not
+  // mean Enter was swallowed; the live status footer is the acknowledgement.
+  // Match the explicit interrupt affordance rather than generic activity or a
+  // token counter, both of which can also appear in an idle pane.
+  if (tmuxPaneTailShowsActiveClaudeTurn(cleanedTail)) {
+    return true;
+  }
+
   const outputAfterPrompt = lines.slice(anchor.index + 1).join("\n");
   if (tmuxPaneTailShowsHarnessActivity(outputAfterPrompt)) {
     return true;
@@ -3472,6 +3501,10 @@ function tmuxPaneTailShowsClaudePromptAccepted(paneTail: string): boolean {
     ? collectInlineComposerText(lines, anchor.index)
     : collectBoxedComposerText(lines, anchor.index);
   return composerText.length === 0;
+}
+
+function tmuxPaneTailShowsActiveClaudeTurn(paneTail: string): boolean {
+  return /\besc\s+to\s+interrupt\b/i.test(paneTail);
 }
 
 function textContainsPromptFragment(haystack: string, prompt: string): boolean {
@@ -3576,6 +3609,18 @@ function isTmuxComposerBoundary(line: string): boolean {
   }
   return /^--\s*(?:INSERT|NORMAL)\s*--/.test(trimmed)
     || /^(?:Opus|Sonnet|Haiku|Claude|Codex|GPT|Grok)\b/.test(trimmed);
+}
+
+/**
+ * How long to keep sampling for a submit acknowledgement before calling the
+ * dispatch stalled. A pane that is visibly mid-turn is working, not wedged, so
+ * it earns the long deadline; a quiet pane stays near the original budget so a
+ * genuinely swallowed Enter still surfaces quickly.
+ */
+export function tmuxVerifyDeadlineMs(paneTail: string): number {
+  return tmuxPaneTailShowsHarnessActivity(paneTail)
+    ? TMUX_VERIFY_BUSY_DEADLINE_MS
+    : TMUX_VERIFY_IDLE_DEADLINE_MS;
 }
 
 function tmuxPaneTailShowsHarnessActivity(paneTail: string): boolean {
