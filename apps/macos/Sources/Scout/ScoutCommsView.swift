@@ -1045,9 +1045,11 @@ struct ScoutConversationRow: View {
                                 .foregroundStyle(ScoutPalette.ink)
                                 .lineLimit(1)
 
-                            // Pending-ask chip — only while the ask is unresolved. An
-                            // answered ask is noise here, so it never shows a chip.
-                            if channel.ask?.state == .pending {
+                            if let turn = channel.turn,
+                               turn.state != .replied,
+                               turn.state != .completed {
+                                turnChip(turn)
+                            } else if channel.ask?.state == .pending {
                                 pendingChip
                             }
 
@@ -1173,6 +1175,30 @@ struct ScoutConversationRow: View {
                     .fill(ScoutPalette.statusWarn.opacity(0.18))
             )
             .fixedSize()
+    }
+
+    private func turnChip(_ turn: ScoutChannelTurn) -> some View {
+        let presentation: (label: String, tint: Color) = switch turn.state {
+        case .queued: ("queued", ScoutPalette.statusWarn)
+        case .working: ("working", ScoutPalette.statusOk)
+        case .waiting: ("waiting", ScoutPalette.statusWarn)
+        case .failed: ("failed", ScoutPalette.statusError)
+        case .completed: ("done", ScoutPalette.statusOk)
+        case .replied: ("replied", ScoutPalette.statusInfo)
+        }
+
+        return Text(presentation.label.uppercased())
+            .font(HudFont.mono(8, weight: .bold))
+            .tracking(0.3)
+            .foregroundStyle(presentation.tint)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(presentation.tint.opacity(0.18))
+            )
+            .fixedSize()
+            .help(turn.text)
     }
 
     private var rowBackground: Color {
