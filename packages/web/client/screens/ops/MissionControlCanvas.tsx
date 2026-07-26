@@ -28,6 +28,7 @@ export type CanvasLayout = {
     y: number;
     w: number;
     h: number;
+    summary: string;
     tiles: Array<{ agentId: string; x: number; y: number }>;
   }>;
   canvasW: number;

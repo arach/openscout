@@ -14,8 +14,36 @@ const UNORDERED_LIST_PATTERN = /^\s*[-*]\s+(.+)$/u;
 const ORDERED_LIST_PATTERN = /^\s*\d+[.)]\s+(.+)$/u;
 const TABLE_SEPARATOR_PATTERN = /^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$/u;
 
+/**
+ * Agent/CLI messages occasionally arrive with a second layer of JSON-style
+ * escaping, so intended line breaks are stored as the two visible characters
+ * `\\n`. In a transcript that turns otherwise structured prose into one large
+ * paragraph.
+ *
+ * Do not decode every `\\n`: it is legitimate content in source snippets,
+ * regular expressions, and Windows paths. A blank-line escape or an escaped
+ * break immediately before a Markdown-style block is strong evidence that the
+ * whole value is an encoded multiline message. Once that signal is present,
+ * restore all of its escaped line breaks before parsing the blocks.
+ */
+function restoreEscapedMessageLineBreaks(value: string): string {
+  if (/[\r\n]/u.test(value)) {
+    return value;
+  }
+
+  const hasEncodedLayout = /(?:(?:\\r)?\\n){2}/u.test(value)
+    || /(?:\\r)?\\n(?=\s*(?:#{1,6}\s|[-*+]\s|>\s|\d+[.)]\s|[A-Z][A-Za-z ]{0,40}:))/u.test(value);
+  if (!hasEncodedLayout) {
+    return value;
+  }
+
+  return value.replace(/\\r\\n|\\n|\\r/gu, "\n");
+}
+
 export function normalizeMessageMarkupText(value: string): string {
-  const normalized = value.replace(/\r\n?/gu, "\n").trim();
+  const normalized = restoreEscapedMessageLineBreaks(value)
+    .replace(/\r\n?/gu, "\n")
+    .trim();
   if (!normalized) {
     return "";
   }

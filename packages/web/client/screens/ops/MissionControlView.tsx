@@ -59,6 +59,7 @@ import {
   TILE_H,
   TILE_W,
   clamp,
+  missionGroupLabel,
 } from "./mission-control-model.ts";
 
 /* ── Viewport persistence ── */
@@ -90,11 +91,22 @@ function loadViewport(): { pan: { x: number; y: number }; zoom: number } | null 
 /* ── Layout engine ── */
 
 type LayoutTile = { agentId: string; x: number; y: number };
-type LayoutGroup = { label: string; x: number; y: number; w: number; h: number; tiles: LayoutTile[] };
+type LayoutGroup = {
+  label: string;
+  summary: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  tiles: LayoutTile[];
+};
 type CanvasSubject = {
   id: string;
   name: string;
-  group: string;
+  workspace: string | null;
+  harness: string | null;
+  state: string | null;
+  source: "scout" | "native";
   stateRank: number;
   activity: MissionActivityState;
   bandLabel: string;
@@ -150,7 +162,15 @@ function computeMasonryLayout(groups: SubjectGroup[]): CanvasLayout {
       y: y + GROUP_LABEL_H + Math.floor(i / cols) * (TILE_H + TILE_GAP),
     }));
 
-    laid.push({ label: group.label, x, y, w: groupW, h: groupH, tiles });
+    laid.push({
+      label: group.label,
+      summary: groupActivitySummary(group.subjects),
+      x,
+      y,
+      w: groupW,
+      h: groupH,
+      tiles,
+    });
     colHeights[shortestCol] = y + groupH + GROUP_GAP_Y;
   }
 
@@ -179,7 +199,15 @@ function computeActivityLayout(groups: SubjectGroup[]): CanvasLayout {
       y: y + GROUP_LABEL_H + Math.floor(i / cols) * (TILE_H + TILE_GAP),
     }));
 
-    laid.push({ label: group.label, x, y, w: groupW, h: groupH, tiles });
+    laid.push({
+      label: group.label,
+      summary: groupActivitySummary(group.subjects),
+      x,
+      y,
+      w: groupW,
+      h: groupH,
+      tiles,
+    });
     canvasW = Math.max(canvasW, x + groupW);
     y += groupH + GROUP_GAP_Y;
   }
@@ -221,8 +249,25 @@ function subjectGroupLabel(
   subject: CanvasSubject,
   groupMode: MissionGroupMode,
 ): string {
-  if (groupMode === "workspace") return subject.group;
-  return subject.bandLabel;
+  return missionGroupLabel({
+    activityLabel: subject.bandLabel,
+    workspace: subject.workspace,
+    harness: subject.harness,
+    state: subject.state,
+    source: subject.source,
+  }, groupMode);
+}
+
+function groupActivitySummary(subjects: CanvasSubject[]): string {
+  const live = subjects.filter((subject) => subject.activity === "active").length;
+  const recent = subjects.filter((subject) => subject.activity === "recent").length;
+  const idle = subjects.length - live - recent;
+  return [
+    `${subjects.length} total`,
+    live > 0 ? `${live} live` : null,
+    recent > 0 ? `${recent} recent` : null,
+    idle > 0 ? `${idle} idle` : null,
+  ].filter(Boolean).join(" · ");
 }
 
 function sortSubjectsByPriority(a: CanvasSubject, b: CanvasSubject): number {
@@ -283,7 +328,10 @@ function agentSubject(
   return {
     id: agent.id,
     name: agent.name,
-    group: agent.project ?? "unassigned",
+    workspace: agent.project,
+    harness: agent.harness,
+    state: agent.state,
+    source: "scout",
     stateRank: agentStateRank(state),
     activity: band.activity,
     bandLabel: band.label,
@@ -297,7 +345,10 @@ function nativeSubject(session: NativeSessionModel, now: number): CanvasSubject 
   return {
     id: session.id,
     name: session.agent.name,
-    group: `native ${session.transcript.source}`,
+    workspace: session.agent.project,
+    harness: session.agent.harness ?? session.transcript.source,
+    state: session.agent.state,
+    source: "native",
     stateRank: session.current ? 0 : 1,
     activity: band.activity,
     bandLabel: band.label,
@@ -1127,7 +1178,8 @@ export function MissionControlView({
                 ].filter(Boolean).join(" ")}
                 style={{ left: g.x, top: g.y }}
               >
-                {g.label} · {g.tiles.length}
+                <span className="s-mission-group-name">{g.label}</span>
+                <span className="s-mission-group-summary">{g.summary}</span>
               </div>
             ))}
 

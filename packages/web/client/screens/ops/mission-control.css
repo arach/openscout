@@ -52,6 +52,19 @@
   pointer-events: none;
   white-space: nowrap;
   padding: 0 var(--space-2xs);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.s-mission-group-name {
+  color: inherit;
+}
+
+.s-mission-group-summary {
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
 }
 
 .s-mission-group-label--active {

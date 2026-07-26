@@ -12,6 +12,7 @@ import type {
 
 import { applyInvocationStatusPatch } from "./broker-local-invocation-helpers.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
+import { DispatchStalledError } from "./dispatch-stalled.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
 function testAgent(input: Partial<AgentDefinition> = {}): AgentDefinition {
@@ -600,6 +601,40 @@ describe("BrokerLocalInvocationService", () => {
       }),
     }));
     expect(harness.statusMessages).toEqual([]);
+  });
+
+  test("dispatch verification stalls do not mark a live endpoint offline", async () => {
+    const endpoint = testEndpoint({
+      id: "endpoint-tmux",
+      transport: "tmux",
+      state: "working",
+    });
+    const harness = createHarness({
+      endpoint,
+      invokeError: new DispatchStalledError({
+        sessionName: "session-live",
+        paneTail: "❯ queued prompt remains visible",
+        retries: 1,
+      }),
+      now: 32_000,
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
+
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "failed"]);
+    expect(harness.persistedEndpoints).toHaveLength(2);
+    expect(harness.persistedEndpoints[0]).toEqual(expect.objectContaining({
+      state: "active",
+    }));
+    expect(harness.persistedEndpoints[1]).toEqual(expect.objectContaining({
+      state: "working",
+      metadata: expect.objectContaining({
+        lastFailureStage: "dispatch_stalled",
+        lastError: "tmux dispatch for session session-live left the prompt in the composer after submit + 1 retry.",
+      }),
+    }));
+    expect(harness.statusMessages).toHaveLength(1);
   });
 
   test("a late transport error does not overwrite a broker-reply completion", async () => {

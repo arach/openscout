@@ -28,14 +28,14 @@ export default function EngIndex() {
     <main className="mx-auto max-w-page px-7 py-6 pb-16">
       <header className="mb-6 flex flex-wrap items-baseline gap-4 border-b border-studio-edge pb-4 pt-1.5">
         <div>
-          <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             Engineering · SCO series
           </div>
-          <h1 className="m-0 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+          <h1 className="m-0 font-display text-6xl font-medium leading-none tracking-tight text-studio-ink">
             Engineering Docs
           </h1>
         </div>
-        <div className="ml-auto flex flex-wrap items-baseline gap-3 font-mono text-[10px] text-studio-ink-faint">
+        <div className="ml-auto flex flex-wrap items-baseline gap-3 font-mono text-xs text-studio-ink-faint">
           <span>{docs.length} docs</span>
           <Sep />
           <span>{primaries.length} families</span>
@@ -54,9 +54,9 @@ export default function EngIndex() {
         </div>
       </header>
 
-      <p className="mb-8 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+      <p className="mb-8 max-w-prose font-sans text-lg leading-relaxed text-studio-ink-faint">
         Decision docs for the OpenScout codebase. Source of truth lives at{" "}
-        <code className="font-mono text-[11px] text-studio-ink">docs/eng/</code>
+        <code className="font-mono text-sm text-studio-ink">docs/eng/</code>
         . Edits to the markdown files appear here on next request — no copy
         step. Sibling implementation plans and reviews collapse under their
         proposal.
@@ -94,16 +94,16 @@ function Section({
   return (
     <section className="mb-10">
       <div className="mb-3 flex items-baseline gap-3">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        <div className="text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · {title}
         </div>
-        <div className="font-mono text-[9px] uppercase tracking-[0.20em] text-studio-ink-faint">
+        <div className="font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
           {count} {count === 1 ? "entry" : "entries"}
         </div>
         <div className="ml-3 h-px flex-1 bg-studio-edge" />
       </div>
       {count === 0 && emptyCopy ? (
-        <p className="font-sans text-[12px] italic text-studio-ink-faint">
+        <p className="font-sans text-md italic text-studio-ink-faint">
           {emptyCopy}
         </p>
       ) : (
@@ -144,19 +144,19 @@ function DocRow({
       href={`/eng/${doc.slug}`}
       className="focus-ring group flex items-baseline gap-4 border-b border-studio-edge px-3 py-1.5 transition-colors hover:bg-studio-canvas-alt"
     >
-      <span className="w-[80px] shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.15em] text-studio-ink-faint tabular-nums group-hover:text-scout-accent">
+      <span className="w-[80px] shrink-0 font-mono text-sm font-semibold uppercase tracking-[0.15em] text-studio-ink-faint tabular-nums group-hover:text-scout-accent">
         {doc.scoId ? doc.scoId.toUpperCase() : "note"}
       </span>
 
-      <span className="min-w-0 flex-[2] truncate font-sans text-[13.5px] font-medium tracking-tight text-studio-ink">
+      <span className="min-w-0 flex-[2] truncate font-sans text-lg font-medium tracking-tight text-studio-ink">
         {doc.title}
       </span>
 
-      <span className="hidden min-w-0 flex-[3] truncate font-sans text-[12.5px] text-studio-ink-faint lg:block">
+      <span className="hidden min-w-0 flex-[3] truncate font-sans text-md text-studio-ink-faint lg:block">
         {doc.blurb ?? ""}
       </span>
 
-      <span className="hidden w-[44px] shrink-0 text-right font-mono text-[9.5px] uppercase tracking-eyebrow text-studio-ink-faint md:inline">
+      <span className="hidden w-[44px] shrink-0 text-right font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint md:inline">
         {doc.siblings.length > 0 ? `+${doc.siblings.length}` : ""}
       </span>
 

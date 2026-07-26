@@ -54,7 +54,7 @@ function Pill({
       type="button"
       onClick={onClick}
       className={[
-        "focus-ring flex-1 rounded-[2px] px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] transition-colors",
+        "focus-ring flex-1 rounded-[2px] px-2 py-1 font-mono text-2xs font-semibold uppercase tracking-ch transition-colors",
         active
           ? "bg-studio-canvas-alt text-studio-ink"
           : "text-studio-ink-faint hover:text-studio-ink",

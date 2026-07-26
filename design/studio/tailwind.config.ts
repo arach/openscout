@@ -83,7 +83,52 @@ const config: Config = {
           "monospace",
         ],
       },
+      /**
+       * Type ladder — whole pixels only.
+       *
+       * The studio had no fontSize scale at all: every size was an arbitrary
+       * `text-[Npx]` value, 25 distinct sizes across the chrome, eight of them
+       * fractional (7.5 / 8.5 / 9.5 / 10.5 / 11.5 / 12.5 / 13.5 / 14.5). Half-
+       * pixels do not survive rounding at these sizes — 9.5px and 10.5px render
+       * as the same glyphs on a 2x display, so the ladder had rungs that were
+       * not visually distinct while the code implied they were.
+       *
+       * These steps mirror the Scout web scale in `docs/design/tokens.md`, so
+       * the studio and the product it designs share one ladder rather than two
+       * dialects. Snapping, per that same doc: fractional → nearest, ties down
+       * (9.5→9, 10.5→11, 12.5→12, 13.5→13).
+       *
+       * NOTE: these override Tailwind's defaults, so `text-sm` is 11px here,
+       * not 14px. That is deliberate — the studio is a closed system and the
+       * names should mean the Scout ladder. Sizes carry no line-height; set
+       * leading explicitly (`leading-none` for eyebrows, `leading-relaxed` for
+       * prose) so a size change never silently drags leading with it.
+       */
+      fontSize: {
+        "2xs": "9px",
+        xs: "10px",
+        sm: "11px",
+        md: "12px",
+        lg: "13px",
+        xl: "14px",
+        "2xl": "16px",
+        "3xl": "18px",
+        "4xl": "20px",
+        "5xl": "24px",
+        "6xl": "28px",
+      },
       letterSpacing: {
+        // `eyebrow` is the studio's signature wide label tracking (278 call
+        // sites) and stays put. `label` and `caps` exist so the ad-hoc
+        // `tracking-[0.12em]` / `[0.14em]` / `[0.20em]` values have somewhere
+        // to land instead of multiplying.
+        //
+        // Deliberately NOT named `tight` / `wide` / `wider`: those are Tailwind
+        // defaults, and `tracking-tight` alone has 212 call sites here. Adding
+        // them under `extend` would silently flip that class from -0.025em to a
+        // positive value and loosen every display heading in the studio.
+        label: "0.08em",
+        caps: "0.12em",
         eyebrow: "0.22em",
         ch: "0.18em",
         status: "0.28em",

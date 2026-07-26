@@ -6,6 +6,7 @@ import {
   buildTmuxPasteBufferArgs,
   tmuxPaneTailContainsPromptFragment,
   tmuxPaneTailShowsReadyComposer,
+  tmuxVerifyDeadlineMs,
 } from "./local-agents";
 
 function paneTail(lines: string[]): string {
@@ -100,6 +101,80 @@ describe("tmux prompt delivery", () => {
     ]);
 
     expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
+  test("verifier accepts a prompt queued while Claude is actively working", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const queuedTail = paneTail([
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+      "  ✻ Working… (esc to interrupt) · 12.4k tokens",
+    ]);
+
+    expect(strategy.verify(queuedTail)).toBe(true);
+  });
+
+  test("verifier accepts Claude's queued-message composer placeholder", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const queuedTail = paneTail([
+      "❯ New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.",
+      "",
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ Press up to edit queued messages",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+      "  -- INSERT -- ⏵⏵ bypass permissions on",
+    ]);
+
+    expect(strategy.verify(queuedTail)).toBe(true);
+  });
+
+  test("verifier does not mistake an idle token counter for queued acceptance", () => {
+    const strategy = buildTmuxDispatchStrategy("claude", brokerAskPrompt);
+    const pendingTail = paneTail([
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "",
+      "───────────────────────────── relay-agent ──",
+      "❯ draft still pending in the composer",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+      "  -- INSERT -- ⏵⏵ bypass permissions on · 12.4k tokens",
+    ]);
+
+    expect(strategy.verify(pendingTail)).toBe(false);
+  });
+
+  // The predicate above decides WHETHER a submit was acknowledged; the deadline
+  // below decides HOW LONG we keep asking before calling it a stall. Both had to
+  // change: a working pane can be slow to drain its composer even when nothing
+  // in the tail says "queued", and the old fixed ~1.4s budget turned that
+  // slowness into a stall, which then latched the endpoint offline.
+  test("busy panes earn a longer verification deadline than idle ones", () => {
+    const busyTail = paneTail([
+      "⏺ Update(packages/runtime/src/local-agents.ts)",
+      "  ⎿  Added 9 lines, removed 2 lines",
+      "───────────────────────────── relay-agent ──",
+      "❯ ",
+    ]);
+    const idleTail = paneTail([
+      "───────────────────────────── relay-agent ──",
+      "❯ ",
+      "────────────────────────────────────────────────────────────────────────────────",
+      "  Opus 5 │ ⎇ main │ ~/dev/openscout",
+    ]);
+
+    expect(tmuxVerifyDeadlineMs(busyTail)).toBeGreaterThan(tmuxVerifyDeadlineMs(idleTail));
+    // An idle pane still reports a genuinely swallowed Enter promptly.
+    expect(tmuxVerifyDeadlineMs(idleTail)).toBeLessThanOrEqual(5_000);
   });
 
   test("verifier accepts harness activity emitted after the submitted prompt", () => {

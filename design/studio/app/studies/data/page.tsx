@@ -51,7 +51,7 @@ export default async function DataInspectorPage({
   return (
     <div className="flex max-w-5xl flex-col gap-5 px-8 py-8 text-studio-ink">
       <header className="flex flex-col gap-1">
-        <h1 className="font-sans text-xl font-medium tracking-tight">Session DB explorer</h1>
+        <h1 className="font-sans text-4xl font-medium tracking-tight">Session DB explorer</h1>
         <p className="text-[12.5px] leading-relaxed text-studio-ink-faint">
           Make the shape of the{" "}
           <a className="underline-offset-4 hover:text-studio-ink hover:underline" href="/studies/session-search">

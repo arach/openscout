@@ -12,7 +12,7 @@
  * Studio only until ported to PullRequestAssignDialog.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import {
   MessageComposer,
@@ -131,12 +131,7 @@ function HeaderChip({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className={cx(
-        "inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1",
-        "bg-studio-ink/[0.06] transition-colors",
-        "hover:bg-studio-ink/[0.1]",
-        open && "bg-studio-ink/[0.12] ring-1 ring-studio-ink/15",
-      )}
+      className="focus-ring ink-chip inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 transition-colors"
     >
       <span className="shrink-0 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-studio-ink-faint">
         {label}
@@ -181,6 +176,20 @@ export function PrAssignReviewStudy() {
     [projectPath],
   );
 
+  // Escape closes an open picker. The panels expand inline rather than
+  // floating, so there is no scrim to click away — without this the only exit
+  // is clicking the chip again, which keyboard users cannot discover.
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setOpenMenu(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openMenu]);
+
   const pickProject = (path: string) => {
     setProjectPath(path);
     setOpenMenu(null);
@@ -221,8 +230,9 @@ export function PrAssignReviewStudy() {
         </div>
         <button
           type="button"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-studio-ink-faint transition-colors hover:bg-studio-ink/[0.08] hover:text-studio-ink"
+          className="focus-ring ink-hover inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-studio-ink-faint transition-colors hover:text-studio-ink"
           aria-label="Close"
+          title="Closes the dialog in the real Repos surface — inert in the studio"
         >
           <X size={14} />
         </button>
@@ -243,7 +253,7 @@ export function PrAssignReviewStudy() {
           onToggle={() => setOpenMenu((cur) => (cur === "agent" ? null : "agent"))}
         />
         {agent ? (
-          <div className="inline-flex overflow-hidden rounded-full bg-studio-ink/[0.06] p-0.5">
+          <div className="ink-well inline-flex overflow-hidden rounded-full p-0.5">
             {(["new", "existing"] as const).map((mode) => {
               const blocked = mode === "existing" && !agent.hasSession;
               const active = sessionMode === mode;
@@ -254,7 +264,7 @@ export function PrAssignReviewStudy() {
                   disabled={blocked}
                   onClick={() => setSessionMode(mode)}
                   className={cx(
-                    "rounded-full px-2.5 py-1 font-mono text-[10px] transition-colors",
+                    "focus-ring rounded-full px-2.5 py-1 font-mono text-[10px] transition-colors",
                     active
                       ? "bg-studio-surface text-studio-ink shadow-sm"
                       : "text-studio-ink-faint hover:text-studio-ink",
@@ -278,7 +288,7 @@ export function PrAssignReviewStudy() {
 
       {/* Project picker */}
       {openMenu === "project" ? (
-        <div className="rounded-lg border border-studio-edge bg-studio-canvas/60 p-1.5">
+        <div className="canvas-tint rounded-lg border border-studio-edge p-1.5">
           <div className="mb-1 px-2 pt-1 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
             Prefer this PR&apos;s repo · still flexible
           </div>
@@ -290,12 +300,9 @@ export function PrAssignReviewStudy() {
                   key={item.path}
                   type="button"
                   onClick={() => pickProject(item.path)}
-                  className={cx(
-                    "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors",
-                    active
-                      ? "bg-studio-ink/[0.08]"
-                      : "hover:bg-studio-ink/[0.05]",
-                  )}
+                  data-active={active}
+                  aria-current={active}
+                  className="focus-ring ink-row flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-sans text-[12.5px] font-medium text-studio-ink">
@@ -311,9 +318,15 @@ export function PrAssignReviewStudy() {
                   <span
                     className={cx(
                       "shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.08em]",
-                      item.affinity === "pr" && "bg-emerald-500/15 text-emerald-400",
-                      item.affinity === "related" && "bg-studio-ink/[0.08] text-studio-ink-faint",
-                      item.affinity === "outside" && "bg-amber-500/12 text-amber-400/90",
+                      // Status tokens, not raw palette: the studio themes from
+                      // one `data-theme` flip, and emerald-400 / amber-400 are
+                      // tuned for the dark canvas only — on paper they drop to
+                      // roughly 2:1.
+                      item.affinity === "pr" && "bg-status-ok-bg text-status-ok-fg",
+                      item.affinity === "related" &&
+                        "bg-status-neutral-bg text-status-neutral-fg",
+                      item.affinity === "outside" &&
+                        "bg-status-warn-bg text-status-warn-fg",
                     )}
                   >
                     {affinityLabel(item.affinity)}
@@ -327,7 +340,7 @@ export function PrAssignReviewStudy() {
 
       {/* Agent picker */}
       {openMenu === "agent" ? (
-        <div className="rounded-lg border border-studio-edge bg-studio-canvas/60 p-1.5">
+        <div className="canvas-tint rounded-lg border border-studio-edge p-1.5">
           <div className="mb-1 px-2 pt-1 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
             Optional · default is a one-time reviewer
           </div>
@@ -335,12 +348,11 @@ export function PrAssignReviewStudy() {
             <button
               type="button"
               onClick={() => pickAgent("")}
-              className={cx(
-                "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-                !agentId ? "bg-studio-ink/[0.08]" : "hover:bg-studio-ink/[0.05]",
-              )}
+              data-active={!agentId}
+              aria-current={!agentId}
+              className="focus-ring ink-row flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
             >
-              <span className="grid h-7 w-7 place-items-center rounded-md bg-studio-ink/[0.08] font-mono text-[11px] text-studio-ink-faint">
+              <span className="grid h-7 w-7 place-items-center rounded-md bg-status-neutral-bg font-mono text-[11px] text-status-neutral-fg">
                 ·
               </span>
               <span className="min-w-0 flex-1">
@@ -351,7 +363,7 @@ export function PrAssignReviewStudy() {
                   new session on {project.label}
                 </span>
               </span>
-              <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.08em] text-emerald-400/90">
+              <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.08em] text-status-ok-fg">
                 default
               </span>
             </button>
@@ -360,14 +372,11 @@ export function PrAssignReviewStudy() {
                 key={item.id}
                 type="button"
                 onClick={() => pickAgent(item.id)}
-                className={cx(
-                  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-                  item.id === agentId
-                    ? "bg-studio-ink/[0.08]"
-                    : "hover:bg-studio-ink/[0.05]",
-                )}
+                data-active={item.id === agentId}
+                aria-current={item.id === agentId}
+                className="focus-ring ink-row flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
               >
-                <span className="grid h-7 w-7 place-items-center rounded-md bg-sky-500/15 font-mono text-[11px] font-bold text-sky-300">
+                <span className="grid h-7 w-7 place-items-center rounded-md bg-status-info-bg font-mono text-[11px] font-bold text-status-info-fg">
                   {item.handle.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -383,8 +392,8 @@ export function PrAssignReviewStudy() {
                   className={cx(
                     "shrink-0 font-mono text-[9px] uppercase tracking-[0.08em]",
                     item.state === "available"
-                      ? "text-emerald-400/90"
-                      : "text-studio-ink-faint",
+                      ? "text-status-ok-fg"
+                      : "text-studio-ink-muted",
                   )}
                 >
                   {item.state}

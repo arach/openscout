@@ -66,7 +66,7 @@ export function StatusPill({
   const bg = `var(--status-${resolvedTone}-bg)`;
 
   const base =
-    "inline-block rounded-[3px] font-mono text-[9px] font-semibold tracking-[0.18em]";
+    "inline-block rounded-[3px] font-mono text-2xs font-semibold tracking-ch";
 
   if (variant === "text") {
     return (

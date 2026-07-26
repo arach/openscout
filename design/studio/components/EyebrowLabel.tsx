@@ -5,7 +5,7 @@
  * everywhere.
  *
  * Three sizes match the existing usage:
- *   xs  → 8.5px tracking-[0.20em]  (sidebar surface sub-labels)
+ *   xs  → 8.5px tracking-eyebrow  (sidebar surface sub-labels)
  *   sm  → 9px   tracking-eyebrow   (default — page kickers, sidebar section titles, study eyebrows)
  *   md  → 10.5px tracking-eyebrow  (page-strip breadcrumb segments)
  *
@@ -21,9 +21,9 @@ export type EyebrowSize = "xs" | "sm" | "md";
 export type EyebrowTone = "default" | "muted" | "ink";
 
 const SIZE_CLASS: Record<EyebrowSize, string> = {
-  xs: "text-[8.5px] tracking-[0.20em]",
-  sm: "text-[9px] tracking-eyebrow",
-  md: "text-[10.5px] tracking-eyebrow",
+  xs: "text-2xs tracking-eyebrow",
+  sm: "text-2xs tracking-eyebrow",
+  md: "text-sm tracking-eyebrow",
 };
 
 const TONE_CLASS: Record<EyebrowTone, string> = {
