@@ -103,6 +103,59 @@ body {
   border-radius: 2px;
 }
 
+/* ── Ink tints ─────────────────────────────────────────────────────
+ * Translucent ink fills for chips, rows, and wells.
+ *
+ * These exist because Tailwind cannot apply an opacity modifier to the
+ * studio's colors: `colors.studio.ink` is the bare string
+ * `var(--studio-ink)` holding an `oklch()` value, and Tailwind 3 has no
+ * way to inject an alpha into that. `bg-studio-ink/[0.07]` therefore
+ * emits NO RULE AT ALL — it is not a weak tint, it is nothing — and
+ * `ring-studio-ink/15` falls through to Tailwind's default ring colour
+ * (`#3b82f680`, blue). Same root cause the `divideColor` block in
+ * tailwind.config.ts already documents.
+ *
+ * `color-mix` does what the modifier was reaching for and stays
+ * theme-correct in both palettes, because it mixes the live ink token.
+ * ────────────────────────────────────────────────────────────────── */
+
+/* Pill-shaped control that opens a panel. Drives its open state off
+ * `aria-expanded`, so the styling cannot drift from the semantics. */
+.ink-chip {
+  background: color-mix(in oklab, var(--studio-ink) 7%, transparent);
+}
+.ink-chip:hover {
+  background: color-mix(in oklab, var(--studio-ink) 11%, transparent);
+}
+.ink-chip[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--studio-ink) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--studio-ink) 18%, transparent);
+}
+
+/* Selectable list row. `data-active` carries selection so the hover and
+ * selected fills cannot both apply and cancel each other out. */
+.ink-row:hover {
+  background: color-mix(in oklab, var(--studio-ink) 5%, transparent);
+}
+.ink-row[data-active="true"] {
+  background: color-mix(in oklab, var(--studio-ink) 9%, transparent);
+}
+
+/* Recessed container — segmented-control track, icon-button hover. */
+.ink-well {
+  background: color-mix(in oklab, var(--studio-ink) 6%, transparent);
+}
+.ink-hover:hover {
+  background: color-mix(in oklab, var(--studio-ink) 8%, transparent);
+}
+
+/* Panel recessed into a lighter surface — the inline picker panels inside a
+ * composer. Canvas rather than ink, so it reads as "further back" instead of
+ * "tinted darker", and it inverts correctly in the light palette. */
+.canvas-tint {
+  background: color-mix(in oklab, var(--studio-canvas) 60%, transparent);
+}
+
 /* ── Prose ─────────────────────────────────────────────────────────
  * Applied via `.studio-prose` on the rendered markdown wrapper.
  * Play for prose headings (studio's display direction), Inter Tight
@@ -111,7 +164,7 @@ body {
 
 .studio-prose {
   font-family: theme("fontFamily.sans");
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.65;
   color: var(--studio-ink);
 }
@@ -145,7 +198,7 @@ body {
   margin: 1.5rem 0 0.5rem;
 }
 .studio-prose h4 {
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   margin: 1.25rem 0 0.35rem;
   font-family: theme("fontFamily.mono");
@@ -196,7 +249,7 @@ body {
   background: var(--code-bg);
   padding: 0.9rem 1rem;
   border-radius: 4px;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.55;
   overflow-x: auto;
   margin: 0 0 1rem;
@@ -226,7 +279,7 @@ body {
 .studio-prose table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 12px;
   margin: 0 0 1rem;
 }
 .studio-prose th,
@@ -238,7 +291,7 @@ body {
 }
 .studio-prose th {
   font-family: theme("fontFamily.mono");
-  font-size: 10.5px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--studio-ink-faint);
@@ -347,5 +400,89 @@ body {
   }
   to {
     opacity: 1;
+  }
+}
+
+/* ── Ember ─────────────────────────────────────────────────────────
+ * The recency mark. Four tiers, coarse on purpose (see lib/heat.ts).
+ * Cold is the resting state and by far the most common, so it is the
+ * quietest thing here: a hollow ring that reads as structure, not as
+ * status. Heat is spent upward from there.
+ *
+ * Sized 6px to match the dot primitive in the root DESIGN.md, and
+ * shaped as an inline-flex box so it sits correctly in the baseline
+ * rows it replaces.
+ * ────────────────────────────────────────────────────────────────── */
+.ember {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* Optical nudge: a 6px circle in a baseline-aligned row rides high
+   * without this, because the box aligns to the text baseline rather
+   * than to the x-height the surrounding caps actually occupy. */
+  vertical-align: 0.5px;
+  background: currentColor;
+  color: var(--studio-ink-faint);
+  transition:
+    color 150ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ember--live {
+  color: var(--scout-accent);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--scout-accent) 55%, transparent);
+}
+
+.ember--warm {
+  color: color-mix(in oklab, var(--scout-accent) 58%, var(--studio-ink-faint));
+}
+
+.ember--cooling {
+  color: var(--studio-ink-muted);
+}
+
+/* Cold burns out: the fill goes, a ring remains. The ring stays at full
+ * ink-faint rather than a faded mix — it is a state-bearing mark, and on
+ * the light canvas anything softer drops under the 3:1 floor for non-text
+ * UI. A 1px ring is quiet enough on its own; it does not need alpha too. */
+.ember--cold {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+  color: var(--studio-ink-faint);
+}
+
+/* The one authored moment on the page — the single freshest entry, and
+ * only when it is genuinely from today. Slow enough to read as alive
+ * rather than as an alert. */
+@keyframes ember-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 5px color-mix(in oklab, var(--scout-accent) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 9px color-mix(in oklab, var(--scout-accent) 70%, transparent);
+  }
+}
+
+.ember--breathe {
+  animation: ember-breathe 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────
+ * A single global gate. The studio had none, and the ember is the
+ * first thing here that loops. Ambient loops stop outright; authored
+ * transitions collapse to effectively instant rather than to zero, so
+ * nothing snaps.
+ * ────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

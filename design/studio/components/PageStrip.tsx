@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { FocusToggle } from "@/components/FocusMode";
 import { StatusPill as StatusPillAtom } from "@/components/StatusPill";
 import {
   bucketLabel,
@@ -28,8 +29,13 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
     : undefined;
 
   return (
-    <div className="border-b border-studio-edge bg-studio-canvas px-7 py-2.5 font-mono text-[10px]">
-      <div className="flex flex-wrap items-baseline gap-3">
+    <div className="border-b border-studio-edge bg-studio-canvas px-7 py-2.5 font-mono text-xs">
+      {/* Two columns, not one wrapping row: the metadata group wraps freely on
+       *  a long blurb while the focus toggle stays pinned to the first line.
+       *  In a single flex-wrap row an `ml-auto` toggle gets pushed onto a line
+       *  of its own and floats there. */}
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-3">
         <Crumbs page={page} />
         <Sep />
         <StatusPill status={page.status} />
@@ -52,11 +58,13 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
         {page.blurb ? (
           <>
             <span className="mx-1 text-studio-ink-faint">·</span>
-            <span className="font-sans text-[11px] italic text-studio-ink-faint">
+            <span className="font-sans text-sm italic text-studio-ink-faint">
               {page.blurb}
             </span>
           </>
         ) : null}
+        </div>
+        <FocusToggle />
       </div>
     </div>
   );
@@ -73,17 +81,17 @@ function TargetRef({
 }) {
   return (
     <div className="flex items-baseline gap-1.5 text-studio-ink-faint">
-      <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         target
       </span>
-      <code className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-[9.5px] text-studio-ink">
+      <code className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-2xs text-studio-ink">
         {anchor}
       </code>
-      <span className="text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">
+      <span className="text-2xs uppercase tracking-ch text-studio-ink-faint">
         {mode}
       </span>
       {label ? (
-        <span className="font-sans text-[11px] italic text-studio-ink-faint">
+        <span className="font-sans text-sm italic text-studio-ink-faint">
           {label}
         </span>
       ) : null}
@@ -123,12 +131,12 @@ function StatusPill({ status }: { status?: StudioStatus }) {
 function SourceRefs({ files }: { files: string[] }) {
   return (
     <div className="flex items-baseline gap-1.5 text-studio-ink-faint">
-      <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <span className="text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         source
       </span>
       {files.map((file, i) => (
         <span key={file} className="inline-flex items-baseline gap-1">
-          <code className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-[9.5px] text-studio-ink">
+          <code className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-2xs text-studio-ink">
             {basename(file)}
           </code>
           {i < files.length - 1 ? (

@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { StudioSidebar } from "@/components/StudioSidebar";
 import { PageStrip } from "@/components/PageStrip";
+import { FocusExit } from "@/components/FocusMode";
 import type { StudioPage } from "@/lib/studio-pages";
 
 /**
@@ -52,7 +53,15 @@ function ShellInner({ children, extraPages, studyMtimes }: ShellProps) {
     params.get("focus") === "1" || params.get("focus") === "true";
 
   if (focusMode) {
-    return <main className="min-h-screen">{children}</main>;
+    // Focus mode used to be a trapdoor: chrome gone, and no way back short of
+    // editing the URL. FocusExit is invisible at rest — so screenshots stay
+    // clean — and appears on hover or keyboard focus. Escape also leaves.
+    return (
+      <>
+        <main className="min-h-screen">{children}</main>
+        <FocusExit />
+      </>
+    );
   }
 
   return (
