@@ -1360,6 +1360,7 @@ const operatorAttentionService = new BrokerOperatorAttentionService({
   createId: createRuntimeId,
   ensureBrokerActorForDelivery,
   ensureBrokerDeliveryConversation,
+  conversationById: (conversationId) => runtime.conversation(conversationId),
   messageVisibilityForConversation,
   postConversationMessage,
   broadcastApnsAlertToActiveMobileDevices,

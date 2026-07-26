@@ -55,6 +55,8 @@ type OperatorDeliveryIssueInput = {
   requesterNodeId: string;
   targetLabel: string;
   detail: string;
+  originConversationId?: string;
+  originMessageId?: string;
 };
 
 type ChannelAttentionPointerInput = {
@@ -510,6 +512,12 @@ export class BrokerDeliveryAcceptanceService {
     }
 
     if (this.options.isLocalScoutProductTarget(payload)) {
+      // An unassigned Scout target only *fails* when the caller is blocked on a
+      // reply nobody is going to write. A `tell` is fire-and-forget: the message
+      // lands durably in the Scout thread and the next operator session to
+      // attach reads it, so it stays an accepted delivery and carries none of
+      // the failure lifecycle metadata.
+      const expectsReply = payload.intent === "consult";
       await this.options.ensureBrokerActorForDelivery(requesterId);
       await this.options.ensureBrokerActorForDelivery(SCOUT_DISPATCHER_AGENT_ID);
       const conversation = await this.options.ensureBrokerDeliveryConversation({
@@ -520,6 +528,26 @@ export class BrokerDeliveryAcceptanceService {
       const snapshot = this.options.runtimeSnapshot();
       const messageId = this.options.createId("msg");
       const routeKind = this.options.brokerRouteKind(conversation);
+      const detail = `${this.options.titleCaseName(requesterId)} sent a ${
+        expectsReply ? "request" : "message"
+      } to Scout, but no operator session accepted it.`;
+      const rejection = expectsReply
+        ? (await this.options.recordScoutDispatch(
+          buildDispatchEnvelope(
+            {
+              kind: "unknown",
+              label: askedLabel || "Scout",
+              detail,
+            },
+            askedLabel || "Scout",
+            this.options.nodeId,
+            snapshot,
+            { homeEndpointFor: this.options.homeEndpointForAgent },
+          ),
+          { requesterId },
+        )).record
+        : null;
+      throwIfAborted(options.signal);
       const message: MessageRecord = {
         id: messageId,
         conversationId: conversation.id,
@@ -541,6 +569,14 @@ export class BrokerDeliveryAcceptanceService {
         metadata: {
           ...(payload.messageMetadata ?? {}),
           ...(labels.length ? { labels } : {}),
+          requestId,
+          ...(rejection
+            ? {
+              dispatchId: rejection.id,
+              replyExpectation: "required",
+              routingState: "failed",
+            }
+            : {}),
           relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
           relayTarget: SCOUT_DISPATCHER_AGENT_ID,
           relayTargetIds: [SCOUT_DISPATCHER_AGENT_ID],
@@ -560,8 +596,22 @@ export class BrokerDeliveryAcceptanceService {
         requesterId,
         requesterNodeId,
         targetLabel: askedLabel || "Scout",
-        detail: `${this.options.titleCaseName(requesterId)} sent a request to Scout, but no operator session accepted it.`,
+        detail,
+        // Only mirror a failure back into the thread when the delivery actually
+        // failed; an accepted `tell` would otherwise be contradicted in place.
+        ...(rejection
+          ? { originConversationId: conversation.id, originMessageId: messageId }
+          : {}),
       });
+      if (rejection) {
+        return {
+          kind: "rejected",
+          accepted: false,
+          reason: "unknown_target",
+          rejection,
+          remediation: remediationForDispatch(rejection),
+        };
+      }
       return {
         kind: "delivery",
         accepted: true,
