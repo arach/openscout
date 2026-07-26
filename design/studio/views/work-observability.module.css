@@ -1,0 +1,1372 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   Scout · Work observability
+
+   Two layers, kept apart on purpose:
+
+   1. PAGE  — the study's own chrome (.page and its descendants). Studio
+      tokens, four type steps, prose at a real measure.
+
+   2. SPEC  — everything under .spec, which reproduces the Scout web app.
+      The palettes are lifted verbatim from packages/web/client/scout/
+      Provider.tsx (DARK_THEME_VARS :163-206, LIGHT_THEME_VARS :208-245) so a
+      contrast or accent complaint made on this page is a complaint about the
+      shipping app, not about an approximation of it. The accent is the
+      shipping lime — oklch(0.86 0.17 125) — and it is rationed: it marks
+      exactly one thing per surface (the live pulse, or the primary verb).
+
+   Treatments vary by [data-treatment] on .rail; themes by [data-theme] on
+   .spec; harness by [data-harness]. All three are orthogonal.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* ══ 1 · PAGE ═════════════════════════════════════════════════════════════ */
+
+.page {
+  --measure: 70ch;
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 28px 30px 96px;
+}
+
+.eyebrow {
+  font-family: theme("fontFamily.mono");
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.title {
+  margin: 5px 0 0;
+  font-family: theme("fontFamily.display");
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: var(--studio-ink);
+}
+
+.lede {
+  margin: 11px 0 0;
+  max-width: var(--measure);
+  font-family: theme("fontFamily.sans");
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: var(--studio-ink-muted);
+}
+
+.lede strong { color: var(--studio-ink); font-weight: 600; }
+
+.section {
+  margin: 44px 0 0;
+  border-top: 1px solid var(--studio-edge);
+  padding-top: 18px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: theme("fontFamily.display");
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--studio-ink);
+}
+
+.sectionNote {
+  font-family: theme("fontFamily.mono");
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.prose {
+  margin: 10px 0 0;
+  max-width: var(--measure);
+  font-family: theme("fontFamily.sans");
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: var(--studio-ink-muted);
+}
+
+.prose code,
+.tbl code,
+.lede code {
+  font-family: theme("fontFamily.mono");
+  font-size: 0.9em;
+  color: var(--studio-ink);
+}
+
+/* ── Controls strip ──────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-start;
+  margin: 18px 0 0;
+}
+
+.controlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.controlLabel {
+  font-family: theme("fontFamily.mono");
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.seg {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-family: theme("fontFamily.mono");
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--studio-ink-faint);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+
+.seg:hover { color: var(--studio-ink); }
+.seg[aria-pressed="true"] {
+  background: var(--studio-surface);
+  color: var(--studio-ink);
+  box-shadow: inset 0 0 0 1px var(--studio-edge);
+}
+.seg:focus-visible {
+  outline: 2px solid var(--studio-ink);
+  outline-offset: 1px;
+}
+
+/* ── The treatment note under the specimen ───────────────────────────── */
+
+.note {
+  margin: 12px 0 0;
+  max-width: 78ch;
+  font-family: theme("fontFamily.sans");
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--studio-ink-muted);
+  border-left: 2px solid var(--studio-edge);
+  padding-left: 12px;
+}
+
+.note strong { color: var(--studio-ink); font-weight: 600; }
+
+/* ── Reference tables ────────────────────────────────────────────────── */
+
+.tblWrap {
+  margin: 14px 0 0;
+  overflow-x: auto;
+  border: 1px solid var(--studio-edge);
+  border-radius: 8px;
+}
+
+.tbl {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-family: theme("fontFamily.sans");
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.tbl th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: theme("fontFamily.mono");
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  border-bottom: 1px solid var(--studio-edge);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.tbl td {
+  padding: 9px 12px;
+  vertical-align: top;
+  color: var(--studio-ink-muted);
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-edge) 55%, transparent);
+}
+
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl td:first-child { color: var(--studio-ink); font-weight: 500; }
+.tbl .mono { font-family: theme("fontFamily.mono"); font-size: 10.5px; }
+
+/* Availability marks in the action table — text, never colour alone. */
+.mark { font-family: theme("fontFamily.mono"); font-size: 10px; white-space: nowrap; }
+.markYes { color: var(--studio-ink); }
+.markNo  { color: var(--studio-ink-faint); }
+
+.list {
+  margin: 10px 0 0;
+  padding-left: 17px;
+  max-width: var(--measure);
+  font-family: theme("fontFamily.sans");
+  font-size: 12.5px;
+  line-height: 1.62;
+  color: var(--studio-ink-muted);
+}
+
+.list li { margin: 0 0 7px; }
+.list li strong { color: var(--studio-ink); font-weight: 600; }
+
+/* Fixture provenance — study chrome, deliberately OUTSIDE the specimen. Says
+   whether what follows is a state the live broker returns today or an authored
+   best case. A study arguing for honest numbers has to label its own. */
+.fixtureBar {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px 6px 0 0;
+  border-bottom: 0;
+  font-family: theme("fontFamily.mono");
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--studio-ink-muted);
+}
+
+.fixtureTag {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--studio-ink);
+  border: 1px solid var(--studio-edge);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.fixtureBar[data-kind="illustrative"] .fixtureTag { border-style: dashed; }
+
+.fixtureBar + .spec { border-radius: 0 0 10px 10px; margin-top: 0; }
+
+/* ══ 2 · SPEC — the Scout web app reproduction ════════════════════════════ */
+
+.spec {
+  margin: 18px 0 0;
+  border-radius: 10px;
+  border: 1px solid var(--studio-edge);
+  overflow: hidden;
+
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+/* The narrow treatment reproduces a phone / split-pane column. The whole
+   specimen shrinks — a 430px surface floating in a 900px frame would flatter
+   itself, because the eye reads the empty space as breathing room the real
+   pane does not have. */
+.spec[data-width="narrow"] { max-width: 430px; }
+
+/* Palettes verbatim from Provider.tsx. */
+.spec[data-theme="dark"] {
+  --bg: oklch(0.132 0.004 260);
+  --surface: oklch(0.178 0.005 260);
+  --ink: oklch(0.965 0.006 260);
+  --muted: oklch(0.72 0.008 260);
+  --dim: oklch(0.57 0.007 260);
+  --border: oklch(0.965 0.006 260 / 0.09);
+  --hairline: oklch(0.965 0.006 260 / 0.055);
+  --accent: oklch(0.86 0.17 125);
+  --accent-soft: oklch(0.86 0.17 125 / 0.10);
+  --ok: oklch(0.80 0.15 155);
+  --warn: oklch(0.82 0.15 85);
+  --error: oklch(0.72 0.18 25);
+  --raise: oklch(0.965 0.006 260 / 0.04);
+
+  /* Honesty inks — see the note above .evidence. Measured against --surface
+     (#101113): 5.68:1 and 8.8:1. */
+  --evidence-ink: #8a8d93;
+  --warn-ink: oklch(0.82 0.15 85);
+  --disabled-ink: #8a8d93;
+}
+
+.spec[data-theme="light"] {
+  --bg: oklch(0.978 0.004 85);
+  --surface: oklch(0.992 0.003 85);
+  --ink: oklch(0.24 0.01 80);
+  --muted: oklch(0.56 0.014 80);
+  --dim: oklch(0.72 0.01 80);
+  --border: oklch(0.86 0.008 82 / 0.95);
+  --hairline: oklch(0.90 0.008 82 / 0.95);
+  --accent: oklch(0.60 0.15 125);
+  --accent-soft: oklch(0.72 0.16 125 / 0.13);
+  --ok: oklch(0.58 0.15 155);
+  --warn: oklch(0.62 0.14 85);
+  --error: oklch(0.56 0.19 25);
+  --raise: oklch(0.24 0.01 80 / 0.035);
+
+  /* The shipping light palette's --dim (#a8a49e) measures 2.42:1 on --surface,
+     and --warn 3.59:1 — so on the shipped tokens alone, every element this rail
+     added FOR HONESTY would be the least legible thing on the page, in the
+     theme where it fails worst. The palettes above stay verbatim (a light-mode
+     complaint made here must remain a complaint about the app); the honesty
+     layer is lifted off them onto these measured inks: 5.42:1 and 5.78:1. */
+  --evidence-ink: #6b6862;
+  --warn-ink: #8a5a06;
+  --disabled-ink: #6b6862;
+}
+
+/* The container the @container queries below resolve against — it must be the
+   element that actually narrows, not the page-width frame around it. */
+.specBody {
+  background: var(--bg);
+  color: var(--ink);
+  padding: 0;
+  container-type: inline-size;
+}
+
+/* ── App chrome (a thin stand-in so the rail is judged in context) ───── */
+
+.appTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.appBack {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.appCrumb {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appSpacer { flex: 1; }
+
+/* ══ THE WORK RAIL ════════════════════════════════════════════════════════ */
+
+.rail {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* ── Row A · identity ────────────────────────────────────────────────── */
+
+.railIdentity {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px 9px;
+}
+
+.stateChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 20px;
+  padding: 0 8px 0 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--raise);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.stateChip[data-state="running"] { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
+.stateChip[data-state="blocked"] { color: var(--ink); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+.stateChip[data-state="stale"]   { color: var(--muted); }
+.stateChip[data-state="done"]    { color: var(--muted); }
+.stateChip[data-state="failed"]  { color: var(--ink); border-color: color-mix(in srgb, var(--error) 45%, var(--border)); }
+
+/* The single rationed accent: one live pulse, nowhere else. */
+.pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
+}
+
+.stateChip[data-state="running"] .pulse {
+  background: var(--accent);
+  animation: workPulse 2.4s ease-in-out infinite;
+}
+.stateChip[data-state="blocked"] .pulse { background: var(--warn); }
+.stateChip[data-state="stale"]   .pulse { background: var(--dim); }
+/* Neutral, not --ok: a finished run is not a status light, and the one lime on
+   the done surface belongs to Accept. */
+.stateChip[data-state="done"]    .pulse { background: var(--muted); }
+.stateChip[data-state="failed"]  .pulse { background: var(--error); }
+
+@keyframes workPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateChip[data-state="running"] .pulse { animation: none; }
+  .liveDot { animation: none !important; }
+}
+
+.identityText { flex: 1; min-width: 0; }
+
+.workTitle {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* No work record: the invocation task stands in, marked as such. */
+.workTitle[data-derived="task"] { font-weight: 500; }
+
+.titleSource {
+  display: inline-block;
+  margin-left: 7px;
+  vertical-align: 1px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.ownership {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.ownerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.ownerChip:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ownerChip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.sep { color: var(--dim); }
+
+.nextMove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.nextMove[data-you="true"] { color: var(--ink); font-weight: 500; }
+/* The arrow only takes a status colour when the operator is actually holding
+   something up. On `done`, "next you" is a fact, not an alarm — and spending
+   a second accent on a surface where nothing is live is the drift the accent
+   rule exists to prevent. */
+.nextMove[data-you="true"][data-blocking="true"] .arrow { color: var(--warn-ink); }
+
+.arrow { color: var(--dim); }
+
+.identityAside { display: flex; align-items: center; gap: 4px; flex: none; }
+
+/* ── The narrow disclosure ───────────────────────────────────────────
+   Only rendered by the container query below. On a phone the rail from chip
+   to link row is ~750px, which puts the last message entirely below the fold:
+   the operator scrolls past a screen of instrument to reach the conversation.
+   The instrument should be summonable, not unavoidable. */
+.disclosure {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  background: transparent;
+  padding: 7px 14px 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--evidence-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.disclosureChevron { margin-left: auto; font-size: 11px; }
+
+/* The one fact that survives the collapse: what it is doing now. */
+.collapsedNow {
+  display: none;
+  gap: 6px;
+  align-items: baseline;
+  padding: 0 14px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.collapsedNow strong { font-weight: 500; color: var(--ink); }
+.collapsedNow span { font-family: var(--mono); font-size: 9.5px; color: var(--evidence-ink); }
+
+/* The default read is deliberately a sentence, not a dashboard. Fields that
+   are unknown are omitted by the component instead of becoming empty cells. */
+.statusSentence {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex-wrap: wrap;
+  padding: 0 14px 11px 44px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.statusSentence strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.statusSentence span::before {
+  content: "·";
+  margin: 0 7px;
+  color: var(--dim);
+}
+
+/* ── Row B · the meter ───────────────────────────────────────────────── */
+
+.meter {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  border-top: 1px solid var(--hairline);
+}
+
+.cell {
+  padding: 9px 14px 10px;
+  min-width: 0;
+  border-left: 1px solid var(--hairline);
+}
+
+.cell:first-child { border-left: 0; }
+
+.cellLabel {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.cellPrimary {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellPrimary[data-unknown="true"] { color: var(--dim); font-weight: 400; font-style: italic; }
+
+.cellSecondary {
+  margin: 3px 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellSecondary em { font-style: normal; color: var(--ink); }
+
+/* Freshness reads as text first; the dot is redundant reinforcement. */
+.freshness {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 5px 0 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.liveDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dim);
+}
+
+.freshness[data-health="fresh"] .liveDot { background: var(--accent); animation: workPulse 2.4s ease-in-out infinite; }
+.freshness[data-health="fresh"] { color: var(--muted); }
+.freshness[data-health="slow"] .liveDot { background: var(--warn); }
+.freshness[data-health="slow"] { color: var(--ink); }
+.freshness[data-health="stale"] .liveDot { background: var(--error); }
+.freshness[data-health="stale"] { color: var(--ink); }
+.freshness[data-health="ended"] .liveDot { background: var(--dim); }
+/* No event stream at all. Distinct from stale: "we cannot see" is not
+   "nothing is happening", and only one of the two justifies Stop. */
+.freshness[data-health="unknown"] .liveDot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--evidence-ink);
+}
+.freshness[data-health="unknown"] { color: var(--evidence-ink); }
+
+/* The evidence line: what the number is made of, and how good it is. It rides
+   --evidence-ink rather than --dim, which fails AA at 9px in both themes. */
+.evidence {
+  margin: 5px 0 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--evidence-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence[data-fidelity="synthetic"],
+.evidence[data-fidelity="low"] { color: var(--warn-ink); font-weight: 500; }
+
+/* Capped, not full-bleed: the meter is a footnote to the number above it, and
+   a full-width lime bar would out-shout the one live pulse the rail spends its
+   accent on. */
+.steps {
+  display: flex;
+  gap: 2px;
+  margin: 6px 0 0;
+  max-width: 92px;
+}
+
+.step {
+  height: 3px;
+  flex: 1;
+  border-radius: 1px;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.step[data-done="true"] { background: var(--muted); box-shadow: none; }
+.step[data-current="true"] { background: var(--accent); box-shadow: none; }
+
+/* ── Row C · controls ────────────────────────────────────────────────── */
+
+/* Row C. Browsing verbs left; a real gap; then the destructive one. A verb an
+   operator clicks while reading must not sit adjacent to the one that ends the
+   run. Links get their own line so the two never compete for the same edge. */
+.controlsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 14px 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.actionBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 9px;
+  border-top: 1px solid var(--hairline);
+}
+
+.detailsButton {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.detailsButton:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.detailsButton:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.guidePanel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px 10px;
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 45%, var(--surface));
+}
+
+.guideInput {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+.guideDelivery {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.guideDelivery button,
+.guideSend {
+  height: 24px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  padding: 0 8px;
+  font: 500 10px var(--mono);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.guideDelivery button[aria-pressed="true"] {
+  background: var(--raise);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.guideSend {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.guideDelivery button:focus-visible,
+.guideSend:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.guideNote {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: 9.5px/1.45 var(--mono);
+  color: var(--evidence-ink);
+}
+
+.detailsPanel {
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 38%, var(--surface));
+}
+
+.detailsPanel .meter { border-top: 0; }
+
+.detailActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px 9px;
+  border-top: 1px solid var(--hairline);
+}
+
+.detailActions .links { flex: 1; }
+.detailActions .withdrawn { margin: 2px 0 0; text-align: left; }
+
+.verbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.stopSlot { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--raise);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.verb:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.verb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.verb[data-variant="primary"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+}
+
+.verb[data-variant="danger"] { color: var(--error); border-color: color-mix(in srgb, var(--error) 32%, var(--border)); }
+.verb[data-variant="danger"]:hover:not(:disabled) { background: color-mix(in srgb, var(--error) 12%, transparent); }
+
+/* Withdrawn ≠ faded. Opacity took the disabled verb to 2.79:1 in light, so a
+   withdrawn control was less readable than the reason it was withdrawn for.
+   Full-contrast ink, dashed border, and the reason printed below. */
+.verb[aria-disabled="true"] {
+  color: var(--disabled-ink);
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+}
+
+.verb[aria-disabled="true"]:hover { background: transparent; }
+
+.verbGlyph { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+.verb[data-variant="primary"] .verbGlyph { color: var(--accent); }
+
+.verbKey {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--dim);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 0 3px;
+  line-height: 13px;
+}
+
+/* Why a verb is degraded — stated inline, never a silent no-op. */
+.degradeNote {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--warn-ink);
+}
+
+.linksSpacer { flex: 1; min-width: 24px; }
+
+/* Links live on their own line, right-aligned under the verbs. */
+.linkRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  margin: 6px 0 0;
+}
+
+.links { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.link:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Withdrawn links stay in the tab order (aria-disabled, not disabled) so the
+   reason is reachable by keyboard, and they keep full contrast. The strike is
+   the disabled signal; colour is not carrying it. */
+.link[aria-disabled="true"] {
+  color: var(--disabled-ink);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  cursor: default;
+}
+
+.link[aria-disabled="true"]:hover { background: transparent; }
+
+/* Every withdrawn affordance, named with its reason, in visible text. This is
+   the line that makes the promise in the a11y section true: pointer, keyboard,
+   screen reader and screenshot all get the same sentence. */
+.withdrawn {
+  flex-basis: 100%;
+  margin: 5px 0 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.55;
+  color: var(--evidence-ink);
+  text-align: right;
+}
+
+.withdrawn b { font-weight: 600; color: var(--muted); }
+
+.linkCount { color: var(--dim); }
+
+/* ── The session identity strip ──────────────────────────────────────── */
+
+.sessionStrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 14px 7px;
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 55%, var(--surface));
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--evidence-ink);
+}
+
+.sessionId {
+  border: 0;
+  background: transparent;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  border-radius: 3px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sessionId:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.sessionId:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.sessionFact { color: var(--evidence-ink); }
+.sessionFact em { font-style: normal; color: var(--muted); }
+
+.sessionPrior {
+  margin-left: auto;
+  color: var(--evidence-ink);
+}
+
+/* ── Blocked banner (the one place the rail raises its voice) ────────── */
+
+.blocker {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 14px 11px;
+  border-top: 1px solid color-mix(in srgb, var(--warn) 30%, var(--hairline));
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+}
+
+.blockerMark {
+  flex: none;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.blockerBody { flex: 1; min-width: 0; }
+
+.blockerText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.blockerMeta {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.blockerActions { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
+
+/* ── Completion receipt ──────────────────────────────────────────────── */
+
+.receipt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 14px 11px;
+  border-top: 1px solid var(--hairline);
+}
+
+.receiptMark {
+  flex: none;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+
+/* ══ TRANSCRIPT + COMPOSER (context, deliberately quiet) ══════════════════ */
+
+.transcript {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg);
+}
+
+.turn { display: flex; gap: 9px; }
+
+.turnAvatar {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.turnBody { flex: 1; min-width: 0; }
+
+.turnHead {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.turnName { font-weight: 600; color: var(--ink); }
+.turnTime { font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+
+.turnText {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 74ch;
+}
+
+/* The shipping "working" card — reproduced for the before treatment. */
+.workingCard {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  background: var(--surface);
+}
+
+.workingKind {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.workingText { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.typingDots { font-family: var(--mono); letter-spacing: -0.1em; color: var(--accent); }
+
+.composer {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px 12px;
+  background: var(--surface);
+}
+
+.composerMode {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 7px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.composerModeTag {
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--muted);
+}
+
+.composerModeHint { text-transform: none; letter-spacing: 0.02em; color: var(--dim); }
+
+.composerBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  padding: 8px 10px;
+}
+
+.composerInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.composerSend {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--raise);
+  padding: 3px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* ══ THE BEFORE TREATMENT — the shipping header, reproduced ═══════════════ */
+
+.beforeHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.beforeTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beforeParticipants { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+
+.beforePillMono {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 2px 7px;
+  color: var(--evidence-ink);
+}
+
+.beforePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--hairline);
+  border-radius: 20px;
+  padding: 2px 8px 2px 3px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.beforeObserver {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.beforeIdRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px 6px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.beforeIdLabel {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.beforeIdChip {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.beforeStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 8px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg);
+}
+
+.beforeStatusLabel {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.beforeStatusDetail { font-size: 11.5px; color: var(--muted); }
+
+/* Red-pen annotation over the before specimen. */
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--error);
+  border: 1px dashed color-mix(in srgb, var(--error) 55%, transparent);
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+/* The keyboard echo — a printed shortcut that does nothing is the same class
+   of dishonesty this study is arguing against, so the keys are bound and the
+   binding shows its target. */
+.keyEcho {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 7px;
+  border-top: 1px solid var(--hairline);
+  background: var(--accent-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink);
+}
+
+.keyEchoVerb { font-weight: 600; }
+.keyEchoTarget { color: var(--evidence-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Screen-reader summary — the rail is a grid, so the one-sentence version of
+   it is spoken rather than laid out. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ══ RESPONSIVE — the rail has to survive a split pane ════════════════════ */
+
+@container (max-width: 620px) {
+  .meter { grid-template-columns: 1fr; }
+  .cell { border-left: 0; border-top: 1px solid var(--hairline); }
+  .cell:first-child { border-top: 0; }
+  .linksSpacer { display: none; }
+  .linkRow { justify-content: flex-start; }
+  .withdrawn { text-align: left; }
+  .sessionPrior { margin-left: 0; flex-basis: 100%; }
+  .verb { height: 28px; }
+  .guidePanel { grid-template-columns: 1fr auto; }
+  .guideInput { grid-column: 1 / -1; }
+}
+
+/* Below 520px the rail collapses by default: identity + one NOW line + a
+   chevron. The meter, session strip, band and controls stay one tap away, and
+   the conversation stays above the fold. Above 520px the disclosure does not
+   exist and nothing can be hidden by it. */
+@container (max-width: 520px) {
+  .statusSentence { padding-left: 14px; }
+  .actionBar { align-items: flex-start; }
+}
+
+@container (max-width: 460px) {
+  .verbKey { display: none; }
+}

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { DeviceShell } from "@/components/DeviceShell";
 
 /**
  * ScoutNext Home - iOS study.
@@ -676,18 +677,22 @@ function Phone({
   widthMode: WidthMode;
   children: ReactNode;
 }) {
-  const width = widthMode === "mini" ? 375 : 393;
-  const height = widthMode === "mini" ? 812 : 852;
+  // The shared studio device frame. This study deliberately keeps its own
+  // minimal status chrome (time + signal only — "no faux wifi / battery")
+  // and flush tab bar, so the island, full status bar and home indicator
+  // stay off; widthMode maps to the two presentation scales.
   return (
-    <div className="rounded-[34px] border border-studio-edge-strong bg-black p-[6px] shadow-[0_24px_60px_-24px_rgba(0,0,0,0.8)]">
-      <div
-        data-testid="scoutnext-phone"
-        className="overflow-hidden rounded-[28px]"
-        style={{ width, height }}
-      >
-        {children}
-      </div>
-    </div>
+    <DeviceShell
+      device="iphone"
+      scale={widthMode === "mini" ? 0.8993 : 0.9424}
+      tone="dark"
+      island={false}
+      statusBar={false}
+      homeIndicator={false}
+      screenProps={{ "data-testid": "scoutnext-phone" }}
+    >
+      {children}
+    </DeviceShell>
   );
 }
 

@@ -84,6 +84,23 @@ design/studio/
 2. Append a `StudioPage` entry to `lib/studio-pages.ts` with
    `bucket: "atoms"`.
 
+## iPhone & studio reference
+
+Standing owner directive: **the canonical reference for studio + iPhone
+work is `../Talkie`** (read-only — never modify it). Specifically:
+
+- `Talkie/design/studio` — `components/studies/PhoneFrame.tsx`,
+  `components/studies/primitives/StatusBar.tsx`,
+  `components/studies/Complications.tsx`, `lib/themes.ts`, `app/globals.css`
+- `Talkie/apps/ios/Talkie iOS/Resources/DesignSystem.swift`
+  (`ScopeMobile` palette) + `ThemeManager.swift`
+
+The tokens are ported into `lib/talkie-ref.ts` (every value cites its
+Talkie source) — import from there instead of copying literals.
+`components/DeviceShell.tsx` is the shared device frame: it keeps our
+realistic sizing (390×844pt screen, titanium bezel) and adopts Talkie's
+status-bar spec, chassis shadow, and `screenR = chassisR − bezel` math.
+
 ## Conventions
 
 - **Display = Newsreader, body = Inter, chrome = JetBrains Mono.** Loaded

@@ -19,13 +19,16 @@
  * (titleBar, dockedTabBar) and `StatusBar.swift`.
  *
  * The kit's <PhoneShell> is deliberately NOT used: the study varies exactly
- * the chrome it hardcodes. The kit's hand-drawn <Glyph> set IS reused.
+ * the chrome it hardcodes. The device FRAME is the shared <DeviceShell>
+ * (components/DeviceShell) — it draws only bezel + screen, no app chrome.
+ * The kit's hand-drawn <Glyph> set IS reused.
  * Palette values are the exact warm tone from HudPalette.swift / Theme.swift.
  */
 
 import type { ReactNode } from "react";
 import { Glyph } from "@/components/scout-ios";
 import { EyebrowLabel } from "@/components/EyebrowLabel";
+import { DeviceShell } from "@/components/DeviceShell";
 
 /* ────────────────────────────────────────────────────────────────────
    Scoped phone CSS — prefixed `.mc-`, rooted at `.mchrome`.
@@ -42,13 +45,12 @@ const MC_CSS = `
   --ui:"Inter Tight","Inter",-apple-system,sans-serif}
 .mchrome{font-family:var(--mono);line-height:1.6;-webkit-font-smoothing:antialiased}
 
-/* Phone frame (393pt canvas, scaled) */
-.mc-framebox{width:300px;height:650px;position:relative;flex:none}
-.mc-phone{width:393px;height:852px;transform:scale(.763);transform-origin:top left;
-  border-radius:46px;overflow:hidden;position:relative;
-  outline:1px solid #2c2c2c;outline-offset:6px;
-  background:linear-gradient(180deg,var(--canvas-top) 0%,var(--bg) 36%,var(--canvas-floor) 100%)}
-.mc-phone::before{content:"";position:absolute;inset:0;pointer-events:none;
+/* Phone frame — the shared <DeviceShell> (components/DeviceShell) draws the
+   bezel; the screen keeps only its own canvas gradient + top glow. Presented
+   at ~.72 scale. No island/status bar: this study's chrome starts at the
+   masthead, and the home indicator is part of the dock it studies. */
+.mc-screen{background:linear-gradient(180deg,var(--canvas-top) 0%,var(--bg) 36%,var(--canvas-floor) 100%)}
+.mc-screen::before{content:"";position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(360px 260px at 50% 0%,rgba(255,240,219,.055),transparent 70%)}
 
 /* Masthead */
@@ -229,9 +231,17 @@ const MC_CSS = `
 
 function Phone({ children }: { children: ReactNode }) {
   return (
-    <div className="mc-framebox">
-      <div className="mc-phone">{children}</div>
-    </div>
+    <DeviceShell
+      device="iphone"
+      scale={0.7194}
+      tone="dark"
+      island={false}
+      statusBar={false}
+      homeIndicator={false}
+      screenClassName="mc-screen"
+    >
+      {children}
+    </DeviceShell>
   );
 }
 
