@@ -3,6 +3,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -50,6 +52,21 @@ export type MessageComposerProps = {
   onAttach?: () => void;
   attachTitle?: string;
   attachAriaLabel?: string;
+  /** Paste handler on the field — used to stage clipboard images/files. */
+  onPaste?: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
+  /** Drop target handlers for the composer shell (see useComposerAttachments). */
+  dropHandlers?: {
+    onDragOver: (event: ReactDragEvent) => void;
+    onDragLeave: (event: ReactDragEvent) => void;
+    onDrop: (event: ReactDragEvent) => void;
+  };
+  /** Highlights the shell while a routable drag hovers it. */
+  dragActive?: boolean;
+  /**
+   * Rendered immediately before Send. Used for the alternate commit path when
+   * the primary action is ambiguous (e.g. Steer alongside Queue).
+   */
+  secondaryAction?: ReactNode;
   /**
    * Toolbar tools on the right, before mic/Send (model picker, harness, etc.).
    * Attach stays on the left.
@@ -71,6 +88,8 @@ export type MessageComposerProps = {
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Extra key handling after the built-in send shortcut. Return true to stop. */
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean | void;
+  /** Use Enter to send while preserving Shift+Enter for a line break. */
+  sendOnEnter?: boolean;
   onSelect?: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
   onBlur?: () => void;
   density?: MessageComposerDensity;
@@ -181,6 +200,10 @@ export function MessageComposer({
   onAttach,
   attachTitle = "Add attachment",
   attachAriaLabel = "Add attachment",
+  onPaste,
+  dropHandlers,
+  dragActive = false,
+  secondaryAction,
   tools,
   footer,
   header,
@@ -189,6 +212,7 @@ export function MessageComposer({
   status,
   textareaRef,
   onKeyDown,
+  sendOnEnter = false,
   onSelect,
   onBlur,
   density = "panel",
@@ -246,7 +270,7 @@ export function MessageComposer({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (isComposerSendShortcut(event)) {
+    if (isComposerSendShortcut(event, sendOnEnter)) {
       event.preventDefault();
       trySend();
       return;
@@ -330,7 +354,11 @@ export function MessageComposer({
       : partialText;
 
   const content = (
-    <div className={shellClass}>
+    <div
+      className={shellClass}
+      data-drag-active={dragActive ? "true" : undefined}
+      {...dropHandlers}
+    >
       {overlay}
 
       {header ? <div className="s-msg-compose-header">{header}</div> : null}
@@ -349,6 +377,7 @@ export function MessageComposer({
             onKeyDown={handleKeyDown}
             onSelect={onSelect}
             onBlur={onBlur}
+            onPaste={onPaste}
           />
         )}
 
@@ -416,6 +445,10 @@ export function MessageComposer({
               onStatus={handleDictationStatus}
               disabled={disabled || sending}
             />
+          ) : null}
+
+          {secondaryAction ? (
+            <div className="s-msg-compose-secondary">{secondaryAction}</div>
           ) : null}
 
           {stopMode ? (

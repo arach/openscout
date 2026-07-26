@@ -9,7 +9,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { FileText, Loader2, Search } from "lucide-react";
+import { ChevronDown, FileText, Loader2, Search } from "lucide-react";
 import {
   MessageComposer,
   type MessageComposerDictationStatus,
@@ -43,6 +43,117 @@ import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
 type SubmitPhase = "idle" | "uploading" | "starting";
+
+type RunnerHarnessOption = {
+  id: string;
+  label: string;
+  description: string | null;
+  state: string | null;
+  ready: boolean | null;
+  detail: string | null;
+};
+
+type RunnerModelOption = {
+  id: string;
+  label: string;
+  harnesses: string[];
+  source: string;
+};
+
+type RunnerEffortOption = {
+  id: string;
+  label: string;
+  description: string;
+  harnesses: string[];
+};
+
+type RunnerOptionsState = {
+  defaults: {
+    harness: string;
+    model: string | null;
+    reasoningEffort: string;
+  };
+  harnesses: RunnerHarnessOption[];
+  models: RunnerModelOption[];
+  efforts: RunnerEffortOption[];
+};
+
+type RuntimeSelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
+const FALLBACK_HARNESSES: RunnerHarnessOption[] = [
+  { id: "claude", label: "Claude Code", description: null, state: null, ready: null, detail: null },
+  { id: "codex", label: "Codex", description: null, state: null, ready: null, detail: null },
+];
+
+const FALLBACK_EFFORTS: RunnerEffortOption[] = [
+  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
+  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
+  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
+  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
+];
+
+function RuntimeSelect({
+  label,
+  value,
+  displayValue,
+  options,
+  disabled,
+  onChange,
+  wide = false,
+}: {
+  label: string;
+  value: string;
+  displayValue: string;
+  options: RuntimeSelectOption[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+  wide?: boolean;
+}) {
+  return (
+    <label className={`s-newchat-runtime-field${wide ? " s-newchat-runtime-field--wide" : ""}`}>
+      <span className="s-newchat-runtime-field-label">{label}</span>
+      <span className="s-newchat-runtime-control">
+        <span className="s-newchat-runtime-value">{displayValue}</span>
+        <select
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.currentTarget.value)}
+        >
+          {options.map((option) => (
+            <option key={option.value || "__default__"} value={option.value} disabled={option.disabled}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={13} aria-hidden="true" />
+      </span>
+    </label>
+  );
+}
+
+function firstModelForHarness(options: RunnerOptionsState, harness: string): string {
+  const configuredDefault = options.defaults.harness === harness
+    ? options.defaults.model?.trim() ?? ""
+    : "";
+  if (configuredDefault && options.models.some((candidate) => (
+    candidate.id === configuredDefault && candidate.harnesses.includes(harness)
+  ))) {
+    return configuredDefault;
+  }
+  return options.models.find((candidate) => candidate.harnesses.includes(harness))?.id ?? "";
+}
+
+function firstEffortForHarness(options: RunnerOptionsState, harness: string): string {
+  const supported = options.efforts.filter((candidate) => candidate.harnesses.includes(harness));
+  return supported.find((candidate) => candidate.id === options.defaults.reasoningEffort)?.id
+    ?? supported.find((candidate) => candidate.id === "medium")?.id
+    ?? supported[0]?.id
+    ?? "";
+}
 
 function previewUrl(file: File): string {
   return URL.createObjectURL(file);
@@ -149,7 +260,9 @@ export function NewChatComposer({
   const routeAgent = sorted.find((candidate) => candidate.id === routeAgentId) ?? null;
   const preferredProjectRoot = routeAgent?.projectRoot ?? routeAgent?.cwd ?? null;
   const [configuration, setConfiguration] = useState<AgentConfigurationState | null>(null);
+  const [runnerOptions, setRunnerOptions] = useState<RunnerOptionsState | null>(null);
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const [runnerLoadError, setRunnerLoadError] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState(() => initialProjectPath || preferredProjectRoot || "");
   const [projectQuery, setProjectQuery] = useState(() => initialProjectQuery || routeAgent?.project || "");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -168,6 +281,9 @@ export function NewChatComposer({
     () => initialAttachmentFeedback ?? null,
   );
   const [dictationStatus, setDictationStatus] = useState<MessageComposerDictationStatus | null>(null);
+  const [harness, setHarness] = useState(() => routeAgent?.harness?.trim() || "claude");
+  const [model, setModel] = useState(() => routeAgent?.model?.trim() || "");
+  const [reasoningEffort, setReasoningEffort] = useState("medium");
   const [preservationNotice, setPreservationNotice] = useState<string | null>(
     () => draftRestored ? "Restored your unsent draft." : null,
   );
@@ -178,6 +294,7 @@ export function NewChatComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const projectSelectionTouchedRef = useRef(Boolean(initialProjectPath));
+  const runtimeSelectionTouchedRef = useRef(false);
 
   const projectTargets = useMemo(
     () => buildProjectLaunchTargets(
@@ -198,6 +315,43 @@ export function NewChatComposer({
         registrationKind: null,
       }
     : null);
+  const harnesses = runnerOptions?.harnesses ?? FALLBACK_HARNESSES;
+  const models = runnerOptions?.models.filter((candidate) => candidate.harnesses.includes(harness)) ?? [];
+  const efforts = (runnerOptions?.efforts ?? FALLBACK_EFFORTS)
+    .filter((candidate) => candidate.harnesses.includes(harness));
+  const selectedHarness = harnesses.find((candidate) => candidate.id === harness) ?? null;
+  const runnerLoading = !runnerOptions && !runnerLoadError;
+  const harnessSelectOptions: RuntimeSelectOption[] = [
+    ...harnesses.map((candidate) => ({
+      value: candidate.id,
+      label: candidate.ready === false ? `${candidate.label} — unavailable` : candidate.label,
+      disabled: candidate.ready === false,
+    })),
+    ...(!harnesses.some((candidate) => candidate.id === harness) && harness
+      ? [{ value: harness, label: harness }]
+      : []),
+  ];
+  const modelSelectOptions: RuntimeSelectOption[] = [
+    { value: "", label: "Harness default" },
+    ...models.map((candidate) => ({
+      value: candidate.id,
+      label: candidate.label === candidate.id
+        ? candidate.label
+        : `${candidate.label} · ${candidate.id}`,
+    })),
+    ...(!models.some((candidate) => candidate.id === model) && model
+      ? [{ value: model, label: model }]
+      : []),
+  ];
+  const effortSelectOptions: RuntimeSelectOption[] = [
+    ...(!efforts.some((candidate) => candidate.id === reasoningEffort) && reasoningEffort
+      ? [{ value: reasoningEffort, label: reasoningEffort }]
+      : []),
+    ...efforts.map((candidate) => ({
+      value: candidate.id,
+      label: `${candidate.label} — ${candidate.description}`,
+    })),
+  ];
   const filteredProjects = useMemo(
     () => searchProjectLaunchTargets(projectTargets, projectQuery).slice(0, 40),
     [projectQuery, projectTargets],
@@ -217,7 +371,9 @@ export function NewChatComposer({
   const isDraggingFiles = dragDepth > 0;
   const canUseExistingChat = projectMatchesRouteAgent
     && Boolean(routeAgent?.conversationId || initialConversationId || routeContext.conversationId);
-  const title = hasAttachments ? "Route capture" : "New chat";
+  const usesNewWorker = !hasAttachments || !canUseExistingChat || mode === "new-session";
+  const runtimeBlocked = usesNewWorker && (runnerLoading || selectedHarness?.ready === false);
+  const title = hasAttachments ? "Route capture" : "New task";
   const committedMessage = message.trim();
   const phaseLabel = phase === "uploading"
     ? "Uploading capture"
@@ -285,6 +441,23 @@ export function NewChatComposer({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    void api<RunnerOptionsState>("/api/runner/options")
+      .then((snapshot) => {
+        if (cancelled) return;
+        setRunnerOptions(snapshot);
+        setRunnerLoadError(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRunnerLoadError("Model catalog unavailable. Harness defaults are still available.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (projectSelectionTouchedRef.current || projectTargets.length === 0) return;
     const initial = chooseInitialProjectLaunchTarget(projectTargets, {
       preferredRoot: preferredProjectRoot,
@@ -294,6 +467,22 @@ export function NewChatComposer({
     setProjectPath(initial.root);
     setProjectQuery(initial.title);
   }, [configuration?.context.currentDirectory, preferredProjectRoot, projectTargets]);
+
+  useEffect(() => {
+    if (runtimeSelectionTouchedRef.current) return;
+    const nextHarness = selectedProject?.defaultHarness?.trim()
+      || routeAgent?.harness?.trim()
+      || runnerOptions?.defaults.harness
+      || "claude";
+    setHarness(nextHarness);
+    if (!runnerOptions) return;
+    const routeModel = routeAgent?.model?.trim() ?? "";
+    const routeModelSupported = runnerOptions.models.some((candidate) => (
+      candidate.id === routeModel && candidate.harnesses.includes(nextHarness)
+    ));
+    setModel(routeModelSupported ? routeModel : firstModelForHarness(runnerOptions, nextHarness));
+    setReasoningEffort(firstEffortForHarness(runnerOptions, nextHarness));
+  }, [routeAgent?.harness, routeAgent?.model, runnerOptions, selectedProject?.defaultHarness, selectedProject?.root]);
 
   useEffect(() => {
     if (projectPickerOpen || !selectedProject) return;
@@ -449,8 +638,29 @@ export function NewChatComposer({
     }
   };
 
+  const selectHarness = (nextHarness: string) => {
+    runtimeSelectionTouchedRef.current = true;
+    setHarness(nextHarness);
+    if (!runnerOptions) {
+      setModel("");
+      return;
+    }
+    const currentModelSupported = runnerOptions.models.some((candidate) => (
+      candidate.id === model && candidate.harnesses.includes(nextHarness)
+    ));
+    if (!currentModelSupported) {
+      setModel(firstModelForHarness(runnerOptions, nextHarness));
+    }
+    const currentEffortSupported = runnerOptions.efforts.some((candidate) => (
+      candidate.id === reasoningEffort && candidate.harnesses.includes(nextHarness)
+    ));
+    if (!currentEffortSupported) {
+      setReasoningEffort(firstEffortForHarness(runnerOptions, nextHarness));
+    }
+  };
+
   const start = async () => {
-    if ((!selectedProject && !routeAgent) || isStarting) return;
+    if ((!selectedProject && !routeAgent) || isStarting || runtimeBlocked) return;
     setState("starting");
     setPhase(files.length > 0 ? "uploading" : "starting");
     setError(null);
@@ -484,7 +694,9 @@ export function NewChatComposer({
       const result = selectedProject
         ? await startProjectSession({
             projectPath: selectedProject.root,
-            harness: selectedProject.defaultHarness,
+            harness,
+            ...(model ? { model } : {}),
+            ...(reasoningEffort ? { reasoningEffort } : {}),
             ...(committedMessage
               ? { instructions: committedMessage }
               : hasAttachments
@@ -661,7 +873,6 @@ export function NewChatComposer({
             <div className="s-newchat-target">
               <span className="s-newchat-chip">/{selectedProject.title}</span>
               <span className="s-newchat-chip" title={selectedProject.root}>{shortProjectPath(selectedProject.root)}</span>
-              <span className="s-newchat-chip">{selectedProject.defaultHarness}</span>
               <span className="s-newchat-chip">new worker</span>
             </div>
           )}
@@ -689,6 +900,75 @@ export function NewChatComposer({
                 New chat
               </button>
             </div>
+          ) : null}
+
+          {usesNewWorker ? (
+            <section className="s-newchat-runtime" aria-labelledby="s-newchat-runtime-title">
+              <div className="s-newchat-runtime-head">
+                <div>
+                  <h3 id="s-newchat-runtime-title">Run with</h3>
+                  <p>Choose the harness, model, and thinking depth for this worker.</p>
+                </div>
+                {runnerLoading ? (
+                  <span className="s-newchat-runtime-readiness" data-loading="true">
+                    <Loader2 size={11} aria-hidden="true" />
+                    Loading models
+                  </span>
+                ) : selectedHarness?.ready !== null && selectedHarness?.ready !== undefined ? (
+                  <span
+                    className="s-newchat-runtime-readiness"
+                    data-ready={selectedHarness.ready ? "true" : "false"}
+                  >
+                    <span aria-hidden="true" />
+                    {selectedHarness.ready ? "Ready" : "Unavailable"}
+                  </span>
+                ) : null}
+              </div>
+              <div className="s-newchat-runtime-grid">
+                <RuntimeSelect
+                  label="Harness"
+                  value={harness}
+                  displayValue={selectedHarness?.label ?? harness}
+                  options={harnessSelectOptions}
+                  disabled={isStarting || runnerLoading}
+                  onChange={selectHarness}
+                />
+                <RuntimeSelect
+                  label="Model"
+                  value={model}
+                  displayValue={runnerLoading
+                    ? "Loading models…"
+                    : (models.find((candidate) => candidate.id === model)?.label ?? model) || "Harness default"}
+                  options={modelSelectOptions}
+                  disabled={isStarting || runnerLoading}
+                  wide
+                  onChange={(nextModel) => {
+                    runtimeSelectionTouchedRef.current = true;
+                    setModel(nextModel);
+                  }}
+                />
+                <RuntimeSelect
+                  label="Effort"
+                  value={reasoningEffort}
+                  displayValue={(efforts.find((candidate) => candidate.id === reasoningEffort)?.label ?? reasoningEffort) || "Harness default"}
+                  options={effortSelectOptions}
+                  disabled={isStarting || runnerLoading || effortSelectOptions.length === 0}
+                  onChange={(nextEffort) => {
+                    runtimeSelectionTouchedRef.current = true;
+                    setReasoningEffort(nextEffort);
+                  }}
+                />
+              </div>
+              {selectedHarness?.detail || runnerLoadError ? (
+                <p
+                  className="s-newchat-runtime-note"
+                  data-warning={selectedHarness?.ready === false || Boolean(runnerLoadError) || undefined}
+                  role={selectedHarness?.ready === false ? "alert" : undefined}
+                >
+                  {selectedHarness?.detail || runnerLoadError}
+                </p>
+              ) : null}
+            </section>
           ) : null}
 
           {files.length > 0 ? (
@@ -739,20 +1019,21 @@ export function NewChatComposer({
             value={message}
             onChange={setMessage}
             onSend={() => void start()}
+            sendOnEnter
             textareaRef={textRef}
-            placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
+            placeholder={hasAttachments ? "What should the agent do with this?" : "Describe the task…"}
             disabled={isStarting || (!selectedProject && !routeAgent)}
             sending={isStarting}
-            canSend={Boolean(selectedProject || routeAgent) && !isStarting}
+            canSend={Boolean(selectedProject || routeAgent) && !isStarting && !runtimeBlocked}
             onDictationStatusChange={setDictationStatus}
             showAttach
             onAttach={() => fileInputRef.current?.click()}
             attachTitle="Attach file — or paste / drop"
             attachAriaLabel="Attach file"
-            sendTitle={hasAttachments ? "Route (Cmd+Enter)" : "Start chat (Cmd+Enter)"}
-            sendAriaLabel={hasAttachments ? "Route capture" : "Start chat"}
+            sendTitle={hasAttachments ? "Route (Enter)" : "Start task (Enter)"}
+            sendAriaLabel={hasAttachments ? "Route capture" : "Start task"}
             tools={(
-              <span className="s-msg-compose-tools-hint" aria-hidden="true">⌘↵</span>
+              <span className="s-msg-compose-tools-hint" aria-hidden="true">↵ send · ⇧↵ line</span>
             )}
           />
         </div>

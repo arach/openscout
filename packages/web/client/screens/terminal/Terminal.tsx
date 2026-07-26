@@ -63,6 +63,10 @@ import {
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { usePersistentState } from "@hudsonkit";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import {
+  SCOUT_TERMINAL_SEND_LINE_EVENT,
+  terminalHostLineFromEvent,
+} from "../../lib/terminal-host-command.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
@@ -2625,6 +2629,33 @@ function NewTerminalSession({
     agent,
     controlMode: "takeover",
   } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
+
+  const pendingHostLinesRef = useRef<string[]>([]);
+  const hostRelayRef = useRef({ status: relay.status, sendLine: relay.sendLine });
+  hostRelayRef.current = { status: relay.status, sendLine: relay.sendLine };
+
+  useBrowserLayoutEffect(() => {
+    const handleHostLine = (event: Event) => {
+      const line = terminalHostLineFromEvent(event);
+      if (!line) return;
+      const currentRelay = hostRelayRef.current;
+      if (currentRelay.status === "connected") {
+        currentRelay.sendLine(line);
+        return;
+      }
+      pendingHostLinesRef.current = [...pendingHostLinesRef.current.slice(-15), line];
+    };
+
+    window.addEventListener(SCOUT_TERMINAL_SEND_LINE_EVENT, handleHostLine);
+    return () => window.removeEventListener(SCOUT_TERMINAL_SEND_LINE_EVENT, handleHostLine);
+  }, []);
+
+  useBrowserLayoutEffect(() => {
+    if (relay.status !== "connected" || pendingHostLinesRef.current.length === 0) return;
+    const lines = pendingHostLinesRef.current;
+    pendingHostLinesRef.current = [];
+    for (const line of lines) relay.sendLine(line);
+  }, [relay.sendLine, relay.status]);
 
   useBrowserLayoutEffect(() => {
     relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);

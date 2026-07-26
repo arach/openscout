@@ -11,6 +11,8 @@ import type {
   ScoutDispatchCandidate,
 } from "@openscout/protocol";
 import { api } from "../../lib/api.ts";
+import { uploadMediaFiles, type OutgoingAttachment } from "../../lib/media-blobs.ts";
+import { useComposerAttachments } from "../../components/MessageComposer/index.ts";
 import {
   hasCachedConversationHistory,
   loadConversationHistory,
@@ -79,12 +81,17 @@ import {
   type ConversationHeaderParticipant,
 } from "./ConversationHeader.tsx";
 import { ConversationComposer } from "./ConversationComposer.tsx";
-import { ThreadMotionPanel } from "./ConversationPanels.tsx";
+import {
+  ThreadLoadingSkeleton,
+  ThreadMotionPanel,
+} from "./ConversationPanels.tsx";
 import { ConversationStatusStrip, PinnedAskCard } from "./ConversationStatus.tsx";
 import { DismissIcon } from "./conversation-icons.tsx";
 import {
   SLASH_COMMANDS,
+  WORKING_DURATION_THRESHOLDS_MS,
   buildTurnSnapshot,
+  deriveWorkingDurationStage,
   deriveDisplayTitle,
   describePresence,
   displayNameForActor,
@@ -104,6 +111,10 @@ import {
   resolveComposeAction,
   resolveAskReplyContext,
   resolveMessageAgent,
+  resolveThreadEmbedProps,
+  describeQueuedDrafts,
+  shouldFlushQueue,
+  type QueuedDraft,
   selectCurrentFlight,
   selectOperatorPendingAsk,
   selectTurnActivity,
@@ -121,6 +132,7 @@ import {
   type SendReceipt,
   type SlashCommand,
   type SlashSuggestState,
+  type ThreadTreatment,
 } from "./conversation-model.ts";
 
 function messageIdFromLocationHash(hash: string | null | undefined): string | null {
@@ -137,21 +149,12 @@ function messageIdFromLocationHash(hash: string | null | undefined): string | nu
 
 type ConversationMessageLoadMode = "initial" | "refresh" | "none";
 
-export const THREAD_TREATMENTS = ["standard", "ledger", "rail", "document"] as const;
-export type ThreadTreatment = (typeof THREAD_TREATMENTS)[number];
-
-function asThreadTreatment(value: string | null | undefined): ThreadTreatment {
-  const candidate = value?.trim() as ThreadTreatment | undefined;
-  return candidate && THREAD_TREATMENTS.includes(candidate) ? candidate : "standard";
-}
-
 export function ConversationScreen({
   conversationId,
   initialDraft,
   navigate,
   embedded,
   showBackNav = true,
-  showComposer = true,
   treatment = "standard",
 }: {
   conversationId: string;
@@ -163,10 +166,6 @@ export function ConversationScreen({
   /// conversation-screen.css. "standard" is the shipping bordered card;
   /// ledger/rail/document come from the readability study.
   treatment?: ThreadTreatment;
-  /// A host that supplies its own composer (the macOS window keeps a native
-  /// one, for the pasteboard, drag-drop and dictation it can reach) turns this
-  /// off. Default on so every other host gets a complete conversation.
-  showComposer?: boolean;
 }) {
   const { agents, route } = useScout();
   const machineId = routeMachineId(route);
@@ -258,6 +257,13 @@ export function ConversationScreen({
 
   const agentId = sessionMeta?.agentId ?? null;
   const isDm = sessionMeta?.kind === "direct";
+  const equivalentConversationIds = useMemo(
+    () => new Set([
+      conversationId,
+      ...(sessionMeta?.equivalentConversationIds ?? []),
+    ]),
+    [conversationId, sessionMeta?.equivalentConversationIds],
+  );
   const agent = useMemo<Agent | null>(
     () =>
       agentId ? (scopedAgents.find((item) => item.id === agentId) ?? null) : null,
@@ -314,19 +320,16 @@ export function ConversationScreen({
       }
 
       const cachedMessages = readCachedConversationTail(canonicalConversationId);
-      const cachedMessageAt = cachedMessages?.at(-1)?.createdAt ?? null;
-      const cacheIsBehindSummary =
-        cachedMessages === null
-        || (
-          typeof meta?.lastMessageAt === "number"
-          && (cachedMessageAt === null || cachedMessageAt < meta.lastMessageAt)
-        );
       const historyIsCached = hasCachedConversationHistory(
         canonicalConversationId,
       );
       const shouldLoadHistory = messageMode === "initial" && !historyIsCached;
+      // A warm cache is an arrival optimization, never proof that the mounted
+      // transcript is current. Always reconcile once on mount/selection; this
+      // closes missed-event and broker-restart gaps even when the summary
+      // projection is itself stale.
       const shouldRefreshTail = messageMode === "refresh"
-        || (messageMode === "initial" && cacheIsBehindSummary);
+        || messageMode === "initial";
 
       const [conversationMessages, activeFlights, fleet] = await Promise.all([
         shouldLoadHistory
@@ -737,6 +740,42 @@ export function ConversationScreen({
   const hasQuietWorkingTurnPresence = presence.tone === "quiet";
   const hasPassiveWorkingTurnPresence =
     hasQuietWorkingTurnPresence || currentFlightQueuedUntilOnline;
+  const turnMotionStartedAt =
+    currentFlight?.startedAt ?? turnAsk?.startedAt ?? awaitingResponseSince;
+  const normalizedTurnMotionStartedAt = normalizeTimestampMs(turnMotionStartedAt);
+  const workingDurationStage = deriveWorkingDurationStage(
+    turnMotionStartedAt,
+    currentNowMs,
+  );
+  const [, setWorkingDurationTick] = useState(0);
+
+  useEffect(() => {
+    if (
+      !presence.showTyping ||
+      hasPassiveWorkingTurnPresence ||
+      normalizedTurnMotionStartedAt === null
+    ) {
+      return;
+    }
+
+    const elapsedMs = Math.max(0, Date.now() - normalizedTurnMotionStartedAt);
+    const nextThresholdMs = [
+      WORKING_DURATION_THRESHOLDS_MS.sustained,
+      WORKING_DURATION_THRESHOLDS_MS.long,
+    ].find((thresholdMs) => thresholdMs > elapsedMs);
+    if (nextThresholdMs === undefined) return;
+
+    const timer = window.setTimeout(
+      () => setWorkingDurationTick((value) => value + 1),
+      nextThresholdMs - elapsedMs + 50,
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    hasPassiveWorkingTurnPresence,
+    normalizedTurnMotionStartedAt,
+    presence.showTyping,
+    workingDurationStage,
+  ]);
   const workingTurnBadgeLabel = currentFlightQueuedUntilOnline
     ? "Not delivered"
     : hasQuietWorkingTurnPresence
@@ -795,6 +834,9 @@ export function ConversationScreen({
     .join(" ");
   const presenceStripClassName = [
     "s-thread-presence-strip",
+    !hasPassiveWorkingTurnPresence
+      ? `s-thread-presence-strip--${workingDurationStage}`
+      : null,
     hasPassiveWorkingTurnPresence ? "s-thread-presence-strip--quiet" : null,
   ]
     .filter(Boolean)
@@ -807,8 +849,6 @@ export function ConversationScreen({
   const conversationAlias = sessionMeta?.alias?.trim() || null;
   const workspaceName = pathLeaf(sessionMeta?.workspaceRoot);
   const turnMotionTone: MotionTone = hasQuietWorkingTurnPresence ? "quiet" : presence.tone;
-  const turnMotionStartedAt =
-    currentFlight?.startedAt ?? turnAsk?.startedAt ?? awaitingResponseSince;
   const showEmptyMotionPanel =
     messages.length === 0 &&
     isDm &&
@@ -882,10 +922,12 @@ export function ConversationScreen({
           const message = (
             event.payload as { message?: EventMessageRecord } | undefined
           )?.message;
-          if (!message || message.conversationId !== conversationId) return;
+          if (!message || !equivalentConversationIds.has(message.conversationId)) return;
 
           const isOperatorActor = message.actorId === "operator";
-          const isAgentMessage = isDm && message.actorId === agentId;
+          const isAgentMessage = isDm
+            && !isOperatorActor
+            && message.class === "agent";
           const nextMessage: Message = {
             id: message.id,
             conversationId: message.conversationId,
@@ -949,7 +991,8 @@ export function ConversationScreen({
           if (
             !invocation ||
             invocation.targetAgentId !== agentId ||
-            invocation.conversationId !== conversationId
+            !invocation.conversationId
+            || !equivalentConversationIds.has(invocation.conversationId)
           )
             return;
           trackedInvocationIdsRef.current.add(invocation.id);
@@ -1002,7 +1045,7 @@ export function ConversationScreen({
           void load({ messageMode: "refresh" });
         }
       },
-      [agentId, agentName, conversationId, isDm, load, operatorName, scopedAgents],
+      [agentId, agentName, conversationId, equivalentConversationIds, isDm, load, operatorName, scopedAgents],
     ),
   );
 
@@ -1012,7 +1055,7 @@ export function ConversationScreen({
     }
 
     const timer = setInterval(() => {
-      void load({ messageMode: "none", includeMetadata: false });
+      void load({ messageMode: "refresh", includeMetadata: false });
     }, 5000);
     return () => clearInterval(timer);
   }, [shouldPollOutstandingTurn, load]);
@@ -1057,12 +1100,16 @@ export function ConversationScreen({
     return () => clearInterval(timer);
   }, []);
 
+  const attachments = useComposerAttachments();
+  const [queued, setQueued] = useState<QueuedDraft[]>([]);
+
   const sendText = async (
     text: string,
-    options?: { forceAction?: ComposeAction },
+    options?: { forceAction?: ComposeAction; attachments?: OutgoingAttachment[] },
   ) => {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    const outgoingAttachments = options?.attachments ?? [];
+    if ((!trimmed && outgoingAttachments.length === 0) || sending) return;
     const forceAction = options?.forceAction;
     const action = forceAction ?? resolveComposeAction({
       isDm,
@@ -1078,6 +1125,9 @@ export function ConversationScreen({
       body: trimmed,
       createdAt: optimisticCreatedAt,
       class: "operator",
+      ...(outgoingAttachments.length > 0
+        ? { attachments: outgoingAttachments }
+        : {}),
     };
 
     setSending(true);
@@ -1095,6 +1145,9 @@ export function ConversationScreen({
         method: "POST",
         body: JSON.stringify({
           body: trimmed,
+          ...(outgoingAttachments.length > 0
+            ? { attachments: outgoingAttachments }
+            : {}),
         }),
         },
       );
@@ -1143,11 +1196,72 @@ export function ConversationScreen({
     }
   };
 
-  const send = async () => {
+  /**
+   * Uploads staged files and clears the composer. Returns null when there is
+   * nothing to commit, or when the upload failed (the error is already shown).
+   */
+  const takeDraft = async (): Promise<
+    { body: string; attachments: OutgoingAttachment[] } | null
+  > => {
     const text = draft.trim();
-    if (!text) return;
+    const files = attachments.files;
+    if (!text && files.length === 0) return null;
+
+    let uploaded: OutgoingAttachment[] = [];
+    if (files.length > 0) {
+      setSending(true);
+      try {
+        uploaded = await uploadMediaFiles(files);
+      } catch (cause) {
+        attachments.setError(
+          cause instanceof Error ? cause.message : String(cause),
+        );
+        return null;
+      } finally {
+        setSending(false);
+      }
+    }
+
     setDraft("");
-    await sendText(text);
+    attachments.clear();
+    return { body: text, attachments: uploaded };
+  };
+
+  const send = async () => {
+    const taken = await takeDraft();
+    if (!taken) return;
+
+    // Mid-turn, a plain Send means "queue it" — the running turn keeps the
+    // floor and the draft is released the moment it lands. Steer is the
+    // explicit interrupt.
+    if (isAgentBusy) {
+      setQueued((previous) => [
+        ...previous,
+        {
+          id: `queued-${Date.now()}-${previous.length}`,
+          body: taken.body,
+          attachments: taken.attachments,
+          queuedAt: Date.now(),
+        },
+      ]);
+      return;
+    }
+
+    await sendText(taken.body, { attachments: taken.attachments });
+  };
+
+  const steer = async () => {
+    const taken = await takeDraft();
+    if (!taken) return;
+    await interrupt();
+    await sendText(taken.body, {
+      forceAction: "steer",
+      attachments: taken.attachments,
+    });
+  };
+
+  const unqueue = (id: string) => {
+    setQueued((previous) => previous.filter((entry) => entry.id !== id));
   };
 
   const replyToHandle = useCallback((handle: string) => {
@@ -1179,9 +1293,33 @@ export function ConversationScreen({
   const composePlaceholder = isDm
     ? `Message ${agentName} — type / to route or @ to mention an agent`
     : sessionMeta?.kind === "channel"
-      ? `Message #${conversationShortLabel(sessionMeta)}...`
-      : `Message ${threadTitle}...`;
-  const isStopMode = !draft.trim() && isAgentBusy;
+      ? `Comment in #${conversationShortLabel(sessionMeta)} — mention @agent to request a reply`
+      : `Comment in ${threadTitle} — mention @agent to request a reply`;
+  const isStopMode = !draft.trim() && !attachments.hasFiles && isAgentBusy;
+
+  // Release queued drafts one at a time as soon as the agent frees up. One per
+  // pass keeps ordering intact: each send flips `sending`, which re-gates this.
+  const flushingRef = useRef(false);
+  useEffect(() => {
+    if (!shouldFlushQueue({ isAgentBusy, sending, queued })) return;
+    if (flushingRef.current) return;
+    const next = queued[0];
+    if (!next) return;
+    flushingRef.current = true;
+    setQueued((previous) => previous.filter((entry) => entry.id !== next.id));
+    void sendText(next.body, { attachments: next.attachments })
+      .finally(() => {
+        flushingRef.current = false;
+      });
+  }, [isAgentBusy, sending, queued]);
+
+  // Queued drafts belong to the conversation they were written in.
+  useEffect(() => {
+    setQueued([]);
+    attachments.clear();
+  }, [conversationId]);
+
+  const queueNote = describeQueuedDrafts(queued);
 
   const showContextMenu = useContextMenu();
   const onMessageContextMenu = useCallback(
@@ -1377,19 +1515,7 @@ export function ConversationScreen({
         <div className="s-thread-feed">
           <div className="s-thread-feed-spacer" />
           {showThreadSkeleton ? (
-            <div className="s-thread-skeleton" aria-busy="true" aria-live="polite">
-              <span className="s-thread-skeleton-label">Loading conversation…</span>
-              {[0, 1, 2].map((row) => (
-                <div className="s-thread-skeleton-turn" key={row}>
-                  <span className="s-thread-skeleton-avatar" />
-                  <div className="s-thread-skeleton-lines">
-                    <span className="s-thread-skeleton-line s-thread-skeleton-line--head" />
-                    <span className="s-thread-skeleton-line" />
-                    <span className="s-thread-skeleton-line s-thread-skeleton-line--short" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ThreadLoadingSkeleton />
           ) : messages.length === 0 ? (
             showEmptyMotionPanel ? (
               <ThreadMotionPanel
@@ -1812,11 +1938,10 @@ export function ConversationScreen({
             <span className="s-thread-presence-line-label">
               {presenceLineLabel}
             </span>
-            <div className={presenceStripClassName} />
+            <div className={presenceStripClassName} aria-hidden="true" />
           </div>
         )}
 
-        {showComposer && (
         <ConversationComposer
           composeRef={composeRef}
           draft={draft}
@@ -1838,8 +1963,11 @@ export function ConversationScreen({
           onSend={() => void send()}
           onInterrupt={() => void interrupt()}
           sendReceipt={sendReceipt}
+          attachments={attachments}
+          isAgentBusy={isAgentBusy}
+          onSteer={() => void steer()}
+          queueNote={queueNote}
         />
-        )}
       </div>
 
     </div>
@@ -1868,15 +1996,13 @@ function ReplyGlyph() {
 /**
  * Thread — the conversation surface, embeddable.
  *
- * Native hosts render THIS component, not an embed-only variant of it. macOS
- * and iOS each carry their own transcript renderer today (ScoutSharedUI's
- * MessageMarkupParser + ScoutRootView on macOS, MessageMarkupView on iOS);
- * pointing their web views here is what collapses that to one implementation.
+ * Native hosts render THIS complete component, not an embed-only transcript.
+ * The feed and composer stay together so message presentation, draft behavior,
+ * attachments, shortcuts, and dictation do not drift between web and macOS.
  * A purpose-built embed screen would only have made it three.
  *
  * So there is nothing to keep in sync: whatever lands on the conversation
- * lands on every surface, and any regression here is a regression everywhere —
- * which is the point, and the cost.
+ * lands on every surface, and any regression here is a regression everywhere.
  */
 export const scoutSurface = defineSurface({
   id: "thread",
@@ -1890,16 +2016,9 @@ export const scoutSurface = defineSurface({
     rootClassName: "s-thread-embed",
     chrome: { showSecondaryNav: false, showPageStatusBar: false },
     hosts: { macos: true },
-    resolveEmbedProps: (params) => ({
-      conversationId: params.get("conversationId")?.trim() || "",
-      embedded: true,
-      // The host owns navigation; an in-embed back arrow would strand the user
-      // inside a pane that has nowhere to go back to.
-      showBackNav: false,
-      // `composer=0` from a host that supplies its own. Two stacked composers
-      // is the failure mode this exists to prevent.
-      showComposer: params.get("composer") !== "0",
-      treatment: asThreadTreatment(params.get("treatment")),
-    }),
+    // The host owns navigation; an in-embed back arrow would strand the user
+    // inside a pane that has nowhere to go back to. The resolver deliberately
+    // ignores the former `composer=0` escape hatch: embeds stay complete.
+    resolveEmbedProps: resolveThreadEmbedProps,
   },
 });

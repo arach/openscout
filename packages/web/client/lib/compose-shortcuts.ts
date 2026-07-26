@@ -8,10 +8,14 @@ export type ComposeShortcutEvent = {
   };
 };
 
-export function isComposerSendShortcut(event: ComposeShortcutEvent): boolean {
+export function isComposerSendShortcut(
+  event: ComposeShortcutEvent,
+  sendOnEnter = false,
+): boolean {
   return (
     event.key === "Enter" &&
-    Boolean(event.metaKey || event.ctrlKey) &&
+    !event.shiftKey &&
+    (sendOnEnter || Boolean(event.metaKey || event.ctrlKey)) &&
     !event.nativeEvent?.isComposing
   );
 }

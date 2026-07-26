@@ -40,6 +40,7 @@ import { isEditableTarget, isTerminalInputTarget, usePaneNav } from "./lib/keybo
 import {
   isNewChatShortcut,
   NEW_CHAT_SHORTCUT_LABEL,
+  NEW_TASK_ACTION_LABEL,
 } from "./lib/new-chat-shortcut.ts";
 import { goShortcutForKey } from "./lib/go-shortcuts.ts";
 import { SidebarProvider } from "./components/ui/sidebar.tsx";
@@ -799,7 +800,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       },
       {
         id: "shell:new-session",
-        label: "New Chat",
+        label: NEW_TASK_ACTION_LABEL,
         shortcut: NEW_CHAT_SHORTCUT_LABEL,
         action: () => {
           const context = resolveCaptureRouteContext(route, agents);

@@ -10,6 +10,7 @@ import {
   brokerAttemptIsFailure,
   brokerMessageFeedRows,
   brokerAttemptRootCauseFingerprint,
+  brokerDispatchReviewRequest,
   brokerScoutbotTriageRequest,
   brokerMetadataPayload,
   brokerMetadataSummary,
@@ -183,6 +184,21 @@ describe("broker dispatch display", () => {
     });
     expect(brokerAttemptContextText(failed)).toContain("Full JSON:");
     expect(brokerAttemptContextText(failed)).toContain("deliveryId: delivery-1");
+  });
+
+  test("includes the inspected snapshot when requesting a report for a synthesized message row", () => {
+    const synthesized = attempt({
+      id: "message:msg-1",
+      kind: "failed_delivery",
+      status: "failed",
+      messageId: "msg-1",
+      deliveryId: "delivery-1",
+    });
+
+    expect(brokerDispatchReviewRequest(synthesized)).toEqual({
+      attemptId: "message:msg-1",
+      attempt: synthesized,
+    });
   });
 
   test("builds an explicit Scout submission for failed-dispatch triage", () => {

@@ -12,6 +12,7 @@ import {
   projectOpsSecondaryNav,
   projectOpsSystemMenuEntries,
   projectPaletteNavCommands,
+  sidebarSubNavForRoute,
   projectTopNavItems,
   type NavDestinationId,
 } from "./nav-destinations.ts";
@@ -99,6 +100,10 @@ describe("nav destination catalog", () => {
       "messages",
       "channels",
     ]);
+    expect(CHAT_SECONDARY_NAV[0]?.items[0]).toMatchObject({
+      label: "Direct Messages",
+      route: { view: "messages", filter: "dm" },
+    });
   });
 
   test("ops secondary nav excludes Dispatch/Repos/Code (SCO-083 area boundaries)", () => {
@@ -210,5 +215,60 @@ describe("nav destination catalog", () => {
     expect(areaSubNavForRoute({ view: "terminal" })?.areaId).toBe("sessions");
     expect(areaSubNavForRoute({ view: "ops", mode: "lanes" })).toBeNull();
     expect(areaSubNavForRoute({ view: "inbox" })).toBeNull();
+  });
+
+  test("expanded sidebar projects Messages into Direct Messages and Channels", () => {
+    const messages = sidebarSubNavForRoute({ view: "messages", filter: "dm" });
+    expect(messages?.areaId).toBe("chat");
+    expect(messages?.items.map((item) => [item.label, item.route])).toEqual([
+      ["Direct Messages", { view: "messages", filter: "dm" }],
+      ["Channels", { view: "channels" }],
+    ]);
+    expect(messages?.items[0]?.active({ view: "conversation", conversationId: "c-1" })).toBe(true);
+    expect(messages?.items[1]?.active({ view: "channels" })).toBe(true);
+  });
+
+  test("expanded sidebar projects routable Dispatch ledger filters", () => {
+    const dispatch = sidebarSubNavForRoute({ view: "broker", filter: "failed" });
+    expect(dispatch?.areaId).toBe("dispatch");
+    expect(dispatch?.items.map((item) => [item.label, item.route])).toEqual([
+      ["All Dispatches", { view: "broker" }],
+      ["Delivered", { view: "broker", filter: "delivered" }],
+      ["Failed", { view: "broker", filter: "failed" }],
+    ]);
+    expect(dispatch?.items.map((item) => item.active({ view: "broker", filter: "failed" }))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  test("expanded sidebar projects the full Ops cluster and honors ops.control", () => {
+    const all = sidebarSubNavForRoute(
+      { view: "ops", mode: "lanes" },
+      { opsControlEnabled: true },
+    );
+    expect(all?.areaId).toBe("ops");
+    expect(all?.items.map((item) => item.label)).toEqual([
+      "Lanes",
+      "Mission Control",
+      "Providers",
+      "Runtime",
+      "Network",
+      "Live Activity",
+      "Plans",
+    ]);
+
+    const gated = sidebarSubNavForRoute(
+      { view: "ops", mode: "lanes" },
+      { opsControlEnabled: false },
+    );
+    expect(gated?.items.map((item) => item.label)).toEqual([
+      "Lanes",
+      "Providers",
+      "Network",
+      "Live Activity",
+      "Plans",
+    ]);
   });
 });
