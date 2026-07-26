@@ -25,7 +25,8 @@ export type Variant = "shipped" | "hc" | "paper";
  */
 export type Surface =
   | "home" | "comms" | "agents" | "ops" | "tail"
-  | "terminal" | "new" | "conversation" | "connect" | "settings";
+  | "terminal" | "new" | "conversation" | "connect" | "settings"
+  | "notification";
 
 // The docked tab bar: Home · Comms · Agents · Ops — four destinations, the
 // places you *go*. New is NOT here: it's a contextual action (a compose "+" per
@@ -36,7 +37,9 @@ export type Surface =
 // one "raw truth" destination — it opens on Tail (the live firehose) with a
 // Terminal toggle. Home leads with the needs-you band over the ambient swarm.
 export const TABS: { label: string; kind: GlyphKind; activeFor?: Surface[] }[] = [
-  { label: "Home", kind: "home", activeFor: ["home"] },
+  // The notification detail PUSHES over whatever tab you were on; in the study
+  // it is authored against Home, so Home stays lit behind it.
+  { label: "Home", kind: "home", activeFor: ["home", "notification"] },
   { label: "Comms", kind: "comms", activeFor: ["comms", "conversation"] },
   { label: "Agents", kind: "agent", activeFor: ["agents"] },
   { label: "Ops", kind: "pulse", activeFor: ["ops", "tail", "terminal"] },
@@ -1031,4 +1034,224 @@ export const SCOUT_IOS_CSS = `
   .scoutios[data-lang="crisp"] .iFleetLog { margin-top: 16px; }
   .scoutios[data-lang="crisp"] .iFleetLogRow { gap: 8px; padding: 5px 2px; }
 }
+
+/* ── Home · simplified ──────────────────────────────────────────────────── */
+/* Three zones, no toggles: NEEDS YOU (only when non-empty) · one flat ACTIVITY
+   log (absorbs the Working lane; the live count is the lane header's only
+   glance-value) · the Ask dock. Kind reads from a mono TEXT tag, never a color
+   chip; a single amber marks BLOCKING (an agent is literally paused). */
+/* iBody already supplies the 14px side gutter + is the flex:1 scroll region;
+   these two fill it and own their own internal stacking. */
+.iHomeS { height: 100%; display: flex; flex-direction: column; min-height: 0;
+  padding-bottom: 4px; overflow: hidden; }
+
+/* zone head — caps label · count · rule · optional trailing action */
+.iZone { display: flex; align-items: center; gap: 8px; padding: 12px 0 7px; flex: none; }
+.iZoneLabel { font-family: var(--i-mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--i-dim); }
+.iZoneLabel[data-attn] { color: var(--i-warn); }
+.iZoneCount { font-family: var(--i-mono); font-size: 9px; font-weight: 600;
+  color: var(--i-warn); border: 1px solid rgba(245,158,11,0.35); border-radius: 999px;
+  padding: 1px 6px; line-height: 1.4; }
+.iZoneRule { flex: 1; height: 1px; background: var(--i-hairline); }
+.iZoneMeta { font-family: var(--i-mono); font-size: 9px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--i-dim); }
+.iZoneMeta[data-live] { color: var(--i-accent); }
+
+/* needs-you row — the triage unit. Vertical (never a horizontal card rail:
+   triage must show its whole queue at a glance). Unread = ink; read recedes. */
+.iNeed2 { display: flex; align-items: flex-start; gap: 9px; padding: 9px 2px;
+  border-bottom: 1px solid var(--i-hairline); min-height: 44px; }
+.iNeed2:last-child { border-bottom: none; }
+.iNeed2Bar { flex: none; width: 2px; align-self: stretch; border-radius: 1px;
+  background: var(--i-warn); margin-right: 1px; }
+.iNeed2[data-read] .iNeed2Bar { background: transparent; }
+.iNeed2Body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.iNeed2Top { display: flex; align-items: baseline; gap: 7px; }
+.iNeed2Agent { font-size: 12.5px; font-weight: 600; color: var(--i-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iNeed2[data-read] .iNeed2Agent { font-weight: 500; color: var(--i-muted); }
+.iNeed2Proj { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim);
+  white-space: nowrap; }
+.iNeed2Kind { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--i-dim); }
+.iNeed2Kind[data-block] { color: var(--i-warn); }
+.iNeed2Age { margin-left: auto; font-family: var(--i-mono); font-size: 9.5px;
+  color: var(--i-dim); font-variant-numeric: tabular-nums; }
+.iNeed2Text { font-size: 12px; line-height: 1.35; color: var(--i-muted);
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.iNeed2[data-read] .iNeed2Text { color: var(--i-dim); }
+.iNeed2Chev { flex: none; color: var(--i-dim); align-self: center; display: flex; }
+.iNeedMore { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  padding: 8px 2px 0; }
+
+/* activity — the flat log, freshest first; live rows carry the accent edge */
+.iHomeLog { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.iHomeLogList { flex: 1; min-height: 0; overflow: hidden; }
+.iHomeLogRow { display: flex; align-items: baseline; gap: 8px; padding: 6px 2px 6px 8px;
+  border-left: 2px solid transparent; }
+.iHomeLogRow[data-now] { border-left-color: var(--i-accent); }
+.iHomeLogText { flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.35;
+  color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iHomeLogRow[data-now] .iHomeLogText { color: var(--i-ink); }
+.iHomeLogSrc { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim); }
+.iHomeLogAge { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim);
+  font-variant-numeric: tabular-nums; }
+.iHomeLogAge.live { color: var(--i-accent); }
+
+/* ask dock — unchanged grammar: a recessed well + a lit send */
+.iAskDock { flex: none; display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  padding: 7px 7px 7px 13px; border-radius: 20px; background: var(--i-chrome);
+  border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.65); }
+.iAskDockText { flex: 1; font-size: 12.5px; color: var(--i-dim); }
+.iAskDockSend { flex: none; width: 28px; height: 28px; border-radius: 999px;
+  background: var(--i-hairline-strong); color: var(--i-bg);
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+
+/* the quiet fleet — kept from the shipped Home; it earns its place */
+.iQuiet { flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 56px 0; }
+.iQuietRule { display: flex; align-items: center; gap: 5px; }
+.iQuietRule i { display: block; width: 46px; height: 1.5px; background: var(--i-accent); }
+.iQuietRule b { display: block; width: 3px; height: 3px; border-radius: 999px; background: var(--i-accent); }
+.iQuietLabel { font-family: var(--i-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--i-dim); }
+
+/* ── Notification detail (pushed page) ──────────────────────────────────── */
+/* The destination of a push. A PAGE, not a sheet: it pushes onto whatever tab
+   you were on, and Back returns you exactly there. Nothing about opening it
+   forces the conversation open. */
+/* The triage bar is chrome — it bleeds to the screen edges, so the page cancels
+   iBody's side gutter and re-applies it inside the scroll region only. */
+.iND { height: 100%; display: flex; flex-direction: column; min-height: 0;
+  overflow: hidden; margin: 0 -14px -6px; }
+.iNDScroll { flex: 1; min-height: 0; overflow: hidden; padding: 12px 16px 14px;
+  display: flex; flex-direction: column; gap: 13px; }
+
+/* identity line — who / where, mono, before the demand */
+.iNDWho { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.iNDKind { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.11em; text-transform: uppercase; color: var(--i-dim); }
+.iNDKind[data-block] { color: var(--i-warn); }
+.iNDAgent { font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
+.iNDMeta { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
+.iNDAge { margin-left: auto; font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
+
+/* the demand */
+.iNDTitle { font-size: 17px; font-weight: 600; line-height: 1.25; color: var(--i-ink);
+  letter-spacing: -0.01em; }
+.iNDSummary { font-size: 13px; line-height: 1.5; color: var(--i-muted); }
+
+/* evidence — the command / the failure, in a recessed mono well */
+.iNDEvidence { font-family: var(--i-mono); font-size: 11px; line-height: 1.55;
+  color: var(--i-ink); white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
+  background: var(--i-chrome); border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.55); }
+.iNDRisk { display: flex; align-items: center; gap: 7px; }
+.iNDRiskLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
+.iNDRiskVal { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
+.iNDRiskVal[data-high] { color: var(--i-ink); }
+
+/* ACT — the primary move, resolved here without ever opening the transcript */
+.iNDAct { display: flex; flex-direction: column; gap: 8px; }
+.iNDActLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--i-dim); }
+.iNDBtnRow { display: flex; gap: 8px; }
+.iNDBtn { flex: 1; min-height: 44px; display: flex; align-items: center;
+  justify-content: center; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+  border: 1px solid var(--i-hairline-strong); color: var(--i-ink); background: var(--i-surface); }
+.iNDBtn[data-primary] { background: var(--i-accent); border-color: var(--i-accent); color: #04130d; }
+.iNDBtn[data-off] { opacity: 0.4; }
+.iNDOpts { display: flex; gap: 8px; flex-wrap: wrap; }
+.iNDOpt { min-height: 40px; display: flex; align-items: center; padding: 0 14px;
+  border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--i-ink);
+  background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
+.iNDAnswer { min-height: 40px; display: flex; align-items: center; padding: 0 12px;
+  border-radius: 10px; font-size: 12.5px; color: var(--i-dim);
+  background: var(--i-chrome); border: 1px solid var(--i-hairline-strong); }
+
+/* receipt / notice strips — after acting, or when the item resolved elsewhere */
+.iNDNotice { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
+  border-radius: 9px; font-size: 12px; line-height: 1.45; color: var(--i-muted);
+  background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
+.iNDNotice[data-ok] { color: var(--i-ink); border-color: rgba(16,185,129,0.35); }
+.iNDNotice[data-warn] { border-color: rgba(245,158,11,0.32); }
+.iNDNotice[data-err] { border-color: rgba(220,38,38,0.38); }
+.iNDNoticeMark { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); padding-top: 2px; }
+.iNDNotice[data-ok] .iNDNoticeMark { color: var(--i-accent); }
+.iNDNotice[data-warn] .iNDNoticeMark { color: var(--i-warn); }
+.iNDNotice[data-err] .iNDNoticeMark { color: var(--i-error); }
+.iNDUndo { padding-left: 8px; font-size: 12px; font-weight: 600; color: var(--i-accent);
+  white-space: nowrap; }
+
+/* provenance — where this was resolved from, and how to refresh it */
+.iNDProv { display: flex; align-items: center; gap: 6px; font-family: var(--i-mono);
+  font-size: 9px; letter-spacing: 0.05em; color: var(--i-dim); }
+.iNDProvAct { margin-left: auto; color: var(--i-accent); font-weight: 600; }
+
+/* empty / resolving states */
+.iNDState { flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 9px; padding: 40px 20px; text-align: center; }
+.iNDStateTitle { font-size: 14px; font-weight: 600; color: var(--i-ink); }
+.iNDStateBody { font-size: 12.5px; line-height: 1.5; color: var(--i-muted); max-width: 260px; }
+.iNDSkel { width: 100%; border-radius: 6px; background: var(--i-surface); opacity: 0.5; }
+
+/* TRIAGE bar — pinned, always available, and deliberately SEPARATE from Act.
+   Mark read / Dismiss never touch the agent; Open is the only thing that
+   navigates, and only when you ask for it. */
+.iNDTriage { flex: none; display: flex; align-items: stretch; gap: 6px;
+  padding: 9px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--i-hairline-strong); background: var(--i-chrome); }
+.iNDTri { flex: 1; min-height: 44px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; border-radius: 9px;
+  background: transparent; }
+.iNDTriLabel { font-size: 11.5px; font-weight: 600; color: var(--i-muted); }
+.iNDTri[data-on] .iNDTriLabel { color: var(--i-accent); }
+.iNDTri[data-off] { opacity: 0.4; }
+.iNDTriSub { font-family: var(--i-mono); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--i-dim); }
+.iNDTriSep { flex: none; width: 1px; background: var(--i-hairline); margin: 6px 0; }
+
+/* ── Banner / lock-screen exhibit (OS-level triage) ─────────────────────── */
+/* The strongest form of "don't force the destination open": resolve the
+   notification from the banner and never launch the app. Needs aps.category
+   through the relay + a UNNotificationCategory registration. */
+.iBanner { border-radius: 18px; background: rgba(28,28,30,0.94); overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.10); }
+.scoutios[data-v="paper"] .iBanner { background: rgba(255,255,255,0.92);
+  border-color: rgba(0,0,0,0.10); }
+.iBannerTop { display: flex; align-items: flex-start; gap: 9px; padding: 11px 13px; }
+.iBannerIcon { flex: none; width: 22px; height: 22px; border-radius: 6px;
+  background: var(--i-accent); color: #04130d; display: flex; align-items: center;
+  justify-content: center; font-size: 11px; font-weight: 800; }
+.iBannerBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.iBannerTitle { font-size: 12.5px; font-weight: 700; color: var(--i-ink); }
+.iBannerText { font-size: 12.5px; color: var(--i-muted); }
+.iBannerAge { font-family: var(--i-mono); font-size: 9.5px; color: var(--i-dim); }
+.iBannerActs { display: flex; border-top: 1px solid rgba(255,255,255,0.08); }
+.scoutios[data-v="paper"] .iBannerActs { border-top-color: rgba(0,0,0,0.08); }
+.iBannerAct { flex: 1; min-height: 40px; display: flex; align-items: center;
+  justify-content: center; font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
+.iBannerAct + .iBannerAct { border-left: 1px solid rgba(255,255,255,0.08); }
+.scoutios[data-v="paper"] .iBannerAct + .iBannerAct { border-left-color: rgba(0,0,0,0.08); }
+
+/* ── Flow map — the state machine, rendered as an exhibit ───────────────── */
+.iFlow { display: grid; gap: 10px; }
+.iFlowStep { display: flex; gap: 10px; align-items: flex-start; }
+.iFlowMark { flex: none; width: 20px; height: 20px; border-radius: 999px;
+  border: 1px solid var(--i-hairline-strong); color: var(--i-dim);
+  font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; }
+.iFlowBody { flex: 1; min-width: 0; }
+.iFlowTitle { font-size: 12.5px; font-weight: 600; color: var(--i-ink); }
+.iFlowNote { font-size: 12px; line-height: 1.45; color: var(--i-muted); }
+
+/* density treatment — the compact Home (mods.density = "compact") */
+.scoutios[data-density="compact"] .iNeed2 { padding: 7px 2px; }
+.scoutios[data-density="compact"] .iZone { padding: 9px 0 6px; }
+.scoutios[data-density="compact"] .iHomeLogRow { padding: 4px 2px 4px 8px; }
 `;

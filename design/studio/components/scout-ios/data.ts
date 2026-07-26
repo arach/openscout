@@ -216,6 +216,116 @@ export const INBOX_TONE: Record<InboxKind, string> = {
 /** Blocking = an agent is paused waiting on you (approval / question). */
 export function inboxBlocking(it: InboxItem) { return it.kind === "approval" || it.kind === "question"; }
 
+// ── Notifications — the detail-grade attention record ──────────────────────
+//
+// The shape the notification-detail page resolves after an OPAQUE push lands.
+// Mirrors `MobileNotificationItem` (packages/scout-native-core/Sources/
+// ScoutCapabilities/MobilePush.swift) plus the two fields this study proposes:
+// `readAt` / `dismissedAt`. Everything human-readable lives HERE, never in the
+// APNs payload — the push carries correlation ids only, and the phone resolves
+// them against the paired Mac.
+
+export type NotifDetailKind =
+  | "approval" | "question" | "failed_action" | "failed_turn"
+  | "session_error" | "native_attention" | "delivery_issue";
+
+export interface NotifDetail {
+  /** `itemId` in the push payload — the only handle the phone is given. */
+  id: string;
+  kind: NotifDetailKind;
+  agent: string;
+  project: string;
+  /** Harness + model, as the conversation header reads it. */
+  harness: string;
+  sessionName: string;
+  /** Correlation ids carried opaquely by the push. */
+  sessionId: string;
+  turnId?: string;
+  blockId?: string;
+  conversationId?: string;
+  version?: number;
+  age: string;
+  title: string;
+  summary: string;
+  /** The evidence block — the command, the failure, the diff. Mono well. */
+  detail?: string;
+  risk?: "low" | "med" | "high";
+  /** Question kinds — the offered directions. */
+  options?: string[];
+  /** Triage state (proposed contract addition). */
+  readAt?: string | null;
+  dismissedAt?: string | null;
+}
+
+/** Blocking = an agent is literally paused until you act. Drives ranking, the
+ *  badge count, and the honesty copy under Dismiss. */
+export function notifBlocking(n: NotifDetail) {
+  return n.kind === "approval" || n.kind === "question";
+}
+
+/** The kind tag as the operator reads it — names the MOVE, not the internal
+ *  enum (mirrors `needKindLabel` in HomeSurface.swift). */
+export const NOTIF_KIND_LABEL: Record<NotifDetailKind, string> = {
+  approval: "Approval",
+  question: "Question",
+  failed_action: "Action failed",
+  failed_turn: "Turn failed",
+  session_error: "Session error",
+  native_attention: "Needs you",
+  delivery_issue: "Delivery issue",
+};
+
+export const NOTIFICATIONS: NotifDetail[] = [
+  {
+    id: "att_9f31", kind: "approval", agent: "broker-smith", project: "openscout",
+    harness: "claude · opus-5", sessionName: "feat/in-app-session",
+    sessionId: "s_7742", turnId: "t_31", blockId: "b_04", conversationId: "c_7742", version: 3,
+    age: "1m",
+    title: "Delete resolved SwiftPM checkouts",
+    summary: "Forces a clean re-resolve on the next build. Nothing else in the tree is touched.",
+    detail: "rm -rf .build/checkouts",
+    risk: "med", readAt: null, dismissedAt: null,
+  },
+  {
+    id: "att_7c02", kind: "question", agent: "session initiation", project: "openscout",
+    harness: "codex · gpt-5.4", sessionName: "feat/repo-watch-web-converge",
+    sessionId: "s_7751", turnId: "t_12", blockId: "b_01", conversationId: "c_7751",
+    age: "2m",
+    title: "Machine rail above or below the search field?",
+    summary: "Both fit. Above reads as context; below reads as a filter on the results.",
+    options: ["Above", "Below"], readAt: null, dismissedAt: null,
+  },
+  {
+    id: "att_4d88", kind: "approval", agent: "tail-tuner", project: "hudson",
+    harness: "codex · gpt-5.4", sessionName: "feat/tail-tokens",
+    sessionId: "s_7708", turnId: "t_58", blockId: "b_11", conversationId: "c_7708", version: 1,
+    age: "4m",
+    title: "Force-push the rebased branch",
+    summary: "Overwrites the remote history on feat/tail-tokens. Anyone else tracking it will need to reset.",
+    detail: "git push --force origin feat/tail-tokens",
+    risk: "high", readAt: null, dismissedAt: null,
+  },
+  {
+    id: "att_1a05", kind: "failed_action", agent: "voice tray", project: "talkie",
+    harness: "codex · gpt-5.4", sessionName: "feat/dictation",
+    sessionId: "s_7690", turnId: "t_09", blockId: "b_02", conversationId: "c_7690",
+    age: "12m",
+    title: "Dictation build failed",
+    summary: "HudsonVoice is gated behind HUDSONKIT_WITH_VOICE=1; the target didn't link.",
+    detail: "error: no such module 'HudsonVoice'\n  import HudsonVoice\n         ^",
+    readAt: "9m", dismissedAt: null,
+  },
+  {
+    id: "att_0b77", kind: "native_attention", agent: "lattices", project: "lattices",
+    harness: "claude · opus-5", sessionName: "feat/grid-solver",
+    sessionId: "s_7612", conversationId: "c_7612",
+    age: "36m",
+    title: "Idle mid-task for 30 minutes",
+    summary: "The solver finished a pass and stopped without a closing turn.",
+    readAt: "31m", dismissedAt: null,
+  },
+];
+
 export interface TokenRow { name: string; cssVar: string; shipped: string; hc: string; ratio?: [string, string]; }
 export interface TokenGroup { label: string; rows: TokenRow[]; }
 export const BOARD: TokenGroup[] = [

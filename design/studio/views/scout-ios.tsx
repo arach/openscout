@@ -20,11 +20,13 @@
 const SURFACE_MAP: { group: string; items: { label: string; href: string; note: string }[] }[] = [
   { group: "Tabs", items: [
     { label: "Home", href: "/studies/scout-ios-home", note: "needs-you band + ambient swarm" },
+    { label: "Notifications", href: "/studies/scout-ios-notifications", note: "dedicated detail + read/dismiss" },
     { label: "Comms", href: "/studies/scout-ios-comms", note: "the chats (DMs + channels)" },
     { label: "Agents", href: "/studies/scout-ios-agents", note: "the directory / inventory tree" },
     { label: "Ops", href: "/studies/scout-ios-ops", note: "Tail (default) + Terminal toggle" },
   ] },
   { group: "Detail · pushed", items: [
+    { label: "Notification detail", href: "/studies/scout-ios-notification-detail", note: "where a push lands — act · mark read · dismiss" },
     { label: "Conversation", href: "/studies/scout-ios-conversation", note: "a chat transcript — opens from Comms" },
     { label: "New", href: "/studies/scout-ios-new", note: "the compose sheet the “+” opens" },
     { label: "Connect", href: "/studies/scout-ios-connect", note: "pairing — from the gear" },
