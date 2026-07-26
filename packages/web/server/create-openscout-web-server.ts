@@ -3379,7 +3379,15 @@ function brokerDispatchReviewPrompt(input: {
     "3. What code change, config fix, or operational action should resolve it?",
     "4. What checks would prove the fix?",
     "",
-    "Return findings by severity with file/line or command evidence where possible. Do not edit files unless the user explicitly asks in a follow-up.",
+    "Response contract:",
+    "- Keep the message short: one sentence for cause and next move, then an `Evidence` list.",
+    "- Make the Evidence list most of the response. Prefer precise pointers to Scout data and messages",
+    "  (`messageId`, `deliveryId`, `conversationId`, `invocationId`, or attempt id), stack/log source plus",
+    "  timestamp or range, and implementation `file:line` or the exact verification command.",
+    "- Do not paste the supplied JSON or long log excerpts back. Quote at most one short line when a pointer alone is ambiguous.",
+    "- If a claim has no supporting pointer, label it as an inference or missing evidence.",
+    "",
+    "Do not edit files unless the user explicitly asks in a follow-up.",
   ].join("\n");
 }
 
@@ -4060,7 +4068,8 @@ function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
     const model = agent.model?.trim() ?? "";
     if (!harness || !model || isRetiredHudRunnerModel(model, harness)) continue;
     const key = `${harness}:${model.toLowerCase()}`;
-    if (!seen.add(key)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
     models.push({
       id: model,
       label: model,
@@ -5634,9 +5643,13 @@ export async function createOpenScoutWebServer(
       ...diagnostics.failedQueries,
       ...diagnostics.attempts,
     ];
-    const attempt = attemptId
+    // Dispatch renders one message-oriented row by folding its delivery state
+    // into the message. That synthesized row id may not exist in the raw
+    // diagnostics candidates, so prefer canonical broker data when available
+    // and otherwise review the exact snapshot the operator inspected.
+    const attempt = (attemptId
       ? candidates.find((entry) => entry.id === attemptId)
-      : body.attempt;
+      : undefined) ?? body.attempt;
     if (!attempt?.id) {
       return c.json({ error: "attemptId or attempt is required" }, 400);
     }
@@ -6367,10 +6380,15 @@ export async function createOpenScoutWebServer(
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
     const session = querySessionById(resolvedChatId);
+    const conversation = await getScoutConversationById(resolvedChatId);
+    if (session && conversation) {
+      // SQLite contributes harness-local fields, but the broker owns Chat
+      // identity, transcript recency, equivalent ids, and turn lifecycle.
+      return c.json({ ...session, ...conversation });
+    }
     if (session) {
       return c.json(session);
     }
-    const conversation = await getScoutConversationById(resolvedChatId);
     return conversation ? c.json(conversation) : c.json({ error: "not found" }, 404);
   });
   app.get("/api/mesh", async (c) => {

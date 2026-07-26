@@ -2284,6 +2284,65 @@ describe("createOpenScoutWebServer", () => {
     });
     expect(String(askScoutQuestionCalls[0]?.body)).toContain("OpenScout dispatch failure context");
     expect(String(askScoutQuestionCalls[0]?.body)).toContain("del-msg-1-talkie-mention-local_socket");
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("Make the Evidence list most of the response");
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("stack/log source plus");
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("implementation `file:line`");
+  });
+
+  test("reviews the inspected snapshot when a synthesized Dispatch row has no raw attempt id", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    brokerDiagnosticsResult = makeBrokerDiagnostics();
+    const synthesizedFailure = {
+      id: "message:msg-synthetic",
+      kind: "failed_delivery",
+      status: "failed",
+      ts: 1_700_000_000_000,
+      actorName: "System",
+      target: "session-agent-1",
+      route: "local_socket",
+      detail: "Dispatch stalled after submit and retry.",
+      conversationId: "chat-1",
+      messageId: "msg-synthetic",
+      deliveryId: "delivery-1",
+      invocationId: null,
+      metadata: {
+        failureReason: "agent_offline",
+        failureDetail: "endpoint is offline",
+      },
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker/dispatch-review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        attemptId: synthesizedFailure.id,
+        attempt: synthesizedFailure,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      conversationId: "c.agent-1",
+      messageId: "msg-ask-1",
+      flightId: "flt-ask-1",
+    });
+    expect(askScoutQuestionCalls).toHaveLength(1);
+    expect(askScoutQuestionCalls[0]).toMatchObject({
+      source: "scout-dispatch-review",
+      messageMetadata: {
+        dispatchAttemptId: synthesizedFailure.id,
+        messageId: synthesizedFailure.messageId,
+        deliveryId: synthesizedFailure.deliveryId,
+      },
+    });
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain(synthesizedFailure.detail);
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("endpoint is offline");
   });
 
   test("suggests the current Scout MCP ask permission only for the current tool", async () => {
@@ -4455,6 +4514,8 @@ describe("createOpenScoutWebServer", () => {
       id: "gpt-custom",
       harnesses: ["codex"],
     }));
+    expect(new Set(payload.models.map((entry) => `${entry.harnesses.join(",")}:${entry.id}`)).size)
+      .toBe(payload.models.length);
     expect(payload.models.some((entry) => entry.id.startsWith("gpt-5.4"))).toBe(false);
     expect(payload.efforts.map((entry) => entry.id)).toEqual(expect.arrayContaining(["medium", "high", "xhigh"]));
     expect(payload.projects).toContainEqual(expect.objectContaining({ root: projectRoot }));

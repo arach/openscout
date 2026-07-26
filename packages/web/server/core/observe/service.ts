@@ -17,7 +17,7 @@ import {
   getLocalAgentSessionSnapshot,
 } from "@openscout/runtime/local-agents";
 import { getTailDiscovery, readTailEventsForSession } from "@openscout/runtime/tail";
-import type { AgentEndpoint } from "@openscout/protocol";
+import { epochMs, flightSessionTrace, type AgentEndpoint } from "@openscout/protocol";
 
 import type { WebAgent } from "../../db-queries.ts";
 import { queryAgents } from "../../db-queries.ts";
@@ -132,6 +132,17 @@ export interface ObserveData {
   metadata?: ObserveMetadata;
 }
 
+export interface ObserveInitiatingAsk {
+  task: string;
+  requesterId: string;
+  requesterName: string;
+  requestedAt: number;
+  invocationId: string;
+  flightId: string;
+  conversationId: string | null;
+  messageId: string | null;
+}
+
 export interface AgentObservePayload {
   agentId: string;
   source: "history" | "live" | "unavailable";
@@ -139,6 +150,7 @@ export interface AgentObservePayload {
   historyPath: string | null;
   sessionId: string | null;
   updatedAt: number;
+  initiatingAsk?: ObserveInitiatingAsk | null;
   data: ObserveData;
 }
 
@@ -157,6 +169,7 @@ type SnapshotSource =
       timedEvents: TimestampedPairingEvent[];
       live: boolean;
       sessionId: string | null;
+      sessionAliases: string[];
     }
   | {
       source: "live";
@@ -165,12 +178,14 @@ type SnapshotSource =
       timedEvents: TimestampedPairingEvent[];
       live: boolean;
       sessionId: string | null;
+      sessionAliases: string[];
     }
   | {
       source: "unavailable";
       historyPath: null;
       live: false;
       sessionId: null;
+      sessionAliases: string[];
     };
 
 type HistorySnapshotResult = {
@@ -1488,6 +1503,130 @@ type AgentObserveOptions = {
   sessionId?: string | null;
 };
 
+const ACTIVE_FLIGHT_STATES = new Set(["queued", "waking", "running", "waiting"]);
+const HISTORY_ENDPOINT_START_TOLERANCE_MS = 10_000;
+
+type ObservedChildIdentity = {
+  agentIds: string[];
+  sessionAliases: string[];
+};
+
+function observedChildIdentity(
+  broker: ObserveBrokerContext,
+  requesterAgentId: string,
+  data: ObserveData,
+): ObservedChildIdentity | null {
+  if (!broker) return null;
+  const sessionStart = data.metadata?.session?.sessionStart;
+  const observedCwd = normalizedFilesystemPath(data.metadata?.session?.cwd);
+  const observedAdapter = historyAdapterAlias(data.metadata?.session?.adapterType);
+  if (!sessionStart || !observedCwd || !observedAdapter) return null;
+
+  const matches = new Map<string, { agentIds: Set<string>; sessionAliases: Set<string> }>();
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    const invocation = broker.snapshot.invocations?.[flight.invocationId];
+    if (!invocation || invocation.requesterId !== requesterAgentId) continue;
+    for (const trace of flightSessionTrace(flight)) {
+      const endpoint = trace.endpointId ? broker.snapshot.endpoints?.[trace.endpointId] : null;
+      if (!endpoint || endpoint.agentId !== flight.targetAgentId) continue;
+      const endpointCwd = normalizedFilesystemPath(endpoint.cwd ?? endpoint.projectRoot);
+      const endpointAdapter = historyAdapterForEndpoint(endpoint);
+      const startedAt = epochMs(endpointMetadataRecord(endpoint).startedAt);
+      if (
+        endpointCwd !== observedCwd
+        || endpointAdapter !== observedAdapter
+        || startedAt === null
+        || Math.abs(startedAt - sessionStart) > HISTORY_ENDPOINT_START_TOLERANCE_MS
+      ) {
+        continue;
+      }
+      const sessionKey = normalizedSessionAlias(trace.sessionId);
+      if (!sessionKey) continue;
+      const match = matches.get(sessionKey) ?? {
+        agentIds: new Set<string>(),
+        sessionAliases: new Set<string>(),
+      };
+      match.agentIds.add(endpoint.agentId);
+      match.sessionAliases.add(sessionKey);
+      for (const alias of endpointSessionAliases(endpoint)) match.sessionAliases.add(alias);
+      matches.set(sessionKey, match);
+    }
+  }
+  if (matches.size !== 1) return null;
+  const match = [...matches.values()][0];
+  return match ? {
+    agentIds: [...match.agentIds],
+    sessionAliases: [...match.sessionAliases],
+  } : null;
+}
+
+function observeInitiatingAsk(
+  broker: ObserveBrokerContext,
+  agentId: string,
+  sessionAliases: readonly string[],
+  linkedTargetAgentIds: readonly string[] = [],
+): ObserveInitiatingAsk | null {
+  if (!broker) return null;
+
+  const observedAliases = new Set(
+    sessionAliases
+      .map((value) => normalizedSessionAlias(value))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const linkedTargets = new Set(linkedTargetAgentIds);
+  const candidates = Object.values(broker.snapshot.flights ?? {})
+    .map((flight) => ({
+      flight,
+      invocation: broker.snapshot.invocations?.[flight.invocationId],
+    }))
+    .filter(({ invocation }) => Boolean(invocation));
+
+  const exact = observedAliases.size > 0
+    ? candidates.filter(({ flight, invocation }) => (
+        flightSessionTrace(flight).some((entry) => {
+          const sessionId = normalizedSessionAlias(entry.sessionId);
+          return Boolean(sessionId && observedAliases.has(sessionId));
+        })
+        || (() => {
+          const targetSessionId = normalizedSessionAlias(invocation?.execution?.targetSessionId);
+          return Boolean(targetSessionId && observedAliases.has(targetSessionId));
+        })()
+      ))
+    : [];
+  const active = candidates.filter(({ flight, invocation }) => (
+    ACTIVE_FLIGHT_STATES.has(flight.state)
+    && (
+      flight.targetAgentId === agentId
+      || (linkedTargets.has(flight.targetAgentId) && invocation?.requesterId === agentId)
+    )
+  ));
+  const eligible = exact.length > 0 ? exact : observedAliases.size === 0 && active.length === 1 ? active : [];
+  const selected = eligible.sort((left, right) => exact.length > 0
+    ? (left.flight.startedAt ?? left.invocation?.createdAt ?? 0)
+      - (right.flight.startedAt ?? right.invocation?.createdAt ?? 0)
+    : (right.flight.startedAt ?? right.invocation?.createdAt ?? 0)
+      - (left.flight.startedAt ?? left.invocation?.createdAt ?? 0))[0];
+  const invocation = selected?.invocation;
+  if (!selected || !invocation?.task.trim()) return null;
+
+  const requester = broker.snapshot.actors?.[invocation.requesterId]
+    ?? broker.snapshot.agents?.[invocation.requesterId];
+  const message = invocation.messageId
+    ? broker.snapshot.messages?.[invocation.messageId]
+    : null;
+  return {
+    task: invocation.task.trim(),
+    requesterId: invocation.requesterId,
+    requesterName: requester?.displayName?.trim() || invocation.requesterId,
+    requestedAt: message?.createdAt ?? invocation.createdAt,
+    invocationId: invocation.id,
+    flightId: selected.flight.id,
+    conversationId: invocation.conversationId ?? message?.conversationId ?? null,
+    messageId: invocation.messageId ?? null,
+  };
+}
+
 async function resolveSnapshotSource(
   agent: WebAgent,
   broker: ObserveBrokerContext,
@@ -1502,6 +1641,13 @@ async function resolveSnapshotSource(
   }) : null;
   const liveSnapshot = await readLiveSnapshot(agent, endpoint);
   const live = isLiveSessionSnapshot(liveSnapshot);
+  const endpointAliases = endpoint ? [...endpointSessionAliases(endpoint)] : [];
+  const sourceAliases = (...values: Array<string | null | undefined>): string[] => [...new Set([
+    ...endpointAliases,
+    ...values
+      .map((value) => normalizedSessionAlias(value))
+      .filter((value): value is string => Boolean(value)),
+  ])];
 
   let historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint);
   let historySnapshot = readHistorySnapshot(historyCandidate);
@@ -1522,6 +1668,7 @@ async function resolveSnapshotSource(
       timedEvents: historySnapshot.timedEvents,
       live: live || isLiveSessionSnapshot(historySnapshot.snapshot),
       sessionId: liveSnapshot?.session.id ?? historySessionId ?? endpoint?.sessionId ?? null,
+      sessionAliases: sourceAliases(liveSnapshot?.session.id, historySessionId),
     };
   }
 
@@ -1533,6 +1680,7 @@ async function resolveSnapshotSource(
       timedEvents: [],
       live,
       sessionId: liveSnapshot.session.id,
+      sessionAliases: sourceAliases(liveSnapshot.session.id),
     };
   }
 
@@ -1555,6 +1703,7 @@ async function resolveSnapshotSource(
       timedEvents: agentHistorySnapshot.timedEvents,
       live: false,
       sessionId: historySessionId ?? endpoint?.sessionId ?? null,
+      sessionAliases: sourceAliases(historySessionId),
     };
   }
 
@@ -1563,6 +1712,7 @@ async function resolveSnapshotSource(
     historyPath: null,
     live: false,
     sessionId: null,
+    sessionAliases: sourceAliases(),
   };
 }
 
@@ -1580,11 +1730,19 @@ async function buildAgentObservePayload(
       historyPath: null,
       sessionId: null,
       updatedAt: Date.now(),
+      initiatingAsk: observeInitiatingAsk(broker, agent.id, source.sessionAliases),
       data: unavailableObserveData(agent),
     };
   }
 
   const fidelity = source.timedEvents.length > 0 ? "timestamped" : "synthetic";
+  const data = buildObserveDataFromSnapshot(source.snapshot, source.timedEvents, source.live);
+  const childIdentity = source.source === "history"
+    ? observedChildIdentity(broker, agent.id, data)
+    : null;
+  const provenanceAliases = childIdentity
+    ? [...new Set([...source.sessionAliases, ...childIdentity.sessionAliases])]
+    : source.sessionAliases;
   return {
     agentId: agent.id,
     source: source.source,
@@ -1592,7 +1750,13 @@ async function buildAgentObservePayload(
     historyPath: source.historyPath,
     sessionId: source.sessionId,
     updatedAt: Date.now(),
-    data: buildObserveDataFromSnapshot(source.snapshot, source.timedEvents, source.live),
+    initiatingAsk: observeInitiatingAsk(
+      broker,
+      agent.id,
+      provenanceAliases,
+      childIdentity?.agentIds ?? [],
+    ),
+    data,
   };
 }
 

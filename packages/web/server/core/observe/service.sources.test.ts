@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { SessionState } from "@openscout/agent-sessions";
+import type { FlightRecord, InvocationRequest, MessageRecord } from "@openscout/protocol";
 import type { WebAgent } from "../../db-queries.ts";
 
 let queryAgentsResult: WebAgent[] = [];
@@ -11,6 +12,10 @@ let brokerContextResult: {
   snapshot: {
     endpoints: Record<string, Record<string, unknown>>;
     actors?: Record<string, { displayName?: string }>;
+    agents?: Record<string, { displayName?: string }>;
+    invocations?: Record<string, InvocationRequest>;
+    flights?: Record<string, FlightRecord>;
+    messages?: Record<string, MessageRecord>;
   };
 } | null = null;
 let localSnapshotResult: SessionState | null = null;
@@ -282,6 +287,454 @@ afterEach(() => {
 });
 
 describe("loadAgentObservePayload", () => {
+  test("joins a history observe session to its runtime flight through endpoint aliases", async () => {
+    const requestedAt = Date.parse("2026-04-22T11:59:58.000Z");
+    const tempRoot = makeTempDir("openscout-observe-provenance-");
+    const historyPath = join(tempRoot, "claude-history.jsonl");
+    writeClaudeHistory(historyPath, "working from harness history");
+    queryAgentsResult = [makeAgent()];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            state: "active",
+            sessionId: "runtime-session-1",
+            transport: "claude_stream_json",
+          },
+        },
+        actors: {
+          operator: { displayName: "Arach" },
+        },
+        invocations: {
+          "inv-1": {
+            id: "inv-1",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "agent-1",
+            action: "execute",
+            task: "Add run provenance to the observe page.",
+            conversationId: "chn-design",
+            messageId: "msg-ask",
+            ensureAwake: true,
+            stream: true,
+            createdAt: requestedAt + 500,
+          },
+          "inv-concurrent": {
+            id: "inv-concurrent",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "agent-1",
+            action: "execute",
+            task: "A concurrent ask for another session.",
+            ensureAwake: true,
+            stream: true,
+            createdAt: requestedAt + 5_000,
+          },
+          "inv-older": {
+            id: "inv-older",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "agent-1",
+            action: "execute",
+            task: "The original initiating ask for the reused session.",
+            conversationId: "chn-original",
+            messageId: "msg-original",
+            ensureAwake: true,
+            stream: true,
+            createdAt: requestedAt - 20_000,
+          },
+        },
+        flights: {
+          "flt-1": {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "agent-1",
+            state: "running",
+            startedAt: requestedAt + 1_000,
+            metadata: {
+              sessionTrace: [{
+                sessionId: "runtime-session-1",
+                startedAt: requestedAt + 1_000,
+                lastAcknowledgedAt: requestedAt + 1_000,
+              }],
+            },
+          },
+          "flt-concurrent": {
+            id: "flt-concurrent",
+            invocationId: "inv-concurrent",
+            requesterId: "operator",
+            targetAgentId: "agent-1",
+            state: "running",
+            startedAt: requestedAt + 5_000,
+            metadata: {
+              sessionTrace: [{
+                sessionId: "runtime-session-2",
+                startedAt: requestedAt + 5_000,
+                lastAcknowledgedAt: requestedAt + 5_000,
+              }],
+            },
+          },
+          "flt-older": {
+            id: "flt-older",
+            invocationId: "inv-older",
+            requesterId: "operator",
+            targetAgentId: "agent-1",
+            state: "completed",
+            startedAt: requestedAt - 20_000,
+            completedAt: requestedAt - 10_000,
+            metadata: {
+              sessionTrace: [{
+                sessionId: "runtime-session-1",
+                startedAt: requestedAt - 20_000,
+                lastAcknowledgedAt: requestedAt - 10_000,
+                endedAt: requestedAt - 10_000,
+              }],
+            },
+          },
+        },
+        messages: {
+          "msg-original": {
+            id: "msg-original",
+            conversationId: "chn-original",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "The original initiating ask for the reused session.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: requestedAt - 20_000,
+          },
+          "msg-ask": {
+            id: "msg-ask",
+            conversationId: "chn-design",
+            actorId: "operator",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Add run provenance to the observe page.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: requestedAt,
+          },
+        },
+      },
+    };
+    localAgentSnapshotResult = {
+      session: {
+        id: "harness-history-session",
+        name: "Live Claude Session",
+        adapterType: "claude-code",
+        status: "active",
+        cwd: "/Users/arach/dev/openscout",
+        providerMeta: {
+          resumeSessionPath: historyPath,
+        },
+      },
+      turns: [],
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload?.source).toBe("history");
+    expect(payload?.sessionId).toBe("harness-history-session");
+    expect(payload?.initiatingAsk).toEqual({
+      task: "The original initiating ask for the reused session.",
+      requesterId: "operator",
+      requesterName: "Arach",
+      requestedAt: requestedAt - 20_000,
+      invocationId: "inv-older",
+      flightId: "flt-older",
+      conversationId: "chn-original",
+      messageId: "msg-original",
+    });
+  });
+
+  test("links a parent agent route to the initiating flight of its observed child history", async () => {
+    const sessionStart = Date.parse("2026-04-22T12:00:00.000Z");
+    const tempRoot = makeTempDir("openscout-observe-parent-child-");
+    const historyPath = join(tempRoot, "child-history.jsonl");
+    writeClaudeHistory(historyPath, "child work visible through the parent route");
+    queryAgentsResult = [makeAgent({
+      id: "parent-agent",
+      harnessSessionId: "relay-parent",
+    })];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-parent": {
+            id: "endpoint-parent",
+            agentId: "parent-agent",
+            state: "offline",
+            sessionId: "relay-parent",
+            harness: "claude",
+            transport: "tmux",
+            cwd: "/Users/arach/dev/openscout",
+          },
+          "endpoint-child-bare": {
+            id: "endpoint-child-bare",
+            agentId: "child-session",
+            state: "offline",
+            sessionId: "runtime-child-session",
+            harness: "claude",
+            transport: "tmux",
+            cwd: "/Users/arach/dev/openscout",
+            metadata: { startedAt: sessionStart - 500 },
+          },
+          "endpoint-child-qualified": {
+            id: "endpoint-child-qualified",
+            agentId: "child-session.main.node-1",
+            state: "waiting",
+            sessionId: "runtime-child-session",
+            harness: "claude",
+            transport: "tmux",
+            cwd: "/Users/arach/dev/openscout",
+            metadata: { startedAt: Math.floor((sessionStart - 500) / 1_000) },
+          },
+        },
+        actors: {
+          "parent-agent": { displayName: "Parent Agent" },
+        },
+        invocations: {
+          "inv-original": {
+            id: "inv-original",
+            requesterId: "parent-agent",
+            requesterNodeId: "node-1",
+            targetAgentId: "child-session",
+            action: "consult",
+            task: "Create the first work-observability design study.",
+            conversationId: "chn-original",
+            messageId: "msg-original",
+            ensureAwake: true,
+            stream: false,
+            createdAt: sessionStart - 1_000,
+          },
+          "inv-current": {
+            id: "inv-current",
+            requesterId: "parent-agent",
+            requesterNodeId: "node-1",
+            targetAgentId: "child-session.main.node-1",
+            action: "consult",
+            task: "Apply a later correction pass.",
+            ensureAwake: true,
+            stream: false,
+            createdAt: sessionStart + 60_000,
+          },
+        },
+        flights: {
+          "flt-original": {
+            id: "flt-original",
+            invocationId: "inv-original",
+            requesterId: "parent-agent",
+            targetAgentId: "child-session",
+            state: "completed",
+            startedAt: sessionStart - 800,
+            metadata: {
+              sessionTrace: [{
+                sessionId: "runtime-child-session",
+                endpointId: "endpoint-child-bare",
+                startedAt: sessionStart - 800,
+                lastAcknowledgedAt: sessionStart - 800,
+              }],
+            },
+          },
+          "flt-current": {
+            id: "flt-current",
+            invocationId: "inv-current",
+            requesterId: "parent-agent",
+            targetAgentId: "child-session.main.node-1",
+            state: "running",
+            startedAt: sessionStart + 60_000,
+            metadata: {
+              sessionTrace: [{
+                sessionId: "runtime-child-session",
+                endpointId: "endpoint-child-qualified",
+                startedAt: sessionStart + 60_000,
+                lastAcknowledgedAt: sessionStart + 60_000,
+              }],
+            },
+          },
+        },
+        messages: {
+          "msg-original": {
+            id: "msg-original",
+            conversationId: "chn-original",
+            actorId: "parent-agent",
+            originNodeId: "node-1",
+            class: "agent",
+            body: "Create the first work-observability design study.",
+            visibility: "private",
+            policy: "durable",
+            createdAt: sessionStart - 1_000,
+          },
+        },
+      },
+    };
+    localAgentSnapshotResult = {
+      session: {
+        id: "harness-history-session",
+        name: "Observed child history",
+        adapterType: "claude-code",
+        status: "active",
+        cwd: "/Users/arach/dev/openscout",
+        providerMeta: { resumeSessionPath: historyPath },
+      },
+      turns: [],
+    };
+
+    const payload = await loadAgentObservePayload("parent-agent");
+
+    expect(payload?.source).toBe("history");
+    expect(payload?.sessionId).toBe("harness-history-session");
+    expect(payload?.initiatingAsk).toMatchObject({
+      task: "Create the first work-observability design study.",
+      invocationId: "inv-original",
+      flightId: "flt-original",
+      conversationId: "chn-original",
+      messageId: "msg-original",
+    });
+  });
+
+  test("does not attribute an ask from a different harness session", async () => {
+    queryAgentsResult = [makeAgent()];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            state: "active",
+            sessionId: "live-session-1",
+            transport: "claude_stream_json",
+          },
+        },
+        invocations: {
+          "inv-old": {
+            id: "inv-old",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "agent-1",
+            action: "execute",
+            task: "An older unrelated ask.",
+            ensureAwake: true,
+            stream: true,
+            createdAt: Date.now() - 10_000,
+          },
+        },
+        flights: {
+          "flt-old": {
+            id: "flt-old",
+            invocationId: "inv-old",
+            requesterId: "operator",
+            targetAgentId: "agent-1",
+            state: "running",
+            metadata: {
+              sessionTrace: [{
+                sessionId: "different-session",
+                startedAt: Date.now() - 10_000,
+                lastAcknowledgedAt: Date.now() - 10_000,
+              }],
+            },
+          },
+        },
+        messages: {},
+      },
+    };
+    localSnapshotResult = {
+      session: {
+        id: "live-session-1",
+        name: "Live Claude Session",
+        adapterType: "claude-code",
+        status: "active",
+        cwd: "/Users/arach/dev/openscout",
+      },
+      turns: [],
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload?.initiatingAsk).toBeNull();
+  });
+
+  test("uses the sole active canonical flight when observe has no session identity", async () => {
+    const requestedAt = Date.parse("2026-04-22T11:59:58.000Z");
+    queryAgentsResult = [makeAgent({ harnessSessionId: null })];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {},
+        invocations: {
+          "inv-active": {
+            id: "inv-active",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "agent-1",
+            action: "execute",
+            task: "Recover the active ask even before a harness session is observable.",
+            ensureAwake: true,
+            stream: true,
+            createdAt: requestedAt,
+          },
+        },
+        flights: {
+          "flt-active": {
+            id: "flt-active",
+            invocationId: "inv-active",
+            requesterId: "operator",
+            targetAgentId: "agent-1",
+            state: "waking",
+            startedAt: requestedAt,
+          },
+        },
+        messages: {},
+      },
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload?.source).toBe("unavailable");
+    expect(payload?.initiatingAsk).toMatchObject({
+      task: "Recover the active ask even before a harness session is observable.",
+      invocationId: "inv-active",
+      flightId: "flt-active",
+    });
+  });
+
+  test("does not guess between concurrent active flights without session identity", async () => {
+    const requestedAt = Date.parse("2026-04-22T11:59:58.000Z");
+    queryAgentsResult = [makeAgent({ harnessSessionId: null })];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {},
+        invocations: Object.fromEntries([1, 2].map((index) => [`inv-${index}`, {
+          id: `inv-${index}`,
+          requesterId: "operator",
+          requesterNodeId: "node-1",
+          targetAgentId: "agent-1",
+          action: "execute" as const,
+          task: `Concurrent ask ${index}`,
+          ensureAwake: true,
+          stream: true,
+          createdAt: requestedAt + index,
+        }])),
+        flights: Object.fromEntries([1, 2].map((index) => [`flt-${index}`, {
+          id: `flt-${index}`,
+          invocationId: `inv-${index}`,
+          requesterId: "operator",
+          targetAgentId: "agent-1",
+          state: "running" as const,
+          startedAt: requestedAt + index,
+        }])),
+        messages: {},
+      },
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload?.source).toBe("unavailable");
+    expect(payload?.initiatingAsk).toBeNull();
+  });
+
   test("prefers harness-native history when a readable Claude history file is available", async () => {
     const tempRoot = makeTempDir("openscout-observe-history-");
     const historyPath = join(tempRoot, "claude-history.jsonl");
