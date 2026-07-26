@@ -229,7 +229,7 @@ export function requireDestination(id: NavDestinationId): NavDestination {
 
 function project(
   id: NavDestinationId,
-  overrides?: Partial<Pick<NavDestination, "label" | "route">>,
+  overrides?: Partial<Pick<NavDestination, "label" | "route" | "active">>,
 ): {
   id: NavDestinationId;
   label: string;
@@ -242,7 +242,7 @@ function project(
     id: destination.id,
     label: overrides?.label ?? destination.label,
     route: overrides?.route ?? destination.route,
-    active: destination.active,
+    active: overrides?.active ?? destination.active,
     capability: destination.capability,
   };
 }
@@ -334,6 +334,8 @@ type SecondaryItemProjection = {
   destinationId: NavDestinationId;
   id: string;
   label?: string;
+  route?: Route;
+  active?: (route: Route) => boolean;
 };
 
 function projectSecondaryGroup(
@@ -341,7 +343,11 @@ function projectSecondaryGroup(
 ): SecondaryNavGroup {
   return {
     items: items.map((entry) => {
-      const projected = project(entry.destinationId, { label: entry.label });
+      const projected = project(entry.destinationId, {
+        label: entry.label,
+        route: entry.route,
+        active: entry.active,
+      });
       return {
         id: entry.id,
         label: projected.label,
@@ -363,7 +369,13 @@ export function projectAgentsSecondaryNav(): SecondaryNavGroup[] {
 export function projectChatSecondaryNav(): SecondaryNavGroup[] {
   return [
     projectSecondaryGroup([
-      { destinationId: "chat", id: "messages", label: "Messages" },
+      {
+        destinationId: "chat",
+        id: "messages",
+        label: "Direct Messages",
+        route: { view: "messages", filter: "dm" },
+        active: (route) => route.view === "messages" || route.view === "conversation",
+      },
       { destinationId: "channels", id: "channels" },
     ]),
   ];
@@ -683,6 +695,97 @@ export function areaSubNavForRoute(route: Route): {
   return { areaId, items: projectAreaSubNav(areaId) };
 }
 
+/* ── Projection: expanded sidebar sub-nav ────────────────────────────── */
+
+export type SidebarSubNavAreaId = AreaSubNavAreaId | "chat" | "dispatch" | "ops";
+
+type SidebarSubNavProjection = AreaSubNavProjection & {
+  route?: Route;
+  active?: (route: Route) => boolean;
+};
+
+const SIDEBAR_SUB_NAV_PROJECTION: Record<
+  SidebarSubNavAreaId,
+  readonly SidebarSubNavProjection[]
+> = {
+  ...AREA_SUB_NAV_PROJECTION,
+  chat: [
+    {
+      destinationId: "chat",
+      id: "messages",
+      label: "Direct Messages",
+      route: { view: "messages", filter: "dm" },
+      active: (route) => route.view === "messages" || route.view === "conversation",
+    },
+    { destinationId: "channels", id: "channels" },
+  ],
+  dispatch: [
+    {
+      destinationId: "dispatch",
+      id: "dispatch-all",
+      label: "All Dispatches",
+      route: { view: "broker" },
+      active: (route) =>
+        route.view === "broker" && (route.filter === undefined || route.filter === "all"),
+    },
+    {
+      destinationId: "dispatch",
+      id: "dispatch-delivered",
+      label: "Delivered",
+      route: { view: "broker", filter: "delivered" },
+      active: (route) => route.view === "broker" && route.filter === "delivered",
+    },
+    {
+      destinationId: "dispatch",
+      id: "dispatch-failed",
+      label: "Failed",
+      route: { view: "broker", filter: "failed" },
+      active: (route) => route.view === "broker" && route.filter === "failed",
+    },
+  ],
+  ops: [
+    { destinationId: "lanes", id: "lanes", label: "Lanes" },
+    { destinationId: "mission-control", id: "control" },
+    { destinationId: "providers", id: "harnesses", label: "Providers" },
+    { destinationId: "runtime", id: "runtime", label: "Runtime" },
+    { destinationId: "mesh", id: "mesh" },
+    { destinationId: "tail", id: "tail" },
+    { destinationId: "plans", id: "plans" },
+  ],
+};
+
+function projectSidebarSubNavItem(entry: SidebarSubNavProjection): AreaSubNavItem {
+  const projected = project(entry.destinationId, {
+    label: entry.label,
+    route: entry.route,
+    active: entry.active,
+  });
+  return {
+    id: entry.id,
+    label: projected.label,
+    route: projected.route,
+    active: projected.active,
+    destinationId: projected.id,
+  };
+}
+
+/** Nested destinations shown only beneath the active area in the expanded sidebar. */
+export function sidebarSubNavForRoute(
+  route: Route,
+  options?: { opsControlEnabled?: boolean },
+): { areaId: SidebarSubNavAreaId; items: AreaSubNavItem[] } | null {
+  const area = ROUTE_AREA_BY_VIEW[route.view];
+  if (!(area in SIDEBAR_SUB_NAV_PROJECTION)) return null;
+  const areaId = area as SidebarSubNavAreaId;
+  const items = SIDEBAR_SUB_NAV_PROJECTION[areaId]
+    .map(projectSidebarSubNavItem)
+    .filter((item) => {
+      const capability = getDestination(item.destinationId).capability;
+      return capability !== "ops.control" || options?.opsControlEnabled !== false;
+    });
+  return { areaId, items };
+}
+
 /* ── Integrity helpers (tests) ────────────────────────────────────────── */
 
 /** Every destination id referenced by any projection. */
@@ -696,6 +799,11 @@ export function allProjectedDestinationIds(): NavDestinationId[] {
   for (const entry of PALETTE_NAV_PROJECTION) ids.add(entry.destinationId);
   for (const areaId of Object.keys(AREA_SUB_NAV_PROJECTION) as AreaSubNavAreaId[]) {
     for (const entry of AREA_SUB_NAV_PROJECTION[areaId]) {
+      ids.add(entry.destinationId);
+    }
+  }
+  for (const areaId of Object.keys(SIDEBAR_SUB_NAV_PROJECTION) as SidebarSubNavAreaId[]) {
+    for (const entry of SIDEBAR_SUB_NAV_PROJECTION[areaId]) {
       ids.add(entry.destinationId);
     }
   }

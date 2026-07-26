@@ -2,8 +2,10 @@
 
 .s-thread-layout {
   display: flex;
+  flex: 1 1 0;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -172,6 +174,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -1282,18 +1285,34 @@ button.s-thread-msg-actor:focus-visible {
 }
 
 .s-thread-presence-strip {
+  --presence-trail-start: 46%;
+  --presence-trail-duration: 2.4s;
   flex: 1;
   height: 2px;
   border-radius: 1px;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--green) 40%,
-    var(--green) 60%,
+    transparent var(--presence-trail-start),
+    color-mix(in srgb, var(--green) 12%, transparent) calc(var(--presence-trail-start) + 4%),
+    color-mix(in srgb, var(--green) 44%, transparent) 53%,
+    var(--green) 58%,
+    color-mix(in srgb, var(--green) 72%, var(--ink)) 59%,
+    transparent 61%,
     transparent 100%
   );
   background-size: 200% 100%;
-  animation: s-thread-thinking-strip 2s ease-in-out infinite;
+  animation: s-thread-thinking-strip var(--presence-trail-duration) ease-in-out infinite;
+}
+
+.s-thread-presence-strip--sustained {
+  --presence-trail-start: 32%;
+  --presence-trail-duration: 3.2s;
+}
+
+.s-thread-presence-strip--long {
+  --presence-trail-start: 14%;
+  --presence-trail-duration: 4.2s;
 }
 
 .s-thread-presence-strip--quiet {
@@ -1301,6 +1320,19 @@ button.s-thread-msg-actor:focus-visible {
   background-size: auto;
   animation: none;
   opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-thread-presence-strip {
+    background: color-mix(in srgb, var(--green) 58%, transparent);
+    background-size: auto;
+    animation: none;
+    opacity: 0.8;
+  }
+
+  .s-thread-presence-strip--quiet {
+    background: color-mix(in srgb, var(--amber) 70%, transparent);
+  }
 }
 
 /* ── Dispatch tiles ── */
@@ -2269,6 +2301,14 @@ button.s-thread-sidebar-participant:focus-visible {
 
 /* ── Embedded mode (inside agent profile tabs) ── */
 
+.s-thread-embed {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .s-thread-layout--embedded {
   border-top: none;
 }
@@ -2634,17 +2674,80 @@ button.s-thread-sidebar-participant:focus-visible {
 .s-thread-skeleton {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3xl);
+  gap: var(--space-2xl);
   padding: var(--space-2xl) 0;
   max-width: min(100%, 760px);
 }
 
-.s-thread-skeleton-label {
+.s-thread-skeleton-intro {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 32px;
+}
+
+.s-thread-loader-mark {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.s-thread-loader-orbit {
+  position: absolute;
+  inset: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 50%;
+}
+
+.s-thread-loader-orbit > span {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 58%, transparent);
+  transform: translateX(-50%);
+}
+
+.s-thread-loader-core {
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.s-thread-skeleton-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   color: var(--dim);
+}
+
+.s-thread-skeleton-copy strong {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.s-thread-skeleton-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-thread-skeleton-turns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xl);
 }
 
 .s-thread-skeleton-turn {

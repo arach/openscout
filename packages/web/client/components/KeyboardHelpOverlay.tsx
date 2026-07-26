@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { GO_SHORTCUTS } from "../lib/go-shortcuts.ts";
 import { isEditableTarget, useFocusTrap } from "../lib/keyboard-nav.ts";
-import { NEW_CHAT_LEGACY_SHORTCUT_KEYS, NEW_CHAT_SHORTCUT_KEYS } from "../lib/new-chat-shortcut.ts";
+import {
+  NEW_CHAT_LEGACY_SHORTCUT_KEYS,
+  NEW_CHAT_SHORTCUT_KEYS,
+  NEW_TASK_ACTION_LABEL,
+} from "../lib/new-chat-shortcut.ts";
 import "./keyboard-help.css";
 
 type KeyChord = readonly string[];
@@ -14,7 +18,7 @@ const GROUPS: Group[] = [
   {
     title: "App shell",
     bindings: [
-      { chords: [NEW_CHAT_SHORTCUT_KEYS, NEW_CHAT_LEGACY_SHORTCUT_KEYS], label: "New chat" },
+      { chords: [NEW_CHAT_SHORTCUT_KEYS, NEW_CHAT_LEGACY_SHORTCUT_KEYS], label: NEW_TASK_ACTION_LABEL },
       { chords: [chord("⌘", "K")], label: "Command palette" },
       { chords: [chord("⌘", "["), chord("⌘", "B")], label: "Toggle sidebar / left panel" },
       { chords: [chord("⌘", "]")], label: "Toggle right panel" },

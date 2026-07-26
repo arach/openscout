@@ -9,7 +9,10 @@ import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
-import { NEW_CHAT_SHORTCUT_LABEL } from "../lib/new-chat-shortcut.ts";
+import {
+  NEW_CHAT_SHORTCUT_LABEL,
+  NEW_TASK_ACTION_LABEL,
+} from "../lib/new-chat-shortcut.ts";
 import { SCOUTBOT_SUBMIT_EVENT } from "../lib/scoutbot.ts";
 import {
   topNavBreadcrumbForRoute,
@@ -54,7 +57,7 @@ export function useScoutCommands(): CommandOption[] {
     const commands: CommandOption[] = [
       {
         id: "session:new",
-        label: "New Chat",
+        label: NEW_TASK_ACTION_LABEL,
         action: () => {
           const context = resolveCaptureRouteContext(route, agents);
           openContextCapture({ agentId: context.agentId ?? undefined });

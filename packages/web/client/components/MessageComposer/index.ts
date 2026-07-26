@@ -11,4 +11,9 @@ export {
   type MessageComposerToolOption,
   type MessageComposerToolSelectProps,
 } from "./MessageComposerToolSelect.tsx";
+export {
+  ComposerAttachmentStrip,
+  useComposerAttachments,
+  type ComposerAttachmentsState,
+} from "./ComposerAttachments.tsx";
 export { VoiceWaveform } from "./VoiceWaveform.tsx";

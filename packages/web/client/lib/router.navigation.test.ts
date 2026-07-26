@@ -506,6 +506,17 @@ describe("Phase B selection state in the URL", () => {
     expect(away.href).not.toContain("attempt=");
   });
 
+  test("dispatch filter round-trips with selection state", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:43120/dispatch?filter=failed&attempt=att-1",
+    );
+    expect(route).toEqual({ view: "broker", attemptId: "att-1", filter: "failed" });
+    expect(routePath(route)).toBe("/dispatch?attempt=att-1&filter=failed");
+    expect(routeFromUrl("http://127.0.0.1:43120/dispatch?filter=all")).toEqual({
+      view: "broker",
+    });
+  });
+
   test("search hitId round-trips and does not leak off search", () => {
     const route = routeFromUrl("http://127.0.0.1:43120/search?hit=hit-9");
     expect(route).toEqual({ view: "search", hitId: "hit-9" });

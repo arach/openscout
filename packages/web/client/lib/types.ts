@@ -705,6 +705,8 @@ export type InboxEntry = {
 /** A conversation from the sessions list (any kind, not just DMs). */
 export type SessionEntry = {
   id: string;
+  /** Broker conversation ids coalesced into this canonical Chat. */
+  equivalentConversationIds?: string[];
   kind: string;
   title: string;
   alias?: string | null;
@@ -840,6 +842,16 @@ export type AgentObservePayload = {
   historyPath: string | null;
   sessionId: string | null;
   updatedAt: number;
+  initiatingAsk?: {
+    task: string;
+    requesterId: string;
+    requesterName: string;
+    requestedAt: number;
+    invocationId: string;
+    flightId: string;
+    conversationId: string | null;
+    messageId: string | null;
+  } | null;
   data: ObserveData;
 };
 
@@ -1260,6 +1272,7 @@ export type PlanDocumentsResponse = {
 };
 
 export type MessagesFilter = "all" | "dm" | "channel";
+export type DispatchFilter = "all" | "delivered" | "failed";
 export type MessagesSort = "recent" | "name" | "unread";
 export type SearchMode = "knowledge" | "indexer";
 export type ProjectSet = "live" | "ephemeral" | "archived";
@@ -1327,7 +1340,7 @@ export type Route =
   | { view: "search"; mode?: SearchMode; hitId?: string }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
-  | { view: "broker"; attemptId?: string }
+  | { view: "broker"; attemptId?: string; filter?: DispatchFilter }
   | {
       view: "code";
       root?: string;

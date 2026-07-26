@@ -276,6 +276,21 @@ export function brokerAttemptContextText(attempt: BrokerRouteAttempt): string {
   return lines.join("\n");
 }
 
+/**
+ * Include the inspected snapshot because message-oriented Dispatch rows can be
+ * synthesized from several broker records and therefore may not have a raw
+ * diagnostics attempt id of their own.
+ */
+export function brokerDispatchReviewRequest(attempt: BrokerRouteAttempt): {
+  attemptId: string;
+  attempt: BrokerRouteAttempt;
+} {
+  return {
+    attemptId: attempt.id,
+    attempt,
+  };
+}
+
 export function brokerScoutbotTriageRequest(attempt: BrokerRouteAttempt): {
   eventName: typeof SCOUTBOT_SUBMIT_EVENT;
   body: string;

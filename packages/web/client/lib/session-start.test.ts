@@ -127,6 +127,8 @@ describe("startAgentSession", () => {
     await startProjectSession({
       projectPath: " /work/any-project ",
       harness: " codex ",
+      model: " gpt-5.6-sol ",
+      reasoningEffort: " high ",
       instructions: " Start here. ",
       attachments: [{
         url: "http://localhost:43122/api/blobs/capture-2",
@@ -137,7 +139,12 @@ describe("startAgentSession", () => {
 
     expect(requestBody).toEqual({
       target: { projectPath: "/work/any-project" },
-      execution: { session: "new", harness: "codex" },
+      execution: {
+        session: "new",
+        harness: "codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      },
       agent: { persistence: "one_time" },
       seed: {
         instructions: "Start here.",

@@ -1,5 +1,10 @@
 import { useMemo, type CSSProperties } from "react";
 import {
+  LazyMotion,
+  m,
+  useReducedMotion,
+} from "motion/react";
+import {
   compactAgentId,
   minimalAgentHandle,
 } from "../../lib/agent-labels.ts";
@@ -33,6 +38,92 @@ import {
   type MotionTone,
   type TurnSnapshot,
 } from "./conversation-model.ts";
+
+const THREAD_SKELETON_ROWS = [
+  { head: "30%", body: "88%", short: "62%" },
+  { head: "22%", body: "76%", short: "48%" },
+  { head: "34%", body: "82%", short: "68%" },
+] as const;
+
+const loadThreadMotionFeatures = () =>
+  import("./conversation-motion-features.ts").then((module) => module.default);
+
+/**
+ * Keeps the thread honest while history resolves: the composer is already
+ * mounted and usable below, while these ghost turns show that content is on
+ * its way. Motion is deliberately limited to opacity/transform; the shimmer
+ * remains CSS so it stays cheap inside native web views.
+ */
+export function ThreadLoadingSkeleton() {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <LazyMotion features={loadThreadMotionFeatures} strict>
+      <m.section
+        className="s-thread-skeleton"
+        aria-busy="true"
+        aria-live="polite"
+        initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.2, 0.7, 0.3, 1] }}
+      >
+        <div className="s-thread-skeleton-intro" role="status">
+          <div className="s-thread-loader-mark" aria-hidden="true">
+            <m.span
+              className="s-thread-loader-orbit"
+              animate={reduceMotion ? undefined : { rotate: 360 }}
+              transition={{ duration: 3.2, ease: "linear", repeat: Infinity }}
+            >
+              <span />
+            </m.span>
+            <m.span
+              className="s-thread-loader-core"
+              animate={
+                reduceMotion
+                  ? undefined
+                  : { scale: [0.88, 1, 0.88], opacity: [0.58, 1, 0.58] }
+              }
+              transition={{ duration: 1.8, ease: "easeInOut", repeat: Infinity }}
+            />
+          </div>
+          <span className="s-thread-skeleton-copy">
+            <strong>Composer ready</strong>
+            <span>Gathering the conversation…</span>
+          </span>
+        </div>
+
+        <div className="s-thread-skeleton-turns" aria-hidden="true">
+          {THREAD_SKELETON_ROWS.map((row, index) => (
+            <m.div
+              className="s-thread-skeleton-turn"
+              key={`${row.head}-${row.body}`}
+              initial={reduceMotion ? false : { opacity: 0, y: 7 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                delay: reduceMotion ? 0 : 0.05 + index * 0.055,
+                duration: 0.24,
+                ease: [0.2, 0.7, 0.3, 1],
+              }}
+            >
+              <span className="s-thread-skeleton-avatar" />
+              <div className="s-thread-skeleton-lines">
+                <span
+                  className="s-thread-skeleton-line s-thread-skeleton-line--head"
+                  style={{ width: row.head }}
+                />
+                <span className="s-thread-skeleton-line" style={{ width: row.body }} />
+                <span
+                  className="s-thread-skeleton-line s-thread-skeleton-line--short"
+                  style={{ width: row.short }}
+                />
+              </div>
+            </m.div>
+          ))}
+        </div>
+      </m.section>
+    </LazyMotion>
+  );
+}
 
 export function ChannelRail({
   sessions,

@@ -1718,6 +1718,116 @@
   color: var(--green);
 }
 
+.s-observe-embed-ask {
+  flex: none;
+  padding: var(--space-xl) var(--space-3xl) var(--space-lg);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  background: color-mix(in srgb, var(--surface) 56%, var(--bg));
+}
+
+.s-observe-embed-ask-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-xl);
+}
+
+.s-observe-embed-ask-kicker {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+}
+
+.s-observe-embed-ask-byline,
+.s-observe-embed-ask-unknown {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: 3px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-observe-embed-ask-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.s-observe-embed-ask-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-decoration: none;
+}
+
+.s-observe-embed-ask-links a:hover {
+  color: var(--accent);
+}
+
+.s-observe-embed-ask-body {
+  display: -webkit-box;
+  max-width: 960px;
+  margin-top: var(--space-md);
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.s-observe-embed-ask-body.is-expanded {
+  display: block;
+  max-height: min(42vh, 420px);
+  overflow-y: auto;
+  -webkit-line-clamp: unset;
+}
+
+.s-observe-embed-ask-toggle {
+  margin-top: var(--space-sm);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-observe-embed-ask-toggle:hover {
+  color: var(--accent);
+}
+
+.s-observe-embed-ask--unknown {
+  padding-block: var(--space-md);
+}
+
+@media (max-width: 680px) {
+  .s-observe-embed-ask {
+    padding-inline: var(--space-xl);
+  }
+
+  .s-observe-embed-ask-head {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .s-observe-embed-ask-links {
+    justify-content: flex-start;
+  }
+}
+
 .s-observe-embed-page .s-observe-main {
   padding: var(--space-3xl) var(--space-3xl) var(--space-5xl);
 }

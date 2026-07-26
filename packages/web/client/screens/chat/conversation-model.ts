@@ -11,6 +11,7 @@ import {
   normalizeAgentState,
 } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
+import type { OutgoingAttachment } from "../../lib/media-blobs.ts";
 import {
   isActiveConversationFlight,
   isConversationWorkingTurnWithoutRecentUpdateAnswered,
@@ -126,6 +127,24 @@ export type SendReceipt = {
 
 export type ComposeAction = "message" | "invoke" | "steer";
 
+export const THREAD_TREATMENTS = ["standard", "ledger", "rail", "document"] as const;
+export type ThreadTreatment = (typeof THREAD_TREATMENTS)[number];
+
+export function resolveThreadEmbedProps(params: URLSearchParams): {
+  conversationId: string;
+  embedded: true;
+  showBackNav: false;
+  treatment: ThreadTreatment;
+} {
+  const candidate = params.get("treatment")?.trim() as ThreadTreatment | undefined;
+  return {
+    conversationId: params.get("conversationId")?.trim() || "",
+    embedded: true,
+    showBackNav: false,
+    treatment: candidate && THREAD_TREATMENTS.includes(candidate) ? candidate : "standard",
+  };
+}
+
 export function hasOutstandingConversationReply(input: {
   sending: boolean;
   awaitingResponse: boolean;
@@ -144,6 +163,49 @@ export function resolveComposeAction(input: {
   return input.hasOutstandingReply ? "steer" : "invoke";
 }
 
+/**
+ * What the operator wants to happen to a draft written while the agent is mid
+ * turn. `queue` holds it until the turn lands; `steer` interrupts and delivers
+ * it now. Only meaningful while busy — when idle the draft just sends.
+ */
+export type BusySendIntent = "queue" | "steer";
+
+/** The disposition a Send press actually resolves to. */
+export type SendDisposition = "send" | "queue" | "steer";
+
+export function resolveSendDisposition(input: {
+  isAgentBusy: boolean;
+  intent: BusySendIntent;
+}): SendDisposition {
+  return input.isAgentBusy ? input.intent : "send";
+}
+
+export type QueuedDraft = {
+  id: string;
+  body: string;
+  attachments: OutgoingAttachment[];
+  queuedAt: number;
+};
+
+/**
+ * A queued draft is released the moment the agent stops being busy. Kept as a
+ * pure predicate so the flush effect and its test agree on the trigger.
+ */
+export function shouldFlushQueue(input: {
+  isAgentBusy: boolean;
+  sending: boolean;
+  queued: readonly QueuedDraft[];
+}): boolean {
+  return !input.isAgentBusy && !input.sending && input.queued.length > 0;
+}
+
+export function describeQueuedDrafts(queued: readonly QueuedDraft[]): string | null {
+  if (queued.length === 0) return null;
+  return queued.length === 1
+    ? "1 message queued — sends when this turn lands"
+    : `${queued.length} messages queued — send when this turn lands`;
+}
+
 export type ConversationPresence = {
   label: string;
   detail: string;
@@ -160,6 +222,26 @@ export type TurnSnapshot = {
 };
 
 export type MotionTone = "idle" | "pending" | "working" | "quiet" | "offline";
+
+export const WORKING_DURATION_THRESHOLDS_MS = {
+  sustained: 15_000,
+  long: 30_000,
+} as const;
+
+export type WorkingDurationStage = "brief" | "sustained" | "long";
+
+export function deriveWorkingDurationStage(
+  startedAt: number | string | null | undefined,
+  nowMs: number,
+): WorkingDurationStage {
+  const startedAtMs = normalizeTimestampMs(startedAt);
+  if (startedAtMs === null) return "brief";
+
+  const elapsedMs = Math.max(0, nowMs - startedAtMs);
+  if (elapsedMs >= WORKING_DURATION_THRESHOLDS_MS.long) return "long";
+  if (elapsedMs >= WORKING_DURATION_THRESHOLDS_MS.sustained) return "sustained";
+  return "brief";
+}
 
 export type RailWorkspaceGroup = {
   workspace: string;
