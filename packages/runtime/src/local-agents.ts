@@ -3485,10 +3485,10 @@ function tmuxPaneTailShowsClaudePromptAccepted(paneTail: string): boolean {
 
   // Claude keeps accepted steering/queued input visible in the composer while
   // the current turn is running. In that state a non-empty composer does not
-  // mean Enter was swallowed; the live status footer is the acknowledgement.
-  // Match the explicit interrupt affordance rather than generic activity or a
-  // token counter, both of which can also appear in an idle pane.
-  if (tmuxPaneTailShowsActiveClaudeTurn(cleanedTail)) {
+  // mean Enter was swallowed. Match Claude's explicit interrupt affordance or
+  // queued-message placeholder rather than generic activity or a token counter,
+  // both of which can also appear in an idle pane.
+  if (tmuxPaneTailShowsClaudeQueuedAcceptance(cleanedTail)) {
     return true;
   }
 
@@ -3503,8 +3503,9 @@ function tmuxPaneTailShowsClaudePromptAccepted(paneTail: string): boolean {
   return composerText.length === 0;
 }
 
-function tmuxPaneTailShowsActiveClaudeTurn(paneTail: string): boolean {
-  return /\besc\s+to\s+interrupt\b/i.test(paneTail);
+function tmuxPaneTailShowsClaudeQueuedAcceptance(paneTail: string): boolean {
+  return /\besc\s+to\s+interrupt\b/i.test(paneTail)
+    || /(?:^|\n)\s*[❯›]\s*Press up to edit queued messages\s*$/im.test(paneTail);
 }
 
 function textContainsPromptFragment(haystack: string, prompt: string): boolean {
