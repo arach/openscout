@@ -210,6 +210,7 @@ describe("getScoutConversations", () => {
     expect(engineering).toHaveLength(1);
     expect(engineering[0]).toMatchObject({
       id: "chn-engineering-b",
+      equivalentConversationIds: ["chn-engineering-a", "chn-engineering-b"],
       messageCount: 2,
       preview: "OpenScout report",
       participantIds: ["hudson.main.mini", "operator", "session-gauss"],
@@ -795,6 +796,110 @@ describe("getScoutConversations", () => {
 
     expect(dm?.unreadCount).toBe(0);
     expect(dm?.ask).toBeUndefined();
+  });
+
+  test("derives the latest reply-required operator turn from canonical records", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.invocations = {
+      "inv-1": {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "hudson.main.mini",
+        action: "consult",
+        task: "hello",
+        conversationId: "chat_hudson-main",
+        messageId: "msg-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1_779_461_700_100,
+      },
+    };
+    snapshot.flights = {
+      "flt-1": {
+        id: "flt-1",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "hudson.main.mini",
+        state: "running",
+        startedAt: 1_779_461_700_200,
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    let dm = (await getScoutConversations()).find((entry) => entry.id === "chat_hudson-main");
+    expect(dm?.turn).toEqual(expect.objectContaining({
+      messageId: "msg-1",
+      invocationId: "inv-1",
+      flightId: "flt-1",
+      state: "working",
+      nextMoveOwner: "agent",
+    }));
+
+    snapshot.messages["msg-reply"] = {
+      id: "msg-reply",
+      conversationId: "chat_hudson-main",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "Hi back",
+      replyToMessageId: "msg-1",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_700_300,
+    };
+    snapshot.flights["flt-1"].state = "completed";
+    snapshot.flights["flt-1"].completedAt = 1_779_461_700_300;
+
+    dm = (await getScoutConversations()).find((entry) => entry.id === "chat_hudson-main");
+    expect(dm?.turn).toEqual(expect.objectContaining({
+      state: "replied",
+      nextMoveOwner: "none",
+      updatedAt: 1_779_461_700_300,
+    }));
+  });
+
+  test("projects an origin-correlated delivery issue as a failed turn", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.messages["msg-1"].metadata = {
+      replyExpectation: "required",
+      routingState: "failed",
+    };
+    snapshot.messages["msg-failed"] = {
+      id: "msg-failed",
+      conversationId: "chat_hudson-main",
+      actorId: "scout.system",
+      originNodeId: "node-1",
+      class: "status",
+      body: "No operator session accepted it.",
+      replyToMessageId: "msg-1",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_700_100,
+      metadata: {
+        source: "broker",
+        routingState: "failed",
+        deliveryIssueKind: "unassigned_scout",
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const dm = (await getScoutConversations()).find((entry) => entry.id === "chat_hudson-main");
+    expect(dm?.turn).toEqual(expect.objectContaining({
+      messageId: "msg-1",
+      invocationId: null,
+      flightId: null,
+      state: "failed",
+      nextMoveOwner: "none",
+    }));
   });
 
   test("counts agent messages after the operator read cursor as unread", async () => {

@@ -35,6 +35,17 @@ export type ScoutConversationAsk = {
   state: "pending" | "answered";
 };
 
+export type ScoutConversationTurn = {
+  messageId: string;
+  invocationId: string | null;
+  flightId: string | null;
+  from: string;
+  text: string;
+  state: "queued" | "working" | "waiting" | "completed" | "failed" | "replied";
+  nextMoveOwner: "agent" | "operator" | "none";
+  updatedAt: number;
+};
+
 export type ScoutConversationParticipant = {
   actorId: string;
   kind: string;
@@ -51,6 +62,7 @@ export type ScoutConversationParticipant = {
 export type ScoutConversationSummary = {
   id: string;
   chatId: string;
+  equivalentConversationIds: string[];
   kind: string;
   title: string;
   alias?: string | null;
@@ -75,6 +87,8 @@ export type ScoutConversationSummary = {
   unreadCount: number;
   /// Best-effort per-conversation ask, omitted entirely when there is no signal.
   ask?: ScoutConversationAsk;
+  /// Rebuildable status of the latest operator turn that requested a reply.
+  turn?: ScoutConversationTurn;
 };
 
 export type ScoutConversationMessage = {
@@ -391,6 +405,109 @@ function flightsByConversation(
   return buckets;
 }
 
+function conversationTurn(input: {
+  snapshot: ScoutBrokerSnapshot;
+  messages: MessageRecord[];
+  invocations: InvocationRequest[];
+  flights: FlightRecord[];
+  operatorIds: Set<string>;
+}): ScoutConversationTurn | undefined {
+  const messagesById = new Map(input.messages.map((message) => [message.id, message]));
+  const candidates = new Map<string, {
+    message: MessageRecord;
+    invocation: InvocationRequest | null;
+  }>();
+
+  for (const invocation of input.invocations) {
+    if (!invocation.messageId) continue;
+    const message = messagesById.get(invocation.messageId);
+    if (!message) continue;
+    if (!input.operatorIds.has(invocation.requesterId) && !input.operatorIds.has(message.actorId)) {
+      continue;
+    }
+    candidates.set(message.id, { message, invocation });
+  }
+
+  for (const message of input.messages) {
+    if (!input.operatorIds.has(message.actorId)) continue;
+    if (metadataString(message.metadata, "replyExpectation") !== "required") continue;
+    if (!candidates.has(message.id)) {
+      candidates.set(message.id, { message, invocation: null });
+    }
+  }
+
+  const latest = [...candidates.values()].sort((left, right) =>
+    (normalizeTimestampMs(right.message.createdAt) ?? 0)
+      - (normalizeTimestampMs(left.message.createdAt) ?? 0)
+  )[0];
+  if (!latest) return undefined;
+
+  const replies = input.messages
+    .filter((message) => message.replyToMessageId === latest.message.id)
+    .sort((left, right) =>
+      (normalizeTimestampMs(left.createdAt) ?? 0)
+        - (normalizeTimestampMs(right.createdAt) ?? 0)
+    );
+  const failureReply = [...replies].reverse().find((message) =>
+    metadataString(message.metadata, "routingState") === "failed"
+      || metadataString(message.metadata, "deliveryIssueKind") !== null
+  );
+  const agentReply = [...replies].reverse().find((message) =>
+    message.class === "agent" && !input.operatorIds.has(message.actorId)
+  );
+  const flight = latest.invocation
+    ? [...input.flights].reverse().find((candidate) =>
+        candidate.invocationId === latest.invocation!.id
+      ) ?? null
+    : null;
+
+  let state: ScoutConversationTurn["state"];
+  let nextMoveOwner: ScoutConversationTurn["nextMoveOwner"];
+  if (
+    metadataString(latest.message.metadata, "routingState") === "failed"
+    || failureReply
+  ) {
+    state = "failed";
+    nextMoveOwner = "none";
+  } else if (agentReply) {
+    state = "replied";
+    nextMoveOwner = "none";
+  } else if (flight?.state === "running") {
+    state = "working";
+    nextMoveOwner = "agent";
+  } else if (flight?.state === "waiting") {
+    state = "waiting";
+    nextMoveOwner = "none";
+  } else if (flight?.state === "failed" || flight?.state === "cancelled") {
+    state = "failed";
+    nextMoveOwner = "none";
+  } else if (flight?.state === "completed") {
+    state = "completed";
+    nextMoveOwner = "none";
+  } else {
+    state = "queued";
+    nextMoveOwner = "agent";
+  }
+
+  const terminalReply = failureReply ?? agentReply;
+  return {
+    messageId: latest.message.id,
+    invocationId: latest.invocation?.id ?? null,
+    flightId: flight?.id ?? null,
+    from: messageActorName(input.snapshot, latest.message.actorId),
+    text: latest.message.body,
+    state,
+    nextMoveOwner,
+    updatedAt: normalizeTimestampMs(
+      terminalReply?.createdAt
+        ?? flight?.completedAt
+        ?? flight?.startedAt
+        ?? latest.invocation?.createdAt
+        ?? latest.message.createdAt,
+    ) ?? 0,
+  };
+}
+
 function latestConversationSessionId(input: {
   messages: MessageRecord[];
   invocations: InvocationRequest[];
@@ -659,8 +776,15 @@ function coalesceDuplicateNamedChannels(
     const canonical = group.find((summary) => summary.id === preferredId) ?? sorted[0]!;
     const latest = sorted[0]!;
     const participantIds = [...new Set(group.flatMap((summary) => summary.participantIds))].sort();
+    const latestTurn = group
+      .map((summary) => summary.turn)
+      .filter((turn): turn is ScoutConversationTurn => Boolean(turn))
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0];
     return {
       ...canonical,
+      equivalentConversationIds: [...new Set(
+        group.flatMap((summary) => summary.equivalentConversationIds),
+      )].sort(),
       participantIds,
       participants: buildScopedParticipants(snapshot, canonical.id, participantIds),
       preview: latest.preview,
@@ -668,6 +792,7 @@ function coalesceDuplicateNamedChannels(
       sessionId: latest.sessionId ?? canonical.sessionId,
       messageCount: group.reduce((total, summary) => total + summary.messageCount, 0),
       unreadCount: group.reduce((total, summary) => total + summary.unreadCount, 0),
+      ...(latestTurn ? { turn: latestTurn } : {}),
     };
   });
 }
@@ -734,6 +859,16 @@ export async function getScoutConversations(
       );
       const isChildConversation = Boolean(conversation.parentConversationId && conversation.messageId);
       const askField = {};
+      const turn = conversationTurn({
+        snapshot,
+        messages,
+        invocations,
+        flights,
+        operatorIds,
+      });
+      const equivalentConversationIds = [
+        ...equivalentNamedConversationIds(snapshot, conversation.id),
+      ].sort();
       const participants = buildScopedParticipants(
         snapshot,
         conversation.id,
@@ -757,6 +892,7 @@ export async function getScoutConversations(
         return [{
           id: conversation.id,
           chatId: conversation.id,
+          equivalentConversationIds,
           kind: conversation.kind,
           title,
           ...identityFields,
@@ -781,6 +917,7 @@ export async function getScoutConversations(
           workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
           unreadCount,
           ...askField,
+          ...(turn ? { turn } : {}),
         }];
       }
 
@@ -802,6 +939,7 @@ export async function getScoutConversations(
       return [{
         id: conversation.id,
         chatId: conversation.id,
+        equivalentConversationIds,
         kind: conversation.kind,
         title: conversation.title,
         ...identityFields,
@@ -822,6 +960,7 @@ export async function getScoutConversations(
         workspaceRoot: null,
         unreadCount,
         ...askField,
+        ...(turn ? { turn } : {}),
       }];
     })
     .filter((summary) => includeConversation(summary, query))
