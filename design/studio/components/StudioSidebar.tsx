@@ -44,7 +44,7 @@ export function StudioSidebar({
     >
       <SidebarHeader />
 
-      <nav className="flex flex-col gap-7 px-4 pb-10 pt-3 font-mono text-[10.5px]">
+      <nav className="flex flex-col gap-7 px-4 pb-10 pt-3 font-mono text-sm">
         <BucketSection
           title="Plans"
           bucket="plans"
@@ -89,7 +89,7 @@ function SidebarHeader() {
       />
       <Link
         href="/"
-        className="focus-ring rounded-[2px] font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink"
+        className="focus-ring rounded-[2px] font-mono text-xs font-semibold uppercase tracking-eyebrow text-studio-ink"
       >
         Scout · Studio
       </Link>
@@ -101,7 +101,7 @@ function SidebarFooter({ totalPages }: { totalPages: number }) {
   return (
     <div className="mt-auto border-t border-studio-edge px-4 py-3">
       <ThemeToggle />
-      <div className="mt-2 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="mt-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         <span>openscout</span>
         <span className="mx-1.5">·</span>
         <span>{totalPages} pages</span>
@@ -194,7 +194,7 @@ function EngBucketSection({
         {indexPage ? (
           <SidebarLink href="/eng" active={indexPage.href === pathname}>
             <span className="flex-1 truncate">{indexPage.label}</span>
-            <span className="font-mono text-[8.5px] text-studio-ink-faint">
+            <span className="font-mono text-2xs text-studio-ink-faint">
               {docs.length}
             </span>
           </SidebarLink>
@@ -202,7 +202,7 @@ function EngBucketSection({
 
         {recent.length > 0 ? (
           <>
-            <div className="mt-3 mb-1 px-2 font-mono text-[8.5px] uppercase tracking-[0.20em] text-studio-ink-faint">
+            <div className="mt-3 mb-1 px-2 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
               Recent
             </div>
             <div className="flex flex-col">
@@ -221,7 +221,7 @@ function EngBucketSection({
             {remaining > 0 ? (
               <Link
                 href="/eng"
-                className="mt-1 px-2 py-1 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
+                className="mt-1 px-2 py-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint hover:text-studio-ink"
               >
                 +{remaining} more →
               </Link>
@@ -235,7 +235,7 @@ function EngBucketSection({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="font-mono text-[9px] font-semibold uppercase tracking-[0.22em] text-studio-ink-faint">
+    <h2 className="font-mono text-2xs font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
       · {children}
     </h2>
   );
@@ -252,7 +252,7 @@ function SurfaceBlock({
 }) {
   return (
     <div>
-      <h3 className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.20em] text-studio-ink-faint">
+      <h3 className="mb-1 font-mono text-2xs uppercase tracking-eyebrow text-studio-ink-faint">
         {label}
       </h3>
       <div className="flex flex-col">
@@ -294,7 +294,7 @@ function PageItem({
             )}
             aria-label={expanded ? "Collapse variants" : "Expand variants"}
           >
-            <span className="text-[9px]">{expanded ? "−" : "+"}</span>
+            <span className="text-2xs">{expanded ? "−" : "+"}</span>
           </button>
         ) : null}
       </div>
