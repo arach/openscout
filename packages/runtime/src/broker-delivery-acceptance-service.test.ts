@@ -253,6 +253,90 @@ function createHarness(input: {
 }
 
 describe("BrokerDeliveryAcceptanceService", () => {
+  test("marks an unassigned product-Scout request as reply-required and origin-correlated", async () => {
+    const harness = createHarness({
+      isScoutTarget: () => true,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-scout",
+      body: "Create the work item",
+      intent: "consult",
+      targetAgentId: "scout.dispatcher",
+      caller: {
+        actorId: "remote-agent",
+        nodeId: "remote-node",
+      },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "rejected",
+      accepted: false,
+      reason: "unknown_target",
+    }));
+    expect(harness.postedMessages[0]).toEqual(expect.objectContaining({
+      metadata: expect.objectContaining({
+        requestId: "deliver-scout",
+        replyExpectation: "required",
+        routingState: "failed",
+      }),
+    }));
+    expect(harness.operatorIssues).toEqual([
+      expect.objectContaining({
+        kind: "unassigned_scout",
+        originConversationId: harness.postedMessages[0]!.conversationId,
+        originMessageId: harness.postedMessages[0]!.id,
+      }),
+    ]);
+    expect(harness.acceptedInvocations).toEqual([]);
+    expect(harness.recordedDispatches).toEqual([
+      expect.objectContaining({
+        envelope: expect.objectContaining({
+          kind: "unknown",
+          askedLabel: "scout.dispatcher",
+        }),
+      }),
+    ]);
+  });
+
+  test("accepts an unassigned product-Scout tell without marking it failed", async () => {
+    const harness = createHarness({
+      isScoutTarget: () => true,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-scout-tell",
+      body: "local broker status",
+      intent: "tell",
+      targetAgentId: "scout.dispatcher",
+      caller: {
+        actorId: "remote-agent",
+        nodeId: "remote-node",
+      },
+    });
+
+    // Fire-and-forget: nobody is blocked on a reply, so the message is simply
+    // durable in the Scout thread until an operator session reads it.
+    expect(result).toEqual(expect.objectContaining({
+      kind: "delivery",
+      accepted: true,
+    }));
+    expect(harness.postedMessages).toHaveLength(1);
+    expect(harness.postedMessages[0]!.metadata).toEqual(expect.objectContaining({
+      requestId: "deliver-scout-tell",
+    }));
+    expect(harness.postedMessages[0]!.metadata).not.toHaveProperty("replyExpectation");
+    expect(harness.postedMessages[0]!.metadata).not.toHaveProperty("routingState");
+    expect(harness.postedMessages[0]!.metadata).not.toHaveProperty("dispatchId");
+    // No dispatch record and no in-thread failure mirror for an accepted send.
+    expect(harness.recordedDispatches).toEqual([]);
+    expect(harness.operatorIssues).toEqual([
+      expect.objectContaining({ kind: "unassigned_scout" }),
+    ]);
+    expect(harness.operatorIssues[0]).not.toHaveProperty("originConversationId");
+    expect(harness.acceptedInvocations).toEqual([]);
+  });
+
   test("records an operator signal without creating an invocation", async () => {
     const conversation = testConversation({
       id: "dm.agent.operator",
