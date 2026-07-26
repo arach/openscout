@@ -317,6 +317,12 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** Like `parsePositiveInteger`, but 0 is a meaningful value (means "off"). */
+function parseNonNegativeInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function resolveLocalAgentContextPolicy(): LocalAgentContextPolicy {
   return {
     maxTurns: parsePositiveInteger(process.env.OPENSCOUT_RANGER_CONTEXT_MAX_TURNS, 12),
@@ -3269,8 +3275,19 @@ const TMUX_VERIFY_POLL_MS = 250;
 // agent routinely needs more than 1.4s to acknowledge a pasted prompt. The old
 // fixed-sample budget reported those agents as stalled, which then latched their
 // endpoint offline and failed every queued delivery as `agent_offline`.
-const TMUX_VERIFY_IDLE_DEADLINE_MS = 4_000;
-const TMUX_VERIFY_BUSY_DEADLINE_MS = 15_000;
+//
+// Both deadlines are env-tunable so this stays a VARIANT, not a one-way door:
+// setting either to 0 disables the extra sampling for that case and restores the
+// exact pre-fix budget, which is the escape hatch if a real stall ever needs to
+// surface faster than the grace period allows.
+const TMUX_VERIFY_IDLE_DEADLINE_MS = parseNonNegativeInteger(
+  process.env.OPENSCOUT_TMUX_VERIFY_IDLE_DEADLINE_MS,
+  4_000,
+);
+const TMUX_VERIFY_BUSY_DEADLINE_MS = parseNonNegativeInteger(
+  process.env.OPENSCOUT_TMUX_VERIFY_BUSY_DEADLINE_MS,
+  15_000,
+);
 const TMUX_CAPTURE_TAIL_LINES = 20;
 const TMUX_DEFAULT_COLUMNS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_COLUMNS, 160);
 const TMUX_DEFAULT_ROWS = parsePositiveInteger(process.env.OPENSCOUT_LOCAL_AGENT_TMUX_ROWS, 48);
@@ -3618,10 +3635,13 @@ function isTmuxComposerBoundary(line: string): boolean {
  * it earns the long deadline; a quiet pane stays near the original budget so a
  * genuinely swallowed Enter still surfaces quickly.
  */
-export function tmuxVerifyDeadlineMs(paneTail: string): number {
+export function tmuxVerifyDeadlineMs(
+  paneTail: string,
+  deadlines: { idleMs?: number; busyMs?: number } = {},
+): number {
   return tmuxPaneTailShowsHarnessActivity(paneTail)
-    ? TMUX_VERIFY_BUSY_DEADLINE_MS
-    : TMUX_VERIFY_IDLE_DEADLINE_MS;
+    ? deadlines.busyMs ?? TMUX_VERIFY_BUSY_DEADLINE_MS
+    : deadlines.idleMs ?? TMUX_VERIFY_IDLE_DEADLINE_MS;
 }
 
 function tmuxPaneTailShowsHarnessActivity(paneTail: string): boolean {
