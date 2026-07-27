@@ -2934,7 +2934,6 @@ function withScoutReplyContextEnvironment<T extends { runtimeDirectory: string; 
     ...options,
     env: {
       ...(options.env ?? {}),
-      OPENSCOUT_CODEX_MANAGED_HOME: "1",
       OPENSCOUT_REPLY_CONTEXT_FILE: scoutReplyContextPath(options.runtimeDirectory),
     },
   };
