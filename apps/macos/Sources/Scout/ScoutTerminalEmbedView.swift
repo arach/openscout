@@ -232,6 +232,161 @@ enum ScoutTerminalDefaultBackend: String, CaseIterable, Hashable {
 struct ScoutTerminalWebCommand: Equatable {
     let id = UUID()
     let line: String
+    var submits = true
+}
+
+private enum ScoutTerminalImageDropStore {
+    enum StoreError: LocalizedError {
+        case unavailableDirectory
+
+        var errorDescription: String? {
+            "Scout could not create a local file for that screenshot."
+        }
+    }
+
+    static func materialize(_ images: [ScoutComposerImage]) throws -> [URL] {
+        guard !images.isEmpty else { return [] }
+        guard let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw StoreError.unavailableDirectory
+        }
+
+        let directory = applicationSupport
+            .appendingPathComponent("OpenScout", isDirectory: true)
+            .appendingPathComponent("Terminal Drops", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+
+        return try images.map { image in
+            let sourceName = URL(fileURLWithPath: image.fileName)
+            let sourceStem = sourceName.deletingPathExtension().lastPathComponent
+            let stem = sanitizedStem(sourceStem)
+            let sourceExtension = sourceName.pathExtension.lowercased()
+            let fileExtension = sourceExtension.isEmpty
+                ? preferredExtension(for: image.mediaType)
+                : sourceExtension
+            let suffix = UUID().uuidString.prefix(8).lowercased()
+            let fileName = "\(stem)-\(suffix).\(fileExtension)"
+            let url = directory.appendingPathComponent(fileName, isDirectory: false)
+            try image.data.write(to: url, options: .atomic)
+            return url
+        }
+    }
+
+    private static func sanitizedStem(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character(String($0)) : "-" }
+        let compact = String(scalars)
+            .split(separator: "-")
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return String((compact.isEmpty ? "screenshot" : compact).prefix(64))
+    }
+
+    private static func preferredExtension(for mediaType: String) -> String {
+        switch mediaType.lowercased() {
+        case "image/jpeg": return "jpg"
+        case "image/gif": return "gif"
+        case "image/webp": return "webp"
+        case "image/heic": return "heic"
+        case "image/tiff": return "tiff"
+        case "image/bmp": return "bmp"
+        default: return "png"
+        }
+    }
+}
+
+private struct ScoutTerminalImageDropCatcher: NSViewRepresentable {
+    var onTargeted: (Bool) -> Void
+    var onDrop: ([URL], [ScoutComposerImage]) -> Bool
+
+    func makeNSView(context: Context) -> ScoutTerminalImageDropView {
+        let view = ScoutTerminalImageDropView()
+        view.onTargeted = onTargeted
+        view.onDrop = onDrop
+        return view
+    }
+
+    func updateNSView(_ nsView: ScoutTerminalImageDropView, context: Context) {
+        nsView.onTargeted = onTargeted
+        nsView.onDrop = onDrop
+    }
+}
+
+private final class ScoutTerminalImageDropView: NSView {
+    var onTargeted: (Bool) -> Void = { _ in }
+    var onDrop: ([URL], [ScoutComposerImage]) -> Bool = { _, _ in false }
+
+    private let rawImageTypes: [NSPasteboard.PasteboardType] = [
+        .png,
+        .tiff,
+        NSPasteboard.PasteboardType(UTType.image.identifier),
+    ]
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([.fileURL] + rawImageTypes)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { self }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard canAccept(sender.draggingPasteboard) else {
+            onTargeted(false)
+            return []
+        }
+        onTargeted(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        canAccept(sender.draggingPasteboard) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onTargeted(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onTargeted(false)
+        let pasteboard = sender.draggingPasteboard
+        let fileURLs = imageFileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
+            return onDrop(fileURLs, [])
+        }
+
+        let images = ScoutMediaIntake.fromPasteboard(pasteboard).filter {
+            $0.mediaType.lowercased().hasPrefix("image/")
+        }
+        guard !images.isEmpty else { return false }
+        return onDrop([], images)
+    }
+
+    private func canAccept(_ pasteboard: NSPasteboard) -> Bool {
+        if !imageFileURLs(from: pasteboard).isEmpty { return true }
+        let offered = Set(pasteboard.types ?? [])
+        return rawImageTypes.contains { offered.contains($0) }
+    }
+
+    private func imageFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        guard let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] else { return [] }
+        return urls.filter { url in
+            guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+            return type.conforms(to: .image)
+        }
+    }
 }
 
 #if HUDSON_TERMINAL
@@ -1431,6 +1586,28 @@ final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @unchecked 
         sendHerdrShortcut("?")
     }
 
+    @discardableResult
+    func insertDroppedImagePaths(_ paths: [String]) -> Bool {
+        let normalized = paths
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+            .filter { !$0.isEmpty }
+        guard !normalized.isEmpty else { return false }
+
+        if !hasStarted {
+            startIfNeeded()
+        }
+        guard workspace.isRunning else { return false }
+
+        let text = normalized.map(Self.shellQuotedPath).joined(separator: " ") + " "
+        workspace.send(Data(text.utf8))
+        focus()
+        return true
+    }
+
+    private static func shellQuotedPath(_ path: String) -> String {
+        "'\(path.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
     private func sendHerdrShortcut(_ key: Character) {
         guard target.backendLabel == "herdr",
               let ascii = key.asciiValue
@@ -1480,6 +1657,9 @@ private struct ScoutNativeTerminalTileView: View {
     @State private var isRetargetPickerPresented = false
     @State private var isRenamePresented = false
     @State private var renameDraft = ""
+    @State private var isImageDropTargeted = false
+    @State private var imageDropNotice: String?
+    @State private var imageDropFailed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1513,6 +1693,24 @@ private struct ScoutNativeTerminalTileView: View {
         .overlay {
             dropIndicator
         }
+        .overlay {
+            if isImageDropTargeted {
+                ScoutTerminalImageDropOverlay(terminalName: tile.target.title)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let imageDropNotice, !isImageDropTargeted {
+                ScoutTerminalImageDropNotice(
+                    message: imageDropNotice,
+                    isError: imageDropFailed
+                )
+                .padding(HudSpacing.md)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if !showHeader {
                 HStack(spacing: 2) {
@@ -1545,6 +1743,17 @@ private struct ScoutNativeTerminalTileView: View {
         .onAppear {
             tile.startIfNeeded()
         }
+        .background {
+            ScoutTerminalImageDropCatcher(
+                onTargeted: { targeted in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        isImageDropTargeted = targeted
+                    }
+                },
+                onDrop: acceptDroppedImages
+            )
+        }
+        .animation(.easeOut(duration: 0.14), value: imageDropNotice)
         .alert("Rename terminal", isPresented: $isRenamePresented) {
             TextField("Terminal name", text: $renameDraft)
             Button("Cancel", role: .cancel) {}
@@ -1799,6 +2008,41 @@ private struct ScoutNativeTerminalTileView: View {
     private var terminalBackground: Color {
         colorScheme == .dark ? Color.black.opacity(0.24) : ScoutSurface.inset
     }
+
+    private func acceptDroppedImages(
+        fileURLs: [URL],
+        inlineImages: [ScoutComposerImage]
+    ) -> Bool {
+        do {
+            let materialized = try ScoutTerminalImageDropStore.materialize(inlineImages)
+            let paths = fileURLs.map(\.path) + materialized.map(\.path)
+            guard tile.insertDroppedImagePaths(paths) else {
+                showImageDropNotice("Terminal is not accepting input", isError: true)
+                return false
+            }
+            let count = paths.count
+            showImageDropNotice(
+                count == 1 ? "Image path inserted" : "\(count) image paths inserted",
+                isError: false
+            )
+            return true
+        } catch {
+            showImageDropNotice(error.localizedDescription, isError: true)
+            return false
+        }
+    }
+
+    private func showImageDropNotice(_ message: String, isError: Bool) {
+        imageDropNotice = message
+        imageDropFailed = isError
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.2))
+            guard imageDropNotice == message else { return }
+            withAnimation(.easeOut(duration: 0.16)) {
+                imageDropNotice = nil
+            }
+        }
+    }
 }
 
 /// AppKit owns this small hit region so the main window's
@@ -2018,6 +2262,63 @@ private struct ScoutTerminalDropRegionOverlay: View {
             }
             .padding(HudSpacing.lg)
         }
+    }
+}
+
+private struct ScoutTerminalImageDropOverlay: View {
+    let terminalName: String
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(ScoutSurface.selected(ScoutPalette.accent).opacity(0.9))
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(ScoutPalette.accent.opacity(0.82), lineWidth: 2)
+
+            VStack(spacing: HudSpacing.sm) {
+                Image(systemName: "photo.badge.arrow.down")
+                    .font(HudFont.ui(HudTextSize.xxl, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.accent)
+                Text("Drop into \(terminalName)")
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                Text("Inserts the image path · Return stays yours")
+                    .font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                    .foregroundStyle(ScoutPalette.muted)
+            }
+            .padding(HudSpacing.xl)
+        }
+    }
+}
+
+private struct ScoutTerminalImageDropNotice: View {
+    let message: String
+    let isError: Bool
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(isError ? ScoutPalette.statusWarn : ScoutPalette.statusOk)
+            Text(message)
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, HudSpacing.md)
+        .frame(minHeight: 34)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutSurface.control)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(
+                    isError ? ScoutPalette.statusWarn.opacity(0.5) : ScoutDesign.hairlineStrong,
+                    lineWidth: HudStrokeWidth.thin
+                )
+        )
+        .shadow(color: ScoutSurface.shadow(0.18), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -2647,6 +2948,7 @@ private struct ScoutTerminalTabbedWebContent: View {
                                 projectDestinations: model.projectDestinations,
                                 onSendLine: { model.sendLine($0, to: tab) },
                                 onRename: { model.rename(tab, to: $0) },
+                                onSendInput: { model.sendInput($0, to: tab) },
                                 onReload: { model.reload(tab) },
                                 onClose: { model.close(tab) },
                                 onOpen: { ScoutWeb.open(path: tab.routePath) }
@@ -2692,6 +2994,7 @@ private struct ScoutTerminalTabbedWebContent: View {
         let projectDestinations: [ScoutTerminalProjectDestination]
         let onSendLine: (String) -> Void
         let onRename: (String) -> Void
+        let onSendInput: (String) -> Void
         let onReload: () -> Void
         let onClose: () -> Void
         let onOpen: () -> Void
@@ -2713,6 +3016,7 @@ private struct ScoutTerminalTabbedWebContent: View {
                 projectDestinations: projectDestinations,
                 onSendLine: onSendLine,
                 onRename: onRename,
+                onSendInput: onSendInput,
                 onReload: onReload,
                 onClose: onClose,
                 onOpen: onOpen
@@ -2944,6 +3248,7 @@ private struct ScoutTerminalWebTileView: View {
     let projectDestinations: [ScoutTerminalProjectDestination]
     let onSendLine: (String) -> Void
     let onRename: (String) -> Void
+    let onSendInput: (String) -> Void
     let onReload: () -> Void
     let onClose: () -> Void
     let onOpen: () -> Void
@@ -2952,6 +3257,9 @@ private struct ScoutTerminalWebTileView: View {
     @State private var isHovering = false
     @State private var isRenamePresented = false
     @State private var renameDraft = ""
+    @State private var isImageDropTargeted = false
+    @State private var imageDropNotice: String?
+    @State private var imageDropFailed = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -3009,6 +3317,34 @@ private struct ScoutTerminalWebTileView: View {
                 )
             }
         }
+        .overlay {
+            if isImageDropTargeted {
+                ScoutTerminalImageDropOverlay(terminalName: tab.title)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let imageDropNotice, !isImageDropTargeted {
+                ScoutTerminalImageDropNotice(
+                    message: imageDropNotice,
+                    isError: imageDropFailed
+                )
+                .padding(HudSpacing.md)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .background {
+            ScoutTerminalImageDropCatcher(
+                onTargeted: { targeted in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        isImageDropTargeted = targeted
+                    }
+                },
+                onDrop: acceptDroppedImages
+            )
+        }
         .onHover { isHovering = $0 }
         .help(tab.subtitle)
         .alert("Rename terminal", isPresented: $isRenamePresented) {
@@ -3021,6 +3357,7 @@ private struct ScoutTerminalWebTileView: View {
         } message: {
             Text("Give this terminal a short name within the current workspace.")
         }
+        .animation(.easeOut(duration: 0.14), value: imageDropNotice)
     }
 
     private var titleBar: some View {
@@ -3122,6 +3459,44 @@ private struct ScoutTerminalWebTileView: View {
 
     private var tileBackground: Color {
         colorScheme == .dark ? Color.black.opacity(0.24) : ScoutSurface.inset
+    }
+
+    private func acceptDroppedImages(
+        fileURLs: [URL],
+        inlineImages: [ScoutComposerImage]
+    ) -> Bool {
+        do {
+            let materialized = try ScoutTerminalImageDropStore.materialize(inlineImages)
+            let paths = fileURLs.map(\.path) + materialized.map(\.path)
+            guard !paths.isEmpty else { return false }
+            onSelect()
+            onSendInput(paths.map(shellQuotedPath).joined(separator: " ") + " ")
+            let count = paths.count
+            showImageDropNotice(
+                count == 1 ? "Image path inserted" : "\(count) image paths inserted",
+                isError: false
+            )
+            return true
+        } catch {
+            showImageDropNotice(error.localizedDescription, isError: true)
+            return false
+        }
+    }
+
+    private func shellQuotedPath(_ path: String) -> String {
+        "'\(URL(fileURLWithPath: path).standardizedFileURL.path.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private func showImageDropNotice(_ message: String, isError: Bool) {
+        imageDropNotice = message
+        imageDropFailed = isError
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.2))
+            guard imageDropNotice == message else { return }
+            withAnimation(.easeOut(duration: 0.16)) {
+                imageDropNotice = nil
+            }
+        }
     }
 }
 
@@ -3373,7 +3748,7 @@ final class ScoutTerminalWebTabsModel: ObservableObject {
             icon: "link",
             routePath: target.routePath,
             acceptsProjectDestinations: false,
-            command: target.commandLine.map(ScoutTerminalWebCommand.init(line:))
+            command: target.commandLine.map { ScoutTerminalWebCommand(line: $0) }
         ))
     }
 
@@ -3435,6 +3810,12 @@ final class ScoutTerminalWebTabsModel: ObservableObject {
     func sendLine(_ line: String, to tab: ScoutTerminalWebTab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs[index].command = ScoutTerminalWebCommand(line: line)
+        selectedTabID = tab.id
+    }
+
+    func sendInput(_ input: String, to tab: ScoutTerminalWebTab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        tabs[index].command = ScoutTerminalWebCommand(line: input, submits: false)
         selectedTabID = tab.id
     }
 
@@ -3822,7 +4203,10 @@ private struct ScoutTerminalEmbedWebView: NSViewRepresentable {
             }
             pendingCommand = nil
             lastCommandID = command.id
-            let script = "window.dispatchEvent(new CustomEvent('scout:terminal-send-line',{detail:{line:\(lineLiteral)}}))"
+            let eventName = command.submits
+                ? "scout:terminal-send-line"
+                : "scout:terminal-send-input"
+            let script = "window.dispatchEvent(new CustomEvent('\(eventName)',{detail:{line:\(lineLiteral)}}))"
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
 

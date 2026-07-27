@@ -371,6 +371,32 @@ function useTerminalRelaySession(params: {
     root?.querySelector<HTMLElement>(".xterm")?.focus();
   }, []);
 
+  useEffect(() => {
+    const textFromEvent = (event: Event): string | null => {
+      const value = (event as CustomEvent<{ line?: unknown }>).detail?.line;
+      return typeof value === "string" && value.length > 0 ? value : null;
+    };
+    const sendInput = (event: Event) => {
+      const text = textFromEvent(event);
+      if (!text || readOnly) return;
+      terminalRelay.sendInput(text);
+      focusTerminal();
+    };
+    const sendLine = (event: Event) => {
+      const text = textFromEvent(event);
+      if (!text || readOnly) return;
+      terminalRelay.sendLine(text);
+      focusTerminal();
+    };
+
+    window.addEventListener("scout:terminal-send-input", sendInput);
+    window.addEventListener("scout:terminal-send-line", sendLine);
+    return () => {
+      window.removeEventListener("scout:terminal-send-input", sendInput);
+      window.removeEventListener("scout:terminal-send-line", sendLine);
+    };
+  }, [focusTerminal, readOnly, terminalRelay]);
+
   const runSurfaceControl = useCallback((action: Parameters<typeof controlTerminalSurface>[1]) => {
     if (!terminalSurface) return null;
     return controlTerminalSurface(terminalSurface, action);
