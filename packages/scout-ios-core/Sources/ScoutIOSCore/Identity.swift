@@ -1,7 +1,9 @@
-// Identity — Keychain-based identity persistence for Dispatch iOS.
+// Identity — persistent identity storage for Dispatch iOS.
 //
 // Manages the phone's static X25519 key pair and trusted bridge records.
-// All sensitive data is stored in the iOS Keychain -- never in UserDefaults or files.
+// Device builds store sensitive data in the iOS Keychain. Simulator builds use
+// their isolated UserDefaults container because recent simulator runtimes reject
+// ad-hoc apps that claim the restricted Keychain access-group entitlement.
 //
 // Reference: src/security/identity.ts (bridge-side equivalent using filesystem)
 
@@ -37,9 +39,8 @@ public struct TrustedBridge: Codable, Sendable, Identifiable {
 /// Manages the phone's long-lived identity and trusted bridge records.
 ///
 /// Invariants:
-///   - The static key pair is persisted in the iOS Keychain.
-///   - Trusted bridge records are persisted in the iOS Keychain.
-///   - No sensitive data is stored outside the Keychain.
+///   - Device builds persist sensitive data in the iOS Keychain.
+///   - Simulator builds persist the same data only inside the simulator's app container.
 public final class ScoutIdentity: Sendable {
 
     // Keychain service identifiers
@@ -50,7 +51,7 @@ public final class ScoutIdentity: Sendable {
 
     // MARK: - Static key pair
 
-    /// Load the existing static key pair from Keychain, or generate and save a new one.
+    /// Load the existing static key pair, or generate and save a new one.
     public static func loadOrCreateIdentity() throws -> NoiseKeyPair {
         if let existing = try loadStaticKey() {
             return existing
@@ -60,9 +61,9 @@ public final class ScoutIdentity: Sendable {
         return keyPair
     }
 
-    /// Load the static key pair from Keychain. Returns nil if not found.
+    /// Load the static key pair. Returns nil if not found.
     private static func loadStaticKey() throws -> NoiseKeyPair? {
-        guard let privateKeyData = try keychainLoad(
+        guard let privateKeyData = try identityStoreLoad(
             service: service,
             account: staticKeyAccount
         ) else {
@@ -71,19 +72,19 @@ public final class ScoutIdentity: Sendable {
         return try noiseKeyPairFrom(privateKeyData: privateKeyData)
     }
 
-    /// Save a static key pair to Keychain.
+    /// Save a static key pair.
     private static func saveStaticKey(_ keyPair: NoiseKeyPair) throws {
         let privateKeyData = keyPair.privateKey.rawRepresentation
-        try keychainSave(
+        try identityStoreSave(
             service: service,
             account: staticKeyAccount,
             data: Data(privateKeyData)
         )
     }
 
-    /// Delete the static key pair from Keychain (for testing or key rotation).
+    /// Delete the static key pair (for testing or key rotation).
     public static func deleteIdentity() throws {
-        try keychainDelete(service: service, account: staticKeyAccount)
+        try identityStoreDelete(service: service, account: staticKeyAccount)
     }
 
     // MARK: - OpenScout Network session
@@ -93,18 +94,18 @@ public final class ScoutIdentity: Sendable {
             try deleteOSNSessionToken()
             return
         }
-        try keychainSave(service: service, account: osnSessionAccount, data: tokenData)
+        try identityStoreSave(service: service, account: osnSessionAccount, data: tokenData)
     }
 
     public static func loadOSNSessionToken() throws -> String? {
-        guard let data = try keychainLoad(service: service, account: osnSessionAccount) else {
+        guard let data = try identityStoreLoad(service: service, account: osnSessionAccount) else {
             return nil
         }
         return String(data: data, encoding: .utf8)?.trimmedNonEmpty
     }
 
     public static func deleteOSNSessionToken() throws {
-        try keychainDelete(service: service, account: osnSessionAccount)
+        try identityStoreDelete(service: service, account: osnSessionAccount)
     }
 
     // MARK: - Trusted bridges
@@ -138,7 +139,7 @@ public final class ScoutIdentity: Sendable {
 
     /// Get all trusted bridge records.
     public static func getTrustedBridges() throws -> [TrustedBridge] {
-        guard let data = try keychainLoad(
+        guard let data = try identityStoreLoad(
             service: service,
             account: trustedBridgesAccount
         ) else {
@@ -182,14 +183,14 @@ public final class ScoutIdentity: Sendable {
 
     /// Remove all trusted bridges.
     public static func removeAllTrustedBridges() throws {
-        try keychainDelete(service: service, account: trustedBridgesAccount)
+        try identityStoreDelete(service: service, account: trustedBridgesAccount)
     }
 
     // MARK: - Private helpers
 
     private static func saveTrustedBridges(_ bridges: [TrustedBridge]) throws {
         let data = try JSONEncoder().encode(bridges)
-        try keychainSave(
+        try identityStoreSave(
             service: service,
             account: trustedBridgesAccount,
             data: data
@@ -197,9 +198,12 @@ public final class ScoutIdentity: Sendable {
     }
 }
 
-// MARK: - Keychain Operations
+// MARK: - Persistence Operations
 
-private func keychainSave(service: String, account: String, data: Data) throws {
+private func identityStoreSave(service: String, account: String, data: Data) throws {
+    #if targetEnvironment(simulator)
+    UserDefaults.standard.set(data, forKey: simulatorDefaultsKey(service: service, account: account))
+    #else
     // Delete any existing item first.
     let deleteQuery: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
@@ -220,9 +224,13 @@ private func keychainSave(service: String, account: String, data: Data) throws {
     guard status == errSecSuccess else {
         throw KeychainError.saveFailed(status)
     }
+    #endif
 }
 
-private func keychainLoad(service: String, account: String) throws -> Data? {
+private func identityStoreLoad(service: String, account: String) throws -> Data? {
+    #if targetEnvironment(simulator)
+    return UserDefaults.standard.data(forKey: simulatorDefaultsKey(service: service, account: account))
+    #else
     let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
@@ -240,9 +248,13 @@ private func keychainLoad(service: String, account: String) throws -> Data? {
         throw KeychainError.loadFailed(status)
     }
     return result as? Data
+    #endif
 }
 
-private func keychainDelete(service: String, account: String) throws {
+private func identityStoreDelete(service: String, account: String) throws {
+    #if targetEnvironment(simulator)
+    UserDefaults.standard.removeObject(forKey: simulatorDefaultsKey(service: service, account: account))
+    #else
     let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
@@ -252,7 +264,14 @@ private func keychainDelete(service: String, account: String) throws {
     guard status == errSecSuccess || status == errSecItemNotFound else {
         throw KeychainError.deleteFailed(status)
     }
+    #endif
 }
+
+#if targetEnvironment(simulator)
+private func simulatorDefaultsKey(service: String, account: String) -> String {
+    "simulator.\(service).\(account)"
+}
+#endif
 
 public enum KeychainError: Error, LocalizedError {
     case saveFailed(OSStatus)
