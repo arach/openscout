@@ -152,17 +152,9 @@ echo "Output root: $OUTPUT_ROOT"
 echo "Runtime: $RUNTIME_ID"
 echo ""
 
-# Keychain entitlements for the Simulator build.
-#
-# Disabling code signing (the old CODE_SIGNING_ALLOWED=NO) strips all entitlements,
-# so ScoutIdentity's Keychain calls fail at runtime with OSStatus -34018
-# (errSecMissingEntitlement) and the Connect screen shows the red
-# "Identity error: Keychain load failed". Headless `xcodebuild` also won't inject
-# them the way Xcode's GUI does. Instead we ad-hoc sign with an explicit
-# entitlements file; the linker embeds it into the binary's __TEXT,__entitlements
-# section, which is where the Simulator's securityd reads from, so the Keychain works.
-SIM_ENTITLEMENTS="$(pwd)/scripts/Scout.simulator.entitlements"
-
+# Simulator builds are ad-hoc signed without restricted entitlements. ScoutIdentity
+# uses simulator-container persistence because iOS 26.5 rejects ad-hoc apps that
+# claim the Keychain access-group entitlement.
 HUDSONKIT_WITH_TERMINAL=1 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
@@ -173,7 +165,6 @@ HUDSONKIT_WITH_TERMINAL=1 xcodebuild \
   CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="-" \
   AD_HOC_CODE_SIGNING_ALLOWED=YES \
-  CODE_SIGN_ENTITLEMENTS="$SIM_ENTITLEMENTS" \
   build >/dev/null
 
 APP_PATH="$DERIVED_DATA_PATH/Build/Products/${CONFIGURATION}-iphonesimulator/Scout.app"
