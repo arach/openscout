@@ -152,7 +152,7 @@ const supportedHarnesses = [
   { id: "codex", name: "Codex", logoSrc: "/harnesses/codex.svg" },
   { id: "cursor", name: "Cursor", logoSrc: "/harnesses/cursor.svg" },
   { id: "grok", name: "Grok", logoSrc: "/harnesses/grok.svg" },
-  { id: "pi", name: "pi", logoSrc: "/harnesses/pi.svg" },
+  { id: "pi", name: "Pi", logoSrc: "/harnesses/pi.svg" },
 ] as const;
 
 type FaqEntry = {
@@ -1262,9 +1262,12 @@ export default function Home() {
                 <ul className="harness-roster__list">
                   {supportedHarnesses.map((harness) => (
                     <li key={harness.id} className="harness-roster__item">
-                      <span className="harness-roster__mark" aria-hidden="true">
+                      <span
+                        className={`harness-roster__mark harness-roster__mark--${harness.id}`}
+                        aria-hidden="true"
+                      >
                         <img
-                          className="harness-roster__logo"
+                          className={`harness-roster__logo harness-roster__logo--${harness.id}`}
                           src={harness.logoSrc}
                           alt=""
                           width="24"
