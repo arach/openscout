@@ -4,9 +4,6 @@
   "installCommand": "bun install",
   "buildCommand": "bun run build",
   "git": {
-    "deploymentEnabled": {
-      "**": false,
-      "main": true
-    }
+    "deploymentEnabled": false
   }
 }
