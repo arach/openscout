@@ -1026,7 +1026,6 @@ html[data-site-theme="dark"] .hero-editorial::before {
 
 .agent-install-trigger:focus-visible,
 .agent-handoff button:focus-visible,
-.agent-handoff textarea:focus-visible,
 .agent-handoff a:focus-visible {
   outline: 2px solid var(--site-accent);
   outline-offset: 2px;
@@ -1172,27 +1171,6 @@ html[data-site-theme="dark"] .hero-editorial::before {
   color: var(--site-muted);
   font-size: 13px;
   line-height: 1.5;
-}
-
-.agent-handoff__instructions {
-  display: block;
-  width: 100%;
-  min-height: 5.4rem;
-  margin-top: 1rem;
-  resize: vertical;
-  padding: 0.8rem 0.9rem;
-  color: var(--site-ink);
-  background: var(--site-panel);
-  border: 1px solid var(--site-border);
-  border-radius: 0;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.agent-handoff__instructions::placeholder {
-  color: var(--site-muted);
-  opacity: 1;
 }
 
 .agent-handoff__footer {
@@ -1840,6 +1818,104 @@ html[data-site-theme="dark"] main > .section-band::before {
 /* §4 host-integration cards — flat Basel: square corners, hairline border,
    no fill that fights the band. The host eyebrow + name carry identity, so
    the monogram tile is gone. Hover firms the hairline to ink. */
+.harness-roster {
+  width: min(80rem, calc(100% - 3rem));
+  margin: 0 auto 4.5rem;
+  border-top: 1px solid var(--site-border);
+  border-bottom: 1px solid var(--site-border);
+}
+
+.harness-roster__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 0;
+}
+
+.harness-roster__heading h2 {
+  margin: 0;
+  color: var(--site-muted);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.harness-roster__list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--site-border);
+}
+
+.harness-roster__item {
+  display: flex;
+  min-width: 0;
+  min-height: 5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-left: 1px solid var(--site-border);
+}
+
+.harness-roster__item:first-child {
+  border-left: 0;
+}
+
+.harness-roster__mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--site-ink-contrast);
+  background: var(--site-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.harness-roster__name {
+  overflow: hidden;
+  color: var(--site-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 720px) {
+  .harness-roster {
+    width: min(calc(100% - 2rem), 80rem);
+    margin-bottom: 3rem;
+  }
+
+  .harness-roster__heading {
+    display: block;
+  }
+
+  .harness-roster__heading h2 {
+    margin-top: 0.35rem;
+  }
+
+  .harness-roster__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .harness-roster__item:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .harness-roster__item:nth-child(n + 3) {
+    border-top: 1px solid var(--site-border);
+  }
+}
+
 .integration-block {
   display: flex;
   flex-direction: column;

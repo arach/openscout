@@ -147,6 +147,14 @@ const hostIntegrations: IntegrationCard[] = [
   },
 ];
 
+const supportedHarnesses = [
+  { id: "claude", name: "Claude Code", mark: "CL" },
+  { id: "codex", name: "Codex", mark: "CX" },
+  { id: "cursor", name: "Cursor", mark: "CU" },
+  { id: "grok", name: "Grok", mark: "GR" },
+  { id: "pi", name: "pi", mark: "π" },
+] as const;
+
 type FaqEntry = {
   question: string;
   answer: string;
@@ -171,7 +179,7 @@ const faqEntries: FaqEntry[] = [
   {
     question: "Which harnesses work today?",
     answer:
-      "Thin host packages connect Claude Code, Codex, Cursor, pi, and Hermes to the same broker. Each is installed on its own and talks to the local broker over the published CLI and protocol, so adding one joins that agent to the mesh without forking the runtime.",
+      "Scout currently detects and launches Claude Code, Codex, Cursor, Grok, and pi. Thin host packages add richer Scout commands inside supported agents, while every harness talks to the same local broker without forking its runtime.",
   },
   {
     question: "Do I need the Mac app?",
@@ -519,13 +527,6 @@ Please:
 
 Do not claim the install is complete unless \`scout doctor\` reports the broker as reachable.`;
 
-function buildAgentInstallPrompt(instructions: string) {
-  const trimmedInstructions = instructions.trim();
-  if (!trimmedInstructions) return AGENT_INSTALL_PROMPT;
-
-  return `${AGENT_INSTALL_PROMPT}\n\nAdditional instructions from me:\n${trimmedInstructions}`;
-}
-
 async function writeToClipboard(text: string) {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
@@ -547,15 +548,13 @@ async function writeToClipboard(text: string) {
 
 function AgentInstallHandoff() {
   const [open, setOpen] = useState(false);
-  const [instructions, setInstructions] = useState("");
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const wasOpenRef = useRef(false);
-  const prompt = buildAgentInstallPrompt(instructions);
-  const copiedCurrentPrompt = copiedPrompt === prompt;
+  const copied = copiedPrompt === AGENT_INSTALL_PROMPT;
 
   useEffect(() => {
     if (!open) return;
@@ -573,7 +572,7 @@ function AgentInstallHandoff() {
       if (event.key !== "Tab") return;
       const focusable = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), textarea:not([disabled]), a[href]',
+          'button:not([disabled]), a[href]',
         ) ?? [],
       );
       if (!focusable.length) return;
@@ -610,8 +609,8 @@ function AgentInstallHandoff() {
   const copyPrompt = async () => {
     setCopyError(null);
     try {
-      await writeToClipboard(prompt);
-      setCopiedPrompt(prompt);
+      await writeToClipboard(AGENT_INSTALL_PROMPT);
+      setCopiedPrompt(AGENT_INSTALL_PROMPT);
       trackCommandCopy({
         command: "agent_install_handoff_prompt",
         location: "hero_agent_install",
@@ -683,43 +682,23 @@ function AgentInstallHandoff() {
                     </a>
                   </div>
                   <p id="agent-handoff-description" className="agent-handoff__description">
-                    The prompt gives your agent the product context, install order, and health checks.
+                    This prompt tells your coding agent what Scout is and how to install and verify it.
                   </p>
-
-                  <label htmlFor="agent-install-instructions" className="sr-only">
-                    Additional instructions for your agent
-                  </label>
-                  <textarea
-                    id="agent-install-instructions"
-                    value={instructions}
-                    onChange={(event) => {
-                      setInstructions(event.target.value);
-                      setCopyError(null);
-                    }}
-                    className="agent-handoff__instructions"
-                    placeholder="Add instructions (optional)"
-                    maxLength={1200}
-                    rows={3}
-                  />
                 </div>
 
                 <footer className="agent-handoff__footer">
-                  <p>Open your coding agent and paste in this prompt.</p>
+                  <p>Paste it into a new chat in Claude Code, Codex, Cursor, or your coding agent.</p>
                   <button
                     type="button"
                     onClick={copyPrompt}
                     className="agent-handoff__copy"
                   >
-                    {copiedCurrentPrompt ? (
+                    {copied ? (
                       <Check className="h-3.5 w-3.5" aria-hidden="true" />
                     ) : (
                       <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
-                    {copiedCurrentPrompt
-                      ? "Copied"
-                      : copiedPrompt
-                        ? "Copy updated prompt"
-                        : "Copy prompt"}
+                    {copied ? "Copied" : "Copy prompt"}
                   </button>
                 </footer>
 
@@ -1293,6 +1272,23 @@ export default function Home() {
 
             {/* ── Works with ── */}
             <section id="integrations" className="section-band" data-mission="04">
+              <section className="harness-roster" aria-labelledby="harness-roster-title">
+                <div className="harness-roster__heading">
+                  <div className="section-eyebrow">Supported harnesses</div>
+                  <h2 id="harness-roster-title">Run Scout where you already work.</h2>
+                </div>
+                <ul className="harness-roster__list">
+                  {supportedHarnesses.map((harness) => (
+                    <li key={harness.id} className="harness-roster__item">
+                      <span className="harness-roster__mark" aria-hidden="true">
+                        {harness.mark}
+                      </span>
+                      <span className="harness-roster__name">{harness.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
               <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
                   <div className="section-eyebrow">Works with</div>
