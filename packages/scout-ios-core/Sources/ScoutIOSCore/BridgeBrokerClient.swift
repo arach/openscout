@@ -305,6 +305,28 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return ControlResult(ok: true)
     }
 
+    // MARK: - Codex Deck (native app-server adapter)
+
+    public func codexDeckSnapshot(agentId: String) async throws -> CodexDeckThreadSnapshot {
+        try await connection.rpc("codex/deck/snapshot", params: CodexDeckAgentParams(agentId: agentId))
+    }
+
+    public func codexDeckConnect(agentId: String) async throws -> CodexDeckThreadSnapshot {
+        try await connection.rpc("codex/deck/connect", params: CodexDeckAgentParams(agentId: agentId))
+    }
+
+    public func codexDeckStart(agentId: String, text: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/start", params: CodexDeckPromptParams(agentId: agentId, text: text))
+    }
+
+    public func codexDeckSteer(agentId: String, text: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/steer", params: CodexDeckPromptParams(agentId: agentId, text: text))
+    }
+
+    public func codexDeckInterrupt(agentId: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/interrupt", params: CodexDeckAgentParams(agentId: agentId))
+    }
+
     // MARK: - TailCapability
 
     public func tailEvents(since: Int64?) -> AsyncStream<TailEvent> {
@@ -576,6 +598,15 @@ struct ActionDecideParams: Codable, Sendable {
 
 struct SessionIdParams: Codable, Sendable {
     let sessionId: String
+}
+
+struct CodexDeckAgentParams: Codable, Sendable {
+    let agentId: String
+}
+
+struct CodexDeckPromptParams: Codable, Sendable {
+    let agentId: String
+    let text: String
 }
 
 /// Decoded for void mutations whose result is `{}` or null.
@@ -863,6 +894,7 @@ struct MobileAgentSummary: Codable, Sendable {
             id: id,
             title: title,
             harness: harness,
+            transport: transport,
             projectName: projectName,
             statusLabel: statusLabel,
             state: mappedState,

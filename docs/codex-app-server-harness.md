@@ -101,7 +101,21 @@ Compared with replacing Scout semantics wholesale:
 
 ## Next Steps After This Slice
 
-- expose interrupt and steer as first-class runtime operations
-- project harness deltas into richer flight status
+- project the now-available interrupt, steer, and harness deltas into richer flight status
 - add replay and snapshot APIs for live session inspection
 - generalize the adapter boundary so Claude, Codex, and future harnesses share one session abstraction
+
+## Scout Deck control slice
+
+The iPad Scout Deck now also has a deliberately deeper, harness-native control
+path for a selected `codex_app_server` lane. The trusted web-surface bridge maps
+directly to the paired host's Codex session manager for snapshot, connect,
+`turn/start`, steer, and interrupt. This is an operator control plane for one
+concrete adapter; it does not turn those actions into Scout messages or route
+them through ACP.
+
+The capability boundary is explicit. Codex app-server has one active turn per
+thread, so the Deck does not synthesize a removable queue. The managed process
+currently runs with host-side `approvalPolicy=never`, so the Deck does not show
+counterfeit approval controls. Other harness lanes remain useful observation
+surfaces until their own native adapters are implemented.

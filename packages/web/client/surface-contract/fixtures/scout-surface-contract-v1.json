@@ -13,7 +13,12 @@
       "agents.observe",
       "tail.recent",
       "tail.subscribe",
-      "native.setLaneSelection"
+      "native.setLaneSelection",
+      "codex.thread.snapshot",
+      "codex.thread.connect",
+      "codex.turn.start",
+      "codex.turn.steer",
+      "codex.turn.interrupt"
     ],
     "device": {
       "platform": "ios",
@@ -188,6 +193,68 @@
     },
     {
       "v": 1,
+      "id": "request-codex-snapshot",
+      "surface": "lanes",
+      "method": "codex.thread.snapshot",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-codex"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-connect",
+      "surface": "lanes",
+      "method": "codex.thread.connect",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-codex"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-start",
+      "surface": "lanes",
+      "method": "codex.turn.start",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-codex"
+        },
+        "text": "Inspect the failing test."
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-steer",
+      "surface": "lanes",
+      "method": "codex.turn.steer",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-codex"
+        },
+        "text": "Focus on the bridge contract."
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-interrupt",
+      "surface": "lanes",
+      "method": "codex.turn.interrupt",
+      "params": {
+        "route": {
+          "hostId": "host_7d3a91",
+          "agentId": "agent-codex"
+        }
+      }
+    },
+    {
+      "v": 1,
       "id": "request-dispatch-diagnostics",
       "surface": "dispatch",
       "method": "dispatch.diagnostics",
@@ -259,7 +326,12 @@
           "agents.observe",
           "tail.recent",
           "tail.subscribe",
-          "native.setLaneSelection"
+          "native.setLaneSelection",
+          "codex.thread.snapshot",
+          "codex.thread.connect",
+          "codex.turn.start",
+          "codex.turn.steer",
+          "codex.turn.interrupt"
         ],
         "device": {
           "platform": "ios",
@@ -369,6 +441,7 @@
                   "name": "Codex",
                   "handle": "codex",
                   "harness": "codex",
+                  "transport": "codex_app_server",
                   "model": "gpt-5",
                   "state": "working",
                   "projectRoot": "/project",
@@ -499,6 +572,132 @@
       },
       "result": {
         "accepted": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-snapshot",
+      "method": "codex.thread.snapshot",
+      "metadata": {
+        "appliedDeadlineMs": 15000
+      },
+      "result": {
+        "adapter": "codex_app_server",
+        "agentId": "agent-codex",
+        "threadId": "thread-codex",
+        "turnId": null,
+        "state": "idle",
+        "capabilities": {
+          "connect": true,
+          "start": true,
+          "steer": true,
+          "interrupt": true,
+          "queue": false,
+          "approvals": false
+        },
+        "capabilityNotes": {
+          "queue": "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
+          "approvals": "This managed Codex adapter currently runs with host-side approvalPolicy=never."
+        },
+        "snapshot": {
+          "session": {
+            "id": "thread-codex",
+            "name": "Codex",
+            "adapterType": "codex",
+            "status": "idle",
+            "cwd": "/project",
+            "model": "gpt-5",
+            "providerMeta": {
+              "threadId": "thread-codex"
+            }
+          },
+          "turns": [],
+          "currentTurnId": null
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-connect",
+      "method": "codex.thread.connect",
+      "metadata": {
+        "appliedDeadlineMs": 15000
+      },
+      "result": {
+        "adapter": "codex_app_server",
+        "agentId": "agent-codex",
+        "threadId": "thread-codex",
+        "turnId": null,
+        "state": "idle",
+        "capabilities": {
+          "connect": true,
+          "start": true,
+          "steer": true,
+          "interrupt": true,
+          "queue": false,
+          "approvals": false
+        },
+        "capabilityNotes": {
+          "queue": "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
+          "approvals": "This managed Codex adapter currently runs with host-side approvalPolicy=never."
+        },
+        "snapshot": {
+          "session": {
+            "id": "thread-codex",
+            "name": "Codex",
+            "adapterType": "codex",
+            "status": "idle",
+            "cwd": "/project",
+            "model": "gpt-5",
+            "providerMeta": {
+              "threadId": "thread-codex"
+            }
+          },
+          "turns": [],
+          "currentTurnId": null
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-start",
+      "method": "codex.turn.start",
+      "metadata": {
+        "appliedDeadlineMs": 5000
+      },
+      "result": {
+        "accepted": true,
+        "agentId": "agent-codex",
+        "threadId": "thread-codex",
+        "mode": "start"
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-steer",
+      "method": "codex.turn.steer",
+      "metadata": {
+        "appliedDeadlineMs": 5000
+      },
+      "result": {
+        "accepted": true,
+        "agentId": "agent-codex",
+        "threadId": "thread-codex",
+        "mode": "steer"
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-codex-interrupt",
+      "method": "codex.turn.interrupt",
+      "metadata": {
+        "appliedDeadlineMs": 5000
+      },
+      "result": {
+        "accepted": true,
+        "agentId": "agent-codex",
+        "threadId": "thread-codex",
+        "mode": "interrupt"
       }
     },
     {

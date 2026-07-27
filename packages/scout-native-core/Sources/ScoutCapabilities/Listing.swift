@@ -131,6 +131,9 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var title: String
     public var harness: String?
+    /// Concrete host integration (for example `codex_app_server`). This is
+    /// intentionally separate from the user-facing harness family.
+    public var transport: String?
     public var projectName: String?
     /// Current git branch of the agent's checkout (e.g. "feat/in-app-session").
     public var branch: String?
@@ -164,6 +167,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         id: String,
         title: String,
         harness: String? = nil,
+        transport: String? = nil,
         projectName: String? = nil,
         branch: String? = nil,
         git: GitState? = nil,
@@ -179,6 +183,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.title = title
         self.harness = harness
+        self.transport = transport
         self.projectName = projectName
         self.branch = branch
         self.git = git

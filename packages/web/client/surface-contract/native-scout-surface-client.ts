@@ -2,6 +2,7 @@ import {
   SCOUT_SURFACE_PROTOCOL_VERSION,
   type FleetDispatchDelta,
   type FleetTailDelta,
+  type CodexDeckRoute,
   type HostScope,
   type LaneSelection,
   type RequestId,
@@ -58,6 +59,14 @@ export class NativeScoutSurfaceClient implements ScoutSurfaceClient {
       void this.request("tail.subscribe", {}, scope).catch(() => stop());
       return stop;
     },
+  };
+
+  codex = {
+    snapshot: (route: CodexDeckRoute) => this.request("codex.thread.snapshot", { route }),
+    connect: (route: CodexDeckRoute) => this.request("codex.thread.connect", { route }),
+    start: (route: CodexDeckRoute, text: string) => this.request("codex.turn.start", { route, text }),
+    steer: (route: CodexDeckRoute, text: string) => this.request("codex.turn.steer", { route, text }),
+    interrupt: (route: CodexDeckRoute) => this.request("codex.turn.interrupt", { route }),
   };
 
   dispatch = {

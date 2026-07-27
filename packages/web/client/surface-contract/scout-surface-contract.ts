@@ -24,6 +24,11 @@ export const SCOUT_SURFACE_METHODS = [
   "tail.recent",
   "tail.subscribe",
   "native.setLaneSelection",
+  "codex.thread.snapshot",
+  "codex.thread.connect",
+  "codex.turn.start",
+  "codex.turn.steer",
+  "codex.turn.interrupt",
   "dispatch.diagnostics",
   "dispatch.subscribe",
   "dispatch.ask",
@@ -157,12 +162,93 @@ export type SurfaceAgent = {
   name: string;
   handle: string | null;
   harness: string | null;
+  transport: string | null;
   model: string | null;
   state: string | null;
   projectRoot: string | null;
   conversationId: string | null;
   sessionId: string | null;
   updatedAt: number | null;
+};
+
+export type CodexDeckRoute = {
+  hostId: HostId;
+  agentId: string;
+};
+
+export type CodexDeckAction = {
+  kind: "file_change" | "command" | "tool_call" | "subagent" | string;
+  status: "pending" | "running" | "completed" | "failed" | "awaiting_approval" | string;
+  output: string;
+  path?: string | null;
+  diff?: string | null;
+  command?: string | null;
+  exitCode?: number | null;
+  toolName?: string | null;
+  agentName?: string | null;
+  prompt?: string | null;
+};
+
+export type CodexDeckBlock = {
+  id: string;
+  turnId: string;
+  type: "text" | "reasoning" | "action" | "file" | "error" | "question" | string;
+  status: string;
+  index: number;
+  text?: string | null;
+  message?: string | null;
+  action?: CodexDeckAction | null;
+};
+
+export type CodexDeckTurn = {
+  id: string;
+  status: "streaming" | "completed" | "interrupted" | "error" | string;
+  blocks: readonly { block: CodexDeckBlock; status: string }[];
+  startedAt: number;
+  endedAt?: number | null;
+  isUserTurn?: boolean | null;
+};
+
+export type CodexDeckSessionState = {
+  session: {
+    id: string;
+    name: string;
+    adapterType: string;
+    status: string;
+    cwd?: string | null;
+    model?: string | null;
+    providerMeta?: Record<string, unknown> | null;
+  };
+  turns: readonly CodexDeckTurn[];
+  currentTurnId?: string | null;
+};
+
+export type CodexDeckThreadSnapshot = {
+  adapter: "codex_app_server";
+  agentId: string;
+  threadId: string | null;
+  turnId: string | null;
+  state: "disconnected" | "idle" | "running";
+  capabilities: {
+    connect: boolean;
+    start: boolean;
+    steer: boolean;
+    interrupt: boolean;
+    queue: false;
+    approvals: false;
+  };
+  capabilityNotes: {
+    queue: string;
+    approvals: string;
+  };
+  snapshot: CodexDeckSessionState | null;
+};
+
+export type CodexDeckActionReceipt = {
+  accepted: boolean;
+  agentId: string;
+  threadId: string | null;
+  mode: "start" | "steer" | "interrupt";
 };
 
 export type HostAgentSnapshot = {
@@ -204,6 +290,7 @@ export type SurfaceTailEvent = {
   sessionId: string | null;
   kind: string;
   text: string;
+  detail?: string;
 };
 
 export type HostTailSnapshot = {
@@ -294,6 +381,11 @@ export type ScoutSurfaceMethodContract = {
   "tail.recent": { params: { cursor?: string; limit?: number }; result: FleetTailSnapshot };
   "tail.subscribe": { params: { cursor?: string }; result: SurfaceSubscriptionReceipt };
   "native.setLaneSelection": { params: { selection: LaneSelection | null }; result: SurfaceAck };
+  "codex.thread.snapshot": { params: { route: CodexDeckRoute }; result: CodexDeckThreadSnapshot };
+  "codex.thread.connect": { params: { route: CodexDeckRoute }; result: CodexDeckThreadSnapshot };
+  "codex.turn.start": { params: { route: CodexDeckRoute; text: string }; result: CodexDeckActionReceipt };
+  "codex.turn.steer": { params: { route: CodexDeckRoute; text: string }; result: CodexDeckActionReceipt };
+  "codex.turn.interrupt": { params: { route: CodexDeckRoute }; result: CodexDeckActionReceipt };
   "dispatch.diagnostics": {
     params: { cursor?: string; limit?: number };
     result: FleetDispatchSnapshot;
@@ -415,6 +507,13 @@ export interface ScoutSurfaceClient {
     recent(scope: HostScope, cursor?: string): Promise<FleetTailSnapshot>;
     subscribe(scope: HostScope, listener: (delta: FleetTailDelta) => void): Unsubscribe;
   };
+  codex: {
+    snapshot(route: CodexDeckRoute): Promise<CodexDeckThreadSnapshot>;
+    connect(route: CodexDeckRoute): Promise<CodexDeckThreadSnapshot>;
+    start(route: CodexDeckRoute, text: string): Promise<CodexDeckActionReceipt>;
+    steer(route: CodexDeckRoute, text: string): Promise<CodexDeckActionReceipt>;
+    interrupt(route: CodexDeckRoute): Promise<CodexDeckActionReceipt>;
+  };
   dispatch: {
     diagnostics(scope: HostScope, cursor?: string): Promise<FleetDispatchSnapshot>;
     ask(request: RoutedAskRequest): Promise<RoutedAskReceipt>;
@@ -449,6 +548,11 @@ export const SCOUT_SURFACE_METHOD_POLICY = {
   "tail.recent": { surfaces: ["lanes"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },
   "tail.subscribe": { surfaces: ["lanes"], defaultDeadlineMs: 5_000, maximumDeadlineMs: 10_000 },
   "native.setLaneSelection": { surfaces: ["lanes"], defaultDeadlineMs: 2_000, maximumDeadlineMs: 5_000 },
+  "codex.thread.snapshot": { surfaces: ["lanes"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },
+  "codex.thread.connect": { surfaces: ["lanes"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },
+  "codex.turn.start": { surfaces: ["lanes"], defaultDeadlineMs: 5_000, maximumDeadlineMs: 5_000 },
+  "codex.turn.steer": { surfaces: ["lanes"], defaultDeadlineMs: 5_000, maximumDeadlineMs: 5_000 },
+  "codex.turn.interrupt": { surfaces: ["lanes"], defaultDeadlineMs: 5_000, maximumDeadlineMs: 5_000 },
   "dispatch.diagnostics": { surfaces: ["dispatch"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },
   "dispatch.subscribe": { surfaces: ["dispatch"], defaultDeadlineMs: 5_000, maximumDeadlineMs: 10_000 },
   "dispatch.ask": { surfaces: ["dispatch"], defaultDeadlineMs: 30_000, maximumDeadlineMs: 60_000 },

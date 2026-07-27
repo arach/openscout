@@ -47,6 +47,8 @@ import {
   readCodexAppServerModelFromLaunchArgs,
   readCodexAppServerReasoningEffortFromLaunchArgs,
   sendCodexAppServerAgent,
+  steerCodexAppServerAgent,
+  interruptCodexAppServerAgent,
   isCodexAppServerAgentAlive,
   shutdownCodexAppServerAgent,
 } from "./codex-app-server.js";
@@ -1817,6 +1819,110 @@ export async function getLocalAgentSessionSnapshot(agentId: string): Promise<Ses
   }
 
   return null;
+}
+
+/**
+ * Harness-native Codex controls used by the Scout Deck. These deliberately do
+ * not pass through Scout messages or the generic ACP adapter: the selected
+ * local agent's managed Codex app-server process remains the source of truth.
+ */
+export async function connectCodexDeckThread(agentId: string): Promise<{ threadId: string }> {
+  const record = await requireCodexDeckRecord(agentId);
+  return ensureCodexAppServerAgentOnline(buildCodexAgentSessionOptions(agentId, record));
+}
+
+export async function isCodexDeckThreadConnected(agentId: string): Promise<boolean> {
+  const record = await requireCodexDeckRecord(agentId);
+  return isCodexAppServerAgentAlive(buildCodexAgentSessionOptions(agentId, record));
+}
+
+export async function startCodexDeckTurn(
+  agentId: string,
+  prompt: string,
+): Promise<{ accepted: true; agentId: string; threadId: string; mode: "start" }> {
+  const text = prompt.trim();
+  if (!text) {
+    throw new Error("A non-empty Codex turn prompt is required.");
+  }
+
+  const record = await requireCodexDeckRecord(agentId);
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const online = await ensureCodexAppServerAgentOnline(options);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
+  if (activeSessionTurnId(snapshot)) {
+    throw new Error(`Codex agent ${agentId} already has an active turn; steer or interrupt it first.`);
+  }
+
+  // Starting a Codex turn is intentionally fire-and-observe at this bridge
+  // boundary. The app-server event log is authoritative and the Deck follows
+  // it through snapshots; holding the paired-device RPC open for the whole turn
+  // would fail as soon as iPadOS backgrounds the web view.
+  void invokeCodexAppServerAgent({ ...options, prompt: text }).catch((error) => {
+    process.stderr.write(`[openscout] Scout Deck Codex turn failed for ${agentId}: ${error instanceof Error ? error.message : String(error)}\n`);
+  });
+
+  return { accepted: true, agentId, threadId: online.threadId, mode: "start" };
+}
+
+export async function steerCodexDeckTurn(
+  agentId: string,
+  prompt: string,
+): Promise<{ accepted: true; agentId: string; threadId: string; mode: "steer" }> {
+  const text = prompt.trim();
+  if (!text) {
+    throw new Error("A non-empty Codex steer prompt is required.");
+  }
+
+  const record = await requireCodexDeckRecord(agentId);
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
+  const turnId = activeSessionTurnId(snapshot);
+  if (!turnId) {
+    throw new Error(`Codex agent ${agentId} has no active turn to steer.`);
+  }
+
+  await steerCodexAppServerAgent({ ...options, prompt: text });
+  const threadId = snapshot?.session.providerMeta?.threadId;
+  return {
+    accepted: true,
+    agentId,
+    threadId: typeof threadId === "string" ? threadId : snapshot?.session.id ?? agentId,
+    mode: "steer",
+  };
+}
+
+export async function interruptCodexDeckTurn(
+  agentId: string,
+): Promise<{ accepted: true; agentId: string; threadId: string | null; mode: "interrupt" }> {
+  const record = await requireCodexDeckRecord(agentId);
+  const options = buildCodexAgentSessionOptions(agentId, record);
+  const snapshot = await getCodexAppServerAgentSnapshot(options);
+  await interruptCodexAppServerAgent(options);
+  const threadId = snapshot?.session.providerMeta?.threadId;
+  return {
+    accepted: true,
+    agentId,
+    threadId: typeof threadId === "string" ? threadId : snapshot?.session.id ?? null,
+    mode: "interrupt",
+  };
+}
+
+async function requireCodexDeckRecord(agentId: string): Promise<LocalAgentRecord> {
+  const record = await resolveConfiguredLocalAgentRecord(agentId);
+  if (!record) {
+    throw new Error(`Agent ${agentId} is not configured on this host.`);
+  }
+  if (record.transport !== "codex_app_server") {
+    throw new Error(`Agent ${agentId} uses ${record.transport}; the Codex Deck adapter requires codex_app_server.`);
+  }
+  return record;
+}
+
+function activeSessionTurnId(snapshot: SessionState | null): string | null {
+  if (!snapshot?.currentTurnId) return null;
+  const current = snapshot.turns.find((turn) => turn.id === snapshot.currentTurnId);
+  if (!current || ["completed", "interrupted", "error"].includes(current.status)) return null;
+  return current.id;
 }
 
 export async function getLocalAgentContextState(agentId: string): Promise<LocalAgentContextState | null> {

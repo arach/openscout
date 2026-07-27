@@ -4,6 +4,7 @@ import {
   type FleetDispatchSnapshot,
   type FleetObserveSnapshot,
   type FleetTailSnapshot,
+  type CodexDeckThreadSnapshot,
   type ScoutSurfaceErrorReply,
   type ScoutSurfacePush,
   type ScoutSurfaceRequest,
@@ -39,6 +40,11 @@ const bootstrap = {
     "tail.recent",
     "tail.subscribe",
     "native.setLaneSelection",
+    "codex.thread.snapshot",
+    "codex.thread.connect",
+    "codex.turn.start",
+    "codex.turn.steer",
+    "codex.turn.interrupt",
   ],
   device: { platform: "ios", formFactor: "ipad" },
   hosts,
@@ -67,6 +73,7 @@ const agentSnapshot = {
         name: "Codex",
         handle: "codex",
         harness: "codex",
+        transport: "codex_app_server",
         model: "gpt-5",
         state: "working",
         projectRoot: "/project",
@@ -164,6 +171,41 @@ const routedReceipt = {
   ref: "ref:t-flight-1",
 } as const;
 
+const codexThread = {
+  adapter: "codex_app_server",
+  agentId: "agent-codex",
+  threadId: "thread-codex",
+  turnId: null,
+  state: "idle",
+  capabilities: {
+    connect: true,
+    start: true,
+    steer: true,
+    interrupt: true,
+    queue: false,
+    approvals: false,
+  },
+  capabilityNotes: {
+    queue: "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
+    approvals: "This managed Codex adapter currently runs with host-side approvalPolicy=never.",
+  },
+  snapshot: {
+    session: {
+      id: "thread-codex",
+      name: "Codex",
+      adapterType: "codex",
+      status: "idle",
+      cwd: "/project",
+      model: "gpt-5",
+      providerMeta: { threadId: "thread-codex" },
+    },
+    turns: [],
+    currentTurnId: null,
+  },
+} as const satisfies CodexDeckThreadSnapshot;
+
+const codexRoute = { hostId: "host_7d3a91", agentId: "agent-codex" } as const;
+
 export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
   bootstrap,
   preferences,
@@ -244,6 +286,11 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
         },
       },
     },
+    { v: 1, id: "request-codex-snapshot", surface: "lanes", method: "codex.thread.snapshot", params: { route: codexRoute } },
+    { v: 1, id: "request-codex-connect", surface: "lanes", method: "codex.thread.connect", params: { route: codexRoute } },
+    { v: 1, id: "request-codex-start", surface: "lanes", method: "codex.turn.start", params: { route: codexRoute, text: "Inspect the failing test." } },
+    { v: 1, id: "request-codex-steer", surface: "lanes", method: "codex.turn.steer", params: { route: codexRoute, text: "Focus on the bridge contract." } },
+    { v: 1, id: "request-codex-interrupt", surface: "lanes", method: "codex.turn.interrupt", params: { route: codexRoute } },
     {
       v: 1,
       id: "request-dispatch-diagnostics",
@@ -290,6 +337,11 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
     { v: 1, id: "request-tail-recent", method: "tail.recent", metadata: { appliedDeadlineMs: 15_000 }, result: tailSnapshot },
     { v: 1, id: "request-tail-subscribe", method: "tail.subscribe", metadata: { appliedDeadlineMs: 5_000 }, result: subscription },
     { v: 1, id: "request-lane-selection", method: "native.setLaneSelection", metadata: { appliedDeadlineMs: 2_000 }, result: { accepted: true } },
+    { v: 1, id: "request-codex-snapshot", method: "codex.thread.snapshot", metadata: { appliedDeadlineMs: 15_000 }, result: codexThread },
+    { v: 1, id: "request-codex-connect", method: "codex.thread.connect", metadata: { appliedDeadlineMs: 15_000 }, result: codexThread },
+    { v: 1, id: "request-codex-start", method: "codex.turn.start", metadata: { appliedDeadlineMs: 5_000 }, result: { accepted: true, agentId: "agent-codex", threadId: "thread-codex", mode: "start" } },
+    { v: 1, id: "request-codex-steer", method: "codex.turn.steer", metadata: { appliedDeadlineMs: 5_000 }, result: { accepted: true, agentId: "agent-codex", threadId: "thread-codex", mode: "steer" } },
+    { v: 1, id: "request-codex-interrupt", method: "codex.turn.interrupt", metadata: { appliedDeadlineMs: 5_000 }, result: { accepted: true, agentId: "agent-codex", threadId: "thread-codex", mode: "interrupt" } },
     { v: 1, id: "request-dispatch-diagnostics", method: "dispatch.diagnostics", metadata: { appliedDeadlineMs: 15_000 }, result: dispatchSnapshot },
     { v: 1, id: "request-dispatch-subscribe", method: "dispatch.subscribe", metadata: { appliedDeadlineMs: 5_000 }, result: subscription },
     { v: 1, id: "request-dispatch-ask", method: "dispatch.ask", metadata: { appliedDeadlineMs: 30_000 }, result: routedReceipt },

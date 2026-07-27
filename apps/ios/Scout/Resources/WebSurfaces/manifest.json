@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "41a560b61d3c04c1",
+  "assetRevision": "088d47062cab16e9",
   "protocol": {
     "minimum": 1,
     "maximum": 1
@@ -24,7 +24,12 @@
         "agents.observe",
         "tail.recent",
         "tail.subscribe",
-        "native.setLaneSelection"
+        "native.setLaneSelection",
+        "codex.thread.snapshot",
+        "codex.thread.connect",
+        "codex.turn.start",
+        "codex.turn.steer",
+        "codex.turn.interrupt"
       ],
       "preferences": [
         "lanes.layout",
@@ -54,17 +59,17 @@
   "files": [
     {
       "path": "dispatch/index.html",
-      "sha256": "4ba199d1c9331606bd1ecf4a9166be847b29fd688a58d2061235d82ddfaf40ee",
+      "sha256": "6b8a9e877004f03a721437442256654ec22d9aa6a9c0d621c8697e8ac98a521b",
       "bytes": 785
     },
     {
       "path": "lanes/index.html",
-      "sha256": "562de2ef1a7243771042d7a98cdeb9b3de3d03e7a3b54fc38f5483acd41fe262",
+      "sha256": "6799a56fbf2575e200feed39ec9a88e6d11ec87018b4a1f5c3e86f9cca392fbd",
       "bytes": 776
     },
     {
-      "path": "shared/dispatch-Ce8-Na9g.js",
-      "sha256": "36ebe26f3f42083dbbb3da03d3d5f56b3c8fc95cf39df163018625ce79545acb",
+      "path": "shared/dispatch-CXS59mXe.js",
+      "sha256": "0fe32c45abd7a41691d520cd53aed176fde670532f5d105e8fa3d8a0645fc9e4",
       "bytes": 2191
     },
     {
@@ -73,19 +78,19 @@
       "bytes": 1652
     },
     {
-      "path": "shared/lanes-Cu893H-M.css",
-      "sha256": "cbed41f41f1123d9d1d22de04589cd394c41e2465833eadc026ee49cafb635ae",
-      "bytes": 12499
+      "path": "shared/lanes-Bg8gF5xw.css",
+      "sha256": "4cce5bbb23ba6a90846b2cd53301503a3fcd09126f8421545d47cbdc4c92deaf",
+      "bytes": 19916
     },
     {
-      "path": "shared/lanes-DY9f1QDa.js",
-      "sha256": "89f209973e0af39aaca7bafbe5925c99649bb132c916129d25b4aaf64f454393",
-      "bytes": 10727
+      "path": "shared/lanes-C0cIEABA.js",
+      "sha256": "e6c863c1915d2f02b9abb6819ae6b1bee02af11c7c5344a7fbcad9b7ff88c6c8",
+      "bytes": 21707
     },
     {
-      "path": "shared/native-scout-surface-client-C0Y5Jcny.js",
-      "sha256": "b770d1cbfbdef45c604df88e8a3e7a52142642a4e47cfc5dadb8e90763f95696",
-      "bytes": 194628
+      "path": "shared/native-scout-surface-client-o8YOD4S1.js",
+      "sha256": "f4b8cf6a4a29d0c9c1c9ee3a79302a778b73e3e15bfefb3182296d60eaedc762",
+      "bytes": 194940
     }
   ]
 }

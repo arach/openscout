@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent } from "react";
 import { NativeScoutSurfaceClient, installScoutSurfacePushReceiver } from "../../surface-contract/native-scout-surface-client.ts";
 import type {
+  CodexDeckBlock,
+  CodexDeckRoute,
+  CodexDeckThreadSnapshot,
   FleetAgentSnapshot,
   FleetTailSnapshot,
   SurfaceAgent,
@@ -19,6 +22,7 @@ type DeckLane = SurfaceAgent & {
 };
 
 type DeckConnection = "waiting" | "ready" | "partial" | "offline" | "error";
+type DeckView = "thread" | "signal";
 
 declare global {
   interface Window {
@@ -35,13 +39,13 @@ const now = Date.now();
 const PREVIEW_LANES: DeckLane[] = [
   previewLane("air", "MacBook Air", "01", "OpenScout", "codex", "gpt-5.6", "active", "~/dev/openscout", [
     ["tool", "Verifying the native surface bundle", "bun run build:native-surfaces"],
-    ["think", "Mapping the deck shell to the iPad bridge", "Selection stays explicit and host-scoped."],
-    ["message", "Automatic grid now protects lane identity.", "Ready for visual review."],
+    ["think", "Mapping the Deck to Codex app-server", "Thread state stays binary-native and host-scoped."],
+    ["message", "Controller contract is live.", "Start, steer, and interrupt map directly to the selected thread."],
   ]),
   previewLane("studio", "Studio", "02", "SpeakEasy", "claude", "opus-5", "active", "~/dev/SpeakEasy", [
     ["message", "Control deck reference review", "Channel bank, focused stage, and restrained signal color."],
-    ["tool", "Captured Pad landscape states", "Connected, partial, and offline."],
-    ["think", "Keep transport controls out of Scout", "Carry the physical hierarchy, not the voice contract."],
+    ["tool", "Captured iPad landscape states", "Connected, partial, and offline."],
+    ["think", "Keep harness semantics explicit", "A future Claude adapter can earn its own control vocabulary."],
   ]),
   previewLane("air", "MacBook Air", "03", "Hudson", "claude", "sonnet-5", "waiting", "~/dev/hudson", [
     ["message", "Waiting for operator review", "One navigation decision needs attention."],
@@ -51,6 +55,140 @@ const PREVIEW_LANES: DeckLane[] = [
     ["system", "Last run completed", "Checks passed 18 minutes ago."],
   ]),
 ];
+
+const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
+  adapter: "codex_app_server",
+  agentId: "01",
+  threadId: "019fa45a-scout-deck",
+  turnId: "turn_8d17",
+  state: "running",
+  capabilities: {
+    connect: true,
+    start: true,
+    steer: true,
+    interrupt: true,
+    queue: false,
+    approvals: false,
+  },
+  capabilityNotes: {
+    queue: "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
+    approvals: "This managed Codex adapter currently runs with host-side approvalPolicy=never.",
+  },
+  snapshot: {
+    session: {
+      id: "019fa45a-scout-deck",
+      name: "OpenScout",
+      adapterType: "codex",
+      status: "active",
+      cwd: "/Users/arach/dev/openscout",
+      model: "gpt-5.6",
+      providerMeta: { threadId: "019fa45a-scout-deck" },
+    },
+    currentTurnId: "turn_8d17",
+    turns: [
+      {
+        id: "turn_8d11",
+        status: "completed",
+        startedAt: now - 214_000,
+        endedAt: now - 176_000,
+        isUserTurn: true,
+        blocks: [{
+          status: "completed",
+          block: {
+            id: "input_8d11",
+            turnId: "turn_8d11",
+            type: "text",
+            status: "completed",
+            index: 0,
+            text: "Make the Deck operate on the selected Codex thread directly.",
+          },
+        }],
+      },
+      {
+        id: "turn_8d15",
+        status: "completed",
+        startedAt: now - 164_000,
+        endedAt: now - 71_000,
+        isUserTurn: false,
+        blocks: [
+          {
+            status: "completed",
+            block: {
+              id: "reason_8d15",
+              turnId: "turn_8d15",
+              type: "reasoning",
+              status: "completed",
+              index: 0,
+              text: "Tracing the trusted bridge to the managed app-server process.",
+            },
+          },
+          {
+            status: "completed",
+            block: {
+              id: "tool_8d15",
+              turnId: "turn_8d15",
+              type: "action",
+              status: "completed",
+              index: 1,
+              action: {
+                kind: "command",
+                status: "completed",
+                command: "bun run build:native-surfaces",
+                output: "native surfaces validated",
+              },
+            },
+          },
+          {
+            status: "completed",
+            block: {
+              id: "text_8d15",
+              turnId: "turn_8d15",
+              type: "text",
+              status: "completed",
+              index: 2,
+              text: "The control path is separated from Scout messaging and keeps Codex semantics visible.",
+            },
+          },
+        ],
+      },
+      {
+        id: "turn_8d17",
+        status: "streaming",
+        startedAt: now - 43_000,
+        isUserTurn: false,
+        blocks: [
+          {
+            status: "streaming",
+            block: {
+              id: "reason_8d17",
+              turnId: "turn_8d17",
+              type: "reasoning",
+              status: "streaming",
+              index: 0,
+              text: "Refining the controller hierarchy for iPad landscape.",
+            },
+          },
+          {
+            status: "streaming",
+            block: {
+              id: "tool_8d17",
+              turnId: "turn_8d17",
+              type: "action",
+              status: "streaming",
+              index: 1,
+              action: {
+                kind: "command",
+                status: "running",
+                command: "bun test scout-surface-contract",
+                output: "running focused contract checks…",
+              },
+            },
+          },
+        ],
+      },
+    ],
+  },
+};
 
 export function ScoutDeckSurface() {
   const search = new URLSearchParams(window.location.search);
@@ -62,6 +200,12 @@ export function ScoutDeckSurface() {
   const [selectedKey, setSelectedKey] = useState<string | null>(preview ? PREVIEW_LANES[0]?.key ?? null : null);
   const [connection, setConnection] = useState<DeckConnection>(preview ? "ready" : "waiting");
   const [error, setError] = useState<string | null>(null);
+  const [thread, setThread] = useState<CodexDeckThreadSnapshot | null>(preview ? PREVIEW_THREAD : null);
+  const [threadBusy, setThreadBusy] = useState(false);
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const [command, setCommand] = useState("");
+  const [notice, setNotice] = useState("Direct adapter ready");
+  const [view, setView] = useState<DeckView>("thread");
   const clientRef = useRef<NativeScoutSurfaceClient | null>(null);
 
   useEffect(() => {
@@ -111,21 +255,154 @@ export function ScoutDeckSurface() {
 
   const hosts = preview ? PREVIEW_HOSTS : bootstrap?.hosts ?? [];
   const selected = lanes.find((lane) => lane.key === selectedKey) ?? lanes[0] ?? null;
+  const selectedRoute = selected ? { hostId: selected.hostId, agentId: selected.id } satisfies CodexDeckRoute : null;
+  const adapterAvailable = Boolean(
+    selected?.transport === "codex_app_server"
+    && (preview || bootstrap?.capabilities?.includes("codex.thread.snapshot")),
+  );
+
+  useEffect(() => {
+    if (!selected) {
+      setThread(null);
+      return;
+    }
+    setCommand("");
+    setThreadError(null);
+    setView(selected.transport === "codex_app_server" ? "thread" : "signal");
+
+    if (preview) {
+      setThread(previewThreadFor(selected));
+      setNotice(selected.transport === "codex_app_server" ? "Direct adapter ready" : "Signal view only");
+      return;
+    }
+
+    const client = clientRef.current;
+    if (!client) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    void (async () => {
+      await client.native.setLaneSelection({
+        hostId: selected.hostId,
+        agentId: selected.id,
+        ...(selected.conversationId ? { conversationId: selected.conversationId } : {}),
+        ...(selected.sessionId ? { sessionId: selected.sessionId } : {}),
+      });
+      if (cancelled) return;
+      if (!adapterAvailable) {
+        setThread(null);
+        setNotice("Harness adapter not enabled");
+        return;
+      }
+
+      const refresh = async () => {
+        try {
+          const value = await client.codex.snapshot({ hostId: selected.hostId, agentId: selected.id });
+          if (cancelled) return;
+          setThread(value);
+          setThreadError(null);
+          setNotice(value.state === "running" ? "Turn streaming" : value.state === "idle" ? "Thread ready" : "Connect thread");
+        } catch (cause) {
+          if (cancelled) return;
+          setThreadError(cause instanceof Error ? cause.message : String(cause));
+        }
+      };
+      await refresh();
+      if (!cancelled) timer = setInterval(() => void refresh(), 2_000);
+    })().catch((cause) => {
+      if (cancelled) return;
+      setThreadError(cause instanceof Error ? cause.message : String(cause));
+    });
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [selected?.key, adapterAvailable, preview]);
+
   const attention = useMemo(
     () => lanes.filter((lane) => lane.state === "waiting" || lane.state === "blocked" || lane.state === "error"),
     [lanes],
   );
   const active = lanes.filter((lane) => lane.state === "active" || lane.state === "running").length;
   const selectedActivity = activityBins(selected?.events ?? []);
+  const isRunning = thread?.state === "running";
 
-  const selectLane = (lane: DeckLane) => {
-    setSelectedKey(lane.key);
-    void clientRef.current?.native.setLaneSelection({
-      hostId: lane.hostId,
-      agentId: lane.id,
-      ...(lane.conversationId ? { conversationId: lane.conversationId } : {}),
-      ...(lane.sessionId ? { sessionId: lane.sessionId } : {}),
-    });
+  const selectLane = (lane: DeckLane) => setSelectedKey(lane.key);
+
+  const refreshThread = async () => {
+    if (preview || !selectedRoute || !clientRef.current) return;
+    setThread(await clientRef.current.codex.snapshot(selectedRoute));
+  };
+
+  const connectThread = async () => {
+    if (!selectedRoute || threadBusy) return;
+    setThreadBusy(true);
+    setThreadError(null);
+    try {
+      if (preview) {
+        setThread({ ...PREVIEW_THREAD, agentId: selectedRoute.agentId, state: "idle", turnId: null });
+      } else if (clientRef.current) {
+        setThread(await clientRef.current.codex.connect(selectedRoute));
+      }
+      setNotice("Codex thread connected");
+    } catch (cause) {
+      setThreadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setThreadBusy(false);
+    }
+  };
+
+  const submitCommand = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const text = command.trim();
+    if (!selectedRoute || !text || !thread || threadBusy) return;
+    setThreadBusy(true);
+    setThreadError(null);
+    try {
+      const mode = thread.state === "running" ? "steer" : "start";
+      if (preview) {
+        setThread(applyPreviewCommand(thread, text, mode));
+      } else if (clientRef.current) {
+        if (mode === "steer") await clientRef.current.codex.steer(selectedRoute, text);
+        else await clientRef.current.codex.start(selectedRoute, text);
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        await refreshThread();
+      }
+      setCommand("");
+      setNotice(mode === "steer" ? "Steer accepted by active turn" : "Turn accepted by app-server");
+    } catch (cause) {
+      setThreadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setThreadBusy(false);
+    }
+  };
+
+  const interruptThread = async () => {
+    if (!selectedRoute || !thread || threadBusy) return;
+    setThreadBusy(true);
+    setThreadError(null);
+    try {
+      if (preview) {
+        setThread(applyPreviewInterrupt(thread));
+      } else if (clientRef.current) {
+        await clientRef.current.codex.interrupt(selectedRoute);
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        await refreshThread();
+      }
+      setNotice("Interrupt sent to active turn");
+    } catch (cause) {
+      setThreadError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setThreadBusy(false);
+    }
+  };
+
+  const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void submitCommand();
+    }
   };
 
   return (
@@ -194,10 +471,11 @@ export function ScoutDeckSurface() {
                 <div className="scout-deck__identity-meta">
                   <span>{selected.harness ?? "unknown harness"}</span>
                   <strong>{selected.model ?? "default model"}</strong>
+                  <em>{selected.transport ?? "transport unreported"}</em>
                 </div>
               </div>
               <div className="scout-deck__live-line">
-                <span><i className="scout-deck__lamp" />{laneStateLabel(selected.state)}</span>
+                <span><i className="scout-deck__lamp" />{thread?.state === "running" ? "Turn live" : laneStateLabel(selected.state)}</span>
                 <div className="scout-deck__meter" aria-label="Activity over the last five minutes">
                   <small>5m</small>
                   <div aria-hidden="true">
@@ -205,35 +483,79 @@ export function ScoutDeckSurface() {
                   </div>
                   <small>now</small>
                 </div>
-                <span>{relativeTime(selected.updatedAt)}</span>
+                <span>{thread?.turnId ? `turn ${shortId(thread.turnId)}` : relativeTime(selected.updatedAt)}</span>
               </div>
-              <section className="scout-deck__activity" aria-label={`${selected.name} recent activity`}>
-                <div className="scout-deck__panel-label"><span>Live activity</span><span>Recent signal</span></div>
-                <div className="scout-deck__event-list">
-                  {selected.events.length > 0 ? selected.events.slice(0, 5).map((event) => (
-                    <article className="scout-deck__event" data-kind={event.kind} key={event.id}>
-                      <time>{relativeTime(event.at)}</time>
-                      <i aria-hidden="true" />
-                      <div><strong>{event.text}</strong>{event.detail ? <p>{event.detail}</p> : null}</div>
-                    </article>
-                  )) : (
-                    <div className="scout-deck__quiet">No recent activity on this lane.</div>
-                  )}
+
+              <section className="scout-deck__activity" aria-label={`${selected.name} controller view`}>
+                <div className="scout-deck__panel-label scout-deck__panel-label--tabs">
+                  <span>{view === "thread" ? "Codex thread" : "Live signal"}</span>
+                  <div className="scout-deck__tabs" role="tablist" aria-label="Lane view">
+                    <button type="button" role="tab" aria-selected={view === "thread"} onClick={() => setView("thread")} disabled={!adapterAvailable}>Thread</button>
+                    <button type="button" role="tab" aria-selected={view === "signal"} onClick={() => setView("signal")}>Signal</button>
+                  </div>
                 </div>
+                {view === "thread" ? (
+                  <ThreadViewport thread={thread} available={adapterAvailable} busy={threadBusy} error={threadError} onConnect={connectThread} />
+                ) : (
+                  <SignalViewport lane={selected} />
+                )}
               </section>
-              <footer className="scout-deck__selection">
-                <span>Selected target</span>
-                <strong>{selected.name}</strong>
-                <span className="scout-deck__selection-route">{selected.hostName} · {selected.harness ?? "agent"}</span>
-                <span className="scout-deck__selection-note">Native composer routes here</span>
-              </footer>
+
+              <form className="scout-deck__composer" data-mode={isRunning ? "steer" : "start"} onSubmit={submitCommand}>
+                <div className="scout-deck__composer-head">
+                  <span>{!adapterAvailable ? "Controller unavailable" : isRunning ? "Steer active turn" : "Start new turn"}</span>
+                  <small>{thread?.threadId ? `thread ${shortId(thread.threadId)}` : "No thread connected"}</small>
+                </div>
+                <div className="scout-deck__composer-body">
+                  <textarea
+                    value={command}
+                    onChange={(event) => setCommand(event.target.value)}
+                    onKeyDown={onComposerKeyDown}
+                    placeholder={adapterAvailable ? (isRunning ? "Redirect this turn without starting another…" : "Tell this Codex thread what to do next…") : "This lane needs its own native adapter before it can be controlled."}
+                    disabled={!adapterAvailable || !thread || thread.state === "disconnected" || threadBusy}
+                    rows={2}
+                    aria-label={!adapterAvailable ? "Native controller unavailable" : isRunning ? "Steer active Codex turn" : "Start Codex turn"}
+                  />
+                  <button type="submit" disabled={!command.trim() || !thread || thread.state === "disconnected" || threadBusy}>
+                    {threadBusy ? "Working" : isRunning ? "Steer" : "Start"}
+                    <span>⌘↵</span>
+                  </button>
+                </div>
+                <div className="scout-deck__composer-foot">
+                  <span>{threadError ?? notice}</span>
+                  <span>{adapterAvailable ? "One active turn · queue disabled" : "Observation remains available"}</span>
+                </div>
+              </form>
             </>
           ) : (
             <DeckEmpty connection={connection} error={error} />
           )}
         </section>
 
-        <aside className="scout-deck__rail" aria-label="Fleet overview">
+        <aside className="scout-deck__rail" aria-label="Fleet and controller overview">
+          <section className="scout-deck__control">
+            <div className="scout-deck__panel-label"><span>Controller</span><span>{adapterAvailable ? "Native" : "—"}</span></div>
+            <div className="scout-deck__adapter" data-state={thread?.state ?? "unavailable"}>
+              <span className="scout-deck__adapter-mark">{adapterAvailable ? "CX" : "—"}</span>
+              <div>
+                <strong>{adapterAvailable ? "Codex app-server" : "Adapter unavailable"}</strong>
+                <small>{thread?.state ?? selected?.transport ?? "No selected lane"}</small>
+              </div>
+              <i />
+            </div>
+            <dl className="scout-deck__readout">
+              <div><dt>Thread</dt><dd>{thread?.threadId ? shortId(thread.threadId) : "—"}</dd></div>
+              <div><dt>Turn</dt><dd>{thread?.turnId ? shortId(thread.turnId) : "idle"}</dd></div>
+              <div><dt>Queue</dt><dd title={thread?.capabilityNotes.queue}>{adapterAvailable ? "off" : "—"}</dd></div>
+              <div><dt>Approval</dt><dd title={thread?.capabilityNotes.approvals}>{adapterAvailable ? "off" : "—"}</dd></div>
+            </dl>
+            <div className="scout-deck__control-actions">
+              {adapterAvailable && thread?.state === "disconnected" ? (
+                <button type="button" onClick={connectThread} disabled={threadBusy}>Connect thread</button>
+              ) : null}
+              <button type="button" className="scout-deck__interrupt" onClick={interruptThread} disabled={!adapterAvailable || !isRunning || threadBusy}>Interrupt</button>
+            </div>
+          </section>
           <section>
             <div className="scout-deck__panel-label"><span>Attention</span><span>{String(attention.length).padStart(2, "0")}</span></div>
             {attention.length > 0 ? attention.map((lane) => (
@@ -264,6 +586,83 @@ export function ScoutDeckSurface() {
         </aside>
       </div>
     </main>
+  );
+}
+
+function ThreadViewport({
+  thread,
+  available,
+  busy,
+  error,
+  onConnect,
+}: {
+  thread: CodexDeckThreadSnapshot | null;
+  available: boolean;
+  busy: boolean;
+  error: string | null;
+  onConnect: () => void;
+}) {
+  if (!available) {
+    return (
+      <div className="scout-deck__thread-empty">
+        <span className="scout-deck__thread-glyph">—</span>
+        <strong>No native controller for this lane</strong>
+        <p>The lane stays observable. A future harness adapter can add its own direct controls without pretending to be Codex.</p>
+      </div>
+    );
+  }
+  if (error && !thread) {
+    return <div className="scout-deck__thread-empty"><strong>Thread unavailable</strong><p>{error}</p></div>;
+  }
+  if (!thread) {
+    return <div className="scout-deck__thread-empty"><span className="scout-deck__thread-glyph">···</span><strong>Reading host thread</strong></div>;
+  }
+  if (thread.state === "disconnected") {
+    return (
+      <div className="scout-deck__thread-empty">
+        <span className="scout-deck__thread-glyph">CX</span>
+        <strong>Codex thread is cold</strong>
+        <p>Connect starts the host-managed app-server and resumes its persisted thread.</p>
+        <button type="button" onClick={onConnect} disabled={busy}>Connect thread</button>
+      </div>
+    );
+  }
+
+  const rows = threadRows(thread);
+  return (
+    <div className="scout-deck__thread-list">
+      {rows.length > 0 ? rows.map((row) => (
+        <article className="scout-deck__thread-row" data-role={row.role} data-type={row.block.type} key={row.block.id}>
+          <div className="scout-deck__thread-meta">
+            <span>{row.role === "operator" ? "YOU" : row.block.type === "action" ? "RUN" : row.block.type === "reasoning" ? "THINK" : "CX"}</span>
+            <time>{relativeTime(row.at)}</time>
+          </div>
+          <div className="scout-deck__thread-content">
+            <strong>{blockTitle(row.block)}</strong>
+            {blockDetail(row.block) ? <p>{blockDetail(row.block)}</p> : null}
+          </div>
+          <span className="scout-deck__thread-state">{row.status === "streaming" ? "live" : row.status}</span>
+        </article>
+      )) : (
+        <div className="scout-deck__thread-empty"><strong>Thread connected</strong><p>Start the first turn from the command strip below.</p></div>
+      )}
+    </div>
+  );
+}
+
+function SignalViewport({ lane }: { lane: DeckLane }) {
+  return (
+    <div className="scout-deck__event-list">
+      {lane.events.length > 0 ? lane.events.slice(0, 7).map((event) => (
+        <article className="scout-deck__event" data-kind={event.kind} key={event.id}>
+          <time>{relativeTime(event.at)}</time>
+          <i aria-hidden="true" />
+          <div><strong>{event.text}</strong>{event.detail ? <p>{event.detail}</p> : null}</div>
+        </article>
+      )) : (
+        <div className="scout-deck__quiet">No recent activity on this lane.</div>
+      )}
+    </div>
   );
 }
 
@@ -324,6 +723,7 @@ function previewLane(
     name,
     handle: name.toLowerCase(),
     harness,
+    transport: harness === "codex" ? "codex_app_server" : "claude_stream_json",
     model,
     state,
     projectRoot,
@@ -340,6 +740,94 @@ function previewLane(
       detail,
     })),
   };
+}
+
+function previewThreadFor(lane: DeckLane): CodexDeckThreadSnapshot | null {
+  if (lane.transport !== "codex_app_server") return null;
+  if (lane.id === "04") {
+    return {
+      ...PREVIEW_THREAD,
+      agentId: lane.id,
+      threadId: "019fa45a-release",
+      turnId: null,
+      state: "idle",
+      snapshot: PREVIEW_THREAD.snapshot ? { ...PREVIEW_THREAD.snapshot, currentTurnId: null, turns: PREVIEW_THREAD.snapshot.turns.slice(0, 2) } : null,
+    };
+  }
+  return PREVIEW_THREAD;
+}
+
+function applyPreviewCommand(
+  thread: CodexDeckThreadSnapshot,
+  text: string,
+  mode: "start" | "steer",
+): CodexDeckThreadSnapshot {
+  const turnId = mode === "steer" ? thread.turnId ?? `turn_${Date.now()}` : `turn_${Date.now()}`;
+  const snapshot = thread.snapshot;
+  if (!snapshot) return thread;
+  const block: CodexDeckBlock = {
+    id: `${mode}_${Date.now()}`,
+    turnId,
+    type: mode === "steer" ? "reasoning" : "text",
+    status: "streaming",
+    index: 99,
+    text: mode === "steer" ? `Steer received: ${text}` : text,
+  };
+  const turns = mode === "steer"
+    ? snapshot.turns.map((turn) => turn.id === turnId
+      ? { ...turn, blocks: [...turn.blocks, { status: "streaming", block }] }
+      : turn)
+    : [...snapshot.turns, {
+      id: turnId,
+      status: "streaming" as const,
+      blocks: [{ status: "streaming", block }],
+      startedAt: Date.now(),
+      isUserTurn: true,
+    }];
+  return { ...thread, state: "running", turnId, snapshot: { ...snapshot, currentTurnId: turnId, turns } };
+}
+
+function applyPreviewInterrupt(thread: CodexDeckThreadSnapshot): CodexDeckThreadSnapshot {
+  if (!thread.snapshot || !thread.turnId) return { ...thread, state: "idle", turnId: null };
+  const turns = thread.snapshot.turns.map((turn) => turn.id === thread.turnId
+    ? {
+      ...turn,
+      status: "interrupted" as const,
+      endedAt: Date.now(),
+      blocks: turn.blocks.map((state) => ({
+        ...state,
+        status: "completed" as const,
+        block: { ...state.block, status: state.block.status === "streaming" ? "completed" : state.block.status },
+      })),
+    }
+    : turn);
+  return { ...thread, state: "idle", turnId: null, snapshot: { ...thread.snapshot, currentTurnId: null, turns } };
+}
+
+function threadRows(thread: CodexDeckThreadSnapshot) {
+  return (thread.snapshot?.turns ?? []).flatMap((turn) => turn.blocks.map((state) => ({
+    role: turn.isUserTurn ? "operator" as const : "codex" as const,
+    at: turn.startedAt,
+    status: state.status,
+    block: state.block,
+  }))).filter((row) => Boolean(blockTitle(row.block))).slice(-9);
+}
+
+function blockTitle(block: CodexDeckBlock): string {
+  if (block.type === "action") {
+    return block.action?.command
+      ?? block.action?.toolName
+      ?? block.action?.path
+      ?? block.action?.agentName
+      ?? "Codex action";
+  }
+  return block.text?.trim() || block.message?.trim() || "";
+}
+
+function blockDetail(block: CodexDeckBlock): string {
+  if (block.type !== "action") return "";
+  return block.action?.output?.trim()
+    || (block.action?.kind ? `${block.action.kind.replaceAll("_", " ")} · ${block.action.status}` : "");
 }
 
 function connectionLabel(connection: DeckConnection): string {
@@ -370,6 +858,11 @@ function relativeTime(at: number | null): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h`;
+}
+
+function shortId(value: string): string {
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 5)}…${value.slice(-5)}`;
 }
 
 function activityBins(events: readonly SurfaceTailEvent[], count = 28, windowMs = 5 * 60_000): number[] {

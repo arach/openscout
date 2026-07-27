@@ -70,6 +70,11 @@ const manifest = {
         "tail.recent",
         "tail.subscribe",
         "native.setLaneSelection",
+        "codex.thread.snapshot",
+        "codex.thread.connect",
+        "codex.turn.start",
+        "codex.turn.steer",
+        "codex.turn.interrupt",
       ],
       preferences: [
         "lanes.layout",

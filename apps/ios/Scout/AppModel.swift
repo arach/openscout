@@ -1880,9 +1880,10 @@ final class AppModel {
         return components.url
     }
 
-    /// Narrow read-only projection used by the app-bundled web-surface bridge.
+    /// Narrow host projection used by the app-bundled web-surface bridge.
     /// The page receives a derived host fingerprint; the raw machine key and
-    /// concrete broker client never cross the WebKit boundary.
+    /// concrete broker client never cross the WebKit boundary. Privileged Deck
+    /// controls are resolved and authorized inside ScoutWebSurfaceBridge.
     struct WebSurfaceMachine {
         let machineId: String
         let name: String

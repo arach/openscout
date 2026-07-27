@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import HudsonUIWeb
 import ScoutCapabilities
+import ScoutIOSCore
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -35,6 +36,11 @@ final class ScoutWebSurfaceBridge {
         "tail.recent": ["cursor", "limit"],
         "tail.subscribe": ["cursor"],
         "native.setLaneSelection": ["selection"],
+        "codex.thread.snapshot": ["route"],
+        "codex.thread.connect": ["route"],
+        "codex.turn.start": ["route", "text"],
+        "codex.turn.steer": ["route", "text"],
+        "codex.turn.interrupt": ["route"],
         "dispatch.diagnostics": ["cursor", "limit"],
         "dispatch.subscribe": ["cursor"],
         "dispatch.ask": ["route", "body", "replyMode"],
@@ -46,6 +52,7 @@ final class ScoutWebSurfaceBridge {
     private let epoch = UUID().uuidString.lowercased()
     private var activity: HudWebViewActivity = .hiddenWarm
     private var tasks: [String: Task<Void, Never>] = [:]
+    private var laneSelection: LaneSelectionRequest?
 
     init(model: AppModel, surface: Surface) {
         self.model = model
@@ -144,7 +151,47 @@ final class ScoutWebSurfaceBridge {
             openExternalURL(url)
             reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
         case "native.setLaneSelection":
+            if let selection = request.params?.selection {
+                guard !selection.hostId.isEmpty,
+                      !selection.agentId.isEmpty,
+                      machineMap()[selection.hostId] != nil
+                else {
+                    reply.succeed(errorReply(request, code: "invalid_route", message: "Lane selection is not authorized.", deadline: deadline))
+                    return
+                }
+                laneSelection = selection
+            } else {
+                laneSelection = nil
+            }
             reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
+        case "codex.thread.snapshot":
+            performCodex(request: request, reply: reply, deadline: deadline) { client, route in
+                try await client.codexDeckSnapshot(agentId: route.agentId)
+            }
+        case "codex.thread.connect":
+            performCodex(request: request, reply: reply, deadline: deadline) { client, route in
+                try await client.codexDeckConnect(agentId: route.agentId)
+            }
+        case "codex.turn.start":
+            guard let text = request.params?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "text is required.", deadline: deadline))
+                return
+            }
+            performCodex(request: request, reply: reply, deadline: deadline) { client, route in
+                try await client.codexDeckStart(agentId: route.agentId, text: text)
+            }
+        case "codex.turn.steer":
+            guard let text = request.params?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "text is required.", deadline: deadline))
+                return
+            }
+            performCodex(request: request, reply: reply, deadline: deadline) { client, route in
+                try await client.codexDeckSteer(agentId: route.agentId, text: text)
+            }
+        case "codex.turn.interrupt":
+            performCodex(request: request, reply: reply, deadline: deadline) { client, route in
+                try await client.codexDeckInterrupt(agentId: route.agentId)
+            }
         default:
             reply.succeed(errorReply(
                 request,
@@ -152,6 +199,24 @@ final class ScoutWebSurfaceBridge {
                 message: "\(request.method) is not enabled in the first local-surface slice.",
                 deadline: deadline
             ))
+        }
+    }
+
+    private func performCodex<T: Encodable>(
+        request: RequestEnvelope,
+        reply: HudWebViewReply,
+        deadline: Int,
+        operation: @escaping @MainActor (BridgeBrokerClient, CodexRouteRequest) async throws -> T
+    ) {
+        guard let route = request.params?.route else {
+            reply.succeed(errorReply(request, code: "invalid_params", message: "route is required.", deadline: deadline))
+            return
+        }
+        perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+            guard let self else { throw SurfaceBridgeError.cancelled }
+            let client = try self.authorizedCodexClient(for: route)
+            let value = try await operation(client, route)
+            return try self.encodableJSONObject(value)
         }
     }
 
@@ -173,6 +238,8 @@ final class ScoutWebSurfaceBridge {
                 reply.succeed(self?.errorReply(request, code: "cancelled", message: "Request cancelled.", deadline: deadline))
             } catch SurfaceBridgeError.invalidRoute {
                 reply.succeed(self?.errorReply(request, code: "invalid_route", message: "Host scope is invalid.", deadline: deadline))
+            } catch SurfaceBridgeError.unsupportedCapability {
+                reply.succeed(self?.errorReply(request, code: "unsupported_capability", message: "The selected route does not expose the Codex app-server Deck adapter.", deadline: deadline))
             } catch {
                 reply.succeed(self?.errorReply(request, code: "not_connected", message: error.localizedDescription, deadline: deadline))
             }
@@ -229,7 +296,10 @@ final class ScoutWebSurfaceBridge {
     private var enabledCapabilities: [String] {
         switch surface {
         case .lanes:
-            return ["bootstrap", "native.openExternalURL", "native.cancel", "agents.list", "tail.recent", "native.setLaneSelection"]
+            return [
+                "bootstrap", "native.openExternalURL", "native.cancel", "agents.list", "tail.recent", "native.setLaneSelection",
+                "codex.thread.snapshot", "codex.thread.connect", "codex.turn.start", "codex.turn.steer", "codex.turn.interrupt",
+            ]
         case .dispatch:
             return ["bootstrap", "native.openExternalURL", "native.cancel"]
         }
@@ -300,12 +370,25 @@ final class ScoutWebSurfaceBridge {
         Dictionary(uniqueKeysWithValues: (model?.webSurfaceMachines() ?? []).map { (hostId(for: $0.machineId), $0) })
     }
 
+    private func authorizedCodexClient(for route: CodexRouteRequest) throws -> BridgeBrokerClient {
+        guard laneSelection?.hostId == route.hostId,
+              laneSelection?.agentId == route.agentId,
+              let machine = machineMap()[route.hostId]
+        else { throw SurfaceBridgeError.invalidRoute }
+        guard let client = machine.client else { throw SurfaceBridgeError.cancelled }
+        guard let codexClient = client as? BridgeBrokerClient else {
+            throw SurfaceBridgeError.unsupportedCapability
+        }
+        return codexClient
+    }
+
     private func agentPayload(_ agent: AgentSummary) -> [String: Any] {
         [
             "id": agent.id,
             "name": agent.title,
             "handle": NSNull(),
             "harness": agent.harness as Any? ?? NSNull(),
+            "transport": agent.transport as Any? ?? NSNull(),
             "model": agent.model as Any? ?? NSNull(),
             "state": agent.state.rawValue,
             "projectRoot": agent.projectName as Any? ?? NSNull(),
@@ -369,8 +452,12 @@ final class ScoutWebSurfaceBridge {
     }
 
     private func appliedDeadline(for method: String, requested: Int?) -> Int {
-        let maximum = method == "agents.list" || method == "tail.recent" ? 30_000 : 5_000
-        let fallback = method == "agents.list" || method == "tail.recent" ? 15_000 : 5_000
+        let longRead = method == "agents.list"
+            || method == "tail.recent"
+            || method == "codex.thread.snapshot"
+            || method == "codex.thread.connect"
+        let maximum = longRead ? 30_000 : 5_000
+        let fallback = longRead ? 15_000 : 5_000
         return min(max(requested ?? fallback, 1), maximum)
     }
 
@@ -404,6 +491,11 @@ final class ScoutWebSurfaceBridge {
     private func jsonObject(_ value: Any) -> Any? {
         JSONSerialization.isValidJSONObject(value) ? value : nil
     }
+
+    private func encodableJSONObject<T: Encodable>(_ value: T) throws -> Any {
+        let data = try JSONEncoder().encode(value)
+        return try JSONSerialization.jsonObject(with: data)
+    }
 }
 
 private struct RequestEnvelope: Decodable {
@@ -421,9 +513,25 @@ private struct RequestParams: Decodable {
     let limit: Int?
     let requestId: String?
     let url: String?
+    let selection: LaneSelectionRequest?
+    let route: CodexRouteRequest?
+    let text: String?
+}
+
+private struct LaneSelectionRequest: Decodable {
+    let hostId: String
+    let agentId: String
+    let conversationId: String?
+    let sessionId: String?
+}
+
+private struct CodexRouteRequest: Decodable {
+    let hostId: String
+    let agentId: String
 }
 
 private enum SurfaceBridgeError: Error {
     case cancelled
     case invalidRoute
+    case unsupportedCapability
 }

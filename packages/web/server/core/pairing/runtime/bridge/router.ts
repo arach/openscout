@@ -68,7 +68,18 @@ import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-p
 import {
   queryMobileAgentDetail,
 } from "../../../../db-queries.ts";
-import { interruptLocalAgent, restartLocalAgent, stopLocalAgent } from "@openscout/runtime/local-agents";
+import {
+  connectCodexDeckThread,
+  getLocalAgentConfig,
+  getLocalAgentSessionSnapshot,
+  isCodexDeckThreadConnected,
+  interruptCodexDeckTurn,
+  interruptLocalAgent,
+  restartLocalAgent,
+  startCodexDeckTurn,
+  steerCodexDeckTurn,
+  stopLocalAgent,
+} from "@openscout/runtime/local-agents";
 import {
   issueWebHandoff,
   pathForWebHandoffScope,
@@ -1433,6 +1444,71 @@ const promptRouter = t.router({
     }),
 });
 
+// -- Codex Deck -------------------------------------------------------------
+
+async function codexDeckSnapshot(agentId: string, connect: boolean) {
+  const config = await getLocalAgentConfig(agentId);
+  if (!config) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `Agent ${agentId} is not configured on this host.` });
+  }
+  if (config.runtime.transport !== "codex_app_server") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `Agent ${agentId} uses ${config.runtime.transport}; this control surface requires codex_app_server.`,
+    });
+  }
+
+  const connected = connect ? await connectCodexDeckThread(agentId) : null;
+  const online = connected ? true : await isCodexDeckThreadConnected(agentId);
+  const snapshot = await getLocalAgentSessionSnapshot(agentId);
+  const currentTurn = snapshot?.currentTurnId
+    ? snapshot.turns.find((turn) => turn.id === snapshot.currentTurnId) ?? null
+    : null;
+  const running = Boolean(currentTurn && !["completed", "interrupted", "error"].includes(currentTurn.status));
+  const observedThreadId = snapshot?.session.providerMeta?.threadId;
+  const threadId = connected?.threadId
+    ?? (typeof observedThreadId === "string" ? observedThreadId : snapshot?.session.id ?? null);
+
+  return {
+    adapter: "codex_app_server" as const,
+    agentId,
+    threadId,
+    turnId: online && running ? currentTurn?.id ?? null : null,
+    state: online ? running ? "running" as const : "idle" as const : "disconnected" as const,
+    capabilities: {
+      connect: true,
+      start: true,
+      steer: true,
+      interrupt: true,
+      queue: false,
+      approvals: false,
+    },
+    capabilityNotes: {
+      queue: "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
+      approvals: "This managed Codex adapter currently runs with host-side approvalPolicy=never.",
+    },
+    snapshot,
+  };
+}
+
+const codexDeckRouter = t.router({
+  snapshot: procedure
+    .input(z.object({ agentId: z.string().min(1) }))
+    .query(({ input }) => codexDeckSnapshot(input.agentId, false)),
+  connect: procedure
+    .input(z.object({ agentId: z.string().min(1) }))
+    .mutation(({ input }) => codexDeckSnapshot(input.agentId, true)),
+  start: procedure
+    .input(z.object({ agentId: z.string().min(1), text: z.string().trim().min(1).max(65_536) }))
+    .mutation(({ input }) => startCodexDeckTurn(input.agentId, input.text)),
+  steer: procedure
+    .input(z.object({ agentId: z.string().min(1), text: z.string().trim().min(1).max(65_536) }))
+    .mutation(({ input }) => steerCodexDeckTurn(input.agentId, input.text)),
+  interrupt: procedure
+    .input(z.object({ agentId: z.string().min(1) }))
+    .mutation(({ input }) => interruptCodexDeckTurn(input.agentId)),
+});
+
 // -- Sync -------------------------------------------------------------------
 
 function replaySyncEvents(
@@ -1521,6 +1597,7 @@ export const bridgeRouter = t.router({
   workspace: workspaceRouter,
   history: historyRouter,
   prompt: promptRouter,
+  codexDeck: codexDeckRouter,
   sync: syncRouter,
 
   // -- Top-level procedures (no sub-router grouping) -----------------------

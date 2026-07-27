@@ -1,6 +1,6 @@
 # Scout Deck — distinct bundled surface
 
-**Status:** implemented design foundation
+**Status:** implemented design foundation and Codex-native controller slice
 
 **Entry:** `packages/web/client/native-surfaces/lanes/index.html`
 
@@ -9,16 +9,20 @@
 ## Product boundary
 
 Scout Deck is a dedicated tablet control surface, not an alternate theme for
-the desktop Ops/Lanes route. Native owns fleet selection, trust, and the future
-composer. The bundled React page owns lane selection, live coordination
-hierarchy, attention, and the dense ambient view.
+the desktop Ops/Lanes route. Native owns pairing, trust, and the privileged
+bridge. The bundled React page owns lane selection, live coordination
+hierarchy, attention, and the hands-on thread controller.
 
 The surface consumes the existing typed Scout iOS bridge:
 
 - `bootstrap` for device, host, and capability state;
 - `agents.list` for the host-scoped lane bank;
 - `tail.recent` for the shared five-minute activity signal;
-- `native.setLaneSelection` for one explicit selected host and agent route.
+- `native.setLaneSelection` for one explicit selected host and agent route;
+- `codex.thread.snapshot` and `codex.thread.connect` for a selected native
+  Codex session;
+- `codex.turn.start`, `codex.turn.steer`, and `codex.turn.interrupt` for direct
+  app-server control.
 
 It does not create a second fleet model or write Scout records directly.
 
@@ -29,8 +33,10 @@ It does not create a second fleet model or write Scout records directly.
    real event cadence, and recent activity.
 3. A separate attention rail answers “what needs me?” without competing with
    the active-lane view.
-4. A selected-target footer hands one explicit route to the future native
-   composer.
+4. A central thread timeline and command strip show operator prompts, model
+   reasoning, tool actions, and the active Codex turn.
+5. The right controller rail exposes the concrete adapter, thread and turn
+   identifiers, connection state, and the actions that adapter actually has.
 
 The visual system follows the SpeakEasy product HUD rather than its marketing
 site: three white-alpha text levels, shallow glass elevation, hairline borders,
@@ -56,6 +62,23 @@ Visible handoff edges and attention acknowledgement remain follow-up work. The
 current bridge contract exposes neither a canonical handoff projection nor an
 acknowledgement mutation, so the design does not invent them locally.
 
+## Controller semantics
+
+The first control adapter intentionally goes straight to the Codex app-server
+runtime. It does not reuse `BridgeBrokerClient.send`, because that is Scout's
+broker message plane rather than Codex `turn/start`. Starting is detached from
+the mobile RPC while the app-server event log remains authoritative; the Deck
+polls snapshots while visible, so iPad backgrounding cannot strand a long-held
+request.
+
+Steer is only enabled for the displayed active `turnId`, and interrupt is only
+enabled while the thread is running. Codex exposes one active turn per thread,
+so queue is reported as unsupported. The managed runtime currently uses
+host-side `approvalPolicy=never`, so approvals are also reported as unsupported
+instead of being simulated in the web surface. Non-Codex lanes show their
+signal and history but identify the controller as unavailable until an
+equivalent native adapter exists.
+
 ## Preview and offline states
 
 During native-surface development:
@@ -72,6 +95,7 @@ render the complete standing-by shell and wait for a paired host.
 
 - `docs/eng/artifacts/scout-deck-control-surface/deck-native-ipad-landscape.png`
 - `docs/eng/artifacts/scout-deck-control-surface/deck-native-ipad-offline.png`
+- `docs/eng/artifacts/scout-deck-control-surface/deck-codex-controller-ipad-landscape.png`
 
 ## Verification
 
