@@ -135,6 +135,12 @@ describe("route fixtures", () => {
     });
   }
 
+  test("Deck is a canonical ungated Ops route", () => {
+    const route = routeFromUrl(`${ORIGIN}/ops/deck?no-ops`);
+    expect(route).toEqual({ view: "ops", mode: "deck" });
+    expect(routePath(route)).toBe("/ops/deck");
+  });
+
   const aliases: Array<{ url: string; canonical: string }> = [
     // Legacy brand namespace → canonical scope paths (namespace-aware routePath).
     { url: "/scout/sessions/s-1", canonical: "/scope/sessions/s-1" },

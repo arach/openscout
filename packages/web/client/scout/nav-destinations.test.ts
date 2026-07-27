@@ -107,6 +107,7 @@ describe("nav destination catalog", () => {
     expect(ids).not.toContain("repos");
     expect(ids).not.toContain("code");
     expect(ids).toEqual([
+      "deck",
       "lanes",
       "control",
       "harnesses",
@@ -155,6 +156,10 @@ describe("nav destination catalog", () => {
     const gated = projectPaletteNavCommands({ opsEnabled: false });
     expect(all.some((c) => c.id === "nav:ops")).toBe(true);
     expect(all.some((c) => c.id === "nav:ops-atop")).toBe(true);
+    expect(all.find((c) => c.id === "nav:ops-deck")?.route).toEqual({
+      view: "ops",
+      mode: "deck",
+    });
     expect(gated.some((c) => c.id === "nav:ops")).toBe(false);
     expect(gated.some((c) => c.id === "nav:ops-atop")).toBe(false);
     // Settings drawer is intentionally absent from the destination projection.

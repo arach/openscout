@@ -7,6 +7,7 @@ import { MissionControlView } from "./MissionControlView.tsx";
 import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { AtopView } from "./AtopView.tsx";
+import { ScoutDeckSetupView } from "./ScoutDeckSetupView.tsx";
 import { TailView } from "../shared/TailView.tsx";
 import type { OpsMode, Route } from "../../lib/types.ts";
 import { useContentOwnsSecondaryNav } from "../../scout/sidebar/useContentSecondaryNav.ts";
@@ -53,6 +54,7 @@ export function OpsScreen({
           />
         )}
         {mode === "atop" && <AtopView />}
+        {mode === "deck" && <ScoutDeckSetupView navigate={navigate} />}
         {mode === "lanes" && <AgentLanesView navigate={navigate} agents={agents} />}
       </div>
       <PageStatusBar />

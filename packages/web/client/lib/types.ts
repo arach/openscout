@@ -1354,7 +1354,7 @@ export type Route =
 	    };
 
 export type AgentTab = "profile" | "config" | "observe" | "message";
-export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
+export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes" | "deck";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 /** URL-addressable settings surface sections (SCO-082 Phase B). */
 export type SettingsSection =

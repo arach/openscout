@@ -29,6 +29,27 @@ The surface consumes the existing typed Scout iOS bridge:
 
 It does not create a second fleet model or write Scout records directly.
 
+## Web handoff
+
+The desktop web app exposes the Deck at `/ops/deck`. It is a setup and handoff
+surface rather than a desktop-sized copy of the iPad controller:
+
+- `Ops → Deck` is projected through Scout's canonical navigation catalog and
+  remains reachable when the broader experimental Ops cluster is disabled;
+- the page reads the canonical pairing-runtime snapshot and automatically
+  starts the controller when pairing is stopped;
+- the QR is the short-lived Noise pairing payload (relay room plus the Mac's
+  public key), not a URL to the visual preview;
+- trusted-device count, live-code expiry, copy-link fallback, and code refresh
+  are visible beside the QR;
+- local development offers `Open web preview`, while the actual iPad continues
+  to load the signed app-bundled Deck after trust is established.
+
+The intended path is: open Deck in the web app, open Scout on iPad, scan the
+live code, approve if prompted, then enter the native Deck. Pairing and the
+Deck preview are deliberately separate actions so a screenshot or preview URL
+cannot grant device trust.
+
 ## Design structure
 
 1. A persistent numbered channel bank makes agents addressable by touch.
@@ -118,6 +139,7 @@ render the complete standing-by shell and wait for a paired host.
 - `docs/eng/artifacts/scout-deck-control-surface/deck-codex-controller-ipad-landscape.png`
 - `docs/eng/artifacts/scout-deck-control-surface/deck-voice-idle-ipad-landscape.png`
 - `docs/eng/artifacts/scout-deck-control-surface/deck-voice-listening-ipad-landscape.png`
+- `docs/eng/artifacts/scout-deck-control-surface/deck-web-pairing.png`
 
 ## Verification
 

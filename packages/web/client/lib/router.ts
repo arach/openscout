@@ -77,6 +77,7 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
     case "tail":
     case "atop":
     case "lanes":
+    case "deck":
       return value;
     default:
       return undefined;
@@ -176,8 +177,14 @@ function isLanesCoreSurface(mode: string | undefined): boolean {
   return mode === "lanes";
 }
 
+// Deck is the mobile companion setup path. Pairing must remain reachable even
+// when the broader experimental Ops cluster is disabled.
+function isDeckCoreSurface(mode: string | undefined): boolean {
+  return mode === "deck";
+}
+
 function isUngatedOpsSurface(mode: string | undefined): boolean {
-  return isTailCoreSurface(mode) || isLanesCoreSurface(mode);
+  return isTailCoreSurface(mode) || isLanesCoreSurface(mode) || isDeckCoreSurface(mode);
 }
 
 const MACHINE_SCOPE_PARAM = "machineId";

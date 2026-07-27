@@ -54,6 +54,7 @@ export type NavDestinationId =
   | "activity"
   | "mesh"
   | "mission-control"
+  | "deck"
   | "lanes"
   | "repos"
   | "code"
@@ -162,6 +163,12 @@ export const NAV_DESTINATIONS: readonly NavDestination[] = [
     route: { view: "ops", mode: "mission" },
     active: isOpsMission,
     capability: "ops.control",
+  },
+  {
+    id: "deck",
+    label: "Deck",
+    route: { view: "ops", mode: "deck" },
+    active: (route) => route.view === "ops" && route.mode === "deck",
   },
   {
     id: "lanes",
@@ -298,6 +305,7 @@ const CORE_SYSTEM_MENU_PROJECTION: readonly SystemMenuProjection[] = [
 ];
 
 const OPS_SYSTEM_MENU_PROJECTION: readonly SystemMenuProjection[] = [
+  { destinationId: "deck", key: "deck" },
   { destinationId: "mission-control", key: "control" },
   { destinationId: "lanes", key: "lanes" },
   { destinationId: "repos", key: "repos" },
@@ -388,6 +396,7 @@ export function projectSearchSecondaryNav(): SecondaryNavGroup[] {
 export function projectOpsSecondaryNav(): SecondaryNavGroup[] {
   return [
     projectSecondaryGroup([
+      { destinationId: "deck", id: "deck" },
       { destinationId: "lanes", id: "lanes" },
       { destinationId: "mission-control", id: "control" },
       { destinationId: "providers", id: "harnesses", label: "Providers" },
@@ -554,6 +563,7 @@ const PALETTE_NAV_PROJECTION: readonly PaletteNavProjection[] = [
   { id: "nav:dispatch", label: "Open Dispatch", destinationId: "dispatch" },
   { id: "nav:repos", label: "Open Repos", destinationId: "repos" },
   { id: "nav:harnesses", label: "Open Providers", destinationId: "providers" },
+  { id: "nav:ops-deck", label: "Open Scout Deck", destinationId: "deck" },
   { id: "nav:ops-lanes", label: "Open Agent Lanes", destinationId: "lanes" },
   {
     id: "nav:ops",
@@ -717,6 +727,7 @@ export function allProjectedDestinationIds(): NavDestinationId[] {
     "agent-config",
     "chat",
     "channels",
+    "deck",
     "lanes",
     "mission-control",
     "providers",

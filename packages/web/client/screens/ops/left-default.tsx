@@ -17,6 +17,11 @@ type OpsSurface = {
 
 const OPS_SURFACES: OpsSurface[] = [
   {
+    name: "Deck",
+    route: { view: "ops", mode: "deck" },
+    active: (route) => route.view === "ops" && route.mode === "deck",
+  },
+  {
     name: "Control",
     route: { view: "ops", mode: "mission" },
     active: (route) => route.view === "ops" && (route.mode === undefined || route.mode === "mission"),

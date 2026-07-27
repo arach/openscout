@@ -58,6 +58,7 @@ export function routeBreadcrumbForRoute(route: Route): string | null {
     case "terminal":
       return ROUTE_VIEW_LABELS[route.view] ?? route.view;
     case "ops": {
+      if (route.mode === "deck") return "Deck";
       if (route.mode === "tail") return "Tail";
       if (route.mode === "lanes") return "Lanes";
       if (route.mode === "atop") return "Runtime";

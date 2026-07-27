@@ -64,6 +64,7 @@ const OPS_MODE_LABELS: Record<OpsMode, string> = {
   atop: "Runtime",
   agents: "Agents",
   lanes: "Lanes",
+  deck: "Deck",
 };
 
 const PLAN_STEP_MARKERS: Record<PlanDocumentStepStatus, string> = {
@@ -311,7 +312,7 @@ function OpsInspectorPanel({
   const activeAsks = (fleet?.activeAsks ?? []).filter((ask) => ask.status !== "needs_attention");
   const needsAttention = fleet?.needsAttention ?? [];
 
-  if (mode === "lanes") {
+  if (mode === "lanes" || mode === "deck") {
     return null;
   }
 

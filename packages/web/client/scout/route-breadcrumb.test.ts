@@ -22,6 +22,7 @@ describe("route breadcrumbs (SCO-083)", () => {
     expect(routeBreadcrumbForRoute({ view: "ops" })).toBe("Mission Control");
     expect(routeBreadcrumbForRoute({ view: "ops", mode: "tail" })).toBe("Tail");
     expect(routeBreadcrumbForRoute({ view: "ops", mode: "lanes" })).toBe("Lanes");
+    expect(routeBreadcrumbForRoute({ view: "ops", mode: "deck" })).toBe("Deck");
     expect(routeBreadcrumbForRoute({ view: "code" })).toBe("Code");
     expect(routeBreadcrumbForRoute({ view: "repo-diff", path: "/tmp/x" })).toBe("Diff");
   });
