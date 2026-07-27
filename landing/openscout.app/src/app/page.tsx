@@ -6,6 +6,7 @@ import { Check, Copy, ExternalLink } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { LogoMark } from "@/components/logo-mark";
+import { ScoutConsole } from "@/components/scout-console";
 import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { SiloDesktop } from "@/components/silo-desktop";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
@@ -50,7 +51,7 @@ const navLinks = [
   { label: "Features", href: "#capabilities" },
   { label: "Apps", href: "#surfaces" },
   { label: "Integrations", href: "#integrations" },
-  { label: "Verify install", href: "#get-started" },
+  { label: "Get Started", href: "#get-started" },
   { label: "FAQ", href: "#faq" },
 ] as const;
 
@@ -208,10 +209,6 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       command: "scout doctor",
       label: "Verify the broker is installed and reachable.",
     },
-    {
-      command: "scout whoami",
-      label: "Confirm Scout resolved the intended project and sender identity.",
-    },
   ],
   technical: [
     {
@@ -227,10 +224,6 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
       command: "scout doctor",
       label:
         "Verify broker health before sending messages or asking agents to work.",
-    },
-    {
-      command: "scout whoami --json",
-      label: "Confirm the sender, project, and discovery URLs as structured data.",
     },
   ],
 };
@@ -418,9 +411,9 @@ const audienceContent: Record<
     surfacesNoteTitle: "Local, and dead simple.",
     surfacesNoteDescription:
       "The agents only need the binary. One install and you're off to the races — no dependencies, no virtual environments, nothing to wire up. And nothing leaves your control or your network. It's all local.",
-    getStartedTitle: "Verify the broker before moving on.",
+    getStartedTitle: "One command to install. Local broker.",
     getStartedDescription:
-      "A self-install is complete only when setup has brought up the local broker, doctor reports it reachable, and whoami resolves the intended project identity.",
+      "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
   technical: {
     capabilitiesTitle: "One broker, one state model across apps.",
@@ -432,9 +425,9 @@ const audienceContent: Record<
     surfacesNoteTitle: "Developer path",
     surfacesNoteDescription:
       "Start in the TUI for the quickest read on sessions and agents. Move into the web dashboard, the native Mac app, and Scout iOS without losing the underlying broker context.",
-    getStartedTitle: "Verify the broker before moving on.",
+    getStartedTitle: "One command to install. Local broker.",
     getStartedDescription:
-      "A self-install is complete only when setup has brought up the local broker, doctor reports it reachable, and whoami resolves the intended project identity.",
+      "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
 };
 
@@ -466,120 +459,138 @@ const OPENSCOUT_PROTOCOL_LD = {
 
 const OPENSCOUT_SELF_MANIFEST = openscoutManifest;
 
-const OPENSCOUT_AGENT_INSTALL = {
-  kind: "openscout.agent-install",
-  version: "0.1",
-  discovery: "https://openscout.app/.well-known/agent.md",
-  guide: "https://openscout.app/install.md",
-  command: "curl -fsSL https://openscout.app/install | sh",
-  setup: "scout setup",
-  verify: ["scout doctor", "scout whoami --json"],
-  safety: [
-    "review prerequisites before installing",
-    "explain the local support footprint before setup",
-    "ask before privilege escalation or overwriting existing configuration",
-  ],
-} as const;
+/* ──────────────────────────────────────────────────────────
+   Install command — flat, copyable command line in the hero
+   ────────────────────────────────────────────────────────── */
 
-const AGENT_INSTALL_BRIEF =
-  "Install OpenScout on this machine. Start at https://openscout.app/.well-known/agent.md and follow its linked install guide. Check the prerequisites, explain what scout setup will change, then install the CLI and run setup. Stop only after scout doctor passes and scout whoami resolves this project. Ask before privilege escalation or overwriting existing configuration.";
-
-function AgentInstallHandoff() {
+function InstallCommand({
+  command,
+  prompt = false,
+}: {
+  command: string;
+  prompt?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
-
   const onCopy = () => {
-    navigator.clipboard.writeText(AGENT_INSTALL_BRIEF);
-    trackCommandCopy({
-      command: AGENT_INSTALL_BRIEF,
-      commandCount: 1,
-      location: "agent_install_handoff",
-    });
+    navigator.clipboard.writeText(command);
+    // location id kept stable for analytics continuity
+    trackCommandCopy({ command, location: "hero_rfc_install" });
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
-
   return (
-    <div className="agent-handoff" aria-labelledby="agent-handoff-label">
-      <div className="agent-handoff__bar">
-        <span id="agent-handoff-label">Agent install brief</span>
-        <button type="button" onClick={onCopy} className="agent-handoff__copy">
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied" : "Copy for your agent"}
-        </button>
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`hero-install ${copied ? "hero-install--copied" : ""}`}
+      aria-label={prompt ? "Copy agent install prompt" : "Copy install command"}
+    >
+      <span className="hero-install__cmd">
+        <span className="hero-install__prompt">{prompt ? "›" : "$"}</span>
+        {tokenizeCommand(command)}
+      </span>
+      <span className="hero-install__copy inline-flex items-center gap-1.5">
+        {copied ? (
+          <>
+            <Check className="h-3 w-3" />
+            copied
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3" />
+            copy
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
+/* Splits a shell line into styled tokens: command word, -flags, the URL (the
+   one accent), and pipe operators. */
+function tokenizeCommand(command: string) {
+  const parts = command.split(" ");
+  return parts.flatMap((word, i) => {
+    let cls: string | undefined;
+    if (word === "|") cls = "hero-install__tok--op";
+    else if (/^https?:\/\//.test(word)) cls = "hero-install__tok--url";
+    else if (word.startsWith("-")) cls = "hero-install__tok--flag";
+    else if (i === 0) cls = "hero-install__tok--cmd";
+    const el = cls ? (
+      <span key={`${i}-${word}`} className={cls}>
+        {word}
+      </span>
+    ) : (
+      word
+    );
+    return i === 0 ? [el] : [" ", el];
+  });
+}
+
+/* Install channels for the CLI row. curl is primary (installs Bun + the CLI in
+   one shot); bun/npm are the package-manager paths for the published
+   @openscout/scout. brew is intentionally absent — there is no Homebrew tap yet,
+   so shipping one would be a dead command. */
+const INSTALL_METHODS = [
+  {
+    id: "curl",
+    label: "curl",
+    command: "curl -fsSL https://openscout.app/install | sh",
+    note: "installs Bun if needed, then the CLI",
+  },
+  {
+    id: "bun",
+    label: "bun",
+    command: "bun add -g @openscout/scout",
+    note: "global install · then scout setup",
+  },
+  {
+    id: "npm",
+    label: "npm",
+    command: "npm install -g @openscout/scout",
+    note: "global install · then scout setup",
+  },
+] as const;
+
+/* CLI install with a package-manager selector — curl leads, bun/npm swap in the
+   published package command. The command box + copy is the shared InstallCommand. */
+function InstallPicker() {
+  const [methodId, setMethodId] = useState<(typeof INSTALL_METHODS)[number]["id"]>(
+    INSTALL_METHODS[0].id,
+  );
+  const active = INSTALL_METHODS.find((m) => m.id === methodId) ?? INSTALL_METHODS[0];
+  return (
+    <div className="install-picker">
+      <div className="install-picker__tabs" role="tablist" aria-label="Install method">
+        {INSTALL_METHODS.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={m.id === methodId}
+            className={`install-picker__tab ${m.id === methodId ? "install-picker__tab--active" : ""}`}
+            onClick={() => setMethodId(m.id)}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
-      <p className="agent-handoff__prompt">{AGENT_INSTALL_BRIEF}</p>
-      <ol className="agent-handoff__route" aria-label="Agent self-install route">
-        <li><span>01</span> Discover</li>
-        <li><span>02</span> Inspect</li>
-        <li><span>03</span> Install</li>
-        <li><span>04</span> Verify</li>
-      </ol>
-      <div className="agent-handoff__links">
-        <a href="/.well-known/agent.md">agent entry</a>
-        <a href="/install.md">install guide</a>
-        <a href="/.well-known/scout.json">raw manifest</a>
-      </div>
+      <InstallCommand command={active.command} />
+      <p className="hero-setup__note">{active.note}</p>
     </div>
   );
 }
 
-const AGENT_INSTALL_PROOF = [
-  {
-    step: "discover",
-    command: "GET /.well-known/agent.md",
-    result: "canonical route found",
-  },
-  {
-    step: "inspect",
-    command: "READ /install.md",
-    result: "prerequisites + footprint reviewed",
-  },
-  {
-    step: "install",
-    command: "curl -fsSL openscout.app/install | sh",
-    result: "@openscout/scout installed",
-  },
-  {
-    step: "setup",
-    command: "scout setup",
-    result: "local broker started",
-  },
-  {
-    step: "verify",
-    command: "scout doctor && scout whoami --json",
-    result: "healthy · project resolved",
-  },
-] as const;
-
-function AgentInstallProof() {
+function MacDownloadButton({ onClick }: { onClick?: () => void }) {
   return (
-    <figure className="agent-install-proof">
-      <div className="agent-install-proof__chrome">
-        <span className="agent-install-proof__dots" aria-hidden><i /><i /><i /></span>
-        <span>expected healthy run</span>
-      </div>
-      <div className="agent-install-proof__body">
-        <div className="agent-install-proof__intro">
-          <span>agent</span>
-          <strong>Self-installing Scout from its published contract</strong>
-        </div>
-        <ol>
-          {AGENT_INSTALL_PROOF.map((item, index) => (
-            <li key={item.step}>
-              <span className="agent-install-proof__index">{String(index + 1).padStart(2, "0")}</span>
-              <div>
-                <span className="agent-install-proof__step">{item.step}</span>
-                <code>{item.command}</code>
-                <span className="agent-install-proof__result">✓ {item.result}</span>
-              </div>
-            </li>
-          ))}
-        </ol>
-        <figcaption>
-          A successful install ends in verified local state, not at a downloaded binary.
-        </figcaption>
-      </div>
-    </figure>
+    <a href={macosDownloadUrl} onClick={onClick} className="mac-download" draggable={false}>
+      <span className="mac-download__glyph" aria-hidden>
+        <svg viewBox="0 0 384 512" fill="currentColor">
+          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
+        </svg>
+      </span>
+      <span className="mac-download__label">Download for macOS</span>
+    </a>
   );
 }
 
@@ -615,12 +626,83 @@ function GithubStars() {
 
 
 
+type Viewer = "human" | "agent";
+
+function ViewerToggle({
+  viewer,
+  onChange,
+}: {
+  viewer: Viewer;
+  onChange: (viewer: Viewer) => void;
+}) {
+  const isAgent = viewer === "agent";
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isAgent}
+      aria-label="Agent view"
+      onClick={() => onChange(isAgent ? "human" : "agent")}
+      className="viewer-toggle"
+      data-on={isAgent}
+    >
+      <span className="viewer-toggle__icon" aria-hidden>
+        {/* hand-drawn cute bot — antenna, square head, two eyes, smile */}
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="10" y1="2" x2="10" y2="4" />
+          <circle cx="10" cy="2" r="0.9" fill="currentColor" stroke="none" />
+          <rect x="4" y="5" width="12" height="10" rx="2.4" />
+          <circle cx="7.5" cy="9" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="12.5" cy="9" r="0.9" fill="currentColor" stroke="none" />
+          <path d="M7.5 12.2 Q10 13.4 12.5 12.2" />
+          <line x1="3" y1="9" x2="3" y2="11" />
+          <line x1="17" y1="9" x2="17" y2="11" />
+        </svg>
+      </span>
+      <span className="viewer-toggle__text">Agent View</span>
+      <span className="viewer-toggle__track" aria-hidden>
+        <span className="viewer-toggle__knob" />
+      </span>
+    </button>
+  );
+}
+
+const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
+  human: {
+    top: "Every agent. Every session.",
+    bottom: "One place to steer.",
+    sub: "One agent was easy to babysit. Now it's five sessions across harnesses and terminals — and the one that stalls waiting on your yes is the one you miss. Scout shows what every agent is doing and flags the one blocked on your decision. Local-first: nothing leaves your machine.",
+  },
+  agent: {
+    top: "Comms platform for agents.",
+    bottom: "Agent native.",
+    sub: "One install adds the runtime. Register as a peer — nothing else about how your agent runs has to change.",
+  },
+};
+
+const heroInstall: Record<
+  Viewer,
+  { command: string; footnote?: string; prompt?: boolean }
+> = {
+  human: {
+    command: "curl -fsSL https://openscout.app/install | sh",
+  },
+  agent: {
+    command: "Install Scout from https://openscout.app/install.md",
+    footnote: "Local-first. Typed records. Durable across restarts.",
+    prompt: true,
+  },
+};
+
 export default function Home() {
   const scrollRef = useScrollReveal<HTMLElement>("general");
+  const [viewer, setViewer] = useState<Viewer>("human");
 
   const copy = audienceContent["general"];
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
+  const headline = heroHeadlines[viewer];
+  const install = heroInstall[viewer];
   const onNavigationClick = (label: string, destination: string, location: string) => () => {
     trackNavigationClick({
       destination,
@@ -703,13 +785,6 @@ export default function Home() {
             >
               Blog
             </Link>
-            <a
-              href="#agent-install"
-              onClick={onNavigationClick("Agent install", "#agent-install", "header_nav")}
-              className="operator-install-link hidden lg:inline-flex"
-            >
-              Agent install
-            </a>
             <SiteThemeToggle />
           </div>
         </div>
@@ -722,7 +797,7 @@ export default function Home() {
             <div className="mission-page-ruler" aria-hidden="true" />
 
             {/* ── Hero (editorial column beside the live console) ── */}
-            <section id="agent-install" className="mission-hero overflow-hidden pb-8 pt-20 md:pt-28 md:pb-10">
+            <section className="mission-hero overflow-hidden pb-8 pt-20 md:pt-28 md:pb-10">
               <div className="mission-hero__field" aria-hidden="true">
                 <div className="mission-hero__layer mission-hero__layer--far" />
               </div>
@@ -731,26 +806,81 @@ export default function Home() {
                 <div className="hero-split">
                   <div className="hero-editorial hero-animate" style={{ animationDelay: "0s" }}>
                     <h1 className="hero-title">
-                      <span className="hero-title__line">Your agent can install Scout.</span>
-                      <span className="hero-title__line">Hand it one URL.</span>
+                      <span className="hero-title__line">{headline.top}</span>
+                      <span className="hero-title__line">{headline.bottom}</span>
                     </h1>
 
-                    <p className="hero-sub">
-                      An agent with shell access can discover the canonical guide,
-                      review the local footprint, install the CLI, and verify the broker
-                      without guessing at the next step. Copy the complete handoff below.
-                    </p>
+                    <p className="hero-sub">{headline.sub}</p>
 
-                    <AgentInstallHandoff />
+                    {viewer === "human" && (
+                      <ul
+                        className="hero-neutral"
+                        aria-label="Neutral across model, harness, and framework"
+                      >
+                        <li>model-neutral</li>
+                        <li>harness-neutral</li>
+                        <li>framework-neutral</li>
+                      </ul>
+                    )}
 
-                    <p className="hero-human-path">
-                      Installing by hand? <a href="#get-started">Use the same verified path</a>.
-                      The Mac and iPhone apps remain optional surfaces.
-                    </p>
+                    {viewer === "agent" ? (
+                      <div className="hero-install-block">
+                        <InstallCommand command={install.command} prompt={install.prompt} />
+                        <p className="hero-install-foot">{install.footnote}</p>
+                        <p className="hero-links">
+                          Tool manifest at{" "}
+                          <a href="/scout/manifest">
+                            /scout/manifest
+                          </a>{" "}
+                          · raw JSON at{" "}
+                          <a href="/.well-known/scout.json">
+                            /.well-known/scout.json
+                          </a>
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="hero-setup">
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">How it runs</div>
+                          <p className="hero-setup__body">
+                            Scout is a native app and a Rust watcher — keep your
+                            tools. As long as it can find your harness logs,
+                            you&apos;re good to go.
+                          </p>
+                        </div>
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">CLI</div>
+                          <div className="hero-setup__content">
+                            <InstallPicker />
+                          </div>
+                        </div>
+                        <div className="hero-setup__row">
+                          <div className="hero-setup__label">Mac app</div>
+                          <div className="hero-setup__content">
+                            <MacDownloadButton
+                              onClick={onCtaClick(
+                                "Download for macOS",
+                                macosDownloadUrl,
+                                "hero",
+                                "download",
+                              )}
+                            />
+                            <p className="hero-setup__note">
+                              optional surface · iPhone companion too
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="hero-console-col hero-animate" style={{ animationDelay: "0.12s" }}>
-                    <AgentInstallProof />
+                    <div className="hero-viewer-perch">
+                      <ViewerToggle viewer={viewer} onChange={setViewer} />
+                    </div>
+                    <div className="hero-console-mat">
+                      <ScoutConsole audience={viewer} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -767,10 +897,6 @@ export default function Home() {
               <script
                 type="application/openscout-manifest+json"
                 dangerouslySetInnerHTML={{ __html: JSON.stringify(OPENSCOUT_SELF_MANIFEST) }}
-              />
-              <script
-                type="application/openscout-install+json"
-                dangerouslySetInnerHTML={{ __html: JSON.stringify(OPENSCOUT_AGENT_INSTALL) }}
               />
             </section>
 
@@ -1009,7 +1135,7 @@ export default function Home() {
               <div className="mx-auto max-w-7xl px-6">
                 <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                   <div className="reveal max-w-sm">
-                    <div className="section-eyebrow">Healthy install</div>
+                    <div className="section-eyebrow">Getting started</div>
                     <h2 className="section-title">
                       {copy.getStartedTitle}
                     </h2>
