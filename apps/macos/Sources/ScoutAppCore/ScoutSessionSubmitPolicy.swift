@@ -7,8 +7,9 @@ public enum ScoutSessionSubmitPolicy {
     public static func shouldSubmit(
         isReturn: Bool,
         shift: Bool,
-        option: Bool
+        option: Bool,
+        composerOwnsReturn: Bool = true
     ) -> Bool {
-        isReturn && !shift && !option
+        composerOwnsReturn && isReturn && !shift && !option
     }
 }
