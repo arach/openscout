@@ -1,12 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { NativeSurfaceApp } from "../shared/NativeSurfaceApp.tsx";
+import { ScoutDeckSurface } from "./ScoutDeckSurface.tsx";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");
 
 createRoot(root).render(
   <StrictMode>
-    <NativeSurfaceApp surface="lanes" title="Lanes" />
+    <ScoutDeckSurface />
   </StrictMode>,
 );

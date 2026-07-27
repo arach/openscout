@@ -1,6 +1,7 @@
 # Scout Deck — control-surface pass
 
-**Status:** implemented web variant
+**Status:** implemented Ops variant; superseded as the primary Deck direction by
+the distinct bundled iPad surface in `scout-deck-native-surface.md`
 
 **Route:** `/ops/lanes` and `/ops/lanes/embed`
 
