@@ -617,7 +617,10 @@
    canvas without changing lane identity or data ownership. */
 .s-agent-lanes-grid {
   --lane-grid-columns: auto-fit;
-  --lane-grid-min-width: 280px;
+  /* Auto density protects the identity/status cockpit first. Narrower cards
+     reduce agent and project names to initials; operators can still opt into
+     explicit 2/3/4-up monitoring when density matters more than detail. */
+  --lane-grid-min-width: 360px;
   --lane-grid-min-height: 280px;
   flex: 1;
   min-height: 0;
@@ -671,7 +674,7 @@
 
 @container agent-lanes (max-width: 520px) {
   .s-agent-lanes-grid[data-grid-columns="auto"] {
-    --lane-grid-min-width: 240px;
+    --lane-grid-min-width: 300px;
     --lane-grid-min-height: 340px;
   }
 }
