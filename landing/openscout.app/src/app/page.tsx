@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, SquareTerminal, X } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { LogoMark } from "@/components/logo-mark";
@@ -463,13 +464,7 @@ const OPENSCOUT_SELF_MANIFEST = openscoutManifest;
    Install command — flat, copyable command line in the hero
    ────────────────────────────────────────────────────────── */
 
-function InstallCommand({
-  command,
-  prompt = false,
-}: {
-  command: string;
-  prompt?: boolean;
-}) {
+function InstallCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   const onCopy = () => {
     navigator.clipboard.writeText(command);
@@ -483,10 +478,10 @@ function InstallCommand({
       type="button"
       onClick={onCopy}
       className={`hero-install ${copied ? "hero-install--copied" : ""}`}
-      aria-label={prompt ? "Copy agent install prompt" : "Copy install command"}
+      aria-label="Copy install command"
     >
       <span className="hero-install__cmd">
-        <span className="hero-install__prompt">{prompt ? "›" : "$"}</span>
+        <span className="hero-install__prompt">$</span>
         {tokenizeCommand(command)}
       </span>
       <span className="hero-install__copy inline-flex items-center gap-1.5">
@@ -503,6 +498,252 @@ function InstallCommand({
         )}
       </span>
     </button>
+  );
+}
+
+const AGENT_INSTALL_PROMPT = `Install OpenScout and connect it to this agent environment.
+
+OpenScout is a local-first broker for discovering, addressing, observing, and coordinating AI agents. It adds a shared coordination layer while agents stay in the harnesses where they already work.
+
+Use the current instructions in these canonical sources:
+- Install guide: https://openscout.app/install.md
+- Agent discovery: https://openscout.app/.well-known/agent.md
+
+Please:
+1. Check this machine's prerequisites and choose the correct install path for this environment.
+2. Install the Scout CLI, then run \`scout setup\`.
+3. Run \`scout doctor\` and resolve any prerequisite or service issue it reports before continuing.
+4. After the core install is healthy, install the companion integration for the current agent host if the guide lists one.
+5. Run \`scout whoami\` from the intended project to verify its sender identity.
+6. Summarize what changed, the verification results, and anything that still needs human approval.
+
+Do not claim the install is complete unless \`scout doctor\` reports the broker as reachable.`;
+
+function buildAgentInstallPrompt(instructions: string) {
+  const trimmedInstructions = instructions.trim();
+  if (!trimmedInstructions) return AGENT_INSTALL_PROMPT;
+
+  return `${AGENT_INSTALL_PROMPT}\n\nAdditional instructions from me:\n${trimmedInstructions}`;
+}
+
+async function writeToClipboard(text: string) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  textArea.remove();
+
+  if (!copied) throw new Error("Clipboard write failed");
+}
+
+function AgentInstallHandoff() {
+  const [open, setOpen] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
+  const prompt = buildAgentInstallPrompt(instructions);
+  const copiedCurrentPrompt = copiedPrompt === prompt;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), textarea:not([disabled]), a[href]',
+        ) ?? [],
+      );
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open) triggerRef.current?.focus();
+    wasOpenRef.current = open;
+  }, [open]);
+
+  const openDialog = () => {
+    setCopyError(null);
+    setCopiedPrompt(null);
+    setOpen(true);
+  };
+
+  const copyPrompt = async () => {
+    setCopyError(null);
+    try {
+      await writeToClipboard(prompt);
+      setCopiedPrompt(prompt);
+      trackCommandCopy({
+        command: "agent_install_handoff_prompt",
+        location: "hero_agent_install",
+      });
+    } catch {
+      setCopyError("Could not access the clipboard. Try again from a secure browser window.");
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={openDialog}
+        className="agent-install-trigger"
+        aria-haspopup="dialog"
+      >
+        <span className="agent-install-trigger__label">
+          <SquareTerminal className="h-3.5 w-3.5" aria-hidden="true" />
+          Install with your agent
+        </span>
+        <span className="agent-install-trigger__action">open</span>
+      </button>
+
+      {open
+        ? createPortal(
+            <div
+              className="agent-handoff__overlay"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setOpen(false);
+              }}
+            >
+              <div
+                ref={dialogRef}
+                className="agent-handoff"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="agent-handoff-title"
+                aria-describedby="agent-handoff-description"
+              >
+                <header className="agent-handoff__header">
+                  <h2 id="agent-handoff-title">Hand off the Scout install</h2>
+                  <button
+                    ref={closeButtonRef}
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="agent-handoff__close"
+                    aria-label="Close install handoff"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </header>
+
+                <div className="agent-handoff__body">
+                  <div className="agent-handoff__mode" aria-label="Handoff destination">
+                    <SquareTerminal className="h-3.5 w-3.5" aria-hidden="true" />
+                    Local agent
+                  </div>
+
+                  <div className="agent-handoff__source">
+                    <div className="agent-handoff__source-name">
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>install.md</span>
+                    </div>
+                    <a href="/install.md" target="_blank" rel="noreferrer">
+                      View guide
+                    </a>
+                  </div>
+                  <p id="agent-handoff-description" className="agent-handoff__description">
+                    The prompt gives your agent the product context, install order, and health checks.
+                  </p>
+
+                  <label htmlFor="agent-install-instructions" className="sr-only">
+                    Additional instructions for your agent
+                  </label>
+                  <textarea
+                    id="agent-install-instructions"
+                    value={instructions}
+                    onChange={(event) => {
+                      setInstructions(event.target.value);
+                      setCopyError(null);
+                    }}
+                    className="agent-handoff__instructions"
+                    placeholder="Add instructions (optional)"
+                    maxLength={1200}
+                    rows={3}
+                  />
+                </div>
+
+                <footer className="agent-handoff__footer">
+                  <p>Open your coding agent and paste in this prompt.</p>
+                  <button
+                    type="button"
+                    onClick={copyPrompt}
+                    className="agent-handoff__copy"
+                  >
+                    {copiedCurrentPrompt ? (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {copiedCurrentPrompt
+                      ? "Copied"
+                      : copiedPrompt
+                        ? "Copy updated prompt"
+                        : "Copy prompt"}
+                  </button>
+                </footer>
+
+                {copyError ? (
+                  <p className="agent-handoff__error" role="alert">
+                    {copyError}
+                  </p>
+                ) : null}
+
+                {copiedPrompt ? (
+                  <section className="agent-handoff__copied" aria-live="polite">
+                    <div className="agent-handoff__copied-label">
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      Copied — paste it into your agent
+                    </div>
+                    <pre><code>{copiedPrompt}</code></pre>
+                  </section>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -680,19 +921,7 @@ const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }
   },
 };
 
-const heroInstall: Record<
-  Viewer,
-  { command: string; footnote?: string; prompt?: boolean }
-> = {
-  human: {
-    command: "curl -fsSL https://openscout.app/install | sh",
-  },
-  agent: {
-    command: "Install Scout from https://openscout.app/install.md",
-    footnote: "Local-first. Typed records. Durable across restarts.",
-    prompt: true,
-  },
-};
+const AGENT_INSTALL_FOOTNOTE = "Local-first. Typed records. Durable across restarts.";
 
 export default function Home() {
   const scrollRef = useScrollReveal<HTMLElement>("general");
@@ -702,7 +931,6 @@ export default function Home() {
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
   const headline = heroHeadlines[viewer];
-  const install = heroInstall[viewer];
   const onNavigationClick = (label: string, destination: string, location: string) => () => {
     trackNavigationClick({
       destination,
@@ -825,8 +1053,8 @@ export default function Home() {
 
                     {viewer === "agent" ? (
                       <div className="hero-install-block">
-                        <InstallCommand command={install.command} prompt={install.prompt} />
-                        <p className="hero-install-foot">{install.footnote}</p>
+                        <AgentInstallHandoff />
+                        <p className="hero-install-foot">{AGENT_INSTALL_FOOTNOTE}</p>
                         <p className="hero-links">
                           Tool manifest at{" "}
                           <a href="/scout/manifest">
