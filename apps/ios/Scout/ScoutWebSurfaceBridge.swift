@@ -1,6 +1,8 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 import HudsonUIWeb
+import HudsonVoice
 import ScoutCapabilities
 import ScoutIOSCore
 #if canImport(UIKit)
@@ -31,6 +33,10 @@ final class ScoutWebSurfaceBridge {
         "native.getPreferences": ["keys"],
         "native.setPreferences": ["entries"],
         "native.cancel": ["requestId"],
+        "native.voice.snapshot": [],
+        "native.voice.toggleInput": [],
+        "native.voice.speak": ["text"],
+        "native.voice.stopOutput": [],
         "agents.list": [],
         "agents.observe": ["agentIds"],
         "tail.recent": ["cursor", "limit"],
@@ -53,6 +59,7 @@ final class ScoutWebSurfaceBridge {
     private var activity: HudWebViewActivity = .hiddenWarm
     private var tasks: [String: Task<Void, Never>] = [:]
     private var laneSelection: LaneSelectionRequest?
+    private let speechSynthesizer = AVSpeechSynthesizer()
 
     init(model: AppModel, surface: Surface) {
         self.model = model
@@ -67,9 +74,15 @@ final class ScoutWebSurfaceBridge {
             }],
             onActivityChange: { [weak self] activity in
                 self?.activity = activity
-                if activity == .background { self?.cancelAll() }
+                if activity == .background {
+                    self?.cancelAll()
+                    self?.stopVoiceSession()
+                }
             },
-            onReset: { [weak self] _ in self?.cancelAll() },
+            onReset: { [weak self] _ in
+                self?.cancelAll()
+                self?.stopVoiceSession()
+            },
             onOpenExternalURL: { [weak self] url in self?.openExternalURL(url) }
         )
         return integration
@@ -150,6 +163,21 @@ final class ScoutWebSurfaceBridge {
             }
             openExternalURL(url)
             reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
+        case "native.voice.snapshot":
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.toggleInput":
+            toggleVoiceInput()
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.speak":
+            guard let text = request.params?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "text is required.", deadline: deadline))
+                return
+            }
+            speakVoiceOutput(text)
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.stopOutput":
+            speechSynthesizer.stopSpeaking(at: .immediate)
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
         case "native.setLaneSelection":
             if let selection = request.params?.selection {
                 guard !selection.hostId.isEmpty,
@@ -298,6 +326,7 @@ final class ScoutWebSurfaceBridge {
         case .lanes:
             return [
                 "bootstrap", "native.openExternalURL", "native.cancel", "agents.list", "tail.recent", "native.setLaneSelection",
+                "native.voice.snapshot", "native.voice.toggleInput", "native.voice.speak", "native.voice.stopOutput",
                 "codex.thread.snapshot", "codex.thread.connect", "codex.turn.start", "codex.turn.steer", "codex.turn.interrupt",
             ]
         case .dispatch:
@@ -452,6 +481,12 @@ final class ScoutWebSurfaceBridge {
     }
 
     private func appliedDeadline(for method: String, requested: Int?) -> Int {
+        if method == "native.voice.snapshot" || method == "native.voice.stopOutput" {
+            return min(max(requested ?? 1_000, 1), 2_000)
+        }
+        if method == "native.voice.toggleInput" || method == "native.voice.speak" {
+            return min(max(requested ?? 2_000, 1), 5_000)
+        }
         let longRead = method == "agents.list"
             || method == "tail.recent"
             || method == "codex.thread.snapshot"
@@ -480,6 +515,90 @@ final class ScoutWebSurfaceBridge {
         #if canImport(UIKit)
         UIApplication.shared.open(url)
         #endif
+    }
+
+    private func voiceSnapshot() -> [String: Any] {
+        guard let dictation = model?.dictation else {
+            return [
+                "input": [
+                    "state": "unavailable",
+                    "partialText": "",
+                    "finalText": "",
+                    "finalCount": 0,
+                    "engine": "apple",
+                    "modelReady": false,
+                    "unavailableReason": "Native dictation is unavailable.",
+                ],
+                "output": ["speaking": speechSynthesizer.isSpeaking],
+            ]
+        }
+
+        let state: String
+        let unavailableReason: Any
+        switch dictation.state {
+        case .idle:
+            state = "idle"
+            unavailableReason = NSNull()
+        case .preparing:
+            state = "preparing"
+            unavailableReason = NSNull()
+        case .listening:
+            state = "listening"
+            unavailableReason = NSNull()
+        case .transcribing:
+            state = "transcribing"
+            unavailableReason = NSNull()
+        case .unavailable(let reason):
+            state = "unavailable"
+            unavailableReason = reason
+        }
+
+        return [
+            "input": [
+                "state": state,
+                "partialText": dictation.partialText,
+                "finalText": dictation.finalText,
+                "finalCount": dictation.finalCount,
+                "engine": dictation.lastEngine.rawValue,
+                "modelReady": dictation.modelReady,
+                "unavailableReason": unavailableReason,
+            ],
+            "output": ["speaking": speechSynthesizer.isSpeaking],
+        ]
+    }
+
+    private func toggleVoiceInput() {
+        guard let dictation = model?.dictation else { return }
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        switch dictation.state {
+        case .listening:
+            dictation.stop()
+        case .transcribing:
+            dictation.cancel()
+        case .idle, .preparing, .unavailable:
+            dictation.prepare()
+            dictation.start()
+        }
+    }
+
+    private func speakVoiceOutput(_ text: String) {
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.92
+        utterance.prefersAssistiveTechnologySettings = true
+        utterance.preUtteranceDelay = 0.04
+        speechSynthesizer.speak(utterance)
+    }
+
+    private func stopVoiceSession() {
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        guard let dictation = model?.dictation else { return }
+        switch dictation.state {
+        case .listening, .transcribing, .preparing:
+            dictation.cancel()
+        case .idle, .unavailable:
+            break
+        }
     }
 
     private func cancelAll() {

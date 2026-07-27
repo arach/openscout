@@ -7,6 +7,7 @@ import type {
   CodexDeckThreadSnapshot,
   FleetAgentSnapshot,
   FleetTailSnapshot,
+  NativeVoiceSnapshot,
   SurfaceAgent,
   SurfaceBootstrap,
   SurfaceHost,
@@ -190,9 +191,32 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
   },
 };
 
+const PREVIEW_VOICE: NativeVoiceSnapshot = {
+  input: {
+    state: "idle",
+    partialText: "",
+    finalText: "",
+    finalCount: 0,
+    engine: "parakeet",
+    modelReady: true,
+    unavailableReason: null,
+  },
+  output: { speaking: false },
+};
+
 export function ScoutDeckSurface() {
   const search = new URLSearchParams(window.location.search);
   const preview = search.has("preview") || (import.meta.env.DEV && !search.has("offline"));
+  const initialVoice = preview && search.get("voice") === "listening"
+    ? {
+      ...PREVIEW_VOICE,
+      input: {
+        ...PREVIEW_VOICE.input,
+        state: "listening" as const,
+        partialText: "Make voice the fastest path into this active turn.",
+      },
+    }
+    : PREVIEW_VOICE;
   const [bootstrap, setBootstrap] = useState<Partial<SurfaceBootstrap> | null>(
     () => window.__scoutSurfaceBootstrap ?? null,
   );
@@ -206,7 +230,14 @@ export function ScoutDeckSurface() {
   const [command, setCommand] = useState("");
   const [notice, setNotice] = useState("Direct adapter ready");
   const [view, setView] = useState<DeckView>("thread");
+  const [voice, setVoice] = useState<NativeVoiceSnapshot>(initialVoice);
+  const [voiceHydrated, setVoiceHydrated] = useState(preview);
+  const [voiceOutEnabled, setVoiceOutEnabled] = useState(() => localStorage.getItem("scout.deck.voiceOut") !== "off");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const clientRef = useRef<NativeScoutSurfaceClient | null>(null);
+  const seenFinalCountRef = useRef<number | null>(preview ? 0 : null);
+  const spokenBlockRef = useRef<string | null>(null);
+  const previewVoiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     installScoutSurfacePushReceiver();
@@ -260,6 +291,7 @@ export function ScoutDeckSurface() {
     selected?.transport === "codex_app_server"
     && (preview || bootstrap?.capabilities?.includes("codex.thread.snapshot")),
   );
+  const voiceAvailable = preview || Boolean(bootstrap?.capabilities?.includes("native.voice.snapshot"));
 
   useEffect(() => {
     if (!selected) {
@@ -269,6 +301,7 @@ export function ScoutDeckSurface() {
     setCommand("");
     setThreadError(null);
     setView(selected.transport === "codex_app_server" ? "thread" : "signal");
+    spokenBlockRef.current = null;
 
     if (preview) {
       setThread(previewThreadFor(selected));
@@ -278,6 +311,7 @@ export function ScoutDeckSurface() {
 
     const client = clientRef.current;
     if (!client) return;
+    setThread(null);
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -320,6 +354,78 @@ export function ScoutDeckSurface() {
     };
   }, [selected?.key, adapterAvailable, preview]);
 
+  useEffect(() => {
+    if (preview || !voiceAvailable) return;
+    const client = clientRef.current;
+    if (!client) return;
+    let cancelled = false;
+
+    const refreshVoice = async () => {
+      try {
+        const next = await client.native.voice.snapshot();
+        if (!cancelled) {
+          setVoice(next);
+          setVoiceHydrated(true);
+          setVoiceError(null);
+        }
+      } catch (cause) {
+        if (!cancelled) setVoiceError(cause instanceof Error ? cause.message : String(cause));
+      }
+    };
+
+    void refreshVoice();
+    const timer = setInterval(() => void refreshVoice(), 320);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [preview, voiceAvailable]);
+
+  useEffect(() => {
+    if (!voiceHydrated) return;
+    const count = voice.input.finalCount;
+    if (seenFinalCountRef.current == null) {
+      seenFinalCountRef.current = count;
+      return;
+    }
+    if (count <= seenFinalCountRef.current) return;
+    seenFinalCountRef.current = count;
+    const finalText = voice.input.finalText.trim();
+    if (finalText) setCommand((current) => appendDictation(current, finalText));
+  }, [voice.input.finalCount, voice.input.finalText, voiceHydrated]);
+
+  useEffect(() => {
+    const candidate = latestSpeakableBlock(thread);
+    if (!candidate) return;
+    if (spokenBlockRef.current == null) {
+      spokenBlockRef.current = candidate.id;
+      return;
+    }
+    if (spokenBlockRef.current === candidate.id) return;
+    if (!voiceOutEnabled) {
+      spokenBlockRef.current = candidate.id;
+      return;
+    }
+    if (voice.input.state === "listening" || voice.input.state === "transcribing") return;
+
+    spokenBlockRef.current = candidate.id;
+    if (preview) {
+      setVoice((current) => ({ ...current, output: { speaking: true } }));
+      if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+      previewVoiceTimerRef.current = setTimeout(() => {
+        setVoice((current) => ({ ...current, output: { speaking: false } }));
+      }, 1_600);
+      return;
+    }
+    void clientRef.current?.native.voice.speak(candidate.text)
+      .then(setVoice)
+      .catch((cause) => setVoiceError(cause instanceof Error ? cause.message : String(cause)));
+  }, [thread, voice.input.state, voiceOutEnabled, preview]);
+
+  useEffect(() => () => {
+    if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+  }, []);
+
   const attention = useMemo(
     () => lanes.filter((lane) => lane.state === "waiting" || lane.state === "blocked" || lane.state === "error"),
     [lanes],
@@ -327,6 +433,8 @@ export function ScoutDeckSurface() {
   const active = lanes.filter((lane) => lane.state === "active" || lane.state === "running").length;
   const selectedActivity = activityBins(selected?.events ?? []);
   const isRunning = thread?.state === "running";
+  const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
+  const voiceInputActive = voice.input.state === "listening" || voice.input.state === "transcribing";
 
   const selectLane = (lane: DeckLane) => setSelectedKey(lane.key);
 
@@ -395,6 +503,72 @@ export function ScoutDeckSurface() {
       setThreadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setThreadBusy(false);
+    }
+  };
+
+  const toggleVoiceInput = async () => {
+    if (!voiceAvailable) return;
+    setVoiceError(null);
+    if (preview) {
+      if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+      if (voice.input.state === "listening") {
+        const finalText = voice.input.partialText || "Make the voice loop feel immediate and obvious.";
+        setVoice((current) => ({
+          ...current,
+          input: { ...current.input, state: "transcribing", partialText: "" },
+          output: { speaking: false },
+        }));
+        previewVoiceTimerRef.current = setTimeout(() => {
+          setVoice((current) => ({
+            ...current,
+            input: {
+              ...current.input,
+              state: "idle",
+              finalText,
+              finalCount: current.input.finalCount + 1,
+            },
+          }));
+        }, 520);
+      } else if (voice.input.state === "transcribing") {
+        setVoice((current) => ({ ...current, input: { ...current.input, state: "idle", partialText: "" } }));
+      } else {
+        setVoice((current) => ({
+          ...current,
+          input: {
+            ...current.input,
+            state: "listening",
+            partialText: "Make the voice loop feel immediate and obvious.",
+            unavailableReason: null,
+          },
+          output: { speaking: false },
+        }));
+      }
+      return;
+    }
+
+    try {
+      const next = await clientRef.current?.native.voice.toggleInput();
+      if (next) setVoice(next);
+    } catch (cause) {
+      setVoiceError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const toggleVoiceOutput = async () => {
+    const next = !voiceOutEnabled;
+    setVoiceOutEnabled(next);
+    localStorage.setItem("scout.deck.voiceOut", next ? "on" : "off");
+    if (!next) {
+      if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+      setVoice((current) => ({ ...current, output: { speaking: false } }));
+      if (!preview) {
+        try {
+          const value = await clientRef.current?.native.voice.stopOutput();
+          if (value) setVoice(value);
+        } catch (cause) {
+          setVoiceError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
     }
   };
 
@@ -501,29 +675,64 @@ export function ScoutDeckSurface() {
                 )}
               </section>
 
-              <form className="scout-deck__composer" data-mode={isRunning ? "steer" : "start"} onSubmit={submitCommand}>
+              <form
+                className="scout-deck__composer"
+                data-mode={isRunning ? "steer" : "start"}
+                data-voice-state={voice.input.state}
+                onSubmit={submitCommand}
+              >
                 <div className="scout-deck__composer-head">
-                  <span>{!adapterAvailable ? "Controller unavailable" : isRunning ? "Steer active turn" : "Start new turn"}</span>
+                  <span>{!adapterAvailable ? "Controller unavailable" : voiceHeadline(voice.input.state, isRunning)}</span>
                   <small>{thread?.threadId ? `thread ${shortId(thread.threadId)}` : "No thread connected"}</small>
                 </div>
                 <div className="scout-deck__composer-body">
-                  <textarea
-                    value={command}
-                    onChange={(event) => setCommand(event.target.value)}
-                    onKeyDown={onComposerKeyDown}
-                    placeholder={adapterAvailable ? (isRunning ? "Redirect this turn without starting another…" : "Tell this Codex thread what to do next…") : "This lane needs its own native adapter before it can be controlled."}
-                    disabled={!adapterAvailable || !thread || thread.state === "disconnected" || threadBusy}
-                    rows={2}
-                    aria-label={!adapterAvailable ? "Native controller unavailable" : isRunning ? "Steer active Codex turn" : "Start Codex turn"}
-                  />
-                  <button type="submit" disabled={!command.trim() || !thread || thread.state === "disconnected" || threadBusy}>
+                  <button
+                    type="button"
+                    className="scout-deck__mic"
+                    data-state={voice.input.state}
+                    onClick={toggleVoiceInput}
+                    disabled={!voiceAvailable || !canCompose}
+                    aria-label={voice.input.state === "listening" ? "Stop dictation and transcribe" : voice.input.state === "transcribing" ? "Cancel transcription" : "Start dictation"}
+                    aria-pressed={voice.input.state === "listening"}
+                  >
+                    <span className="scout-deck__mic-ring" aria-hidden="true" />
+                    <VoiceMicIcon />
+                    <small>{voiceMicLabel(voice.input.state)}</small>
+                  </button>
+                  <div className="scout-deck__voice-text">
+                    <div className="scout-deck__voice-caption" data-active={voiceInputActive || undefined}>
+                      <i aria-hidden="true" />
+                      <span>{voiceCaption(voice, voiceAvailable)}</span>
+                    </div>
+                    <textarea
+                      value={command}
+                      onChange={(event) => setCommand(event.target.value)}
+                      onKeyDown={onComposerKeyDown}
+                      placeholder={composerPlaceholder(adapterAvailable, isRunning, voice.input.state)}
+                      disabled={!adapterAvailable || !thread || thread.state === "disconnected" || threadBusy}
+                      rows={2}
+                      aria-label={!adapterAvailable ? "Native controller unavailable" : isRunning ? "Steer active Codex turn" : "Start Codex turn"}
+                    />
+                  </div>
+                  <button className="scout-deck__submit" type="submit" disabled={!command.trim() || !thread || thread.state === "disconnected" || threadBusy}>
                     {threadBusy ? "Working" : isRunning ? "Steer" : "Start"}
                     <span>⌘↵</span>
                   </button>
                 </div>
                 <div className="scout-deck__composer-foot">
-                  <span>{threadError ?? notice}</span>
-                  <span>{adapterAvailable ? "One active turn · queue disabled" : "Observation remains available"}</span>
+                  <span>{voiceError ?? threadError ?? notice}</span>
+                  <button
+                    type="button"
+                    className="scout-deck__voice-out"
+                    data-active={voiceOutEnabled || undefined}
+                    data-speaking={voice.output.speaking || undefined}
+                    onClick={toggleVoiceOutput}
+                    disabled={!voiceAvailable}
+                    aria-pressed={voiceOutEnabled}
+                  >
+                    <VoiceSpeakerIcon />
+                    <span>{voice.output.speaking ? "Speaking" : `Voice out ${voiceOutEnabled ? "on" : "off"}`}</span>
+                  </button>
                 </div>
               </form>
             </>
@@ -546,6 +755,8 @@ export function ScoutDeckSurface() {
             <dl className="scout-deck__readout">
               <div><dt>Thread</dt><dd>{thread?.threadId ? shortId(thread.threadId) : "—"}</dd></div>
               <div><dt>Turn</dt><dd>{thread?.turnId ? shortId(thread.turnId) : "idle"}</dd></div>
+              <div><dt>Voice in</dt><dd>{voiceAvailable ? voiceReadout(voice.input.state) : "—"}</dd></div>
+              <div><dt>Voice out</dt><dd>{voiceAvailable ? voice.output.speaking ? "speaking" : voiceOutEnabled ? "armed" : "off" : "—"}</dd></div>
               <div><dt>Queue</dt><dd title={thread?.capabilityNotes.queue}>{adapterAvailable ? "off" : "—"}</dd></div>
               <div><dt>Approval</dt><dd title={thread?.capabilityNotes.approvals}>{adapterAvailable ? "off" : "—"}</dd></div>
             </dl>
@@ -587,6 +798,88 @@ export function ScoutDeckSurface() {
       </div>
     </main>
   );
+}
+
+function VoiceMicIcon() {
+  return (
+    <svg className="scout-deck__mic-icon" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="11" y="4" width="10" height="16" rx="5" />
+      <path d="M7.5 15.5v.8a8.5 8.5 0 0 0 17 0v-.8M16 24.8V29M11.5 29h9" />
+    </svg>
+  );
+}
+
+function VoiceSpeakerIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M3.5 8h3l4-3.2v10.4L6.5 12h-3zM13.3 7.2a4 4 0 0 1 0 5.6M15.6 5a7 7 0 0 1 0 10" />
+    </svg>
+  );
+}
+
+function voiceHeadline(state: NativeVoiceSnapshot["input"]["state"], isRunning: boolean): string {
+  if (state === "listening") return "Listening · tap mic to finish";
+  if (state === "transcribing") return "Transcribing · tap mic to cancel";
+  if (state === "preparing") return "Preparing native voice";
+  if (state === "unavailable") return "Voice needs attention";
+  return isRunning ? "Voice command · steer active turn" : "Voice command · start new turn";
+}
+
+function voiceMicLabel(state: NativeVoiceSnapshot["input"]["state"]): string {
+  if (state === "listening") return "finish";
+  if (state === "transcribing") return "cancel";
+  if (state === "preparing") return "warming";
+  if (state === "unavailable") return "try again";
+  return "tap to talk";
+}
+
+function voiceCaption(voice: NativeVoiceSnapshot, available: boolean): string {
+  if (!available) return "Native voice becomes available inside the Scout iPad app.";
+  if (voice.input.state === "listening") return voice.input.partialText || "Listening — speak naturally.";
+  if (voice.input.state === "transcribing") return "Resolving the final transcript on device…";
+  if (voice.input.state === "preparing") return "Warming Parakeet; Apple Speech remains available as fallback.";
+  if (voice.input.state === "unavailable") return voice.input.unavailableReason || "Microphone access is unavailable.";
+  return `Ready · ${voice.input.modelReady ? "Parakeet on device" : "Apple Speech fallback"}`;
+}
+
+function voiceReadout(state: NativeVoiceSnapshot["input"]["state"]): string {
+  if (state === "listening") return "listening";
+  if (state === "transcribing") return "processing";
+  if (state === "preparing") return "warming";
+  if (state === "unavailable") return "blocked";
+  return "ready";
+}
+
+function composerPlaceholder(
+  adapterAvailable: boolean,
+  isRunning: boolean,
+  voiceState: NativeVoiceSnapshot["input"]["state"],
+): string {
+  if (!adapterAvailable) return "This lane needs its own native adapter before it can be controlled.";
+  if (voiceState === "listening") return "Speak naturally; the final transcript lands here…";
+  if (voiceState === "transcribing") return "Finishing your transcript…";
+  return isRunning ? "Say or type a redirect for this active turn…" : "Say or type what this Codex thread should do next…";
+}
+
+function appendDictation(current: string, phrase: string): string {
+  const next = phrase.trim();
+  if (!next) return current;
+  if (!current.trim()) return next;
+  return `${current}${/\s$/.test(current) ? "" : " "}${next}`;
+}
+
+function latestSpeakableBlock(thread: CodexDeckThreadSnapshot | null): { id: string; text: string } | null {
+  const turns = thread?.snapshot?.turns ?? [];
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex];
+    if (!turn || turn.isUserTurn || turn.status !== "completed") continue;
+    for (let blockIndex = turn.blocks.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const state = turn.blocks[blockIndex];
+      const text = state?.block.type === "text" ? blockTitle(state.block) : "";
+      if (state?.status === "completed" && text) return { id: state.block.id, text };
+    }
+  }
+  return null;
 }
 
 function ThreadViewport({

@@ -19,6 +19,9 @@ The surface consumes the existing typed Scout iOS bridge:
 - `agents.list` for the host-scoped lane bank;
 - `tail.recent` for the shared five-minute activity signal;
 - `native.setLaneSelection` for one explicit selected host and agent route;
+- `native.voice.snapshot` and `native.voice.toggleInput` for the app's shared
+  on-device dictation controller;
+- `native.voice.speak` and `native.voice.stopOutput` for response playback;
 - `codex.thread.snapshot` and `codex.thread.connect` for a selected native
   Codex session;
 - `codex.turn.start`, `codex.turn.steer`, and `codex.turn.interrupt` for direct
@@ -79,12 +82,29 @@ instead of being simulated in the web surface. Non-Codex lanes show their
 signal and history but identify the controller as unavailable until an
 equivalent native adapter exists.
 
+## Voice loop
+
+Voice is a primary Deck control, not a keyboard accessory. The command strip
+has a persistent, high-contrast microphone: tap once to listen, tap again to
+finalize, then review or edit the transcript before Start/Steer. Listening,
+model preparation, transcription, denial, and idle are distinct visible states.
+The live partial transcript comes from Apple Speech; the final prefers the
+existing on-device Parakeet/Vox engine when it is warm.
+
+Voice out is armed independently. A newly completed assistant text block can be
+read with native system speech, while existing history is marked as already
+seen so opening a lane never replays old output. Starting dictation stops current
+speech to prevent the iPad from transcribing itself. The pulsing microphone ring
+only represents capture state; it is intentionally not presented as a real
+amplitude meter.
+
 ## Preview and offline states
 
 During native-surface development:
 
 ```text
 /lanes/index.html?preview=1  populated design fixture
+/lanes/index.html?preview=1&voice=listening  active dictation fixture
 /lanes/index.html?offline=1  bundled page without a native bridge
 ```
 
@@ -96,6 +116,8 @@ render the complete standing-by shell and wait for a paired host.
 - `docs/eng/artifacts/scout-deck-control-surface/deck-native-ipad-landscape.png`
 - `docs/eng/artifacts/scout-deck-control-surface/deck-native-ipad-offline.png`
 - `docs/eng/artifacts/scout-deck-control-surface/deck-codex-controller-ipad-landscape.png`
+- `docs/eng/artifacts/scout-deck-control-surface/deck-voice-idle-ipad-landscape.png`
+- `docs/eng/artifacts/scout-deck-control-surface/deck-voice-listening-ipad-landscape.png`
 
 ## Verification
 

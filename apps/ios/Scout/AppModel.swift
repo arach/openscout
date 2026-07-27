@@ -17,7 +17,7 @@ extension HudDictation {
         case .listening:
             toggle()
         case .transcribing:
-            break
+            cancel()
         case .idle, .preparing, .unavailable:
             prepare()
             toggle()

@@ -98,6 +98,12 @@ export class NativeScoutSurfaceClient implements ScoutSurfaceClient {
     cancel: async (requestId: RequestId) => {
       await this.request("native.cancel", { requestId });
     },
+    voice: {
+      snapshot: () => this.request("native.voice.snapshot", {}),
+      toggleInput: () => this.request("native.voice.toggleInput", {}),
+      speak: (text: string) => this.request("native.voice.speak", { text }),
+      stopOutput: () => this.request("native.voice.stopOutput", {}),
+    },
   };
 
   selectedScope(): HostScope {

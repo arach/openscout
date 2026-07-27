@@ -19,6 +19,10 @@ export const SCOUT_SURFACE_METHODS = [
   "native.getPreferences",
   "native.setPreferences",
   "native.cancel",
+  "native.voice.snapshot",
+  "native.voice.toggleInput",
+  "native.voice.speak",
+  "native.voice.stopOutput",
   "agents.list",
   "agents.observe",
   "tail.recent",
@@ -251,6 +255,23 @@ export type CodexDeckActionReceipt = {
   mode: "start" | "steer" | "interrupt";
 };
 
+export type NativeVoiceInputState = "idle" | "preparing" | "listening" | "transcribing" | "unavailable";
+
+export type NativeVoiceSnapshot = {
+  input: {
+    state: NativeVoiceInputState;
+    partialText: string;
+    finalText: string;
+    finalCount: number;
+    engine: "parakeet" | "apple";
+    modelReady: boolean;
+    unavailableReason: string | null;
+  };
+  output: {
+    speaking: boolean;
+  };
+};
+
 export type HostAgentSnapshot = {
   cursor: StreamCursor;
   agents: readonly SurfaceAgent[];
@@ -376,6 +397,10 @@ export type ScoutSurfaceMethodContract = {
   };
   "native.setPreferences": { params: SurfacePreferences; result: SurfaceAck };
   "native.cancel": { params: { requestId: RequestId }; result: SurfaceAck };
+  "native.voice.snapshot": { params: EmptyParams; result: NativeVoiceSnapshot };
+  "native.voice.toggleInput": { params: EmptyParams; result: NativeVoiceSnapshot };
+  "native.voice.speak": { params: { text: string }; result: NativeVoiceSnapshot };
+  "native.voice.stopOutput": { params: EmptyParams; result: NativeVoiceSnapshot };
   "agents.list": { params: EmptyParams; result: FleetAgentSnapshot };
   "agents.observe": { params: { agentIds: readonly string[] }; result: FleetObserveSnapshot };
   "tail.recent": { params: { cursor?: string; limit?: number }; result: FleetTailSnapshot };
@@ -526,6 +551,12 @@ export interface ScoutSurfaceClient {
     getPreferences(keys: readonly SurfacePreferenceKey[]): Promise<SurfacePreferences>;
     setPreferences(values: SurfacePreferences): Promise<void>;
     cancel(requestId: RequestId): Promise<void>;
+    voice: {
+      snapshot(): Promise<NativeVoiceSnapshot>;
+      toggleInput(): Promise<NativeVoiceSnapshot>;
+      speak(text: string): Promise<NativeVoiceSnapshot>;
+      stopOutput(): Promise<NativeVoiceSnapshot>;
+    };
   };
 }
 
@@ -543,6 +574,10 @@ export const SCOUT_SURFACE_METHOD_POLICY = {
   "native.getPreferences": { surfaces: SHARED_SURFACES, defaultDeadlineMs: 2_000, maximumDeadlineMs: 5_000 },
   "native.setPreferences": { surfaces: SHARED_SURFACES, defaultDeadlineMs: 2_000, maximumDeadlineMs: 5_000 },
   "native.cancel": { surfaces: SHARED_SURFACES, defaultDeadlineMs: 1_000, maximumDeadlineMs: 2_000 },
+  "native.voice.snapshot": { surfaces: ["lanes"], defaultDeadlineMs: 1_000, maximumDeadlineMs: 2_000 },
+  "native.voice.toggleInput": { surfaces: ["lanes"], defaultDeadlineMs: 2_000, maximumDeadlineMs: 5_000 },
+  "native.voice.speak": { surfaces: ["lanes"], defaultDeadlineMs: 2_000, maximumDeadlineMs: 5_000 },
+  "native.voice.stopOutput": { surfaces: ["lanes"], defaultDeadlineMs: 1_000, maximumDeadlineMs: 2_000 },
   "agents.list": { surfaces: ["lanes"], defaultDeadlineMs: 10_000, maximumDeadlineMs: 20_000 },
   "agents.observe": { surfaces: ["lanes"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },
   "tail.recent": { surfaces: ["lanes"], defaultDeadlineMs: 15_000, maximumDeadlineMs: 30_000 },

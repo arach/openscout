@@ -14,6 +14,10 @@
       "tail.recent",
       "tail.subscribe",
       "native.setLaneSelection",
+      "native.voice.snapshot",
+      "native.voice.toggleInput",
+      "native.voice.speak",
+      "native.voice.stopOutput",
       "codex.thread.snapshot",
       "codex.thread.connect",
       "codex.turn.start",
@@ -125,6 +129,36 @@
       "params": {
         "requestId": "request-observe"
       }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-snapshot",
+      "surface": "lanes",
+      "method": "native.voice.snapshot",
+      "params": {}
+    },
+    {
+      "v": 1,
+      "id": "request-voice-toggle",
+      "surface": "lanes",
+      "method": "native.voice.toggleInput",
+      "params": {}
+    },
+    {
+      "v": 1,
+      "id": "request-voice-speak",
+      "surface": "lanes",
+      "method": "native.voice.speak",
+      "params": {
+        "text": "The controller is ready."
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-stop",
+      "surface": "lanes",
+      "method": "native.voice.stopOutput",
+      "params": {}
     },
     {
       "v": 1,
@@ -327,6 +361,10 @@
           "tail.recent",
           "tail.subscribe",
           "native.setLaneSelection",
+          "native.voice.snapshot",
+          "native.voice.toggleInput",
+          "native.voice.speak",
+          "native.voice.stopOutput",
           "codex.thread.snapshot",
           "codex.thread.connect",
           "codex.turn.start",
@@ -415,6 +453,94 @@
       },
       "result": {
         "accepted": true
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-snapshot",
+      "method": "native.voice.snapshot",
+      "metadata": {
+        "appliedDeadlineMs": 1000
+      },
+      "result": {
+        "input": {
+          "state": "idle",
+          "partialText": "",
+          "finalText": "Inspect the bridge and run the focused tests.",
+          "finalCount": 3,
+          "engine": "parakeet",
+          "modelReady": true,
+          "unavailableReason": null
+        },
+        "output": {
+          "speaking": false
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-toggle",
+      "method": "native.voice.toggleInput",
+      "metadata": {
+        "appliedDeadlineMs": 2000
+      },
+      "result": {
+        "input": {
+          "state": "idle",
+          "partialText": "",
+          "finalText": "Inspect the bridge and run the focused tests.",
+          "finalCount": 3,
+          "engine": "parakeet",
+          "modelReady": true,
+          "unavailableReason": null
+        },
+        "output": {
+          "speaking": false
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-speak",
+      "method": "native.voice.speak",
+      "metadata": {
+        "appliedDeadlineMs": 2000
+      },
+      "result": {
+        "input": {
+          "state": "idle",
+          "partialText": "",
+          "finalText": "Inspect the bridge and run the focused tests.",
+          "finalCount": 3,
+          "engine": "parakeet",
+          "modelReady": true,
+          "unavailableReason": null
+        },
+        "output": {
+          "speaking": false
+        }
+      }
+    },
+    {
+      "v": 1,
+      "id": "request-voice-stop",
+      "method": "native.voice.stopOutput",
+      "metadata": {
+        "appliedDeadlineMs": 1000
+      },
+      "result": {
+        "input": {
+          "state": "idle",
+          "partialText": "",
+          "finalText": "Inspect the bridge and run the focused tests.",
+          "finalCount": 3,
+          "engine": "parakeet",
+          "modelReady": true,
+          "unavailableReason": null
+        },
+        "output": {
+          "speaking": false
+        }
       }
     },
     {

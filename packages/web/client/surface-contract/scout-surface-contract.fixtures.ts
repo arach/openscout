@@ -5,6 +5,7 @@ import {
   type FleetObserveSnapshot,
   type FleetTailSnapshot,
   type CodexDeckThreadSnapshot,
+  type NativeVoiceSnapshot,
   type ScoutSurfaceErrorReply,
   type ScoutSurfacePush,
   type ScoutSurfaceRequest,
@@ -40,6 +41,10 @@ const bootstrap = {
     "tail.recent",
     "tail.subscribe",
     "native.setLaneSelection",
+    "native.voice.snapshot",
+    "native.voice.toggleInput",
+    "native.voice.speak",
+    "native.voice.stopOutput",
     "codex.thread.snapshot",
     "codex.thread.connect",
     "codex.turn.start",
@@ -206,6 +211,19 @@ const codexThread = {
 
 const codexRoute = { hostId: "host_7d3a91", agentId: "agent-codex" } as const;
 
+const nativeVoice = {
+  input: {
+    state: "idle",
+    partialText: "",
+    finalText: "Inspect the bridge and run the focused tests.",
+    finalCount: 3,
+    engine: "parakeet",
+    modelReady: true,
+    unavailableReason: null,
+  },
+  output: { speaking: false },
+} as const satisfies NativeVoiceSnapshot;
+
 export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
   bootstrap,
   preferences,
@@ -239,6 +257,10 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
       method: "native.cancel",
       params: { requestId: "request-observe" },
     },
+    { v: 1, id: "request-voice-snapshot", surface: "lanes", method: "native.voice.snapshot", params: {} },
+    { v: 1, id: "request-voice-toggle", surface: "lanes", method: "native.voice.toggleInput", params: {} },
+    { v: 1, id: "request-voice-speak", surface: "lanes", method: "native.voice.speak", params: { text: "The controller is ready." } },
+    { v: 1, id: "request-voice-stop", surface: "lanes", method: "native.voice.stopOutput", params: {} },
     {
       v: 1,
       id: "request-agents",
@@ -332,6 +354,10 @@ export const SCOUT_SURFACE_V1_GOLDEN_FIXTURES = {
     { v: 1, id: "request-get-preferences", method: "native.getPreferences", metadata: { appliedDeadlineMs: 2_000 }, result: preferences },
     { v: 1, id: "request-set-preferences", method: "native.setPreferences", metadata: { appliedDeadlineMs: 2_000 }, result: { accepted: true } },
     { v: 1, id: "request-cancel", method: "native.cancel", metadata: { appliedDeadlineMs: 1_000 }, result: { accepted: true } },
+    { v: 1, id: "request-voice-snapshot", method: "native.voice.snapshot", metadata: { appliedDeadlineMs: 1_000 }, result: nativeVoice },
+    { v: 1, id: "request-voice-toggle", method: "native.voice.toggleInput", metadata: { appliedDeadlineMs: 2_000 }, result: nativeVoice },
+    { v: 1, id: "request-voice-speak", method: "native.voice.speak", metadata: { appliedDeadlineMs: 2_000 }, result: nativeVoice },
+    { v: 1, id: "request-voice-stop", method: "native.voice.stopOutput", metadata: { appliedDeadlineMs: 1_000 }, result: nativeVoice },
     { v: 1, id: "request-agents", method: "agents.list", metadata: { appliedDeadlineMs: 10_000 }, result: agentSnapshot },
     { v: 1, id: "request-observe", method: "agents.observe", metadata: { appliedDeadlineMs: 15_000 }, result: observeSnapshot },
     { v: 1, id: "request-tail-recent", method: "tail.recent", metadata: { appliedDeadlineMs: 15_000 }, result: tailSnapshot },
