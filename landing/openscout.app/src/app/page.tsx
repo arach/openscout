@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, Copy, ExternalLink, FileText, SquareTerminal, X } from "lucide-react";
+import { Check, Copy, ExternalLink, SquareTerminal, X } from "lucide-react";
 import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { LogoMark } from "@/components/logo-mark";
@@ -654,40 +654,22 @@ function AgentInstallHandoff() {
                 aria-describedby="agent-handoff-description"
               >
                 <header className="agent-handoff__header">
-                  <h2 id="agent-handoff-title">Hand off the Scout install</h2>
+                  <h2 id="agent-handoff-title">Install Scout with your agent</h2>
                   <button
                     ref={closeButtonRef}
                     type="button"
                     onClick={() => setOpen(false)}
                     className="agent-handoff__close"
-                    aria-label="Close install handoff"
+                    aria-label="Close agent install"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </header>
 
                 <div className="agent-handoff__body">
-                  <div className="agent-handoff__mode" aria-label="Handoff destination">
-                    <SquareTerminal className="h-3.5 w-3.5" aria-hidden="true" />
-                    Local agent
-                  </div>
-
-                  <div className="agent-handoff__source">
-                    <div className="agent-handoff__source-name">
-                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>install.md</span>
-                    </div>
-                    <a href="/install.md" target="_blank" rel="noreferrer">
-                      View guide
-                    </a>
-                  </div>
                   <p id="agent-handoff-description" className="agent-handoff__description">
-                    This prompt tells your coding agent what Scout is and how to install and verify it.
+                    Paste this into a new chat with your coding agent to install Scout and verify the broker.
                   </p>
-                </div>
-
-                <footer className="agent-handoff__footer">
-                  <p>Paste it into a new chat in Claude Code, Codex, Cursor, or your coding agent.</p>
                   <button
                     type="button"
                     onClick={copyPrompt}
@@ -698,9 +680,9 @@ function AgentInstallHandoff() {
                     ) : (
                       <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
-                    {copied ? "Copied" : "Copy prompt"}
+                    {copied ? "Copied" : "Copy install prompt"}
                   </button>
-                </footer>
+                </div>
 
                 {copyError ? (
                   <p className="agent-handoff__error" role="alert">
@@ -712,7 +694,7 @@ function AgentInstallHandoff() {
                   <section className="agent-handoff__copied" aria-live="polite">
                     <div className="agent-handoff__copied-label">
                       <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                      Copied — paste it into your agent
+                      Copied — paste it into a new agent chat
                     </div>
                     <pre><code>{copiedPrompt}</code></pre>
                   </section>
