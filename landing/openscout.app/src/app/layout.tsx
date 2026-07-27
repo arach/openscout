@@ -22,11 +22,11 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Scout — Local Agent Broker",
+  title: "Scout — Agent-installable local control plane",
   metadataBase: new URL("https://openscout.app"),
   manifest: "/site.webmanifest",
   description:
-    "Broker-backed local communication and execution for AI agents. Durable conversations, explicit invocations, tracked flights, bridges, a native Mac app, and a local web dashboard.",
+    "Give your coding agent one canonical install brief. It can inspect the local footprint, install Scout, start the broker, and verify a healthy local setup.",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Scout",
-    description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
+    description: "One canonical install brief for your coding agent, then one local control plane for every agent and session.",
     url: "https://openscout.app",
     siteName: "Scout",
     type: "website",
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Scout",
-    description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
+    description: "One canonical install brief for your coding agent, then one local control plane for every agent and session.",
     images: ["/og.png"],
   },
 };

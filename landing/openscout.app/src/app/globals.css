@@ -420,6 +420,26 @@ html[data-site-theme="dark"] .dot-grid {
   text-decoration-color: currentColor;
 }
 
+.operator-install-link {
+  align-items: center;
+  min-height: 32px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--site-header-ink);
+  border-radius: 8px;
+  background: var(--site-header-ink);
+  color: var(--site-header-bg);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.operator-install-link:hover {
+  border-color: #ffffff;
+  background: #ffffff;
+}
+
 /* Skip link — visually hidden until keyboard focus. */
 .skip-link {
   position: fixed;
@@ -818,9 +838,291 @@ html[data-site-theme="dark"] .hero-editorial::before {
 .hero-sub {
   font-size: clamp(14px, 1.2vw, 15.5px);
   line-height: 1.6;
-  max-width: 48ch;
+  max-width: 56ch;
   margin-top: 1.25rem;
   color: var(--site-copy);
+}
+
+/* Agent-first handoff: the hero's primary action is a complete, safe install
+   brief that can move from this page into any coding-agent composer unchanged. */
+.agent-handoff {
+  margin-top: 1.5rem;
+  width: 100%;
+  max-width: 34rem;
+  border: 1px solid var(--site-border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--site-surface);
+}
+
+.agent-handoff__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  gap: 1rem;
+  padding-left: 0.85rem;
+  border-bottom: 1px solid var(--site-border);
+  background: var(--site-panel-muted);
+  color: var(--site-muted);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-handoff__copy {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.85rem;
+  border: 0;
+  border-left: 1px solid var(--site-ink);
+  background: var(--site-ink);
+  color: var(--site-ink-contrast);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.agent-handoff__copy:hover {
+  background: var(--site-ink-hover);
+}
+
+.agent-handoff__prompt {
+  margin: 0;
+  padding: 1rem 1.05rem 1.1rem;
+  color: var(--site-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.agent-handoff__route {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--site-border);
+  list-style: none;
+}
+
+.agent-handoff__route li {
+  min-width: 0;
+  padding: 0.65rem 0.55rem;
+  border-left: 1px solid var(--site-border);
+  color: var(--site-copy);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.agent-handoff__route li:first-child {
+  border-left: 0;
+}
+
+.agent-handoff__route span {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--site-accent);
+  font-size: 9.5px;
+}
+
+.agent-handoff__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  padding: 0.7rem 1.05rem 0.75rem;
+  border-top: 1px solid var(--site-border);
+  background: var(--site-panel-muted);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+}
+
+.agent-handoff__links a,
+.hero-human-path a {
+  color: var(--site-copy);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.agent-handoff__links a:hover,
+.hero-human-path a:hover {
+  color: var(--site-ink);
+}
+
+.hero-human-path {
+  max-width: 62ch;
+  margin: 0.85rem 0 0;
+  color: var(--site-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The right half is an expected-run trace, deliberately labeled as such. It
+   proves the full completion contract without pretending to be a live install. */
+.agent-install-proof {
+  overflow: hidden;
+  border: 1px solid #24262a;
+  border-radius: 12px;
+  background: #101112;
+  color: #f4f1e8;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+.agent-install-proof__chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 0.9rem;
+  border-bottom: 1px solid rgba(244, 241, 232, 0.14);
+  color: rgba(244, 241, 232, 0.46);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-install-proof__dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.agent-install-proof__dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(244, 241, 232, 0.22);
+}
+
+.agent-install-proof__dots i:first-child {
+  background: var(--site-accent);
+}
+
+.agent-install-proof__body {
+  padding: 1rem 1rem 1.1rem;
+}
+
+.agent-install-proof__intro {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.15rem 0 1rem;
+  border-bottom: 1px solid rgba(244, 241, 232, 0.14);
+}
+
+.agent-install-proof__intro span,
+.agent-install-proof__step {
+  color: #f4b860;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-install-proof__intro strong {
+  max-width: 34ch;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.agent-install-proof ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-install-proof li {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid rgba(244, 241, 232, 0.1);
+}
+
+.agent-install-proof__index {
+  padding-top: 0.05rem;
+  color: rgba(244, 241, 232, 0.32);
+  font-size: 10px;
+}
+
+.agent-install-proof li > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  min-width: 0;
+}
+
+.agent-install-proof__step {
+  grid-column: 1 / -1;
+}
+
+.agent-install-proof code {
+  overflow: hidden;
+  color: rgba(244, 241, 232, 0.88);
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-install-proof__result {
+  color: #8fc68a;
+  font-size: 9.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.agent-install-proof figcaption {
+  padding-top: 0.85rem;
+  color: rgba(244, 241, 232, 0.48);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .agent-handoff__bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+    padding-left: 0;
+  }
+
+  .agent-handoff__bar > span {
+    padding: 0.7rem 0.85rem;
+  }
+
+  .agent-handoff__copy {
+    justify-content: center;
+    min-height: 40px;
+    border-top: 1px solid var(--site-border);
+    border-left: 0;
+  }
+
+  .agent-handoff__route {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-handoff__route li:nth-child(3) {
+    border-top: 1px solid var(--site-border);
+    border-left: 0;
+  }
+
+  .agent-handoff__route li:nth-child(4) {
+    border-top: 1px solid var(--site-border);
+  }
+
+  .agent-install-proof li > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-install-proof__result {
+    text-align: left;
+  }
 }
 
 /* Neutrality triad — a small mono "spec stamp" under the sub. The three axes
