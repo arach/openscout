@@ -1,7 +1,10 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 import HudsonUIWeb
+import HudsonVoice
 import ScoutCapabilities
+import ScoutIOSCore
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -10,6 +13,7 @@ import UIKit
 final class ScoutWebSurfaceBridge {
     enum Surface: String {
         case lanes
+        case deck
         case dispatch
     }
 
@@ -31,11 +35,20 @@ final class ScoutWebSurfaceBridge {
         "native.getPreferences": ["keys"],
         "native.setPreferences": ["entries"],
         "native.cancel": ["requestId"],
+        "native.voice.snapshot": [],
+        "native.voice.toggleInput": [],
+        "native.voice.speak": ["text"],
+        "native.voice.stopOutput": [],
         "agents.list": [],
         "agents.observe": ["agentIds"],
         "tail.recent": ["cursor", "limit"],
         "tail.subscribe": ["cursor"],
         "native.setLaneSelection": ["selection"],
+        "codex.thread.snapshot": ["route"],
+        "codex.thread.connect": ["route"],
+        "codex.turn.start": ["route", "text"],
+        "codex.turn.steer": ["route", "text"],
+        "codex.turn.interrupt": ["route"],
         "dispatch.diagnostics": ["cursor", "limit"],
         "dispatch.subscribe": ["cursor"],
         "dispatch.ask": ["route", "body", "replyMode"],
@@ -45,24 +58,33 @@ final class ScoutWebSurfaceBridge {
     private weak var model: AppModel?
     private let surface: Surface
     private let selectedMachineIds: Set<String>?
+    private let enablesDeckControls: Bool
     private let epoch = UUID().uuidString.lowercased()
-    private var activity: HudWebViewActivity = .hiddenWarm
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var activity: ScoutWebViewActivity = .hiddenWarm
     private var tasks: [String: Task<Void, Never>] = [:]
+    private var selectedLane: ScoutLaneSelection?
     /// Lane selections from the embedded lanes surface, validated and resolved
     /// against the fleet (host client + agent name) so the host view can open
     /// the conversation natively. `nil` means the embed cleared its selection.
     var onLaneSelection: ((ScoutLaneSelection?) -> Void)?
 
-    init(model: AppModel, surface: Surface, selectedMachineIds: Set<String>? = nil) {
+    init(
+        model: AppModel,
+        surface: Surface,
+        selectedMachineIds: Set<String>? = nil,
+        enablesDeckControls: Bool = false
+    ) {
         self.model = model
         self.surface = surface
         self.selectedMachineIds = selectedMachineIds
+        self.enablesDeckControls = enablesDeckControls
     }
 
-    lazy var integration: HudWebViewIntegration = {
-        let integration = HudWebViewIntegration(
-            userScripts: [HudWebViewUserScript(source: bootstrapScript())],
-            messageHandlers: [HudWebViewMessageHandler(name: Self.handlerName) { [weak self] body, reply in
+    lazy var integration: ScoutWebViewIntegration = {
+        let integration = ScoutWebViewIntegration(
+            userScripts: [ScoutWebViewUserScript(source: bootstrapScript())],
+            messageHandlers: [ScoutWebViewMessageHandler(name: Self.handlerName) { [weak self] body, reply in
                 self?.handle(body: body, reply: reply)
             }],
             onActivityChange: { [weak self] activity in
@@ -87,7 +109,7 @@ final class ScoutWebSurfaceBridge {
         """
     }
 
-    private func handle(body: Any, reply: HudWebViewReply) {
+    private func handle(body: Any, reply: ScoutWebViewReply) {
         guard let object = body as? [String: Any],
               Set(object.keys).isSubset(of: Self.allowedEnvelopeKeys),
               JSONSerialization.isValidJSONObject(object),
@@ -108,6 +130,10 @@ final class ScoutWebSurfaceBridge {
         }
         guard let allowedParameterKeys = Self.parameterKeys[request.method] else {
             reply.succeed(errorReply(request, code: "unsupported_method", message: "Method is not allowlisted."))
+            return
+        }
+        guard enabledCapabilities.contains(request.method) else {
+            reply.succeed(errorReply(request, code: "unsupported_capability", message: "Method is unavailable on this surface."))
             return
         }
         guard let parameters = object["params"] as? [String: Any],
@@ -166,11 +192,67 @@ final class ScoutWebSurfaceBridge {
             }
             openExternalURL(url)
             reply.succeed(successReply(request, result: ["accepted": true], deadline: deadline))
+        case "native.voice.snapshot":
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.toggleInput":
+            toggleVoiceInput()
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.speak":
+            guard let text = request.params?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty,
+                  text.utf8.count <= 65_536 else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "text is required.", deadline: deadline))
+                return
+            }
+            speakVoiceOutput(text)
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
+        case "native.voice.stopOutput":
+            speechSynthesizer.stopSpeaking(at: .immediate)
+            reply.succeed(successReply(request, result: voiceSnapshot(), deadline: deadline))
         case "native.setLaneSelection":
             perform(request: request, reply: reply, deadline: deadline) { [weak self] in
                 guard let self else { throw SurfaceBridgeError.cancelled }
                 try await self.setLaneSelection(request.params?.selection)
                 return ["accepted": true]
+            }
+        case "codex.thread.snapshot", "codex.thread.connect":
+            guard let route = request.params?.route else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "route is required.", deadline: deadline))
+                return
+            }
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                let client = try self.authorizedCodexClient(for: route)
+                let result = request.method == "codex.thread.connect"
+                    ? try await client.codexDeckConnect(agentId: route.agentId)
+                    : try await client.codexDeckSnapshot(agentId: route.agentId)
+                return try self.encodableJSONObject(result)
+            }
+        case "codex.turn.start", "codex.turn.steer":
+            guard let route = request.params?.route,
+                  let text = request.params?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty,
+                  text.utf8.count <= 65_536 else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "route and text are required.", deadline: deadline))
+                return
+            }
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                let client = try self.authorizedCodexClient(for: route)
+                let result = request.method == "codex.turn.steer"
+                    ? try await client.codexDeckSteer(agentId: route.agentId, text: text)
+                    : try await client.codexDeckStart(agentId: route.agentId, text: text)
+                return try self.encodableJSONObject(result)
+            }
+        case "codex.turn.interrupt":
+            guard let route = request.params?.route else {
+                reply.succeed(errorReply(request, code: "invalid_params", message: "route is required.", deadline: deadline))
+                return
+            }
+            perform(request: request, reply: reply, deadline: deadline) { [weak self] in
+                guard let self else { throw SurfaceBridgeError.cancelled }
+                let client = try self.authorizedCodexClient(for: route)
+                return try self.encodableJSONObject(try await client.codexDeckInterrupt(agentId: route.agentId))
             }
         default:
             reply.succeed(errorReply(
@@ -184,7 +266,7 @@ final class ScoutWebSurfaceBridge {
 
     private func perform(
         request: RequestEnvelope,
-        reply: HudWebViewReply,
+        reply: ScoutWebViewReply,
         deadline: Int,
         operation: @escaping @MainActor () async throws -> Any
     ) {
@@ -200,6 +282,8 @@ final class ScoutWebSurfaceBridge {
                 reply.succeed(self?.errorReply(request, code: "cancelled", message: "Request cancelled.", deadline: deadline))
             } catch SurfaceBridgeError.invalidRoute {
                 reply.succeed(self?.errorReply(request, code: "invalid_route", message: "Host scope is invalid.", deadline: deadline))
+            } catch SurfaceBridgeError.unsupportedCapability {
+                reply.succeed(self?.errorReply(request, code: "unsupported_capability", message: "The selected route does not expose the Codex app-server Deck adapter.", deadline: deadline))
             } catch {
                 reply.succeed(self?.errorReply(request, code: "not_connected", message: error.localizedDescription, deadline: deadline))
             }
@@ -241,6 +325,7 @@ final class ScoutWebSurfaceBridge {
                 machine.isOnline && (selectedMachineIds?.contains(machine.machineId) ?? true)
             }
             .map { hostId(for: $0.machineId) }
+        let focusedHostId = machines.first(where: \.isFocused).map { hostId(for: $0.machineId) }
         let revision = model?.fleetRevision ?? 0
         return [
             "surface": surface.rawValue,
@@ -252,6 +337,7 @@ final class ScoutWebSurfaceBridge {
             "device": ["platform": "ios", "formFactor": UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "phone"],
             "hosts": hosts,
             "selectedHostIds": selected,
+            "focusedHostId": focusedHostId ?? NSNull(),
             "connectionRevision": revision,
             "activity": activity.rawValue,
         ]
@@ -263,6 +349,13 @@ final class ScoutWebSurfaceBridge {
             return [
                 "bootstrap", "native.openExternalURL", "native.cancel", "agents.list",
                 "agents.observe", "tail.recent", "native.setLaneSelection",
+            ]
+        case .deck:
+            return [
+                "bootstrap", "native.openExternalURL", "native.cancel", "agents.list",
+                "agents.observe", "tail.recent", "native.setLaneSelection",
+                "native.voice.snapshot", "native.voice.toggleInput", "native.voice.speak", "native.voice.stopOutput",
+                "codex.thread.snapshot", "codex.thread.connect", "codex.turn.start", "codex.turn.steer", "codex.turn.interrupt",
             ]
         case .dispatch:
             return ["bootstrap", "native.openExternalURL", "native.cancel"]
@@ -394,6 +487,7 @@ final class ScoutWebSurfaceBridge {
 
     private func setLaneSelection(_ selection: LaneSelectionParams?) async throws {
         guard let selection else {
+            selectedLane = nil
             onLaneSelection?(nil)
             return
         }
@@ -416,7 +510,7 @@ final class ScoutWebSurfaceBridge {
         guard assertedConversationId == nil || assertedConversationId == canonicalConversationId else {
             throw SurfaceBridgeError.invalidRoute
         }
-        onLaneSelection?(ScoutLaneSelection(
+        let resolved = ScoutLaneSelection(
             machineId: machine.machineId,
             hostId: selection.hostId,
             hostName: machine.name,
@@ -425,7 +519,19 @@ final class ScoutWebSurfaceBridge {
             conversationId: canonicalConversationId,
             sessionId: agent.sessionId,
             client: client
-        ))
+        )
+        selectedLane = resolved
+        onLaneSelection?(resolved)
+    }
+
+    private func authorizedCodexClient(for route: CodexRouteRequest) throws -> BridgeBrokerClient {
+        guard enablesDeckControls,
+              selectedLane?.hostId == route.hostId,
+              selectedLane?.agentId == route.agentId,
+              let client = selectedLane?.client as? BridgeBrokerClient else {
+            throw SurfaceBridgeError.unsupportedCapability
+        }
+        return client
     }
 
     /// Post from the native Deck composer only after re-resolving the complete
@@ -469,6 +575,7 @@ final class ScoutWebSurfaceBridge {
             "name": agent.title,
             "handle": NSNull(),
             "harness": agent.harness as Any? ?? NSNull(),
+            "transport": agent.transport as Any? ?? NSNull(),
             "model": agent.model as Any? ?? NSNull(),
             "state": agent.state.rawValue,
             "projectRoot": agent.projectName as Any? ?? NSNull(),
@@ -549,8 +656,18 @@ final class ScoutWebSurfaceBridge {
     }
 
     private func appliedDeadline(for method: String, requested: Int?) -> Int {
-        let maximum = method == "agents.list" || method == "tail.recent" ? 30_000 : 5_000
-        let fallback = method == "agents.list" || method == "tail.recent" ? 15_000 : 5_000
+        if method == "native.voice.snapshot" || method == "native.voice.stopOutput" {
+            return min(max(requested ?? 1_000, 1), 2_000)
+        }
+        if method == "native.voice.toggleInput" || method == "native.voice.speak" {
+            return min(max(requested ?? 2_000, 1), 5_000)
+        }
+        let longRead = method == "agents.list"
+            || method == "tail.recent"
+            || method == "codex.thread.snapshot"
+            || method == "codex.thread.connect"
+        let maximum = longRead ? 30_000 : 5_000
+        let fallback = longRead ? 15_000 : 5_000
         return min(max(requested ?? fallback, 1), maximum)
     }
 
@@ -575,6 +692,79 @@ final class ScoutWebSurfaceBridge {
         #endif
     }
 
+    private func voiceSnapshot() -> [String: Any] {
+        guard let dictation = model?.dictation else {
+            return [
+                "input": [
+                    "state": "unavailable",
+                    "partialText": "",
+                    "finalText": "",
+                    "finalCount": 0,
+                    "engine": "apple",
+                    "modelReady": false,
+                    "unavailableReason": "Native dictation is unavailable.",
+                ],
+                "output": ["speaking": speechSynthesizer.isSpeaking],
+            ]
+        }
+
+        let state: String
+        let unavailableReason: Any
+        switch dictation.state {
+        case .idle:
+            state = "idle"
+            unavailableReason = NSNull()
+        case .preparing:
+            state = "preparing"
+            unavailableReason = NSNull()
+        case .listening:
+            state = "listening"
+            unavailableReason = NSNull()
+        case .transcribing:
+            state = "transcribing"
+            unavailableReason = NSNull()
+        case .unavailable(let reason):
+            state = "unavailable"
+            unavailableReason = reason
+        }
+
+        return [
+            "input": [
+                "state": state,
+                "partialText": dictation.partialText,
+                "finalText": dictation.finalText,
+                "finalCount": dictation.finalCount,
+                "engine": dictation.lastEngine.rawValue,
+                "modelReady": dictation.modelReady,
+                "unavailableReason": unavailableReason,
+            ],
+            "output": ["speaking": speechSynthesizer.isSpeaking],
+        ]
+    }
+
+    private func toggleVoiceInput() {
+        guard let dictation = model?.dictation else { return }
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        switch dictation.state {
+        case .listening:
+            dictation.stop()
+        case .transcribing:
+            dictation.cancel()
+        case .idle, .preparing, .unavailable:
+            dictation.prepare()
+            dictation.start()
+        }
+    }
+
+    private func speakVoiceOutput(_ text: String) {
+        speechSynthesizer.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.92
+        utterance.prefersAssistiveTechnologySettings = true
+        utterance.preUtteranceDelay = 0.04
+        speechSynthesizer.speak(utterance)
+    }
+
     private func cancelAll() {
         let current = tasks.values
         tasks.removeAll()
@@ -583,6 +773,11 @@ final class ScoutWebSurfaceBridge {
 
     private func jsonObject(_ value: Any) -> Any? {
         JSONSerialization.isValidJSONObject(value) ? value : nil
+    }
+
+    private func encodableJSONObject<T: Encodable>(_ value: T) throws -> Any {
+        let data = try JSONEncoder().encode(value)
+        return try JSONSerialization.jsonObject(with: data)
     }
 }
 private struct RequestEnvelope: Decodable {
@@ -602,6 +797,8 @@ private struct RequestParams: Decodable {
     let requestId: String?
     let selection: LaneSelectionParams?
     let url: String?
+    let route: CodexRouteRequest?
+    let text: String?
 }
 
 private struct LaneSelectionParams: Decodable {
@@ -609,6 +806,11 @@ private struct LaneSelectionParams: Decodable {
     let agentId: String
     let conversationId: String?
     let sessionId: String?
+}
+
+private struct CodexRouteRequest: Decodable {
+    let hostId: String
+    let agentId: String
 }
 
 /// A lane selection from the embedded lanes surface after bridge validation:
@@ -652,4 +854,5 @@ private enum ScoutDeckSendError: LocalizedError {
 private enum SurfaceBridgeError: Error {
     case cancelled
     case invalidRoute
+    case unsupportedCapability
 }

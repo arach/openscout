@@ -12,6 +12,8 @@ public struct SessionSummary: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var title: String
     public var harness: String?
+    /// Concrete host integration, separate from the user-facing harness family.
+    public var transport: String?
     public var preview: String?
     public var agentName: String?
     public var workspaceRoot: String?
@@ -23,6 +25,7 @@ public struct SessionSummary: Codable, Sendable, Identifiable, Equatable {
         id: String,
         title: String,
         harness: String? = nil,
+        transport: String? = nil,
         preview: String? = nil,
         agentName: String? = nil,
         workspaceRoot: String? = nil,
@@ -33,6 +36,7 @@ public struct SessionSummary: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.title = title
         self.harness = harness
+        self.transport = transport
         self.preview = preview
         self.agentName = agentName
         self.workspaceRoot = workspaceRoot
@@ -131,6 +135,8 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var title: String
     public var harness: String?
+    /// Concrete host integration, separate from the user-facing harness family.
+    public var transport: String?
     public var projectName: String?
     /// Current git branch of the agent's checkout (e.g. "feat/in-app-session").
     public var branch: String?
@@ -164,6 +170,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         id: String,
         title: String,
         harness: String? = nil,
+        transport: String? = nil,
         projectName: String? = nil,
         branch: String? = nil,
         git: GitState? = nil,
@@ -179,6 +186,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.title = title
         self.harness = harness
+        self.transport = transport
         self.projectName = projectName
         self.branch = branch
         self.git = git
@@ -193,7 +201,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, harness, projectName, branch, git, model
+        case id, title, harness, transport, projectName, branch, git, model
         case statusLabel, state, sessionId, conversationId, lastActiveAt
         case needsAttention, pendingAsk
     }
@@ -206,6 +214,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.id = try container.decode(String.self, forKey: .id)
         self.title = try container.decode(String.self, forKey: .title)
         self.harness = try container.decodeIfPresent(String.self, forKey: .harness)
+        self.transport = try container.decodeIfPresent(String.self, forKey: .transport)
         self.projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
         self.branch = try container.decodeIfPresent(String.self, forKey: .branch)
         self.git = try container.decodeIfPresent(GitState.self, forKey: .git)
