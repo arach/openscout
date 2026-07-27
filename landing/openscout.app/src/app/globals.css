@@ -1822,12 +1822,15 @@ html[data-site-theme="dark"] main > .section-band::before {
   height: 2rem;
   align-items: center;
   justify-content: center;
-  color: var(--site-ink-contrast);
-  background: var(--site-ink);
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  overflow: hidden;
+  background: #141413;
+}
+
+.harness-roster__logo {
+  display: block;
+  width: 1.45rem;
+  height: 1.45rem;
+  object-fit: contain;
 }
 
 .harness-roster__name {

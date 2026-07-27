@@ -148,11 +148,11 @@ const hostIntegrations: IntegrationCard[] = [
 ];
 
 const supportedHarnesses = [
-  { id: "claude", name: "Claude Code", mark: "CL" },
-  { id: "codex", name: "Codex", mark: "CX" },
-  { id: "cursor", name: "Cursor", mark: "CU" },
-  { id: "grok", name: "Grok", mark: "GR" },
-  { id: "pi", name: "pi", mark: "π" },
+  { id: "claude", name: "Claude Code", logoSrc: "/harnesses/claude.svg" },
+  { id: "codex", name: "Codex", logoSrc: "/harnesses/codex.svg" },
+  { id: "cursor", name: "Cursor", logoSrc: "/harnesses/cursor.svg" },
+  { id: "grok", name: "Grok", logoSrc: "/harnesses/grok.svg" },
+  { id: "pi", name: "pi", logoSrc: "/harnesses/pi.svg" },
 ] as const;
 
 type FaqEntry = {
@@ -1263,7 +1263,13 @@ export default function Home() {
                   {supportedHarnesses.map((harness) => (
                     <li key={harness.id} className="harness-roster__item">
                       <span className="harness-roster__mark" aria-hidden="true">
-                        {harness.mark}
+                        <img
+                          className="harness-roster__logo"
+                          src={harness.logoSrc}
+                          alt=""
+                          width="24"
+                          height="24"
+                        />
                       </span>
                       <span className="harness-roster__name">{harness.name}</span>
                     </li>
