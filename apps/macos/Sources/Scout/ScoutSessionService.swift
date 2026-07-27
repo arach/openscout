@@ -88,6 +88,7 @@ struct ScoutSessionComposer: View {
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
     @State private var messageBoxHovering = false
+    @State private var isProjectPanelPresented = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
     @ObservedObject private var voice = ScoutRemoteVoiceService.shared
@@ -138,7 +139,7 @@ struct ScoutSessionComposer: View {
         .onAppear { instructionsFocused = true }
         .background(
             ScoutSessionSubmitShortcutMonitor(
-                isActive: openDropdown == nil && !isSubmitting
+                isActive: openDropdown == nil && !isSubmitting && !isProjectPanelPresented
             ) {
                 submit()
             }
@@ -918,7 +919,10 @@ struct ScoutSessionComposer: View {
                     guard ScoutSessionSubmitPolicy.shouldSubmit(
                         isReturn: press.key == .return,
                         shift: press.modifiers.contains(.shift),
-                        option: press.modifiers.contains(.option)
+                        option: press.modifiers.contains(.option),
+                        composerOwnsReturn: openDropdown == nil
+                            && !isSubmitting
+                            && !isProjectPanelPresented
                     ) else { return .ignored }
                     submit()
                     return .handled
@@ -1274,6 +1278,9 @@ struct ScoutSessionComposer: View {
 
     private func chooseProjectDirectory() {
         #if os(macOS)
+        isProjectPanelPresented = true
+        defer { isProjectPanelPresented = false }
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -1352,11 +1359,13 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
+        context.coordinator.hostView = view
         context.coordinator.install()
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.hostView = view
         context.coordinator.isActive = isActive
         context.coordinator.onSubmit = onSubmit
         context.coordinator.install()
@@ -1366,9 +1375,11 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
         coordinator.uninstall()
     }
 
+    @MainActor
     final class Coordinator {
         var isActive: Bool
         var onSubmit: () -> Void
+        weak var hostView: NSView?
         private var monitor: Any?
 
         init(isActive: Bool, onSubmit: @escaping () -> Void) {
@@ -1376,18 +1387,12 @@ private struct ScoutSessionSubmitShortcutMonitor: NSViewRepresentable {
             self.onSubmit = onSubmit
         }
 
-        deinit {
-            uninstall()
-        }
-
         func install() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.isActive else { return event }
-                let isComposingText = MainActor.assumeIsolated {
-                    Self.isComposingText
-                }
-                guard !isComposingText else { return event }
+                guard self.hostView?.window === event.window else { return event }
+                guard !Self.isComposingText else { return event }
                 guard Self.isSubmitShortcut(event) else { return event }
                 self.onSubmit()
                 return nil

@@ -34,4 +34,16 @@ struct ScoutSessionSubmitPolicyTests {
             )
         )
     }
+
+    @Test
+    func anotherPresentedControlKeepsReturn() {
+        #expect(
+            !ScoutSessionSubmitPolicy.shouldSubmit(
+                isReturn: true,
+                shift: false,
+                option: false,
+                composerOwnsReturn: false
+            )
+        )
+    }
 }
