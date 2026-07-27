@@ -5,6 +5,7 @@ import type { AgentLaneWidthTier } from "./lane-deck.ts";
 const WIDTH_OPTIONS: AgentLaneWidthTier[] = ["sm", "md", "lg"];
 
 export function AgentLaneChrome({
+  channelNumber,
   title,
   width,
   defaultWidth,
@@ -18,6 +19,7 @@ export function AgentLaneChrome({
   statusLabel,
   live,
 }: {
+  channelNumber?: number;
   title: string;
   width: AgentLaneWidthTier | number | undefined;
   defaultWidth: AgentLaneWidthTier;
@@ -36,6 +38,11 @@ export function AgentLaneChrome({
     <div className={`s-agent-lane-chrome${resizing ? " s-agent-lane-chrome--resizing" : ""}`}>
       <div className="s-agent-lane-chrome-body">
         <div className="s-agent-lane-chrome-top">
+          {channelNumber ? (
+            <span className="s-agent-lane-chrome-channel" aria-hidden="true">
+              {String(channelNumber).padStart(2, "0")}
+            </span>
+          ) : null}
           <button
             type="button"
             className={`s-agent-lane-chrome-pin${pinned ? " s-agent-lane-chrome-pin--on" : ""}`}

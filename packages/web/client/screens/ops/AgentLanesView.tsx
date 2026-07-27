@@ -414,6 +414,7 @@ function AgentLanesEmptyState({
 }
 
 function AgentLaneColumn({
+  channelNumber,
   lane,
   widthPx,
   laneTitle,
@@ -438,6 +439,7 @@ function AgentLaneColumn({
   operatorName,
   grid = false,
 }: {
+  channelNumber?: number;
   lane: AgentLane;
   widthPx: number;
   laneTitle: string;
@@ -539,6 +541,7 @@ function AgentLaneColumn({
       {...laneFocusRest}
     >
       <AgentLaneChrome
+        channelNumber={channelNumber}
         title={laneTitle}
         width={laneWidth}
         defaultWidth={defaultWidth}
@@ -855,6 +858,16 @@ export function AgentLanesView({
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, [deckMenuOpen]);
 
+  const focusDeckChannel = useCallback((laneId: string) => {
+    const escapedLaneId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(laneId)
+      : laneId.replaceAll('"', '\\"');
+    const laneNode = document.querySelector<HTMLElement>(`[data-lane-id="${escapedLaneId}"]`);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    laneNode?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest", inline: "center" });
+    laneNode?.focus({ preventScroll: true });
+  }, []);
+
   const renderLaneColumn = useCallback((column: ResolvedLaneColumn, index: number, grid = false) => {
     const { lane } = column;
     const laneTitle = lanePrimaryLabel(lane.agent, lane.source);
@@ -862,6 +875,7 @@ export function AgentLanesView({
     return (
       <AgentLaneColumn
         key={column.key}
+        channelNumber={index + 1}
         lane={lane}
         widthPx={column.widthPx}
         laneTitle={laneTitle}
@@ -922,9 +936,13 @@ export function AgentLanesView({
     >
       <div className="s-agent-lanes-bar">
         <div className="s-agent-lanes-bar-leading">
-          <div className="s-agent-lanes-title">Agent Lanes</div>
+          <div className="s-agent-lanes-title-block">
+            <span className="s-agent-lanes-kicker">OPS / LIVE COORDINATION</span>
+            <h1 className="s-agent-lanes-title">Scout Deck</h1>
+          </div>
           <div className="s-agent-lanes-meta" aria-label="Lane deck status">
             <span className="s-agent-lanes-meta-stat">
+              <span className="s-agent-lanes-meta-lamp" aria-hidden="true" />
               {floorMode ? filteredLanes.length : visibleColumns.length} live
             </span>
             {!floorMode && pinnedCount > 0 ? (
@@ -1074,6 +1092,30 @@ export function AgentLanesView({
             </div>
           ) : null}
         </div>
+        {!floorMode && visibleColumns.length > 0 ? (
+          <nav className="s-agent-lanes-channel-bank" aria-label="Deck channels">
+            <span className="s-agent-lanes-channel-bank-label">CHANNEL BANK</span>
+            <div className="s-agent-lanes-channel-bank-track">
+              {visibleColumns.map((column, index) => {
+                const live = isAgentLaneLive(column.lane.observe);
+                const label = lanePrimaryLabel(column.lane.agent, column.lane.source);
+                return (
+                  <button
+                    key={column.key}
+                    type="button"
+                    className={`s-agent-lanes-channel-key${live ? " s-agent-lanes-channel-key--live" : ""}${column.isPinned ? " s-agent-lanes-channel-key--pinned" : ""}`}
+                    onClick={() => focusDeckChannel(column.lane.id)}
+                    aria-label={`Channel ${index + 1}: ${label}, ${laneStatusLabel(column.lane.agent, column.lane.source)}`}
+                  >
+                    <span className="s-agent-lanes-channel-key-lamp" aria-hidden="true" />
+                    <span className="s-agent-lanes-channel-key-number">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="s-agent-lanes-channel-key-label" title={label}>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        ) : null}
       </div>
       {issues.length > 0 ? (
         <div className="s-agent-lanes-issues" role="status" aria-live="polite">

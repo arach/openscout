@@ -6,7 +6,7 @@ export const AGENT_LANES_LAYOUT_OPTIONS: ReadonlyArray<{
   key: AgentLanesLayoutMode;
   label: string;
 }> = [
-  { key: "lanes", label: "lanes" },
+  { key: "lanes", label: "deck" },
   { key: "grid", label: "grid" },
   { key: "floor", label: "floor" },
 ];

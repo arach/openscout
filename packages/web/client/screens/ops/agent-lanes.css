@@ -6,7 +6,10 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 50% -20%, color-mix(in srgb, var(--green) 5%, transparent), transparent 38%),
+    repeating-linear-gradient(90deg, transparent 0, transparent 79px, color-mix(in srgb, var(--ink) 1.5%, transparent) 80px),
+    var(--bg);
   container-type: inline-size;
   container-name: agent-lanes;
 }
@@ -77,16 +80,52 @@
 }
 
 .s-agent-lanes-bar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm) var(--space-md);
-  padding: var(--space-sm) var(--space-2xl);
+  padding: 12px var(--space-2xl) 10px;
   flex: none;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 28%, transparent), transparent),
-    color-mix(in srgb, var(--bg) 96%, transparent);
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 5%, transparent);
+    linear-gradient(180deg, color-mix(in srgb, var(--ink) 3%, transparent), transparent 36%),
+    color-mix(in srgb, var(--surface) 52%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--bg) 72%, transparent),
+    0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 4;
+}
+
+.s-agent-lanes-bar::before,
+.s-agent-lanes-bar::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 22%, var(--bg));
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.s-agent-lanes-bar::before { left: 9px; }
+.s-agent-lanes-bar::after { right: 9px; }
+
+.s-agent-lanes-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+
+.s-agent-lanes-kicker {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: .18em;
+  color: color-mix(in srgb, var(--green) 72%, var(--dim));
 }
 
 .s-agent-lanes-bar-leading {
@@ -108,8 +147,7 @@
   margin-left: auto;
 }
 
-/* Full web ops route already names the surface — title + deck debug are noise. */
-.s-agent-lanes[data-lane-profile="web.ops"] .s-agent-lanes-title,
+/* Full web ops route already exposes profile details elsewhere. */
 .s-agent-lanes[data-lane-profile="web.ops"] .s-agent-lanes-meta-detail {
   display: none;
 }
@@ -122,7 +160,9 @@
   gap: var(--space-2xs);
   padding: var(--space-2xs);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
   flex: none;
 }
 
@@ -141,7 +181,9 @@
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  border: 1px solid transparent;
+  box-shadow: none;
+  transition: background 140ms ease, color 140ms ease, transform 100ms ease, box-shadow 140ms ease;
 }
 
 .s-agent-lanes-horizon:hover {
@@ -149,14 +191,22 @@
 }
 
 .s-agent-lanes-horizon--on {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: color-mix(in srgb, var(--green) 74%, var(--ink));
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--green) 14%, var(--surface)), color-mix(in srgb, var(--green) 5%, var(--bg)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--green) 16%, white), 0 0 12px color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.s-agent-lanes-horizon:active {
+  transform: translateY(1px);
 }
 
 .s-agent-lanes-title {
+  margin: 0;
   font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: 500;
+  font-size: 17px;
+  line-height: 1.1;
+  font-weight: 600;
   letter-spacing: 0;
   color: var(--ink);
 }
@@ -172,6 +222,135 @@
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
+}
+
+.s-agent-lanes-meta-lamp {
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 15%, transparent), 0 0 9px color-mix(in srgb, var(--green) 40%, transparent);
+}
+
+.s-agent-lanes-channel-bank {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.s-agent-lanes-channel-bank-label {
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: .16em;
+  line-height: 1.4;
+  color: var(--dim);
+}
+
+.s-agent-lanes-channel-bank-track {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.s-agent-lanes-channel-bank-track::-webkit-scrollbar { display: none; }
+
+.s-agent-lanes-channel-key {
+  position: relative;
+  flex: 1 1 112px;
+  min-width: 88px;
+  max-width: 164px;
+  height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  column-gap: 7px;
+  align-items: center;
+  padding: 6px 9px 5px;
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
+  border-radius: 4px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 90%, var(--ink) 2%), color-mix(in srgb, var(--surface) 58%, var(--bg)));
+  color: var(--muted);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 7%, transparent), 0 2px 0 color-mix(in srgb, var(--bg) 88%, black);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--green) 14%, transparent);
+  text-align: left;
+  transition: transform 100ms ease, border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.s-agent-lanes-channel-key:hover {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--green) 26%, var(--ink) 12%);
+}
+
+.s-agent-lanes-channel-key:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.s-agent-lanes-channel-key:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--green) 58%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 18%, transparent);
+}
+
+.s-agent-lanes-channel-key-lamp {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dim) 52%, transparent);
+}
+
+.s-agent-lanes-channel-key--live .s-agent-lanes-channel-key-lamp {
+  background: var(--green);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--green) 60%, transparent);
+  animation: scout-deck-lamp 2.8s ease-in-out infinite;
+}
+
+.s-agent-lanes-channel-key--pinned {
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.s-agent-lanes-channel-key-number {
+  grid-row: 1 / span 2;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-agent-lanes-channel-key-label {
+  align-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1.2;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+@keyframes scout-deck-lamp { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .s-agent-lanes-channel-key,
+  .s-agent-lanes-channel-key--live .s-agent-lanes-channel-key-lamp { transition: none; animation: none; }
 }
 
 .s-agent-lanes-meta-stat,
@@ -277,6 +456,7 @@
 @container agent-lanes (max-width: 640px) {
   .s-agent-lanes-bar {
     align-items: stretch;
+    padding-inline: var(--space-lg);
   }
 
   .s-agent-lanes-bar-leading {
@@ -286,8 +466,14 @@
   .s-agent-lanes-bar-controls {
     flex: 1 1 100%;
     margin-left: 0;
-    justify-content: space-between;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+
+  .s-agent-lanes-bar-controls::-webkit-scrollbar { display: none; }
 
   .s-agent-lanes-meta {
     overflow: hidden;
@@ -297,11 +483,32 @@
     flex: 1 1 100%;
     max-width: 100%;
   }
+
+  .s-agent-lanes-channel-bank {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-agent-lanes-channel-bank-label {
+    display: none;
+  }
 }
 
 @container agent-lanes (max-width: 480px) {
-  .s-agent-lanes-horizons {
+  .s-agent-lanes-title-block {
     flex: 1 1 auto;
+  }
+
+  .s-agent-lanes-meta {
+    flex: none;
+  }
+
+  .s-agent-lanes-meta-stat:not(:first-child),
+  .s-agent-lanes-meta-filter {
+    display: none;
+  }
+
+  .s-agent-lanes-horizons {
+    flex: none;
     justify-content: space-between;
     min-width: 0;
   }
@@ -316,6 +523,10 @@
   .s-agent-lanes-deck-btn {
     padding-inline: var(--space-sm);
   }
+
+  .s-agent-lanes-channel-key {
+    min-width: 96px;
+  }
 }
 
 .s-agent-lanes-deck-menu {
@@ -325,8 +536,8 @@
 
 .s-agent-lanes-deck-btn {
   appearance: none;
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 84%, transparent), color-mix(in srgb, var(--surface) 55%, var(--bg)));
   border-radius: var(--radius-sm);
   padding: var(--space-2xs) var(--space-md);
   font-family: var(--font-mono);
@@ -334,10 +545,17 @@
   letter-spacing: var(--tracking-xs);
   color: var(--ink);
   cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent), 0 1px 2px rgba(0, 0, 0, .18);
+  transition: border-color 140ms ease, transform 100ms ease;
 }
 
 .s-agent-lanes-deck-btn:hover {
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.s-agent-lanes-deck-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .22);
 }
 
 .s-agent-lanes-deck-popover {
@@ -388,6 +606,9 @@
   display: flex;
   flex-direction: row;
   overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 55%, transparent), transparent 20%),
+    repeating-linear-gradient(90deg, transparent 0, transparent 63px, color-mix(in srgb, var(--ink) 1.4%, transparent) 64px);
 }
 
 /* Grid is a deck-wide sizing model: cards share tracks instead of carrying
@@ -496,8 +717,8 @@
   overflow-anchor: none;
   display: flex;
   align-items: stretch;
-  gap: var(--space-lg);
-  padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
+  gap: 10px;
+  padding: 14px var(--space-2xl) var(--space-2xl);
 }
 
 .s-agent-lanes-zone--pinned-left .s-agent-lanes-scroll,
@@ -638,7 +859,8 @@
   align-items: stretch;
   flex: none;
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
-  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 82%, var(--ink) 2%), color-mix(in srgb, var(--surface) 50%, var(--bg)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent);
 }
 
 .s-agent-lane-chrome-body {
@@ -657,6 +879,22 @@
   gap: var(--space-xs);
   min-width: 0;
   flex: 1 1 auto;
+}
+
+.s-agent-lane-chrome-channel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  border-right: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  padding-right: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: color-mix(in srgb, var(--green) 58%, var(--muted));
+  font-variant-numeric: tabular-nums;
 }
 
 .s-agent-lane-chrome-pin {
@@ -848,11 +1086,11 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   /* SCO-085: stronger separators between lane columns. */
-  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
   background: color-mix(in srgb, var(--surface) 88%, var(--bg));
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent), 0 8px 22px rgba(0, 0, 0, 0.16);
   overflow: hidden;
   transition:
     border-color 180ms ease,
