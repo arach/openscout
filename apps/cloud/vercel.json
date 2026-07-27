@@ -3,7 +3,10 @@
   "framework": "nextjs",
   "installCommand": "bun install",
   "buildCommand": "bun run build",
-  "github": {
-    "silent": true
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
+    }
   }
 }
