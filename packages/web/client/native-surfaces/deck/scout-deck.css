@@ -126,7 +126,7 @@ body {
 .scout-deck__key small { max-width: 100%; margin-top: 4px; overflow: hidden; color: var(--deck-dim); font: 500 8px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .scout-deck__bank-footer { display: flex; justify-content: space-between; margin-top: auto; padding-top: 11px; border-top: 1px solid rgba(222,236,226,.08); }
 
-.scout-deck__stage { min-width: 0; display: flex; flex-direction: column; padding: 19px 24px 16px; background: radial-gradient(circle at 50% 22%, rgba(106,242,197,.045), transparent 35%), rgba(5,8,6,.68); }
+.scout-deck__stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 19px 24px 16px; background: radial-gradient(circle at 50% 22%, rgba(106,242,197,.045), transparent 35%), rgba(5,8,6,.68); }
 .scout-deck__stage-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .scout-deck__stage-index { margin-right: 12px; color: rgba(237,242,235,.92); font: 420 31px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.08em; }
 .scout-deck__route { padding: 6px 8px; border: 1px solid rgba(237,242,235,.14); border-radius: 3px; color: rgba(237,242,235,.48); }
@@ -296,6 +296,37 @@ body {
   .scout-deck__rail { display: none; }
   .scout-deck__keys { grid-template-columns: 1fr; }
   .scout-deck__key { height: 88px; }
+}
+
+/* iPad landscape often gives the embedded surface only ~620–700 CSS px after
+   native chrome and safe areas. Compress identity/history before sacrificing
+   the command dock: voice and turn controls must remain on screen. */
+@media (max-height: 720px) and (min-width: 621px) {
+  .scout-deck { padding: 7px; }
+  .scout-deck__masthead { min-height: 58px; padding: 7px 14px 9px; }
+  .scout-deck__mark { width: 31px; height: 31px; }
+  .scout-deck h1 { font-size: 21px; }
+  .scout-deck__bank,
+  .scout-deck__rail { padding: 12px; gap: 13px; }
+  .scout-deck__keys { padding-block: 9px; }
+  .scout-deck__key { height: 91px; }
+  .scout-deck__stage { padding: 12px 18px 10px; }
+  .scout-deck__stage-index { font-size: 25px; }
+  .scout-deck__identity { padding: 9px 0 8px; }
+  .scout-deck__identity h2 { font-size: clamp(28px, 4vw, 42px); }
+  .scout-deck__identity p { margin-top: 7px; }
+  .scout-deck__live-line { padding: 9px 0; }
+  .scout-deck__activity .scout-deck__panel-label { padding-block: 7px; }
+  .scout-deck__thread-row { padding-block: 7px; }
+  .scout-deck__composer { flex: none; margin-top: 7px; }
+  .scout-deck__composer-head,
+  .scout-deck__composer-foot { padding-block: 6px; }
+  .scout-deck__composer-body { min-height: 72px; grid-template-columns: 74px minmax(0,1fr) 72px; }
+  .scout-deck__mic { width: 56px; height: 56px; }
+  .scout-deck__mic-icon { width: 22px; height: 22px; }
+  .scout-deck__voice-caption { min-height: 22px; padding-top: 5px; }
+  .scout-deck__composer textarea { min-height: 46px; padding-block: 5px 8px; }
+  .scout-deck__submit { margin: 7px; }
 }
 
 @media (max-width: 620px) {

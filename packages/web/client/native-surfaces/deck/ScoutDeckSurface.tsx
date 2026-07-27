@@ -342,9 +342,13 @@ export function ScoutDeckSurface() {
         return;
       }
 
-      const refresh = async () => {
+      const refresh = async (connectIfNeeded = false) => {
         try {
-          const value = await client.codex.snapshot({ hostId: selected.hostId, agentId: selected.id });
+          let value = await client.codex.snapshot({ hostId: selected.hostId, agentId: selected.id });
+          if (connectIfNeeded && value.state === "disconnected") {
+            setNotice("Connecting Codex thread");
+            value = await client.codex.connect({ hostId: selected.hostId, agentId: selected.id });
+          }
           if (cancelled) return;
           setThread(value);
           setThreadError(null);
@@ -354,7 +358,7 @@ export function ScoutDeckSurface() {
           setThreadError(cause instanceof Error ? cause.message : String(cause));
         }
       };
-      await refresh();
+      await refresh(true);
       if (!cancelled) timer = setInterval(() => void refresh(), 2_000);
     })().catch((cause) => {
       if (cancelled) return;
@@ -443,7 +447,7 @@ export function ScoutDeckSurface() {
     () => scopedLanes.filter((lane) => lane.state === "waiting" || lane.state === "blocked" || lane.state === "error"),
     [scopedLanes],
   );
-  const active = scopedLanes.filter((lane) => lane.state === "active" || lane.state === "running").length;
+  const active = scopedLanes.filter((lane) => isLiveLaneState(lane.state)).length;
   const selectedActivity = activityBins(selected?.events ?? []);
   const isRunning = thread?.state === "running";
   const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
@@ -1033,7 +1037,22 @@ export function buildDeckLanes(
       hostName: hostNames.get(outcome.hostId) ?? outcome.hostId,
       events: (events.get(`${outcome.hostId}:${agent.id}`) ?? []).sort((a, b) => b.at - a.at),
     }));
-  }).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }).sort((a, b) => {
+    const priority = deckLanePriority(b) - deckLanePriority(a);
+    return priority || (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+  });
+}
+
+function deckLanePriority(lane: DeckLane): number {
+  const controllable = lane.transport === "codex_app_server";
+  const live = isLiveLaneState(lane.state);
+  const attention = lane.state === "waiting" || lane.state === "blocked" || lane.state === "error";
+  if (controllable && live) return 5;
+  if (controllable && attention) return 4;
+  if (controllable) return 3;
+  if (attention) return 2;
+  if (live) return 1;
+  return 0;
 }
 
 function previewLane(
@@ -1172,15 +1191,20 @@ function connectionLabel(connection: DeckConnection): string {
 
 function laneTone(lane: DeckLane): "live" | "attention" | "quiet" {
   if (lane.state === "waiting" || lane.state === "blocked" || lane.state === "error") return "attention";
-  if (lane.state === "active" || lane.state === "running") return "live";
+  if (isLiveLaneState(lane.state)) return "live";
   return "quiet";
 }
 
 function laneStateLabel(state: string | null): string {
-  if (state === "active" || state === "running") return "Live signal";
+  if (isLiveLaneState(state)) return "Live signal";
   if (state === "waiting" || state === "blocked") return "Needs attention";
   if (state === "error") return "Signal error";
+  if (state === "idle" || state === "available") return "Controller ready";
   return state ? state.replaceAll("_", " ") : "Standing by";
+}
+
+function isLiveLaneState(state: string | null): boolean {
+  return state === "live" || state === "working" || state === "active" || state === "running" || state === "in_flight";
 }
 
 function relativeTime(at: number | null): string {

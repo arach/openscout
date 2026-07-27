@@ -577,7 +577,10 @@ final class ScoutWebSurfaceBridge {
             "harness": agent.harness as Any? ?? NSNull(),
             "transport": agent.transport as Any? ?? NSNull(),
             "model": agent.model as Any? ?? NSNull(),
-            "state": agent.state.rawValue,
+            // Attention is an operator-facing lane state, not merely metadata.
+            // Preserve it across the bridge so Deck can light the amber bank and
+            // promote the lane even when the underlying runtime is still live.
+            "state": agent.needsAttention ? "waiting" : agent.state.rawValue,
             "projectRoot": agent.projectName as Any? ?? NSNull(),
             "conversationId": agent.conversationId as Any? ?? NSNull(),
             "sessionId": agent.sessionId as Any? ?? NSNull(),
