@@ -1075,8 +1075,8 @@ export const SCOUT_IOS_CSS = `
   font-variant-numeric: tabular-nums; }
 .iDestMeta[data-live] { color: var(--i-accent); }
 /* The head is cut in JS (see tailPath): CSS can only ellipsize the tail, and
-   the `direction: rtl` trick that fakes a head-cut reorders the neutrals —
-   `~/dev` renders as `dev/~`. */
+   the direction:rtl trick that fakes a head-cut reorders the neutrals —
+   "~/dev" renders as "dev/~". */
 .iDestTail { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim); flex: none;
   max-width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* the path escape hatch — a query that IS a path no workspace answers */
