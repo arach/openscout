@@ -37,6 +37,12 @@ export type RepoPullRequestLoadOptions = {
   limitPerRepo: number;
 };
 
+export type RepoPullRequestLoadDeps = {
+  gitRemoteGetUrlOrigin: typeof gitRemoteGetUrlOrigin;
+  gitCommonDir: (repoRoot: string) => Promise<string | null>;
+  execSystemFile: typeof execSystemFile;
+};
+
 export type RepoPullRequestSnapshot = {
   generatedAt: number;
   source: "gh";
@@ -764,14 +770,54 @@ function parseGhPullRequests(stdout: string, repo: string, path: string): RepoPu
   return items;
 }
 
-async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promise<RepoPullRequestSnapshot> {
+const DEFAULT_REPO_PULL_REQUEST_LOAD_DEPS: RepoPullRequestLoadDeps = {
+  gitRemoteGetUrlOrigin,
+  gitCommonDir: (repoRoot) => gitRevParse({ repoRoot, kind: "gitCommonDir" }),
+  execSystemFile,
+};
+
+function repoPullRequestCommonDirKey(path: string, commonDir: string | null): string {
+  const trimmed = commonDir?.trim();
+  if (!trimmed) {
+    try {
+      return `path:${realpathSync(path)}`;
+    } catch {
+      return `path:${resolve(path)}`;
+    }
+  }
+  const absolute = isAbsolute(trimmed) ? trimmed : resolve(path, trimmed);
+  try {
+    return `common-dir:${realpathSync(absolute)}`;
+  } catch {
+    return `common-dir:${absolute}`;
+  }
+}
+
+export async function loadRepoPullRequests(
+  options: RepoPullRequestLoadOptions,
+  deps: RepoPullRequestLoadDeps = DEFAULT_REPO_PULL_REQUEST_LOAD_DEPS,
+): Promise<RepoPullRequestSnapshot> {
   const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
   const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
-  const results = await Promise.all(paths.map(async (path) => {
-    const remote = await gitRemoteGetUrlOrigin(path);
-    const repo = repoNameFromGitRemote(remote, path);
+  const identities = await Promise.all(paths.map(async (path) => {
+    const remote = (await deps.gitRemoteGetUrlOrigin(path))?.trim() || null;
+    const commonDir = remote ? null : await deps.gitCommonDir(path).catch(() => null);
+    return {
+      key: remote ? `remote:${remote}` : repoPullRequestCommonDirKey(path, commonDir),
+      path,
+      repo: repoNameFromGitRemote(remote, path),
+    };
+  }));
+  const repos = new Map<string, { path: string; repo: string }>();
+  for (const identity of identities) {
+    if (!repos.has(identity.key)) {
+      repos.set(identity.key, { path: identity.path, repo: identity.repo });
+    }
+  }
+
+  const results = await Promise.all([...repos.values()].map(async ({ path, repo }) => {
     try {
-      const result = await execSystemFile("gh", [
+      const result = await deps.execSystemFile("gh", [
         "pr",
         "list",
         "--state",
