@@ -120,7 +120,7 @@ export function DeckConsole({ model }: { model: DeckModel }) {
             <div><dt>Voice in</dt><dd>{model.voiceAvailable ? voiceReadout(model.voice.input.state) : "—"}</dd></div>
             <div>
               <dt>Voice out</dt>
-              <dd>{model.voiceAvailable ? model.voice.output.speaking ? "speaking" : model.voiceOutEnabled ? "armed" : "off" : "—"}</dd>
+              <dd>{model.voiceOutputAvailable ? model.voice.output.speaking ? "speaking" : model.voiceOutEnabled ? "armed" : "off" : "—"}</dd>
             </div>
             <div><dt>Queue</dt><dd title={model.thread?.capabilityNotes.queue}>{model.adapterAvailable ? "off" : "—"}</dd></div>
             <div><dt>Approval</dt><dd title={model.thread?.capabilityNotes.approvals}>{model.adapterAvailable ? "off" : "—"}</dd></div>

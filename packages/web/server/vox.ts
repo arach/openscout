@@ -36,6 +36,23 @@ export type VoxSpeechDefaults = {
   voiceId?: string;
 };
 
+export type VoxSpeechModel = {
+  id: string;
+  name: string;
+  provider: string;
+  available: boolean;
+};
+
+export type VoxSpeechVoice = {
+  id: string;
+  name: string;
+  language?: string;
+  provider: string;
+  modelId: string;
+  available: boolean;
+  isDefault: boolean;
+};
+
 export type VoxSpeechTimingCueRequest = {
   id: string;
   textStart?: number;
@@ -135,6 +152,47 @@ export async function synthesizeVoxSpeech(input: {
     ...(traceId ? { traceId } : {}),
     ...(speechTiming ? { speechTiming } : {}),
   };
+}
+
+export async function listVoxSpeechModels(signal?: AbortSignal): Promise<VoxSpeechModel[]> {
+  const result = await callVoxRpc("synthesize.models", {}, { signal, timeoutMs: 4_000 });
+  const models = Array.isArray(result.models) ? result.models : [];
+  return models.flatMap((value) => {
+    const record = recordValue(value);
+    const id = stringValue(record?.id);
+    const name = stringValue(record?.name);
+    if (!id || !name) return [];
+    return [{
+      id,
+      name,
+      provider: stringValue(record?.backend) || providerForSpeechModel(id),
+      available: record?.available !== false,
+    }];
+  });
+}
+
+export async function listVoxSpeechVoices(
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<VoxSpeechVoice[]> {
+  const result = await callVoxRpc("synthesize.voices", { modelId }, { signal, timeoutMs: 4_000 });
+  const voices = Array.isArray(result.voices) ? result.voices : [];
+  return voices.flatMap((value) => {
+    const record = recordValue(value);
+    const id = stringValue(record?.id);
+    const name = stringValue(record?.name);
+    if (!id || !name) return [];
+    const resolvedModelId = stringValue(record?.modelId) || modelId;
+    return [{
+      id,
+      name,
+      ...(stringValue(record?.language) ? { language: stringValue(record?.language) } : {}),
+      provider: stringValue(record?.backend) || providerForSpeechModel(resolvedModelId),
+      modelId: resolvedModelId,
+      available: record?.available !== false,
+      isDefault: record?.default === true,
+    }];
+  });
 }
 
 export function resolveVoxSpeechDefaults(env: NodeJS.ProcessEnv = process.env): VoxSpeechDefaults {
@@ -310,6 +368,14 @@ function firstNonEmptyString(...values: Array<string | undefined>): string | und
     }
   }
   return undefined;
+}
+
+function providerForSpeechModel(modelId: string): string {
+  const normalized = modelId.toLowerCase();
+  if (normalized.startsWith("gpt-") || normalized.startsWith("tts-")) return "openai";
+  if (normalized.startsWith("eleven_")) return "elevenlabs";
+  if (normalized.startsWith("avspeech:")) return "system";
+  return normalized.includes(":") ? normalized.split(":", 1)[0] ?? "vox" : "vox";
 }
 
 function readJsonRecord(filePath: string): Record<string, unknown> | null {

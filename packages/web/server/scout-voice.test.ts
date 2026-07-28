@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { resolveScoutSpeechDefaults } from "./scout-voice.ts";
+import { fallbackScoutSpeechCatalog, resolveScoutSpeechDefaults } from "./scout-voice.ts";
 
 const tempPaths = new Set<string>();
 
@@ -64,5 +64,31 @@ describe("resolveScoutSpeechDefaults", () => {
       modelId: "mlx-community/Kokoro-82M-bf16",
       voiceId: "af_heart",
     });
+  });
+});
+
+describe("fallbackScoutSpeechCatalog", () => {
+  test("offers the cloud providers Scout can route without pretending they are configured", () => {
+    const openAI = fallbackScoutSpeechCatalog("gpt-4o-mini-tts", {
+      modelId: "gpt-4o-mini-tts",
+      voiceId: "alloy",
+    });
+    expect(openAI.models.map((model) => [model.provider, model.id])).toEqual([
+      ["openai", "gpt-4o-mini-tts"],
+      ["elevenlabs", "eleven_multilingual_v2"],
+    ]);
+    expect(openAI.voices.some((voice) => voice.id === "alloy" && voice.isDefault)).toBe(true);
+
+    const elevenLabs = fallbackScoutSpeechCatalog("eleven_multilingual_v2", {
+      modelId: "gpt-4o-mini-tts",
+      voiceId: "alloy",
+    });
+    expect(elevenLabs.voices).toEqual([expect.objectContaining({
+      id: "9BWtsMINqrJLrRacOk9x",
+      name: "Aria",
+      provider: "elevenlabs",
+      modelId: "eleven_multilingual_v2",
+      isDefault: true,
+    })]);
   });
 });

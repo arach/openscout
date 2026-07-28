@@ -52,11 +52,38 @@ export type ScoutSpeechHandle = {
 
 export type ScoutSpeechOptions = {
   signal?: AbortSignal;
+  modelId?: string;
+  voiceId?: string;
   speed?: number;
   instructions?: string;
   originAppId?: string;
   utteranceId?: string;
   speechTiming?: ScoutSpeechTimingRequest;
+};
+
+export type ScoutSpeechCatalogModel = {
+  id: string;
+  name: string;
+  provider: string;
+  available: boolean;
+};
+
+export type ScoutSpeechCatalogVoice = {
+  id: string;
+  name: string;
+  language?: string;
+  provider: string;
+  modelId: string;
+  available: boolean;
+  isDefault: boolean;
+};
+
+export type ScoutSpeechCatalog = {
+  defaultModelId: string;
+  defaultVoiceId?: string;
+  models: ScoutSpeechCatalogModel[];
+  voices: ScoutSpeechCatalogVoice[];
+  source: "vox" | "fallback";
 };
 
 export type ScoutSpeechTimingCueRequest = {
@@ -961,6 +988,8 @@ export async function prepareScoutSpeech(
     text,
     speed: normalizeSpeechSpeed(options.speed),
   };
+  if (options.modelId) body.modelId = options.modelId;
+  if (options.voiceId) body.voiceId = options.voiceId;
   if (options.originAppId) body.originAppId = options.originAppId;
   if (options.utteranceId) body.utteranceId = options.utteranceId;
   if (options.instructions) body.instructions = options.instructions;
@@ -985,6 +1014,15 @@ export async function prepareScoutSpeech(
     }
   }
   return await response.json() as ScoutSpeechResult;
+}
+
+export async function fetchScoutSpeechCatalog(modelId?: string): Promise<ScoutSpeechCatalog> {
+  const query = modelId ? `?modelId=${encodeURIComponent(modelId)}` : "";
+  const response = await fetch(`/api/voice/catalog${query}`, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`Scout voice catalog returned HTTP ${response.status}`);
+  }
+  return await response.json() as ScoutSpeechCatalog;
 }
 
 export async function playPreparedScoutSpeech(

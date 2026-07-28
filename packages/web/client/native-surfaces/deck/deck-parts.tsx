@@ -291,7 +291,7 @@ function chipName(word: string, description: string): string {
 
 export function VoiceOutKey({ model, label = true }: { model: DeckModel; label?: boolean }) {
   const word = model.voice.output.speaking ? "Speaking" : model.voiceOutEnabled ? "Voice out" : "Muted";
-  const description = !model.voiceAvailable
+  const description = !model.voiceOutputAvailable
     ? "spoken replies unavailable on this host"
     : model.voice.output.speaking
       ? "spoken replies are on and playing now"
@@ -305,7 +305,7 @@ export function VoiceOutKey({ model, label = true }: { model: DeckModel; label?:
       data-active={model.voiceOutEnabled || undefined}
       data-speaking={model.voice.output.speaking || undefined}
       onClick={model.toggleVoiceOutput}
-      disabled={!model.voiceAvailable}
+      disabled={!model.voiceOutputAvailable}
       aria-pressed={model.voiceOutEnabled}
       aria-label={chipName(word, description)}
       title={chipName(word, description)}
@@ -390,6 +390,13 @@ function chipClass(base: string, label: boolean): string {
  */
 export function AudioSettings({ model }: { model: DeckModel }) {
   if (!model.settingsOpen) return null;
+  const selectedModel = model.speechCatalog?.models.find((entry) => entry.id === model.speechModelId);
+  const selectedVoice = model.speechCatalog?.voices.find((entry) => entry.id === model.speechVoiceId && entry.modelId === model.speechModelId);
+  const outputState = model.speechOutputPhase === "preparing"
+    ? "Synthesizing through Scout…"
+    : model.voice.output.speaking
+      ? "A reply is being spoken now."
+      : "Ready for the next completed reply.";
   return (
     <div className="deck-sheet" role="dialog" aria-label="Audio and dictation settings">
       <header>
@@ -407,11 +414,70 @@ export function AudioSettings({ model }: { model: DeckModel }) {
           className="deck-toggle"
           data-on={model.voiceOutEnabled || undefined}
           onClick={model.toggleVoiceOutput}
-          disabled={!model.voiceAvailable}
+          disabled={!model.voiceOutputAvailable}
           aria-pressed={model.voiceOutEnabled}
         >
           <i />{model.voiceOutEnabled ? "On" : "Off"}
         </button>
+      </div>
+
+      <div className="deck-sheet__voice-grid" aria-label="Scout speech provider and voice">
+        <label>
+          <span>Provider &amp; model</span>
+          <select
+            className="deck-sheet__select"
+            value={model.speechModelId}
+            onChange={(event) => model.selectSpeechModel(event.currentTarget.value)}
+            disabled={!model.cloudSpeechAvailable || !model.speechCatalog}
+          >
+            {model.speechCatalog?.models.filter((entry) => isCloudSpeechProvider(entry.provider)).map((entry) => (
+              <option key={entry.id} value={entry.id} disabled={!entry.available}>
+                {providerLabel(entry.provider)} · {entry.name}{entry.available ? "" : " · unavailable"}
+              </option>
+            )) ?? <option>{model.speechCatalog ? "No API models" : "Loading Scout voices…"}</option>}
+          </select>
+        </label>
+
+        <label>
+          <span>Voice</span>
+          <select
+            className="deck-sheet__select"
+            value={model.speechVoiceId}
+            onChange={(event) => model.selectSpeechVoice(event.currentTarget.value)}
+            disabled={!model.cloudSpeechAvailable || !model.speechCatalog || model.speechCatalog.voices.length === 0}
+          >
+            {model.speechCatalog?.voices.filter((entry) => entry.modelId === model.speechModelId && entry.available).map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name}{entry.language ? ` · ${entry.language}` : ""}
+              </option>
+            )) ?? <option>Loading…</option>}
+          </select>
+        </label>
+      </div>
+
+      <div className="deck-sheet__pace">
+        <div>
+          <strong>Speaking pace</strong>
+          <small>Applied by the selected Scout TTS provider.</small>
+        </div>
+        <div className="deck-segment" role="group" aria-label="Speaking pace">
+          {([
+            [0.85, "Calm"],
+            [1, "Natural"],
+            [1.15, "Brisk"],
+          ] as const).map(([speed, label]) => (
+            <button
+              type="button"
+              key={label}
+              data-active={model.speechSpeed === speed || undefined}
+              aria-pressed={model.speechSpeed === speed}
+              onClick={() => model.selectSpeechSpeed(speed)}
+              disabled={!model.cloudSpeechAvailable}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="deck-sheet__row">
@@ -433,29 +499,50 @@ export function AudioSettings({ model }: { model: DeckModel }) {
       <div className="deck-sheet__row">
         <div>
           <strong>Playback</strong>
-          <small>{model.voice.output.speaking ? "A reply is being spoken now." : "Nothing is being spoken."}</small>
+          <small>{outputState}</small>
         </div>
-        <button
-          type="button"
-          className="deck-chip deck-chip--warn"
-          onClick={model.stopSpeaking}
-          disabled={!model.voice.output.speaking}
-        >
-          <StopIcon /><span>Stop speaking</span>
-        </button>
+        <div className="deck-sheet__playback">
+          <button
+            type="button"
+            className="deck-chip"
+            onClick={model.previewSpeechVoice}
+            disabled={!model.voiceOutputAvailable || model.speechOutputPhase !== "idle"}
+          >
+            <SpeakerIcon /><span>Hear voice</span>
+          </button>
+          <button
+            type="button"
+            className="deck-chip deck-chip--warn"
+            onClick={model.stopSpeaking}
+            disabled={!model.voice.output.speaking}
+          >
+            <StopIcon /><span>Stop</span>
+          </button>
+        </div>
       </div>
 
       <dl className="deck-sheet__facts">
-        <div><dt>Engine</dt><dd>{model.voiceAvailable ? model.voice.input.engine : "—"}</dd></div>
-        <div><dt>Model</dt><dd>{model.voiceAvailable ? (model.voice.input.modelReady ? "ready" : "loading") : "—"}</dd></div>
+        <div><dt>Voice in</dt><dd>{model.voiceAvailable ? model.voice.input.engine : "—"}</dd></div>
         <div><dt>Input</dt><dd>{model.voiceAvailable ? voiceReadout(model.voice.input.state) : "—"}</dd></div>
-        <div><dt>Level</dt><dd title="The surface contract reports no microphone level.">cadence only</dd></div>
+        <div><dt>Voice out</dt><dd>{selectedModel ? providerLabel(selectedModel.provider) : "Scout API"}</dd></div>
+        <div><dt>Route</dt><dd>{model.speechRoute?.voiceId ?? selectedVoice?.name ?? model.speechVoiceId}</dd></div>
       </dl>
       <p className="deck-sheet__note">
-        Engine selection stays with the host. The Deck shows what it reports and never draws a level it cannot read.
+        Scout owns both directions: Scout dictation in; OpenAI or ElevenLabs synthesis out through the paired host API.
       </p>
     </div>
   );
+}
+
+function providerLabel(provider: string): string {
+  if (provider.toLowerCase() === "openai") return "OpenAI";
+  if (provider.toLowerCase() === "elevenlabs") return "ElevenLabs";
+  return provider.replace(/(^|[-_])([a-z])/g, (_, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
+}
+
+function isCloudSpeechProvider(provider: string): boolean {
+  const normalized = provider.toLowerCase();
+  return normalized === "openai" || normalized === "elevenlabs";
 }
 
 /* ------------------------------------------------------------------ lanes */

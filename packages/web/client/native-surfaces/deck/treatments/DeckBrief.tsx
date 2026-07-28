@@ -95,7 +95,7 @@ export function DeckBrief({ model }: { model: DeckModel }) {
         id: "voice-out",
         group: "Audio",
         label: model.voiceOutEnabled ? "Mute spoken replies" : "Speak replies aloud",
-        disabled: !model.voiceAvailable,
+        disabled: !model.voiceOutputAvailable,
         run: () => void model.toggleVoiceOutput(),
       },
       {

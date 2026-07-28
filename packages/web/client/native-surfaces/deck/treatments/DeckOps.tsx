@@ -342,7 +342,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
             meta={model.voice.output.speaking ? "Speaking" : model.voiceOutEnabled ? "Armed" : "Off"}
             icon={<SpeakerIcon />}
             active={model.voiceOutEnabled}
-            disabled={!model.voiceAvailable}
+            disabled={!model.voiceOutputAvailable}
             onClick={() => void model.toggleVoiceOutput()}
           />
           <OpsCommand

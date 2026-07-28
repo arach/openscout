@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { installScoutSurfacePushReceiver } from "../../surface-contract/native-scout-surface-client.ts";
 import { createScoutSurfaceClient } from "../../surface-contract/web-scout-surface-client.ts";
+import {
+  fetchScoutSpeechCatalog,
+  isScoutSpeechStopped,
+  playPreparedScoutSpeech,
+  prepareScoutSpeech,
+  type ScoutSpeechCatalog,
+  type ScoutSpeechResult,
+} from "../../lib/scout-voice.ts";
 import { discoverPreferredDeckLane, prioritizeDeckLane } from "./deck-lane-discovery.ts";
 import type {
   CodexDeckBlock,
@@ -73,6 +81,13 @@ const LANE_STORAGE_KEY = "scout.deck.lane.v1";
 const TREATMENT_STORAGE_KEY = "scout.deck.treatment.v2";
 const AUTO_SEND_STORAGE_KEY = "scout.deck.autoSend";
 const VOICE_OUT_STORAGE_KEY = "scout.deck.voiceOut";
+const VOICE_MODEL_STORAGE_KEY = "scout.deck.voiceModel";
+const VOICE_ID_STORAGE_KEY = "scout.deck.voiceId";
+const VOICE_SPEED_STORAGE_KEY = "scout.deck.voiceSpeed";
+
+const DEFAULT_VOICE_MODEL = "gpt-4o-mini-tts";
+const DEFAULT_VOICE_ID = "alloy";
+const DEFAULT_VOICE_SPEED = 1;
 
 /** Bins in the dictation activity trace, sampled at TRACE_INTERVAL_MS. */
 const TRACE_BINS = 44;
@@ -257,6 +272,25 @@ const PREVIEW_VOICE: NativeVoiceSnapshot = {
   output: { speaking: false },
 };
 
+const PREVIEW_SPEECH_CATALOG: ScoutSpeechCatalog = {
+  defaultModelId: DEFAULT_VOICE_MODEL,
+  defaultVoiceId: DEFAULT_VOICE_ID,
+  source: "vox",
+  models: [
+    { id: DEFAULT_VOICE_MODEL, name: "GPT-4o mini TTS", provider: "openai", available: true },
+    { id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", provider: "elevenlabs", available: true },
+  ],
+  voices: [
+    { id: "alloy", name: "Alloy", provider: "openai", modelId: DEFAULT_VOICE_MODEL, available: true, isDefault: true },
+    { id: "coral", name: "Coral", provider: "openai", modelId: DEFAULT_VOICE_MODEL, available: true, isDefault: false },
+    { id: "fable", name: "Fable", provider: "openai", modelId: DEFAULT_VOICE_MODEL, available: true, isDefault: false },
+    { id: "nova", name: "Nova", provider: "openai", modelId: DEFAULT_VOICE_MODEL, available: true, isDefault: false },
+    { id: "9BWtsMINqrJLrRacOk9x", name: "Aria", provider: "elevenlabs", modelId: "eleven_multilingual_v2", available: true, isDefault: true },
+  ],
+};
+
+export type DeckSpeechOutputPhase = "idle" | "preparing" | "speaking";
+
 export type DeckModel = ReturnType<typeof useDeckController>;
 
 export function resolveInitialTreatment(search: URLSearchParams): DeckTreatment {
@@ -322,6 +356,19 @@ export function useDeckController() {
   const [voice, setVoice] = useState<NativeVoiceSnapshot>(initialVoice);
   const [voiceHydrated, setVoiceHydrated] = useState(preview);
   const [voiceOutEnabled, setVoiceOutEnabled] = useState(() => localStorage.getItem(VOICE_OUT_STORAGE_KEY) !== "off");
+  const [speechCatalog, setSpeechCatalog] = useState<ScoutSpeechCatalog | null>(preview ? PREVIEW_SPEECH_CATALOG : null);
+  const [speechModelId, setSpeechModelId] = useState(
+    () => localStorage.getItem(VOICE_MODEL_STORAGE_KEY) || DEFAULT_VOICE_MODEL,
+  );
+  const [speechVoiceId, setSpeechVoiceId] = useState(
+    () => localStorage.getItem(VOICE_ID_STORAGE_KEY) || DEFAULT_VOICE_ID,
+  );
+  const [speechSpeed, setSpeechSpeedState] = useState(() => {
+    const stored = Number(localStorage.getItem(VOICE_SPEED_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= 0.5 && stored <= 2 ? stored : DEFAULT_VOICE_SPEED;
+  });
+  const [speechOutputPhase, setSpeechOutputPhase] = useState<DeckSpeechOutputPhase>("idle");
+  const [speechRoute, setSpeechRoute] = useState<Pick<ScoutSpeechResult, "modelId" | "voiceId"> | null>(null);
   const [autoSendOnStop, setAutoSendOnStop] = useState(() => localStorage.getItem(AUTO_SEND_STORAGE_KEY) !== "off");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(preview && search.get("audio") === "open");
@@ -333,6 +380,7 @@ export function useDeckController() {
   const seenFinalCountRef = useRef<number | null>(preview ? 0 : null);
   const spokenBlockRef = useRef<string | null>(null);
   const previewVoiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechAbortRef = useRef<AbortController | null>(null);
   /** Dictation started from the primary key sends itself; typed dictation does not. */
   const autoSendRef = useRef(false);
   const listeningSinceRef = useRef<number | null>(null);
@@ -448,6 +496,40 @@ export function useDeckController() {
     && (preview || bootstrap?.capabilities?.includes("codex.thread.snapshot")),
   );
   const voiceAvailable = preview || Boolean(bootstrap?.capabilities?.includes("native.voice.snapshot"));
+  const cloudSpeechAvailable = preview || bootstrap?.device?.platform === "web";
+  const voiceOutputAvailable = cloudSpeechAvailable
+    || Boolean(bootstrap?.capabilities?.includes("native.voice.speak"));
+
+  useEffect(() => {
+    if (!cloudSpeechAvailable || preview) return;
+    let cancelled = false;
+    void fetchScoutSpeechCatalog(speechModelId)
+      .then((catalog) => {
+        if (cancelled) return;
+        setSpeechCatalog(catalog);
+        const activeModel = catalog.models.find((model) => model.id === speechModelId);
+        if (!activeModel?.available) {
+          const nextModel = catalog.models.find((model) => model.id === catalog.defaultModelId && model.available)
+            ?? catalog.models.find((model) => model.available);
+          if (nextModel && nextModel.id !== speechModelId) {
+            setSpeechModelId(nextModel.id);
+            localStorage.setItem(VOICE_MODEL_STORAGE_KEY, nextModel.id);
+            return;
+          }
+        }
+        const selected = catalog.voices.find((voice) => voice.id === speechVoiceId && voice.available);
+        if (selected) return;
+        const next = catalog.voices.find((voice) => voice.isDefault && voice.available)
+          ?? catalog.voices.find((voice) => voice.available);
+        if (!next) return;
+        setSpeechVoiceId(next.id);
+        localStorage.setItem(VOICE_ID_STORAGE_KEY, next.id);
+      })
+      .catch((cause) => {
+        if (!cancelled) setVoiceError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [cloudSpeechAvailable, preview, speechModelId]);
 
   useEffect(() => {
     if (!selected) {
@@ -590,13 +672,18 @@ export function useDeckController() {
       }, 1_600);
       return;
     }
+    if (cloudSpeechAvailable) {
+      void speakThroughScout(candidate.text);
+      return;
+    }
     void clientRef.current?.native.voice.speak(candidate.text)
       .then(setVoice)
       .catch((cause) => setVoiceError(cause instanceof Error ? cause.message : String(cause)));
-  }, [thread, voice.input.state, voiceOutEnabled, preview]);
+  }, [thread, voice.input.state, voiceOutEnabled, preview, cloudSpeechAvailable, speechModelId, speechVoiceId, speechSpeed]);
 
   useEffect(() => () => {
     if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+    speechAbortRef.current?.abort();
   }, []);
 
   const attention = useMemo(
@@ -814,6 +901,11 @@ export function useDeckController() {
     if (!voiceAvailable) return;
     setVoiceError(null);
     setNotice(null);
+    if (voice.input.state !== "listening" && voice.input.state !== "transcribing") {
+      speechAbortRef.current?.abort();
+      speechAbortRef.current = null;
+      setSpeechOutputPhase("idle");
+    }
     if (voice.input.state === "listening") {
       autoSendRef.current = autoSendOnStop;
       listeningSinceRef.current = null;
@@ -869,8 +961,42 @@ export function useDeckController() {
     }
   };
 
+  async function speakThroughScout(text: string): Promise<void> {
+    speechAbortRef.current?.abort();
+    const controller = new AbortController();
+    speechAbortRef.current = controller;
+    setSpeechOutputPhase("preparing");
+    setVoiceError(null);
+    try {
+      const result = await prepareScoutSpeech(text, {
+        modelId: speechModelId,
+        voiceId: speechVoiceId,
+        speed: speechSpeed,
+        originAppId: "openscout-deck",
+        utteranceId: `deck-${Date.now()}`,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setSpeechRoute({ modelId: result.modelId, voiceId: result.voiceId });
+      setSpeechOutputPhase("speaking");
+      await playPreparedScoutSpeech(result, { signal: controller.signal });
+    } catch (cause) {
+      if (!isScoutSpeechStopped(cause)) {
+        setVoiceError(cause instanceof Error ? cause.message : String(cause));
+      }
+    } finally {
+      if (speechAbortRef.current === controller) {
+        speechAbortRef.current = null;
+        setSpeechOutputPhase("idle");
+      }
+    }
+  }
+
   const stopSpeaking = async () => {
     if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+    speechAbortRef.current?.abort();
+    speechAbortRef.current = null;
+    setSpeechOutputPhase("idle");
     setVoice((current) => ({ ...current, output: { speaking: false } }));
     if (preview) return;
     try {
@@ -886,6 +1012,44 @@ export function useDeckController() {
     setVoiceOutEnabled(next);
     localStorage.setItem(VOICE_OUT_STORAGE_KEY, next ? "on" : "off");
     if (!next) await stopSpeaking();
+  };
+
+  const selectSpeechModel = (modelId: string) => {
+    setSpeechModelId(modelId);
+    setSpeechCatalog((current) => preview || current?.defaultModelId === modelId ? current : null);
+    if (preview) {
+      const voiceId = modelId === "eleven_multilingual_v2" ? "9BWtsMINqrJLrRacOk9x" : DEFAULT_VOICE_ID;
+      setSpeechVoiceId(voiceId);
+      localStorage.setItem(VOICE_ID_STORAGE_KEY, voiceId);
+    }
+    localStorage.setItem(VOICE_MODEL_STORAGE_KEY, modelId);
+  };
+
+  const selectSpeechVoice = (voiceId: string) => {
+    setSpeechVoiceId(voiceId);
+    localStorage.setItem(VOICE_ID_STORAGE_KEY, voiceId);
+  };
+
+  const selectSpeechSpeed = (speed: number) => {
+    const next = Math.min(2, Math.max(0.5, speed));
+    setSpeechSpeedState(next);
+    localStorage.setItem(VOICE_SPEED_STORAGE_KEY, String(next));
+  };
+
+  const previewSpeechVoice = () => {
+    if (preview) {
+      setSpeechOutputPhase("speaking");
+      if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
+      previewVoiceTimerRef.current = setTimeout(() => setSpeechOutputPhase("idle"), 1_400);
+      return;
+    }
+    if (cloudSpeechAvailable) {
+      void speakThroughScout("Scout voice out is ready on this Deck.");
+      return;
+    }
+    void clientRef.current?.native.voice.speak("Scout voice out is ready on this Deck.")
+      .then(setVoice)
+      .catch((cause) => setVoiceError(cause instanceof Error ? cause.message : String(cause)));
   };
 
   const toggleAutoSend = () => {
@@ -907,6 +1071,10 @@ export function useDeckController() {
     if (primaryAction === "connect") return void connectThread();
     void toggleVoiceInput();
   };
+
+  const displayedVoice = speechOutputPhase === "idle"
+    ? voice
+    : { ...voice, output: { speaking: true } };
 
   return {
     preview,
@@ -953,9 +1121,21 @@ export function useDeckController() {
     connectThread,
     refreshSnapshot,
     interruptThread,
-    voice,
+    voice: displayedVoice,
     voiceError,
     voiceOutEnabled,
+    voiceOutputAvailable,
+    cloudSpeechAvailable,
+    speechCatalog,
+    speechModelId,
+    speechVoiceId,
+    speechSpeed,
+    speechOutputPhase,
+    speechRoute,
+    selectSpeechModel,
+    selectSpeechVoice,
+    selectSpeechSpeed,
+    previewSpeechVoice,
     toggleVoiceInput,
     toggleVoiceOutput,
     stopSpeaking,
