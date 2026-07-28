@@ -49,7 +49,10 @@ import {
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
-import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
+import {
+  createPendingPairRequestStore,
+  pairRequestStatePath,
+} from "./pairing-pair-requests.ts";
 import { startScoutPairLanBeacon } from "./pairing-lan-beacon.ts";
 import {
   createCachedSnapshot,
@@ -277,6 +280,7 @@ import {
   provisionalAgentNamesApiFields,
 } from "@openscout/runtime/provisional-agent-names";
 import {
+  localConfigHome,
   localConfigPath,
 } from "@openscout/runtime/local-config";
 import {
@@ -4445,7 +4449,12 @@ export async function createOpenScoutWebServer(
 
   // Approval-gated LAN pairing: a phone tapping an idle Mac registers a request
   // here; the Mac approves it before pair mode starts and the payload is served.
-  const pendingPairRequests = createPendingPairRequestStore();
+  // Shared per-Mac, not per-process: the pairing identity is shared by every
+  // local instance, so the requests made against it have to be too. See
+  // pairing-pair-requests.ts.
+  const pendingPairRequests = createPendingPairRequestStore({
+    statePath: pairRequestStatePath(localConfigHome()),
+  });
   // Always-on discovery beacon so idle Macs still appear in the iOS "On your
   // network" list. Stands down only when the controller has its own LAN advert.
   const lanPairBeacon = options.backgroundServices === false
@@ -4912,8 +4921,19 @@ export async function createOpenScoutWebServer(
     // Live payload available (pair mode running) — hand it straight over. This
     // is the existing fast path: manual start, QR, or an approved request whose
     // pair mode has come up. Once delivered, the request is done.
+    //
+    // Delivering it and burying the token are one decision, so the store takes
+    // it: `fulfill` reports the row it buried, and only a report is licence to
+    // redirect. A token whose row this instance cannot see live — expired here
+    // while a peer holds an extension it could not publish, or already spent —
+    // gets the answer any unknown token gets, and nothing is handed over. The
+    // instance that can still see the row is the one that serves it.
     if (location) {
-      if (token) pendingPairRequests.fulfill(token);
+      if (token && !pendingPairRequests.fulfill(token)) {
+        return wantsJson
+          ? c.json({ status: "expired", token }, 410)
+          : c.text("Pairing request expired.", 410);
+      }
       return c.redirect(location, 302);
     }
 

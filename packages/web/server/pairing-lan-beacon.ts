@@ -9,11 +9,138 @@
 // because the controller has no LAN relay service to advertise.
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { resolvedPairingConfig } from "./core/pairing/runtime/config.ts";
-import { resolveWebPort } from "@openscout/runtime/local-config";
+import { assertIsolatedPairingRunStateWrite } from "./pairing-run-state.ts";
+import { localConfigHome, resolveWebPort } from "@openscout/runtime/local-config";
 import { tryLoadIdentityPublicKeyHex } from "./core/pairing/runtime/security/identity.ts";
 
 const RECONCILE_INTERVAL_MS = 5_000;
+/**
+ * A claim older than this belongs to a process that stopped refreshing it.
+ *
+ * Four reconciles of slack: liveness alone is not enough, because pids are
+ * recycled. A dead owner's pid can be reassigned to something unrelated, which
+ * would look alive forever and wedge every other instance into standing down.
+ * An unrelated process will not refresh the claim, so staleness is what
+ * actually breaks the tie; liveness just makes the common case (a clean crash)
+ * recover in one pass instead of four.
+ */
+export const BEACON_CLAIM_STALE_MS = RECONCILE_INTERVAL_MS * 4;
+
+export interface BeaconClaim {
+  pid: number;
+  webPort: number;
+  updatedAt: number;
+}
+
+export interface BeaconClaimFile {
+  /** Is some OTHER live, currently-refreshing local process advertising? */
+  heldByAnotherInstance(): boolean;
+  /** Claim or refresh ownership for this process. */
+  take(webPort: number): void;
+  /** Drop our claim. No-op when the claim on disk is not ours. */
+  release(): void;
+  /** The claim on disk, or null. For diagnostics and tests. */
+  read(): BeaconClaim | null;
+}
+
+function defaultIsProcessAlive(pid: number): boolean {
+  try {
+    // Signal 0 tests for existence without delivering anything.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ownership of this Mac's `_oscout-pair._tcp` advert, as a file.
+ *
+ * The identity in `~/.openscout` is per-Mac, so every local instance advertises
+ * the SAME fingerprint. mDNS does not reject the duplicate — it renames it
+ * ("OpenScout <fp> (2)") — so the Mac shows up twice and a phone can resolve
+ * into whichever process it happens to pick. Bonjour cannot tell us which
+ * advert is ours (the names are identical by construction), so ownership is
+ * claimed here instead: the first live process to write the claim advertises,
+ * everyone else stands down, and a claim whose owner died is taken over.
+ *
+ * Two instances starting inside the same reconcile window can both find no
+ * claim and both advertise; the loser sees the winner's claim on its next pass
+ * and stands down, so the duplicate window is bounded by one reconcile. That is
+ * deliberately preferred to a lock, which can leak and leave the Mac silent.
+ *
+ * Everything is injectable so the claim protocol is testable without mDNS.
+ */
+export function createBeaconClaimFile(
+  options: {
+    path?: string;
+    pid?: number;
+    now?: () => number;
+    isProcessAlive?: (pid: number) => boolean;
+  } = {},
+): BeaconClaimFile {
+  const path = options.path ?? join(localConfigHome(), "run", "lan-beacon.json");
+  const pid = options.pid ?? process.pid;
+  const now = options.now ?? (() => Date.now());
+  const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+
+  function read(): BeaconClaim | null {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+      const c = parsed as Partial<BeaconClaim>;
+      if (typeof c?.pid !== "number" || typeof c?.updatedAt !== "number") return null;
+      return {
+        pid: c.pid,
+        webPort: typeof c.webPort === "number" ? c.webPort : 0,
+        updatedAt: c.updatedAt,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    read,
+
+    heldByAnotherInstance() {
+      const claim = read();
+      if (!claim) return false;
+      if (claim.pid === pid) return false;
+      if (!isProcessAlive(claim.pid)) return false;
+      return now() - claim.updatedAt < BEACON_CLAIM_STALE_MS;
+    },
+
+    take(webPort) {
+      // Outside the try, so a test reaching for the real `~/.openscout` fails
+      // loudly instead of being swallowed by the unwritable-home fallback.
+      assertIsolatedPairingRunStateWrite(path);
+      try {
+        // 0700 to match the rest of the run directory; the claim names a pid
+        // and a port and has no business being world-readable.
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        writeFileSync(
+          path,
+          JSON.stringify({ pid, webPort, updatedAt: now() } satisfies BeaconClaim),
+          { mode: 0o600 },
+        );
+      } catch {
+        // Unwritable home — fall back to the old behaviour (advertise anyway).
+      }
+    },
+
+    release() {
+      if (read()?.pid !== pid) return;
+      try {
+        rmSync(path, { force: true });
+      } catch {
+        // A stale claim just ages out.
+      }
+    },
+  };
+}
 
 export interface ScoutPairLanBeacon {
   stop(): void;
@@ -46,6 +173,7 @@ export function startScoutPairLanBeacon(
   let advert: ChildProcess | null = null;
   let stopped = false;
   let reconciling = false;
+  const claim = createBeaconClaimFile();
 
   function startAdvert(): void {
     if (advert || stopped) return;
@@ -89,9 +217,20 @@ export function startScoutPairLanBeacon(
     if (stopped || reconciling) return;
     reconciling = true;
     try {
+      // Another LIVE local instance already speaks for this Mac — stand down
+      // rather than register a duplicate the phone can resolve into. No release
+      // here: the claim on disk is not ours to drop.
+      if (claim.heldByAnotherInstance()) {
+        stopAdvert();
+        return;
+      }
       if (await shouldSuppressBeacon()) {
         stopAdvert();
+        claim.release();
       } else {
+        // Refresh on every pass, so if we die the claim ages out and another
+        // instance takes over within a few reconciles.
+        claim.take(webPort);
         startAdvert();
       }
     } catch {
@@ -111,6 +250,7 @@ export function startScoutPairLanBeacon(
       stopped = true;
       clearInterval(timer);
       stopAdvert();
+      claim.release();
     },
   };
 }
