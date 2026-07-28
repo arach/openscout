@@ -12,6 +12,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolvedPairingConfig } from "./core/pairing/runtime/config.ts";
+import { assertIsolatedPairingRunStateWrite } from "./pairing-run-state.ts";
 import { localConfigHome, resolveWebPort } from "@openscout/runtime/local-config";
 import { tryLoadIdentityPublicKeyHex } from "./core/pairing/runtime/security/identity.ts";
 
@@ -113,6 +114,9 @@ export function createBeaconClaimFile(
     },
 
     take(webPort) {
+      // Outside the try, so a test reaching for the real `~/.openscout` fails
+      // loudly instead of being swallowed by the unwritable-home fallback.
+      assertIsolatedPairingRunStateWrite(path);
       try {
         // 0700 to match the rest of the run directory; the claim names a pid
         // and a port and has no business being world-readable.
