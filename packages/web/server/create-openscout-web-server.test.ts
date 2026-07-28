@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -3570,6 +3571,7 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("registers an approval request when remote pairing has no active payload", async () => {
+    const startedAt = Date.now();
     pairingStateResult = makePairingState({ pairing: null });
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -3586,11 +3588,27 @@ describe("createOpenScoutWebServer", () => {
     // The request that just got registered carries a bearer token, and this
     // test used to persist one into the runner's REAL ~/.openscout because it
     // never isolated OPENSCOUT_HOME. It has to land in the temp home instead,
-    // and it has to land there unreadable by anyone else.
-    const statePath = join(isolatedTestHome, ".openscout", "run", "pair-requests.json");
-    expect(existsSync(statePath)).toBe(true);
-    expect(statSync(statePath).mode & 0o077).toBe(0);
-    expect(existsSync(join(homedir(), ".openscout", "run", "pair-requests.json.lock"))).toBe(false);
+    // and it has to land there unreadable by anyone else. State is published a
+    // generation at a time, so the file to look at is whichever generation is
+    // newest rather than a fixed name.
+    const runDirectory = join(isolatedTestHome, ".openscout", "run");
+    const published = readdirSync(runDirectory).filter((entry) => entry.startsWith("pair-requests"));
+    expect(published).not.toHaveLength(0);
+    for (const entry of published) {
+      expect(statSync(join(runDirectory, entry)).mode & 0o077).toBe(0);
+    }
+    // And nothing of this test's went to the operator's real home. That home
+    // may legitimately hold pair state of its own, so what is asserted is that
+    // nothing was written there while this test ran.
+    const realRunDirectory = join(homedir(), ".openscout", "run");
+    const writtenDuringTest = existsSync(realRunDirectory)
+      ? readdirSync(realRunDirectory).filter(
+        (entry) =>
+          entry.startsWith("pair-requests")
+          && statSync(join(realRunDirectory, entry)).mtimeMs >= startedAt,
+      )
+      : [];
+    expect(writtenDuringTest).toEqual([]);
   });
 
   test("serves site-level feature flag bundle config for the client", async () => {

@@ -9,14 +9,14 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   createPendingPairRequestStore,
-  pairRequestLockPath,
+  latestPairRequestGeneration,
+  pairRequestGenerationPath,
   pairRequestStatePath,
 } from "./pairing-pair-requests.ts";
 
@@ -31,13 +31,29 @@ process.env.OPENSCOUT_HOME = isolatedHome;
 /** Rows the store writes are bearer credentials; nothing here may run as root. */
 const runsAsRoot = process.getuid?.() === 0;
 
+/** Has anything been published under this state path at all? */
+function published(statePath: string): boolean {
+  return latestPairRequestGeneration(statePath) !== null;
+}
+
 /**
- * Age a lock file past the point where it can be honoured. Lock staleness is
- * measured on the kernel's mtime, so the body cannot fake it.
+ * The file the newest generation actually lives in.
+ *
+ * State is published as a generation at a time — a temp file hard-linked to the
+ * next generation's name, which is what makes publishing a compare-and-swap —
+ * so "the state file" is whichever generation is newest, not a fixed path.
  */
-function backdate(path: string): void {
-  const longAgo = new Date(Date.now() - 60_000);
-  utimesSync(path, longAgo, longAgo);
+function currentStateFile(statePath: string): string {
+  const generation = latestPairRequestGeneration(statePath);
+  if (generation === null) throw new Error(`nothing published under ${statePath}`);
+  return pairRequestGenerationPath(statePath, generation);
+}
+
+/** Every state file the store is currently keeping, newest first. */
+function stateFiles(statePath: string): string[] {
+  const directory = dirname(statePath);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory).filter((entry) => entry.endsWith(".json"));
 }
 
 const tempHomes: string[] = [];
@@ -311,7 +327,7 @@ describe("pending pair request store shared across instances", () => {
     store.create({ requesterIp: "192.168.1.49" });
 
     // A token is a bearer credential for completing the pair.
-    expect(statSync(statePath).mode & 0o077).toBe(0);
+    expect(statSync(currentStateFile(statePath)).mode & 0o077).toBe(0);
     expect(statSync(dirname(statePath)).mode & 0o077).toBe(0);
 
     store.dispose();
@@ -324,7 +340,7 @@ describe("pending pair request store shared across instances", () => {
     seed.create({ requesterIp: "192.168.1.50" });
     seed.dispose();
 
-    writeFileSync(statePath, "{ this is not json");
+    writeFileSync(currentStateFile(statePath), "{ this is not json");
 
     const store = createPendingPairRequestStore({ statePath });
     const req = store.create({ requesterIp: "192.168.1.51" });
@@ -340,12 +356,13 @@ describe("pending pair request store shared across instances", () => {
     seed.dispose();
 
     // Re-read what the store wrote so the good row stays byte-accurate.
-    const rows = JSON.parse(readFileSync(statePath, "utf8")) as { requests: unknown[] };
+    const current = currentStateFile(statePath);
+    const rows = JSON.parse(readFileSync(current, "utf8")) as { requests: unknown[] };
     const template = rows.requests[0] as Record<string, unknown>;
     rows.requests.push({ token: 42, status: "pending" });
     rows.requests.push({ ...template, token: "bad-ip", requesterIp: 9000 });
     rows.requests.push({ ...template, token: "bad-status", status: "maybe" });
-    writeFileSync(statePath, JSON.stringify(rows));
+    writeFileSync(current, JSON.stringify(rows));
 
     const store = createPendingPairRequestStore({ statePath });
     const tokens = store.list().map((r) => r.token);
@@ -369,10 +386,10 @@ describe("pending pair request store shared across instances", () => {
 // Two stores in one process cannot show what this store is for. JavaScript is
 // single-threaded, so an in-process "concurrent" test is a sequential one: a
 // read-modify-write there can never interleave with another. The production
-// case is two OS processes racing over one file — the phone polling instance A
-// while the human decides on instance B — so these spawn two real processes
-// and count what the race costs. Against the unserialized store they lose
-// roughly half the decisions; the bar here is zero.
+// case is two OS processes racing over one shared state — the phone polling
+// instance A while the human decides on instance B — so these spawn two real
+// processes and count what the race costs. Against the unserialized store they
+// lose roughly half the decisions; the bar here is zero.
 describe("pending pair request store under multi-process contention", () => {
   const RACE_ROUNDS = 2_000;
   const RACE_TIMEOUT_MS = 120_000;
@@ -461,83 +478,95 @@ describe("pending pair request store under multi-process contention", () => {
   );
 });
 
-// The lock is only worth having if it cannot become the new failure. A pairing
-// Mac that goes silent because a crashed process left a lock behind would be a
-// worse bug than the one the lock fixes.
-describe("pending pair request store write lock", () => {
-  test("a lock left behind by a dead process is taken over", () => {
+// Publishing is a compare-and-swap: a temp file hard-linked to the name of the
+// next generation, which the kernel refuses if anyone else got there first.
+// These cover the layer itself — that it advances, collects after itself, and
+// picks up state the single-file store left behind.
+describe("pending pair request store generations", () => {
+  test("every mutation publishes a new generation", () => {
     const statePath = pairRequestStatePath(tempConfigHome());
-    const lockPath = pairRequestLockPath(statePath);
-    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
-    // macOS wraps pids well below this, so it is reliably ESRCH.
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: 999_999, nonce: "dead", at: Date.now() }),
-    );
-
     const store = createPendingPairRequestStore({ statePath });
-    const req = store.create({ requesterIp: "192.168.1.54" });
 
-    expect(store.get(req.token)?.token).toBe(req.token);
-    // Ours went away with the operation; the dead one is not still sitting there.
-    expect(existsSync(lockPath)).toBe(false);
+    const req = store.create({ requesterIp: "192.168.1.54" });
+    const created = latestPairRequestGeneration(statePath);
+    store.decide(req.token, "approve");
+    const decided = latestPairRequestGeneration(statePath);
+
+    expect(created).toBe(1);
+    expect(decided).toBe(2);
+    // A read publishes nothing at all.
+    store.get(req.token);
+    store.list();
+    expect(latestPairRequestGeneration(statePath)).toBe(2);
+
     store.dispose();
   });
 
-  test("a lock whose holder stopped refreshing is taken over even if the pid lives", () => {
+  test("superseded generations are collected and no temp file is left behind", () => {
     const statePath = pairRequestStatePath(tempConfigHome());
-    const lockPath = pairRequestLockPath(statePath);
-    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
-    // Pids get recycled: a dead holder's pid can be reassigned to something
-    // that looks alive forever, so staleness is what actually breaks the tie.
-    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, nonce: "stale", at: 0 }));
-    backdate(lockPath);
-
     const store = createPendingPairRequestStore({ statePath });
     const req = store.create({ requesterIp: "192.168.1.55" });
+    for (let i = 0; i < 20; i += 1) store.touch(req.token);
+    store.decide(req.token, "approve");
+    store.fulfill(req.token);
 
-    expect(store.get(req.token)?.token).toBe(req.token);
-    expect(existsSync(lockPath)).toBe(false);
+    // Growing a file per mutation without collecting them would fill the
+    // operator's home over a long-running day.
+    expect(stateFiles(statePath).length).toBeLessThanOrEqual(2);
+    expect(readdirSync(dirname(statePath)).filter((e) => e.endsWith(".tmp"))).toEqual([]);
     store.dispose();
   });
 
-  test("a lock left half-written by a crash does not wedge pairing", () => {
-    const statePath = pairRequestStatePath(tempConfigHome());
-    const lockPath = pairRequestLockPath(statePath);
-    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
-    // An exclusive create is not an atomic write: a lock exists for a moment
-    // before its body does. A FRESH empty lock therefore has to be read as
-    // "held, being written" — which is what stops two instances entering the
-    // critical section, and is what the multi-process races above measure. An
-    // OLD empty one is a crash between the create and the write, and must not
-    // be honoured forever.
-    writeFileSync(lockPath, "");
-    backdate(lockPath);
-
-    const store = createPendingPairRequestStore({ statePath });
-    const req = store.create({ requesterIp: "192.168.1.64" });
-
-    expect(store.get(req.token)?.token).toBe(req.token);
-    expect(existsSync(lockPath)).toBe(false);
-    store.dispose();
-  });
-
-  test("an operation leaves no lock behind", () => {
+  test("the generation behind the newest is kept, so a peer one behind is cheap", () => {
     const statePath = pairRequestStatePath(tempConfigHome());
     const store = createPendingPairRequestStore({ statePath });
     const req = store.create({ requesterIp: "192.168.1.56" });
     store.touch(req.token);
     store.decide(req.token, "approve");
-    store.fulfill(req.token);
 
-    expect(existsSync(pairRequestLockPath(statePath))).toBe(false);
+    const newest = latestPairRequestGeneration(statePath) as number;
+    expect(existsSync(pairRequestGenerationPath(statePath, newest))).toBe(true);
+    expect(existsSync(pairRequestGenerationPath(statePath, newest - 1))).toBe(true);
+    expect(existsSync(pairRequestGenerationPath(statePath, newest - 2))).toBe(false);
     store.dispose();
   });
 
-  test.skipIf(runsAsRoot)("an unlockable home degrades immediately rather than stalling", () => {
-    // A read-only `~/.openscout` cannot hold a lock either. That has to fail
-    // fast: waiting out the contention timeout on every request would turn a
-    // degraded instance into an unresponsive one.
+  test("state left by the previous single-file store is adopted as generation 0", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+    // Exactly what the pre-swap store wrote, at exactly the path it wrote it
+    // to: an upgrade must not drop a request a phone is already polling.
+    const t = Date.now();
+    const legacy = {
+      token: "legacy-token",
+      status: "pending",
+      requesterIp: "192.168.1.57",
+      requesterLabel: "iPhone",
+      route: null,
+      createdAt: t,
+      updatedAt: t,
+      expiresAt: t + 60_000,
+    };
+    writeFileSync(statePath, JSON.stringify({ version: 1, requests: [legacy] }));
+    expect(latestPairRequestGeneration(statePath)).toBe(0);
+
+    const store = createPendingPairRequestStore({ statePath });
+    expect(store.get("legacy-token")?.requesterLabel).toBe("iPhone");
+    expect(store.decide("legacy-token", "approve")?.status).toBe("approved");
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // ...and once it is two generations behind it is collected like any other.
+    store.touch("legacy-token");
+    store.decide("legacy-token", "approve");
+    expect(existsSync(statePath)).toBe(false);
+    store.dispose();
+  });
+
+  test.skipIf(runsAsRoot)("an unwritable home degrades immediately rather than stalling", () => {
+    // A read-only `~/.openscout` cannot be published to at all. That has to
+    // fail fast: retrying a swap that cannot be attempted would turn a degraded
+    // instance into an unresponsive one.
     const home = tempConfigHome();
     const statePath = pairRequestStatePath(home);
     mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
@@ -545,14 +574,209 @@ describe("pending pair request store write lock", () => {
 
     const store = createPendingPairRequestStore({ statePath });
     const startedAt = Date.now();
-    const req = store.create({ requesterIp: "192.168.1.57" });
+    const req = store.create({ requesterIp: "192.168.1.58" });
     const elapsed = Date.now() - startedAt;
 
     expect(req.status).toBe("pending");
-    expect(existsSync(pairRequestLockPath(statePath))).toBe(false);
+    expect(published(statePath)).toBe(false);
     expect(elapsed).toBeLessThan(1_000);
     store.dispose();
   });
+});
+
+// The case that a lock cannot survive, and the reason this publishes by
+// compare-and-swap instead.
+//
+// An instance loads the shared state and is then descheduled — SIGSTOP here,
+// but a machine under load, a slept laptop or a paused container are the same
+// thing. A lock has to be breakable or a crash wedges pairing on this Mac
+// forever, and no staleness rule can tell a dead holder from a stopped one: the
+// peer breaks the lock, publishes its approval, and the sleeper wakes up still
+// believing it holds the lock and republishes the pending row over it. Codex
+// reproduced exactly that, 1/1 with SIGSTOP and 3/3 with a controlled delay.
+//
+// Under a swap the sleeper's `link` simply fails, and it re-applies its poll on
+// top of the approval it had not seen. The assertions below are on the
+// mechanism, not just the outcome: the woken instance is required to have
+// published a LATER generation than the decision it slept through, because a
+// test where it never got to write anything would prove nothing.
+describe("pending pair request store with a suspended instance", () => {
+  interface SuspendedRun {
+    /** What the suspended instance reported once it was let go. */
+    worker: {
+      pausedAtGeneration: number | null;
+      finalGeneration: number | null;
+      status: string | null;
+      expiresAt: number | null;
+    };
+    /** The newest generation at the moment the peer was done working. */
+    generationAfterPeer: number | null;
+    statePath: string;
+  }
+
+  /**
+   * Freeze one instance mid-mutation, run `peer` against the same state while
+   * it is stopped, then let it go and report what each side ended up with.
+   */
+  async function suspend(
+    operation: "touch" | "approve",
+    peer: (
+      store: ReturnType<typeof createPendingPairRequestStore>,
+      token: string,
+    ) => void | Promise<void>,
+  ): Promise<SuspendedRun> {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const pausedSignal = join(home, "paused.json");
+    const peerStore = createPendingPairRequestStore({ statePath, ttlMs: 60_000 });
+    const token = peerStore.create({ requesterIp: "192.168.1.70", requesterLabel: "iPhone" }).token;
+
+    const child = Bun.spawn({
+      cmd: [
+        process.execPath,
+        join(import.meta.dir, "pairing-pair-requests.suspend-worker.ts"),
+        `--state=${statePath}`,
+        `--token=${token}`,
+        `--operation=${operation}`,
+        `--paused=${pausedSignal}`,
+      ],
+      env: { ...process.env, OPENSCOUT_HOME: home },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    try {
+      const deadline = Date.now() + 30_000;
+      while (!existsSync(pausedSignal)) {
+        if (Date.now() > deadline) throw new Error("the worker never suspended itself");
+        await Bun.sleep(2);
+      }
+      // Genuinely stopped by the kernel rather than merely slow: "T" is what a
+      // lock's staleness rule would be looking at while calling it dead.
+      const state = await new Response(
+        Bun.spawn({ cmd: ["ps", "-o", "state=", "-p", String(child.pid)], stdout: "pipe" }).stdout,
+      ).text();
+      expect(state.trim().startsWith("T")).toBe(true);
+
+      await peer(peerStore, token);
+      const generationAfterPeer = latestPairRequestGeneration(statePath);
+      // Let the clock move before waking it. A poll only publishes when it
+      // actually extends the window, and `Date.now()` has millisecond
+      // resolution: resumed inside the same millisecond the peer decided in,
+      // the sleeper would find nothing to write and the test would be asserting
+      // that a write it never attempted did no harm.
+      await Bun.sleep(20);
+
+      process.kill(child.pid, "SIGCONT");
+      const [out, err] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      if ((await child.exited) !== 0) throw new Error(`suspend worker failed:\n${err}`);
+      peerStore.dispose();
+      return { worker: JSON.parse(out) as SuspendedRun["worker"], generationAfterPeer, statePath };
+    } finally {
+      try {
+        process.kill(child.pid, "SIGCONT");
+        child.kill();
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+
+  /** What a fresh instance reads back, i.e. what the phone would be told. */
+  function readBack(statePath: string, token: string): string | null {
+    const observer = createPendingPairRequestStore({ statePath, ttlMs: 60_000 });
+    const status = observer.get(token)?.status ?? null;
+    observer.dispose();
+    return status;
+  }
+
+  test(
+    "a poll that slept through an approval re-applies itself on top of it",
+    async () => {
+      let token = "";
+      const run = await suspend("touch", (store, requestToken) => {
+        token = requestToken;
+        expect(store.decide(requestToken, "approve")?.status).toBe("approved");
+      });
+
+      // It really did load the pre-approval state...
+      expect(run.worker.pausedAtGeneration).toBe(1);
+      // ...the human's approval really did land while it was stopped...
+      expect(run.generationAfterPeer).toBe(2);
+      // ...and it really did write afterwards, on top of the approval instead
+      // of over it. That last assertion is the one the lock failed: a test
+      // where the woken instance never got to write would prove nothing.
+      expect(run.worker.finalGeneration).toBe(3);
+      expect(run.worker.status).toBe("approved");
+      expect(readBack(run.statePath, token)).toBe("approved");
+    },
+    30_000,
+  );
+
+  test(
+    "a suspension longer than any lock timeout still loses nothing",
+    async () => {
+      // Past the 10s the old contention timeout gave up at, after which both
+      // stores went ahead unserialized and the approval was lost 1/1. There is
+      // no timeout to reach any more: a writer that cannot win the swap has not
+      // written anything, so it loads what it lost to and applies itself again.
+      const decided = new Map<string, "approved" | "denied">();
+      const run = await suspend("touch", async (store, token) => {
+        expect(store.decide(token, "approve")?.status).toBe("approved");
+        decided.set(token, "approved");
+        const heldUntil = Date.now() + 12_000;
+        while (Date.now() < heldUntil) {
+          const other = store.create({ requesterIp: `192.168.2.${(decided.size % 40) + 1}` });
+          const decision = decided.size % 2 === 0 ? "approve" : "deny";
+          expect(store.decide(other.token, decision)?.token).toBe(other.token);
+          decided.set(other.token, decision === "approve" ? "approved" : "denied");
+          await Bun.sleep(150);
+        }
+      });
+
+      expect(run.worker.pausedAtGeneration).toBe(1);
+      expect(decided.size).toBeGreaterThan(30);
+      expect(run.generationAfterPeer).toBeGreaterThan(30);
+      expect(run.worker.finalGeneration).toBeGreaterThan(run.generationAfterPeer as number);
+      expect(run.worker.status).toBe("approved");
+
+      // Not only the row the sleeper was holding: every decision taken during
+      // the twelve seconds it was stopped survived its stale republish.
+      const observer = createPendingPairRequestStore({ statePath: run.statePath, ttlMs: 60_000 });
+      const reverted = [...decided].filter(
+        ([token, status]) => observer.get(token)?.status !== status,
+      );
+      observer.dispose();
+      expect(reverted).toEqual([]);
+    },
+    60_000,
+  );
+
+  test(
+    "an approval made while suspended is re-applied over the polls it missed",
+    async () => {
+      // The other direction: the human's instance is the one that stops, so the
+      // decision is the write that arrives late. It must not be dropped either.
+      let token = "";
+      const run = await suspend("approve", async (store, requestToken) => {
+        token = requestToken;
+        for (let i = 0; i < 5; i += 1) {
+          store.touch(requestToken);
+          await Bun.sleep(20);
+        }
+        expect(store.get(requestToken)?.status).toBe("pending");
+      });
+
+      expect(run.worker.pausedAtGeneration).toBe(1);
+      expect(run.worker.finalGeneration).toBeGreaterThan(run.generationAfterPeer as number);
+      expect(run.worker.status).toBe("approved");
+      expect(readBack(run.statePath, token)).toBe("approved");
+    },
+    30_000,
+  );
 });
 
 // The floor for a degraded instance is the per-process store this replaced: it
@@ -572,13 +796,13 @@ describe("pending pair request store with an unwritable home", () => {
       const stranded = degraded.create({ requesterIp: "192.168.1.58", requesterLabel: "iPhone" });
 
       // It really did fail to publish — otherwise this test proves nothing.
-      expect(existsSync(statePath)).toBe(false);
+      expect(published(statePath)).toBe(false);
       expect(degraded.get(stranded.token)?.token).toBe(stranded.token);
 
       chmodSync(runDirectory, 0o700);
       const writable = createPendingPairRequestStore({ statePath });
       const unrelated = writable.create({ requesterIp: "192.168.1.59" });
-      expect(existsSync(statePath)).toBe(true);
+      expect(published(statePath)).toBe(true);
 
       // The other instance's publication must not evict the token this instance
       // is the only holder of.

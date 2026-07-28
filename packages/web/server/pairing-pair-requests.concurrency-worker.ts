@@ -5,8 +5,8 @@
 // one process cannot reproduce the bug this store exists to prevent: JavaScript
 // is single-threaded, so a read-modify-write can never interleave with another
 // one and a "concurrent" test in-process is really a sequential test. The
-// production case is two OS processes, and only two OS processes exercise the
-// lock that makes them safe.
+// production case is two OS processes, and only two OS processes contend for
+// the generation that makes them safe.
 //
 // The shape of the race is the real one: the phone polls (touch) the instance
 // mDNS handed it while the human decides (approve/deny) on the other, or an
