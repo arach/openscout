@@ -105,16 +105,25 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.scout-deck__sim {
+.scout-deck__source {
   flex: none;
-  padding: 7px 10px;
-  border: 1px solid rgba(245,184,88,.42); border-radius: 5px;
-  background: rgba(245,184,88,.1);
-  color: var(--deck-amber);
-  font: 650 var(--deck-kicker)/1 var(--deck-mono);
-  letter-spacing: .1em; text-transform: uppercase;
+  min-width: 0;
+  max-width: min(38vw, 370px);
+  padding: 6px 9px;
+  display: flex; align-items: center; gap: 7px;
+  border: 1px solid rgba(106,242,197,.34); border-radius: 5px;
+  background: rgba(106,242,197,.07);
+  font-family: var(--deck-mono);
   white-space: nowrap;
 }
+.scout-deck__source strong { color: var(--deck-green); font-size: 9px; letter-spacing: .12em; }
+.scout-deck__source small { min-width: 0; overflow: hidden; color: var(--deck-dim); font-size: 9px; text-overflow: ellipsis; }
+.scout-deck__source[data-state="preview"] { border-color: rgba(245,184,88,.42); background: rgba(245,184,88,.1); }
+.scout-deck__source[data-state="preview"] strong { color: var(--deck-amber); }
+.scout-deck__source[data-state="partial"] { border-color: rgba(245,184,88,.35); background: rgba(245,184,88,.07); }
+.scout-deck__source[data-state="partial"] strong { color: var(--deck-amber); }
+.scout-deck__source[data-state="offline"] { border-color: rgba(255,124,110,.28); background: rgba(255,124,110,.06); }
+.scout-deck__source[data-state="offline"] strong { color: var(--deck-red); }
 
 .scout-deck__ops-brand { display: inline-flex; align-items: center; gap: 7px; }
 .scout-deck__ops-brand strong,
@@ -178,8 +187,8 @@ body {
   background: transparent; box-shadow: none;
 }
 .scout-deck[data-treatment="ops"] .scout-deck__brand { gap: 10px; }
-.scout-deck[data-treatment="ops"] .scout-deck__sim {
-  padding: 4px 7px; font-size: 8px; border-color: rgba(228,182,92,.3); background: rgba(228,182,92,.07);
+.scout-deck[data-treatment="ops"] .scout-deck__source {
+  padding: 4px 7px;
 }
 .scout-deck[data-treatment="ops"] .deck-switch { gap: 2px; padding: 2px; border-color: rgba(255,255,255,.05); border-radius: 6px; }
 .scout-deck[data-treatment="ops"] .deck-switch__key {

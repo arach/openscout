@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { NativeScoutSurfaceClient, installScoutSurfacePushReceiver } from "../../surface-contract/native-scout-surface-client.ts";
+import { installScoutSurfacePushReceiver } from "../../surface-contract/native-scout-surface-client.ts";
+import { createScoutSurfaceClient } from "../../surface-contract/web-scout-surface-client.ts";
+import { discoverPreferredDeckLane, prioritizeDeckLane } from "./deck-lane-discovery.ts";
 import type {
   CodexDeckBlock,
   CodexDeckRoute,
@@ -12,6 +14,7 @@ import type {
   SurfaceBootstrap,
   SurfaceHost,
   SurfaceTailEvent,
+  ScoutSurfaceClient,
 } from "../../surface-contract/scout-surface-contract.ts";
 
 export type DeckLane = SurfaceAgent & {
@@ -63,6 +66,7 @@ export const DECK_TREATMENT_META: Record<DeckTreatment, { label: string; tagline
 const PENDING_TIMEOUT_MS = 9_000;
 
 const HOST_SCOPE_STORAGE_KEY = "scout.deck.hostScope";
+const LANE_STORAGE_KEY = "scout.deck.lane.v1";
 // v2 promotes the reference-led Ops surface to the default. Versioning the
 // preference prevents a remembered exploratory treatment from hiding it after
 // an app update; the next explicit choice is remembered normally.
@@ -280,7 +284,8 @@ function previewLaneIndex(search: URLSearchParams): number {
  */
 export function useDeckController() {
   const search = new URLSearchParams(window.location.search);
-  const preview = search.has("preview") || (import.meta.env.DEV && !search.has("offline"));
+  const preview = search.get("preview") === "1";
+  const requestedAgentId = search.get("agent")?.trim() || null;
   const initialVoice = preview && search.get("voice") === "listening"
     ? {
       ...PREVIEW_VOICE,
@@ -300,7 +305,9 @@ export function useDeckController() {
   // Preview-only entry points so a specific state can be opened directly (and
   // captured) without pretending any of it came from a host.
   const [selectedKey, setSelectedKey] = useState<string | null>(
-    preview ? PREVIEW_LANES[previewLaneIndex(search)]?.key ?? PREVIEW_LANES[0]?.key ?? null : null,
+    preview
+      ? PREVIEW_LANES[previewLaneIndex(search)]?.key ?? PREVIEW_LANES[0]?.key ?? null
+      : localStorage.getItem(LANE_STORAGE_KEY),
   );
   const [connection, setConnection] = useState<DeckConnection>(preview ? "ready" : "waiting");
   const [error, setError] = useState<string | null>(null);
@@ -319,7 +326,10 @@ export function useDeckController() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(preview && search.get("audio") === "open");
   const [inputTrace, setInputTrace] = useState<number[]>(() => Array.from({ length: TRACE_BINS }, () => 0));
-  const clientRef = useRef<NativeScoutSurfaceClient | null>(null);
+  const clientRef = useRef<ScoutSurfaceClient | null>(null);
+  const selectedKeyRef = useRef(selectedKey);
+  const operatorSelectedRef = useRef(false);
+  const discoveryStartedRef = useRef(false);
   const seenFinalCountRef = useRef<number | null>(preview ? 0 : null);
   const spokenBlockRef = useRef<string | null>(null);
   const previewVoiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -329,12 +339,13 @@ export function useDeckController() {
   const submitRef = useRef<(text: string) => Promise<void>>(async () => {});
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  selectedKeyRef.current = selectedKey;
 
   useEffect(() => {
     installScoutSurfacePushReceiver();
-    if (!window.webkit?.messageHandlers?.scoutSurface) return;
+    if (preview) return;
 
-    const client = new NativeScoutSurfaceClient("deck", () => ({
+    const client = createScoutSurfaceClient("deck", () => ({
       hostIds: (window.__scoutSurfaceBootstrap?.selectedHostIds ?? []) as [string, ...string[]],
     }));
     clientRef.current = client;
@@ -372,8 +383,33 @@ export function useDeckController() {
             ]);
             if (cancelled) return;
             const next = buildDeckLanes(value.hosts, agents, tail);
-            setLanes(next);
-            setSelectedKey((current) => next.some((lane) => lane.key === current) ? current : next[0]?.key ?? null);
+            const requested = requestedAgentId ? next.find((lane) => lane.id === requestedAgentId) : null;
+            const rememberedKey = requested?.key ?? selectedKeyRef.current ?? localStorage.getItem(LANE_STORAGE_KEY);
+            const remembered = rememberedKey ? next.find((lane) => lane.key === rememberedKey) : null;
+            if (remembered) {
+              const ordered = prioritizeDeckLane(next, remembered.key);
+              setLanes(ordered);
+              setSelectedKey(remembered.key);
+              selectedKeyRef.current = remembered.key;
+              localStorage.setItem(LANE_STORAGE_KEY, remembered.key);
+            } else {
+              setLanes(next);
+              setSelectedKey(null);
+              selectedKeyRef.current = null;
+              if (!discoveryStartedRef.current) {
+                discoveryStartedRef.current = true;
+                void discoverPreferredDeckLane(next, (route) => client.codex.connect(route))
+                  .then((preferredKey) => {
+                    if (cancelled || operatorSelectedRef.current) return;
+                    const key = preferredKey ?? next[0]?.key ?? null;
+                    if (!key) return;
+                    setLanes((current) => prioritizeDeckLane(current, key));
+                    setSelectedKey(key);
+                    selectedKeyRef.current = key;
+                    localStorage.setItem(LANE_STORAGE_KEY, key);
+                  });
+              }
+            }
             const failures = agents.hosts.filter((host) => !host.ready).length
               + tail.hosts.filter((host) => !host.ready).length;
             setError(null);
@@ -400,11 +436,11 @@ export function useDeckController() {
       if (fleetTimer) clearInterval(fleetTimer);
       clientRef.current = null;
     };
-  }, []);
+  }, [preview]);
 
   const hosts = preview ? PREVIEW_HOSTS : bootstrap?.hosts ?? [];
   const scopedLanes = hostScope === "all" ? lanes : lanes.filter((lane) => lane.hostId === hostScope);
-  const selected = scopedLanes.find((lane) => lane.key === selectedKey) ?? scopedLanes[0] ?? null;
+  const selected = scopedLanes.find((lane) => lane.key === selectedKey) ?? null;
   const selectedIndex = selected ? scopedLanes.indexOf(selected) : -1;
   const selectedRoute = selected ? { hostId: selected.hostId, agentId: selected.id } satisfies CodexDeckRoute : null;
   const adapterAvailable = Boolean(
@@ -639,7 +675,12 @@ export function useDeckController() {
     localStorage.setItem(TREATMENT_STORAGE_KEY, next);
   };
 
-  const selectLane = (lane: DeckLane) => setSelectedKey(lane.key);
+  const selectLane = (lane: DeckLane) => {
+    operatorSelectedRef.current = true;
+    selectedKeyRef.current = lane.key;
+    setSelectedKey(lane.key);
+    localStorage.setItem(LANE_STORAGE_KEY, lane.key);
+  };
 
   /** Lane stepping. Treatments that navigate rather than point rely on this. */
   const stepLane = (delta: number) => {
@@ -647,7 +688,7 @@ export function useDeckController() {
     const base = selectedIndex < 0 ? 0 : selectedIndex;
     const next = (base + delta + scopedLanes.length) % scopedLanes.length;
     const lane = scopedLanes[next];
-    if (lane) setSelectedKey(lane.key);
+    if (lane) selectLane(lane);
   };
 
   const selectHostScope = (scope: DeckHostScope) => {
@@ -953,22 +994,7 @@ export function buildDeckLanes(
       hostName: hostNames.get(outcome.hostId) ?? outcome.hostId,
       events: (events.get(`${outcome.hostId}:${agent.id}`) ?? []).sort((a, b) => b.at - a.at),
     }));
-  }).sort((a, b) => {
-    const priority = deckLanePriority(b) - deckLanePriority(a);
-    return priority || (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
   });
-}
-
-function deckLanePriority(lane: DeckLane): number {
-  const controllable = lane.transport === "codex_app_server";
-  const live = isLiveLaneState(lane.state);
-  const attention = lane.state === "waiting" || lane.state === "blocked" || lane.state === "error";
-  if (controllable && live) return 5;
-  if (controllable && attention) return 4;
-  if (controllable) return 3;
-  if (attention) return 2;
-  if (live) return 1;
-  return 0;
 }
 
 function previewLane(
@@ -1231,11 +1257,11 @@ export function blockDetail(block: CodexDeckBlock): string {
 }
 
 export function connectionLabel(connection: DeckConnection): string {
-  if (connection === "ready") return "Bridge online";
-  if (connection === "partial") return "Bridge degraded";
-  if (connection === "error") return "Bridge error";
-  if (connection === "offline") return "Bridge offline";
-  return "Bridge connecting";
+  if (connection === "ready") return "Host connected";
+  if (connection === "partial") return "Host degraded";
+  if (connection === "error") return "Host unavailable";
+  if (connection === "offline") return "Host disconnected";
+  return "Connecting to host";
 }
 
 /**
@@ -1282,10 +1308,10 @@ export function laneTone(lane: DeckLane): DeckSignalTone {
 }
 
 export function laneStateLabel(state: string | null): string {
-  if (isLiveLaneState(state)) return "Live signal";
+  if (isLiveLaneState(state)) return "Agent active";
   if (state === "waiting" || state === "blocked") return "Needs attention";
-  if (state === "error") return "Signal error";
-  if (state === "idle" || state === "available") return "Controller ready";
+  if (state === "error") return "Agent error";
+  if (state === "idle" || state === "available") return "Idle";
   return state ? state.replaceAll("_", " ") : "Standing by";
 }
 

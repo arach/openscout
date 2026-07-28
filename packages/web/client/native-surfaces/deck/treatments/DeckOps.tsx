@@ -131,6 +131,20 @@ export function DeckOps({ model }: { model: DeckModel }) {
     : model.connection === "partial"
       ? "DEGRADED"
       : model.connection.toUpperCase();
+  const controlTruth = model.preview
+    ? "SIMULATED"
+    : !model.adapterAvailable
+      ? "VIEW ONLY"
+      : model.thread?.threadId && (model.connection === "ready" || model.connection === "partial")
+        ? "LIVE"
+        : model.connection === "ready" || model.connection === "partial"
+          ? "TASK UNBOUND"
+          : "OFFLINE";
+  const controlsLabel = model.preview
+    ? "8 SIMULATED CONTROLS"
+    : model.connection === "ready" || model.connection === "partial"
+      ? "8 HOST CONTROLS"
+      : "CONTROLS OFFLINE";
 
   return (
     <div className="ops">
@@ -248,8 +262,8 @@ export function DeckOps({ model }: { model: DeckModel }) {
 
             <footer>
               <span>MODEL <strong>{lane.model ?? "DEFAULT"}</strong></span>
-              <span>LINK <strong>{model.thread?.threadId ? "LIVE" : model.adapterAvailable ? "UNBOUND" : "VIEW"}</strong></span>
-              <span title={model.thread?.threadId}>TASK <strong>{model.thread?.threadId ? shortId(model.thread.threadId) : "—"}</strong></span>
+              <span>CONTROL <strong>{controlTruth}</strong></span>
+              <span title={model.thread?.threadId ?? undefined}>TASK <strong>{model.thread?.threadId ? shortId(model.thread.threadId) : "—"}</strong></span>
             </footer>
           </article>
 
@@ -285,7 +299,7 @@ export function DeckOps({ model }: { model: DeckModel }) {
       <section className="ops__commands" aria-label="Deck commands">
         <header>
           <span>COMMANDS</span>
-          <strong>8 LIVE CONTROLS</strong>
+          <strong>{controlsLabel}</strong>
         </header>
         <div className="ops__command-grid">
           <OpsCommand

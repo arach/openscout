@@ -15,6 +15,16 @@ export { buildDeckLanes } from "./deck-controller.ts";
  */
 export function ScoutDeckSurface() {
   const model = useDeckController();
+  const connectedHost = model.hosts.find((host) => host.state === "connected");
+  const sourceState = model.preview
+    ? { state: "preview", label: "PREVIEW", detail: "sample lanes · controls simulate locally" }
+    : model.connection === "ready" || model.connection === "partial"
+      ? {
+        state: model.connection === "ready" ? "live" : "partial",
+        label: model.connection === "ready" ? "LIVE" : "DEGRADED",
+        detail: `${connectedHost?.name ?? "host"} · controls affect Codex Desktop`,
+      }
+      : { state: "offline", label: "OFFLINE", detail: "no host connected" };
 
   return (
     <main
@@ -43,14 +53,16 @@ export function ScoutDeckSurface() {
               </span>
             </>
           )}
-          {model.preview ? (
-            <span
-              className="scout-deck__sim"
-              title="Every lane, thread, and turn on screen is local sample data. No host is attached."
-            >
-              Sample data
-            </span>
-          ) : null}
+          <span
+            className="scout-deck__source"
+            data-state={sourceState.state}
+            title={model.preview
+              ? "Every lane, thread, and turn on screen is local sample data. No host is attached."
+              : sourceState.detail}
+          >
+            <strong>{sourceState.label}</strong>
+            <small>{sourceState.detail}</small>
+          </span>
         </div>
         {model.treatment === "ops" ? (
           <span className="scout-deck__ops-count">

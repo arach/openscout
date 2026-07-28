@@ -724,8 +724,8 @@ export function DeckStandby({ model }: { model: DeckModel }) {
     <div className="deck-standby">
       <i className="deck-lamp" />
       <span className="deck-kicker">Deck standing by</span>
-      <h2>{model.connection === "error" ? "Bridge unavailable" : "Waiting for a connected host"}</h2>
-      <p>{model.error ?? "The bundled surface is loaded. Select a paired Mac to populate live lanes."}</p>
+      <h2>{model.connection === "error" ? "Host unavailable" : "Waiting for a connected host"}</h2>
+      <p>{model.error ?? "Connect a trusted Scout host to populate live lanes and enable controls."}</p>
       <HostScopeBar model={model} />
     </div>
   );
