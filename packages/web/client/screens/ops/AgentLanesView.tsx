@@ -18,6 +18,7 @@ import { useObservePolling } from "../../lib/observe.ts";
 import type { ObserveCache } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import type { Agent, ObserveEvent, Route, TailDiscoverySnapshot, TailEvent } from "../../lib/types.ts";
 import { ScoutContext } from "../../scout/Provider.tsx";
 import { defineSurface } from "../../surfaces/types.ts";
@@ -99,7 +100,7 @@ type LaneScrollZone = "pinned-left" | "main" | "pinned-right";
 const LANE_SCROLL_ZONES: LaneScrollZone[] = ["pinned-left", "main", "pinned-right"];
 
 function documentIsHidden(): boolean {
-  return typeof document !== "undefined" && document.visibilityState === "hidden";
+  return !isScoutSurfaceActive();
 }
 
 function laneScrollStorageKey(profileId: string, zone: LaneScrollZone): string {
@@ -670,18 +671,11 @@ export function AgentLanesView({
     };
     void load();
     const timer = setInterval(() => void load(), terminalPollIntervalMs);
-    const handleVisibilityChange = () => {
-      if (!documentIsHidden()) void load();
-    };
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
+    const stopActivationListener = onScoutSurfaceActivated(() => void load());
     return () => {
       cancelled = true;
       clearInterval(timer);
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
+      stopActivationListener();
     };
   }, [data, terminalPollIntervalMs]);
 

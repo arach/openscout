@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
+import { isScoutSurfaceActive, onScoutSurfaceActivated } from "../../lib/surface-activity.ts";
 import type { Agent } from "../../lib/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import {
@@ -72,6 +73,7 @@ export function useAgentLanesData({
     includeTranscriptReplay: true,
     discoveryIntervalMs: 5_000,
     recentLimit: tailRecentLimit,
+    pauseWhenHidden: true,
   });
 
   useEffect(() => {
@@ -82,6 +84,7 @@ export function useAgentLanesData({
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      if (!isScoutSurfaceActive()) return;
       try {
         const sessions = await fetchTerminalSessions({ includeDiscovered: false });
         if (!cancelled) setTerminalSessions(sessions);
@@ -91,9 +94,11 @@ export function useAgentLanesData({
     };
     void load();
     const timer = setInterval(() => void load(), 10_000);
+    const stopActivationListener = onScoutSurfaceActivated(() => void load());
     return () => {
       cancelled = true;
       clearInterval(timer);
+      stopActivationListener();
     };
   }, []);
 
@@ -110,7 +115,7 @@ export function useAgentLanesData({
     () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, horizon)),
     [scoutAgents, now, horizon],
   );
-  const observeCache = useObservePolling(observeAgents);
+  const observeCache = useObservePolling(observeAgents, { pauseWhenHidden: true });
   const tailLoading = loadState.discovery === "loading" || loadState.recent === "loading";
 
   useEffect(() => {
