@@ -12,6 +12,7 @@
  */
 
 import type { ReactNode } from "react";
+import { StudyHeader } from "@/components/StudyHeader";
 
 interface Props {
   label: string;
@@ -42,20 +43,16 @@ function InspectorSection({ label, count, action, children }: Props) {
 export default function InspectorSectionAtomPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · atoms · inspector-section
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          InspectorSection
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Replaces the private <code className="font-mono text-[11px] text-studio-ink">Section({"{"} label, children {"}"})</code> components
-          duplicated across Home/Agents/Sessions, plus the manual{" "}
-          <code className="font-mono text-[11px] text-studio-ink">ctx-panel-section</code> markup
-          used by Channel/Ops.
-        </p>
-      </header>
+      <StudyHeader
+        eyebrow="atoms · inspector-section"
+        title="InspectorSection"
+        className="mb-6"
+      >
+        Replaces the private <code className="font-mono text-sm text-studio-ink">Section({"{"} label, children {"}"})</code> components
+        duplicated across Home/Agents/Sessions, plus the manual{" "}
+        <code className="font-mono text-sm text-studio-ink">ctx-panel-section</code> markup
+        used by Channel/Ops.
+      </StudyHeader>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <Panel title="Label only">

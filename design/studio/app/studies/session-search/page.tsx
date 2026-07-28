@@ -288,10 +288,10 @@ export default async function SessionSearchStudyPage({
           <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
             studies / web / session-search
           </div>
-          <h1 className="mt-1.5 font-display text-[22px] font-medium leading-tight tracking-tight text-studio-ink">
+          <h1 className="mt-1.5 font-display text-4xl font-medium leading-tight tracking-tight text-studio-ink">
             Session search workbench
           </h1>
-          <p className="mt-1.5 font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          <p className="mt-1.5 font-sans text-md leading-relaxed text-studio-ink-faint">
             Walk a real harness session through the preparation pipeline. Each
             step explains itself and shows what it produces against the chosen
             input.

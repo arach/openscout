@@ -26,7 +26,7 @@
  * Static reference only — no app code lives here. Status: draft.
  */
 
-import { EyebrowLabel } from "@/components/EyebrowLabel";
+import { StudyHeader } from "@/components/StudyHeader";
 
 /* ────────────────────────────────────────────────────────────────────
    Mock data — the Conversation shape mirrors ScoutChannel; the extra
@@ -805,32 +805,30 @@ export default function ScoutMacosRefreshPage() {
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-10 max-w-prose">
-        <EyebrowLabel size="sm">· studies · macos · refresh</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Scout macOS · Refresh
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          The consolidated macOS direction from the design review. One projection
-          of the refreshed Comms window — list · thread · inspector — that lands
-          the ask-context story end to end and adopts the signed-off inspector
-          grammar from{" "}
-          <a href="/studies/scout-inspectors" className="text-scout-accent hover:underline">
-            /studies/scout-inspectors
-          </a>
-          . The ledger below maps every change to its macOS symbol and whether it
-          ships today, refines, or is net-new. Reference only — the per-surface
-          specs stay in{" "}
-          <a href="/studies/scout-comms" className="text-scout-accent hover:underline">
-            /studies/scout-comms
-          </a>{" "}
-          and{" "}
-          <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
-            /studies/scout-comms-inspector
-          </a>
-          .
-        </p>
-      </header>
+      <StudyHeader
+        eyebrow="studies · macos · refresh"
+        title="Scout macOS · Refresh"
+        className="mb-10"
+      >
+        The consolidated macOS direction from the design review. One projection
+        of the refreshed Comms window — list · thread · inspector — that lands
+        the ask-context story end to end and adopts the signed-off inspector
+        grammar from{" "}
+        <a href="/studies/scout-inspectors" className="text-scout-accent hover:underline">
+          /studies/scout-inspectors
+        </a>
+        . The ledger below maps every change to its macOS symbol and whether it
+        ships today, refines, or is net-new. Reference only — the per-surface
+        specs stay in{" "}
+        <a href="/studies/scout-comms" className="text-scout-accent hover:underline">
+          /studies/scout-comms
+        </a>{" "}
+        and{" "}
+        <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
+          /studies/scout-comms-inspector
+        </a>
+        .
+      </StudyHeader>
 
       {/* §1 — The projection */}
       <section className="mb-12">
