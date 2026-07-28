@@ -236,8 +236,7 @@ function sessionMatchesSurface(
   sessionName: string | undefined,
 ): boolean {
   if (!backend || !sessionName || session.backend !== backend) return false;
-  return session.terminalSession === sessionName
-    || session.tmuxSession === sessionName
+  return session.tmuxSession === sessionName
     || session.zellijSession === sessionName;
 }
 

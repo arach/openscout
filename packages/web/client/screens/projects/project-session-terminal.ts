@@ -41,13 +41,9 @@ export function resolveProjectSessionTmuxTarget(
   const definitionId = agentId?.split(".", 1)[0] ?? null;
   if (definitionId?.startsWith("session-")) refs.add(definitionId);
 
-  if (agentId) {
-    for (const session of sessions) {
-      const surface = tmuxSurfaces(session)[0];
-      if (surface && session.agentId === agentId) return target(session, surface);
-    }
-  }
-
+  // Nothing binds a registry record to an agent id yet, so matching happens on
+  // session refs alone. Restore a direct agent lookup once the workspace record
+  // carries that binding.
   for (const session of sessions) {
     const surface = tmuxSurfaces(session).find((candidate) => refs.has(candidate.sessionName));
     if (surface) return target(session, surface);
