@@ -260,6 +260,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Projects-first fleet landing — machine rail, currently-working strip, projects tree with one-child compression, latest-activity log. Faithful port + a Compact density treatment.",
   },
   {
+    href: "/studies/scout-ios-notifications",
+    label: "Scout iOS · Notifications",
+    bucket: "studies",
+    surface: "ios",
+    family: "scout-ios",
+    status: "in-flight",
+    source: [
+      "design/studio/views/scout-ios-notifications.tsx",
+      "apps/ios/Scout/NotificationsSurface.swift",
+      "packages/scout-ios-core/Sources/ScoutIOSCore/NotificationsLedger.swift",
+    ],
+    blurb: "The destination behind the alerts — a device-local ledger of every notification the paired Macs raised, kept after it stops being pending. Seen/unseen tick + an honest outcome tag (approved · denied · answered when this device decided; resolved elsewhere · cleared when it didn't). Open scope triages inline; All is the history.",
+  },
+  {
     href: "/studies/scout-ios-agents",
     label: "Scout iOS · Agents",
     bucket: "studies",
@@ -1253,6 +1267,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Result-experience redesign: session cards, conversation-first inspector, rendered vs raw, ranking, next actions.",
   },
   {
+    href: "/studies/ascii-render-lab",
+    label: "ASCII Render Lab",
+    bucket: "studies",
+    surface: "web",
+    family: "ascii-render-lab",
+    status: "draft",
+    source: [
+      "design/studio/views/ascii-render-lab.tsx",
+      "design/logo-attempts/focused-03-wire-cube-mark.svg",
+      "design/portal-studies/scout-local-sober-ascii.html",
+    ],
+    blurb:
+      "Instrument for the scout.local portal ornament. The mark is a RENDER of real artwork, not a shape constructed in ASCII: svg → rasterise → sample per cell → field filters → shimmer → quantise. Rasterising is what frees the isometric and 30° edges that collapse into dashed staircases when glyphs are placed by hand. 36 live params across source · grid · field · texture · shimmer, all in the URL hash so any render is a shareable link. Two findings are baked in rather than exposed: the shimmer modulates coverage before quantisation (never brightness after), and the dither is ordered, not random.",
+  },
+  {
     href: "/studies/tree-viewer",
     label: "Tree Viewer",
     bucket: "studies",
@@ -1547,6 +1576,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     ],
     blurb:
       "Classic chat input: shell · textarea · send bottom-right · optional header/footer. Shared by home quiet-start and conversation threads.",
+  },
+  {
+    href: "/atoms/runtime-picker",
+    label: "RuntimePicker",
+    bucket: "atoms",
+    family: "message-composer",
+    status: "draft",
+    source: [
+      "design/studio/components/RuntimePicker.tsx",
+      "design/studio/app/atoms/runtime-picker/page.tsx",
+      "packages/web/client/components/MessageComposer/MessageComposerToolSelect.tsx",
+      "packages/web/client/scout/repo-watch/PullRequestAssignDialog.tsx",
+      "packages/web/client/scout/repo-watch/pull-request-actions.ts",
+    ],
+    blurb:
+      "Harness · model · effort collapsed into one control. At rest the harness is a mark rather than a word, so the chip is a glyph, a model and a level; the panel opens upward into harness/model/effort. Two treatments — rail (console-dense) and bands (more air). Replaces two select pills plus a free-text model field.",
   },
 
   {

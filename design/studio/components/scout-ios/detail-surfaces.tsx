@@ -10,6 +10,7 @@
 // nodes (the treatments). Pushed surfaces run chrome-less (no tab bar).
 
 import { Glyph } from "./Glyph";
+import { Composer, MicGlyph, RuntimeChip } from "./composer";
 import { BrailleSpinner } from "./primitives";
 import { DetailHeader } from "./PhoneShell";
 import {
@@ -17,18 +18,6 @@ import {
   ROUTES, CONNECT_LOG, CONN_LEVEL_COLOR,
   type ConvBlock, type ConvTurn,
 } from "./data";
-
-// ── shared bits ─────────────────────────────────────────────────────────────
-
-function MicGlyph({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="3" width="6" height="11" rx="3" />
-      <path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" />
-    </svg>
-  );
-}
 
 /** Minimal inline markdown: **bold** within a line. */
 function Inline({ s }: { s: string }) {
@@ -121,10 +110,15 @@ export function ConversationBody({ collapseReasoning }: { collapseReasoning?: bo
       <div className="iBody iConv">
         {CONVERSATION.map((t) => <Turn key={t.id} turn={t} collapseReasoning={collapseReasoning} />)}
       </div>
+      {/* The dock strip is the surface's layer, not a composer param. Chips are
+          the runtime triplet, seeded from the header's "claude · opus-4.8". */}
       <div className="iComposer">
-        <span className="iMic"><MicGlyph /></span>
-        <div className="iComposerField focus">below the search — keep it collapsed<span className="iComposerCaret" /></div>
-        <span className="iSend armed"><Glyph kind="arrow" size={15} /></span>
+        <Composer
+          placeholder="Steer broker-smith…"
+          defaultValue="below the search — keep it collapsed"
+          autoFocus
+          tools={<RuntimeChip />}
+        />
       </div>
     </>
   );

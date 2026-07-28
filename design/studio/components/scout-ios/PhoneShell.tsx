@@ -35,6 +35,12 @@ export interface Treatment {
   /** Responsive exhibit: the same surface rendered in a wide (iPad) frame
    *  below the phone stage, so a container-query treatment shows both formats. */
   wide?: ReactNode;
+  /** Per-treatment masthead override (else the lab-level `header`, else the
+   *  default "Scout" masthead). */
+  header?: ReactNode;
+  /** Per-treatment chrome override — false when the treatment draws its own
+   *  bottom chrome (e.g. the Entry compose dock + retired-cockpit tabs). */
+  showChrome?: boolean;
   /** Palette this treatment is designed against — selecting the treatment
    *  flips the lab's palette to it (the toggle stays live for comparison). */
   defaultVariant?: Variant;
@@ -47,7 +53,7 @@ export function ScoutIOSStyles() {
 
 /** The device + RootView chrome around a surface body. */
 export function PhoneShell({
-  surface, variant, mods, header, showChrome = true, tabBadges, children,
+  surface, variant, mods, header, showChrome = true, tabBadges, bellCount, children,
 }: {
   surface: Surface; variant: Variant; mods?: TreatmentMods;
   /** Replaces the default "Scout" masthead (for pushed/sheet surfaces). */
@@ -56,6 +62,8 @@ export function PhoneShell({
   showChrome?: boolean;
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
+  /** Unread alerts on the masthead bell — the Notifications entry point. */
+  bellCount?: number;
   children: ReactNode;
 }) {
   return (
@@ -81,6 +89,12 @@ export function PhoneShell({
                 <span className="iWordmark">Scout</span>
                 {COMPOSE_SURFACES.includes(surface) && (
                   <span className="iCompose"><Glyph kind="plus" size={18} /></span>
+                )}
+                {bellCount != null && (
+                  <span className="iBell">
+                    <Glyph kind="inbox" size={16} />
+                    {bellCount > 0 && <span className="iBellCount">{bellCount}</span>}
+                  </span>
                 )}
                 <span className="iGear"><Glyph kind="gear" size={20} /></span>
               </div>
@@ -168,6 +182,7 @@ export function TabletShell({ variant, mods, children }: { variant: Variant; mod
 const SURFACE_NAV: { surface: Surface | "theme"; label: string; href: string }[] = [
   { surface: "theme", label: "Theme", href: "/studies/scout-ios" },
   { surface: "home", label: "Home", href: "/studies/scout-ios-home" },
+  { surface: "notifications", label: "Notifications", href: "/studies/scout-ios-notifications" },
   { surface: "agents", label: "Agents", href: "/studies/scout-ios-agents" },
   { surface: "comms", label: "Comms", href: "/studies/scout-ios-comms" },
   { surface: "conversation", label: "Conversation", href: "/studies/scout-ios-conversation" },
@@ -229,7 +244,7 @@ export function SurfaceNav({ current }: { current: Surface | "theme" }) {
  * notes column. Each surface study is `<SurfaceLab surface="…" treatments={…}/>`.
  */
 export function SurfaceLab({
-  surface, title, blurb, source, treatments, controls, header, showChrome = true, tabBadges,
+  surface, title, blurb, source, treatments, controls, header, showChrome = true, tabBadges, bellCount,
 }: {
   surface: Surface;
   title: string;
@@ -245,6 +260,8 @@ export function SurfaceLab({
   showChrome?: boolean;
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
+  /** Unread alerts on the masthead bell — the Notifications entry point. */
+  bellCount?: number;
 }) {
   // Deep-linkable initial state: ?t=<treatment id> and ?v=<palette>. Without
   // ?v, a deep-linked treatment opens on its declared home palette.
@@ -293,7 +310,8 @@ export function SurfaceLab({
 
       {/* stage */}
       <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gridTemplateColumns: "418px 1fr", gap: 40, alignItems: "start" }}>
-        <PhoneShell surface={surface} variant={variant} mods={current?.mods} header={header} showChrome={showChrome} tabBadges={tabBadges}>
+        <PhoneShell surface={surface} variant={variant} mods={current?.mods} header={current?.header ?? header}
+          showChrome={current?.showChrome ?? showChrome} tabBadges={tabBadges} bellCount={bellCount}>
           {current?.body}
         </PhoneShell>
 
