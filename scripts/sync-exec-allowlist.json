@@ -462,6 +462,13 @@
     "owner": "tests"
   },
   {
+    "path": "packages/web/server/terminal-hosts/herdr.ts",
+    "symbol": "node:child_process",
+    "category": "process-lifecycle",
+    "reason": "spawns a detached herdr session server, which outlives the request by design and cannot be awaited",
+    "owner": "web"
+  },
+  {
     "path": "packages/web/vite.config.ts",
     "symbol": "execSync",
     "category": "build-script",

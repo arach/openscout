@@ -5,7 +5,10 @@ import type { TerminalSessionRecord, TerminalSurface } from "./terminal-sessions
 import {
   normalizeTerminalWorkspaceColumns,
   reconcileTerminalWorkspace,
+  resolveTerminalWorkspaceColumns,
   TERMINAL_WORKSPACE_MAX_COLUMNS,
+  terminalWorkspaceLayoutLabel,
+  terminalWorkspaceLayoutOf,
   type TerminalWorkspaceCell,
   type TerminalWorkspaceHostState,
   type TerminalWorkspaceRecord,
@@ -210,5 +213,67 @@ describe("normalizeTerminalWorkspaceColumns", () => {
     expect(normalizeTerminalWorkspaceColumns(0)).toBe(1);
     expect(normalizeTerminalWorkspaceColumns(99)).toBe(TERMINAL_WORKSPACE_MAX_COLUMNS);
     expect(normalizeTerminalWorkspaceColumns("2")).toBe(2);
+  });
+});
+
+describe("terminalWorkspaceLayoutOf", () => {
+  test("prefers a stored layout", () => {
+    expect(terminalWorkspaceLayoutOf({ layout: { mode: "lanes", columns: "dynamic" }, columns: 2, cellCount: 5 }))
+      .toEqual({ mode: "lanes", columns: "dynamic" });
+    expect(terminalWorkspaceLayoutOf({ layout: { mode: "solo" } })).toEqual({ mode: "solo" });
+  });
+
+  test("folds a pre-layout record forward from its column count", () => {
+    // One tile is solo whatever the stored column count said.
+    expect(terminalWorkspaceLayoutOf({ columns: 3, cellCount: 1 })).toEqual({ mode: "solo" });
+    // Everything fits on one row: lanes.
+    expect(terminalWorkspaceLayoutOf({ columns: 3, cellCount: 3 })).toEqual({ mode: "lanes", columns: 3 });
+    // The old "quad" — 2 columns, 4 cells — was a grid.
+    expect(terminalWorkspaceLayoutOf({ columns: 2, cellCount: 4 })).toEqual({ mode: "grid", columns: 2 });
+    expect(terminalWorkspaceLayoutOf({})).toEqual({ mode: "solo" });
+  });
+
+  test("clamps a stored column count that is out of range", () => {
+    expect(terminalWorkspaceLayoutOf({ layout: { mode: "grid", columns: 99 } }))
+      .toEqual({ mode: "grid", columns: TERMINAL_WORKSPACE_MAX_COLUMNS });
+  });
+});
+
+describe("resolveTerminalWorkspaceColumns", () => {
+  test("solo is always one column", () => {
+    expect(resolveTerminalWorkspaceColumns({ mode: "solo" }, { tileCount: 9 })).toBe(1);
+    expect(resolveTerminalWorkspaceColumns({ mode: "solo", columns: 4 }, { tileCount: 9 })).toBe(1);
+  });
+
+  test("a pinned column count is used as written", () => {
+    expect(resolveTerminalWorkspaceColumns({ mode: "lanes", columns: 3 }, { tileCount: 9 })).toBe(3);
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid", columns: 2 }, { tileCount: 9 })).toBe(2);
+  });
+
+  test("dynamic lanes give every tile its own lane, up to the readable limit", () => {
+    expect(resolveTerminalWorkspaceColumns({ mode: "lanes", columns: "dynamic" }, { tileCount: 1 })).toBe(1);
+    expect(resolveTerminalWorkspaceColumns({ mode: "lanes", columns: "dynamic" }, { tileCount: 3 })).toBe(3);
+    expect(resolveTerminalWorkspaceColumns({ mode: "lanes", columns: "dynamic" }, { tileCount: 20 }))
+      .toBe(TERMINAL_WORKSPACE_MAX_COLUMNS);
+  });
+
+  test("a dynamic grid is the squarest arrangement that holds the tiles", () => {
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid", columns: "dynamic" }, { tileCount: 4 })).toBe(2);
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid", columns: "dynamic" }, { tileCount: 9 })).toBe(3);
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid", columns: "dynamic" }, { tileCount: 5 })).toBe(3);
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid" }, { tileCount: 4 })).toBe(2);
+  });
+
+  test("an empty workspace still renders one column rather than zero", () => {
+    expect(resolveTerminalWorkspaceColumns({ mode: "grid", columns: "dynamic" }, { tileCount: 0 })).toBe(1);
+  });
+});
+
+describe("terminalWorkspaceLayoutLabel", () => {
+  test("says the shape and the column rule in product language", () => {
+    expect(terminalWorkspaceLayoutLabel({ mode: "solo" })).toBe("Solo");
+    expect(terminalWorkspaceLayoutLabel({ mode: "lanes", columns: "dynamic" })).toBe("Lanes · dynamic");
+    expect(terminalWorkspaceLayoutLabel({ mode: "grid", columns: 1 })).toBe("Grid · 1 column");
+    expect(terminalWorkspaceLayoutLabel({ mode: "grid", columns: 3 })).toBe("Grid · 3 columns");
   });
 });

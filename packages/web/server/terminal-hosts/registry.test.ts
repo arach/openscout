@@ -90,8 +90,9 @@ describe("terminal host registry", () => {
         // The relay is vendored and knows pty/tmux/zellij only.
         relayAttach: false,
         capture: true,
-        // Herdr owns workspaces, tabs, and panes; Scout does not create them.
-        create: false,
+        // Scout starts a named session headlessly (`herdr --session X server`)
+        // and stops there; herdr still owns workspaces, tabs, and panes.
+        create: true,
         // The one host that reports agent state instead of Scout inferring it.
         observedAgentState: true,
         // Scout detaches from a herdr session; Scout never kills it.

@@ -1021,7 +1021,7 @@
 
 .s-term-grid-presets {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-sm);
 }
 
@@ -2079,7 +2079,7 @@
   }
 
   .s-term-grid-presets {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .s-term-grid-slots {
@@ -2379,4 +2379,155 @@
 
 .s-term-placeholder button:hover {
   background: rgba(94, 234, 212, 0.14);
+}
+
+/* Session picker: list / table toggle and the sortable table view. */
+
+.s-term-picker-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.s-term-picker-views button {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.s-term-picker-views button.is-selected {
+  background: rgba(94, 234, 212, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.s-term-picker-table-wrap {
+  min-width: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+}
+
+.s-term-picker-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-term-picker-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background: #0c0c0c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  text-align: left;
+  font-weight: 500;
+}
+
+.s-term-picker-table thead th button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: 7px var(--space-sm);
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.42);
+  font: inherit;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.s-term-picker-table thead th button:hover {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.s-term-picker-table thead th[aria-sort="ascending"] button,
+.s-term-picker-table thead th[aria-sort="descending"] button {
+  color: rgba(94, 234, 212, 0.92);
+}
+
+.s-term-picker-table thead th em {
+  font-style: normal;
+  font-size: 8px;
+  opacity: 0.7;
+}
+
+.s-term-picker-table tbody td {
+  max-width: 240px;
+  padding: 6px var(--space-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.s-term-picker-table tbody td:first-child {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.s-term-picker-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.s-term-picker-table tbody tr.is-attached td {
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.s-term-picker-table tbody td:last-child {
+  width: 1%;
+  padding-right: var(--space-sm);
+}
+
+.s-term-workspace-builder-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.s-term-workspace-builder-source-head h3 {
+  margin: 0;
+}
+
+.s-term-workspace-builder-columns em {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.s-term-workspace-tile--hosted .s-term-workspace-unavailable-body code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: rgba(248, 113, 113, 0.82);
+}
+
+/* The builder hosts the same picker as the workspace view; give it one column
+   for the list and the full panel width for the table. */
+.s-term-workspace-builder-sessions {
+  display: block;
+  min-width: 0;
+}
+
+.s-term-workspace-builder-sessions .s-term-picker-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-xs);
+  max-height: 320px;
+  overflow: auto;
 }

@@ -58,6 +58,7 @@ import {
   terminalListItems,
   terminalSummaryDetailRows,
   terminalSurfaceDescriptorFromRegisteredSurface,
+  isRelayCapableTerminalBackend,
   terminalSurfaceIdsEqual,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
@@ -78,6 +79,7 @@ import {
   terminalCellSessionName,
   terminalWorkspaceLayoutFromRecord,
   terminalWorkspaceRecordInputFromLayout,
+  type TerminalCellBackend,
   TERMINAL_DEFAULT_GRID_COLUMNS,
   TERMINAL_WORKSPACES_STORAGE_KEY,
   TERMINAL_WORKSPACES_STORAGE_VERSION,
@@ -86,7 +88,24 @@ import {
   type TerminalWorkspaceDeckState,
   type TerminalWorkspaceDefinition,
 } from "./workspace-deck.ts";
-import { terminalHostSupportsControl, useTerminalHosts } from "../../lib/terminal-hosts.ts";
+import {
+  createTerminalHostSession,
+  terminalHostById,
+  terminalHostSupportsControl,
+  terminalStartOptions,
+  useTerminalHosts,
+  type TerminalStartOption,
+} from "../../lib/terminal-hosts.ts";
+import {
+  DEFAULT_TERMINAL_SESSION_SORT,
+  sortTerminalSessionItems,
+  terminalSessionActivityAt,
+  terminalSessionStateLabel,
+  TERMINAL_SESSION_COLUMNS,
+  toggleTerminalSessionSort,
+  type TerminalSessionColumn,
+  type TerminalSessionSort,
+} from "./session-table.ts";
 import {
   fetchTerminalWorkspaces,
   removeTerminalWorkspace,
@@ -103,10 +122,21 @@ import {
   terminalHostLineFromEvent,
 } from "../../lib/terminal-host-command.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
+import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { TmuxPeekPanel } from "../../scout/inspector/TmuxPeek.tsx";
-import type { TerminalSessionRecord } from "@openscout/protocol";
+import {
+  resolveTerminalWorkspaceColumns,
+  terminalWorkspaceLayoutLabel,
+  terminalWorkspaceLayoutOf,
+} from "@openscout/protocol";
+import type {
+  TerminalSessionRecord,
+  TerminalWorkspaceColumnCount,
+  TerminalWorkspaceLayout,
+  TerminalWorkspaceLayoutMode,
+} from "@openscout/protocol";
 import type { MenuItem } from "../../components/ContextMenu.tsx";
 import type { Agent, Route, SessionCatalogWithResume, TerminalSurfaceDescriptor } from "../../lib/types.ts";
 import type { useScout as UseScout } from "../../scout/Provider.tsx";
@@ -148,7 +178,7 @@ type TerminalAgentKind = NonNullable<TerminalRoute["terminalAgent"]>;
 type FreshTerminalTileModel = {
   id: string;
   kind: "fresh";
-  backend: TerminalBackend;
+  backend: TerminalCellBackend;
   agent: TerminalAgentKind;
   sessionName?: string;
   zellijSocketDir?: string;
@@ -171,27 +201,29 @@ type TerminalWorkspaceTileModel =
   | FreshTerminalTileModel
   | RegisteredTerminalTileModel
   | UnavailableTerminalTileModel;
-type TerminalGridPreset = {
-  id: "solo" | "split" | "trio" | "quad";
+type TerminalLayoutModeOption = {
+  mode: TerminalWorkspaceLayoutMode;
   label: string;
   detail: string;
-  columns: number;
-  slots: number;
+  /** Cells the mode wants at minimum when an empty draft picks it. */
+  minimumCells: number;
 };
 
 type TerminalWorkspaceView = "library" | "builder" | "workspace";
+type TerminalPickerView = "list" | "table";
 
-const TERMINAL_GRID_PRESETS: readonly TerminalGridPreset[] = [
-  { id: "solo", label: "Solo", detail: "1 terminal", columns: 1, slots: 1 },
-  { id: "split", label: "Split", detail: "2 side by side", columns: 2, slots: 2 },
-  { id: "trio", label: "Trio", detail: "3 across", columns: 3, slots: 3 },
-  { id: "quad", label: "Quad", detail: "2 by 2", columns: 2, slots: 4 },
-];
+const TERMINAL_PICKER_VIEW_STORAGE_KEY = "openscout.terminal.picker-view.v1";
 
-const TERMINAL_BACKEND_OPTIONS: readonly { value: TerminalBackend; label: string }[] = [
-  { value: "pty", label: "Shell" },
-  { value: "tmux", label: "Tmux" },
-  { value: "zellij", label: "Zellij" },
+/**
+ * A new workspace opens as a grid that fits itself to the tiles in it, which is
+ * the arrangement that stays right as the operator adds cells.
+ */
+const TERMINAL_DEFAULT_DRAFT_LAYOUT: TerminalWorkspaceLayout = { mode: "grid", columns: "dynamic" };
+
+const TERMINAL_LAYOUT_MODES: readonly TerminalLayoutModeOption[] = [
+  { mode: "solo", label: "Solo", detail: "One terminal, full width", minimumCells: 1 },
+  { mode: "lanes", label: "Lanes", detail: "Side by side, one row", minimumCells: 2 },
+  { mode: "grid", label: "Grid", detail: "Rows and columns", minimumCells: 4 },
 ];
 
 const DEFAULT_TERMINAL_FONT_FAMILY = "'JetBrainsMono Nerd Font', 'JetBrainsMonoNL Nerd Font', 'MesloLGS Nerd Font Mono', 'Hack Nerd Font Mono', 'JetBrains Mono', monospace";
@@ -1016,6 +1048,19 @@ function RegisteredTerminalSessions({
   );
 }
 
+/** Whether a fresh tile's host session already exists in the live inventory. */
+function isTileSessionLive(
+  tile: TerminalWorkspaceTileModel,
+  sessions: TerminalSessionRecord[],
+): boolean {
+  if (tile.kind !== "fresh" || !tile.sessionName) return false;
+  return sessions.some((session) => session.surfaces.some((surface) =>
+    surface.backend === tile.backend
+    && surface.sessionName === tile.sessionName
+    && surface.state !== "exited"
+  ));
+}
+
 function registeredTerminalTargetKey(target: RegisteredTerminalTarget): string {
   return `${target.session.id}:${surfaceKey(target.surface)}`;
 }
@@ -1051,10 +1096,17 @@ function registeredTargetFromListItem(
   return { session: item.session, surface: item.surface };
 }
 
-function freshTerminalRouteForTile(tile: FreshTerminalTileModel): TerminalRoute {
+/**
+ * Standalone route for a fresh tile, or null for a host the browser relay
+ * cannot render — there is no page to open for it, and offering one would be a
+ * link to a tile that cannot connect.
+ */
+function freshTerminalRouteForTile(tile: FreshTerminalTileModel): TerminalRoute | null {
+  const backend = tile.backend;
+  if (backend !== "pty" && !isRelayCapableTerminalBackend(backend)) return null;
   return {
     view: "terminal",
-    terminalBackend: tile.backend,
+    terminalBackend: backend,
     terminalAgent: tile.agent,
     terminalTabId: tile.id,
     ...(tile.sessionName ? { terminalSessionName: tile.sessionName } : {}),
@@ -1085,6 +1137,9 @@ function openTerminalRouteExternally(route: TerminalRoute, navigate: TerminalNav
 function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const { agents } = useScout();
   const showContextMenu = useContextMenu();
+  const { hosts: terminalHosts } = useTerminalHosts();
+  // What can be started here is the registry's answer, not a literal list.
+  const startOptions = useMemo(() => terminalStartOptions(terminalHosts), [terminalHosts]);
   const [deck, setDeck] = usePersistentState<TerminalWorkspaceDeckState>(
     TERMINAL_WORKSPACES_STORAGE_KEY,
     emptyTerminalWorkspaceDeck<TerminalWorkspaceCellDefinition>(),
@@ -1097,7 +1152,9 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [workspaceDraftName, setWorkspaceDraftName] = useState("");
   const [workspaceDraftPurpose, setWorkspaceDraftPurpose] = useState("");
-  const [workspaceDraftColumns, setWorkspaceDraftColumns] = useState(TERMINAL_DEFAULT_GRID_COLUMNS);
+  const [workspaceDraftLayout, setWorkspaceDraftLayout] = useState<TerminalWorkspaceLayout>(
+    TERMINAL_DEFAULT_DRAFT_LAYOUT,
+  );
   const [workspaceDraftCells, setWorkspaceDraftCells] = useState<TerminalWorkspaceCellDefinition[]>(
     () => Array.from({ length: 4 }, () => createFreshTerminalCell("pty")),
   );
@@ -1105,6 +1162,11 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
   const [workspaceReload, setWorkspaceReload] = useState(0);
   const [pickerVisible, setPickerVisible] = useState(true);
+  const [pickerView, setPickerView] = usePersistentState<TerminalPickerView>(
+    TERMINAL_PICKER_VIEW_STORAGE_KEY,
+    "list",
+  );
+  const [pickerSort, setPickerSort] = useState<TerminalSessionSort>(DEFAULT_TERMINAL_SESSION_SORT);
   const [workspaceResolutions, setWorkspaceResolutions] = useState<TerminalWorkspaceResolution[]>([]);
   const [workspaceSyncError, setWorkspaceSyncError] = useState<string | null>(null);
   const [pickerDraggedTargetId, setPickerDraggedTargetId] = useState<string | null>(null);
@@ -1194,13 +1256,18 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const sessionError = state.state === "failed" ? state.error : null;
   const workspaceDefinitions = deck.workspaces;
   const activeWorkspace = deck.workspaces.find((workspace) => workspace.id === deck.activeWorkspaceId) ?? null;
-  const gridColumns = activeWorkspace?.columns ?? TERMINAL_DEFAULT_GRID_COLUMNS;
+  const workspaceLayout = terminalWorkspaceLayoutOf({
+    layout: activeWorkspace?.layout,
+    columns: activeWorkspace?.columns,
+    cellCount: activeWorkspace?.tiles.length ?? 0,
+  });
   // The deck is the truth; tiles are a projection of the active workspace's
   // cells over the live session list. Nothing has to be copied back.
   const tiles = useMemo(
     () => (activeWorkspace?.tiles ?? []).map((cell) => terminalTileFromCell(cell, state.sessions)),
     [activeWorkspace?.tiles, state.sessions],
   );
+  const gridColumns = resolveTerminalWorkspaceColumns(workspaceLayout, { tileCount: tiles.length });
   const workspaceView: TerminalWorkspaceView = storedWorkspaceView === "workspace" && !activeWorkspace
     ? "library"
     : storedWorkspaceView;
@@ -1217,12 +1284,9 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     });
   }, [setDeck]);
 
-  const setGridColumns = useCallback((columns: number) => {
+  const setWorkspaceLayout = useCallback((layout: TerminalWorkspaceLayout) => {
     setDeck((current) => current.activeWorkspaceId
-      ? updateTerminalWorkspace(current, current.activeWorkspaceId, {
-        columns: Math.max(1, Math.min(TERMINAL_WORKSPACE_MAX_COLUMNS, Math.floor(columns))),
-        updatedAt: Date.now(),
-      })
+      ? updateTerminalWorkspace(current, current.activeWorkspaceId, { layout, updatedAt: Date.now() })
       : current);
   }, [setDeck]);
 
@@ -1240,7 +1304,13 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     setEditingWorkspaceId(workspace?.id ?? null);
     setWorkspaceDraftName(workspace?.name ?? "");
     setWorkspaceDraftPurpose(workspace?.purpose ?? "");
-    setWorkspaceDraftColumns(workspace?.columns ?? TERMINAL_DEFAULT_GRID_COLUMNS);
+    setWorkspaceDraftLayout(workspace
+      ? terminalWorkspaceLayoutOf({
+        layout: workspace.layout,
+        columns: workspace.columns,
+        cellCount: workspace.tiles.length,
+      })
+      : TERMINAL_DEFAULT_DRAFT_LAYOUT);
     setWorkspaceDraftCells(
       workspace?.tiles ?? Array.from({ length: 4 }, () => createFreshTerminalCell("pty")),
     );
@@ -1249,18 +1319,27 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   }, [setWorkspaceView]);
 
   /**
-   * Presets are starting points, not a ceiling. Picking one sets the column
-   * count and grows a thin draft up to its slot count; it never drops cells the
-   * operator already placed. Removing a cell is an explicit act.
+   * Picking a mode sets the shape and grows a thin draft to the smallest count
+   * where that shape means anything — a grid of one tile is a solo. It never
+   * drops cells the operator already placed; removing one is an explicit act.
    */
-  const applyWorkspaceDraftPreset = useCallback((preset: TerminalGridPreset) => {
-    setWorkspaceDraftColumns(preset.columns);
-    setWorkspaceDraftCells((current) => current.length >= preset.slots
+  const applyWorkspaceDraftMode = useCallback((option: TerminalLayoutModeOption) => {
+    setWorkspaceDraftLayout((current) => option.mode === "solo"
+      ? { mode: "solo" }
+      : { mode: option.mode, columns: current.columns ?? "dynamic" });
+    setWorkspaceDraftCells((current) => current.length >= option.minimumCells
       ? current
       : [
         ...current,
-        ...Array.from({ length: preset.slots - current.length }, () => createFreshTerminalCell("pty")),
+        ...Array.from({ length: option.minimumCells - current.length }, () => createFreshTerminalCell("pty")),
       ]);
+    setWorkspaceDraftSlot((slot) => Math.max(0, Math.min(slot, option.minimumCells - 1)));
+  }, []);
+
+  const setWorkspaceDraftColumns = useCallback((columns: TerminalWorkspaceColumnCount) => {
+    setWorkspaceDraftLayout((current) => current.mode === "solo"
+      ? { mode: "lanes", columns }
+      : { ...current, columns });
   }, []);
 
   const addWorkspaceDraftCell = useCallback(() => {
@@ -1287,7 +1366,8 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       id: editingWorkspaceId ?? createTerminalDeckId("workspace"),
       name,
       purpose: workspaceDraftPurpose.trim(),
-      columns: workspaceDraftColumns,
+      columns: resolveTerminalWorkspaceColumns(workspaceDraftLayout, { tileCount: workspaceDraftCells.length }),
+      layout: workspaceDraftLayout,
       tiles: workspaceDraftCells,
       updatedAt: Date.now(),
     };
@@ -1299,14 +1379,14 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
       .catch((error) => setWorkspaceSyncError(error instanceof Error ? error.message : String(error)));
     setPickerVisible(false);
     setWorkspaceView("workspace");
-  }, [editingWorkspaceId, setDeck, setWorkspaceView, workspaceDraftCells, workspaceDraftColumns, workspaceDraftName, workspaceDraftPurpose]);
+  }, [editingWorkspaceId, setDeck, setWorkspaceView, workspaceDraftCells, workspaceDraftLayout, workspaceDraftName, workspaceDraftPurpose]);
 
   const deleteWorkspace = useCallback((workspaceId: string) => {
     setDeck((current) => closeTerminalWorkspace(current, workspaceId, { allowEmpty: true }));
     void removeTerminalWorkspace(workspaceId).catch(() => {});
   }, [setDeck]);
 
-  const addFreshTile = useCallback((backend: TerminalBackend, agent: TerminalAgentKind = "shell") => {
+  const addFreshTile = useCallback((backend: TerminalCellBackend, agent: TerminalAgentKind = "shell") => {
     updateActiveCells((cells) => [...cells, createFreshTerminalCell(backend, agent)]);
   }, [updateActiveCells]);
 
@@ -1457,7 +1537,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     });
   }, [updateActiveCells]);
 
-  const replaceTile = useCallback((tileId: string, backend: TerminalBackend) => {
+  const replaceTile = useCallback((tileId: string, backend: TerminalCellBackend) => {
     updateActiveCells((cells) => cells.map((cell) => cell.id === tileId
       // Keeping the cell id keeps the slot; the session name follows the
       // backend, so a replaced tmux tile does not squat the zellij name.
@@ -1466,18 +1546,33 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   }, [updateActiveCells]);
 
   const gridMenuItems = useCallback((): MenuItem[] => [
-    ...Array.from({ length: TERMINAL_WORKSPACE_MAX_COLUMNS }, (_, index): MenuItem => ({
+    ...TERMINAL_LAYOUT_MODES.map((option): MenuItem => ({
       kind: "action",
-      label: index === 0 ? "One column" : `${index + 1} columns`,
-      onSelect: () => setGridColumns(index + 1),
+      label: option.label,
+      onSelect: () => setWorkspaceLayout(option.mode === "solo"
+        ? { mode: "solo" }
+        : { mode: option.mode, columns: workspaceLayout.columns ?? "dynamic" }),
     })),
+    ...(workspaceLayout.mode === "solo" ? [] : [
+      { kind: "separator" } as MenuItem,
+      {
+        kind: "action",
+        label: "Dynamic columns",
+        onSelect: () => setWorkspaceLayout({ ...workspaceLayout, columns: "dynamic" }),
+      } as MenuItem,
+      ...Array.from({ length: TERMINAL_WORKSPACE_MAX_COLUMNS }, (_, index): MenuItem => ({
+        kind: "action",
+        label: index === 0 ? "One column" : `${index + 1} columns`,
+        onSelect: () => setWorkspaceLayout({ ...workspaceLayout, columns: index + 1 }),
+      })),
+    ]),
     { kind: "separator" },
     {
       kind: "action",
       label: "Edit workspace…",
       onSelect: () => activeWorkspace && startWorkspaceBuilder(activeWorkspace),
     },
-  ], [activeWorkspace, setGridColumns, startWorkspaceBuilder]);
+  ], [activeWorkspace, setWorkspaceLayout, startWorkspaceBuilder, workspaceLayout]);
 
   const showGridMenu = useCallback((event: ReactMouseEvent) => {
     showContextMenu(event, gridMenuItems());
@@ -1495,21 +1590,20 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     if (items.length > 0) items.push({ kind: "separator" });
     items.push(
       // Described by the property that matters, not by which renderer runs it.
-      { kind: "action", label: "Replace with a disposable shell", onSelect: () => replaceTile(tile.id, "pty") },
-      ...TERMINAL_BACKEND_OPTIONS
-        .filter((option) => option.value !== "pty")
-        .map((option): MenuItem => ({
-          kind: "action",
-          label: `Replace with a session that survives (${option.label})`,
-          onSelect: () => replaceTile(tile.id, option.value),
-        })),
+      ...startOptions.map((option): MenuItem => ({
+        kind: "action",
+        label: option.value === "pty"
+          ? "Replace with a disposable shell"
+          : `Replace with a session that survives (${option.label})`,
+        onSelect: () => replaceTile(tile.id, option.value as TerminalCellBackend),
+      })),
       { kind: "separator" },
       { kind: "action", label: "Remove cell", onSelect: () => closeTile(tile.id) },
       { kind: "separator" },
       ...gridMenuItems(),
     );
     showContextMenu(event, items);
-  }, [closeTile, gridMenuItems, moveTile, replaceTile, showContextMenu, tiles]);
+  }, [closeTile, gridMenuItems, moveTile, replaceTile, showContextMenu, startOptions, tiles]);
 
   const startTileDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>, tileId: string) => {
     const target = event.target;
@@ -1574,6 +1668,10 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     [activeWorkspace?.id, workspaceResolutions],
   );
 
+  const sortPickerBy = useCallback((column: TerminalSessionColumn) => {
+    setPickerSort((current) => toggleTerminalSessionSort(current, column));
+  }, []);
+
   const reloadWorkspace = useCallback(() => {
     loadSessions();
     setWorkspaceReload((current) => current + 1);
@@ -1608,18 +1706,23 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
         editing={Boolean(editingWorkspaceId)}
         name={workspaceDraftName}
         purpose={workspaceDraftPurpose}
-        presets={TERMINAL_GRID_PRESETS}
-        columns={workspaceDraftColumns}
+        modes={TERMINAL_LAYOUT_MODES}
+        layout={workspaceDraftLayout}
+        startOptions={startOptions}
         cells={workspaceDraftCells}
         selectedSlot={workspaceDraftSlot}
         terminalItems={liveTerminalItems}
         onNameChange={setWorkspaceDraftName}
         onPurposeChange={setWorkspaceDraftPurpose}
-        onApplyPreset={applyWorkspaceDraftPreset}
+        onApplyMode={applyWorkspaceDraftMode}
         onColumnsChange={setWorkspaceDraftColumns}
         onSelectSlot={setWorkspaceDraftSlot}
         onAddCell={addWorkspaceDraftCell}
         onRemoveCell={removeWorkspaceDraftCell}
+        pickerView={pickerView}
+        pickerSort={pickerSort}
+        onPickerView={setPickerView}
+        onPickerSort={sortPickerBy}
         onAssignFresh={(backend) => setWorkspaceDraftCells((current) => current.map((cell, index) =>
           index === workspaceDraftSlot ? { id: cell.id, kind: "fresh", backend, agent: "shell" } : cell
         ))}
@@ -1743,6 +1846,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
                   onClose={closeTile}
                   resolution={activeCellStatuses.get(tile.id) ?? null}
                   onRevive={reviveCell}
+                  live={isTileSessionLive(tile, state.sessions)}
                 />
               </div>
             ))}
@@ -1782,6 +1886,21 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
             </div>
             <div className="s-term-picker-actions">
               {pickerVisible && (
+                <div className="s-term-picker-views" role="group" aria-label="Picker view">
+                  {(["list", "table"] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={pickerView === view ? "is-selected" : ""}
+                      onClick={() => setPickerView(view)}
+                      aria-pressed={pickerView === view}
+                    >
+                      {view === "list" ? "List" : "Table"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {pickerVisible && (
                 <button
                   type="button"
                   className="s-term-workspace-action"
@@ -1806,27 +1925,19 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           {pickerVisible && (
             <>
               <p className="s-term-picker-hint">Drag a terminal onto a cell to place it, or onto New slot to grow the grid.</p>
-              <div
-                className="s-term-picker-list"
-                aria-label="Available terminals"
-              >
-                {liveTerminalItems.length === 0 && state.state !== "loading" ? (
-                  <div className="s-term-picker-empty">No live terminals</div>
-                ) : (
-                  liveTerminalItems.map((item) => {
-                    const targetId = registeredTerminalTargetKey(registeredTargetFromListItem(item));
-                    return (
-                      <TerminalPickerItem
-                        key={item.id}
-                        item={item}
-                        attached={attachedTargetIds.has(targetId)}
-                        dragging={pickerDraggedTargetId === targetId}
-                        onAttach={attachRegisteredTarget}
-                      />
-                    );
-                  })
-                )}
-              </div>
+              {liveTerminalItems.length === 0 && state.state !== "loading" ? (
+                <div className="s-term-picker-empty">No live terminals</div>
+              ) : (
+                <TerminalSessionPicker
+                  items={liveTerminalItems}
+                  view={pickerView}
+                  sort={pickerSort}
+                  attachedIds={attachedTargetIds}
+                  draggedTargetId={pickerDraggedTargetId}
+                  onSort={sortPickerBy}
+                  onAttach={attachRegisteredTarget}
+                />
+              )}
             </>
           )}
         </section>
@@ -1913,22 +2024,40 @@ function TerminalWorkspaceLibrary({
   );
 }
 
+/** Little tile map on a mode button: shape only, not the real tile count. */
+function layoutModePreviewColumns(mode: TerminalWorkspaceLayoutMode, columns: number): number {
+  if (mode === "solo") return 1;
+  if (mode === "lanes") return Math.max(2, Math.min(4, columns));
+  return Math.max(2, Math.min(3, columns));
+}
+
+function layoutModePreviewCells(mode: TerminalWorkspaceLayoutMode, columns: number): number {
+  if (mode === "solo") return 1;
+  if (mode === "lanes") return layoutModePreviewColumns(mode, columns);
+  return layoutModePreviewColumns(mode, columns) * 2;
+}
+
 function TerminalWorkspaceBuilder({
   editing,
   name,
   purpose,
-  presets,
-  columns,
+  modes,
+  layout,
+  startOptions,
   cells,
   selectedSlot,
   terminalItems,
   onNameChange,
   onPurposeChange,
-  onApplyPreset,
+  onApplyMode,
   onColumnsChange,
   onSelectSlot,
   onAddCell,
   onRemoveCell,
+  pickerView,
+  pickerSort,
+  onPickerView,
+  onPickerSort,
   onAssignFresh,
   onAssignRegistered,
   onCancel,
@@ -1937,23 +2066,29 @@ function TerminalWorkspaceBuilder({
   editing: boolean;
   name: string;
   purpose: string;
-  presets: readonly TerminalGridPreset[];
-  columns: number;
+  modes: readonly TerminalLayoutModeOption[];
+  layout: TerminalWorkspaceLayout;
+  startOptions: readonly TerminalStartOption[];
   cells: TerminalWorkspaceCellDefinition[];
   selectedSlot: number;
   terminalItems: TerminalHomeListItem[];
   onNameChange: (value: string) => void;
   onPurposeChange: (value: string) => void;
-  onApplyPreset: (preset: TerminalGridPreset) => void;
-  onColumnsChange: (columns: number) => void;
+  onApplyMode: (option: TerminalLayoutModeOption) => void;
+  onColumnsChange: (columns: TerminalWorkspaceColumnCount) => void;
   onSelectSlot: (slot: number) => void;
   onAddCell: () => void;
   onRemoveCell: (index: number) => void;
-  onAssignFresh: (backend: TerminalBackend) => void;
+  pickerView: TerminalPickerView;
+  pickerSort: TerminalSessionSort;
+  onPickerView: (view: TerminalPickerView) => void;
+  onPickerSort: (column: TerminalSessionColumn) => void;
+  onAssignFresh: (backend: TerminalCellBackend) => void;
   onAssignRegistered: (item: TerminalHomeListItem) => void;
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const previewColumns = resolveTerminalWorkspaceColumns(layout, { tileCount: cells.length });
   return (
     <div className="s-term s-term--workspace-builder">
       <main className="s-term-workspace-builder">
@@ -1996,39 +2131,60 @@ function TerminalWorkspaceBuilder({
               <span>Step 1</span>
               <h2 id="workspace-layout-title">Choose the layout</h2>
             </div>
-            <p>{columns} column{columns === 1 ? "" : "s"} · {cells.length} cell{cells.length === 1 ? "" : "s"}</p>
+            <p>{terminalWorkspaceLayoutLabel(layout)} · {cells.length} cell{cells.length === 1 ? "" : "s"}</p>
           </div>
-          <div className="s-term-grid-presets" aria-label="Workspace grid layout">
-            {presets.map((preset) => (
+          <div className="s-term-grid-presets" aria-label="Workspace layout">
+            {modes.map((option) => (
               <button
-                key={preset.id}
+                key={option.mode}
                 type="button"
-                className={`s-term-grid-preset${preset.columns === columns && preset.slots === cells.length ? " s-term-grid-preset--selected" : ""}`}
-                onClick={() => onApplyPreset(preset)}
-                aria-pressed={preset.columns === columns && preset.slots === cells.length}
+                className={`s-term-grid-preset${option.mode === layout.mode ? " s-term-grid-preset--selected" : ""}`}
+                onClick={() => onApplyMode(option)}
+                aria-pressed={option.mode === layout.mode}
               >
-                <span className="s-term-grid-preset-map" style={{ "--terminal-preset-columns": preset.columns } as CSSProperties} aria-hidden="true">
-                  {Array.from({ length: preset.slots }, (_, index) => <i key={index} />)}
+                <span
+                  className="s-term-grid-preset-map"
+                  style={{ "--terminal-preset-columns": layoutModePreviewColumns(option.mode, previewColumns) } as CSSProperties}
+                  aria-hidden="true"
+                >
+                  {Array.from(
+                    { length: layoutModePreviewCells(option.mode, previewColumns) },
+                    (_, index) => <i key={index} />,
+                  )}
                 </span>
-                <span className="s-term-grid-preset-label">{preset.label}</span>
-                <span className="s-term-grid-preset-detail">{preset.detail}</span>
+                <span className="s-term-grid-preset-label">{option.label}</span>
+                <span className="s-term-grid-preset-detail">{option.detail}</span>
               </button>
             ))}
           </div>
-          <div className="s-term-workspace-builder-columns" role="group" aria-label="Columns">
-            <span>Columns</span>
-            {Array.from({ length: TERMINAL_WORKSPACE_MAX_COLUMNS }, (_, index) => (
+          {layout.mode !== "solo" && (
+            <div className="s-term-workspace-builder-columns" role="group" aria-label="Columns">
+              <span>Columns</span>
               <button
-                key={index}
                 type="button"
-                className={columns === index + 1 ? "is-selected" : ""}
-                onClick={() => onColumnsChange(index + 1)}
-                aria-pressed={columns === index + 1}
+                className={layout.columns === "dynamic" || layout.columns === undefined ? "is-selected" : ""}
+                onClick={() => onColumnsChange("dynamic")}
+                aria-pressed={layout.columns === "dynamic" || layout.columns === undefined}
+                title="Fit the columns to the number of tiles"
               >
-                {index + 1}
+                Dynamic
               </button>
-            ))}
-          </div>
+              {Array.from({ length: TERMINAL_WORKSPACE_MAX_COLUMNS }, (_, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={layout.columns === index + 1 ? "is-selected" : ""}
+                  onClick={() => onColumnsChange(index + 1)}
+                  aria-pressed={layout.columns === index + 1}
+                >
+                  {index + 1}
+                </button>
+              ))}
+              {(layout.columns === "dynamic" || layout.columns === undefined) && (
+                <em>{previewColumns} right now</em>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="s-term-workspace-builder-placement" aria-labelledby="workspace-placement-title">
@@ -2040,7 +2196,7 @@ function TerminalWorkspaceBuilder({
             <p>Select a cell, then choose a session or shell. Add as many cells as the work needs.</p>
           </div>
           <div className="s-term-workspace-builder-canvas">
-            <div className="s-term-workspace-builder-grid" style={{ "--terminal-grid-columns": columns } as CSSProperties}>
+            <div className="s-term-workspace-builder-grid" style={{ "--terminal-grid-columns": previewColumns } as CSSProperties}>
               {cells.map((cell, index) => {
                 const registeredItem = cell.kind === "registered"
                   ? terminalItems.find((item) => item.session.id === cell.terminalSessionId && terminalSurfaceIdsEqual(surfaceKey(item.surface), cell.terminalSurfaceKey))
@@ -2088,23 +2244,56 @@ function TerminalWorkspaceBuilder({
               <span>Cell {String(selectedSlot + 1).padStart(2, "0")}</span>
               <h3>Start something new</h3>
               <div className="s-term-workspace-builder-source-actions">
-                {TERMINAL_BACKEND_OPTIONS.map((option) => (
-                  <button type="button" key={option.value} onClick={() => onAssignFresh(option.value)}>{option.label}</button>
+                {startOptions.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    onClick={() => onAssignFresh(option.value as TerminalCellBackend)}
+                    title={option.relayAttach
+                      ? option.detail
+                      : `${option.detail} — Scout starts it; open it in ${option.label} to use it`}
+                  >
+                    {option.label}
+                    {!option.relayAttach && <sup aria-label="opens outside Scout"> ↗</sup>}
+                  </button>
                 ))}
               </div>
-              <h3>Or use a live session</h3>
+              <div className="s-term-workspace-builder-source-head">
+                <h3>Or use a live session</h3>
+                <div className="s-term-picker-views" role="group" aria-label="Session picker view">
+                  {(["list", "table"] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={pickerView === view ? "is-selected" : ""}
+                      onClick={() => onPickerView(view)}
+                      aria-pressed={pickerView === view}
+                    >
+                      {view === "list" ? "List" : "Table"}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="s-term-workspace-builder-sessions">
                 {terminalItems.length === 0 ? (
                   <span className="s-term-workspace-builder-no-sessions">No live sessions</span>
-                ) : terminalItems.map((item) => (
-                  <button type="button" key={item.id} onClick={() => onAssignRegistered(item)}>
-                    <span>
-                      <strong>{item.title}</strong>
-                      <small>{item.cwdLabel || item.detail}</small>
-                    </span>
-                    <em>{item.surface.backend}</em>
-                  </button>
-                ))}
+                ) : (
+                  <TerminalSessionPicker
+                    items={terminalItems}
+                    view={pickerView}
+                    sort={pickerSort}
+                    attachedIds={new Set()}
+                    draggedTargetId={null}
+                    onSort={onPickerSort}
+                    onAttach={(target) => {
+                      const match = terminalItems.find((candidate) =>
+                        candidate.session.id === target.session.id
+                        && candidate.surface.sessionName === target.surface.sessionName
+                      );
+                      if (match) onAssignRegistered(match);
+                    }}
+                  />
+                )}
               </div>
             </aside>
           </div>
@@ -2137,7 +2326,8 @@ function TerminalPickerItem({
       </div>
       <div className="s-term-picker-item-meta">
         <span>{item.surface.backend}</span>
-        <span>{item.condition}</span>
+        <span>{terminalSessionStateLabel(item)}</span>
+        <span title={item.session.cwd ?? undefined}>{item.project}</span>
       </div>
       <button
         type="button"
@@ -2151,18 +2341,125 @@ function TerminalPickerItem({
   );
 }
 
+/**
+ * The session picker's rows, in either presentation.
+ *
+ * One component for both the compact list and the sortable table, because they
+ * are the same inventory answering two different questions: "what is there"
+ * and "which of these do I want". Sorting is client-side over the rows the
+ * host adapters already returned — no second probing path.
+ */
+function TerminalSessionPicker({
+  items,
+  view,
+  sort,
+  attachedIds,
+  draggedTargetId,
+  onSort,
+  onAttach,
+}: {
+  items: TerminalHomeListItem[];
+  view: TerminalPickerView;
+  sort: TerminalSessionSort;
+  attachedIds: Set<string>;
+  draggedTargetId: string | null;
+  onSort: (column: TerminalSessionColumn) => void;
+  onAttach: (target: RegisteredTerminalTarget) => void;
+}) {
+  const rows = useMemo(() => sortTerminalSessionItems(items, sort), [items, sort]);
+
+  if (view === "table") {
+    return (
+      <div className="s-term-picker-table-wrap">
+        <table className="s-term-picker-table">
+          <thead>
+            <tr>
+              {TERMINAL_SESSION_COLUMNS.map((column) => (
+                <th
+                  key={column.id}
+                  scope="col"
+                  aria-sort={sort.column === column.id
+                    ? (sort.direction === "asc" ? "ascending" : "descending")
+                    : "none"}
+                >
+                  <button type="button" onClick={() => onSort(column.id)}>
+                    <span>{column.label}</span>
+                    <em aria-hidden="true">
+                      {sort.column === column.id ? (sort.direction === "asc" ? "▲" : "▼") : "·"}
+                    </em>
+                  </button>
+                </th>
+              ))}
+              <th scope="col" aria-label="Place" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((item) => {
+              const targetId = registeredTerminalTargetKey(registeredTargetFromListItem(item));
+              const activityAt = terminalSessionActivityAt(item);
+              return (
+                <tr
+                  key={item.id}
+                  data-picker-item-id={item.id}
+                  className={attachedIds.has(targetId) ? "is-attached" : undefined}
+                >
+                  <td title={item.surface.sessionName}>{item.title}</td>
+                  <td>{item.surface.backend}</td>
+                  <td>{terminalSessionStateLabel(item)}</td>
+                  <td title={item.session.cwd ?? undefined}>{item.project}</td>
+                  <td>{activityAt ? timeAgo(activityAt) : "—"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="s-term-picker-add"
+                      onClick={() => onAttach(registeredTargetFromListItem(item))}
+                      disabled={attachedIds.has(targetId)}
+                    >
+                      {attachedIds.has(targetId) ? "In grid" : "Add"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div className="s-term-picker-list" aria-label="Available terminals">
+      {rows.map((item) => {
+        const targetId = registeredTerminalTargetKey(registeredTargetFromListItem(item));
+        return (
+          <TerminalPickerItem
+            key={item.id}
+            item={item}
+            attached={attachedIds.has(targetId)}
+            dragging={draggedTargetId === targetId}
+            onAttach={onAttach}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function TerminalWorkspaceTile({
   tile,
   navigate,
   onClose,
   resolution,
   onRevive,
+  live = false,
 }: {
   tile: TerminalWorkspaceTileModel;
   navigate: TerminalNavigate;
   onClose: (tileId: string) => void;
   resolution?: TerminalWorkspaceResolution["cells"][number] | null;
   onRevive?: (cellId: string) => void;
+  /** Whether a host session with this tile's name is currently live. */
+  live?: boolean;
 }) {
   if (tile.kind === "registered") {
     return (
@@ -2217,12 +2514,91 @@ function TerminalWorkspaceTile({
       </section>
     );
   }
+  // A host the browser relay cannot render still gets a real tile: Scout
+  // creates and tracks the session, and the tile says where to use it. The
+  // alternative — handing an unsupported backend to the relay — is a spinner
+  // that never connects.
+  if (!isRelayCapableTerminalBackend(tile.backend) && tile.backend !== "pty") {
+    return <HostedTerminalWorkspaceTile tile={tile} onClose={onClose} live={live} />;
+  }
   return (
     <FreshTerminalWorkspaceTile
       tile={tile}
       navigate={navigate}
       onClose={onClose}
     />
+  );
+}
+
+function HostedTerminalWorkspaceTile({
+  tile,
+  onClose,
+  live,
+}: {
+  tile: FreshTerminalTileModel;
+  onClose: (tileId: string) => void;
+  live: boolean;
+}) {
+  const { hosts } = useTerminalHosts();
+  const host = terminalHostById(hosts, tile.backend);
+  const [state, setState] = useState<"idle" | "starting" | "failed">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const start = useCallback(() => {
+    if (!tile.sessionName) return;
+    setState("starting");
+    setError(null);
+    void createTerminalHostSession(tile.backend, { sessionName: tile.sessionName })
+      .then(() => setState("idle"))
+      .catch((cause) => {
+        setState("failed");
+        setError(cause instanceof Error ? cause.message : String(cause));
+      });
+  }, [tile.backend, tile.sessionName]);
+
+  return (
+    <section className="s-term-workspace-tile s-term-workspace-tile--hosted" aria-label={`${host?.label ?? tile.backend} session`}>
+      <div className="s-term-bar">
+        <div className="s-term-bar-left">
+          <span className="s-term-workspace-tile-mark"><TerminalIcon size={14} strokeWidth={1.8} /></span>
+          <span className="s-term-workspace-tile-name">{host?.label ?? tile.backend}</span>
+        </div>
+        <div className="s-term-bar-meta">
+          <span className="s-term-label">{live ? "running" : "not running"}</span>
+        </div>
+        <div className="s-term-bar-actions">
+          <button
+            type="button"
+            className="s-term-icon-button s-term-icon-button--danger"
+            onClick={() => onClose(tile.id)}
+            title="Remove cell"
+            aria-label="Remove cell"
+          >
+            <X size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
+      <div className="s-term-workspace-unavailable-body">
+        <TerminalIcon size={22} strokeWidth={1.5} />
+        <strong>{live ? `Running in ${host?.label ?? tile.backend}` : `Not running yet`}</strong>
+        <span>
+          {live
+            ? `Scout keeps this session for you. Open it in ${host?.label ?? tile.backend} to use it.`
+            : `Scout can start a ${host?.label ?? tile.backend} session and keep it for you.`}
+        </span>
+        {!live && (
+          <button
+            type="button"
+            className="s-term-workspace-action s-term-workspace-action--primary"
+            onClick={start}
+            disabled={state === "starting" || !tile.sessionName}
+          >
+            {state === "starting" ? "Starting…" : "Start it"}
+          </button>
+        )}
+        {error && <code>{error}</code>}
+      </div>
+    </section>
   );
 }
 
@@ -2267,7 +2643,7 @@ function FreshTerminalWorkspaceTile({
   }, [relay.resize]);
 
   const openStandalone = useCallback(() => {
-    openTerminalRouteExternally(route, navigate);
+    if (route) openTerminalRouteExternally(route, navigate);
   }, [navigate, route]);
 
   return (
@@ -2879,7 +3255,7 @@ function NewTerminalSession({
 }
 
 function freshTerminalLabel(
-  backend: NonNullable<TerminalRoute["terminalBackend"]>,
+  backend: TerminalCellBackend,
   agent: NonNullable<TerminalRoute["terminalAgent"]>,
 ): { title: string; detail: string } {
   const agentLabel = agent === "shell" ? "Shell" : agent === "pi" ? "Pi" : "Claude";

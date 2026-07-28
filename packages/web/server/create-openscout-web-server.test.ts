@@ -3527,6 +3527,28 @@ describe("createOpenScoutWebServer", () => {
     }
   });
 
+  test("refuses to start a session on a host Scout does not know, or without a name", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const unknown = await server.app.request("http://localhost/api/terminal-hosts/kitty/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionName: "scout-1" }),
+    });
+    expect(unknown.status).toBe(404);
+
+    const nameless = await server.app.request("http://localhost/api/terminal-hosts/tmux/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionName: "   " }),
+    });
+    expect(nameless.status).toBe(400);
+  });
+
   test("refuses a control verb the host cannot perform, naming the host and the verb", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

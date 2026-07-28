@@ -1,8 +1,12 @@
 import {
   normalizeTerminalWorkspaceDeck,
   type TerminalWorkspaceDeck,
-  type TerminalWorkspaceLayout,
+  type TerminalWorkspaceDeckEntry,
 } from "../../lib/terminal-workspace.ts";
+import {
+  resolveTerminalWorkspaceColumns,
+  terminalWorkspaceLayoutOf,
+} from "@openscout/protocol";
 import type {
   TerminalWorkspaceCell,
   TerminalWorkspaceRecord,
@@ -11,7 +15,13 @@ import type {
 import type { Route } from "../../lib/types.ts";
 
 type TerminalRoute = Extract<Route, { view: "terminal" }>;
-export type TerminalCellBackend = NonNullable<TerminalRoute["terminalBackend"]>;
+/**
+ * Hosts a cell may be started on. Wider than the route's backend union: a cell
+ * can name any host with a registered adapter that can create sessions, even
+ * one the browser relay cannot render — Scout still creates a real durable
+ * session, and the tile says where to find it.
+ */
+export type TerminalCellBackend = NonNullable<TerminalRoute["terminalBackend"]> | "herdr";
 export type TerminalCellAgent = NonNullable<TerminalRoute["terminalAgent"]>;
 
 /**
@@ -25,7 +35,7 @@ export type TerminalWorkspaceCellDefinition =
   | { id: string; kind: "fresh"; backend: TerminalCellBackend; agent: TerminalCellAgent }
   | { id: string; kind: "registered"; terminalSessionId: string; terminalSurfaceKey: string };
 
-export type TerminalWorkspaceDefinition = TerminalWorkspaceLayout<TerminalWorkspaceCellDefinition>;
+export type TerminalWorkspaceDefinition = TerminalWorkspaceDeckEntry<TerminalWorkspaceCellDefinition>;
 export type TerminalWorkspaceDeckState = TerminalWorkspaceDeck<TerminalWorkspaceCellDefinition>;
 
 export const TERMINAL_WORKSPACES_STORAGE_KEY = "openscout.terminal.workspaces.v1";
@@ -94,6 +104,7 @@ export function terminalWorkspaceLayoutFromRecord(
     name: record.name,
     ...(record.purpose ? { purpose: record.purpose } : {}),
     columns: record.columns,
+    ...(record.layout ? { layout: record.layout } : {}),
     updatedAt: record.updatedAt,
     tiles: record.cells.map((cell): TerminalWorkspaceCellDefinition => {
       if (cell.surfaceId && cell.terminalSessionId) {
@@ -126,7 +137,15 @@ export function terminalWorkspaceRecordInputFromLayout(
     id: layout.id,
     name: layout.name,
     purpose: layout.purpose ?? "",
-    columns: layout.columns ?? TERMINAL_DEFAULT_GRID_COLUMNS,
+    columns: resolveTerminalWorkspaceColumns(
+      terminalWorkspaceLayoutOf({ layout: layout.layout, columns: layout.columns, cellCount: layout.tiles.length }),
+      { tileCount: layout.tiles.length },
+    ),
+    layout: terminalWorkspaceLayoutOf({
+      layout: layout.layout,
+      columns: layout.columns,
+      cellCount: layout.tiles.length,
+    }),
     cells: layout.tiles.map((cell): TerminalWorkspaceCell => {
       if (cell.kind === "registered") {
         return {
@@ -150,7 +169,7 @@ export function terminalWorkspaceRecordInputFromLayout(
 }
 
 function isTerminalCellBackend(value: unknown): value is TerminalCellBackend {
-  return value === "pty" || value === "tmux" || value === "zellij";
+  return value === "pty" || value === "tmux" || value === "zellij" || value === "herdr";
 }
 
 export function restoreTerminalWorkspaceDeck(stored: unknown): TerminalWorkspaceDeckState {

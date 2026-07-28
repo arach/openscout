@@ -1,3 +1,8 @@
+import {
+  normalizeTerminalWorkspaceColumns as normalizeProtocolColumns,
+  type TerminalWorkspaceLayout,
+} from "@openscout/protocol";
+
 export type TerminalTileDropEdge = "before" | "after";
 export type TerminalTileDropAxis = "horizontal" | "vertical";
 
@@ -8,21 +13,27 @@ export type TerminalProjectDestination = {
   source: "configured" | "agent";
 };
 
-export type TerminalWorkspaceLayout<T> = {
+/**
+ * One workspace in the deck. Named "entry" rather than "layout" because layout
+ * now means the tile arrangement (solo / lanes / grid), which this carries as a
+ * field.
+ */
+export type TerminalWorkspaceDeckEntry<T> = {
   id: string;
   name: string;
   tiles: T[];
   /** What the workspace is for, in the operator's own words. */
   purpose?: string;
-  /** Grid column count the workspace reopens with. */
+  /** Resolved column count, kept for entries written before `layout`. */
   columns?: number;
+  layout?: TerminalWorkspaceLayout;
   updatedAt?: number;
 };
 
 export type TerminalWorkspaceDeck<T> = {
   version: 1;
   activeWorkspaceId: string;
-  workspaces: TerminalWorkspaceLayout<T>[];
+  workspaces: TerminalWorkspaceDeckEntry<T>[];
 };
 
 /** Highest column count a workspace may reopen with. */
@@ -61,7 +72,7 @@ export function normalizeTerminalWorkspaceDeck<T>(
   const candidate = value as Partial<TerminalWorkspaceDeck<unknown>>;
   if (!Array.isArray(candidate.workspaces)) return fallback();
 
-  const workspaces: TerminalWorkspaceLayout<T>[] = [];
+  const workspaces: TerminalWorkspaceDeckEntry<T>[] = [];
   const seenIds = new Set<string>();
   for (const workspace of candidate.workspaces) {
     if (!workspace || typeof workspace !== "object") continue;
@@ -71,6 +82,7 @@ export function normalizeTerminalWorkspaceDeck<T>(
     seenIds.add(id);
     const purpose = typeof workspace.purpose === "string" ? workspace.purpose.trim() : "";
     const columns = normalizeTerminalWorkspaceColumns(workspace.columns);
+    const layout = normalizeDeckLayout(workspace.layout);
     const updatedAt = typeof workspace.updatedAt === "number" && Number.isFinite(workspace.updatedAt)
       && workspace.updatedAt >= 0
       ? workspace.updatedAt
@@ -81,6 +93,7 @@ export function normalizeTerminalWorkspaceDeck<T>(
       tiles: workspace.tiles.filter(isTile),
       ...(purpose ? { purpose } : {}),
       ...(columns ? { columns } : {}),
+      ...(layout ? { layout } : {}),
       ...(updatedAt === null ? {} : { updatedAt }),
     });
   }
@@ -91,6 +104,21 @@ export function normalizeTerminalWorkspaceDeck<T>(
     ? candidate.activeWorkspaceId
     : workspaces[0]!.id;
   return { version: 1, activeWorkspaceId, workspaces };
+}
+
+/**
+ * Accept only a layout we can render. An unknown mode is dropped rather than
+ * guessed at, so a workspace written by a newer build falls back to the column
+ * count it also stored.
+ */
+function normalizeDeckLayout(value: unknown): TerminalWorkspaceLayout | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<TerminalWorkspaceLayout>;
+  if (candidate.mode !== "solo" && candidate.mode !== "lanes" && candidate.mode !== "grid") return null;
+  if (candidate.columns === undefined) return { mode: candidate.mode };
+  if (candidate.columns === "dynamic") return { mode: candidate.mode, columns: "dynamic" };
+  const columns = normalizeProtocolColumns(candidate.columns);
+  return { mode: candidate.mode, columns };
 }
 
 export function normalizeTerminalWorkspaceColumns(value: unknown): number | null {
@@ -128,7 +156,7 @@ function nextTerminalWorkspaceName<T>(deck: TerminalWorkspaceDeck<T>): string {
  */
 export function upsertTerminalWorkspace<T>(
   deck: TerminalWorkspaceDeck<T>,
-  layout: TerminalWorkspaceLayout<T>,
+  layout: TerminalWorkspaceDeckEntry<T>,
 ): TerminalWorkspaceDeck<T> {
   const id = layout.id.trim();
   if (!id) return deck;
@@ -143,7 +171,7 @@ export function upsertTerminalWorkspace<T>(
 export function updateTerminalWorkspace<T>(
   deck: TerminalWorkspaceDeck<T>,
   id: string,
-  patch: Partial<Omit<TerminalWorkspaceLayout<T>, "id">>,
+  patch: Partial<Omit<TerminalWorkspaceDeckEntry<T>, "id">>,
 ): TerminalWorkspaceDeck<T> {
   const index = deck.workspaces.findIndex((workspace) => workspace.id === id);
   if (index < 0) return deck;

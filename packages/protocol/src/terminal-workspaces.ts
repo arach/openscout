@@ -50,11 +50,38 @@ export type TerminalWorkspaceCell = {
   intent: TerminalWorkspaceCellIntent;
 };
 
+/**
+ * How a workspace arranges its tiles.
+ *
+ * Three shapes, not a list of named presets: one tile, N side-by-side lanes, or
+ * a 2D grid. The old SOLO/SPLIT/TRIO/QUAD taxonomy conflated the shape with a
+ * particular tile count, which is why authoring was capped at four and a
+ * nine-tile workspace silently truncated — "Quad" was both a layout and a size.
+ * Size is now just how many cells exist.
+ */
+export type TerminalWorkspaceLayoutMode = "solo" | "lanes" | "grid";
+
+/**
+ * `"dynamic"` fits the column count to the number of tiles instead of pinning
+ * it, so adding a tile re-flows the workspace rather than leaving a hole.
+ */
+export type TerminalWorkspaceColumnCount = number | "dynamic";
+
+export type TerminalWorkspaceLayout = {
+  mode: TerminalWorkspaceLayoutMode;
+  columns?: TerminalWorkspaceColumnCount;
+};
+
 export type TerminalWorkspaceRecord = {
   id: string;
   name: string;
   purpose: string;
+  /**
+   * Resolved column count at the time of writing. Kept for records and clients
+   * that predate {@link layout}; `layout` wins when both are present.
+   */
   columns: number;
+  layout?: TerminalWorkspaceLayout;
   cells: TerminalWorkspaceCell[];
   createdAt: number;
   updatedAt: number;
@@ -66,6 +93,7 @@ export type TerminalWorkspaceRecordInput = {
   name: string;
   purpose?: string;
   columns?: number;
+  layout?: TerminalWorkspaceLayout;
   cells?: TerminalWorkspaceCell[];
   metadata?: Record<string, unknown>;
 };
@@ -73,6 +101,64 @@ export type TerminalWorkspaceRecordInput = {
 /** Highest column count a workspace may reopen with. */
 export const TERMINAL_WORKSPACE_MAX_COLUMNS = 6;
 export const TERMINAL_WORKSPACE_DEFAULT_COLUMNS = 2;
+
+/**
+ * The layout a workspace should open with, folding a pre-layout record forward.
+ *
+ * A record written before layouts existed carries only a column count, so the
+ * mode is inferred from how that count relates to the cells: one cell is solo,
+ * a count that fits every cell on one row is lanes, anything else was a grid.
+ */
+export function terminalWorkspaceLayoutOf(input: {
+  layout?: TerminalWorkspaceLayout | null;
+  columns?: number | null;
+  cellCount?: number;
+}): TerminalWorkspaceLayout {
+  if (input.layout?.mode) {
+    return {
+      mode: input.layout.mode,
+      ...(input.layout.columns === undefined ? {} : { columns: normalizeTerminalWorkspaceColumnCount(input.layout.columns) }),
+    };
+  }
+  const cellCount = input.cellCount ?? 0;
+  const columns = normalizeTerminalWorkspaceColumns(input.columns ?? TERMINAL_WORKSPACE_DEFAULT_COLUMNS);
+  if (cellCount <= 1) return { mode: "solo" };
+  if (columns >= cellCount) return { mode: "lanes", columns };
+  return { mode: "grid", columns };
+}
+
+/**
+ * Column count to render with.
+ *
+ * Solo is always one. A dynamic lane count is the tile count, so every tile
+ * gets its own lane; a dynamic grid is the squarest arrangement that holds
+ * them. Both clamp, because past a handful of columns a terminal is too narrow
+ * to read.
+ */
+export function resolveTerminalWorkspaceColumns(
+  layout: TerminalWorkspaceLayout,
+  input: { tileCount: number },
+): number {
+  const tileCount = Math.max(1, Math.floor(input.tileCount) || 1);
+  if (layout.mode === "solo") return 1;
+  if (layout.columns === undefined || layout.columns === "dynamic") {
+    const dynamic = layout.mode === "lanes" ? tileCount : Math.ceil(Math.sqrt(tileCount));
+    return Math.max(1, Math.min(TERMINAL_WORKSPACE_MAX_COLUMNS, dynamic));
+  }
+  return normalizeTerminalWorkspaceColumns(layout.columns);
+}
+
+export function normalizeTerminalWorkspaceColumnCount(value: unknown): TerminalWorkspaceColumnCount {
+  return value === "dynamic" ? "dynamic" : normalizeTerminalWorkspaceColumns(value);
+}
+
+export function terminalWorkspaceLayoutLabel(layout: TerminalWorkspaceLayout): string {
+  if (layout.mode === "solo") return "Solo";
+  const shape = layout.mode === "lanes" ? "Lanes" : "Grid";
+  return layout.columns === undefined || layout.columns === "dynamic"
+    ? `${shape} · dynamic`
+    : `${shape} · ${layout.columns} column${layout.columns === 1 ? "" : "s"}`;
+}
 
 export type TerminalWorkspaceCellStatus = "live" | "revivable" | "unavailable";
 

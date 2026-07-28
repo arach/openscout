@@ -162,7 +162,8 @@ describe("server workspace projections", () => {
     })).toEqual(layout);
   });
 
-  test("a record naming a host this client cannot render falls back to a shell tile", () => {
+  test("keeps a host the browser cannot render, rather than silently downgrading it", () => {
+    // Scout still owns the herdr session; the tile says where to use it.
     const layout = terminalWorkspaceLayoutFromRecord({
       id: "tw.3",
       name: "Desk",
@@ -172,6 +173,37 @@ describe("server workspace projections", () => {
       createdAt: 1,
       updatedAt: 2,
     });
+    expect(layout.tiles[0]).toEqual({ id: "cell-1", kind: "fresh", backend: "herdr", agent: "shell" });
+  });
+
+  test("a record naming a host Scout does not know falls back to a shell tile", () => {
+    const layout = terminalWorkspaceLayoutFromRecord({
+      id: "tw.4",
+      name: "Desk",
+      purpose: "",
+      columns: 2,
+      cells: [{ id: "cell-1", intent: { hostId: "kitty", sessionName: "whatever" } }],
+      createdAt: 1,
+      updatedAt: 2,
+    });
     expect(layout.tiles[0]).toEqual({ id: "cell-1", kind: "fresh", backend: "pty", agent: "shell" });
+  });
+
+  test("carries the layout mode through the round trip", () => {
+    const layout = {
+      id: "tw.5",
+      name: "Desk",
+      columns: 3,
+      layout: { mode: "lanes" as const, columns: "dynamic" as const },
+      updatedAt: 3,
+      tiles: [
+        { id: "c1", kind: "fresh" as const, backend: "tmux" as const, agent: "shell" as const },
+        { id: "c2", kind: "fresh" as const, backend: "tmux" as const, agent: "shell" as const },
+      ],
+    };
+    const input = terminalWorkspaceRecordInputFromLayout(layout);
+    expect(input.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+    // The resolved count is stored too, for clients that only read `columns`.
+    expect(input.columns).toBe(2);
   });
 });

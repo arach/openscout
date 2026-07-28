@@ -5188,6 +5188,30 @@ export async function createOpenScoutWebServer(
     return c.json({ ok: true, deleted });
   });
 
+  // Create a session on a host. The one primitive behind both "start something
+  // new" for a host the relay cannot render and the workspace revive path.
+  // Guarded by the declared capability, so a host that does not create sessions
+  // answers 501 instead of pretending.
+  app.post("/api/terminal-hosts/:hostId/sessions", async (c) => {
+    const adapter = terminalHostAdapter(c.req.param("hostId"));
+    if (!adapter) return c.json({ error: "unknown terminal host" }, 404);
+    if (!adapter.capabilities.create || !adapter.create) {
+      return c.json({ error: `${adapter.label} sessions cannot be started by Scout`, capability: "create" }, 501);
+    }
+    const body = await c.req.json<{ sessionName?: string; cwd?: string | null }>().catch(() => null);
+    const sessionName = body?.sessionName?.trim();
+    if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
+    const availability = await adapter.probe();
+    if (!availability.installed) {
+      return c.json({ error: availability.reason ?? `${adapter.label} is not installed here` }, 409);
+    }
+    const created = await adapter.create({ sessionName, cwd: body?.cwd ?? null });
+    return c.json(
+      { ok: created.created, created: created.created, hostId: adapter.id, sessionName, ...(created.reason ? { detail: created.reason } : {}) },
+      created.created ? 201 : 502,
+    );
+  });
+
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
