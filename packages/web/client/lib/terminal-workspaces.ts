@@ -38,7 +38,15 @@ export async function saveTerminalWorkspace(
 export type TerminalWorkspaceReviveResult = {
   ok: boolean;
   revived: boolean;
-  status: "live" | "revivable" | "unavailable";
+  /**
+   * `started` is a session that came back WITHOUT the harness the cell asked
+   * for — a bare shell where the agent used to be. It is deliberately not
+   * `live`: an operator who saved an agent tile and got a shell has to be told
+   * that, not shown a green tile.
+   */
+  status: "live" | "started" | "revivable" | "unavailable";
+  /** Whether the saved resume command actually ran. Null when there was none. */
+  resumed?: boolean | null;
   sessionName?: string;
   detail?: string;
 };

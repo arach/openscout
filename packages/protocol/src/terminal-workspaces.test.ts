@@ -34,6 +34,11 @@ function surface(backend: string, sessionName: string, state: TerminalSurface["s
   };
 }
 
+/**
+ * A registry record: something Scout wrote down once, at intake, with
+ * `state: "live"` baked into its surface and never updated again. On its own it
+ * proves nothing about what is running now.
+ */
 function session(id: string, surfaces: TerminalSurface[]): TerminalSessionRecord {
   return {
     id,
@@ -41,6 +46,23 @@ function session(id: string, surfaces: TerminalSurface[]): TerminalSessionRecord
     sourceSessionId: `${id}-source`,
     cwd: "/Users/art/dev/openscout",
     resumeCommand: "claude --resume abc",
+    origin: "registry",
+    surfaces,
+    createdAt: 1,
+    updatedAt: 2,
+  };
+}
+
+/** A record the host was actually asked about. Only this can establish "live". */
+function observed(surfaces: TerminalSurface[]): TerminalSessionRecord {
+  const first = surfaces[0]!;
+  return {
+    id: `discovered.${first.surfaceId}`,
+    harness: "",
+    sourceSessionId: first.sessionName,
+    cwd: "",
+    resumeCommand: "",
+    origin: "discovered",
     surfaces,
     createdAt: 1,
     updatedAt: 2,
@@ -64,17 +86,54 @@ describe("reconcileTerminalWorkspace", () => {
     const live = surface("tmux", "scout-tmux-cell-1");
     const result = reconcileTerminalWorkspace(
       workspace([{ id: "c1", surfaceId: live.surfaceId, intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1" } }]),
-      { sessions: [session("ts.1", [live])], hosts: HOSTS },
+      { sessions: [session("ts.1", [live]), observed([live])], hosts: HOSTS },
     );
 
     expect(result.liveCount).toBe(1);
     expect(result.cells[0]).toMatchObject({
       cellId: "c1",
       status: "live",
+      // The registry record wins the identity, because it is the one that knows
+      // the harness and the resume command; the SURFACE comes from the
+      // observation, which is the one with the current state.
       terminalSessionId: "ts.1",
       detail: "Running",
       revive: null,
     });
+  });
+
+  test("a registry record with no host session behind it is NOT live", () => {
+    // The reproduced blocker. `scout session intake` writes state:"live" once
+    // and never updates it, so after a reboot every saved tile resolved to
+    // "Running" against a host with nothing on it — Scout reading its own
+    // filing cabinet back to the operator as the state of their machine.
+    const recorded = surface("tmux", "scout-tmux-cell-1");
+    const result = reconcileTerminalWorkspace(
+      workspace([{
+        id: "c1",
+        surfaceId: recorded.surfaceId,
+        intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1" },
+      }]),
+      { sessions: [session("ts.1", [recorded])], hosts: HOSTS },
+    );
+
+    expect(result.liveCount).toBe(0);
+    expect(result.cells[0]).toMatchObject({
+      status: "revivable",
+      detail: "Not running. Scout can start it again.",
+    });
+  });
+
+  test("a stopped herdr session is not live either", () => {
+    // herdr reports a session whose server is stopped as `detached`, which for
+    // tmux means "running, nobody attached". Accepting anything-but-exited
+    // reported stopped herdr sessions as Running.
+    const stopped = surface("herdr", "scout-local-1", "detached");
+    const result = reconcileTerminalWorkspace(
+      workspace([{ id: "c1", surfaceId: stopped.surfaceId, intent: { hostId: "herdr", sessionName: "scout-local-1" } }]),
+      { sessions: [observed([stopped])], hosts: HOSTS },
+    );
+    expect(result.liveCount).toBe(0);
   });
 
   test("binds by session name when the handle is stale, which is what stable names are for", () => {
@@ -88,17 +147,17 @@ describe("reconcileTerminalWorkspace", () => {
         terminalSessionId: "ts.old",
         intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1" },
       }]),
-      { sessions: [session("ts.new", [live])], hosts: HOSTS },
+      { sessions: [observed([live])], hosts: HOSTS },
     );
 
     expect(result.cells[0]?.status).toBe("live");
-    expect(result.cells[0]?.terminalSessionId).toBe("ts.new");
+    expect(result.cells[0]?.terminalSessionId).toBe(`discovered.${live.surfaceId}`);
   });
 
   test("does not bind a same-named surface on a different host", () => {
     const result = reconcileTerminalWorkspace(
       workspace([{ id: "c1", intent: { hostId: "tmux", sessionName: "shared-name" } }]),
-      { sessions: [session("ts.1", [surface("zellij", "shared-name")])], hosts: HOSTS },
+      { sessions: [observed([surface("zellij", "shared-name")])], hosts: HOSTS },
     );
     expect(result.cells[0]?.status).toBe("revivable");
   });
@@ -107,7 +166,7 @@ describe("reconcileTerminalWorkspace", () => {
     const dead = surface("zellij", "scout-zj-1", "exited");
     const result = reconcileTerminalWorkspace(
       workspace([{ id: "c1", surfaceId: dead.surfaceId, intent: { hostId: "zellij", sessionName: "scout-zj-1" } }]),
-      { sessions: [session("ts.1", [dead])], hosts: HOSTS },
+      { sessions: [observed([dead])], hosts: HOSTS },
     );
     expect(result.cells[0]?.status).toBe("revivable");
   });
@@ -200,10 +259,49 @@ describe("reconcileTerminalWorkspace", () => {
         { id: "c2", intent: { hostId: "tmux", sessionName: "scout-dead" } },
         { id: "c3", intent: {} },
       ]),
-      { sessions: [session("ts.1", [live])], hosts: HOSTS },
+      { sessions: [observed([live])], hosts: HOSTS },
     );
     expect(result).toMatchObject({ liveCount: 1, revivableCount: 1, unavailableCount: 1 });
     expect(result.cells).toHaveLength(3);
+  });
+
+  test("honours the pre-origin discovery marker as an observation", () => {
+    // macOS and iOS still write `metadata.registryState`; a record carrying
+    // only that must not be mistaken for a registry memory.
+    const live = surface("tmux", "scout-live");
+    const legacyObservation: TerminalSessionRecord = {
+      ...observed([live]),
+      origin: undefined,
+      metadata: { registryState: "discovered" },
+    };
+    const result = reconcileTerminalWorkspace(
+      workspace([{ id: "c1", surfaceId: live.surfaceId, intent: { hostId: "tmux", sessionName: "scout-live" } }]),
+      { sessions: [legacyObservation], hosts: HOSTS },
+    );
+    expect(result.liveCount).toBe(1);
+  });
+
+  test("a revive plan carries the resume command the cell saved", () => {
+    // The plan is only worth having if the thing that acts on it can put the
+    // harness back; the route reports `resumed: false` when a host cannot.
+    const result = reconcileTerminalWorkspace(
+      workspace([{
+        id: "c1",
+        intent: {
+          hostId: "tmux",
+          sessionName: "scout-tmux-c1",
+          cwd: "/repo",
+          resumeCommand: "claude --resume abc",
+        },
+      }]),
+      { sessions: [], hosts: HOSTS },
+    );
+    expect(result.cells[0]?.revive).toEqual({
+      hostId: "tmux",
+      sessionName: "scout-tmux-c1",
+      cwd: "/repo",
+      resumeCommand: "claude --resume abc",
+    });
   });
 });
 

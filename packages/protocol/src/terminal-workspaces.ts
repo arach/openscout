@@ -7,6 +7,13 @@
  * `scout.terminals.workspaces.v1` in UserDefaults, and nothing at all on iOS —
  * with the same version number, the same idea, and no synchronization.
  *
+ * Where this stands TODAY, so nobody reads more into it than is built: the web
+ * client treats the record as its source of truth, seeding its deck from it and
+ * writing changes back. macOS still keeps its own UserDefaults store and has no
+ * reference to `/api/terminal-workspaces`, and iOS has nothing. "One workspace
+ * on all three clients" is the direction this type exists to make possible, not
+ * something it has delivered; the other two clients follow.
+ *
  * The load-bearing design decision is that a cell stores INTENT, not just a
  * binding. A saved cell that only remembers "tmux session scout-tmux-cell-7"
  * is worth nothing after a reboot: tmux is empty and the name resolves to
@@ -298,34 +305,73 @@ function unavailable(
 }
 
 /**
+ * Whether a record is an OBSERVATION of the host rather than something Scout
+ * wrote down once. Only an observation can prove a surface is running.
+ */
+function isHostObservedRecord(session: TerminalSessionRecord): boolean {
+  // `metadata.registryState` is the pre-`origin` signal; both are honoured
+  // until every writer has moved over.
+  return session.origin === "discovered" || session.metadata?.registryState === "discovered";
+}
+
+/**
  * A cell binds to a live surface by durable handle first. The intent's session
  * name is the fallback, because a surface re-created under the same name on the
  * same host IS the tile's session — that is the whole point of stable per-cell
  * names — while a record id is not enough on its own, since ids move when a
  * discovered session is renamed.
+ *
+ * Two rules make the answer an observation instead of a memory, and a review
+ * reproduced what happens without them.
+ *
+ * Only a host-observed record can establish "live". A registry record is
+ * written once, at intake, with `state: "live"` baked in, and it is never
+ * updated again — so after a reboot every saved tile still resolved to
+ * `{status: "live", detail: "Running"}` against a host that had nothing on it.
+ * Scout was reporting its own filing cabinet back to the operator as the state
+ * of their machine.
+ *
+ * And only `state === "live"` counts. `detached` means different things per
+ * host — for tmux it is a running session with no client, for herdr it is a
+ * session whose server is STOPPED — so accepting "anything but exited" reported
+ * stopped herdr sessions as running. Hosts that stay attachable while detached
+ * report `live` from their adapter, so requiring it costs nothing and stops
+ * that.
+ *
+ * When an observation is found, the registry record for the same surface is
+ * preferred as the cell's record: it carries the harness and resume command a
+ * discovered record cannot know. The SURFACE always comes from the observation,
+ * because that is the one with the current state.
  */
 function findLiveSurface(
   cell: TerminalWorkspaceCell,
   sessions: readonly TerminalSessionRecord[],
 ): { session: TerminalSessionRecord; surface: TerminalSurface } | null {
+  const observedSessions = sessions.filter(isHostObservedRecord);
   const handle = cell.surfaceId?.trim() || null;
-  if (handle) {
-    for (const session of sessions) {
-      const surface = session.surfaces.find((candidate) => terminalSurfaceMatchesId(candidate, handle));
-      if (surface && surface.state !== "exited") return { session, surface };
-    }
-  }
-
   const sessionName = cell.intent.sessionName?.trim() || null;
   const hostId = cell.intent.hostId ?? null;
-  if (!sessionName) return null;
-  for (const session of sessions) {
-    const surface = session.surfaces.find((candidate) =>
-      candidate.sessionName === sessionName
-      && (!hostId || candidate.backend === hostId)
-      && candidate.state !== "exited"
+
+  const matches = (surface: TerminalSurface): boolean => {
+    if (surface.state !== "live") return false;
+    if (handle && terminalSurfaceMatchesId(surface, handle)) return true;
+    return Boolean(
+      sessionName
+        && surface.sessionName === sessionName
+        && (!hostId || surface.backend === hostId),
     );
-    if (surface) return { session, surface };
+  };
+
+  for (const session of observedSessions) {
+    const surface = session.surfaces.find(matches);
+    if (!surface) continue;
+    const registryRecord = sessions.find((candidate) =>
+      !isHostObservedRecord(candidate)
+      && candidate.surfaces.some((known) =>
+        known.backend === surface.backend && known.sessionName === surface.sessionName
+      )
+    );
+    return { session: registryRecord ?? session, surface };
   }
   return null;
 }

@@ -78,6 +78,7 @@ import {
 import {
   describeTerminalHosts,
   isKnownTerminalHost,
+  relayCarriedTerminalBackend,
   resolvePreferredTerminalHost,
   resolveTerminalHostAdapter,
   terminalHostAdapter,
@@ -5122,9 +5123,12 @@ export async function createOpenScoutWebServer(
     });
   });
 
-  // Durable workspaces. The server record is the truth; the three clients
-  // become views over it instead of each keeping a private store that cannot
-  // follow an operator to another device or be reasoned about by the broker.
+  // Durable workspaces. The record is the web client's source of truth: it
+  // seeds its deck from these routes and writes changes back, instead of
+  // keeping a private store that cannot follow an operator to another device or
+  // be reasoned about by the broker. macOS and iOS have not adopted it yet —
+  // macOS still reads its own UserDefaults — so this is one client over a
+  // shared object today, with the others to follow.
   app.get("/api/terminal-workspaces", async (c) => {
     const workspaces = queryTerminalWorkspaces({ limit: parseTerminalSessionLimit(c.req.query("limit")) });
     const resolutions = await resolveTerminalWorkspaces(workspaces);
@@ -5176,16 +5180,39 @@ export async function createOpenScoutWebServer(
     if (!adapter?.create) {
       return c.json({ error: `${cell.revive.hostId} cannot be started by Scout`, capability: "create" }, 501);
     }
+    // Probe for real before shelling out. Reconciliation reads a cached
+    // availability that deliberately holds a recent success through a
+    // momentary failure, and acting on that memory is how a revive turns into
+    // an unhandled spawn error instead of a 409.
+    const availability = await adapter.probe();
+    if (!availability.installed) {
+      return c.json({
+        error: availability.reason ?? `${adapter.label} is not installed here`,
+        status: "unavailable",
+        capability: "create",
+      }, 409);
+    }
     const created = await adapter.create({
       sessionName: cell.revive.sessionName,
       cwd: cell.revive.cwd,
+      resumeCommand: cell.revive.resumeCommand,
     });
+    // A session that came back WITHOUT the harness the cell asked for is not
+    // "live" in the sense the operator means, so it does not get to say so.
+    // `started` is a distinct outcome with its own detail; the alternative is
+    // reporting a resumed agent when what is actually there is a bare shell.
+    const resumedHarness = created.resumed !== false;
     return c.json({
       ok: created.created,
       revived: created.created,
-      status: created.created ? "live" : cell.status,
+      status: created.created ? (resumedHarness ? "live" : "started") : cell.status,
+      resumed: created.resumed ?? null,
       sessionName: cell.revive.sessionName,
-      ...(created.reason ? { detail: created.reason } : {}),
+      ...(created.reason
+        ? { detail: created.reason }
+        : created.created && !resumedHarness
+          ? { detail: `Started ${cell.revive.hostId} session ${cell.revive.sessionName}, but Scout could not replay the harness command there.` }
+          : {}),
     }, created.created ? 200 : 502);
   });
 
@@ -6903,9 +6930,12 @@ export async function createOpenScoutWebServer(
 
     let destroyed = 0;
     if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
-      // Only hosts the relay can carry have a bridge to tear down.
-      if (options.destroyTerminalRelaySurface && (backend === "tmux" || backend === "zellij")) {
-        destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
+      // Only hosts the relay can carry have a bridge to tear down. That is the
+      // `relayAttach` capability plus what this vendored relay build accepts,
+      // asked as one question instead of spelled out as a backend list here.
+      const relayBackend = relayCarriedTerminalBackend(backend);
+      if (options.destroyTerminalRelaySurface && relayBackend) {
+        destroyed = await options.destroyTerminalRelaySurface(relayBackend, sessionName);
       }
       const detachSupport = terminalHostSupportsControl(backend, "detach");
       if (action !== "restart-resume" && action !== "detach" && detachSupport.supported) {

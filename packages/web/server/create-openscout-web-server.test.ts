@@ -3448,6 +3448,87 @@ describe("createOpenScoutWebServer", () => {
     await expect(deleted.json()).resolves.toEqual({ ok: true, deleted: true });
   });
 
+  test("a registry record is not proof a session is running", async () => {
+    // The registry says this zellij surface is live, because `session intake`
+    // wrote `state: "live"` once and never revisited it. Only the discovered
+    // tmux session is an actual observation of the host. A workspace holding
+    // one of each must not report both as Running.
+    queryTerminalSessionsResult = [{
+      id: "ts.recorded",
+      harness: "claude",
+      sourceSessionId: "claude-session-123",
+      cwd: "/tmp/openscout",
+      resumeCommand: "claude --resume claude-session-123",
+      surfaces: [{
+        backend: "zellij",
+        sessionName: "scout-zj-demo",
+        paneId: null,
+        attachCommand: ["zellij", "attach", "scout-zj-demo"],
+        observeCommand: null,
+        relay: { backend: "zellij", sessionName: "scout-zj-demo" },
+        state: "live",
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    }];
+    queryDiscoveredTerminalSessionsResult = [{
+      id: "discovered.tmux.demo",
+      harness: "",
+      sourceSessionId: "raw-tmux-demo",
+      cwd: "",
+      resumeCommand: "",
+      origin: "discovered",
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "raw-tmux-demo",
+        paneId: null,
+        attachCommand: ["tmux", "attach", "-t", "raw-tmux-demo"],
+        observeCommand: null,
+        relay: { backend: "tmux", sessionName: "raw-tmux-demo" },
+        state: "live",
+      }],
+      createdAt: 3,
+      updatedAt: 3,
+      metadata: { source: "backend-discovery", registryState: "discovered" },
+    }];
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const created = await server.app.request("http://localhost/api/terminal-workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Mixed desk",
+        layout: { mode: "lanes", columns: "dynamic" },
+        cells: [
+          { id: "recorded", intent: { hostId: "zellij", sessionName: "scout-zj-demo" } },
+          { id: "observed", intent: { hostId: "tmux", sessionName: "raw-tmux-demo" } },
+        ],
+      }),
+    });
+    const { workspace } = await created.json() as { workspace: { id: string; layout?: unknown } };
+    // And the authored layout is stored rather than re-derived from a count.
+    expect(workspace.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+    const listed = await server.app.request(`http://localhost/api/terminal-workspaces/${workspace.id}`);
+    const payload = await listed.json() as {
+      workspace: { layout?: unknown };
+      resolution: { cells: Array<{ cellId: string; status: string; detail: string }> };
+    };
+    expect(payload.workspace.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+    const cells = payload.resolution.cells;
+    expect(cells.find((cell) => cell.cellId === "observed")).toMatchObject({
+      status: "live",
+      detail: "Running",
+    });
+    expect(cells.find((cell) => cell.cellId === "recorded")?.status).not.toBe("live");
+  });
+
   test("refuses to revive a cell that was never given anything to rebuild from", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -3515,8 +3596,10 @@ describe("createOpenScoutWebServer", () => {
     expect(payload.ok).toBe(true);
     expect(payload.hosts.map((host) => host.id).sort()).toEqual(["herdr", "tmux", "zellij"]);
     const herdr = payload.hosts.find((host) => host.id === "herdr")!;
-    // Herdr sessions outlive Scout: detach yes, kill no.
-    expect(herdr.capabilities.control).toEqual(["detach", "force-quit-bridge"]);
+    // A herdr session outlives Scout, but that is not something Scout PERFORMS:
+    // herdr has no detach verb at all, so the only control here is the
+    // Scout-side bridge teardown and the UI draws no detach action.
+    expect(herdr.capabilities.control).toEqual(["force-quit-bridge"]);
     expect(herdr.capabilities.harnessControl).toEqual([]);
     expect(herdr.capabilities.relayAttach).toBe(false);
     // A preferred host is only offered when one is actually installed here.
