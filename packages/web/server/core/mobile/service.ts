@@ -12,6 +12,9 @@ import {
   channelNaturalKeyFromMetadata,
   directChannelNaturalKey,
   epochMs,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
 } from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
@@ -25,7 +28,7 @@ import {
 import { createAgentWorkspace } from "@openscout/runtime/agent-workspace";
 
 import { upScoutAgent } from "../agents/service.ts";
-import { queryFleet } from "../../db-queries.ts";
+import { queryAgents, queryFleet } from "../../db-queries.ts";
 import { queryTerminalSessions } from "../../db/terminal-sessions.ts";
 import {
   loadServiceBudgets,
@@ -51,6 +54,46 @@ import { postScoutbotOperatorMessage } from "../../scoutbot/runner.ts";
 import { SCOUTBOT_AGENT_ID } from "../../scoutbot/role.ts";
 import type { AgentAttentionEntry } from "../attention/agent-attention.ts";
 import { createAgentAttentionIndexReader } from "../attention/build-agent-attention-index.ts";
+
+export async function getScoutMobileRuntimeCapabilities(projectRoot?: string) {
+  const catalog = await loadHarnessCatalogSnapshot().catch(() => null);
+  const labels = new Map((catalog?.entries ?? []).map((entry) => [entry.harness, entry.label]));
+  const normalizedProjectRoot = projectRoot?.trim() ? resolve(projectRoot) : null;
+  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
+    ...model,
+    harnesses: [...model.harnesses],
+  }));
+  const seenModels = new Set(models.flatMap((model) => (
+    model.harnesses.map((harness) => `${harness}:${model.id.toLowerCase()}`)
+  )));
+  if (normalizedProjectRoot) {
+    for (const agent of queryAgents(100)) {
+      const root = agent.projectRoot ?? agent.cwd;
+      const harness = agent.harness?.trim().toLowerCase();
+      const model = agent.model?.trim();
+      if (!root || resolve(root) !== normalizedProjectRoot || !harness || !model) continue;
+      const key = `${harness}:${model.toLowerCase()}`;
+      if (!seenModels.add(key)) continue;
+      models.push({ id: model, label: model, harnesses: [harness], source: "observed" });
+    }
+  }
+  return {
+    schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    generatedAt: Date.now(),
+    scope: projectRoot ? "global+project" as const : "global" as const,
+    ...(normalizedProjectRoot ? { projectRoot: normalizedProjectRoot } : {}),
+    harnesses: SCOUT_LAUNCHABLE_HARNESSES.map((id) => ({
+      id,
+      label: labels.get(id) ?? id,
+    })),
+    models,
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
+  };
+}
 
 /// Shared, TTL-cached reader for the per-agent needs-attention index. Same
 /// sourcing as web /api/agents (see core/attention/build-agent-attention-index),
@@ -140,6 +183,7 @@ export type CreateScoutSessionInput = {
   profile?: string | null;
   branch?: string;
   model?: string;
+  reasoningEffort?: string;
   forceNew?: boolean;
   seed?: {
     instructions?: string | null;
@@ -1054,6 +1098,7 @@ export async function createScoutSession(
     currentDirectory: currentDirectory ?? workspace.root,
     cwdOverride: agentCwd !== workspace.root ? agentCwd : undefined,
     model: input.model,
+    reasoningEffort: input.reasoningEffort,
     permissionProfile: input.profile?.trim() || undefined,
     branch: input.branch,
   });
@@ -1105,6 +1150,8 @@ export async function createScoutSession(
         attachments: seedAttachments,
         currentDirectory: currentDirectory ?? workspace.root,
         executionHarness: input.harness,
+        executionModel: input.model,
+        executionReasoningEffort: input.reasoningEffort,
         source: "scout-mobile",
         deviceId,
       })

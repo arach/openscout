@@ -27,6 +27,8 @@ export interface Session {
   cwd?: string;
   /** Model identifier, if known (e.g. "claude-sonnet-4-20250514"). */
   model?: string;
+  /** Harness-reported reasoning/thinking effort, if available. */
+  reasoningEffort?: string;
   /** Provider-specific metadata (AI SDK providerOptions pattern). */
   providerMeta?: Record<string, unknown>;
 }

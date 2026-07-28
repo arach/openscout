@@ -42,7 +42,7 @@ final class BridgeBrokerClientTests: XCTestCase {
 
     func testRouteMapCoversCapabilityMethods() {
         for method in [
-            "mobile/sessions", "mobile/agents", "mobile/workspaces",
+            "mobile/sessions", "mobile/agents", "mobile/workspaces", "mobile/runtime-capabilities",
             "mobile/activity", "mobile/endpoints", "mobile/session/snapshot",
             "mobile/message/send", "mobile/session/create",
             "mobile/comms/conversations", "mobile/comms/messages",
@@ -309,7 +309,7 @@ final class BridgeBrokerClientTests: XCTestCase {
         // Exercise the spec → MobileCreateSessionParams shaping directly.
         let spec = SessionInitiationSpec(
             target: .init(projectPath: "/Users/x/dev/openscout"),
-            execution: .init(harness: "claude", model: "opus", session: .new),
+            execution: .init(harness: "claude", model: "opus", reasoningEffort: "max", session: .new),
             agent: .init(handle: "vox"),
             seed: .init(instructions: "check status")
         )
@@ -319,12 +319,14 @@ final class BridgeBrokerClientTests: XCTestCase {
             agentName: spec.agent?.handle,
             worktree: nil, profile: nil, branch: nil,
             model: spec.execution?.model,
+            reasoningEffort: spec.execution?.reasoningEffort,
             forceNew: (spec.execution?.session == .new) ? true : nil,
             seed: spec.seed
         )
         XCTAssertEqual(params.workspaceId, "/Users/x/dev/openscout")
         XCTAssertEqual(params.harness, "claude")
         XCTAssertEqual(params.model, "opus")
+        XCTAssertEqual(params.reasoningEffort, "max")
         XCTAssertEqual(params.agentName, "vox")
         XCTAssertEqual(params.forceNew, true)
 

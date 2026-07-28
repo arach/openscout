@@ -7,8 +7,13 @@ import {
   BUILT_IN_AGENT_DEFINITION_IDS,
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
+  parseScoutRuntimeSpec,
   parseAgentIdentity,
   parseScoutComposerRouteTarget,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_REASONING_EFFORTS,
+  SCOUT_RESERVED_RUNTIME_PROFILE_IDS,
+  validateScoutAgentNameForWrite,
   type AgentIdentityCandidate,
   type AgentState,
   type ScoutAgentCard,
@@ -105,7 +110,7 @@ const MESSAGE_ROUTING_ERROR_VALUES = [
 ] as const;
 const REPLY_MODE_VALUES = ["none", "inline", "notify"] as const;
 const REPLY_DELIVERY_VALUES = ["none", "inline", "mcp_notification"] as const;
-const LOCAL_AGENT_HARNESS_VALUES = ["claude", "codex", "pi"] as const;
+const LOCAL_AGENT_HARNESS_VALUES = SCOUT_LAUNCHABLE_HARNESSES;
 const TAIL_EVENT_KIND_VALUES = [
   "user",
   "assistant",
@@ -116,6 +121,13 @@ const TAIL_EVENT_KIND_VALUES = [
 ] as const;
 const DEFAULT_ASK_ACK_TIMEOUT_SECONDS = 30;
 export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
+
+const scoutAgentNameInputSchema = z.string().min(1).superRefine((value, context) => {
+  const result = validateScoutAgentNameForWrite(value);
+  if (!result.ok) {
+    context.addIssue({ code: "custom", message: result.message });
+  }
+});
 
 type SearchableAgentState = (typeof AGENT_STATE_VALUES)[number];
 type SearchRegistrationKind = (typeof REGISTRATION_KIND_VALUES)[number];
@@ -3058,7 +3070,7 @@ export function createScoutMcpServer(options: {
       title: "Set Scout Route Alias",
       description: "Create a scoped broker-owned pointer to one existing durable agent or exact session. This never creates or mutates an agent card.",
       inputSchema: z.object({
-        alias: z.string().min(1),
+        alias: scoutAgentNameInputSchema,
         to: z.string().optional(),
         self: z.enum(["session", "agent"]).optional(),
         replace: z.boolean().optional(),
@@ -3705,7 +3717,7 @@ export function createScoutMcpServer(options: {
         projectPath: z.string().optional(),
         currentDirectory: z.string().optional(),
         senderId: z.string().optional(),
-        agentName: z.string().optional(),
+        agentName: scoutAgentNameInputSchema.optional(),
         displayName: z.string().optional(),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
         model: z.string().optional(),
@@ -3786,7 +3798,7 @@ export function createScoutMcpServer(options: {
             "Optional desired Scout label, such as @openscout#claude?sonnet. Explicit fields override values inferred from this label.",
           )
           .optional(),
-        agentName: z.string().optional(),
+        agentName: scoutAgentNameInputSchema.optional(),
         projectPath: z.string().optional(),
         currentDirectory: z.string().optional(),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
@@ -3955,7 +3967,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask",
       description:
-        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: for fresh capability work pass `projectPath` plus optional `harness` and let Scout choose/create the concrete worker; pass an agent card/label in `to` only when a specific target is known; pass `target:<name>` or `⌖name` for a saved situated target; pass `targetSessionId` to continue one exact existing session. Do not guess generic names like claude.main. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records and returned refs/ids for follow-up. Use discovery tools only when you need broker help rather than agent work.",
+        "Ask another agent to answer, review, try, build, compare, or give feedback. Exact runtime requests accept `runtime` as harness/model/effort (for example codex/gpt-5.6-sol/xhigh), or separate harness/model/reasoningEffort fields. A profile is a base preset and explicit dimensions override it when legal. Exact runtime requests create a fresh isolated session; targetSessionId fails closed unless the selected session's observed runtime matches. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait and the execution-resolution receipt to verify requested, resolved, and observed values.",
       inputSchema: z.object({
         to: z
           .string()
@@ -3991,7 +4003,17 @@ export function createScoutMcpServer(options: {
           .min(1)
           .optional()
           .describe("Caller wait budget in seconds for inline waits only; it never cancels or fails the broker ask."),
+        runtime: z
+          .string()
+          .optional()
+          .describe("Shell-safe RuntimeSpec: harness[/model[/effort]], such as codex/gpt-5.6-sol/xhigh."),
+        profile: z
+          .enum(SCOUT_RESERVED_RUNTIME_PROFILE_IDS)
+          .optional()
+          .describe("Runtime preset base. Explicit harness/model/reasoningEffort fields may override compatible dimensions."),
         harness: z.enum(LOCAL_AGENT_HARNESS_VALUES).optional(),
+        model: z.string().min(1).optional(),
+        reasoningEffort: z.enum(SCOUT_REASONING_EFFORTS).optional(),
         workspace: z.enum(["same", "new_worktree"]).optional(),
         session: z
           .enum(["reuse", "new"])
@@ -4033,7 +4055,11 @@ export function createScoutMcpServer(options: {
       shouldSpeak,
       replyMode,
       timeoutSeconds,
+      runtime,
+      profile,
       harness,
+      model,
+      reasoningEffort,
       workspace,
       session,
       wait,
@@ -4059,10 +4085,53 @@ export function createScoutMcpServer(options: {
       const replyNotificationsEnabled = areMcpReplyNotificationsEnabled(env);
       const targetSession = targetSessionId?.trim();
       const targetTo = targetSession ? `session:${targetSession}` : to?.trim();
+      const parsedRuntime = runtime ? parseScoutRuntimeSpec(runtime) : null;
+      const runtimeConflict = parsedRuntime?.ok
+        ? ([
+            ["harness", harness, parsedRuntime.value.harness],
+            ["model", model, parsedRuntime.value.model],
+            ["reasoningEffort", reasoningEffort, parsedRuntime.value.reasoningEffort],
+          ] as const).find(([, explicit, literal]) => (
+            explicit && literal && explicit.toLowerCase() !== literal.toLowerCase()
+          ))
+        : undefined;
+      const resolvedHarness = harness ?? (parsedRuntime?.ok ? parsedRuntime.value.harness : undefined);
+      const resolvedModel = model ?? (parsedRuntime?.ok ? parsedRuntime.value.model : undefined);
+      const resolvedReasoningEffort = reasoningEffort
+        ?? (parsedRuntime?.ok ? parsedRuntime.value.reasoningEffort : undefined);
       const targetProjectPath = projectPath?.trim()
         ? resolve(resolvedCurrentDirectory, projectPath.trim())
+        : !targetTo && !profile && (runtime || resolvedHarness || resolvedModel || resolvedReasoningEffort)
+          ? resolvedCurrentDirectory
         : undefined;
-      let structuredContent: ScoutAskReceipt = targetTo && targetProjectPath
+      let structuredContent: ScoutAskReceipt = parsedRuntime && !parsedRuntime.ok
+        ? {
+            ok: false,
+            state: "failed" as const,
+            ids: {},
+            error: { code: "invalid_request" as const, message: `runtime_spec_invalid: ${parsedRuntime.error}` },
+          }
+        : runtimeConflict
+          ? {
+              ok: false,
+              state: "failed" as const,
+              ids: {},
+              error: {
+                code: "invalid_request" as const,
+                message: `runtime_conflict: conflicting runtime ${runtimeConflict[0]}: explicit ${runtimeConflict[1]} and literal ${runtimeConflict[2]}`,
+              },
+            }
+        : profile && targetTo
+          ? {
+              ok: false,
+              state: "failed" as const,
+              ids: {},
+              error: {
+                code: "invalid_request" as const,
+                message: "runtime_conflict: profile is a launch target; do not combine it with to",
+              },
+            }
+        : targetTo && targetProjectPath
         ? {
             ok: false,
             state: "failed" as const,
@@ -4074,11 +4143,32 @@ export function createScoutMcpServer(options: {
           }
         : await deps.scoutAskHandler({
             senderId: resolvedSenderId,
-            ...(targetProjectPath
+            ...(profile
+              ? {
+                  runtimeProfile: profile,
+                  ...(targetProjectPath ? { projectPath: targetProjectPath } : {}),
+                }
+              : targetProjectPath
               ? { projectPath: targetProjectPath }
               : { to: targetTo ?? "" }),
             body,
-            ...(harness ? { harness } : {}),
+            ...(resolvedHarness ? { harness: resolvedHarness } : {}),
+            ...(resolvedModel ? { model: resolvedModel } : {}),
+            ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+            ...(runtime ? { runtimeLiteral: runtime } : {}),
+            ...((runtime || harness || model || reasoningEffort) ? {
+              executionSource: {
+                ...(resolvedHarness
+                  ? { harness: harness ? "flag" as const : "literal" as const }
+                  : {}),
+                ...(resolvedModel
+                  ? { model: model ? "flag" as const : "literal" as const }
+                  : {}),
+                ...(resolvedReasoningEffort
+                  ? { reasoningEffort: reasoningEffort ? "flag" as const : "literal" as const }
+                  : {}),
+              },
+            } : {}),
             ...(workspace ? { workspace } : {}),
             ...(session ? { session } : {}),
             ...(workItem ? { workItem } : {}),

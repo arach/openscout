@@ -55,6 +55,10 @@ export * from "./repo-diff/index.js";
 // Canonical broker HTTP paths live in @openscout/protocol; re-exported here so
 // runtime-only consumers (e.g. the CLI) can reach them without a new dependency.
 export {
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
+  type ScoutRuntimeCapabilityCatalog,
   scoutBrokerPaths,
   scoutBrokerMessagesListPath,
   scoutBrokerMessagesPath,

@@ -18,6 +18,12 @@ import {
   saveOpenScoutOnboardingIdentity,
 } from "@openscout/runtime/onboarding";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import {
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
+  type ScoutRuntimeCapabilityCatalog,
+} from "@openscout/runtime";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 import { resolve } from "node:path";
 
@@ -356,6 +362,33 @@ async function runSetupCommand(args: string[]): Promise<void> {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
+function runtimeCapabilitiesForCatalog(
+  catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>,
+): ScoutRuntimeCapabilityCatalog {
+  return {
+    schemaVersion: "openscout.runtime-capabilities.v1",
+    generatedAt: Date.now(),
+    scope: "global",
+    harnesses: catalog.entries
+      .filter((entry) => SCOUT_LAUNCHABLE_HARNESSES.includes(entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number]))
+      .map((entry) => ({
+        id: entry.harness as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number],
+        name: entry.name,
+        label: entry.label,
+        description: entry.description,
+        state: entry.readinessReport.state,
+        ready: entry.readinessReport.ready,
+        detail: entry.readinessReport.detail,
+      })),
+    models: SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({ ...model, harnesses: [...model.harnesses] })),
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
+  };
+}
+
 async function runDoctorCommand(args: string[]): Promise<void> {
   const options = parseDoctorOptions(args);
   const broker = await brokerServiceStatus();
@@ -394,12 +427,13 @@ async function runRuntimesCommand(args: string[]): Promise<void> {
     throw new Error(`unexpected arguments for runtimes: ${parsed.rest.join(" ")}`);
   }
   const catalog = await loadHarnessCatalogSnapshot();
+  const runtimeCapabilities = runtimeCapabilitiesForCatalog(catalog);
   const state = await markOpenScoutOnboardingCommand({
     command: "runtimes",
     currentDirectory: parsed.currentDirectory,
     catalog,
   });
-  const report = { currentDirectory: parsed.currentDirectory, catalog, onboarding: state };
+  const report = { currentDirectory: parsed.currentDirectory, catalog, runtimeCapabilities, onboarding: state };
   if (output === "json") {
     writeJson(report);
     return;
@@ -409,6 +443,18 @@ async function runRuntimesCommand(args: string[]): Promise<void> {
     lines.push(`  - ${entry.label} (${entry.name})`);
     lines.push(`    State: ${entry.readinessReport.state}`);
     lines.push(`    Detail: ${entry.readinessReport.detail}`);
+  }
+  lines.push("", "Exact runtime capabilities:");
+  for (const harness of runtimeCapabilities.harnesses) {
+    const models = runtimeCapabilities.models
+      .filter((model) => model.harnesses.includes(harness.id))
+      .map((model) => model.id);
+    const efforts = runtimeCapabilities.efforts
+      .filter((effort) => effort.harnesses.includes(harness.id))
+      .map((effort) => effort.id);
+    lines.push(`  - ${harness.id}`);
+    lines.push(`    Models: ${models.join(", ") || "not selectable"}`);
+    lines.push(`    Efforts: ${efforts.join(", ") || "not selectable"}`);
   }
   process.stdout.write(`${lines.join("\n")}\n`);
 }

@@ -25,7 +25,10 @@ export function basename(path: string | null | undefined): string | null {
 export function normalizeProjectRoot(path: string | null | undefined): string | null {
   const trimmed = path?.trim();
   if (!trimmed) return null;
-  return trimmed.replace(/\/+$/, "") || null;
+  const normalizedTmp = trimmed === "/private/tmp" || trimmed.startsWith("/private/tmp/")
+    ? trimmed.replace(/^\/private\/tmp/u, "/tmp")
+    : trimmed;
+  return normalizedTmp.replace(/\/+$/, "") || null;
 }
 
 export function dirname(path: string): string | null {
@@ -66,6 +69,12 @@ export function worktreeFamilyFromRoot(root: string | null): { title: string; ro
 
 function worktreeContainerFamilyRoot(root: string): string | null {
   const normalized = root.replace(/\/+$/, "");
+  // ~/.codex/worktrees is a harness cache, not a repository family root.
+  // Without filesystem evidence for the linked checkout, collapsing it would
+  // invent a phantom ~/.codex project.
+  if (/^(?:~|\/Users\/[^/]+)\/\.codex\/worktrees\//u.test(normalized)) {
+    return null;
+  }
   const siblingContainer = normalized.match(/^(.*)\/([^/]+)-worktrees(?:\/[^/]+)+$/);
   if (siblingContainer?.[1] && siblingContainer[2]) {
     return `${siblingContainer[1]}/${siblingContainer[2]}`;
@@ -107,19 +116,6 @@ function collapseHomePrefix(path: string): string {
   return rest ? `~${rest}` : "~";
 }
 
-// Strip a trailing pure-numeric node/clone qualifier from a repo dir so the
-// numbered sibling collapses onto its base: "openscout-185" → "openscout".
-// Digit-only by design — real variant siblings ("pomo-native", "pomo-tauri")
-// keep their identity. Mirrors how projectSlug drops a trailing number off titles.
-function stripNodeQualifier(path: string): string {
-  const leaf = basename(path);
-  if (!leaf) return path;
-  const stripped = leaf.replace(/-\d+$/, "");
-  if (stripped === leaf || !stripped) return path;
-  const parent = dirname(path);
-  return parent ? `${parent}/${stripped}` : stripped;
-}
-
 // Reduce any cwd / worktree / deep path to the canonical repo root, so every
 // record for the same project keys identically. A bare home dir is not a project.
 export function canonicalProjectRoot(root: string | null | undefined): string | null {
@@ -128,7 +124,7 @@ export function canonicalProjectRoot(root: string | null | undefined): string | 
   const family = worktreeFamilyFromRoot(normalized);
   const base = family?.root ?? normalized;
   const observed = collapseHomePrefix(workspaceRootFromObservedPath(base) ?? base);
-  const canonical = stripNodeQualifier(observed);
+  const canonical = observed;
   if (
     canonical === "~" ||
     /^\/(Users|home)\/[^/]+$/.test(canonical) ||

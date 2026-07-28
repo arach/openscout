@@ -433,6 +433,7 @@ export type ScoutAskResult = {
   messageId?: string;
   bindingRef?: string;
   sessionAlias?: string;
+  executionResolution?: import("@openscout/protocol").ScoutExecutionResolution;
   workItem?: ScoutTrackedWorkItem;
   unresolvedTarget?: string;
   targetDiagnostic?: ScoutAskTargetDiagnostic;
@@ -3794,6 +3795,9 @@ export async function askScoutAgentById(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
+  executionSource?: ScoutDeliverRequest["executionSource"];
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -3816,6 +3820,9 @@ export async function askScoutAgentById(input: {
     shouldSpeak: input.shouldSpeak,
     createdAtMs: input.createdAtMs,
     executionHarness: input.executionHarness,
+    executionModel: input.executionModel,
+    executionReasoningEffort: input.executionReasoningEffort,
+    executionSource: input.executionSource,
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,
@@ -3941,6 +3948,9 @@ export async function deliverScoutAsk(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
+  executionSource?: ScoutDeliverRequest["executionSource"];
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -4016,9 +4026,14 @@ export async function deliverScoutAsk(input: {
     ...(deliveryWorkItem ? { collaborationRecordId: workRecordId, workItem: deliveryWorkItem } : {}),
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
+      ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      ...(input.executionReasoningEffort?.trim()
+        ? { reasoningEffort: input.executionReasoningEffort.trim() }
+        : {}),
       ...(targetSessionId ? { targetSessionId } : {}),
       session: input.executionSession ?? defaultAskExecutionSession(input.target),
     },
+    ...(input.executionSource ? { executionSource: input.executionSource } : {}),
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
     ensureAwake: true,
     ...(labels ? { labels } : {}),
@@ -4054,6 +4069,7 @@ export async function deliverScoutAsk(input: {
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
     sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
+    executionResolution: delivery.receipt.executionResolution,
     workItem,
   };
 }
@@ -4069,6 +4085,8 @@ export async function askScoutQuestion(input: {
   shouldSpeak?: boolean;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
+  executionModel?: string;
+  executionReasoningEffort?: string;
   executionSession?: "new" | "existing" | "any";
   workspace?: ScoutAskWorkspace;
   senderContext?: ScoutAskSenderContext;
@@ -4093,6 +4111,8 @@ export async function askScoutQuestion(input: {
     shouldSpeak: input.shouldSpeak,
     createdAtMs: input.createdAtMs,
     executionHarness: input.executionHarness,
+    executionModel: input.executionModel,
+    executionReasoningEffort: input.executionReasoningEffort,
     executionSession: input.executionSession,
     workspace: input.workspace,
     senderContext: input.senderContext,

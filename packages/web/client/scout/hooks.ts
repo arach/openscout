@@ -196,7 +196,7 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
         ? { label: "Broker: UP", color: "emerald" }
         : { label: "Broker: DOWN", color: "red" },
     activeAgents: {
-      label: "Active Agents",
+      label: "Registered",
       count: onlineCount,
     },
     mesh: (() => {

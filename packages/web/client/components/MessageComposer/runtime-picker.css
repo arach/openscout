@@ -1,0 +1,258 @@
+/* RuntimePicker — harness · model · (effort) as one composer chip.
+ *
+ * Styled against the app's own tokens rather than a utility layer, matching
+ * the rest of message-composer.css. The resting chip deliberately reuses the
+ * geometry of `.s-msg-compose-tool` — same pill radius, same 28px min height,
+ * same 7%/11%/12% ink tints — so it sits in the toolbar as a peer of the
+ * controls it replaces instead of announcing itself as new furniture.
+ *
+ * The panel is portalled to <body> on position:fixed. It has to be: the
+ * composer shell clips to its rounded corners, so anything the tools slot
+ * opens upward would be cut off at the composer's edge.
+ */
+
+/* ── Resting chip ─────────────────────────────────────────────────────────── */
+
+.s-rt-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  max-width: min(240px, 46vw);
+  padding: 0 7px 0 9px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.s-rt-chip:hover {
+  background: color-mix(in srgb, var(--ink) 11%, transparent);
+}
+
+.s-rt-chip[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ink) 13%, transparent);
+}
+
+.s-rt-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.s-rt-chip--disabled,
+.s-rt-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.s-rt-chip-mark {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.12s ease;
+}
+.s-rt-chip:hover .s-rt-chip-mark {
+  color: var(--ink);
+}
+
+/* Model and effort sit on a shared baseline, not a shared centre line: they
+ * are 11px mono against 9px caps, and centring their line boxes leaves the
+ * caps visibly floating. The mark and chevron stay centred — they're glyphs. */
+.s-rt-chip-type {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.s-rt-chip-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  line-height: 1;
+  transition: color 0.12s ease;
+}
+.s-rt-chip:hover .s-rt-chip-model {
+  color: var(--ink);
+}
+
+.s-rt-chip-divider {
+  align-self: center;
+  flex-shrink: 0;
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+/* Effort is ordinal, so the label carries a tone as well as a word — the level
+ * is meant to register without being read. */
+.s-rt-chip-effort {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.s-rt-chip-effort[data-effort="low"] { color: var(--dim); }
+.s-rt-chip-effort[data-effort="medium"] { color: var(--muted); }
+.s-rt-chip-effort[data-effort="high"] { color: var(--ink); }
+.s-rt-chip-effort[data-effort="xhigh"] { color: var(--accent); }
+
+.s-rt-chip-chevron {
+  flex-shrink: 0;
+  color: var(--dim);
+  opacity: 0.75;
+  transition: transform 0.18s cubic-bezier(0.16, 0.84, 0.44, 1), opacity 0.12s ease;
+}
+.s-rt-chip:hover .s-rt-chip-chevron { opacity: 1; }
+.s-rt-chip[aria-expanded="true"] .s-rt-chip-chevron { transform: rotate(180deg); }
+
+/* ── Panel ────────────────────────────────────────────────────────────────── */
+
+.s-rt-panel {
+  position: fixed;
+  z-index: 60;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  background: var(--surface);
+  box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.45);
+  transform-origin: bottom left;
+  animation: s-rt-in 170ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+.s-rt-panel[data-placement="down"] { transform-origin: top left; }
+
+@keyframes s-rt-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes s-rt-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.s-rt-band {
+  animation: s-rt-row-in 160ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+  padding: 10px 12px;
+}
+.s-rt-band + .s-rt-band { border-top: 1px solid var(--border); }
+
+.s-rt-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-rt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.s-rt-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.s-rt-opt:hover {
+  border-color: color-mix(in srgb, var(--ink) 26%, transparent);
+  color: var(--ink);
+}
+.s-rt-opt[aria-checked="true"],
+.s-rt-opt[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--ink);
+}
+.s-rt-opt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.s-rt-opt-mark { flex-shrink: 0; }
+
+/* ── Effort ladder ────────────────────────────────────────────────────────── */
+
+.s-rt-ladder {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.s-rt-step {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.s-rt-step:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 3px;
+}
+
+.s-rt-step-bar {
+  display: block;
+  height: 4px;
+  width: 100%;
+  border-radius: 999px;
+  transition: background 0.14s ease-out;
+}
+.s-rt-step-bar[data-state="filled"] { background: color-mix(in srgb, var(--ink) 42%, transparent); }
+.s-rt-step-bar[data-state="empty"] { background: color-mix(in srgb, var(--ink) 14%, transparent); }
+.s-rt-step:hover .s-rt-step-bar[data-state="empty"] { background: color-mix(in srgb, var(--ink) 26%, transparent); }
+.s-rt-step-bar[data-state="current"] { background: var(--accent); }
+
+.s-rt-step-label {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.s-rt-step[aria-checked="true"] .s-rt-step-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-rt-panel,
+  .s-rt-band {
+    animation-duration: 0.01ms;
+    animation-delay: 0ms !important;
+  }
+  .s-rt-chip-chevron,
+  .s-rt-step-bar,
+  .s-rt-opt {
+    transition-duration: 0.01ms;
+  }
+}

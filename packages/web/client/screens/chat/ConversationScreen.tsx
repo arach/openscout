@@ -941,6 +941,7 @@ export function ConversationScreen({
         agent: participantAgent,
         harness: participantAgent?.harness ?? meta?.harness ?? null,
         model: participantAgent?.model ?? null,
+        reasoningEffort: participantAgent?.reasoningEffort ?? null,
       } satisfies ConversationHeaderParticipant;
     });
   }, [agentId, participantMetaById, scopedAgents, sessionMeta]);

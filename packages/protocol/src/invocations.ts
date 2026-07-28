@@ -1,6 +1,7 @@
 import type { AgentHarness } from "./actors.js";
 import type { MetadataMap, ScoutId } from "./common.js";
 import type { ScoutPermissionProfile } from "./permission-policy.js";
+import type { ScoutExecutionResolution } from "./runtime-execution.js";
 
 export type InvocationAction =
   | "consult"
@@ -78,6 +79,7 @@ export interface InvocationRequest {
   messageId?: ScoutId;
   context?: MetadataMap;
   execution?: InvocationExecutionPreference;
+  executionResolution?: ScoutExecutionResolution;
   ensureAwake: boolean;
   stream: boolean;
   timeoutMs?: number;
@@ -113,6 +115,7 @@ export interface FlightSessionTraceEntry {
   harness?: AgentHarness;
   transport?: string;
   strategy?: string;
+  executionResolution?: ScoutExecutionResolution;
   startedAt: number;
   lastAcknowledgedAt: number;
   endedAt?: number;
@@ -125,6 +128,7 @@ export interface FlightDispatchAcknowledgement {
   harness?: AgentHarness | null;
   transport?: string | null;
   strategy?: string | null;
+  executionResolution?: ScoutExecutionResolution | null;
   acknowledgedAt?: number | null;
 }
 
@@ -146,6 +150,11 @@ function parseFlightSessionTraceEntry(value: unknown): FlightSessionTraceEntry |
   const lastAcknowledgedAt = cleanTraceTimestamp(record.lastAcknowledgedAt) ?? startedAt;
   if (!sessionId || startedAt === undefined || lastAcknowledgedAt === undefined) return null;
   const harness = cleanTraceString(record.harness);
+  const executionResolution = record.executionResolution
+    && typeof record.executionResolution === "object"
+    && !Array.isArray(record.executionResolution)
+    ? record.executionResolution as ScoutExecutionResolution
+    : undefined;
   return {
     sessionId,
     ...(cleanTraceString(record.endpointId) ? { endpointId: cleanTraceString(record.endpointId) } : {}),
@@ -153,6 +162,7 @@ function parseFlightSessionTraceEntry(value: unknown): FlightSessionTraceEntry |
     ...(harness ? { harness: harness as AgentHarness } : {}),
     ...(cleanTraceString(record.transport) ? { transport: cleanTraceString(record.transport) } : {}),
     ...(cleanTraceString(record.strategy) ? { strategy: cleanTraceString(record.strategy) } : {}),
+    ...(executionResolution ? { executionResolution } : {}),
     startedAt,
     lastAcknowledgedAt,
     ...(cleanTraceTimestamp(record.endedAt) !== undefined
@@ -168,6 +178,11 @@ function parseDispatchAcknowledgement(value: unknown): FlightDispatchAcknowledge
   const acknowledgedAt = cleanTraceTimestamp(record.acknowledgedAt);
   if (!sessionId || acknowledgedAt === undefined) return null;
   const harness = cleanTraceString(record.harness);
+  const executionResolution = record.executionResolution
+    && typeof record.executionResolution === "object"
+    && !Array.isArray(record.executionResolution)
+    ? record.executionResolution as ScoutExecutionResolution
+    : null;
   return {
     sessionId,
     endpointId: cleanTraceString(record.endpointId) ?? null,
@@ -175,6 +190,7 @@ function parseDispatchAcknowledgement(value: unknown): FlightDispatchAcknowledge
     harness: harness ? harness as AgentHarness : null,
     transport: cleanTraceString(record.transport) ?? null,
     strategy: cleanTraceString(record.strategy) ?? null,
+    executionResolution,
     acknowledgedAt,
   };
 }
@@ -237,6 +253,7 @@ export function recordFlightSessionDispatch(
     previous.harness = dispatchAck.harness ?? previous.harness;
     previous.transport = dispatchAck.transport ?? previous.transport;
     previous.nodeId = dispatchAck.nodeId ?? previous.nodeId;
+    previous.executionResolution = dispatchAck.executionResolution ?? previous.executionResolution;
     delete previous.endedAt;
   } else {
     if (previous && previous.endedAt === undefined) {
@@ -249,6 +266,7 @@ export function recordFlightSessionDispatch(
       ...(dispatchAck.harness ? { harness: dispatchAck.harness } : {}),
       ...(dispatchAck.transport ? { transport: dispatchAck.transport } : {}),
       ...(dispatchAck.strategy ? { strategy: dispatchAck.strategy } : {}),
+      ...(dispatchAck.executionResolution ? { executionResolution: dispatchAck.executionResolution } : {}),
       startedAt: dispatchAck.acknowledgedAt,
       lastAcknowledgedAt: dispatchAck.acknowledgedAt,
     });

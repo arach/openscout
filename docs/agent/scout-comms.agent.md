@@ -47,6 +47,7 @@ transcripts.
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | project/capability-routed ask | project known, concrete agent/session unknown | `scout ask --project --harness`, `ask({ projectPath, harness })` |
+| exact runtime ask | exact harness/model/effort required; creates an isolated session | `scout ask --project ../x --runtime codex/gpt-5.6-sol/xhigh`, or separate `--harness --model --effort` fields |
 | situated target follow-up | saved project/profile/harness situation | `scout ask --to target:<name>`, compact `⌖name` in agent/UI text |
 | exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `scout ask --to session:<harness>:<native-id>`, `ask({ targetSessionId })` |
 | reserved runtime profile | fresh current-project session with broker-owned harness/model defaults | `scout ask Fable to review this`, `scout ask --profile fable "review this"` |
@@ -142,7 +143,17 @@ handoff.
 - preserve `conversationId`, `messageId`, `replyToMessageId`, `flightId`
 - ambiguous target -> fail closed or ask one concise clarification
 - bare `Fable`, `Kimi`, `Grok`, and `Opus` in leading natural-target position -> structured `runtime_profile`, never `ask --to`
-- profile effort is supported for Fable/Opus; Kimi/Grok effort fails closed until their ACP transports expose it
+- RuntimeSpec is `<harness>[/<model>[/<effort>]]` and never an agent identity;
+  sparse tuples use separate fields
+- bare-token priority is profile id, then harness-only RuntimeSpec; model-family
+  words are never bare targets; reserved runtime words cannot be agent names
+- profiles are base presets; legal explicit dimensions override, contradictions
+  and illegal harness/model/effort tuples fail closed
+- exact runtime asks imply a fresh isolated session; exact session targeting
+  fails unless every requested dimension has matching observed evidence
+- use `scout runtimes --json` for the versioned capability matrix
+- verify the invocation `executionResolution` per dimension: requested,
+  resolved, source, observed, and drift
 - `agent <name> to <request>` -> slugify `<name>` and emit structured `existing_handle`; zero/multiple exact matches fail closed
 - direct `ask --to` always remains existing-target routing; explicit fresh profiles use `ask --profile`
 - follow-up stays in same conversation/thread/question/work item

@@ -50,6 +50,7 @@ import {
   getScoutMobileConversations,
   getScoutMobileConversationMessages,
   getScoutMobileHome,
+  getScoutMobileRuntimeCapabilities,
   getScoutMobileServiceBudgets,
   getScoutMobileSessions,
   getScoutMobileSessionSnapshot,
@@ -766,6 +767,10 @@ const sessionRouter = t.router({
 // -- Mobile -----------------------------------------------------------------
 
 const mobileRouter = t.router({
+  runtimeCapabilities: procedure
+    .input(z.object({ projectRoot: z.string().optional() }).optional())
+    .query(({ input }) => getScoutMobileRuntimeCapabilities(input?.projectRoot)),
+
   endpoints: protectedMobileProcedure
     .query(({ ctx }) => buildMobileEndpointManifest(ctx)),
 
@@ -981,6 +986,7 @@ const mobileRouter = t.router({
         profile: z.string().nullable().optional(),
         branch: z.string().optional(),
         model: z.string().optional(),
+        reasoningEffort: z.string().optional(),
         forceNew: z.boolean().optional(),
         seed: z
           .object({

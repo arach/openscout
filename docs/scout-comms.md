@@ -143,6 +143,7 @@ Examples:
 scout ask --to hudson "Review the auth module and report risks."
 scout ask --project ../talkie "Review the auth module and report risks."
 scout ask --project ../talkie --harness claude "Review the auth module and report risks."
+scout ask --project ../talkie --runtime codex/gpt-5.6-sol/xhigh "Review the auth module and report risks."
 ```
 
 MCP equivalent:
@@ -155,10 +156,18 @@ ask({
 
 ask({
   projectPath: "../talkie",
-  harness: "claude",
+  harness: "codex",
+  model: "gpt-5.6-sol",
+  reasoningEffort: "xhigh",
   body: "Review the auth module and report risks.",
 })
 ```
+
+Exact runtime selection uses the separate fixed-position RuntimeSpec production
+`<harness>[/<model>[/<effort>]]` or the equivalent explicit dimensions. It is
+not agent identity syntax. Profiles are base presets, and legal explicit
+dimensions override them. Exact runtime asks create isolated sessions; an
+exact session continuation fails unless its observed tuple matches.
 
 Expected client behavior:
 
@@ -178,6 +187,9 @@ Expected client behavior:
   the same conversation when it starts working
 - expect target-authored completion as a later message and flight completion
 - use `invocations_wait` / `invocations_get` for longer follow-up polling
+- inspect the invocation's `executionResolution` when exactness matters:
+  requested and resolved values describe the launch decision and its source;
+  observed values and drift are the harness-owned verification
 - show wake/session failures as lifecycle state, not as silent background limbo
 
 Client API shape:

@@ -104,7 +104,7 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
           )}
 
           {(agent.harness || agent.model) && (
-            <Field label="harness">
+            <Field label="runtime">
               <span className="agent-card-mono">
                 {agent.harness ?? "—"}
                 {agent.model && (
@@ -118,7 +118,7 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
           )}
 
           {agent.transport && (
-            <Field label="transport">
+            <Field label="launch transport">
               <span className="agent-card-mono">{agent.transport}</span>
             </Field>
           )}

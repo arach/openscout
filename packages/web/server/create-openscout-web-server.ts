@@ -16,6 +16,9 @@ import {
   isOpaqueChannelId,
   reconcileTerminalWorkspace,
   resolveAgentIdentity,
+  SCOUT_LAUNCHABLE_HARNESSES,
+  SCOUT_RUNTIME_EFFORT_CATALOG,
+  SCOUT_RUNTIME_MODEL_CATALOG,
   SCOUT_ROLE_CATALOG,
   type AgentEndpoint,
   type AgentHarness,
@@ -23,6 +26,7 @@ import {
   type CollaborationKind,
   type ConversationDefinition,
   type ConversationKind,
+  type ScoutRuntimeCapabilityCatalog,
   type TerminalWorkspaceRecord,
   type TerminalWorkspaceRecordInput,
   type TerminalWorkspaceResolution,
@@ -3097,6 +3101,7 @@ function buildAgentSessionCatalogPayload(input: {
   terminalSurface?: WebAgent["terminalSurface"];
   activeSessionId?: string | null;
   model?: string | null;
+  reasoningEffort?: string | null;
   startedAt?: number | null;
   endpoint?: AgentEndpoint | null;
   nativeTranscript?: DiscoveredTranscript | null;
@@ -3166,6 +3171,7 @@ function buildAgentSessionCatalogPayload(input: {
           ...(input.harness ? { harness: input.harness } : {}),
           ...(input.transport ? { transport: input.transport } : {}),
           ...(input.model ? { model: input.model } : {}),
+          ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
           ...(provider ? { provider } : {}),
           ...(sessionHistoryPath ? { historyPath: sessionHistoryPath } : {}),
           ...(terminalSurface?.sessionName && terminalSurface.sessionName !== sessionId
@@ -4043,84 +4049,6 @@ const HUD_PROJECT_MARKERS = [
   "go.mod",
 ] as const;
 
-const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
-  {
-    id: "claude-opus-5",
-    label: "Opus 5",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Opus",
-    version: "5",
-  },
-  {
-    id: "claude-sonnet-4-6",
-    label: "Sonnet 4.6",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Sonnet",
-    version: "4.6",
-  },
-  {
-    id: "claude-haiku-4-5",
-    label: "Haiku 4.5",
-    harnesses: ["claude"],
-    source: "default",
-    family: "Haiku",
-    version: "4.5",
-  },
-  {
-    id: "gpt-5.6-sol",
-    label: "GPT-5.6 Sol",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Sol",
-  },
-  {
-    id: "gpt-5.6-terra",
-    label: "GPT-5.6 Terra",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Terra",
-  },
-  {
-    id: "gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.6 Luna",
-  },
-  {
-    id: "gpt-5.5",
-    label: "GPT-5.5",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.5",
-  },
-  {
-    id: "gpt-5.5-mini",
-    label: "GPT-5.5 mini",
-    harnesses: ["codex"],
-    source: "default",
-    family: "GPT",
-    version: "5.5 mini",
-  },
-];
-
-const HUD_RUNNER_EFFORT_OPTIONS: HudRunnerEffortOption[] = [
-  { id: "none", label: "None", description: "No extra thinking", harnesses: ["codex"] },
-  { id: "minimal", label: "Minimal", description: "Smallest reasoning budget", harnesses: ["codex"] },
-  { id: "low", label: "Low", description: "Quick pass", harnesses: ["claude", "codex"] },
-  { id: "medium", label: "Medium", description: "Balanced default", harnesses: ["claude", "codex"] },
-  { id: "high", label: "High", description: "Deeper pass", harnesses: ["claude", "codex"] },
-  { id: "xhigh", label: "XHigh", description: "Highest supported", harnesses: ["claude", "codex"] },
-  { id: "max", label: "Max", description: "Maximum reasoning depth", harnesses: ["claude", "codex"] },
-  { id: "ultra", label: "Ultra", description: "Maximum with delegation", harnesses: ["codex"] },
-];
-
 function isRetiredHudRunnerModel(model: string, harness: string): boolean {
   const normalized = model.trim().toLowerCase();
   return harness === "codex"
@@ -4128,7 +4056,7 @@ function isRetiredHudRunnerModel(model: string, harness: string): boolean {
 }
 
 function hudRunnerModels(agents: WebAgent[]): HudRunnerModelOption[] {
-  const models = HUD_RUNNER_MODEL_OPTIONS.map((model) => ({
+  const models = SCOUT_RUNTIME_MODEL_CATALOG.map((model) => ({
     ...model,
     harnesses: [...model.harnesses],
   }));
@@ -4201,7 +4129,13 @@ function dedupeHudRunnerProjects(projects: HudRunnerProjectOption[]): HudRunnerP
   return result;
 }
 
-async function buildHudRunnerOptions(currentDirectory: string) {
+async function buildHudRunnerOptions(
+  currentDirectory: string,
+  input: {
+    scope?: ScoutRuntimeCapabilityCatalog["scope"];
+    projectRoot?: string;
+  } = {},
+) {
   // This endpoint sits on the global-hotkey path, so it deliberately avoids
   // the workspace scan performed by the full agent-configuration snapshot.
   const [settingsResult, catalogResult] = await Promise.allSettled([
@@ -4210,13 +4144,20 @@ async function buildHudRunnerOptions(currentDirectory: string) {
   ]);
   const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
   const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
-  const agents = queryAgents(50);
+  const allAgents = queryAgents(50);
+  const scope = input.scope ?? "global+project";
+  const scopedProjectRoot = normalizeHudRunnerRoot(input.projectRoot ?? currentDirectory);
+  const projectAgents = allAgents.filter((agent) => {
+    const root = agent.projectRoot ?? agent.cwd;
+    return Boolean(root) && normalizeHudRunnerRoot(root!) === scopedProjectRoot;
+  });
+  const observedAgents = scope === "global" ? [] : projectAgents;
   const defaultHarness = settings?.agents.defaultHarness ?? "claude";
 
   const harnessesById = new Map<string, HudRunnerHarnessOption>();
   for (const entry of catalog?.entries ?? []) {
     const id = String(entry.harness || entry.name || "").trim();
-    if (!id) continue;
+    if (!SCOUT_LAUNCHABLE_HARNESSES.includes(id as (typeof SCOUT_LAUNCHABLE_HARNESSES)[number])) continue;
     harnessesById.set(id, {
       id,
       name: entry.name,
@@ -4227,10 +4168,18 @@ async function buildHudRunnerOptions(currentDirectory: string) {
       detail: entry.readinessReport.detail,
     });
   }
-  for (const fallback of [
-    { id: "claude", label: "Claude Code" },
-    { id: "codex", label: "Codex" },
-  ]) {
+  const fallbackLabels: Record<string, string> = {
+    claude: "Claude Code",
+    codex: "Codex",
+    grok: "Grok",
+    "grok-acp": "Grok ACP",
+    kimi: "Kimi",
+    flue: "Flue",
+    cursor: "Cursor",
+    pi: "Pi",
+  };
+  for (const id of SCOUT_LAUNCHABLE_HARNESSES) {
+    const fallback = { id, label: fallbackLabels[id] ?? id };
     if (harnessesById.has(fallback.id)) continue;
     harnessesById.set(fallback.id, {
       id: fallback.id,
@@ -4243,7 +4192,7 @@ async function buildHudRunnerOptions(currentDirectory: string) {
     });
   }
 
-  const projectOptions: HudRunnerProjectOption[] = agents
+  const projectOptions: HudRunnerProjectOption[] = allAgents
     .map((agent) => agent.projectRoot ?? agent.cwd)
     .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
     .map((root) => {
@@ -4261,13 +4210,17 @@ async function buildHudRunnerOptions(currentDirectory: string) {
   if (currentProject) projectOptions.unshift(currentProject);
   const projects = dedupeHudRunnerProjects(projectOptions);
   const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
-  const models = hudRunnerModels(agents);
+  const models = hudRunnerModels(observedAgents);
   const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
     const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
     return rank(left.id) - rank(right.id) || left.label.localeCompare(right.label);
   });
 
   return {
+    schemaVersion: "openscout.runtime-capabilities.v1" as const,
+    generatedAt: Date.now(),
+    scope,
+    ...(scope !== "global" ? { projectRoot: scopedProjectRoot } : {}),
     defaults: {
       runner: "scout",
       directory: defaultDirectory,
@@ -4284,9 +4237,13 @@ async function buildHudRunnerOptions(currentDirectory: string) {
     }],
     harnesses,
     models,
-    efforts: HUD_RUNNER_EFFORT_OPTIONS,
+    efforts: SCOUT_RUNTIME_EFFORT_CATALOG.map((effort) => ({
+      ...effort,
+      harnesses: [...effort.harnesses],
+      ...(effort.models ? { models: [...effort.models] } : {}),
+    })),
     projects,
-    agents: agents.map((agent): HudRunnerAgentOption => ({
+    agents: (scope === "global" ? allAgents : projectAgents).map((agent): HudRunnerAgentOption => ({
       id: agent.id,
       name: agent.name,
       handle: agent.handle,
@@ -5128,9 +5085,18 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/runner/options", async (c) =>
-    c.json(await buildHudRunnerOptions(currentDirectory)),
-  );
+  app.get("/api/runner/options", async (c) => {
+    const requestedScope = c.req.query("scope");
+    const scope: ScoutRuntimeCapabilityCatalog["scope"] = requestedScope === "global"
+      || requestedScope === "project"
+      || requestedScope === "global+project"
+      ? requestedScope
+      : "global+project";
+    return c.json(await buildHudRunnerOptions(currentDirectory, {
+      scope,
+      projectRoot: c.req.query("projectRoot") || currentDirectory,
+    }));
+  });
   app.get("/api/agents", async (c) => {
     const requestedLimit = parseOptionalPositiveInt(c.req.query("limit"));
     const limit = Math.min(requestedLimit ?? 100, 100);
@@ -5706,6 +5672,7 @@ export async function createOpenScoutWebServer(
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const observePayload = await loadAgentObservePayload(agentId).catch(() => null);
     const observedModel = observePayload?.data.metadata?.session?.model?.trim() || null;
+    const observedEffort = observePayload?.data.metadata?.session?.effort?.trim() || null;
     const broker = await loadScoutBrokerContext().catch(() => null);
     const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
       harness: agent.harness,
@@ -5731,6 +5698,7 @@ export async function createOpenScoutWebServer(
         terminalSurface: agent.terminalSurface,
         activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
         model: observedModel ?? agent.model,
+        reasoningEffort: observedEffort ?? agent.reasoningEffort,
         startedAt: agent.createdAt ?? agent.updatedAt,
         endpoint,
         nativeTranscript,

@@ -5,10 +5,9 @@ import {
   constructAgentIdentity,
   diagnoseAgentIdentity,
   formatMinimalAgentIdentity,
-  OPENSCOUT_COORDINATOR_AGENT_ID,
+  isScoutReservedAgentName,
   parseAgentIdentity,
   parseScoutComposerRouteTarget,
-  SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
   type AgentHarness,
@@ -175,8 +174,7 @@ function sessionActorHandleAliases(
 }
 
 function isReservedProductIdentity(definitionId: string): boolean {
-  return definitionId === SCOUT_DISPATCHER_AGENT_ID
-    || definitionId === OPENSCOUT_COORDINATOR_AGENT_ID;
+  return isScoutReservedAgentName(definitionId);
 }
 
 function isBareReservedProductIdentity(identity: AgentIdentity): boolean {

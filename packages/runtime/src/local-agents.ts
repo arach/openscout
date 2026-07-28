@@ -17,7 +17,14 @@ import type {
   ScoutPermissionProfile,
   ScoutReplyContext,
 } from "@openscout/protocol";
-import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
+import {
+  BUILT_IN_AGENT_DEFINITION_IDS,
+  assertScoutAgentNameForWrite,
+  epochMs,
+  isScoutReservedAgentName,
+  normalizeAgentSelectorSegment,
+  SCOUT_LAUNCHABLE_HARNESSES,
+} from "@openscout/protocol";
 
 import { DispatchStalledError } from "./dispatch-stalled.js";
 import {
@@ -468,12 +475,7 @@ function titleCaseLocalAgentName(value: string): string {
 }
 
 export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi", "cursor"];
-export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
-  ...SUPPORTED_LOCAL_AGENT_HARNESSES,
-  "grok-acp",
-  "kimi",
-  "flue",
-];
+export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [...SCOUT_LAUNCHABLE_HARNESSES];
 
 type LocalAgentSystemPromptTemplateContext = {
   agentId: string;
@@ -4395,7 +4397,7 @@ export async function resolveLocalAgentIdentity(input: StartLocalAgentInput): Pr
   const projectPath = normalizeProjectPath(input.projectPath);
   const preferredHarness = input.harness ? normalizeLocalAgentHarness(input.harness) : undefined;
   const requestedDefinitionId = input.agentName?.trim()
-    ? normalizeAgentSelectorSegment(input.agentName.trim())
+    ? assertScoutAgentNameForWrite(input.agentName.trim())
     : "";
 
   if (input.agentName?.trim() && !requestedDefinitionId) {
@@ -4467,9 +4469,12 @@ export async function resolveLocalAgentIdentity(input: StartLocalAgentInput): Pr
   }
 
   const configDefinitionId = config?.agent?.id?.trim()
-    ? normalizeAgentSelectorSegment(config.agent.id.trim())
+    ? assertScoutAgentNameForWrite(config.agent.id.trim())
     : "";
-  const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+  const inferredDefinitionId = normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+  const definitionId = requestedDefinitionId
+    || configDefinitionId
+    || (isScoutReservedAgentName(inferredDefinitionId) ? `${inferredDefinitionId}-agent` : inferredDefinitionId);
   const configDisplayName = config?.agent?.displayName?.trim() || "";
   const displayName = input.displayName || configDisplayName || titleCaseLocalAgentName(definitionId);
   const instance = buildRelayAgentInstance(definitionId, projectRoot);
@@ -4498,7 +4503,7 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
   const requestedPermissionProfile = parseScoutPermissionProfile(input.permissionProfile);
   const cardLifecycle = normalizeLocalAgentCardLifecycle(input.card);
   const requestedDefinitionId = input.agentName?.trim()
-    ? normalizeAgentSelectorSegment(input.agentName.trim())
+    ? assertScoutAgentNameForWrite(input.agentName.trim())
     : "";
 
   if (input.agentName?.trim() && !requestedDefinitionId) {
@@ -4565,9 +4570,12 @@ export async function startLocalAgent(input: StartLocalAgentInput): Promise<Scou
     // Dynamic agent creation: build an override from workspace defaults.
     // Use project config's agent.id as a fallback for the definition ID.
     const configDefinitionId = coldProjectConfig?.agent?.id?.trim()
-      ? normalizeAgentSelectorSegment(coldProjectConfig.agent.id.trim())
+      ? assertScoutAgentNameForWrite(coldProjectConfig.agent.id.trim())
       : "";
-    const definitionId = requestedDefinitionId || configDefinitionId || normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+    const inferredDefinitionId = normalizeAgentSelectorSegment(basename(projectRoot)) || "agent";
+    const definitionId = requestedDefinitionId
+      || configDefinitionId
+      || (isScoutReservedAgentName(inferredDefinitionId) ? `${inferredDefinitionId}-agent` : inferredDefinitionId);
     const configDisplayName = coldProjectConfig?.agent?.displayName?.trim() || "";
     const operatorAugmentDefaults = operatorAugmentDefaultsForDefinitionId(definitionId);
     const effectiveDisplayName = input.displayName
@@ -5268,6 +5276,31 @@ type LocalAgentInvocationResult = {
   metadata?: Record<string, unknown>;
 };
 
+async function observedRuntimeMetadataAfterInvocation(
+  endpoint: AgentEndpoint,
+): Promise<Record<string, unknown>> {
+  try {
+    const snapshot = await getLocalAgentEndpointSessionSnapshot(endpoint);
+    if (!snapshot) {
+      return {};
+    }
+    const model = snapshot.session.model?.trim();
+    const reasoningEffort = snapshot.session.reasoningEffort?.trim();
+    return {
+      observedRuntime: {
+        harness: endpoint.harness,
+        ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+      },
+      observedRuntimeAt: Date.now(),
+    };
+  } catch {
+    // Observation is evidence, not a reason to turn a successful invocation
+    // into a failure. The resolution record remains explicitly unknown.
+    return {};
+  }
+}
+
 export async function invokeLocalAgentEndpoint(
   endpoint: AgentEndpoint,
   invocation: InvocationRequest,
@@ -5277,7 +5310,12 @@ export async function invokeLocalAgentEndpoint(
   const prompt = endpointInvocationPrompt(endpoint, definitionId, invocation);
   const replyContext = buildScoutReplyContext(agentRuntimeId, invocation);
   const registry = await readLocalAgentRegistry();
-  const existing = registry[agentRuntimeId];
+  // Exact per-invocation runtime overrides attach a session endpoint to the
+  // durable agent id. They must execute from the endpoint's isolated launch
+  // metadata, never fall back to (or mutate) the durable registry record.
+  const existing = endpoint.metadata?.isolatedExecution === true
+    ? undefined
+    : registry[agentRuntimeId];
   // invocation.timeoutMs is a caller wait budget. Local harness execution keeps
   // tracking until the agent produces a terminal result or broker-visible reply.
 
@@ -5295,6 +5333,7 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.threadId,
+      metadata: await observedRuntimeMetadataAfterInvocation(endpoint),
     };
   }
 
@@ -5308,6 +5347,7 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.sessionId,
+      metadata: await observedRuntimeMetadataAfterInvocation(endpoint),
     };
   }
 
@@ -5321,7 +5361,10 @@ export async function invokeLocalAgentEndpoint(
     return {
       output: result.output,
       externalSessionId: result.sessionId,
-      metadata: result.metadata,
+      metadata: {
+        ...(result.metadata ?? {}),
+        ...await observedRuntimeMetadataAfterInvocation(endpoint),
+      },
     };
   }
 

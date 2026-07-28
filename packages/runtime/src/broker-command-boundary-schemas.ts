@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import {
+  AGENT_HARNESSES,
   SCOUT_PERMISSION_PROFILES,
+  SCOUT_REASONING_EFFORTS,
+  validateScoutRuntimeTuple,
   validateInvocationExecutionPreference,
-  type AgentHarness,
   type InvocationRequest,
   type ScoutDeliverRequest,
   type ScoutOperatorSignal,
@@ -11,21 +13,6 @@ import {
 } from "@openscout/protocol";
 
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
-
-const AGENT_HARNESSES = [
-  "codex",
-  "claude",
-  "grok",
-  "grok-acp",
-  "kimi",
-  "flue",
-  "cursor",
-  "native",
-  "worker",
-  "bridge",
-  "http",
-  "pi",
-] as const satisfies readonly AgentHarness[];
 
 const INVOCATION_ACTIONS = [
   "consult",
@@ -86,7 +73,7 @@ const scoutRouteTargetSchema: z.ZodType<ScoutRouteTarget> = z.discriminatedUnion
     kind: z.literal("runtime_profile"),
     profile: nonEmptyString,
     projectPath: nonEmptyString,
-    reasoningEffort: optionalNonEmptyString,
+    reasoningEffort: z.enum(SCOUT_REASONING_EFFORTS).optional(),
     ...routeTargetValueSchema,
   }).passthrough(),
   z.object({
@@ -150,6 +137,7 @@ const invocationSessionLineageSchema = z.object({
 const invocationExecutionPreferenceSchema = z.object({
   harness: z.enum(AGENT_HARNESSES).optional(),
   model: optionalNonEmptyString,
+  reasoningEffort: z.enum(SCOUT_REASONING_EFFORTS).optional(),
   permissionProfile: z.enum(SCOUT_PERMISSION_PROFILES).optional(),
   session: z.enum(INVOCATION_SESSION_POLICIES).optional(),
   targetSessionId: optionalNonEmptyString,
@@ -160,6 +148,13 @@ const invocationExecutionPreferenceSchema = z.object({
 }).passthrough().superRefine((execution, ctx) => {
   for (const message of validateInvocationExecutionPreference(execution)) {
     ctx.addIssue({ code: "custom", message });
+  }
+  for (const issue of validateScoutRuntimeTuple(execution)) {
+    ctx.addIssue({
+      code: "custom",
+      path: [issue.dimension],
+      message: issue.message,
+    });
   }
 });
 

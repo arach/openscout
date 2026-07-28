@@ -872,6 +872,9 @@ export function buildCodexRolloutSessionSnapshot(
       const runtime = ensureCodexProviderMetaRecord(snapshot, "observeRuntime");
       setObserveString(runtime, "approvalPolicy", payload.approval_policy);
       setObserveString(runtime, "effort", payload.effort);
+      if (typeof payload.effort === "string" && payload.effort.trim()) {
+        snapshot.session.reasoningEffort = payload.effort.trim();
+      }
       setObserveString(runtime, "timezone", payload.timezone);
       const sandboxPolicy = metadataRecord(payload, "sandbox_policy");
       setObserveString(runtime, "sandbox", sandboxPolicy?.type);

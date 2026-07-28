@@ -91,12 +91,14 @@ public struct HudRunnerEffortOption: Decodable, Identifiable {
     public let label: String
     public let description: String?
     public let harnesses: [String]
+    public let models: [String]?
 
-    public init(id: String, label: String, description: String?, harnesses: [String]) {
+    public init(id: String, label: String, description: String?, harnesses: [String], models: [String]? = nil) {
         self.id = id
         self.label = label
         self.description = description
         self.harnesses = harnesses
+        self.models = models
     }
 }
 

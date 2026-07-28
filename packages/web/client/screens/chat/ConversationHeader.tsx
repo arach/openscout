@@ -15,10 +15,12 @@ export type ConversationHeaderParticipant = {
   name: string;
   title: string;
   agent: Agent | null;
-  /** Harness/runtime for the agent, used as a model fallback label. */
+  /** Harness/runtime for the agent. Never substituted for an unknown model. */
   harness?: string | null;
   /** Model identifier shown beneath the agent name when known. */
   model?: string | null;
+  /** Harness-observed reasoning effort when known. */
+  reasoningEffort?: string | null;
 };
 
 /** The operator's standing in the conversation, rendered distinctly from agents. */
@@ -116,9 +118,10 @@ export function ConversationHeader({
         {visibleParticipants.length > 0 && (
           <div className="s-thread-participants" aria-label="Conversation participants">
             {visibleParticipants.map((participant) => {
-              const modelLabel = participant.model ?? participant.harness ?? null;
-              const pillTitle = modelLabel
-                ? `${participant.name} · ${modelLabel}`
+              const modelLabel = participant.model ?? (participant.harness ? "model unknown" : null);
+              const runtimeLabel = [modelLabel, participant.reasoningEffort].filter(Boolean).join(" · ") || null;
+              const pillTitle = runtimeLabel
+                ? `${participant.name} · ${runtimeLabel}`
                 : participant.title;
               const content = (
                 <>
@@ -133,9 +136,9 @@ export function ConversationHeader({
                     <span className="s-thread-participant-name">
                       {participant.name}
                     </span>
-                    {modelLabel && (
-                      <span className="s-thread-participant-model" title={modelLabel}>
-                        {modelLabel}
+                    {runtimeLabel && (
+                      <span className="s-thread-participant-model" title={runtimeLabel}>
+                        {runtimeLabel}
                       </span>
                     )}
                   </span>
@@ -148,7 +151,7 @@ export function ConversationHeader({
                     type="button"
                     className="s-thread-participant-pill s-thread-participant-pill--button"
                     title={`Open ${participant.name} profile${
-                      modelLabel ? ` · ${modelLabel}` : ""
+                      runtimeLabel ? ` · ${runtimeLabel}` : ""
                     }`}
                     onClick={() =>
                       openContent(

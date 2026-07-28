@@ -72,6 +72,34 @@ function writeProjectManifest(projectRoot: string, config: OpenScoutProjectConfi
 }
 
 describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
+  test("suffixes inferred reserved project names and rejects stored offenders", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const dev = join(home, "dev");
+    const inferred = join(dev, "codex");
+    const stored = join(dev, "stored");
+    mkdirSync(join(inferred, ".git"), { recursive: true });
+    writeFileSync(join(inferred, "AGENTS.md"), "# codex\n", "utf8");
+    mkdirSync(join(stored, ".git"), { recursive: true });
+    writeProjectManifest(stored, {
+      version: 1,
+      project: { id: "stored", name: "Stored" },
+      agent: {
+        id: "codex",
+        displayName: "Legacy Codex",
+        runtime: { defaultHarness: "codex" },
+      },
+    });
+    await writeOpenScoutSettings({
+      discovery: { workspaceRoots: [dev], includeCurrentRepo: false },
+    });
+
+    await expect(loadResolvedRelayAgents()).rejects.toThrow("reserved_name_existing");
+
+    rmSync(stored, { recursive: true, force: true });
+    const setup = await loadResolvedRelayAgents();
+    expect(setup.discoveredAgents[0]?.definitionId).toBe("codex-agent");
+  });
+
   test("discovers sibling repos: git boundaries, grouped markdown project, mono root and nested package", async () => {
     const home = useIsolatedOpenScoutHome();
     const dev = join(home, "dev");

@@ -893,7 +893,6 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
   if (externalCardIdentity) {
     push("Protocol", protocol);
   } else {
-    push("Transport", agent.transport);
     push("Role", formatLabel(agent.role));
     push("Class", agent.agentClass);
   }
@@ -1230,7 +1229,7 @@ function ObserveStats({
 
       <Section label="Trace stats">
         <div className="grid grid-cols-2 gap-1.5">
-          <TraceMetric label="Turns" value={fmtCompactNumber(sessionMeta?.turnCount ?? 0)} />
+          <TraceMetric label="Turns" value={fmtCompactNumber(sessionMeta?.turnCount)} />
           <TraceMetric label="Tools" value={fmtCompactNumber(toolCount)} />
           <TraceMetric label="Thinks" value={fmtCompactNumber(thinkCount)} />
           <TraceMetric label="Requests" value={fmtCompactNumber(askCount)} />

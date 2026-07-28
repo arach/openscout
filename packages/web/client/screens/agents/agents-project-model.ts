@@ -28,20 +28,6 @@ export function isEphemeralAgent(name: string): boolean {
   );
 }
 
-function mostCommon(values: string[]): string {
-  const counts = new Map<string, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  let best = values[0] ?? "agent";
-  let max = 0;
-  for (const [value, n] of counts) {
-    if (n > max) {
-      max = n;
-      best = value;
-    }
-  }
-  return best;
-}
-
 export type ProjectAgentGroup = {
   name: string;
   harness: string;
@@ -74,10 +60,12 @@ export function groupsForProject(project: DirProject): ProjectAgentGroup[] {
     const branches = [
       ...new Set(nodes.map((node) => node.row.branch).filter((branch) => branch && branch !== "—")),
     ];
+    const harnesses = [...new Set(nodes.map((node) => node.row.harness).filter(Boolean))];
+    const models = [...new Set(nodes.map((node) => node.row.agent.model).filter((model): model is string => Boolean(model)))];
     groups.push({
       name,
-      harness: mostCommon(nodes.map((node) => node.row.harness)),
-      model: nodes.map((node) => node.row.agent.model ?? null).find(Boolean) ?? null,
+      harness: harnesses.length === 1 ? harnesses[0]! : "mixed",
+      model: harnesses.length === 1 && models.length === 1 ? models[0]! : null,
       nodes: [...nodes].sort(
         (a, b) => (b.row.lastActivityAt ?? 0) - (a.row.lastActivityAt ?? 0),
       ),

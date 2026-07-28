@@ -41,6 +41,19 @@ describe("buildScoutAskRoute", () => {
     });
   });
 
+  test("uses an explicit project to narrow a runtime-profile launch", () => {
+    expect(buildScoutAskRoute({
+      to: "",
+      runtimeProfile: "fable",
+      projectPath: "../talkie",
+      currentDirectory: "/tmp/openscout",
+    })).toEqual({
+      kind: "runtime_profile",
+      profile: "fable",
+      projectPath: "/tmp/talkie",
+    });
+  });
+
   test("builds a distinct exact existing-handle route", () => {
     expect(buildScoutAskRoute({
       to: "",

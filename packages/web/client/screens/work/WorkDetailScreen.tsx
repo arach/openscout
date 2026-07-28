@@ -199,7 +199,13 @@ function workAskStatusText(detail: WorkDetail): string {
     ask ? `Source: ${askSourceLabel(ask.source)}` : null,
     ask?.targetAgentName || ask?.targetAgentId ? `Resolved agent: ${ask.targetAgentName ?? ask.targetAgentId}` : null,
     ask?.requestedHarness ? `Requested harness: ${ask.requestedHarness}` : null,
+    ask?.requestedModel ? `Requested model: ${ask.requestedModel}` : null,
+    ask?.requestedReasoningEffort ? `Requested effort: ${ask.requestedReasoningEffort}` : null,
     ask?.resolvedHarness ? `Resolved harness: ${ask.resolvedHarness}` : null,
+    ask?.resolvedModel ? `Resolved model: ${ask.resolvedModel}` : null,
+    ask?.resolvedReasoningEffort ? `Resolved effort: ${ask.resolvedReasoningEffort}` : null,
+    ask?.observedModel ? `Observed model: ${ask.observedModel}` : null,
+    ask?.observedReasoningEffort ? `Observed effort: ${ask.observedReasoningEffort}` : null,
     ask?.resolvedSessionId ? `Session: ${ask.resolvedSessionId}` : null,
     ask?.flightId ? `Flight: ${ask.flightId}` : null,
     ask?.invocationId ? `Invocation: ${ask.invocationId}` : null,
@@ -282,8 +288,14 @@ function WorkAskOverview({
         </div>
         <dl className="s-work-ask-facts">
           <div><dt>Requested harness</dt><dd>{ask?.requestedHarness ?? "default"}</dd></div>
+          <div><dt>Requested model</dt><dd>{ask?.requestedModel ?? "default"}</dd></div>
+          <div><dt>Requested effort</dt><dd>{ask?.requestedReasoningEffort ?? "default"}</dd></div>
           <div><dt>Resolved agent</dt><dd>{resolvedAgent}</dd></div>
           <div><dt>Resolved harness</dt><dd>{ask?.resolvedHarness ?? "—"}</dd></div>
+          <div><dt>Resolved model</dt><dd>{ask?.resolvedModel ?? "—"}</dd></div>
+          <div><dt>Resolved effort</dt><dd>{ask?.resolvedReasoningEffort ?? "—"}</dd></div>
+          <div><dt>Observed model</dt><dd>{ask?.observedModel ?? "—"}</dd></div>
+          <div><dt>Observed effort</dt><dd>{ask?.observedReasoningEffort ?? "—"}</dd></div>
           <div><dt>Session</dt><dd>{ask?.resolvedSessionId ?? ask?.targetSessionId ?? "—"}</dd></div>
           <div><dt>Flight</dt><dd>{ask?.flightId ?? "—"}</dd></div>
           <div><dt>Invocation</dt><dd>{ask?.invocationId ?? "—"}</dd></div>

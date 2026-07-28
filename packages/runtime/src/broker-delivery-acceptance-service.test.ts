@@ -609,7 +609,7 @@ describe("BrokerDeliveryAcceptanceService", () => {
       projectPath: "/tmp/openscout",
       execution: {
         harness: "claude",
-        model: "opus",
+        model: "claude-opus-5",
         reasoningEffort: "high",
         session: "new",
       },
@@ -619,11 +619,55 @@ describe("BrokerDeliveryAcceptanceService", () => {
     }]);
     expect(harness.acceptedInvocations[0]?.execution).toEqual({
       harness: "claude",
-      model: "opus",
+      model: "claude-opus-5",
       reasoningEffort: "high",
       session: "existing",
       targetSessionId: "session-cardless",
     });
+    expect(harness.acceptedInvocations[0]?.executionResolution).toEqual(expect.objectContaining({
+      schemaVersion: "openscout.execution-resolution.v1",
+      harness: expect.objectContaining({ resolved: "claude", source: "profile", drift: "unknown" }),
+      model: expect.objectContaining({ resolved: "claude-opus-5", source: "profile", drift: "unknown" }),
+      reasoningEffort: expect.objectContaining({ resolved: "high", source: "profile", drift: "unknown" }),
+    }));
+  });
+
+  test("normalizes exact models, preserves literal provenance, and rejects unsupported dimensions", async () => {
+    const harness = createHarness({ now: 20_800 });
+    const result = await harness.service.accept({
+      id: "deliver-exact-runtime",
+      body: "review",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      execution: { harness: "codex", model: "5.6", reasoningEffort: "xhigh" },
+      executionSource: { harness: "literal", model: "literal", reasoningEffort: "literal" },
+    });
+    expect(harness.acceptedInvocations[0]?.execution).toEqual(expect.objectContaining({
+      harness: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "xhigh",
+    }));
+    expect(harness.acceptedInvocations[0]?.executionResolution?.model).toEqual(expect.objectContaining({
+      requested: "5.6",
+      resolved: "gpt-5.6-sol",
+      source: "literal",
+    }));
+    expect(result.kind === "delivery" ? result.receipt.executionResolution?.model : undefined)
+      .toEqual(expect.objectContaining({
+        requested: "5.6",
+        resolved: "gpt-5.6-sol",
+        source: "literal",
+      }));
+
+    await expect(harness.service.accept({
+      id: "deliver-unsupported-model",
+      body: "review",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      execution: { harness: "kimi", model: "some-model" },
+    })).rejects.toThrow("unsupported_model_dimension");
   });
 
   test("invalid runtime profiles fail closed before cardless session creation", async () => {
