@@ -154,10 +154,26 @@ describe("terminalSurfaceIdForSurface", () => {
     expect(terminalSurfaceMatchesId(here, here.surfaceId)).toBe(true);
     expect(terminalSurfaceMatchesId(here, there)).toBe(false);
 
-    // Silent when either side does not carry a node: a legacy key names none,
-    // and a surface written before node ids existed carries none, and both must
-    // keep matching.
+    // A legacy key names no node, so it still reaches a node-scoped surface.
     expect(terminalSurfaceMatchesId(here, `tmux:${surface.sessionName}`)).toBe(true);
-    expect(terminalSurfaceMatchesId(surface, there)).toBe(true);
+  });
+
+  test("only the local node's handle matches a node-less observation", () => {
+    // A surface with no node in its id was observed HERE — that is what local
+    // discovery mints. Letting every node-scoped handle match it meant handles
+    // for two different machines both bound to one local session, and both
+    // workspaces called it live.
+    const handleFor = (nodeId: string) => formatTerminalSurfaceId({
+      backend: "tmux",
+      hostSession: surface.sessionName,
+      nodeId,
+    });
+
+    expect(terminalSurfaceMatchesId(surface, handleFor("node-a"), { localNodeId: "node-a" })).toBe(true);
+    expect(terminalSurfaceMatchesId(surface, handleFor("node-b"), { localNodeId: "node-a" })).toBe(false);
+    // Nothing proves the handle is local, so nothing claims the session.
+    expect(terminalSurfaceMatchesId(surface, handleFor("node-a"))).toBe(false);
+    // A handle that names no node is not node-scoped and is unaffected.
+    expect(terminalSurfaceMatchesId(surface, `tmux:${surface.sessionName}`)).toBe(true);
   });
 });

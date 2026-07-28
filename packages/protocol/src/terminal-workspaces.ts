@@ -24,8 +24,13 @@
  * cruder form.
  */
 
-import { terminalSurfaceMatchesId } from "./terminal-sessions.js";
+import {
+  terminalSurfaceMatchesId,
+  terminalSurfaceNodeId,
+  terminalSurfaceNodeScopeMatches,
+} from "./terminal-sessions.js";
 import type { TerminalSessionRecord, TerminalSurface } from "./terminal-sessions.js";
+import { parseTerminalSurfaceId } from "./terminal-surface-id.js";
 import type { TerminalHostId, TerminalSurfaceId } from "./terminal-surface-id.js";
 
 /**
@@ -259,6 +264,13 @@ export function reconcileTerminalWorkspace(
     hosts: readonly TerminalWorkspaceHostState[];
     /** Host used when a cell's intent names none. */
     defaultHostId?: TerminalHostId | null;
+    /**
+     * This host's own Scout node id. The observations passed in were made HERE,
+     * so this is the node whose cells they can prove live; a cell scoped to any
+     * other node is not answered by them. Absent means the caller cannot say,
+     * and then no node-scoped cell is claimed by a node-less observation.
+     */
+    localNodeId?: string | null;
   },
 ): TerminalWorkspaceResolution {
   const cells = workspace.cells.map((cell) => resolveTerminalWorkspaceCell(cell, input));
@@ -277,9 +289,10 @@ function resolveTerminalWorkspaceCell(
     sessions: readonly TerminalSessionRecord[];
     hosts: readonly TerminalWorkspaceHostState[];
     defaultHostId?: TerminalHostId | null;
+    localNodeId?: string | null;
   },
 ): TerminalWorkspaceCellResolution {
-  const live = findLiveSurface(cell, input.sessions);
+  const live = findLiveSurface(cell, input.sessions, input.localNodeId?.trim() || null);
   if (live) {
     return {
       cellId: cell.id,
@@ -378,33 +391,57 @@ function isHostObservedRecord(session: TerminalSessionRecord): boolean {
  * preferred as the cell's record: it carries the harness and resume command a
  * discovered record cannot know. The SURFACE always comes from the observation,
  * because that is the one with the current state.
+ *
+ * The third rule is that a machine only speaks for itself. The name fallback is
+ * matched under the same node scoping as the handle, because otherwise it
+ * quietly reopened the hole the handle matcher closed: a cell scoped to `node-b`
+ * whose intent named `scout-tmux-cell-1` bound to THIS host's session of that
+ * name, so `node-a` and `node-b` both reported the one discovered session
+ * Running. One observed session never proves more than one node's workspace
+ * live.
  */
 function findLiveSurface(
   cell: TerminalWorkspaceCell,
   sessions: readonly TerminalSessionRecord[],
+  localNodeId: string | null,
 ): { session: TerminalSessionRecord; surface: TerminalSurface } | null {
   const observedSessions = sessions.filter(isHostObservedRecord);
   const handle = cell.surfaceId?.trim() || null;
   const sessionName = cell.intent.sessionName?.trim() || null;
   const hostId = cell.intent.hostId ?? null;
+  // The cell's node is whatever its durable handle names; a cell with only an
+  // intent names no machine and keeps matching wherever it lands.
+  const cellNodeId = parseTerminalSurfaceId(handle)?.nodeId ?? null;
 
   const matches = (surface: TerminalSurface): boolean => {
     if (surface.state !== "live") return false;
-    if (handle && terminalSurfaceMatchesId(surface, handle)) return true;
-    return Boolean(
-      sessionName
-        && surface.sessionName === sessionName
-        && (!hostId || surface.backend === hostId),
-    );
+    if (handle && terminalSurfaceMatchesId(surface, handle, { localNodeId })) return true;
+    if (!sessionName || surface.sessionName !== sessionName) return false;
+    if (hostId && surface.backend !== hostId) return false;
+    return terminalSurfaceNodeScopeMatches({
+      handleNodeId: cellNodeId,
+      surfaceNodeId: terminalSurfaceNodeId(surface),
+      localNodeId,
+    });
   };
 
   for (const session of observedSessions) {
     const surface = session.surfaces.find(matches);
     if (!surface) continue;
+    // Under the same node rule: a registry record from another machine that
+    // happens to hold this session name is not the identity of the session
+    // observed here, and lending it would put a foreign record id on a local
+    // surface.
     const registryRecord = sessions.find((candidate) =>
       !isHostObservedRecord(candidate)
       && candidate.surfaces.some((known) =>
-        known.backend === surface.backend && known.sessionName === surface.sessionName
+        known.backend === surface.backend
+        && known.sessionName === surface.sessionName
+        && terminalSurfaceNodeScopeMatches({
+          handleNodeId: terminalSurfaceNodeId(known),
+          surfaceNodeId: terminalSurfaceNodeId(surface),
+          localNodeId,
+        })
       )
     );
     return { session: registryRecord ?? session, surface };

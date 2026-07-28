@@ -1201,15 +1201,25 @@ function firstMetadataString(...values: Array<unknown>): string | null {
  * Both inputs are gathered once and shared across every workspace: probing the
  * hosts per workspace would multiply shell-outs by the size of the library for
  * an answer that is identical each time.
+ *
+ * The node id goes in with them because the sessions are THIS machine's
+ * observations: a session discovered here carries no node in its handle, and
+ * only this node's cells may be proven live by it. Without the id a cell scoped
+ * to any node at all would bind to a same-named local session — which is how
+ * two machines' workspaces both reported one session Running. The broker
+ * context is cached, so this costs no extra round trip in practice, and a
+ * broker that is down means the id is unknown, which reconciliation reads as
+ * "cannot prove it" rather than "matches anything".
  */
 async function resolveTerminalWorkspaces(
   workspaces: readonly TerminalWorkspaceRecord[],
 ): Promise<TerminalWorkspaceResolution[]> {
   if (workspaces.length === 0) return [];
-  const [sessions, hosts, preferred] = await Promise.all([
+  const [sessions, hosts, preferred, broker] = await Promise.all([
     queryDiscoveredTerminalSessions({ limit: 500 }),
     describeTerminalHosts(),
     resolvePreferredTerminalHost(),
+    loadScoutBrokerContext().catch(() => null),
   ]);
   const registered = queryTerminalSessions({ limit: 500 });
   const hostStates = hosts.map((host) => ({
@@ -1221,6 +1231,7 @@ async function resolveTerminalWorkspaces(
     sessions: [...registered, ...sessions],
     hosts: hostStates,
     defaultHostId: preferred?.id ?? null,
+    localNodeId: broker?.node.id ?? null,
   }));
 }
 

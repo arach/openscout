@@ -154,6 +154,59 @@ describe("reconcileTerminalWorkspace", () => {
     expect(result.cells[0]?.terminalSessionId).toBe(`discovered.${live.surfaceId}`);
   });
 
+  test("one observed session does not prove two nodes' workspaces live", () => {
+    // Local discovery mints node-LESS handles, so the observation names no
+    // machine. A review reproduced both node-a's and node-b's cell binding to
+    // it — through the handle, which stayed silent when only one side carried a
+    // node, and through the session-name fallback, which never looked at nodes
+    // at all — so two machines' workspaces reported the same single tmux
+    // session Running.
+    const local = surface("tmux", "scout-tmux-cell-1");
+    expect(local.surfaceId).toBe(formatTerminalSurfaceId({ backend: "tmux", hostSession: "scout-tmux-cell-1" }));
+
+    const cellOn = (nodeId: string): TerminalWorkspaceCell => ({
+      id: "c1",
+      surfaceId: formatTerminalSurfaceId({
+        backend: "tmux",
+        hostSession: "scout-tmux-cell-1",
+        nodeId,
+      }),
+      intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1" },
+    });
+    const observedHere = { sessions: [observed([local])], hosts: HOSTS, localNodeId: "node-a" };
+
+    const here = reconcileTerminalWorkspace(workspace([cellOn("node-a")]), observedHere);
+    const there = reconcileTerminalWorkspace(workspace([cellOn("node-b")]), observedHere);
+
+    expect(here.liveCount).toBe(1);
+    expect(here.cells[0]).toMatchObject({ status: "live", detail: "Running" });
+    expect(there.liveCount).toBe(0);
+    expect(there.cells[0]).toMatchObject({
+      status: "revivable",
+      detail: "Not running. Scout can start it again.",
+    });
+  });
+
+  test("a node-scoped cell is not claimed by a host that cannot say which node it is", () => {
+    // Reconciling without a local node id cannot prove the observation is this
+    // cell's machine, and an unprovable claim is not a claim.
+    const local = surface("tmux", "scout-tmux-cell-1");
+    const result = reconcileTerminalWorkspace(
+      workspace([{
+        id: "c1",
+        surfaceId: formatTerminalSurfaceId({
+          backend: "tmux",
+          hostSession: "scout-tmux-cell-1",
+          nodeId: "node-a",
+        }),
+        intent: { hostId: "tmux", sessionName: "scout-tmux-cell-1" },
+      }]),
+      { sessions: [observed([local])], hosts: HOSTS },
+    );
+    expect(result.liveCount).toBe(0);
+    expect(result.cells[0]?.status).toBe("revivable");
+  });
+
   test("does not bind a same-named surface on a different host", () => {
     const result = reconcileTerminalWorkspace(
       workspace([{ id: "c1", intent: { hostId: "tmux", sessionName: "shared-name" } }]),

@@ -120,10 +120,58 @@ export function terminalSurfaceIdForSurface(
   });
 }
 
+/** Where a match is being evaluated, for the parts of matching that are node-scoped. */
+export type TerminalSurfaceMatchScope = {
+  /**
+   * This host's own Scout node id, when the caller knows it. A surface observed
+   * with no node in its id was observed HERE, so this is the only node whose
+   * handles may claim it.
+   */
+  localNodeId?: string | null;
+};
+
+/**
+ * Whether a handle scoped to `handleNodeId` may address a surface scoped to
+ * `surfaceNodeId`.
+ *
+ * Three cases, and the third is the one a review reproduced:
+ *
+ * - Both sides name a node: they must name the same one. Without this a handle
+ *   for one node matched an identically named session on another.
+ * - The handle names none: it is a legacy key, which names no machine and must
+ *   keep matching whatever it finds.
+ * - The handle names a node and the OBSERVATION does not. A node-less
+ *   observation is by definition local — it is a session this host just listed
+ *   — so only the local node's handle can be the one it belongs to. Letting any
+ *   node-scoped handle match it meant handles for `node-a` and `node-b` both
+ *   bound to one discovered local session, and both workspaces reported it
+ *   Running: one session proving two machines live. A foreign handle never
+ *   matches, and when this host does not know its own node id it cannot prove
+ *   the handle is local either, so it does not claim it.
+ */
+export function terminalSurfaceNodeScopeMatches(input: {
+  handleNodeId: string | null;
+  surfaceNodeId: string | null;
+  localNodeId?: string | null;
+}): boolean {
+  if (input.handleNodeId === null) return true;
+  if (input.surfaceNodeId !== null) return input.handleNodeId === input.surfaceNodeId;
+  const localNodeId = input.localNodeId?.trim() || null;
+  return localNodeId !== null && input.handleNodeId === localNodeId;
+}
+
+/** The node a surface belongs to, which lives inside its own opaque id. */
+export function terminalSurfaceNodeId(
+  surface: Pick<TerminalSurface, "surfaceId">,
+): string | null {
+  return parseTerminalSurfaceId(surface.surfaceId)?.nodeId ?? null;
+}
+
 /** True when a handle addresses this surface, in either the opaque or legacy form. */
 export function terminalSurfaceMatchesId(
   surface: Pick<TerminalSurface, "surfaceId" | "backend" | "sessionName" | "paneId">,
   handle: string | null | undefined,
+  scope: TerminalSurfaceMatchScope = {},
 ): boolean {
   const address = parseTerminalSurfaceId(handle);
   if (!address) return false;
@@ -131,13 +179,9 @@ export function terminalSurfaceMatchesId(
   // A legacy key carries no pane, so it matches any pane on the session; an
   // opaque id that names a pane must match it exactly.
   if (address.paneId !== null && address.paneId !== (surface.paneId ?? null)) return false;
-  // Node scoping, when BOTH sides carry it. A surface's node lives inside its
-  // own opaque id, so this compares two node-scoped handles and stays silent
-  // otherwise: a legacy key names no node and must keep matching, and neither
-  // must a node-scoped handle stop matching a surface that predates node ids.
-  // Without this a handle for one node matched an identically named session on
-  // another, which is the same session name pointing at two different machines.
-  const surfaceNodeId = parseTerminalSurfaceId(surface.surfaceId)?.nodeId ?? null;
-  if (address.nodeId !== null && surfaceNodeId !== null && address.nodeId !== surfaceNodeId) return false;
-  return true;
+  return terminalSurfaceNodeScopeMatches({
+    handleNodeId: address.nodeId ?? null,
+    surfaceNodeId: terminalSurfaceNodeId(surface),
+    localNodeId: scope.localNodeId,
+  });
 }
