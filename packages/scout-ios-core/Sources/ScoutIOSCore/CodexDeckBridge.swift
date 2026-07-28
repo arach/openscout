@@ -1,8 +1,9 @@
 import Foundation
 import ScoutCapabilities
 
-/// Harness-specific bridge projection for Scout Deck. Naming Codex app-server
-/// here avoids pretending every harness supports identical turn controls.
+/// Harness-specific bridge projection for Scout Deck. The adapter field names
+/// the concrete Codex Desktop follower path instead of pretending every
+/// harness supports identical turn controls.
 public struct CodexDeckThreadSnapshot: Codable, Sendable {
     public struct Capabilities: Codable, Sendable {
         public let connect: Bool

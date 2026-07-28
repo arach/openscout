@@ -27,6 +27,28 @@ type DeckView = "thread" | "signal";
 type DeckHostScope = "all" | string;
 type DeckSignalTone = "live" | "ready" | "attention" | "quiet";
 
+/**
+ * The turn lifecycle the operator actually reasons about. It merges three
+ * separate truths — does this lane have a native adapter, is its thread bound,
+ * and is a turn in flight — into one ordered state so the Deck never has to
+ * imply progress it cannot observe.
+ */
+type DeckTurnPhase =
+  | "unavailable"
+  | "cold"
+  | "linking"
+  | "failed"
+  | "ready"
+  | "sending"
+  | "running"
+  | "stopping";
+
+/** Locally-known intent awaiting host confirmation. Never rendered as fact. */
+type DeckPending = { kind: "connecting" | "sending" | "stopping"; at: number };
+
+/** How long an unconfirmed local intent may claim the lifecycle before we admit it. */
+const PENDING_TIMEOUT_MS = 9_000;
+
 const HOST_SCOPE_STORAGE_KEY = "scout.deck.hostScope";
 
 declare global {
@@ -44,7 +66,7 @@ const now = Date.now();
 const PREVIEW_LANES: DeckLane[] = [
   previewLane("air", "MacBook Air", "01", "OpenScout", "codex", "gpt-5.6", "active", "~/dev/openscout", [
     ["tool", "Verifying the native surface bundle", "bun run build:native-surfaces"],
-    ["think", "Mapping the Deck to Codex app-server", "Thread state stays binary-native and host-scoped."],
+    ["think", "Mapping the Deck to the Codex Desktop task", "Task state stays binary-native and host-scoped."],
     ["message", "Controller contract is live.", "Start, steer, and interrupt map directly to the selected thread."],
   ]),
   previewLane("studio", "Studio", "02", "SpeakEasy", "claude", "opus-5", "active", "~/dev/SpeakEasy", [
@@ -62,7 +84,7 @@ const PREVIEW_LANES: DeckLane[] = [
 ];
 
 const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
-  adapter: "codex_app_server",
+  adapter: "codex_desktop",
   agentId: "01",
   threadId: "019fa45a-scout-deck",
   turnId: "turn_8d17",
@@ -76,13 +98,13 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
     approvals: false,
   },
   capabilityNotes: {
-    queue: "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
-    approvals: "This managed Codex adapter currently runs with host-side approvalPolicy=never.",
+    queue: "A Codex Desktop task runs one active turn at a time; the Deck does not invent a client-side queue.",
+    approvals: "Approvals remain owned by Codex Desktop and must be resolved there.",
   },
   snapshot: {
     session: {
       id: "019fa45a-scout-deck",
-      name: "OpenScout",
+      name: "Rework the Deck turn flow",
       adapterType: "codex",
       status: "active",
       cwd: "/Users/arach/dev/openscout",
@@ -105,7 +127,7 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
             type: "text",
             status: "completed",
             index: 0,
-            text: "Make the Deck operate on the selected Codex thread directly.",
+            text: "Make the Deck operate on the selected Codex Desktop task directly.",
           },
         }],
       },
@@ -124,7 +146,7 @@ const PREVIEW_THREAD: CodexDeckThreadSnapshot = {
               type: "reasoning",
               status: "completed",
               index: 0,
-              text: "Tracing the trusted bridge to the managed app-server process.",
+              text: "Tracing the trusted bridge to the Codex Desktop-owned task.",
             },
           },
           {
@@ -233,7 +255,9 @@ export function ScoutDeckSurface() {
   const [threadBusy, setThreadBusy] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [command, setCommand] = useState("");
-  const [notice, setNotice] = useState("Direct adapter ready");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState<DeckPending | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
   const [view, setView] = useState<DeckView>("thread");
   const [voice, setVoice] = useState<NativeVoiceSnapshot>(initialVoice);
   const [voiceHydrated, setVoiceHydrated] = useState(preview);
@@ -243,6 +267,10 @@ export function ScoutDeckSurface() {
   const seenFinalCountRef = useRef<number | null>(preview ? 0 : null);
   const spokenBlockRef = useRef<string | null>(null);
   const previewVoiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Dictation started from the primary key sends itself; typed dictation does not. */
+  const autoSendRef = useRef(false);
+  const listeningSinceRef = useRef<number | null>(null);
+  const submitRef = useRef<(text: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     installScoutSurfacePushReceiver();
@@ -333,12 +361,14 @@ export function ScoutDeckSurface() {
     }
     setCommand("");
     setThreadError(null);
+    setNotice(null);
+    setPending(null);
+    autoSendRef.current = false;
     setView(selected.transport === "codex_app_server" ? "thread" : "signal");
     spokenBlockRef.current = null;
 
     if (preview) {
       setThread(previewThreadFor(selected));
-      setNotice(selected.transport === "codex_app_server" ? "Direct adapter ready" : "Signal view only");
       return;
     }
 
@@ -358,7 +388,6 @@ export function ScoutDeckSurface() {
       if (cancelled) return;
       if (!adapterAvailable) {
         setThread(null);
-        setNotice("Harness adapter not enabled");
         return;
       }
 
@@ -366,13 +395,12 @@ export function ScoutDeckSurface() {
         try {
           let value = await client.codex.snapshot({ hostId: selected.hostId, agentId: selected.id });
           if (connectIfNeeded && value.state === "disconnected") {
-            setNotice("Connecting Codex thread");
+            setPending({ kind: "connecting", at: Date.now() });
             value = await client.codex.connect({ hostId: selected.hostId, agentId: selected.id });
           }
           if (cancelled) return;
           setThread(value);
           setThreadError(null);
-          setNotice(value.state === "running" ? "Turn streaming" : value.state === "idle" ? "Thread ready" : "Connect thread");
         } catch (cause) {
           if (cancelled) return;
           setThreadError(cause instanceof Error ? cause.message : String(cause));
@@ -428,8 +456,21 @@ export function ScoutDeckSurface() {
     if (count <= seenFinalCountRef.current) return;
     seenFinalCountRef.current = count;
     const finalText = voice.input.finalText.trim();
-    if (finalText) setCommand((current) => appendDictation(current, finalText));
-  }, [voice.input.finalCount, voice.input.finalText, voiceHydrated]);
+    const autoSend = autoSendRef.current;
+    autoSendRef.current = false;
+    if (!finalText) {
+      if (autoSend) setNotice("Nothing was transcribed — the turn was not sent.");
+      return;
+    }
+    // Stopping dictation from the primary key is the send gesture. Anything
+    // already typed rides along so the operator never loses partial input.
+    const merged = appendDictation(command, finalText);
+    // Always land the transcript in the composer first. submitTurn clears it
+    // only once the send is actually accepted, so a refused or in-flight submit
+    // leaves the text on screen instead of dropping it.
+    setCommand(merged);
+    if (autoSend) void submitRef.current(merged);
+  }, [voice.input.finalCount, voice.input.finalText, voiceHydrated, command]);
 
   useEffect(() => {
     const candidate = latestSpeakableBlock(thread);
@@ -469,10 +510,37 @@ export function ScoutDeckSurface() {
   );
   const active = scopedLanes.filter((lane) => isLiveLaneState(lane.state)).length;
   const selectedActivity = activityBins(selected?.events ?? []);
-  const isRunning = thread?.state === "running";
-  const selectedControllerTone = controllerTone(adapterAvailable, thread, threadError);
-  const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
   const voiceInputActive = voice.input.state === "listening" || voice.input.state === "transcribing";
+
+  // A local intent only speaks for the lifecycle until the host either confirms
+  // it or the window lapses; after that the snapshot is the only source left.
+  const livePending = pending && clock - pending.at < PENDING_TIMEOUT_MS ? pending : null;
+  const phase = turnPhase({ adapterAvailable, thread, threadError, pending: livePending });
+  const phaseTone = turnPhaseTone(phase);
+  const turnStartedAt = activeTurnStartedAt(thread);
+  const canTalk = Boolean(voiceAvailable && !threadBusy && (phase === "ready" || phase === "running"));
+  const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
+  const canInterrupt = Boolean(adapterAvailable && (phase === "running" || phase === "stopping"));
+
+  useEffect(() => {
+    if (!pending) return;
+    // Stop claiming the intent as soon as the snapshot agrees, or the deadline passes.
+    const settled = pending.kind === "sending"
+      ? thread?.state === "running"
+      : pending.kind === "stopping"
+        ? thread?.state === "idle"
+        : thread?.state === "idle" || thread?.state === "running";
+    if (settled) setPending(null);
+  }, [pending, thread?.state]);
+
+  const ticking = phase === "running" || phase === "sending" || phase === "stopping" || phase === "linking"
+    || voiceInputActive;
+  useEffect(() => {
+    if (!ticking) return;
+    const timer = setInterval(() => setClock(Date.now()), 1_000);
+    setClock(Date.now());
+    return () => clearInterval(timer);
+  }, [ticking]);
 
   const selectLane = (lane: DeckLane) => setSelectedKey(lane.key);
 
@@ -491,26 +559,39 @@ export function ScoutDeckSurface() {
     if (!selectedRoute || threadBusy) return;
     setThreadBusy(true);
     setThreadError(null);
+    setNotice(null);
+    setPending({ kind: "connecting", at: Date.now() });
     try {
       if (preview) {
         setThread({ ...PREVIEW_THREAD, agentId: selectedRoute.agentId, state: "idle", turnId: null });
       } else if (clientRef.current) {
         setThread(await clientRef.current.codex.connect(selectedRoute));
       }
-      setNotice("Codex thread connected");
     } catch (cause) {
+      setPending(null);
       setThreadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setThreadBusy(false);
     }
   };
 
-  const submitCommand = async (event?: FormEvent) => {
-    event?.preventDefault();
-    const text = command.trim();
-    if (!selectedRoute || !text || !thread || threadBusy) return;
+  const submitTurn = async (value: string) => {
+    const text = value.trim();
+    if (!text) return;
+    // Refusing is never silent: the text stays in the composer and the operator
+    // is told why, so a dictated transcript can always be re-sent by hand.
+    if (!selectedRoute || !thread) {
+      setNotice("No task is bound — the transcript is still in the composer.");
+      return;
+    }
+    if (threadBusy) {
+      setNotice("A turn is already being sent — the transcript is still in the composer.");
+      return;
+    }
     setThreadBusy(true);
     setThreadError(null);
+    setNotice(null);
+    setPending({ kind: "sending", at: Date.now() });
     try {
       const mode = thread.state === "running" ? "steer" : "start";
       if (preview) {
@@ -522,18 +603,27 @@ export function ScoutDeckSurface() {
         await refreshThread();
       }
       setCommand("");
-      setNotice(mode === "steer" ? "Steer accepted by active turn" : "Turn accepted by app-server");
     } catch (cause) {
+      setPending(null);
+      setCommand(text);
       setThreadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setThreadBusy(false);
     }
+  };
+  submitRef.current = submitTurn;
+
+  const onComposerSubmit = (event?: FormEvent) => {
+    event?.preventDefault();
+    void submitTurn(command);
   };
 
   const interruptThread = async () => {
     if (!selectedRoute || !thread || threadBusy) return;
     setThreadBusy(true);
     setThreadError(null);
+    setNotice(null);
+    setPending({ kind: "stopping", at: Date.now() });
     try {
       if (preview) {
         setThread(applyPreviewInterrupt(thread));
@@ -542,17 +632,32 @@ export function ScoutDeckSurface() {
         await new Promise((resolve) => setTimeout(resolve, 180));
         await refreshThread();
       }
-      setNotice("Interrupt sent to active turn");
     } catch (cause) {
+      setPending(null);
       setThreadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setThreadBusy(false);
     }
   };
 
+  /**
+   * The one voice gesture: tap to talk, tap to send. Stopping dictation is the
+   * send, so the operator never has to find a separate submit control.
+   */
   const toggleVoiceInput = async () => {
     if (!voiceAvailable) return;
     setVoiceError(null);
+    setNotice(null);
+    if (voice.input.state === "listening") {
+      autoSendRef.current = true;
+      listeningSinceRef.current = null;
+    } else if (voice.input.state === "transcribing") {
+      autoSendRef.current = false;
+    } else {
+      autoSendRef.current = false;
+      listeningSinceRef.current = Date.now();
+      setClock(Date.now());
+    }
     if (preview) {
       if (previewVoiceTimerRef.current) clearTimeout(previewVoiceTimerRef.current);
       if (voice.input.state === "listening") {
@@ -619,12 +724,19 @@ export function ScoutDeckSurface() {
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      void submitCommand();
+      void submitTurn(command);
     }
   };
 
+  /** The primary key always holds the single most useful next action. */
+  const primaryAction = phase === "cold" || phase === "failed" ? "connect" : "talk";
+  const onPrimary = () => {
+    if (primaryAction === "connect") return void connectThread();
+    void toggleVoiceInput();
+  };
+
   return (
-    <main className="scout-deck" data-connection={connection}>
+    <main className="scout-deck" data-connection={connection} data-preview={preview || undefined}>
       <header className="scout-deck__masthead">
         <div className="scout-deck__brand">
           <span className="scout-deck__mark" aria-hidden="true">S</span>
@@ -632,6 +744,11 @@ export function ScoutDeckSurface() {
             <span className="scout-deck__eyebrow">Scout / field console</span>
             <h1>Deck</h1>
           </div>
+          {preview ? (
+            <span className="scout-deck__sim" title="Every lane, thread, and turn on screen is local sample data. No host is attached.">
+              Sample data
+            </span>
+          ) : null}
         </div>
         <div className="scout-deck__telemetry" aria-label="Deck status">
           <span className="scout-deck__telemetry-item"><i className="scout-deck__lamp" />{connectionLabel(connection)}</span>
@@ -676,9 +793,7 @@ export function ScoutDeckSurface() {
                 type="button"
                 className="scout-deck__key"
                 data-active={lane.key === selected?.key || undefined}
-                data-tone={lane.key === selected?.key && selectedControllerTone !== "quiet"
-                  ? selectedControllerTone
-                  : laneTone(lane)}
+                data-tone={lane.key === selected?.key && phaseTone !== "quiet" ? phaseTone : laneTone(lane)}
                 key={lane.key}
                 onClick={() => selectLane(lane)}
                 aria-pressed={lane.key === selected?.key}
@@ -693,7 +808,7 @@ export function ScoutDeckSurface() {
           <div className="scout-deck__bank-footer"><span>Select</span><span>Host scoped</span></div>
         </aside>
 
-        <section className="scout-deck__stage" aria-live="polite">
+        <section className="scout-deck__stage">
           {selected ? (
             <>
               <div className="scout-deck__stage-head">
@@ -701,7 +816,7 @@ export function ScoutDeckSurface() {
                   <span className="scout-deck__stage-index">{String(scopedLanes.indexOf(selected) + 1).padStart(2, "0")}</span>
                   <span className="scout-deck__stage-label">Focused lane</span>
                 </div>
-                <span className="scout-deck__route">{selected.hostName} / explicit route</span>
+                <span className="scout-deck__route">{selected.hostName} / {selected.id}</span>
               </div>
               <div className="scout-deck__identity">
                 <div>
@@ -711,73 +826,93 @@ export function ScoutDeckSurface() {
                 <div className="scout-deck__identity-meta">
                   <span>{selected.harness ?? "unknown harness"}</span>
                   <strong>{selected.model ?? "default model"}</strong>
-                  <em>{selected.transport ?? "transport unreported"}</em>
+                  <em>{transportLabel(selected.transport)}</em>
                 </div>
               </div>
-              <div className="scout-deck__live-line" data-tone={selectedControllerTone}>
-                <span><i className="scout-deck__lamp" />{controllerStatusLabel(adapterAvailable, thread, threadError, selected.state)}</span>
-                <div className="scout-deck__meter" aria-label="Activity over the last five minutes">
+              <div className="scout-deck__turn" data-tone={phaseTone} data-phase={phase}>
+                <span className="scout-deck__turn-state" aria-live="polite">
+                  <i className="scout-deck__lamp" />
+                  {turnPhaseLabel(phase, selected.state)}
+                </span>
+                <span className="scout-deck__turn-detail" aria-live="polite">
+                  {turnPhaseDetail(phase, thread, threadError, notice, selected)}
+                </span>
+                <span className="scout-deck__turn-clock" aria-hidden="true" data-live={phase === "running" || undefined}>
+                  {turnElapsed(phase, turnStartedAt, livePending, clock)}
+                </span>
+                <div className="scout-deck__meter" aria-label="Lane activity over the last five minutes">
                   <small>5m</small>
                   <div aria-hidden="true">
                     {selectedActivity.map((level, index) => <i key={index} style={{ "--level": level } as CSSProperties} />)}
                   </div>
                   <small>now</small>
                 </div>
-                <span>{thread?.turnId
-                  ? `turn ${shortId(thread.turnId)}`
-                  : thread?.threadId
-                    ? `thread ${shortId(thread.threadId)}`
-                    : adapterAvailable
-                      ? "No thread"
-                      : relativeTime(selected.updatedAt)}</span>
+                {canInterrupt ? (
+                  <button
+                    type="button"
+                    className="scout-deck__stop"
+                    onClick={interruptThread}
+                    disabled={threadBusy || phase === "stopping"}
+                  >
+                    {phase === "stopping" ? "Stopping" : "Stop turn"}
+                  </button>
+                ) : null}
               </div>
 
               <form
-                className="scout-deck__composer"
-                data-mode={isRunning ? "steer" : "start"}
+                className="scout-deck__console"
+                data-phase={phase}
                 data-voice-state={voice.input.state}
-                onSubmit={submitCommand}
+                onSubmit={onComposerSubmit}
+                aria-label={`Voice console for ${selected.name}`}
+                aria-busy={threadBusy || undefined}
               >
-                <div className="scout-deck__composer-head">
-                  <span>{!adapterAvailable ? "Controller unavailable" : voiceHeadline(voice.input.state, isRunning)}</span>
-                  <small>{thread?.threadId ? `thread ${shortId(thread.threadId)}` : "No thread connected"}</small>
-                </div>
-                <div className="scout-deck__composer-body">
+                <div className="scout-deck__console-body">
                   <button
                     type="button"
-                    className="scout-deck__mic"
-                    data-state={voice.input.state}
-                    onClick={toggleVoiceInput}
-                    disabled={!voiceAvailable || !canCompose}
-                    aria-label={voice.input.state === "listening" ? "Stop dictation and transcribe" : voice.input.state === "transcribing" ? "Cancel transcription" : "Start dictation"}
+                    className="scout-deck__primary"
+                    data-action={primaryAction}
+                    data-state={primaryAction === "connect" ? "connect" : voice.input.state}
+                    onClick={onPrimary}
+                    disabled={primaryAction === "connect" ? threadBusy : !canTalk}
+                    aria-label={primaryKeyDescription(primaryAction, phase, voice.input.state)}
                     aria-pressed={voice.input.state === "listening"}
+                    title={primaryKeyDescription(primaryAction, phase, voice.input.state)}
                   >
-                    <span className="scout-deck__mic-ring" aria-hidden="true" />
-                    <VoiceMicIcon />
-                    <small>{voiceMicLabel(voice.input.state)}</small>
+                    {primaryAction === "connect" ? <VoiceLinkIcon /> : <VoiceMicIcon />}
+                    <small>{primaryKeyLabel(primaryAction, phase, voice.input.state)}</small>
                   </button>
-                  <div className="scout-deck__voice-text">
-                    <div className="scout-deck__voice-caption" data-active={voiceInputActive || undefined}>
+                  <div className="scout-deck__console-input">
+                    <div className="scout-deck__caption" data-active={voiceInputActive || undefined} data-error={Boolean(voiceError) || undefined}>
                       <i aria-hidden="true" />
-                      <span>{voiceCaption(voice, voiceAvailable)}</span>
+                      <span>{voiceError ?? consoleCaption(voice, voiceAvailable, phase, listeningSinceRef.current, clock)}</span>
                     </div>
                     <textarea
                       value={command}
                       onChange={(event) => setCommand(event.target.value)}
                       onKeyDown={onComposerKeyDown}
-                      placeholder={composerPlaceholder(adapterAvailable, isRunning, voice.input.state)}
-                      disabled={!adapterAvailable || !thread || thread.state === "disconnected" || threadBusy}
+                      placeholder={composerPlaceholder(phase, voice.input.state)}
+                      disabled={!canCompose}
                       rows={2}
-                      aria-label={!adapterAvailable ? "Native controller unavailable" : isRunning ? "Steer active Codex turn" : "Start Codex turn"}
+                      aria-label={phase === "running" ? "Steer the active Codex turn" : "Start a Codex turn"}
                     />
                   </div>
-                  <button className="scout-deck__submit" type="submit" disabled={!command.trim() || !thread || thread.state === "disconnected" || threadBusy}>
-                    {threadBusy ? "Working" : isRunning ? "Steer" : "Start"}
-                    <span>⌘↵</span>
-                  </button>
+                  {command.trim() && voice.input.state !== "listening" ? (
+                    <button className="scout-deck__send" type="submit" disabled={!canCompose}>
+                      {phase === "running" ? "Steer" : "Send"}
+                      <span>⌘↵</span>
+                    </button>
+                  ) : null}
                 </div>
-                <div className="scout-deck__composer-foot">
-                  <span>{voiceError ?? threadError ?? notice}</span>
+                <div className="scout-deck__console-foot">
+                  <span className="scout-deck__binding" data-bound={Boolean(thread?.threadId) || undefined}>
+                    {thread?.threadId ? (
+                      <>
+                        <strong title={taskTitle(thread) ?? undefined}>{taskTitle(thread) ?? "Untitled task"}</strong>
+                        <em>task {shortId(thread.threadId)}</em>
+                      </>
+                    ) : "no task bound"}
+                  </span>
                   <button
                     type="button"
                     className="scout-deck__voice-out"
@@ -795,7 +930,7 @@ export function ScoutDeckSurface() {
 
               <section className="scout-deck__activity" aria-label={`${selected.name} controller view`}>
                 <div className="scout-deck__panel-label scout-deck__panel-label--tabs">
-                  <span>{view === "thread" ? "Codex thread" : "Live signal"}</span>
+                  <span>{view === "thread" ? "Codex Desktop task" : "Live signal"}</span>
                   <div className="scout-deck__tabs" role="tablist" aria-label="Lane view">
                     <button type="button" role="tab" aria-selected={view === "thread"} onClick={() => setView("thread")} disabled={!adapterAvailable}>Thread</button>
                     <button type="button" role="tab" aria-selected={view === "signal"} onClick={() => setView("signal")}>Signal</button>
@@ -815,29 +950,30 @@ export function ScoutDeckSurface() {
 
         <aside className="scout-deck__rail" aria-label="Fleet and controller overview">
           <section className="scout-deck__control">
-            <div className="scout-deck__panel-label"><span>Controller</span><span>{adapterAvailable ? "Native" : "—"}</span></div>
+            <div className="scout-deck__panel-label"><span>Link</span><span>{preview ? "Sample" : adapterAvailable ? "Native" : "—"}</span></div>
             <div className="scout-deck__adapter" data-state={threadError ? "error" : thread?.state ?? "unavailable"}>
               <span className="scout-deck__adapter-mark">{adapterAvailable ? "CX" : "—"}</span>
               <div>
-                <strong>{adapterAvailable ? "Codex app-server" : "Adapter unavailable"}</strong>
-                <small>{threadError ? "link failed" : thread?.state ?? selected?.transport ?? "No selected lane"}</small>
+                <strong>{adapterAvailable ? "Codex Desktop task" : "No native adapter"}</strong>
+                <small>{threadError ? "binding failed" : thread?.state ?? (selected ? transportLabel(selected.transport) : "no selected lane")}</small>
               </div>
               <i />
             </div>
+            {adapterAvailable && thread?.threadId ? (
+              <p className="scout-deck__task-title" title={taskTitle(thread) ?? undefined}>
+                {taskTitle(thread) ?? "Untitled task"}
+              </p>
+            ) : null}
             <dl className="scout-deck__readout">
-              <div><dt>Thread</dt><dd>{thread?.threadId ? shortId(thread.threadId) : "—"}</dd></div>
-              <div><dt>Turn</dt><dd>{thread?.turnId ? shortId(thread.turnId) : "idle"}</dd></div>
+              <div><dt>Source</dt><dd>{preview ? "sample data" : "paired host"}</dd></div>
+              <div><dt>Bridge</dt><dd>{connectionReadout(connection)}</dd></div>
+              <div><dt>Task</dt><dd>{thread?.threadId ? shortId(thread.threadId) : "unbound"}</dd></div>
+              <div><dt>Turn</dt><dd>{thread?.turnId ? shortId(thread.turnId) : "none"}</dd></div>
               <div><dt>Voice in</dt><dd>{voiceAvailable ? voiceReadout(voice.input.state) : "—"}</dd></div>
               <div><dt>Voice out</dt><dd>{voiceAvailable ? voice.output.speaking ? "speaking" : voiceOutEnabled ? "armed" : "off" : "—"}</dd></div>
               <div><dt>Queue</dt><dd title={thread?.capabilityNotes.queue}>{adapterAvailable ? "off" : "—"}</dd></div>
               <div><dt>Approval</dt><dd title={thread?.capabilityNotes.approvals}>{adapterAvailable ? "off" : "—"}</dd></div>
             </dl>
-            <div className="scout-deck__control-actions">
-              {adapterAvailable && thread?.state === "disconnected" ? (
-                <button type="button" onClick={connectThread} disabled={threadBusy}>Connect thread</button>
-              ) : null}
-              <button type="button" className="scout-deck__interrupt" onClick={interruptThread} disabled={!adapterAvailable || !isRunning || threadBusy}>Interrupt</button>
-            </div>
           </section>
           <section>
             <div className="scout-deck__panel-label"><span>Attention</span><span>{String(attention.length).padStart(2, "0")}</span></div>
@@ -861,12 +997,6 @@ export function ScoutDeckSurface() {
             </div>
           </section>
           <div className="scout-deck__rail-spacer" />
-          <section className="scout-deck__legend">
-            <span><i data-tone="live" />Live</span>
-            <span><i data-tone="ready" />Linked</span>
-            <span><i data-tone="attention" />Attention</span>
-            <span><i data-tone="quiet" />Quiet</span>
-          </section>
         </aside>
       </div>
     </main>
@@ -890,29 +1020,60 @@ function VoiceSpeakerIcon() {
   );
 }
 
-function voiceHeadline(state: NativeVoiceSnapshot["input"]["state"], isRunning: boolean): string {
-  if (state === "listening") return "Listening · tap mic to finish";
-  if (state === "transcribing") return "Transcribing · tap mic to cancel";
-  if (state === "preparing") return "Preparing native voice";
-  if (state === "unavailable") return "Voice needs attention";
-  return isRunning ? "Voice command · steer active turn" : "Voice command · start new turn";
+function VoiceLinkIcon() {
+  return (
+    <svg className="scout-deck__mic-icon" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M13 19l6-6M11.5 14.5 9 17a4.6 4.6 0 0 0 6.5 6.5l2.5-2.5M20.5 17.5 23 15a4.6 4.6 0 0 0-6.5-6.5L14 11" />
+    </svg>
+  );
 }
 
-function voiceMicLabel(state: NativeVoiceSnapshot["input"]["state"]): string {
-  if (state === "listening") return "finish";
-  if (state === "transcribing") return "cancel";
+function primaryKeyLabel(
+  action: "connect" | "talk",
+  phase: DeckTurnPhase,
+  state: NativeVoiceSnapshot["input"]["state"],
+): string {
+  if (action === "connect") return phase === "failed" ? "retry" : "connect";
+  if (state === "listening") return "send";
+  if (state === "transcribing") return "…";
   if (state === "preparing") return "warming";
-  if (state === "unavailable") return "try again";
-  return "tap to talk";
+  if (state === "unavailable") return "voice off";
+  if (phase === "linking") return "linking";
+  if (phase === "sending") return "sending";
+  if (phase === "stopping") return "stopping";
+  return phase === "running" ? "steer" : "talk";
 }
 
-function voiceCaption(voice: NativeVoiceSnapshot, available: boolean): string {
+function primaryKeyDescription(
+  action: "connect" | "talk",
+  phase: DeckTurnPhase,
+  state: NativeVoiceSnapshot["input"]["state"],
+): string {
+  if (action === "connect") return "Bind this lane to its Codex Desktop task";
+  if (state === "listening") return "Stop dictation and send the turn";
+  if (state === "transcribing") return "Transcribing dictation";
+  return phase === "running" ? "Speak to steer the active turn" : "Speak to start a turn";
+}
+
+function consoleCaption(
+  voice: NativeVoiceSnapshot,
+  available: boolean,
+  phase: DeckTurnPhase,
+  listeningSince: number | null,
+  clock: number,
+): string {
   if (!available) return "Native voice becomes available inside the Scout iPad app.";
-  if (voice.input.state === "listening") return voice.input.partialText || "Listening — speak naturally.";
-  if (voice.input.state === "transcribing") return "Resolving the final transcript on device…";
+  if (voice.input.state === "listening") {
+    const elapsed = listeningSince ? ` · ${formatElapsed(clock - listeningSince)}` : "";
+    return `${voice.input.partialText || "Listening — speak naturally."}${elapsed}`;
+  }
+  if (voice.input.state === "transcribing") return "Transcribing on device, then sending…";
   if (voice.input.state === "preparing") return "Warming Parakeet; Apple Speech remains available as fallback.";
   if (voice.input.state === "unavailable") return voice.input.unavailableReason || "Microphone access is unavailable.";
-  return `Ready · ${voice.input.modelReady ? "Parakeet on device" : "Apple Speech fallback"}`;
+  if (phase === "unavailable") return "This lane has no native controller to talk to.";
+  if (phase === "cold" || phase === "failed") return "Bind the task before talking to it.";
+  if (phase === "running") return "Tap to talk, tap again to steer the running turn.";
+  return "Tap to talk, tap again to send.";
 }
 
 function voiceReadout(state: NativeVoiceSnapshot["input"]["state"]): string {
@@ -924,14 +1085,128 @@ function voiceReadout(state: NativeVoiceSnapshot["input"]["state"]): string {
 }
 
 function composerPlaceholder(
-  adapterAvailable: boolean,
-  isRunning: boolean,
+  phase: DeckTurnPhase,
   voiceState: NativeVoiceSnapshot["input"]["state"],
 ): string {
-  if (!adapterAvailable) return "This lane needs its own native adapter before it can be controlled.";
-  if (voiceState === "listening") return "Speak naturally; the final transcript lands here…";
+  if (phase === "unavailable") return "This lane needs its own native adapter before it can be controlled.";
+  if (phase === "cold" || phase === "failed") return "Bind the task to enable typing.";
+  if (voiceState === "listening") return "Speaking… the transcript sends when you tap send.";
   if (voiceState === "transcribing") return "Finishing your transcript…";
-  return isRunning ? "Say or type a redirect for this active turn…" : "Say or type what this Codex thread should do next…";
+  return phase === "running" ? "Or type a redirect for this active turn…" : "Or type what this task should do next…";
+}
+
+/**
+ * Collapses adapter availability, thread binding, and turn state into the one
+ * ordered lifecycle the operator sees. Local intent outranks the last snapshot
+ * only while it is still within its confirmation window.
+ */
+function turnPhase({
+  adapterAvailable,
+  thread,
+  threadError,
+  pending,
+}: {
+  adapterAvailable: boolean;
+  thread: CodexDeckThreadSnapshot | null;
+  threadError: string | null;
+  pending: DeckPending | null;
+}): DeckTurnPhase {
+  if (!adapterAvailable) return "unavailable";
+  if (threadError) return "failed";
+  if (pending?.kind === "sending") return "sending";
+  if (pending?.kind === "stopping") return "stopping";
+  if (pending?.kind === "connecting") return "linking";
+  if (!thread) return "linking";
+  if (thread.state === "disconnected") return "cold";
+  return thread.state === "running" ? "running" : "ready";
+}
+
+function turnPhaseTone(phase: DeckTurnPhase): DeckSignalTone {
+  if (phase === "running" || phase === "sending") return "live";
+  if (phase === "ready") return "ready";
+  if (phase === "cold" || phase === "failed") return "attention";
+  return "quiet";
+}
+
+function turnPhaseLabel(phase: DeckTurnPhase, laneState: string | null): string {
+  if (phase === "unavailable") return laneStateLabel(laneState);
+  if (phase === "cold") return "Task unbound";
+  if (phase === "linking") return "Linking";
+  if (phase === "failed") return "Link failed";
+  if (phase === "sending") return "Sending";
+  if (phase === "stopping") return "Stopping";
+  if (phase === "running") return "Turn running";
+  return "Ready";
+}
+
+function turnPhaseDetail(
+  phase: DeckTurnPhase,
+  thread: CodexDeckThreadSnapshot | null,
+  threadError: string | null,
+  notice: string | null,
+  lane: DeckLane,
+): string {
+  if (notice) return notice;
+  if (phase === "unavailable") return `${transportLabel(lane.transport)} · observable only`;
+  if (phase === "failed") return threadError ?? "The host did not answer.";
+  if (phase === "cold") return "Connect binds this lane to its Codex Desktop task.";
+  if (phase === "linking") return "Binding the Codex Desktop task…";
+  if (phase === "sending") return "Waiting for Codex Desktop to accept the turn…";
+  if (phase === "stopping") return "Interrupt sent; waiting for the turn to end…";
+  if (phase === "running") return turnActivityDetail(thread);
+  const last = lastCompletedTurnEndedAt(thread);
+  return last ? `Idle · last turn ended ${relativeTime(last)} ago` : "Idle · no turns yet on this task";
+}
+
+/** Describes what the running turn is doing right now, straight from the snapshot. */
+function turnActivityDetail(thread: CodexDeckThreadSnapshot | null): string {
+  const turn = activeTurn(thread);
+  if (!turn) return "Streaming…";
+  for (let index = turn.blocks.length - 1; index >= 0; index -= 1) {
+    const state = turn.blocks[index];
+    if (!state || state.status !== "streaming") continue;
+    if (state.block.type === "action") {
+      const label = state.block.action?.command ?? state.block.action?.toolName ?? state.block.action?.path;
+      return label ? `Running ${label}` : "Running an action";
+    }
+    if (state.block.type === "reasoning") return "Thinking";
+    if (state.block.type === "text") return "Writing a reply";
+  }
+  return "Streaming…";
+}
+
+function activeTurn(thread: CodexDeckThreadSnapshot | null) {
+  const turns = thread?.snapshot?.turns ?? [];
+  return turns.find((turn) => turn.id === thread?.turnId) ?? null;
+}
+
+function activeTurnStartedAt(thread: CodexDeckThreadSnapshot | null): number | null {
+  return activeTurn(thread)?.startedAt ?? null;
+}
+
+function lastCompletedTurnEndedAt(thread: CodexDeckThreadSnapshot | null): number | null {
+  const turns = thread?.snapshot?.turns ?? [];
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const endedAt = turns[index]?.endedAt;
+    if (endedAt) return endedAt;
+  }
+  return null;
+}
+
+function turnElapsed(
+  phase: DeckTurnPhase,
+  turnStartedAt: number | null,
+  pending: DeckPending | null,
+  clock: number,
+): string {
+  if (phase === "sending" && pending) return formatElapsed(clock - pending.at);
+  if ((phase === "running" || phase === "stopping") && turnStartedAt) return formatElapsed(clock - turnStartedAt);
+  return "";
+}
+
+function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function appendDictation(current: string, phrase: string): string {
@@ -973,7 +1248,7 @@ function ThreadViewport({
       <div className="scout-deck__thread-empty">
         <span className="scout-deck__thread-glyph">—</span>
         <strong>No native controller for this lane</strong>
-        <p>The lane stays observable. A future harness adapter can add its own direct controls without pretending to be Codex.</p>
+        <p>The lane stays observable. A future harness adapter can add its own direct controls without pretending to be a Codex Desktop task.</p>
       </div>
     );
   }
@@ -981,22 +1256,28 @@ function ThreadViewport({
     return (
       <div className="scout-deck__thread-empty" data-state="error">
         <span className="scout-deck__thread-glyph">!</span>
-        <strong>Controller link failed</strong>
+        <strong>Task binding failed</strong>
         <p>{error}</p>
         <button type="button" onClick={onConnect} disabled={busy}>Retry controller</button>
       </div>
     );
   }
   if (!thread) {
-    return <div className="scout-deck__thread-empty"><span className="scout-deck__thread-glyph">···</span><strong>Reading host thread</strong></div>;
+    return (
+      <div className="scout-deck__thread-empty">
+        <span className="scout-deck__thread-glyph">···</span>
+        <strong>Reading the Codex Desktop task</strong>
+        <p>Nothing is shown until the host returns a snapshot.</p>
+      </div>
+    );
   }
   if (thread.state === "disconnected") {
     return (
       <div className="scout-deck__thread-empty">
         <span className="scout-deck__thread-glyph">CX</span>
-        <strong>Codex thread is cold</strong>
-        <p>Connect starts the host-managed app-server and resumes its persisted thread.</p>
-        <button type="button" onClick={onConnect} disabled={busy}>Connect thread</button>
+        <strong>Task is unbound</strong>
+        <p>No turns are readable until the Deck binds to a Codex Desktop-owned task. Connect attaches to that exact task on the host.</p>
+        <button type="button" onClick={onConnect} disabled={busy}>Bind task</button>
       </div>
     );
   }
@@ -1019,8 +1300,8 @@ function ThreadViewport({
       )) : (
         <div className="scout-deck__thread-empty" data-state="connected">
           <span className="scout-deck__thread-glyph">●</span>
-          <strong>Codex thread connected</strong>
-          <p>{thread.threadId ? `Thread ${shortId(thread.threadId)} is ready. Start its first turn from the command strip above.` : "The controller is ready. Start its first turn from the command strip above."}</p>
+          <strong>Task bound</strong>
+          <p>{thread.threadId ? `Task ${shortId(thread.threadId)} is ready. Start its first turn from the console above.` : "The task is bound. Start its first turn from the console above."}</p>
         </div>
       )}
     </div>
@@ -1230,34 +1511,35 @@ function connectionLabel(connection: DeckConnection): string {
   return "Bridge connecting";
 }
 
+/**
+ * Display-only vocabulary for the agent transport. The backend enum still reads
+ * `codex_app_server`; the binding it now names is a Codex Desktop-owned task, so
+ * the Deck says that. Matching predicates keep using the raw backend value.
+ */
+function transportLabel(transport: string | null | undefined): string {
+  if (!transport) return "transport unreported";
+  if (transport === "codex_app_server") return "codex desktop task";
+  return transport;
+}
+
+/** The exact Codex Desktop task title the host reports for this binding. */
+function taskTitle(thread: CodexDeckThreadSnapshot | null): string | null {
+  const name = thread?.snapshot?.session?.name?.trim();
+  return name ? name : null;
+}
+
+function connectionReadout(connection: DeckConnection): string {
+  if (connection === "ready") return "online";
+  if (connection === "partial") return "degraded";
+  if (connection === "error") return "error";
+  if (connection === "offline") return "offline";
+  return "connecting";
+}
+
 function laneTone(lane: DeckLane): DeckSignalTone {
   if (lane.state === "waiting" || lane.state === "blocked" || lane.state === "error") return "attention";
   if (isLiveLaneState(lane.state)) return "live";
   return "quiet";
-}
-
-function controllerTone(
-  adapterAvailable: boolean,
-  thread: CodexDeckThreadSnapshot | null,
-  error: string | null,
-): DeckSignalTone {
-  if (error || thread?.state === "disconnected") return "attention";
-  if (!adapterAvailable || !thread) return "quiet";
-  return thread.state === "running" ? "live" : "ready";
-}
-
-function controllerStatusLabel(
-  adapterAvailable: boolean,
-  thread: CodexDeckThreadSnapshot | null,
-  error: string | null,
-  laneState: string | null,
-): string {
-  if (!adapterAvailable) return laneStateLabel(laneState);
-  if (error) return "Controller unavailable";
-  if (!thread) return "Connecting controller";
-  if (thread.state === "disconnected") return "Controller disconnected";
-  if (thread.state === "running") return "Turn live";
-  return "Thread linked · ready";
 }
 
 function laneStateLabel(state: string | null): string {

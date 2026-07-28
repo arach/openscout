@@ -232,7 +232,7 @@ export type CodexDeckSessionState = {
 };
 
 export type CodexDeckThreadSnapshot = {
-  adapter: "codex_app_server";
+  adapter: "codex_desktop";
   agentId: string;
   threadId: string | null;
   turnId: string | null;

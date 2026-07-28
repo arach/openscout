@@ -70,8 +70,8 @@ import {
 } from "../../../../db-queries.ts";
 import {
   connectCodexDeckThread,
+  getCodexDeckThreadSnapshot,
   getLocalAgentConfig,
-  getLocalAgentSessionSnapshot,
   isCodexDeckThreadConnected,
   interruptCodexDeckTurn,
   interruptLocalAgent,
@@ -1460,7 +1460,7 @@ async function codexDeckSnapshot(agentId: string, connect: boolean) {
 
   const connected = connect ? await connectCodexDeckThread(agentId) : null;
   const online = connected ? true : await isCodexDeckThreadConnected(agentId);
-  const snapshot = await getLocalAgentSessionSnapshot(agentId);
+  const snapshot = await getCodexDeckThreadSnapshot(agentId);
   const currentTurn = snapshot?.currentTurnId
     ? snapshot.turns.find((turn) => turn.id === snapshot.currentTurnId) ?? null
     : null;
@@ -1470,7 +1470,7 @@ async function codexDeckSnapshot(agentId: string, connect: boolean) {
     ?? (typeof observedThreadId === "string" ? observedThreadId : snapshot?.session.id ?? null);
 
   return {
-    adapter: "codex_app_server" as const,
+    adapter: "codex_desktop" as const,
     agentId,
     threadId,
     turnId: online && running ? currentTurn?.id ?? null : null,
@@ -1484,8 +1484,8 @@ async function codexDeckSnapshot(agentId: string, connect: boolean) {
       approvals: false,
     },
     capabilityNotes: {
-      queue: "Codex app-server exposes one active turn per thread; the Deck does not invent a client-side queue.",
-      approvals: "This managed Codex adapter currently runs with host-side approvalPolicy=never.",
+      queue: "The Deck controls the exact task currently owned by Codex Desktop and does not invent a client-side queue.",
+      approvals: "Approvals remain owned by Codex Desktop and must be resolved there.",
     },
     snapshot,
   };
