@@ -96,6 +96,54 @@ describe("control-plane managed migrations", () => {
     ).toEqual({ display_name: "Survivor" });
   });
 
+  test("reconciles the historical v15 role migration lineage without replaying its tables", () => {
+    const db = new Database(":memory:");
+    db.exec(
+      'CREATE TABLE "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)',
+    );
+
+    for (const migration of migrations.slice(0, 3)) {
+      for (const statement of migration.sql) db.exec(statement);
+      db.query(
+        'INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)',
+      ).run(migration.hash, migration.folderMillis);
+    }
+
+    const roleMigration = migrations.find((migration) => migration.folderMillis === 1784834739171)!;
+    for (const statement of roleMigration.sql) db.exec(statement);
+    const legacyLedger = [
+      ["0b135c4d057d5c26bddb07d1cbda3f027bd2ef4d90babfc2e23fede3ff8be5cb", 1784647043307],
+      ["7df85f271d1a6e9e37552adf3dc2f1869ca0f685b343aaf328488aeb11a2f64d", 1784666969459],
+      ["7b2b31c19f753638f597e2f73dee3855a84f3d4c6aec7e615825745d81928aac", 1784667568249],
+    ] as const;
+    for (const [hash, createdAt] of legacyLedger) {
+      db.query(
+        'INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)',
+      ).run(hash, createdAt);
+    }
+    db.exec("PRAGMA user_version = 15");
+    db.query(
+      `INSERT INTO role_assignments (
+         id, role_id, agent_id, scope_kind, assigned_by_id, assigned_at, updated_at
+       ) VALUES ('role-keeper', 'reviewer', 'agent-keeper', 'global', 'operator', 10, 10)`,
+    ).run();
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    const reconciledHashes = new Set(ledgerRows(db).map((row) => row.hash));
+    expect(fullChainLedger.every((row) => reconciledHashes.has(row.hash))).toBe(true);
+    expect(
+      db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'context_blocks'").get(),
+    ).toEqual({ name: "context_blocks" });
+    expect(
+      db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'route_alias_bindings'").get(),
+    ).toEqual({ name: "route_alias_bindings" });
+    expect(db.query("SELECT agent_id FROM role_assignments WHERE id = 'role-keeper'").get()).toEqual({
+      agent_id: "agent-keeper",
+    });
+    expect(userVersion(db)).toBe(CONTROL_PLANE_SCHEMA_VERSION);
+  });
+
   test("virgin database boots through the migrator: full chain executed, ledger recorded", () => {
     const db = new Database(":memory:");
     migrateControlPlaneDatabaseSchema(db);
