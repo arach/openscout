@@ -95,6 +95,16 @@ const BASELINE_NOTE = "Known packages/web type errors that predate the typecheck
   + "--update` refuses any change that would grow it.";
 
 function writeBaseline(observed) {
+  // The baseline is only ever written from a graded run. The gate already exits
+  // before reaching either write path when the run cannot be graded, but the
+  // damage a stale-shaped edit here would do is a destructively tightened
+  // baseline — 101 entries replaced by however few a crashed compiler printed —
+  // so the invariant is enforced where the file is written, not only where the
+  // decision is made.
+  const ungraded = compilerRunProblem(run, parsed);
+  if (ungraded) {
+    throw new Error(`refusing to write the baseline from a run that cannot be graded: ${ungraded}`);
+  }
   const errors = [...observed.values()].sort((left, right) =>
     left.file.localeCompare(right.file)
     || left.code.localeCompare(right.code)

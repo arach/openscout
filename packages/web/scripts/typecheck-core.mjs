@@ -20,14 +20,39 @@ const ERROR_CODE_MENTION = /(?:^|\s)error TS\d+:/u;
 const isDiagnosticHeader = (line) => /^\S/u.test(line) && ERROR_CODE_MENTION.test(line);
 /** tsc's own tally, printed in pretty mode. Cross-checked when present. */
 const FOUND_ERRORS_LINE = /^Found (?<count>\d+) errors?\b/u;
+/**
+ * The process dying rather than the compiler reporting. None of these is a
+ * TypeScript diagnostic — they are V8 and the shell — and every one of them
+ * means the output above it is however far the compiler got, not what it found.
+ * A run that printed one of these has checked an unknown fraction of the
+ * project, so its diagnostics are a partial read whatever their number.
+ */
+const CRASH_MARKERS = [
+  /^FATAL ERROR:/u,
+  /^<--- Last few GCs --->/u,
+  /JavaScript heap out of memory/u,
+  /^Segmentation fault/u,
+  /^Bus error/u,
+  /^Abort trap/u,
+  /^Aborted/u,
+  /^Killed/u,
+  /^Terminated/u,
+];
 
 export function parseDiagnostics(output) {
   const diagnostics = [];
   const fatals = [];
   const unparseable = [];
+  const crashMarkers = [];
   let reportedTotal = null;
   for (const rawLine of String(output ?? "").split(/\r?\n/u)) {
     const line = rawLine.replace(/\s+$/u, "");
+    // Never on a diagnostic header: that line is the compiler reporting, and a
+    // file called `Killed.ts` reporting an error is not a dead process.
+    if (!isDiagnosticHeader(line) && CRASH_MARKERS.some((marker) => marker.test(line))) {
+      crashMarkers.push(line.trim());
+      continue;
+    }
     const found = FOUND_ERRORS_LINE.exec(line);
     if (found?.groups) {
       reportedTotal = Number(found.groups.count);
@@ -51,8 +76,17 @@ export function parseDiagnostics(output) {
     }
     unparseable.push(line);
   }
-  return { diagnostics, fatals, unparseable, reportedTotal };
+  return { diagnostics, fatals, unparseable, crashMarkers, reportedTotal };
 }
+
+/**
+ * Exit statuses tsc itself produces: 0 clean, 1 and 2 "diagnostics reported"
+ * (with outputs skipped or generated). 3 and 4 are its own project-level
+ * failures, and anything else is not tsc talking at all — 134 is a process that
+ * aborted, 139 one that segfaulted, 137 one the OOM killer took. Grading is
+ * only defined for a compiler that ran to the end and said so.
+ */
+const TSC_GRADEABLE_EXIT_STATUSES = new Set([0, 1, 2]);
 
 /**
  * Why this compiler run cannot be graded, or null when it can.
@@ -62,10 +96,28 @@ export function parseDiagnostics(output) {
  * fatal with no file position, a kill signal, output the parser only partly
  * read. Reporting zero errors for a run that type-checked nothing is the single
  * way a gate like this becomes worse than having no gate.
+ *
+ * The governing rule, which a review had to reproduce twice to establish: a run
+ * that did not end cleanly is a FAILED run no matter how many diagnostics were
+ * parsed from it. The first version only distrusted a crash that emitted
+ * nothing, so a compiler that reported one error and then died of a heap limit
+ * — exit 134 — was graded as an improvement from 101 errors to 1, and the gate
+ * rewrote the baseline down to that one entry. A partial read is never a
+ * result, and a smaller number is exactly what a truncated read looks like.
  */
 export function compilerRunProblem(run, parsed) {
   if (run.signal) {
     return `tsc was killed by ${run.signal}; the type check did not complete.`;
+  }
+  if (parsed.crashMarkers?.length > 0) {
+    return `tsc did not run to completion — it died with:\n  ${parsed.crashMarkers.join("\n  ")}\n`
+      + `The ${parsed.diagnostics.length} diagnostic(s) it printed first are how far it got, not what `
+      + "it found.";
+  }
+  if (!TSC_GRADEABLE_EXIT_STATUSES.has(run.status)) {
+    return `tsc exited ${run.status}, which is not an exit status it reports errors with `
+      + `(0, 1, or 2). The type check did not run to completion; the ${parsed.diagnostics.length} `
+      + "diagnostic(s) parsed from a process that died are not a result.";
   }
   if (parsed.fatals.length > 0) {
     return `tsc reported ${parsed.fatals.length} fatal diagnostic(s) with no file position, so the `

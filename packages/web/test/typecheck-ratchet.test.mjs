@@ -96,6 +96,32 @@ test("a positionless fatal fails the gate instead of parsing as zero errors", ()
   assert.match(result.stderr, /did not type-check/u);
 });
 
+test("a compiler that crashes AFTER emitting a diagnostic cannot tighten the baseline", () => {
+  // The second reproduction, and the more dangerous one: the run was accepted
+  // because it had parsed something, so one surviving diagnostic was graded as
+  // an improvement from 101 errors to 1 and the gate REWROTE the baseline down
+  // to that single entry. A truncated read always looks like progress.
+  const directory = mkdtempSync(path.join(tmpdir(), "web-typecheck-"));
+  const baseline = baselineFile(directory, [{ ...KNOWN_ERROR, count: 101 }]);
+  const before = readFileSync(baseline, "utf8");
+  const heapDeath = `${KNOWN_ERROR_LINE}\n`
+    + "\n<--- Last few GCs --->\n"
+    + "\n<--- JS stacktrace --->\n"
+    + "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n";
+  const compiler = stubCompiler(directory, { stdout: heapDeath, exitCode: 134 });
+
+  const gated = runGate(directory, { compiler, baseline });
+  assert.notEqual(gated.status, 0, "a compiler that died mid-check must not pass");
+  assert.match(gated.stderr, /did not run to completion/u);
+  assert.doesNotMatch(gated.stdout, /down from/u);
+  assert.equal(readFileSync(baseline, "utf8"), before, "the baseline must be byte-identical");
+
+  // Nor through the escape hatch, which sees the same one-error "improvement".
+  const updated = runGate(directory, { compiler, baseline, args: ["--update"] });
+  assert.notEqual(updated.status, 0, "--update must not record a crashed run either");
+  assert.equal(readFileSync(baseline, "utf8"), before, "the baseline must be byte-identical");
+});
+
 test("a diagnostic header the parser cannot read fails the gate", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "web-typecheck-"));
   const result = runGate(directory, {
