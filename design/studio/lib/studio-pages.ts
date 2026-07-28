@@ -379,10 +379,13 @@ export const STUDIO_PAGES: StudioPage[] = [
     family: "scout-ios",
     status: "in-flight",
     source: [
-      "design/studio/app/studies/scout-ios-new/page.tsx",
+      "design/studio/views/scout-ios-new.tsx",
+      "design/studio/components/scout-ios/new-session-surface.tsx",
       "apps/ios/Scout/NewSessionSurface.swift",
+      "apps/ios/Scout/RuntimePicker.swift",
+      "packages/scout-native-core/Sources/ScoutCapabilities/Listing.swift",
     ],
-    blurb: "Project + harness + model + prompt composer to start a session on any paired machine. Compose + Started (result ids) states.",
+    blurb: "The destination pass: which paired Mac the work lands on, and which project it runs in — the two decisions that gate Start, on a phone, above a composer. The screen shipped straight to Swift without a studio pass, so this goes back and does it: three genuinely different architectures for that choice (Rule — the destination is the page; Readout — the destination is one line that IS the search field; Sheet — the destination is a line in the composer's header that opens a page), plus a faithful port of the native baseline to argue with. Every treatment is shown against the three fleets it has to survive: one Mac and forty checkouts (the common case), three Macs and two hundred workspaces (the case that breaks list-first designs), and nothing yet (what a fresh pairing actually shows today). Keyboard-up is a toggle, not an afterthought.",
   },
   {
     href: "/studies/scout-steering-loop",

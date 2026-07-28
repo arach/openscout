@@ -53,6 +53,322 @@ export const MACHINES: { name: string; state: "connected" | "idle" }[] = [
   { name: "mini", state: "idle" },
 ];
 
+// ── Destination fixtures (New session) ─────────────────────────────────────
+//
+// The two things the New surface has to let you choose: which paired Mac the
+// session lands on, and which project it runs in. Shapes are the REAL contract
+// shapes, field for field — no invented columns:
+//   · Workspace  ← WorkspaceSummary (packages/scout-native-core/Sources/
+//     ScoutCapabilities/Listing.swift): id · title · projectName · root ·
+//     defaultHarness? · harnesses[{ harness, readiness, detail? }].
+//   · PairedMac  ← AppModel.PairedMachine: id · name · isOnline · isActive.
+// Anything a row shows beyond those fields is DERIVED here (see
+// workspaceActivity, which joins FLEET — the same listAgents inventory the
+// Agents surface already reads — onto a workspace by projectName).
+
+export type HarnessReadiness = "ready" | "configured" | "installed" | "missing" | "unknown";
+export interface WorkspaceHarness { harness: string; readiness: HarnessReadiness; detail?: string }
+export interface Workspace {
+  id: string;
+  title: string;
+  projectName: string;
+  root: string;              // absolute path on the Mac
+  defaultHarness?: string;
+  harnesses: WorkspaceHarness[];
+}
+export interface PairedMac { id: string; name: string; isOnline: boolean; isActive: boolean }
+
+/** Harnesses that actually ship (ComposerModelHarness.catalog): claude · codex. */
+const BOTH: WorkspaceHarness[] = [
+  { harness: "claude", readiness: "ready" },
+  { harness: "codex", readiness: "ready" },
+];
+const CLAUDE_ONLY: WorkspaceHarness[] = [
+  { harness: "claude", readiness: "ready" },
+  { harness: "codex", readiness: "missing", detail: "codex not on PATH" },
+];
+const CODEX_ONLY: WorkspaceHarness[] = [
+  { harness: "codex", readiness: "ready" },
+  { harness: "claude", readiness: "installed" },
+];
+
+/** [name, parent, defaultHarness, harness set] — the CLEAN long tail. The head
+ *  of the real list (umbrella dirs, worktree clones, scratch checkouts) is
+ *  spelled out by root in REAL_TABLE below, because those paths are the point. */
+const WORKSPACE_TABLE: [string, string, string | undefined, WorkspaceHarness[]][] = [
+  ["openscout", "/Users/art/dev", "claude", BOTH],
+  ["hudson", "/Users/art/dev", "codex", BOTH],
+  ["lattices", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["talkie", "/Users/art/dev", "claude", BOTH],
+  ["studio", "/Users/art/dev", "claude", BOTH],
+  ["oscout-net", "/Users/art/dev", "codex", CODEX_ONLY],
+  ["herdr", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["parakeet-ios", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["glyphd", "/Users/art/dev", undefined, CLAUDE_ONLY],
+  ["tinker", "/Users/art/dev", "codex", BOTH],
+  ["ledgerly", "/Users/art/dev", "claude", BOTH],
+  ["pinboard", "/Users/art/dev", undefined, CLAUDE_ONLY],
+  ["waypoint", "/Users/art/dev", "codex", CODEX_ONLY],
+  ["quilt", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["corvid", "/Users/art/dev", "claude", BOTH],
+  ["mosaic", "/Users/art/dev", undefined, CLAUDE_ONLY],
+  ["driftwood", "/Users/art/dev", "codex", CODEX_ONLY],
+  ["kettle", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["harbor", "/Users/art/dev", "claude", BOTH],
+  ["sable", "/Users/art/dev", undefined, CLAUDE_ONLY],
+  ["plume", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["tessera", "/Users/art/dev", "codex", CODEX_ONLY],
+  ["junco", "/Users/art/dev", "claude", CLAUDE_ONLY],
+  ["marlin", "/Users/art/dev", "claude", BOTH],
+  ["dotfiles", "/Users/art/dev", undefined, CLAUDE_ONLY],
+  ["scout-web", "/Users/art/dev", "claude", BOTH],
+  ["oh-my-pi", "/Users/art/dev/ext", undefined, CLAUDE_ONLY],
+  ["ghostty", "/Users/art/dev/ext", undefined, CLAUDE_ONLY],
+  ["zed", "/Users/art/dev/ext", undefined, CLAUDE_ONLY],
+  ["swift-syntax", "/Users/art/dev/ext", undefined, CLAUDE_ONLY],
+  ["tree-sitter", "/Users/art/dev/ext", undefined, CLAUDE_ONLY],
+  ["acme-api", "/Users/art/work", "codex", CODEX_ONLY],
+  ["acme-web", "/Users/art/work", "codex", CODEX_ONLY],
+  ["acme-infra", "/Users/art/work", "codex", CODEX_ONLY],
+  ["billing-svc", "/Users/art/work", "claude", BOTH],
+  ["pagerbot", "/Users/art/work", "claude", CLAUDE_ONLY],
+  ["kernel-notes", "/Users/art/src", undefined, CLAUDE_ONLY],
+  ["wasm-lab", "/Users/art/src", "codex", CODEX_ONLY],
+  ["rustlings", "/Users/art/src", undefined, CLAUDE_ONLY],
+  ["scratch", "/Users/art/src", undefined, CLAUDE_ONLY],
+];
+
+function makeWorkspace(name: string, parent: string, dflt: string | undefined, hs: WorkspaceHarness[]): Workspace {
+  return {
+    id: `ws_${name.replace(/[^a-z0-9]/gi, "_")}_${parent.length}`,
+    title: name,
+    projectName: name,
+    root: `${parent}/${name}`,
+    defaultHarness: dflt,
+    harnesses: hs,
+  };
+}
+
+function makeRoot(name: string, root: string, dflt: string | undefined, hs: WorkspaceHarness[]): Workspace {
+  return {
+    id: `ws_${root.replace(/[^a-z0-9]/gi, "_")}`,
+    title: name,
+    projectName: name,
+    root,
+    defaultHarness: dflt,
+    harnesses: hs,
+  };
+}
+
+/**
+ * THE HEAD OF THE REAL LIST, transcribed off the phone (2026-07-28, `PROJECT
+ * 57`). This is what `mobile/workspaces` actually returns once a Mac is paired,
+ * and it is nothing like a tidy inventory:
+ *
+ *   · UMBRELLA DIRS — `Art` (/Users/art) and `Dev` (~/dev) are indexed as
+ *     projects even though they are merely the folders the projects live in.
+ *   · WORKTREE CLONES — three `openscout` rows under `~/.codex/worktrees/<hash>`,
+ *     one of which the surface had SELECTED by default. Starting a conversation
+ *     there is almost never what you meant.
+ *   · SCRATCH CHECKOUTS — `/tmp` and `/private/tmp` copies, title-cased into
+ *     names like `Openscout Work List Wt`.
+ *   · SAME-NAME DUPLICATES — four things called some case of "openscout".
+ *
+ * The names are verbatim, including the inconsistent casing: the index
+ * prettifies some directory names and not others, which is itself part of why
+ * the raw list is hard to read.
+ */
+const REAL_HEAD: Workspace[] = [
+  makeRoot("Art", "/Users/art", undefined, CLAUDE_ONLY),
+  makeRoot("Dev", "/Users/art/dev", undefined, CLAUDE_ONLY),
+  makeRoot("Openscout", "/Users/art/.codex/worktrees/a5d0f1c2/openscout", "claude", BOTH),
+  makeRoot("Openscout Work List Wt", "/private/tmp/openscout-work-list-wt", "claude", CLAUDE_ONLY),
+  makeRoot("openscout", "/Users/art/.codex/worktrees/c50e77a1/openscout", "codex", BOTH),
+  makeRoot("openscout", "/Users/art/.codex/worktrees/b4229d30/openscout", "codex", BOTH),
+  makeRoot("talkie", "/tmp/talkie", "claude", CLAUDE_ONLY),
+  makeRoot("All", "/Users/art/dev/all", undefined, CLAUDE_ONLY),
+  makeRoot("Action", "/Users/art/dev/action", undefined, CLAUDE_ONLY),
+  makeRoot("Arach Io", "/Users/art/dev/arach.io", "claude", CLAUDE_ONLY),
+  makeRoot("openscout", "/Users/art/.codex/worktrees/7f31b8c4/openscout", "codex", BOTH),
+  makeRoot("hudson", "/Users/art/.codex/worktrees/9ab4e025/hudson", "codex", BOTH),
+  makeRoot("Scout Ios Nav", "/private/tmp/scout-ios-nav", "claude", CLAUDE_ONLY),
+  makeRoot("talkie", "/Users/art/.claude/worktrees/2d19aa7f/talkie", "claude", CLAUDE_ONLY),
+  makeRoot("Studio Craft Pass", "/private/tmp/studio-craft-pass", "claude", CLAUDE_ONLY),
+  makeRoot("openscout", "/var/folders/gq/T/openscout-check", "claude", CLAUDE_ONLY),
+  makeRoot("Src", "/Users/art/src", undefined, CLAUDE_ONLY),
+];
+
+/** The common case: ONE Mac, 57 rows — the real head above, then the durable
+ *  checkouts. Deliberately in the order the Mac returns them, which is to say
+ *  the junk is at the top. */
+export const WORKSPACES: Workspace[] = [
+  ...REAL_HEAD,
+  ...WORKSPACE_TABLE.map((r) => makeWorkspace(...r)),
+];
+
+/** The stress case: a platform monorepo's package roots swamp the personal
+ *  checkouts. This is how a real inventory gets to 200 — not 200 side projects. */
+export const WORKSPACES_STRESS: Workspace[] = [
+  ...WORKSPACES,
+  ...Array.from({ length: 118 }, (_, i) =>
+    makeWorkspace(`svc-${String(i + 1).padStart(3, "0")}`, "/Users/art/work/platform", "codex", CODEX_ONLY)),
+  ...Array.from({ length: 46 }, (_, i) =>
+    makeWorkspace(`pkg-${String(i + 1).padStart(2, "0")}`, "/Users/art/work/platform/packages", "codex", CODEX_ONLY)),
+];
+
+/** Freshly paired — the Mac has answered, and it has nothing to report yet. */
+export const WORKSPACES_EMPTY: Workspace[] = [];
+
+/** The common fleet: one Mac, and it IS the answer — a readout, not a choice. */
+export const MACS_SOLO: PairedMac[] = [
+  { id: "m_studio", name: "studio", isOnline: true, isActive: true },
+];
+/** The multi-Mac fleet. Every PAIRED Mac shows, including the sleeping one —
+ *  hiding it turns "your Mac is asleep" into "you have no Macs". */
+export const MACS_FLEET: PairedMac[] = [
+  { id: "m_studio", name: "studio", isOnline: true, isActive: true },
+  { id: "m_mini", name: "mac mini", isOnline: true, isActive: false },
+  { id: "m_loft", name: "loft mbp", isOnline: false, isActive: false },
+];
+
+/** `~` for the Mac's home, so a path reads at 10px instead of spending a third
+ *  of the row on `/Users/<someone>` (mirrors NewSessionSurface.abbreviate). */
+export function abbreviatePath(path: string) {
+  if (!path.startsWith("/Users/")) return path;
+  const rest = path.slice("/Users/".length);
+  const slash = rest.indexOf("/");
+  return slash < 0 ? "~" : `~${rest.slice(slash)}`;
+}
+export function parentPath(path: string) {
+  const i = path.lastIndexOf("/");
+  return i <= 0 ? "/" : path.slice(0, i);
+}
+
+/**
+ * DERIVED, not a contract field: what the fleet is doing in this workspace.
+ * Joins the agent inventory (FLEET ← listAgents, which the Agents surface
+ * already reads) onto a workspace by projectName. Nothing here comes from
+ * WorkspaceSummary — the New surface would have to fetch agents too, which it
+ * does not do today.
+ */
+export function workspaceActivity(ws: Workspace, agents: Agent[] = FLEET) {
+  const mine = agents.filter((a) => a.project === ws.projectName);
+  if (mine.length === 0) return null;
+  const freshest = [...mine].sort((a, b) => ageRank(a.age) - ageRank(b.age))[0];
+  return { count: mine.length, age: freshest.age ?? "", live: mine.some((a) => a.state === "live") };
+}
+
+/** Group a workspace list under its parent directories, freshest parent first. */
+export function groupWorkspaces(list: Workspace[]) {
+  const map = new Map<string, Workspace[]>();
+  for (const ws of list) {
+    const key = abbreviatePath(parentPath(ws.root));
+    const arr = map.get(key) ?? [];
+    arr.push(ws);
+    map.set(key, arr);
+  }
+  return [...map].map(([parent, items]) => ({ parent, items }));
+}
+
+// ── Curation ────────────────────────────────────────────────────────────────
+//
+// The Mac's inventory is not a list of projects; it is a list of directories
+// that happen to contain code. Three of the four kinds below are things you
+// almost never mean to start a conversation in, and interleaving them as peers
+// is what made the shipped list unreadable (see REAL_HEAD). This is CURATION of
+// real data — pure path arithmetic on `root`, no invented fields, no fetch —
+// and it ports to Swift as the same four predicates.
+
+export type WorkspaceKind = "project" | "umbrella" | "worktree" | "scratch";
+
+const SCRATCH_PREFIXES = ["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"];
+const WORKTREE_MARKERS = ["/.codex/worktrees/", "/.claude/worktrees/", "/worktrees/", "/.git/worktrees/"];
+
+/** Which of the four a root is. `all` is needed only for the umbrella test —
+ *  a directory is an umbrella when the index ALSO knows what is inside it. */
+export function workspaceKind(ws: Workspace, all: Workspace[]): WorkspaceKind {
+  const root = ws.root;
+  if (SCRATCH_PREFIXES.some((p) => root.startsWith(p))) return "scratch";
+  if (WORKTREE_MARKERS.some((m) => root.includes(m))) return "worktree";
+  // The home directory itself is never a project.
+  if (/^\/Users\/[^/]+$/.test(root)) return "umbrella";
+  // A directory that merely CONTAINS other indexed roots. Two, not one, so a
+  // real project with one vendored checkout inside it stays a project.
+  const contained = all.filter((o) => o.root !== root && o.root.startsWith(`${root}/`)).length;
+  return contained >= 2 ? "umbrella" : "project";
+}
+
+/**
+ * Split the inventory into what you meant and what the indexer swept up. The
+ * durable half keeps the Mac's own order; the demoted half is kept, labelled
+ * and reachable — never hidden, because "my worktree isn't in the list" is a
+ * worse bug than a long list.
+ */
+export function curateWorkspaces(list: Workspace[]) {
+  const durable: Workspace[] = [];
+  const demoted: Workspace[] = [];
+  for (const ws of list) {
+    (workspaceKind(ws, list) === "project" ? durable : demoted).push(ws);
+  }
+  return { durable, demoted };
+}
+
+/**
+ * The one ranking signal that is actually BACKED today: the roots this DEVICE
+ * last started a conversation in. It is written when a session starts and read
+ * back on the next visit — no join against the agent inventory (`AgentSummary`
+ * carries no project path, so ranking by "where your agents are" is not
+ * available), no server call. Empty on a fresh install, which is why the
+ * fallback below is the Mac's own order.
+ */
+export const RECENT_ROOTS = [
+  "/Users/art/dev/openscout",
+  "/Users/art/dev/talkie",
+  "/Users/art/dev/hudson",
+];
+
+/** The short list the calm surface shows: device-recent first (in recency
+ *  order), then the Mac's own order, capped. Never shows a demoted root. */
+export function promoteWorkspaces(durable: Workspace[], recent: string[], limit = 3) {
+  const byRoot = new Map(durable.map((ws) => [ws.root, ws] as const));
+  const head = recent.map((r) => byRoot.get(r)).filter((ws): ws is Workspace => !!ws);
+  const seen = new Set(head.map((ws) => ws.root));
+  return [...head, ...durable.filter((ws) => !seen.has(ws.root))].slice(0, limit);
+}
+
+/** One line for the demoted pile — honest about what is in it. */
+export function demotedSummary(demoted: Workspace[], all: Workspace[]) {
+  const counts = { umbrella: 0, worktree: 0, scratch: 0 };
+  for (const ws of demoted) {
+    const kind = workspaceKind(ws, all);
+    if (kind !== "project") counts[kind] += 1;
+  }
+  const parts: string[] = [];
+  if (counts.worktree) parts.push(`${counts.worktree} worktree${counts.worktree === 1 ? "" : "s"}`);
+  if (counts.scratch) parts.push(`${counts.scratch} scratch`);
+  if (counts.umbrella) parts.push(`${counts.umbrella} folder${counts.umbrella === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/** The filter the surface runs: name, title or path, case-insensitive. */
+export function filterWorkspaces(list: Workspace[], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((ws) =>
+    ws.projectName.toLowerCase().includes(q)
+    || ws.title.toLowerCase().includes(q)
+    || ws.root.toLowerCase().includes(q));
+}
+
+/** A query the operator clearly means as a path that no workspace answers —
+ *  offered verbatim, because the Mac may hold a checkout the index hasn't seen. */
+export function typedPath(list: Workspace[], query: string) {
+  const raw = query.trim();
+  if (!raw.startsWith("/") && !raw.startsWith("~")) return null;
+  if (list.some((ws) => ws.root === raw || abbreviatePath(ws.root) === raw)) return null;
+  return raw;
+}
+
 // Subscription quotas — the plans you're actually burning across the fleet.
 // The "Log" Home surfaces only the two useful glance-values at the top: the
 // activity chart and how much of each subscription you've spent. Each plan

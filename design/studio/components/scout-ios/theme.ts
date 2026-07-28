@@ -993,6 +993,264 @@ export const SCOUT_IOS_CSS = `
 .iStartBtn { width: 100%; font-size: 14px; font-weight: 600; padding: 12px; border-radius: 12px;
   background: var(--i-accent); color: #04130d; border: none; cursor: pointer; }
 
+/* ── New session · DESTINATION picker ───────────────────────────────────── */
+/* Which Mac the work lands on, and which project it runs in — the two
+   decisions that gate Start, on a phone, above a composer.
+   THE CONSTRAINT: the composer is a filled rounded PILL. Nothing else on this
+   screen may be a filled rounded box, or the eye cannot tell which one you type
+   the task into. So every treatment here builds structure out of hairlines,
+   eyebrows and flat rows — Instrument language — and the only rounded filled
+   thing on the glass is the composer. The one exception is treatment 3's search
+   field, which is a real HudField (.iField) and is legal precisely because it
+   only exists while the composer is off-screen behind a sheet. */
+
+/* the surface column: body scrolls, dock is pinned */
+.iDest { height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.iDestScroll { flex: 1; min-height: 0; overflow: hidden; }
+
+/* eyebrow — the Instrument label. Mono caps micro, dim, generously tracked. */
+.iDestEyebrow { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--i-dim); flex: none; }
+.iDestRule { height: 1px; background: var(--i-hairline-strong); flex: none; }
+.iDestRule[data-soft] { background: var(--i-hairline); }
+
+/* HOST — one Mac is a readout, several are plates. Never a stadium. */
+.iDestHost { display: flex; align-items: center; gap: 12px; min-height: 34px;
+  padding: 4px 0 8px; }
+.iDestHostRead { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.iDestHostName { font-size: 13px; font-weight: 500; color: var(--i-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iDestHostTag { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); flex: none; }
+.iDestHostChips { display: flex; align-items: center; gap: 6px; min-width: 0;
+  overflow-x: auto; scrollbar-width: none; }
+.iDestHostChips::-webkit-scrollbar { display: none; }
+.iDestHostChip { flex: none; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 5px; cursor: pointer;
+  font-family: var(--i-mono); font-size: 10.5px; font-weight: 500;
+  color: var(--i-dim); background: var(--i-bg); border: 1px solid var(--i-hairline); }
+.iDestHostChip[data-on] { color: var(--i-ink); background: var(--i-surface);
+  border-color: var(--i-border); }
+.iDestHostChip[data-off] { opacity: 0.55; cursor: default; }
+
+/* QUERY — a bare line on a rule, NOT a field. A glyph, the text you type, and
+   the count of what is left. It has no box of its own, so it can never be
+   mistaken for the pill at the foot of the screen. */
+.iDestQuery { display: flex; align-items: center; gap: 11px; height: 44px; flex: none; }
+.iDestQuery > svg { color: var(--i-dim); flex: none; }
+.iDestQuery input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+  padding: 0; font-family: var(--i-font); font-size: 13.5px; color: var(--i-ink); }
+.iDestQuery input::placeholder { color: var(--i-dim); }
+.iDestQueryCount { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  font-variant-numeric: tabular-nums; flex: none; }
+.iDestQueryClear { flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  color: var(--i-dim); background: none; border: none; cursor: pointer;
+  font-family: var(--i-mono); font-size: 13px; }
+
+/* BAND / GROUP heads — the structure hairlines carry */
+.iDestBand { display: flex; align-items: center; gap: 8px; padding: 13px 0 6px; flex: none; }
+.iDestBandRule { flex: 1; height: 1px; background: var(--i-hairline); }
+.iDestGroup { display: flex; align-items: center; gap: 8px; padding: 12px 0 4px; }
+.iDestGroupPath { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  letter-spacing: 0.02em; }
+.iDestGroupCount { font-family: var(--i-mono); font-size: 9px; color: var(--i-dim);
+  font-variant-numeric: tabular-nums; margin-left: auto; }
+
+/* ONE PROJECT — a flat full-width row, which is the one shape the house rules
+   let an edge marker sit on. The travelling 2px bar is the pick. */
+.iDestRow { display: flex; align-items: center; gap: 11px; min-height: 44px;
+  padding: 0 2px 0 14px; position: relative; cursor: pointer; width: 100%;
+  background: none; border: none; text-align: left; font-family: var(--i-font); }
+.iDestRow::before { content: ""; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%); width: 2px; height: 18px; border-radius: 999px;
+  background: transparent; }
+.iDestRow[data-on]::before { background: var(--i-accent); }
+.iDestMark { flex: none; width: 15px; display: grid; place-items: center; color: var(--i-dim); }
+.iDestRow[data-on] .iDestMark { color: var(--i-accent); }
+.iDestName { font-size: 13.5px; font-weight: 500; color: var(--i-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iDestRow[data-on] .iDestName { font-weight: 600; color: var(--i-ink); }
+.iDestSpacer { flex: 1; min-width: 10px; }
+.iDestMeta { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim); flex: none;
+  font-variant-numeric: tabular-nums; }
+.iDestMeta[data-live] { color: var(--i-accent); }
+/* The head is cut in JS (see tailPath): CSS can only ellipsize the tail, and
+   the `direction: rtl` trick that fakes a head-cut reorders the neutrals —
+   `~/dev` renders as `dev/~`. */
+.iDestTail { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim); flex: none;
+  max-width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the path escape hatch — a query that IS a path no workspace answers */
+.iDestUse { font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-accent); flex: none; }
+
+.iDestNotice { font-family: var(--i-mono); font-size: 11px; line-height: 1.6;
+  color: var(--i-dim); padding: 22px 14px 0; max-width: 300px; }
+.iDestNotice b { color: var(--i-muted); font-weight: 600; }
+
+/* ── Treatment 2 · READOUT ──────────────────────────────────────────────── */
+/* The destination is ONE line above the composer, and that same line is the
+   search field — so there is never a second box competing with the pill. While
+   the line holds the keyboard the composer visibly stands down. */
+.iDestReadout { display: flex; align-items: center; gap: 10px; height: 44px; flex: none;
+  padding: 0 14px; border-top: 1px solid var(--i-hairline-strong); cursor: text;
+  background: none; border-left: none; border-right: none; border-bottom: none;
+  width: 100%; text-align: left; font-family: var(--i-font); }
+.iDestReadoutCaret { flex: none; font-family: var(--i-mono); font-size: 11px;
+  color: var(--i-dim); }
+.iDestReadout[data-live] .iDestReadoutCaret { color: var(--i-accent); }
+.iDestReadoutText { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: 12px;
+  color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iDestReadoutText em { font-style: normal; color: var(--i-dim); }
+.iDestReadout[data-live] .iDestReadoutText { color: var(--i-ink); }
+.iDestReadout input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+  padding: 0; font-family: var(--i-mono); font-size: 12px; color: var(--i-ink); }
+.iDestReadout input::placeholder { color: var(--i-dim); }
+.iDestReadoutHint { flex: none; font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--i-dim); }
+/* results rise BETWEEN the line and the composer, freshest match first */
+.iDestResults { flex: none; max-height: 232px; overflow: hidden;
+  border-top: 1px solid var(--i-hairline); }
+.iDestResults .iDestRow { min-height: 40px; padding-left: 14px; }
+.iDestResultsFoot { font-family: var(--i-mono); font-size: 9px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--i-dim); padding: 7px 14px 3px; }
+/* the composer stands down while the line is live — one live field, always */
+.iDestStandby { opacity: 0.34; pointer-events: none; filter: saturate(0.35); }
+
+/* ── Treatment 3 · SHEET ────────────────────────────────────────────────── */
+/* The destination rides in the composer's own header slot — an attribute OF the
+   message, not a control beside it — and opens a page that owns the screen. */
+.iDestHeaderLine { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 0 2px 2px; background: none; border: none; cursor: pointer;
+  font-family: var(--i-mono); font-size: 11px; color: var(--i-muted); text-align: left; }
+.iDestHeaderLine .iDot, .iDestHeaderLine .iRing { flex: none; }
+.iDestHeaderPath { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.iDestHeaderPath em { font-style: normal; color: var(--i-dim); }
+.iDestHeaderChev { flex: none; color: var(--i-dim); display: flex; }
+.iDestRest { flex: 1; min-height: 0; display: flex; flex-direction: column;
+  justify-content: flex-end; }
+.iDestRecents { flex: none; padding-bottom: 4px; }
+.iDestRecentsHead { display: flex; align-items: center; gap: 8px; padding: 0 2px 4px; }
+
+/* the picker page — a sheet that owns the screen, so the search control can be
+   a real field (.iField) without a pill anywhere near it */
+.iDestSheetScrim { position: absolute; inset: 0; z-index: 6; display: flex;
+  align-items: flex-end; background: rgba(3,4,3,0.55); }
+.scoutios[data-v="paper"] .iDestSheetScrim { background: rgba(62,56,44,0.28); }
+/* keyboard up: the sheet gives the keyboard its half and keeps the rest */
+.iDestSheetScrim[data-kb] { bottom: 226px; }
+.iDestSheetScrim[data-kb] .iDestSheet { height: 100%; }
+.iDestSheet { width: 100%; height: 88%; display: flex; flex-direction: column;
+  padding: 8px 14px 0; border-radius: 16px 16px 0 0; background: var(--i-bg);
+  border-top: 1px solid var(--i-hairline-strong); }
+.iDestSheetGrab { width: 36px; height: 4px; border-radius: 2px; margin: 0 auto 8px;
+  background: var(--i-hairline-strong); flex: none; }
+.iDestSheetHead { display: flex; align-items: baseline; gap: 9px; padding: 2px 0 8px; flex: none; }
+.iDestSheetTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); }
+.iDestSheetSub { font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iDestSheetDone { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--i-accent);
+  background: none; border: none; cursor: pointer; font-family: var(--i-font); }
+.iDestSheetHost { display: flex; align-items: center; gap: 10px; padding: 2px 0 9px; flex: none; }
+.iDestSheet .iField { margin: 0 0 2px; flex: none; }
+.iDestSheet .iField input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+  padding: 0; font-family: var(--i-font); font-size: 13px; color: var(--i-ink); }
+.iDestSheet .iField input::placeholder { color: var(--i-dim); }
+.iDestSheetList { flex: 1; min-height: 0; overflow: hidden; }
+
+/* ── Treatment 4 · CALM — the Home-shaped front door ────────────────────── */
+/* Same room as the Entry home, different furniture. Air on top, ONE quiet lane
+   hugging the composer, the composer docked, the keyboard toggle on its own
+   thin line BELOW it. The lane is the two decisions that gate Start — host,
+   then project — three rows deep, not thirty. */
+.iCalm { display: flex; flex-direction: column; padding-bottom: 0; }
+/* The air IS the design: it absorbs whatever the lane doesn't need, so a short
+   list hugs the composer and a grown one simply takes the room. */
+.iCalmAir { flex: 1 1 auto; min-height: 0; }
+.iCalmSection { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.iCalm[data-grown] .iCalmSection { flex: 1 1 auto; }
+
+/* ① HOST — one line, and in the common case (one Mac) that is all it costs.
+   No eyebrow row of its own, no rule above it, no band. */
+.iCalmHost { display: flex; align-items: center; gap: 8px; height: 30px; flex: none; padding: 0 2px; }
+.iCalmLabel { font-family: var(--i-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--i-dim); flex: none;
+  width: 46px; }
+.iCalmHostName { font-size: 13px; font-weight: 500; color: var(--i-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iCalmHostName[data-none] { color: var(--i-dim); }
+.iCalmHostChips { display: flex; align-items: center; gap: 6px; min-width: 0;
+  overflow-x: auto; scrollbar-width: none; }
+.iCalmHostChips::-webkit-scrollbar { display: none; }
+.iCalmRule { height: 1px; background: var(--i-hairline); flex: none; margin: 2px 0 0; }
+
+/* the bare query line — never a box, so the pill below stays the only pill */
+.iCalmQuery { display: flex; align-items: center; gap: 10px; height: 40px; flex: none;
+  padding: 0 2px; }
+.iCalmQuery > svg { color: var(--i-dim); flex: none; }
+.iCalmQuery input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+  padding: 0; font-family: var(--i-font); font-size: 13px; color: var(--i-ink); }
+.iCalmQuery input::placeholder { color: var(--i-dim); }
+
+/* ② PROJECT — three rows. The name holds a floor width and the PATH is the
+   side that gives: it shrinks, truncates from the head, and at the tightest
+   disappears. On the shipped surface the two collided outright. */
+.iCalmList { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+.iCalm[data-grown] .iCalmList { flex: 1 1 auto; }
+.iCalmRow { display: flex; align-items: center; gap: 11px; height: 38px; width: 100%;
+  padding: 0 2px 0 14px; position: relative; cursor: pointer;
+  background: none; border: none; text-align: left; font-family: var(--i-font); }
+.iCalmRow::before { content: ""; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%); width: 2px; height: 16px; border-radius: 999px;
+  background: transparent; }
+.iCalmRow[data-on]::before { background: var(--i-accent); }
+.iCalmMark { flex: none; width: 15px; display: grid; place-items: center; color: var(--i-dim); }
+.iCalmRow[data-on] .iCalmMark { color: var(--i-accent); }
+.iCalmName { flex: 1 1 auto; min-width: 84px; font-size: 13.5px; font-weight: 500;
+  color: var(--i-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iCalmRow[data-on] .iCalmName { font-weight: 600; color: var(--i-ink); }
+.iCalmPath { flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 12px;
+  font-family: var(--i-mono); font-size: 10px; color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44%; }
+/* what a demoted row IS, said once on the row rather than inferred from a path */
+.iCalmKind { flex: none; font-family: var(--i-mono); font-size: 8.5px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--i-dim);
+  padding: 1px 5px; border-radius: 3px; border: 1px solid var(--i-hairline); }
+
+/* the foot — the way to everything else, carrying the count so no eyebrow row
+   has to, and naming what is being held back */
+.iCalmMore { display: flex; align-items: center; gap: 8px; height: 34px; width: 100%;
+  flex: none; padding: 0 2px 0 14px; cursor: pointer; background: none; border: none;
+  border-top: 1px solid var(--i-hairline); text-align: left; font-family: var(--i-font); }
+.iCalmMoreText { font-size: 12px; font-weight: 500; color: var(--i-muted); flex: none; }
+.iCalmMoreSub { flex: 1; min-width: 0; font-family: var(--i-mono); font-size: 9.5px;
+  color: var(--i-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iCalmMoreChev { flex: none; margin-left: auto; color: var(--i-dim); display: flex; }
+
+/* the keyboard toggle line, BELOW the composer — the seat the operator drew.
+   Nothing keeps it company: New has no honest smart actions to put beside it. */
+/* Keyboard DOWN the bar owns the home-indicator safe area, the way the glass
+   rail does on Home; keyboard UP the slab owns it instead, so the bar tightens
+   to sit right on top of the keys. */
+.iCalmKbBar { flex: none; display: flex; justify-content: flex-end; align-items: center;
+  padding: 2px 16px 20px; }
+.iCalmKbBar[data-kb] { padding-bottom: 2px; }
+.iCalmKbToggle { display: grid; place-items: center; width: 34px; height: 28px;
+  color: var(--i-dim); }
+
+/* the picker PAGE (take · picker) — owns the screen, so its search can be a
+   real field without a pill anywhere near it */
+/* A page, not a sheet: it owns everything BELOW the status bar. The status bar
+   is the one thing that never belongs to an app screen. */
+.iCalmPageScrim { position: absolute; inset: 52px 0 0; z-index: 6; display: flex;
+  align-items: stretch; background: var(--i-bg); }
+.iCalmPageScrim[data-kb] { bottom: 226px; }
+.iCalmPage { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px 14px 0; }
+.iCalmPageHead { display: flex; align-items: baseline; gap: 9px; padding: 2px 0 8px; flex: none; }
+.iCalmPageTitle { font-size: 16px; font-weight: 600; color: var(--i-ink); }
+.iCalmPageList { flex: 1; min-height: 0; overflow: hidden; }
+.iCalmPageBand { display: flex; align-items: center; gap: 8px; padding: 14px 0 4px; }
+
 /* ── Connect / route inspector + pairing ───────────────────────────────── */
 .iConn { padding-top: 6px; padding-bottom: 24px; }
 .iConnStatus { padding: 8px 2px 10px; }

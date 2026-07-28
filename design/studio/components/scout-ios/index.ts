@@ -11,6 +11,7 @@ export * from "./surfaces";
 export * from "./fleet-surface";
 export * from "./fleet-log-surface";
 export * from "./entry-surface";
+export * from "./new-session-surface";
 export * from "./PhoneShell";
 export * from "./detail-surfaces";
 export * from "./notification-surfaces";
