@@ -1,11 +1,42 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   createPendingPairRequestStore,
+  pairRequestLockPath,
   pairRequestStatePath,
 } from "./pairing-pair-requests.ts";
+
+// Every store below writes real files. The store refuses to write shared
+// pairing state under a test runner unless OPENSCOUT_HOME points somewhere
+// disposable, so point it at a throwaway home for this process: an unisolated
+// test once left a live pending pair token in the operator's real
+// ~/.openscout/run/pair-requests.json.
+const isolatedHome = mkdtempSync(join(tmpdir(), "openscout-pair-requests-home-"));
+process.env.OPENSCOUT_HOME = isolatedHome;
+
+/** Rows the store writes are bearer credentials; nothing here may run as root. */
+const runsAsRoot = process.getuid?.() === 0;
+
+/**
+ * Age a lock file past the point where it can be honoured. Lock staleness is
+ * measured on the kernel's mtime, so the body cannot fake it.
+ */
+function backdate(path: string): void {
+  const longAgo = new Date(Date.now() - 60_000);
+  utimesSync(path, longAgo, longAgo);
+}
 
 const tempHomes: string[] = [];
 
@@ -18,8 +49,19 @@ function tempConfigHome(): string {
 
 afterEach(() => {
   while (tempHomes.length > 0) {
-    rmSync(tempHomes.pop() as string, { recursive: true, force: true });
+    const home = tempHomes.pop() as string;
+    // A degraded-persist test leaves a directory it cannot write to behind.
+    try {
+      chmodSync(join(home, "run"), 0o700);
+    } catch {
+      // No run directory, or it is already writable.
+    }
+    rmSync(home, { recursive: true, force: true });
   }
+});
+
+afterAll(() => {
+  rmSync(isolatedHome, { recursive: true, force: true });
 });
 
 function fixedClock(start = 1_000_000) {
@@ -222,7 +264,7 @@ describe("pending pair request store shared across instances", () => {
     expect(b.get(req.token)?.token).toBe(req.token);
 
     clock.advance(1001);
-    // B sweeps it out of the shared file...
+    // B stops offering it...
     expect(b.list()).toHaveLength(0);
     // ...and A must not resurrect it from its own memory.
     expect(a.get(req.token)).toBeNull();
@@ -319,5 +361,342 @@ describe("pending pair request store shared across instances", () => {
 
     shared.dispose();
     isolated.dispose();
+  });
+});
+
+// Two stores in one process cannot show what this store is for. JavaScript is
+// single-threaded, so an in-process "concurrent" test is a sequential one: a
+// read-modify-write there can never interleave with another. The production
+// case is two OS processes racing over one file — the phone polling instance A
+// while the human decides on instance B — so these spawn two real processes
+// and count what the race costs. Against the unserialized store they lose
+// roughly half the decisions; the bar here is zero.
+describe("pending pair request store under multi-process contention", () => {
+  const RACE_ROUNDS = 2_000;
+  const RACE_TIMEOUT_MS = 120_000;
+
+  interface RaceResult {
+    decider: { lost: number; resurrected: number; rounds: number };
+    poller: { touched: number };
+  }
+
+  async function race(scenario: "approve" | "deny" | "expire"): Promise<RaceResult> {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const signals = join(home, "signals");
+    mkdirSync(signals, { recursive: true });
+    const worker = join(import.meta.dir, "pairing-pair-requests.concurrency-worker.ts");
+
+    const spawnRole = (role: "decider" | "poller") =>
+      Bun.spawn({
+        cmd: [
+          process.execPath,
+          worker,
+          `--role=${role}`,
+          `--scenario=${scenario}`,
+          `--rounds=${RACE_ROUNDS}`,
+          `--state=${statePath}`,
+          `--signals=${signals}`,
+        ],
+        // The workers write real files, so they get the same isolated home the
+        // guard demands of this process.
+        env: { ...process.env, OPENSCOUT_HOME: home },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+    const decider = spawnRole("decider");
+    const poller = spawnRole("poller");
+    const [deciderOut, deciderErr, pollerOut, pollerErr] = await Promise.all([
+      new Response(decider.stdout).text(),
+      new Response(decider.stderr).text(),
+      new Response(poller.stdout).text(),
+      new Response(poller.stderr).text(),
+    ]);
+    const [deciderCode, pollerCode] = await Promise.all([decider.exited, poller.exited]);
+    if (deciderCode !== 0 || pollerCode !== 0) {
+      throw new Error(
+        `race workers failed (decider ${deciderCode}, poller ${pollerCode}):\n${deciderErr}\n${pollerErr}`,
+      );
+    }
+    return {
+      decider: JSON.parse(deciderOut) as RaceResult["decider"],
+      poller: JSON.parse(pollerOut) as RaceResult["poller"],
+    };
+  }
+
+  test(
+    "an approval is never reverted by a device polling the other instance",
+    async () => {
+      const result = await race("approve");
+      expect(result.decider.rounds).toBe(RACE_ROUNDS);
+      expect(result.poller.touched).toBe(RACE_ROUNDS);
+      expect(result.decider.lost).toBe(0);
+    },
+    RACE_TIMEOUT_MS,
+  );
+
+  test(
+    "a denial is never reverted by a device polling the other instance",
+    async () => {
+      const result = await race("deny");
+      expect(result.decider.rounds).toBe(RACE_ROUNDS);
+      expect(result.poller.touched).toBe(RACE_ROUNDS);
+      expect(result.decider.lost).toBe(0);
+    },
+    RACE_TIMEOUT_MS,
+  );
+
+  test(
+    "a poll never resurrects a request that expired on the other instance",
+    async () => {
+      const result = await race("expire");
+      expect(result.decider.rounds).toBe(RACE_ROUNDS);
+      expect(result.poller.touched).toBe(RACE_ROUNDS);
+      expect(result.decider.resurrected).toBe(0);
+    },
+    RACE_TIMEOUT_MS,
+  );
+});
+
+// The lock is only worth having if it cannot become the new failure. A pairing
+// Mac that goes silent because a crashed process left a lock behind would be a
+// worse bug than the one the lock fixes.
+describe("pending pair request store write lock", () => {
+  test("a lock left behind by a dead process is taken over", () => {
+    const statePath = pairRequestStatePath(tempConfigHome());
+    const lockPath = pairRequestLockPath(statePath);
+    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+    // macOS wraps pids well below this, so it is reliably ESRCH.
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 999_999, nonce: "dead", at: Date.now() }),
+    );
+
+    const store = createPendingPairRequestStore({ statePath });
+    const req = store.create({ requesterIp: "192.168.1.54" });
+
+    expect(store.get(req.token)?.token).toBe(req.token);
+    // Ours went away with the operation; the dead one is not still sitting there.
+    expect(existsSync(lockPath)).toBe(false);
+    store.dispose();
+  });
+
+  test("a lock whose holder stopped refreshing is taken over even if the pid lives", () => {
+    const statePath = pairRequestStatePath(tempConfigHome());
+    const lockPath = pairRequestLockPath(statePath);
+    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+    // Pids get recycled: a dead holder's pid can be reassigned to something
+    // that looks alive forever, so staleness is what actually breaks the tie.
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, nonce: "stale", at: 0 }));
+    backdate(lockPath);
+
+    const store = createPendingPairRequestStore({ statePath });
+    const req = store.create({ requesterIp: "192.168.1.55" });
+
+    expect(store.get(req.token)?.token).toBe(req.token);
+    expect(existsSync(lockPath)).toBe(false);
+    store.dispose();
+  });
+
+  test("a lock left half-written by a crash does not wedge pairing", () => {
+    const statePath = pairRequestStatePath(tempConfigHome());
+    const lockPath = pairRequestLockPath(statePath);
+    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+    // An exclusive create is not an atomic write: a lock exists for a moment
+    // before its body does. A FRESH empty lock therefore has to be read as
+    // "held, being written" — which is what stops two instances entering the
+    // critical section, and is what the multi-process races above measure. An
+    // OLD empty one is a crash between the create and the write, and must not
+    // be honoured forever.
+    writeFileSync(lockPath, "");
+    backdate(lockPath);
+
+    const store = createPendingPairRequestStore({ statePath });
+    const req = store.create({ requesterIp: "192.168.1.64" });
+
+    expect(store.get(req.token)?.token).toBe(req.token);
+    expect(existsSync(lockPath)).toBe(false);
+    store.dispose();
+  });
+
+  test("an operation leaves no lock behind", () => {
+    const statePath = pairRequestStatePath(tempConfigHome());
+    const store = createPendingPairRequestStore({ statePath });
+    const req = store.create({ requesterIp: "192.168.1.56" });
+    store.touch(req.token);
+    store.decide(req.token, "approve");
+    store.fulfill(req.token);
+
+    expect(existsSync(pairRequestLockPath(statePath))).toBe(false);
+    store.dispose();
+  });
+
+  test.skipIf(runsAsRoot)("an unlockable home degrades immediately rather than stalling", () => {
+    // A read-only `~/.openscout` cannot hold a lock either. That has to fail
+    // fast: waiting out the contention timeout on every request would turn a
+    // degraded instance into an unresponsive one.
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+    chmodSync(dirname(statePath), 0o500);
+
+    const store = createPendingPairRequestStore({ statePath });
+    const startedAt = Date.now();
+    const req = store.create({ requesterIp: "192.168.1.57" });
+    const elapsed = Date.now() - startedAt;
+
+    expect(req.status).toBe("pending");
+    expect(existsSync(pairRequestLockPath(statePath))).toBe(false);
+    expect(elapsed).toBeLessThan(1_000);
+    store.dispose();
+  });
+});
+
+// The floor for a degraded instance is the per-process store this replaced: it
+// kept a request it could not share. Dropping it is worse than not having the
+// shared file at all, because the phone gets 410 and stops polling.
+describe("pending pair request store with an unwritable home", () => {
+  test.skipIf(runsAsRoot)(
+    "keeps serving a request it could not publish when another instance publishes",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      const runDirectory = dirname(statePath);
+      mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+
+      const degraded = createPendingPairRequestStore({ statePath });
+      chmodSync(runDirectory, 0o500); // ~/.openscout on a read-only volume
+      const stranded = degraded.create({ requesterIp: "192.168.1.58", requesterLabel: "iPhone" });
+
+      // It really did fail to publish — otherwise this test proves nothing.
+      expect(existsSync(statePath)).toBe(false);
+      expect(degraded.get(stranded.token)?.token).toBe(stranded.token);
+
+      chmodSync(runDirectory, 0o700);
+      const writable = createPendingPairRequestStore({ statePath });
+      const unrelated = writable.create({ requesterIp: "192.168.1.59" });
+      expect(existsSync(statePath)).toBe(true);
+
+      // The other instance's publication must not evict the token this instance
+      // is the only holder of.
+      expect(degraded.get(stranded.token)?.token).toBe(stranded.token);
+      expect(degraded.list().map((r) => r.token).sort())
+        .toEqual([stranded.token, unrelated.token].sort());
+
+      degraded.dispose();
+      writable.dispose();
+    },
+  );
+
+  test.skipIf(runsAsRoot)("republishes a stranded request once the home is writable", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+
+    const degraded = createPendingPairRequestStore({ statePath });
+    chmodSync(runDirectory, 0o500);
+    const stranded = degraded.create({ requesterIp: "192.168.1.60" });
+    chmodSync(runDirectory, 0o700);
+
+    // The device is still polling, which is the next mutation this instance
+    // makes — and the retry rides along on it.
+    degraded.touch(stranded.token);
+
+    const other = createPendingPairRequestStore({ statePath });
+    expect(other.get(stranded.token)?.token).toBe(stranded.token);
+
+    degraded.dispose();
+    other.dispose();
+  });
+
+  test.skipIf(runsAsRoot)("an approval on the shared file beats an unpublished poll", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+
+    const writable = createPendingPairRequestStore({ statePath });
+    const req = writable.create({ requesterIp: "192.168.1.61" });
+
+    const degraded = createPendingPairRequestStore({ statePath });
+    expect(degraded.get(req.token)?.status).toBe("pending");
+    chmodSync(runDirectory, 0o500);
+    degraded.touch(req.token); // held only in this instance's memory
+
+    chmodSync(runDirectory, 0o700);
+    writable.decide(req.token, "approve");
+
+    // Merging back an unpublished row must not undo a decision that reached the
+    // shared file; only a poll went missing, and a poll carries no decision.
+    expect(degraded.get(req.token)?.status).toBe("approved");
+
+    degraded.dispose();
+    writable.dispose();
+  });
+
+  test.skipIf(runsAsRoot)("an unpublished approval survives another instance's poll", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+
+    const writable = createPendingPairRequestStore({ statePath });
+    const req = writable.create({ requesterIp: "192.168.1.65" });
+
+    const degraded = createPendingPairRequestStore({ statePath });
+    expect(degraded.get(req.token)?.status).toBe("pending");
+    chmodSync(runDirectory, 0o500);
+    // The human approved on the instance whose home happens to be read-only.
+    expect(degraded.decide(req.token, "approve")?.status).toBe("approved");
+
+    chmodSync(runDirectory, 0o700);
+    writable.touch(req.token); // the phone is still polling the other instance
+
+    // The other way round from the test above: a poll republishing the row must
+    // not silently revert an answer this instance could not publish. The
+    // per-process store kept it, so this one has to as well.
+    expect(degraded.get(req.token)?.status).toBe("approved");
+
+    degraded.dispose();
+    writable.dispose();
+  });
+});
+
+// A pair-request row is a bearer credential: whoever reads one can complete the
+// pair. The guard exists because a web-server test once wrote a live pending
+// token into the runner's real ~/.openscout/run/pair-requests.json.
+describe("pending pair request store test isolation", () => {
+  const realHomeStatePath = pairRequestStatePath(join(homedir(), ".openscout"));
+
+  test("refuses to write shared state without an isolated OPENSCOUT_HOME", () => {
+    const saved = process.env.OPENSCOUT_HOME;
+    delete process.env.OPENSCOUT_HOME;
+    try {
+      const store = createPendingPairRequestStore({ statePath: realHomeStatePath });
+      expect(() => store.create({ requesterIp: "192.168.1.62" })).toThrow(/OPENSCOUT_HOME/);
+      store.dispose();
+    } finally {
+      process.env.OPENSCOUT_HOME = saved;
+    }
+  });
+
+  test("an isolated OPENSCOUT_HOME does not license writing to the real one", () => {
+    // Set, but pointing somewhere else: the destination is checked too, so a
+    // hard-coded real-home path cannot ride in on someone else's isolation.
+    expect(process.env.OPENSCOUT_HOME).toBe(isolatedHome);
+    const store = createPendingPairRequestStore({ statePath: realHomeStatePath });
+    expect(() => store.create({ requesterIp: "192.168.1.63" })).toThrow(/inside the real/);
+    store.dispose();
+  });
+
+  test("reading is unaffected — only writes are refused", () => {
+    // The guard must not turn a real home into an exception on the read path,
+    // or a server whose home is fine would fail for the wrong reason.
+    const store = createPendingPairRequestStore({ statePath: realHomeStatePath });
+    expect(() => store.get("nope")).not.toThrow();
+    expect(() => store.list()).not.toThrow();
+    store.dispose();
   });
 });

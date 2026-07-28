@@ -441,6 +441,13 @@
     "owner": "web"
   },
   {
+    "path": "packages/web/server/pairing-pair-requests.test.ts",
+    "symbol": "Bun.spawn",
+    "category": "test",
+    "reason": "spawns two real processes to race over one shared pair-request file; in-process stores cannot interleave a read-modify-write",
+    "owner": "tests"
+  },
+  {
     "path": "packages/web/server/pairing.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",

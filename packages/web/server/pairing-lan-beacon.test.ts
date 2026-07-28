@@ -1,8 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { BEACON_CLAIM_STALE_MS, createBeaconClaimFile } from "./pairing-lan-beacon.ts";
+
+// The claim file is real user state under `~/.openscout`, and claiming refuses
+// to run under a test runner without an isolated home. Point it at a throwaway
+// one for this process.
+const isolatedHome = mkdtempSync(join(tmpdir(), "openscout-lan-beacon-home-"));
+process.env.OPENSCOUT_HOME = isolatedHome;
 
 /**
  * A pid that cannot exist: macOS wraps pids at 99999 (`kern.maxproc` is far
@@ -25,6 +31,10 @@ afterEach(() => {
   while (tempHomes.length > 0) {
     rmSync(tempHomes.pop() as string, { recursive: true, force: true });
   }
+});
+
+afterAll(() => {
+  rmSync(isolatedHome, { recursive: true, force: true });
 });
 
 // The beacon itself shells out to `dns-sd`, so what is worth testing is the
@@ -192,5 +202,21 @@ describe("lan beacon claim file", () => {
     expect(() => claim.take(43_120)).not.toThrow();
     expect(() => claim.release()).not.toThrow();
     expect(claim.heldByAnotherInstance()).toBe(false);
+  });
+
+  test("claiming refuses to write into a real home under a test runner", () => {
+    // The claim file is not a credential, but it is user state in the same
+    // directory as one, and the same guard keeps a future test out of it.
+    const saved = process.env.OPENSCOUT_HOME;
+    delete process.env.OPENSCOUT_HOME;
+    try {
+      const claim = createBeaconClaimFile({
+        path: join(homedir(), ".openscout", "run", "lan-beacon.json"),
+        pid: 100,
+      });
+      expect(() => claim.take(43_120)).toThrow(/OPENSCOUT_HOME/);
+    } finally {
+      process.env.OPENSCOUT_HOME = saved;
+    }
   });
 });

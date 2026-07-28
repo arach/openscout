@@ -1,7 +1,16 @@
 import { afterAll, beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
 import type { DiscoverySnapshot } from "@openscout/runtime/tail";
@@ -9,6 +18,15 @@ import {
   buildRelayAgentInstance,
   writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
+
+// Before anything captures the ambient environment. The server builds a shared
+// pair-request store keyed on `~/.openscout`, and a pairing test here once
+// persisted a live bearer token into the runner's REAL home. The store now
+// refuses to write without this set, so it is set for the whole file rather
+// than per test — every restore below restores to this, not to the operator's
+// home.
+const isolatedTestHome = mkdtempSync(join(tmpdir(), "openscout-web-server-test-home-"));
+process.env.OPENSCOUT_HOME = join(isolatedTestHome, ".openscout");
 
 const originalFetch = globalThis.fetch;
 const originalHome = process.env.HOME;
@@ -283,6 +301,7 @@ mock.restore();
 
 afterAll(() => {
   mock.restore();
+  rmSync(isolatedTestHome, { recursive: true, force: true });
 });
 
 function makeStaticRoot(): string {
@@ -3563,6 +3582,15 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(202);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toContain("scout://pair pairing requires approval");
+
+    // The request that just got registered carries a bearer token, and this
+    // test used to persist one into the runner's REAL ~/.openscout because it
+    // never isolated OPENSCOUT_HOME. It has to land in the temp home instead,
+    // and it has to land there unreadable by anyone else.
+    const statePath = join(isolatedTestHome, ".openscout", "run", "pair-requests.json");
+    expect(existsSync(statePath)).toBe(true);
+    expect(statSync(statePath).mode & 0o077).toBe(0);
+    expect(existsSync(join(homedir(), ".openscout", "run", "pair-requests.json.lock"))).toBe(false);
   });
 
   test("serves site-level feature flag bundle config for the client", async () => {
