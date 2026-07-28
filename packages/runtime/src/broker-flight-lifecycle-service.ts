@@ -89,6 +89,8 @@ const staleReconcileableDeliveryStatuses = new Set<DeliveryStatus>([
   "sent",
 ]);
 
+export const STALE_LOCAL_DELIVERY_GRACE_MS = 2 * 60_000;
+
 export function deliveryStatusForFlight(flight: FlightRecord): DeliveryStatus | null {
   if (flight.state === "running" || flight.state === "waiting") {
     return "running";
@@ -108,8 +110,22 @@ export function deliveryStatusForFlight(flight: FlightRecord): DeliveryStatus | 
 export function staleLocalDeliveryReason(
   snapshot: RuntimeSnapshot,
   delivery: DeliveryIntent,
+  options: { now?: number; graceMs?: number } = {},
 ): string | null {
   if (delivery.targetKind !== "agent" || !staleReconcileableDeliveryStatuses.has(delivery.status)) {
+    return null;
+  }
+
+  const messageCreatedAt = delivery.messageId
+    ? snapshot.messages[delivery.messageId]?.createdAt
+    : undefined;
+  const invocationCreatedAt = delivery.invocationId
+    ? snapshot.invocations[delivery.invocationId]?.createdAt
+    : undefined;
+  const createdAt = messageCreatedAt ?? invocationCreatedAt ?? 0;
+  const now = options.now ?? Date.now();
+  const graceMs = options.graceMs ?? STALE_LOCAL_DELIVERY_GRACE_MS;
+  if (createdAt > 0 && now - createdAt < graceMs) {
     return null;
   }
 
@@ -260,7 +276,7 @@ export class BrokerFlightLifecycleService {
     const now = this.now();
 
     for (const delivery of this.options.journal.listDeliveries({ limit: 5000 })) {
-      const reason = staleLocalDeliveryReason(snapshot, delivery);
+      const reason = staleLocalDeliveryReason(snapshot, delivery, { now });
       if (!reason) {
         continue;
       }
@@ -331,10 +347,20 @@ export class BrokerFlightLifecycleService {
         delivery.messageId === invocation.messageId
         && delivery.targetId === flight.targetAgentId
         && delivery.status !== status
-        && !terminalDeliveryStatuses.has(delivery.status)
+        && (
+          !terminalDeliveryStatuses.has(delivery.status)
+          || (
+            delivery.status === "failed"
+            && delivery.metadata?.reconciledStaleDelivery === true
+            && (status === "running" || status === "completed")
+          )
+        )
       ));
 
     for (const delivery of deliveries) {
+      const recoveringFalseStaleFailure = delivery.status === "failed"
+        && delivery.metadata?.reconciledStaleDelivery === true
+        && (status === "running" || status === "completed");
       await this.options.updateDeliveryStatus({
         deliveryId: delivery.id,
         status,
@@ -343,6 +369,12 @@ export class BrokerFlightLifecycleService {
           flightId: flight.id,
           flightState: flight.state,
           flightStatusUpdatedAt: updatedAt,
+          ...(recoveringFalseStaleFailure ? {
+            failureReason: null,
+            failureDetail: null,
+            recoveredFromStaleReconciliation: true,
+            recoveredAt: updatedAt,
+          } : {}),
           ...(flight.error ? { failureDetail: flight.error } : {}),
         },
         leaseOwner: null,
