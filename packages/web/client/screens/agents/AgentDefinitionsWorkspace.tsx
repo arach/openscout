@@ -8,7 +8,7 @@ import type { Agent, LocalAgentConfigState, Route, SessionCatalogWithResume } fr
 import { useScout } from "../../scout/Provider.tsx";
 import { agentSpecialization } from "../projects/agent-specialization.ts";
 import { permissionLabel } from "../projects/project-overview-helpers.ts";
-import { FileViewerPane, type ViewableProjectFile } from "../projects/project-repo-frame.tsx";
+import { FileViewerPane, type ViewableProjectFile } from "./FileViewerPane.tsx";
 import "../projects/projects.css";
 import "./agent-definitions.css";
 
