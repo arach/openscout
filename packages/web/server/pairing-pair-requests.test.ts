@@ -4,9 +4,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -698,5 +700,70 @@ describe("pending pair request store test isolation", () => {
     expect(() => store.get("nope")).not.toThrow();
     expect(() => store.list()).not.toThrow();
     store.dispose();
+  });
+
+  // A lexical containment check answers "does this string start with the
+  // isolated home", which is not the question. The question is where the bytes
+  // land, and a symlink beneath the isolated home answers it differently: a
+  // `run` directory pointing at `~/.openscout/run` reads as isolated and writes
+  // a live bearer token into the operator's actual home. Each case below runs
+  // in a child process started with HOME pointing at a temp directory, because
+  // `homedir()` is read once at startup and the real home is precisely what
+  // must not be involved in proving this.
+  describe("a symlink out of the isolated home", () => {
+    interface Bypass {
+      /** What the child reported, if the write was refused. */
+      refused: string | null;
+      /** Anything that landed in the stand-in for the real home. */
+      landed: string[];
+    }
+
+    async function attemptBypass(targetExists: boolean): Promise<Bypass> {
+      const root = mkdtempSync(join(tmpdir(), "openscout-pair-guard-"));
+      tempHomes.push(root);
+      const fakeRealHome = join(root, "home");
+      const fakeRealRun = join(fakeRealHome, ".openscout", "run");
+      // The dangling case matters on its own: resolving only the part of the
+      // path that already exists would see straight past a link whose target
+      // has not been created yet, and the writer creates it on the way past.
+      mkdirSync(targetExists ? fakeRealRun : join(fakeRealHome, ".openscout"), {
+        recursive: true,
+      });
+      const isolated = join(root, "isolated");
+      mkdirSync(isolated, { recursive: true });
+      symlinkSync(fakeRealRun, join(isolated, "run"));
+
+      const child = Bun.spawn({
+        cmd: [
+          process.execPath,
+          join(import.meta.dir, "pairing-pair-requests.isolation-worker.ts"),
+          `--state=${join(isolated, "run", "pair-requests.json")}`,
+        ],
+        env: { ...process.env, HOME: fakeRealHome, OPENSCOUT_HOME: isolated, NODE_ENV: "test" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [out, err] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      if ((await child.exited) !== 0) throw new Error(`isolation worker failed:\n${err}`);
+      return {
+        refused: (JSON.parse(out) as { refused: string | null }).refused,
+        landed: existsSync(fakeRealRun) ? readdirSync(fakeRealRun) : [],
+      };
+    }
+
+    test("is refused, and writes nothing to the home it resolves into", async () => {
+      const result = await attemptBypass(true);
+      expect(result.refused).toMatch(/inside the real/);
+      expect(result.landed).toEqual([]);
+    });
+
+    test("is refused even when the link target does not exist yet", async () => {
+      const result = await attemptBypass(false);
+      expect(result.refused).toMatch(/inside the real/);
+      expect(result.landed).toEqual([]);
+    });
   });
 });
