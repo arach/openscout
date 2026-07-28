@@ -12,6 +12,11 @@ export type TerminalWorkspaceLayout<T> = {
   id: string;
   name: string;
   tiles: T[];
+  /** What the workspace is for, in the operator's own words. */
+  purpose?: string;
+  /** Grid column count the workspace reopens with. */
+  columns?: number;
+  updatedAt?: number;
 };
 
 export type TerminalWorkspaceDeck<T> = {
@@ -19,6 +24,9 @@ export type TerminalWorkspaceDeck<T> = {
   activeWorkspaceId: string;
   workspaces: TerminalWorkspaceLayout<T>[];
 };
+
+/** Highest column count a workspace may reopen with. */
+export const TERMINAL_WORKSPACE_MAX_COLUMNS = 6;
 
 export function createTerminalWorkspaceDeck<T>(
   id = "main",
@@ -31,13 +39,27 @@ export function createTerminalWorkspaceDeck<T>(
   };
 }
 
+/**
+ * A deck with no workspaces at all. Distinct from {@link createTerminalWorkspaceDeck},
+ * which seeds a default workspace: a first-run surface needs to know that the
+ * operator has never saved one, so it can offer to create instead of opening an
+ * empty grid nobody asked for.
+ */
+export function emptyTerminalWorkspaceDeck<T>(): TerminalWorkspaceDeck<T> {
+  return { version: 1, activeWorkspaceId: "", workspaces: [] };
+}
+
 export function normalizeTerminalWorkspaceDeck<T>(
   value: unknown,
   isTile: (value: unknown) => value is T,
+  options: { allowEmpty?: boolean } = {},
 ): TerminalWorkspaceDeck<T> {
-  if (!value || typeof value !== "object") return createTerminalWorkspaceDeck<T>();
+  const fallback = () => options.allowEmpty
+    ? emptyTerminalWorkspaceDeck<T>()
+    : createTerminalWorkspaceDeck<T>();
+  if (!value || typeof value !== "object") return fallback();
   const candidate = value as Partial<TerminalWorkspaceDeck<unknown>>;
-  if (!Array.isArray(candidate.workspaces)) return createTerminalWorkspaceDeck<T>();
+  if (!Array.isArray(candidate.workspaces)) return fallback();
 
   const workspaces: TerminalWorkspaceLayout<T>[] = [];
   const seenIds = new Set<string>();
@@ -47,9 +69,22 @@ export function normalizeTerminalWorkspaceDeck<T>(
     const name = typeof workspace.name === "string" ? workspace.name.trim() : "";
     if (!id || !name || seenIds.has(id) || !Array.isArray(workspace.tiles)) continue;
     seenIds.add(id);
-    workspaces.push({ id, name, tiles: workspace.tiles.filter(isTile) });
+    const purpose = typeof workspace.purpose === "string" ? workspace.purpose.trim() : "";
+    const columns = normalizeTerminalWorkspaceColumns(workspace.columns);
+    const updatedAt = typeof workspace.updatedAt === "number" && Number.isFinite(workspace.updatedAt)
+      && workspace.updatedAt >= 0
+      ? workspace.updatedAt
+      : null;
+    workspaces.push({
+      id,
+      name,
+      tiles: workspace.tiles.filter(isTile),
+      ...(purpose ? { purpose } : {}),
+      ...(columns ? { columns } : {}),
+      ...(updatedAt === null ? {} : { updatedAt }),
+    });
   }
-  if (workspaces.length === 0) return createTerminalWorkspaceDeck<T>();
+  if (workspaces.length === 0) return fallback();
 
   const activeWorkspaceId = typeof candidate.activeWorkspaceId === "string"
     && seenIds.has(candidate.activeWorkspaceId)
@@ -58,20 +93,66 @@ export function normalizeTerminalWorkspaceDeck<T>(
   return { version: 1, activeWorkspaceId, workspaces };
 }
 
+export function normalizeTerminalWorkspaceColumns(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const columns = Math.floor(value);
+  if (columns < 1) return null;
+  return Math.min(columns, TERMINAL_WORKSPACE_MAX_COLUMNS);
+}
+
 export function addTerminalWorkspace<T>(
   deck: TerminalWorkspaceDeck<T>,
   id: string,
+  name?: string,
 ): TerminalWorkspaceDeck<T> {
   if (!id.trim() || deck.workspaces.some((workspace) => workspace.id === id)) return deck;
-  const usedNames = new Set(deck.workspaces.map((workspace) => workspace.name));
-  let index = deck.workspaces.length + 1;
-  while (usedNames.has(`Workspace ${index}`)) index += 1;
-  const workspace = { id, name: `Workspace ${index}`, tiles: [] as T[] };
+  const workspace = { id, name: name?.trim() || nextTerminalWorkspaceName(deck), tiles: [] as T[] };
   return {
     ...deck,
     activeWorkspaceId: workspace.id,
     workspaces: [...deck.workspaces, workspace],
   };
+}
+
+function nextTerminalWorkspaceName<T>(deck: TerminalWorkspaceDeck<T>): string {
+  const usedNames = new Set(deck.workspaces.map((workspace) => workspace.name));
+  let index = deck.workspaces.length + 1;
+  while (usedNames.has(`Workspace ${index}`)) index += 1;
+  return `Workspace ${index}`;
+}
+
+/**
+ * Insert or replace a workspace by id and make it active. Replacing keeps the
+ * workspace where it already sat, so saving an edit does not reshuffle the
+ * library under the operator.
+ */
+export function upsertTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  layout: TerminalWorkspaceLayout<T>,
+): TerminalWorkspaceDeck<T> {
+  const id = layout.id.trim();
+  if (!id) return deck;
+  const next = { ...layout, id };
+  const exists = deck.workspaces.some((workspace) => workspace.id === id);
+  const workspaces = exists
+    ? deck.workspaces.map((workspace) => workspace.id === id ? next : workspace)
+    : [next, ...deck.workspaces];
+  return { ...deck, activeWorkspaceId: id, workspaces };
+}
+
+export function updateTerminalWorkspace<T>(
+  deck: TerminalWorkspaceDeck<T>,
+  id: string,
+  patch: Partial<Omit<TerminalWorkspaceLayout<T>, "id">>,
+): TerminalWorkspaceDeck<T> {
+  const index = deck.workspaces.findIndex((workspace) => workspace.id === id);
+  if (index < 0) return deck;
+  const current = deck.workspaces[index]!;
+  const next = { ...current, ...patch };
+  const unchanged = (Object.keys(patch) as Array<keyof typeof patch>)
+    .every((key) => current[key] === next[key]);
+  if (unchanged) return deck;
+  return { ...deck, workspaces: deck.workspaces.map((workspace, candidate) => candidate === index ? next : workspace) };
 }
 
 export function selectTerminalWorkspace<T>(
@@ -87,8 +168,12 @@ export function selectTerminalWorkspace<T>(
 export function closeTerminalWorkspace<T>(
   deck: TerminalWorkspaceDeck<T>,
   id: string,
+  options: { allowEmpty?: boolean } = {},
 ): TerminalWorkspaceDeck<T> {
-  if (deck.workspaces.length <= 1) return deck;
+  if (deck.workspaces.length <= 1) {
+    if (!options.allowEmpty) return deck;
+    return deck.workspaces[0]?.id === id ? emptyTerminalWorkspaceDeck<T>() : deck;
+  }
   const index = deck.workspaces.findIndex((workspace) => workspace.id === id);
   if (index < 0) return deck;
   const workspaces = deck.workspaces.filter((workspace) => workspace.id !== id);
