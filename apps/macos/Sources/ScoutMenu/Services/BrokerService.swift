@@ -20,6 +20,7 @@ struct BrokerServiceStatus: Decodable, Sendable {
     let launchAgentPath: String
     let brokerURL: String
     let webURL: String?
+    let supportDirectory: String?
     let installed: Bool
     let loaded: Bool
     let pid: Int?
@@ -35,6 +36,7 @@ struct BrokerServiceStatus: Decodable, Sendable {
         case effectiveBrokerURL = "effectiveBrokerUrl"
         case webURL = "webUrl"
         case effectiveWebURL = "effectiveWebUrl"
+        case supportDirectory
         case installed
         case loaded
         case pid
@@ -67,6 +69,8 @@ struct BrokerServiceStatus: Decodable, Sendable {
         } else {
             self.webURL = nil
         }
+        self.supportDirectory = try container.decodeIfPresent(String.self, forKey: .supportDirectory)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         self.installed = try container.decode(Bool.self, forKey: .installed)
         self.loaded = try container.decode(Bool.self, forKey: .loaded)
         self.pid = try container.decodeIfPresent(Int.self, forKey: .pid)

@@ -36,9 +36,10 @@ describe("Scout surface v1 contract", () => {
   });
 
   test("enumerates preferences per surface and keeps fixture values under the wire bound", () => {
-    const allKeys = [...SURFACE_PREFERENCE_KEYS.lanes, ...SURFACE_PREFERENCE_KEYS.dispatch];
+    const allKeys = [...SURFACE_PREFERENCE_KEYS.lanes, ...SURFACE_PREFERENCE_KEYS.deck, ...SURFACE_PREFERENCE_KEYS.dispatch];
     expect(new Set(allKeys).size).toBe(allKeys.length);
     expect(preferenceKeysForSurface("lanes")).toEqual(SURFACE_PREFERENCE_KEYS.lanes);
+    expect(preferenceKeysForSurface("deck")).toEqual(SURFACE_PREFERENCE_KEYS.deck);
     expect(preferenceKeysForSurface("dispatch")).toEqual(SURFACE_PREFERENCE_KEYS.dispatch);
 
     for (const entry of SCOUT_SURFACE_V1_GOLDEN_FIXTURES.preferences.entries) {
@@ -72,7 +73,7 @@ describe("Scout surface v1 contract", () => {
   });
 
   test("keeps the signed native-surface manifest aligned with the contract", () => {
-    for (const surface of ["lanes", "dispatch"] as const) {
+    for (const surface of ["lanes", "deck", "dispatch"] as const) {
       const expectedMethods = SCOUT_SURFACE_METHODS.filter((method) =>
         SCOUT_SURFACE_METHOD_POLICY[method].surfaces.includes(surface),
       );

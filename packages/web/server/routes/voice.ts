@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 
 import {
   ensureScoutVoiceOrigins,
+  getScoutSpeechCatalog,
   getScoutVoiceHealth,
   resolveScoutSpeechDefaults,
   synthesizeScoutSpeech,
@@ -160,6 +161,18 @@ export function mountScoutVoiceRoutes(app: Hono, deps: ScoutVoiceRouteDeps = {})
 
   app.get("/api/voice/settings", (c) => {
     return c.json(getScoutVoiceSettingsSnapshot());
+  });
+
+  app.get("/api/voice/catalog", async (c) => {
+    const directOpenAIAvailable = Boolean(
+      await deps.resolveOpenAIApiKey?.().catch(() => undefined)
+        ?? process.env.OPENAI_API_KEY?.trim(),
+    );
+    return c.json(await getScoutSpeechCatalog({
+      modelId: c.req.query("modelId"),
+      signal: c.req.raw.signal,
+      directOpenAIAvailable,
+    }));
   });
 
   app.post("/api/voice/engage", async (c) => {

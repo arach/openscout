@@ -1,5 +1,6 @@
 import {
   SCOUT_SURFACE_PROTOCOL_VERSION,
+  type CodexDeckRoute,
   type FleetDispatchDelta,
   type FleetTailDelta,
   type HostScope,
@@ -60,6 +61,14 @@ export class NativeScoutSurfaceClient implements ScoutSurfaceClient {
     },
   };
 
+  codex = {
+    snapshot: (route: CodexDeckRoute) => this.request("codex.thread.snapshot", { route }),
+    connect: (route: CodexDeckRoute) => this.request("codex.thread.connect", { route }),
+    start: (route: CodexDeckRoute, text: string) => this.request("codex.turn.start", { route, text }),
+    steer: (route: CodexDeckRoute, text: string) => this.request("codex.turn.steer", { route, text }),
+    interrupt: (route: CodexDeckRoute) => this.request("codex.turn.interrupt", { route }),
+  };
+
   dispatch = {
     diagnostics: (scope: HostScope, cursor?: string) =>
       this.request("dispatch.diagnostics", { ...(cursor ? { cursor } : {}) }, scope),
@@ -88,6 +97,12 @@ export class NativeScoutSurfaceClient implements ScoutSurfaceClient {
     },
     cancel: async (requestId: RequestId) => {
       await this.request("native.cancel", { requestId });
+    },
+    voice: {
+      snapshot: () => this.request("native.voice.snapshot", {}),
+      toggleInput: () => this.request("native.voice.toggleInput", {}),
+      speak: (text: string) => this.request("native.voice.speak", { text }),
+      stopOutput: () => this.request("native.voice.stopOutput", {}),
     },
   };
 

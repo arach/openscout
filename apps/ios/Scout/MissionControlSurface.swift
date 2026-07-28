@@ -2,6 +2,7 @@ import SwiftUI
 import HudsonUI
 import HudsonUIWeb
 import ScoutCapabilities
+import WebKit
 
 /// A native conversation route opened explicitly from the Deck composer. The
 /// client is the exact host client resolved from the selected lane.
@@ -34,7 +35,7 @@ struct MissionControlSurface: View {
         var localSurface: ScoutWebSurfaceBridge.Surface {
             switch self {
             case .lanes: return .lanes
-            case .deck: return .lanes
+            case .deck: return .deck
             case .dispatch: return .dispatch
             }
         }
@@ -52,6 +53,8 @@ struct MissionControlSurface: View {
     let model: AppModel
     let kind: Kind
     let isActive: Bool
+    let onOpenLanes: (() -> Void)?
+    let onOpenDeck: (() -> Void)?
 
     @State private var webState = HudWebViewState()
     @State private var reloadGeneration = 0
@@ -68,10 +71,18 @@ struct MissionControlSurface: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    init(model: AppModel, kind: Kind, isActive: Bool) {
+    init(
+        model: AppModel,
+        kind: Kind,
+        isActive: Bool,
+        onOpenLanes: (() -> Void)? = nil,
+        onOpenDeck: (() -> Void)? = nil
+    ) {
         self.model = model
         self.kind = kind
         self.isActive = isActive
+        self.onOpenLanes = onOpenLanes
+        self.onOpenDeck = onOpenDeck
         let initialMachineIds = Set(
             model.webSurfaceMachines().filter(\.isOnline).map(\.machineId)
         )
@@ -79,7 +90,8 @@ struct MissionControlSurface: View {
         _localBridge = State(initialValue: ScoutWebSurfaceBridge(
             model: model,
             surface: kind.localSurface,
-            selectedMachineIds: kind.isDeck ? initialMachineIds : nil
+            selectedMachineIds: kind.isDeck ? initialMachineIds : nil,
+            enablesDeckControls: kind.isDeck
         ))
     }
 
@@ -98,7 +110,7 @@ struct MissionControlSurface: View {
         #endif
     }
 
-    private var webActivity: HudWebViewActivity {
+    private var webActivity: ScoutWebViewActivity {
         guard scenePhase == .active else { return .background }
         return isActive ? .visible : .hiddenWarm
     }
@@ -128,15 +140,10 @@ struct MissionControlSurface: View {
                 if !entrance.hasEntered {
                     Color.clear
                 } else if usesLocalBundledPage {
-                    HudWebSurface(
-                        HudWebSurfaceDescriptor(
-                            id: "scout.ios.\(kind.rawValue.lowercased())",
-                            title: kind.rawValue,
-                            location: .bundled(
-                                directory: kind.assetDirectory,
-                                readAccessDirectory: "WebSurfaces"
-                            ),
-                            lifecycle: .keepWarm
+                    ScoutIntegratedWebSurface(
+                        source: .bundled(
+                            directory: kind.assetDirectory,
+                            readAccessDirectory: "WebSurfaces"
                         ),
                         state: $webState,
                         configuration: HudWebViewConfiguration(
@@ -188,10 +195,6 @@ struct MissionControlSurface: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(HudPalette.bg)
             .cockpitEntrance(index: 1, phase: entrance)
-            if kind.isDeck {
-                deckComposer
-                    .cockpitEntrance(index: 2, phase: entrance)
-            }
         }
         .task(id: isActive) {
             await entrance.reveal(when: isActive, animated: !reduceMotion)
@@ -238,6 +241,9 @@ struct MissionControlSurface: View {
                     .lineLimit(1)
             }
             Spacer(minLength: HudSpacing.md)
+            if kind == .lanes, let onOpenDeck {
+                missionControlLink("Open Deck", glyph: .dispatch, action: onOpenDeck)
+            }
             if webState.isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -274,6 +280,9 @@ struct MissionControlSurface: View {
                         .foregroundStyle(ScoutInk.dim)
                 }
                 Spacer(minLength: HudSpacing.md)
+                if let onOpenLanes {
+                    missionControlLink("Lanes", glyph: .lanes, action: onOpenLanes)
+                }
                 if webState.isLoading {
                     ProgressView()
                         .controlSize(.small)
@@ -314,6 +323,34 @@ struct MissionControlSurface: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
         }
+    }
+
+    private func missionControlLink(
+        _ title: String,
+        glyph: GlyphShape.Kind,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Glyphic(kind: glyph, size: 13)
+                Text(title.uppercased())
+            }
+            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+            .tracking(0.45)
+            .foregroundStyle(HudPalette.accent)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(HudPalette.accent.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .stroke(HudPalette.accent.opacity(0.32), lineWidth: HudStrokeWidth.thin)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     // Real count only: the number of hosts currently in the union scope. The
@@ -588,7 +625,8 @@ struct MissionControlSurface: View {
         let bridge = ScoutWebSurfaceBridge(
             model: model,
             surface: kind.localSurface,
-            selectedMachineIds: kind.isDeck ? next : nil
+            selectedMachineIds: kind.isDeck ? next : nil,
+            enablesDeckControls: kind.isDeck
         )
         localBridge = bridge
         installLaneSelectionHandler(on: bridge)
@@ -640,5 +678,236 @@ struct MissionControlSurface: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(HudSpacing.xxl)
             .background(HudPalette.bg)
+    }
+}
+
+// MARK: - App-owned WebKit integration
+
+/// The signed Deck needs WebKit reply handlers and lifecycle callbacks that are
+/// intentionally app-specific today. Keeping this adapter beside the iPad host
+/// avoids coupling OpenScout's privileged bridge contract to HudsonUIWeb's
+/// simpler general-purpose web view.
+enum ScoutWebViewActivity: String {
+    case visible
+    case hiddenWarm
+    case background
+}
+
+struct ScoutWebViewUserScript {
+    let source: String
+}
+
+@MainActor
+final class ScoutWebViewReply {
+    private var completion: (@MainActor (Any?, String?) -> Void)?
+
+    init(completion: @escaping @MainActor (Any?, String?) -> Void) {
+        self.completion = completion
+    }
+
+    func succeed(_ value: Any?) {
+        guard let completion else { return }
+        self.completion = nil
+        completion(value, nil)
+    }
+
+    func fail(_ message: String) {
+        guard let completion else { return }
+        self.completion = nil
+        completion(nil, message)
+    }
+}
+
+struct ScoutWebViewMessageHandler {
+    let name: String
+    let receive: @MainActor (Any, ScoutWebViewReply) -> Void
+
+    init(name: String, receive: @escaping @MainActor (Any, ScoutWebViewReply) -> Void) {
+        self.name = name
+        self.receive = receive
+    }
+}
+
+@MainActor
+final class ScoutWebViewIntegration {
+    let userScripts: [ScoutWebViewUserScript]
+    let messageHandlers: [ScoutWebViewMessageHandler]
+    let onActivityChange: (ScoutWebViewActivity) -> Void
+    let onReset: (String) -> Void
+    let onOpenExternalURL: (URL) -> Void
+
+    init(
+        userScripts: [ScoutWebViewUserScript],
+        messageHandlers: [ScoutWebViewMessageHandler],
+        onActivityChange: @escaping (ScoutWebViewActivity) -> Void,
+        onReset: @escaping (String) -> Void,
+        onOpenExternalURL: @escaping (URL) -> Void
+    ) {
+        self.userScripts = userScripts
+        self.messageHandlers = messageHandlers
+        self.onActivityChange = onActivityChange
+        self.onReset = onReset
+        self.onOpenExternalURL = onOpenExternalURL
+    }
+}
+
+enum ScoutIntegratedWebSource: Equatable {
+    case bundled(directory: String, readAccessDirectory: String)
+}
+
+struct ScoutIntegratedWebSurface: UIViewRepresentable {
+    let source: ScoutIntegratedWebSource
+    @Binding var state: HudWebViewState
+    let configuration: HudWebViewConfiguration
+    let integration: ScoutWebViewIntegration
+    let activity: ScoutWebViewActivity
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(state: $state, integration: integration, activity: activity)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webConfiguration = WKWebViewConfiguration()
+        webConfiguration.defaultWebpagePreferences.allowsContentJavaScript = configuration.allowsJavaScript
+        if configuration.usesNonPersistentDataStore {
+            webConfiguration.websiteDataStore = .nonPersistent()
+        }
+        for script in integration.userScripts {
+            webConfiguration.userContentController.addUserScript(
+                WKUserScript(source: script.source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+            )
+        }
+        for handler in integration.messageHandlers {
+            webConfiguration.userContentController.addScriptMessageHandler(
+                context.coordinator,
+                contentWorld: .page,
+                name: handler.name
+            )
+        }
+
+        let webView = WKWebView(frame: .zero, configuration: webConfiguration)
+        webView.navigationDelegate = context.coordinator
+        apply(configuration, to: webView)
+        context.coordinator.load(source, in: webView)
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.state = $state
+        context.coordinator.update(activity: activity)
+        apply(configuration, to: webView)
+        context.coordinator.load(source, in: webView)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.tearDown(webView)
+    }
+
+    private func apply(_ configuration: HudWebViewConfiguration, to webView: WKWebView) {
+        webView.allowsBackForwardNavigationGestures = configuration.allowsBackForwardNavigationGestures
+        webView.customUserAgent = configuration.customUserAgent
+        webView.scrollView.backgroundColor = .clear
+        webView.isOpaque = false
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = configuration.isInspectable
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandlerWithReply {
+        var state: Binding<HudWebViewState>
+        private let integration: ScoutWebViewIntegration
+        private var activity: ScoutWebViewActivity
+        private var loadedSource: ScoutIntegratedWebSource?
+        private let handlers: [String: ScoutWebViewMessageHandler]
+
+        init(
+            state: Binding<HudWebViewState>,
+            integration: ScoutWebViewIntegration,
+            activity: ScoutWebViewActivity
+        ) {
+            self.state = state
+            self.integration = integration
+            self.activity = activity
+            self.handlers = Dictionary(uniqueKeysWithValues: integration.messageHandlers.map { ($0.name, $0) })
+            super.init()
+            integration.onActivityChange(activity)
+        }
+
+        func load(_ source: ScoutIntegratedWebSource, in webView: WKWebView) {
+            guard loadedSource != source else { return }
+            loadedSource = source
+            state.wrappedValue.errorMessage = nil
+
+            switch source {
+            case .bundled(let directory, let readAccessDirectory):
+                guard let indexURL = Bundle.main.url(
+                    forResource: "index",
+                    withExtension: "html",
+                    subdirectory: directory
+                ), let resourceURL = Bundle.main.resourceURL else {
+                    publish(webView, loading: false, errorMessage: "Signed Deck assets are missing from this build.")
+                    return
+                }
+                let readAccessURL = resourceURL.appendingPathComponent(readAccessDirectory, isDirectory: true)
+                webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessURL)
+            }
+        }
+
+        func update(activity next: ScoutWebViewActivity) {
+            guard activity != next else { return }
+            activity = next
+            integration.onActivityChange(next)
+        }
+
+        func tearDown(_ webView: WKWebView) {
+            for name in handlers.keys {
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: name, contentWorld: .page)
+            }
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            integration.onReset("dismantled")
+            loadedSource = nil
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage,
+            replyHandler: @escaping @MainActor (Any?, String?) -> Void
+        ) {
+            guard let handler = handlers[message.name] else {
+                replyHandler(nil, "unsupported_handler")
+                return
+            }
+            handler.receive(message.body, ScoutWebViewReply(completion: replyHandler))
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            publish(webView, loading: true, errorMessage: nil)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            publish(webView, loading: false, errorMessage: nil)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            publish(webView, loading: false, errorMessage: error.localizedDescription)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            publish(webView, loading: false, errorMessage: error.localizedDescription)
+        }
+
+        private func publish(_ webView: WKWebView, loading: Bool, errorMessage: String?) {
+            state.wrappedValue = HudWebViewState(
+                title: webView.title,
+                url: webView.url,
+                isLoading: loading,
+                estimatedProgress: webView.estimatedProgress,
+                canGoBack: webView.canGoBack,
+                canGoForward: webView.canGoForward,
+                errorMessage: errorMessage
+            )
+        }
     }
 }
