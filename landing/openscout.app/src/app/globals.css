@@ -1000,6 +1000,241 @@ html[data-site-theme="dark"] .hero-editorial::before {
   color: var(--site-ink);
 }
 
+/* Agent View exposes a handoff, not a fake shell command. The trigger keeps the
+   command-strip footprint; the dialog progressively reveals the exact prompt
+   only after it has been copied. */
+.agent-install-trigger {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  padding: 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--site-ink);
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.agent-install-trigger:hover {
+  background: var(--site-surface-strong);
+  border-color: var(--site-border-strong);
+}
+
+.agent-install-trigger:focus-visible,
+.agent-handoff button:focus-visible,
+.agent-handoff a:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
+.agent-install-trigger__label,
+.agent-install-trigger__action {
+  display: inline-flex;
+  align-items: center;
+}
+
+.agent-install-trigger__label {
+  gap: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  font-weight: 600;
+}
+
+.agent-install-trigger__action {
+  padding: 0 0.75rem;
+  border-left: 1px solid var(--site-border);
+  color: var(--site-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.agent-install-trigger:hover .agent-install-trigger__action {
+  color: var(--site-ink);
+}
+
+.agent-handoff__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: var(--site-overlay);
+}
+
+.agent-handoff {
+  width: min(36rem, 100%);
+  max-height: min(46rem, calc(100dvh - 3rem));
+  overflow-y: auto;
+  color: var(--site-ink);
+  background: var(--site-surface-strong);
+  border: 1px solid var(--site-border-strong);
+  box-shadow: var(--site-toggle-shadow);
+  animation: agent-handoff-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes agent-handoff-in {
+  from {
+    opacity: 0.72;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.agent-handoff__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4rem;
+  padding: 0.65rem 0.75rem 0.65rem 1.5rem;
+  border-bottom: 1px solid var(--site-border);
+}
+
+.agent-handoff__header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.agent-handoff__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  color: var(--site-muted);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.agent-handoff__close:hover {
+  color: var(--site-ink);
+  background: var(--site-panel);
+}
+
+.agent-handoff__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.agent-handoff__description {
+  max-width: 31ch;
+  margin: 0;
+  color: var(--site-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-handoff__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  color: var(--site-ink-contrast);
+  background: var(--site-ink);
+  border: 1px solid var(--site-ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agent-handoff__copy:hover {
+  background: var(--site-ink-hover);
+  border-color: var(--site-ink-hover);
+}
+
+.agent-handoff__error {
+  margin: 0;
+  padding: 0.8rem 1.5rem;
+  color: var(--site-danger);
+  border-top: 1px solid var(--site-border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-handoff__copied {
+  padding: 1rem 1.5rem 1.5rem;
+  border-top: 1px solid var(--site-border);
+}
+
+.agent-handoff__copied-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--site-copy);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.agent-handoff__copied pre {
+  max-height: 17rem;
+  overflow: auto;
+  margin: 0.8rem 0 0;
+  padding: 0.9rem 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--site-copy);
+  background: var(--site-panel-rail);
+  border: 1px solid var(--site-border-soft);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+  .agent-handoff__overlay {
+    align-items: flex-end;
+    padding: 0.75rem;
+  }
+
+  .agent-handoff {
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .agent-handoff__header {
+    padding-left: 1rem;
+  }
+
+  .agent-handoff__body,
+  .agent-handoff__copied {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .agent-handoff__body {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .agent-handoff__copy {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-handoff {
+    animation: none;
+  }
+}
+
 .hero-install-foot {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 11.5px;
@@ -1533,6 +1768,134 @@ html[data-site-theme="dark"] main > .section-band::before {
 /* §4 host-integration cards — flat Basel: square corners, hairline border,
    no fill that fights the band. The host eyebrow + name carry identity, so
    the monogram tile is gone. Hover firms the hairline to ink. */
+.harness-roster {
+  width: min(80rem, calc(100% - 3rem));
+  margin: 0 auto 4.5rem;
+  border-top: 1px solid var(--site-border);
+  border-bottom: 1px solid var(--site-border);
+}
+
+.harness-roster__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 0;
+}
+
+.harness-roster__heading h2 {
+  margin: 0;
+  color: var(--site-muted);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.harness-roster__list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--site-border);
+}
+
+.harness-roster__item {
+  display: flex;
+  min-width: 0;
+  min-height: 5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-left: 1px solid var(--site-border);
+}
+
+.harness-roster__item:first-child {
+  border-left: 0;
+}
+
+.harness-roster__mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.45rem;
+}
+
+.harness-roster__logo {
+  display: block;
+  width: 1.45rem;
+  height: 1.45rem;
+  object-fit: contain;
+}
+
+.harness-roster__mark--claude {
+  background: #f0eee6;
+  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 8%);
+}
+
+.harness-roster__logo--claude {
+  width: 1.28rem;
+  height: 1.28rem;
+}
+
+.harness-roster__mark--cursor {
+  background: #f5f5f2;
+  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 8%);
+}
+
+.harness-roster__logo--cursor {
+  width: 1.35rem;
+  height: 1.55rem;
+}
+
+.harness-roster__logo--codex,
+.harness-roster__logo--grok,
+.harness-roster__logo--pi {
+  width: 2rem;
+  height: 2rem;
+}
+
+.harness-roster__name {
+  overflow: hidden;
+  color: var(--site-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 720px) {
+  .harness-roster {
+    width: min(calc(100% - 2rem), 80rem);
+    margin-bottom: 3rem;
+  }
+
+  .harness-roster__heading {
+    display: block;
+  }
+
+  .harness-roster__heading h2 {
+    margin-top: 0.35rem;
+  }
+
+  .harness-roster__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .harness-roster__item:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .harness-roster__item:nth-child(n + 3) {
+    border-top: 1px solid var(--site-border);
+  }
+}
+
 .integration-block {
   display: flex;
   flex-direction: column;
