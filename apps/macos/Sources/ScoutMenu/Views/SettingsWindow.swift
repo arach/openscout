@@ -253,7 +253,7 @@ private struct DiagnosticsTab: View {
                 detail: webDetail(),
                 rows: [
                     KVEntry(key: "Reachable", value: webReachabilityLabel()),
-                    KVEntry(key: "Started by app", value: controller.webServerStartedByApp ? "Yes" : "No"),
+                    KVEntry(key: "Managed by", value: "Broker"),
                 ],
                 logPath: webLogPath(),
                 actions: [
@@ -416,8 +416,7 @@ private struct DiagnosticsTab: View {
     }
 
     private func webLogPath() -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".scout/logs/web-server.log").path
+        controller.webServerLogPath
     }
 
     private func formatTimestamp(_ date: Date) -> String {

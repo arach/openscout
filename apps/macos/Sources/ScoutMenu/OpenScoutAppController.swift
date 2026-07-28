@@ -51,6 +51,7 @@ final class OpenScoutAppController: ObservableObject {
         var restartTelemetry: BrokerRestartTelemetry? = nil
         var statusDetail: String = "Checking broker status..."
         var webURL: String? = nil
+        var supportDirectory: String? = nil
 
         var hasRestartWarning: Bool {
             guard loaded || reachable else { return false }
@@ -107,7 +108,6 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var openScoutNetworkActionPending = false
     @Published private(set) var tailscaleActionPending = false
     @Published private(set) var webActionPending = false
-    @Published private(set) var webServerStartedByApp = false
     @Published private(set) var actionLog: [ActionLogEntry] = []
     /// Incoming LAN pairing requests awaiting approval on this Mac. Surfaced as a
     /// floating popup (PairingApprovalWindowController) the moment one arrives.
@@ -117,13 +117,12 @@ final class OpenScoutAppController: ObservableObject {
     private static let pairingRequestsInterval: TimeInterval = 4
 
     private let brokerService = BrokerService()
+    private let managedWebService = ManagedWebService()
     private let pairingService = PairingService()
     private let tailscaleService = ScoutAppCore.TailscaleService()
-    private let toolchain = OpenScoutToolchain()
     private var refreshTimer: Timer?
     private var refreshQueued = false
     private var statusSurfaceSources: Set<String> = []
-    private var webServerProcess: Process?
     private var actionLogCollapseTask: Task<Void, Never>?
     private var consecutiveWebProbeFailures = 0
     private static let actionLogMaxEntries = 50
@@ -134,6 +133,10 @@ final class OpenScoutAppController: ObservableObject {
 
     var webReachable: Bool {
         webSurfaceStatus.isReachable
+    }
+
+    var webServerLogPath: String {
+        ManagedWebService.logPath(supportDirectory: broker.supportDirectory)
     }
 
     var openScoutNetworkSetupActionLabel: String {
@@ -419,16 +422,52 @@ final class OpenScoutAppController: ObservableObject {
         }
     }
 
-    func stopWebApp() {
-        webServerProcess?.terminate()
-        webServerProcess = nil
-        webServerStartedByApp = false
-        refresh()
-    }
-
     func restartWebApp() {
         guard !webActionPending else { return }
         Task { await runWebRestart() }
+    }
+
+    func restartAllServices() {
+        guard !brokerActionPending, !pairingActionPending, !webActionPending else { return }
+        brokerActionPending = true
+        pairingActionPending = true
+        webActionPending = true
+        lastError = nil
+        resetActionLog()
+
+        Task {
+            defer {
+                brokerActionPending = false
+                pairingActionPending = false
+                webActionPending = false
+            }
+
+            do {
+                appendActionLog(.info, "Restarting broker…")
+                broker = BrokerState(from: try await brokerService.control(.restart))
+                appendActionLog(.success, "Broker online")
+
+                appendActionLog(.info, "Restarting relay…")
+                pairing = try await pairingService.control(.restart)
+                appendActionLog(.success, pairing.statusLabel)
+
+                // A broker restart replaces its web child. `start` is
+                // idempotent and waits on the new broker instead of racing a
+                // second restart against the broker transition.
+                appendActionLog(.info, "Starting broker-managed web app…")
+                try await controlManagedWeb(.start)
+                appendActionLog(.success, "Web reachable at \(webSurfaceDisplayURL)")
+                scheduleActionLogCollapse()
+            } catch {
+                let msg = error.localizedDescription
+                let logTail = readScoutWebServerLogTail(at: webServerLogPath, maxLines: 20)
+                let copy = logTail.isEmpty ? msg : "\(msg)\n\n--- supervised-web.log (last 20 lines) ---\n\(logTail)"
+                appendActionLog(.error, msg, copyDetails: copy)
+                lastError = msg
+            }
+
+            requestRefresh(reason: .manual)
+        }
     }
 
     func clearActionLog() {
@@ -478,16 +517,7 @@ final class OpenScoutAppController: ObservableObject {
 
     private func runWebRestart() async {
         resetActionLog()
-        appendActionLog(.info, "Stopping web server…")
-
-        if let process = webServerProcess, process.isRunning {
-            process.terminate()
-        }
-        webServerProcess = nil
-        webServerStartedByApp = false
-        appendActionLog(.success, "Stopped")
-
-        appendActionLog(.info, "Starting web server…")
+        appendActionLog(.info, "Restarting broker-managed web app…")
         webActionPending = true
         defer { webActionPending = false }
         lastError = nil
@@ -497,15 +527,15 @@ final class OpenScoutAppController: ObservableObject {
         }
 
         do {
-            try await ensureWebServerRunning()
+            try await controlManagedWeb(.restart)
             appendActionLog(.success, "Reachable at \(webSurfaceDisplayURL)")
             await tailTask.value
             scheduleActionLogCollapse()
         } catch {
             tailTask.cancel()
             let msg = error.localizedDescription
-            let logTail = readScoutWebServerLogTail(at: scoutWebServerLogPath(), maxLines: 20)
-            let copy = logTail.isEmpty ? msg : "\(msg)\n\n--- web-server.log (last 20 lines) ---\n\(logTail)"
+            let logTail = readScoutWebServerLogTail(at: webServerLogPath, maxLines: 20)
+            let copy = logTail.isEmpty ? msg : "\(msg)\n\n--- supervised-web.log (last 20 lines) ---\n\(logTail)"
             appendActionLog(.error, msg, copyDetails: copy)
             lastError = msg
         }
@@ -514,7 +544,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func tailWebServerLog(forSeconds seconds: Double) async {
-        let path = scoutWebServerLogPath()
+        let path = webServerLogPath
         let url = URL(fileURLWithPath: path)
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
@@ -648,11 +678,6 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func refreshNow() async {
-        if let webServerProcess, !webServerProcess.isRunning {
-            self.webServerProcess = nil
-            webServerStartedByApp = false
-        }
-
         do {
             let status = try await brokerService.fetchStatus()
             broker = BrokerState(from: status)
@@ -900,23 +925,23 @@ final class OpenScoutAppController: ObservableObject {
             return
         }
 
-        if let webServerProcess, webServerProcess.isRunning {
-            return
+        try await controlManagedWeb(.start)
+    }
+
+    private func controlManagedWeb(_ action: ManagedWebControlAction) async throws {
+        let status = try await managedWebService.control(action, brokerURL: broker.brokerURL)
+        if let webURL = status.webURL?.trimmingCharacters(in: .whitespacesAndNewlines), !webURL.isEmpty {
+            broker.webURL = webURL
         }
 
-        let command = try toolchain.scoutCommand(arguments: ["server", "start"])
-        let process = try CommandRunner.spawn(command)
-        webServerProcess = process
-        webServerStartedByApp = true
-
-        for _ in 0..<60 {
+        for _ in 0..<120 {
             try? await Task.sleep(for: .milliseconds(250))
             if await isWebSurfaceReachable() {
                 return
             }
         }
 
-        let logPath = scoutWebServerLogPath()
+        let logPath = webServerLogPath
         let tail = readScoutWebServerLogTail(at: logPath, maxLines: 12)
         let detail = tail.isEmpty
             ? "Timed out waiting for the OpenScout web app at \(webSurfaceDisplayURL). Check \(logPath)."
@@ -926,11 +951,6 @@ final class OpenScoutAppController: ObservableObject {
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: detail]
         )
-    }
-
-    private func scoutWebServerLogPath() -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".scout/logs/web-server.log").path
     }
 
     private func readScoutWebServerLogTail(at path: String, maxLines: Int) -> String {
@@ -1002,6 +1022,7 @@ extension OpenScoutAppController.BrokerState {
         self.label = status.label
         self.brokerURL = status.brokerURL
         self.webURL = status.webURL
+        self.supportDirectory = status.supportDirectory
         self.launchAgentPath = status.launchAgentPath
         self.installed = status.installed
         self.loaded = status.loaded
