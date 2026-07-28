@@ -202,7 +202,7 @@ body {
 .scout-deck__thread-empty[data-state="connected"] .scout-deck__thread-glyph { color: var(--deck-green); text-shadow: 0 0 10px rgba(106,242,197,.48); }
 .scout-deck__thread-empty[data-state="error"] .scout-deck__thread-glyph { color: var(--deck-amber); }
 
-.scout-deck__composer { margin-top: 10px; border: 1px solid rgba(222,236,226,.15); border-radius: 6px; background: rgba(9,14,11,.96); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 10px 34px rgba(0,0,0,.14); }
+.scout-deck__composer { flex: none; margin-bottom: 10px; border: 1px solid rgba(222,236,226,.15); border-radius: 6px; background: rgba(9,14,11,.96); box-shadow: inset 0 1px rgba(255,255,255,.025), 0 10px 34px rgba(0,0,0,.14); }
 .scout-deck__composer[data-mode="steer"] { border-color: rgba(106,242,197,.25); }
 .scout-deck__composer[data-voice-state="listening"] { border-color: rgba(255,124,110,.48); box-shadow: inset 0 1px rgba(255,255,255,.035), 0 0 34px rgba(255,124,110,.07); }
 .scout-deck__composer-head,
@@ -333,7 +333,7 @@ body {
   .scout-deck__live-line { padding: 9px 0; }
   .scout-deck__activity .scout-deck__panel-label { padding-block: 7px; }
   .scout-deck__thread-row { padding-block: 7px; }
-  .scout-deck__composer { flex: none; margin-top: 7px; }
+  .scout-deck__composer { margin-bottom: 7px; }
   .scout-deck__composer-head,
   .scout-deck__composer-foot { padding-block: 6px; }
   .scout-deck__composer-body { min-height: 72px; grid-template-columns: 74px minmax(0,1fr) 72px; }

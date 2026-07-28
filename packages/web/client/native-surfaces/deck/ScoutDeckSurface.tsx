@@ -732,21 +732,6 @@ export function ScoutDeckSurface() {
                       : relativeTime(selected.updatedAt)}</span>
               </div>
 
-              <section className="scout-deck__activity" aria-label={`${selected.name} controller view`}>
-                <div className="scout-deck__panel-label scout-deck__panel-label--tabs">
-                  <span>{view === "thread" ? "Codex thread" : "Live signal"}</span>
-                  <div className="scout-deck__tabs" role="tablist" aria-label="Lane view">
-                    <button type="button" role="tab" aria-selected={view === "thread"} onClick={() => setView("thread")} disabled={!adapterAvailable}>Thread</button>
-                    <button type="button" role="tab" aria-selected={view === "signal"} onClick={() => setView("signal")}>Signal</button>
-                  </div>
-                </div>
-                {view === "thread" ? (
-                  <ThreadViewport thread={thread} available={adapterAvailable} busy={threadBusy} error={threadError} onConnect={connectThread} />
-                ) : (
-                  <SignalViewport lane={selected} />
-                )}
-              </section>
-
               <form
                 className="scout-deck__composer"
                 data-mode={isRunning ? "steer" : "start"}
@@ -807,6 +792,21 @@ export function ScoutDeckSurface() {
                   </button>
                 </div>
               </form>
+
+              <section className="scout-deck__activity" aria-label={`${selected.name} controller view`}>
+                <div className="scout-deck__panel-label scout-deck__panel-label--tabs">
+                  <span>{view === "thread" ? "Codex thread" : "Live signal"}</span>
+                  <div className="scout-deck__tabs" role="tablist" aria-label="Lane view">
+                    <button type="button" role="tab" aria-selected={view === "thread"} onClick={() => setView("thread")} disabled={!adapterAvailable}>Thread</button>
+                    <button type="button" role="tab" aria-selected={view === "signal"} onClick={() => setView("signal")}>Signal</button>
+                  </div>
+                </div>
+                {view === "thread" ? (
+                  <ThreadViewport thread={thread} available={adapterAvailable} busy={threadBusy} error={threadError} onConnect={connectThread} />
+                ) : (
+                  <SignalViewport lane={selected} />
+                )}
+              </section>
             </>
           ) : (
             <DeckEmpty connection={connection} error={error} />
@@ -1020,7 +1020,7 @@ function ThreadViewport({
         <div className="scout-deck__thread-empty" data-state="connected">
           <span className="scout-deck__thread-glyph">●</span>
           <strong>Codex thread connected</strong>
-          <p>{thread.threadId ? `Thread ${shortId(thread.threadId)} is ready. Start its first turn from the command strip below.` : "The controller is ready. Start its first turn from the command strip below."}</p>
+          <p>{thread.threadId ? `Thread ${shortId(thread.threadId)} is ready. Start its first turn from the command strip above.` : "The controller is ready. Start its first turn from the command strip above."}</p>
         </div>
       )}
     </div>
