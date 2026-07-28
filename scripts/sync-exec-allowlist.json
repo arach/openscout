@@ -462,6 +462,13 @@
     "owner": "tests"
   },
   {
+    "path": "packages/runtime/src/codex-desktop-deck.ts",
+    "symbol": "node:child_process",
+    "category": "probe-exec",
+    "reason": "reads the Codex Desktop thread list with a one-shot `sqlite3 -readonly -json`; the deck must not open a writable handle on another app's database",
+    "owner": "runtime"
+  },
+  {
     "path": "packages/web/server/terminal-hosts/herdr.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",
