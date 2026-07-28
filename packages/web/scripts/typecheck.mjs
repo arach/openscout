@@ -60,7 +60,9 @@ function fail(message, detail) {
 }
 
 function runTsc() {
-  const result = spawnSync(tscBin, ["--noEmit", "-p", "tsconfig.json"], {
+  // tsconfig.check.json, not tsconfig.json: the gate must not grade a sibling
+  // ~/dev/hudson checkout that CI does not have. See that file for why.
+  const result = spawnSync(tscBin, ["--noEmit", "-p", "tsconfig.check.json"], {
     cwd: packageRoot,
     encoding: "utf8",
   });
