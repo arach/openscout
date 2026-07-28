@@ -13,6 +13,7 @@
 
 import { readTree } from "@/lib/repo-tree";
 import { FileExplorerWorkspace } from "@/components/FileExplorerWorkspace";
+import { StudyHeader } from "@/components/StudyHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -27,27 +28,23 @@ export default function FileExplorerPage() {
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-6 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · studies · web · file-explorer
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          File explorer
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          A composition study layering the existing tree + file primitives
-          into a split-pane workspace. Tree walks{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            {ROOT_REL}
-          </code>{" "}
-          server-side; file content streams in from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            /api/repo-file
-          </code>{" "}
-          on demand. Selection, search, and outline collapse all live in
-          the client.
-        </p>
-      </header>
+      <StudyHeader
+        eyebrow="studies · web · file-explorer"
+        title="File explorer"
+        className="mb-6"
+      >
+        A composition study layering the existing tree + file primitives
+        into a split-pane workspace. Tree walks{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          {ROOT_REL}
+        </code>{" "}
+        server-side; file content streams in from{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          /api/repo-file
+        </code>{" "}
+        on demand. Selection, search, and outline collapse all live in
+        the client.
+      </StudyHeader>
 
       {tree ? (
         <FileExplorerWorkspace initialTree={tree} rootRel={ROOT_REL} />

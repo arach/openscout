@@ -7,6 +7,7 @@ import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
 import { TerminalEmbedScreen } from "./screens/terminal/TerminalEmbedScreen.tsx";
+import { ScoutDeckSurface } from "./native-surfaces/deck/ScoutDeckSurface.tsx";
 import { shouldBootstrapDiscoveredEmbed } from "./surfaces/embed-path.ts";
 
 import {
@@ -27,6 +28,7 @@ const el = document.getElementById("root");
 if (!el) {
   throw new Error("missing #root");
 }
+const rootElement = el;
 
 const initialTheme = resolveScoutStartupTheme();
 applyScoutThemeToDocument(initialTheme);
@@ -38,6 +40,7 @@ const observeEmbedMatch = pathname.match(/^\/embed\/observe\/([^/]+)$/);
 const isRepoDiffEmbed = pathname === "/embed/repo-diff";
 const isSessionEmbed = pathname === "/embed/session";
 const isTerminalEmbed = pathname === "/embed/terminal";
+const isScoutDeck = pathname === "/deck" || pathname === "/deck/";
 const useDiscoveredEmbed = shouldBootstrapDiscoveredEmbed(pathname);
 
 const scoutApp = createScoutApp({ initialTheme });
@@ -73,10 +76,12 @@ class ScoutBootErrorBoundary extends Component<
 }
 
 function renderShell() {
-  createRoot(el).render(
+  createRoot(rootElement).render(
     <StrictMode>
       <ScoutBootErrorBoundary>
-        {isScoutbotFxLab ? (
+        {isScoutDeck ? (
+          <ScoutDeckSurface />
+        ) : isScoutbotFxLab ? (
           <ScoutbotFxLab />
         ) : isEmbeddableSurfacesLab ? (
           <EmbeddableSurfacesLab />
@@ -104,7 +109,7 @@ function renderShell() {
 }
 
 function renderEmbedMiss(missingPath: string) {
-  createRoot(el).render(
+  createRoot(rootElement).render(
     <StrictMode>
       <div className="s-embed-miss" data-scout-theme>
         <h1>Embed surface unavailable</h1>
@@ -121,7 +126,7 @@ function renderEmbedMiss(missingPath: string) {
 if (useDiscoveredEmbed) {
   void import("./surfaces/embed-entry.tsx")
     .then(({ mountDiscoveredEmbed }) => {
-      const mounted = mountDiscoveredEmbed(el, scoutApp);
+      const mounted = mountDiscoveredEmbed(rootElement, scoutApp);
       if (!mounted) {
         renderEmbedMiss(pathname);
       }

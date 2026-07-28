@@ -257,7 +257,8 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
             invocationId: result.invocationId,
             targetAgentId: result.targetAgentId,
             lifecycleState: result.lifecycleState.flatMap(ConversationLifecycleState.init(rawValue:)),
-            summary: result.summary
+            summary: result.summary,
+            delivery: result.delivery?.toCapability()
         )
     }
 
@@ -303,6 +304,28 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
         let params = SessionIdParams(sessionId: interrupt.conversationId)
         _ = try await connection.rpc("turn/interrupt", params: params) as EmptyResult
         return ControlResult(ok: true)
+    }
+
+    // MARK: - Codex Deck (native app-server adapter)
+
+    public func codexDeckSnapshot(agentId: String) async throws -> CodexDeckThreadSnapshot {
+        try await connection.rpc("codex/deck/snapshot", params: CodexDeckAgentParams(agentId: agentId))
+    }
+
+    public func codexDeckConnect(agentId: String) async throws -> CodexDeckThreadSnapshot {
+        try await connection.rpc("codex/deck/connect", params: CodexDeckAgentParams(agentId: agentId))
+    }
+
+    public func codexDeckStart(agentId: String, text: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/start", params: CodexDeckPromptParams(agentId: agentId, text: text))
+    }
+
+    public func codexDeckSteer(agentId: String, text: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/steer", params: CodexDeckPromptParams(agentId: agentId, text: text))
+    }
+
+    public func codexDeckInterrupt(agentId: String) async throws -> CodexDeckActionReceipt {
+        try await connection.rpc("codex/deck/interrupt", params: CodexDeckAgentParams(agentId: agentId))
     }
 
     // MARK: - TailCapability
@@ -402,6 +425,26 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
 
     @discardableResult
     public func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> String {
+        let result = try await postMessageResult(
+            conversationId: conversationId,
+            body: body,
+            replyTo: replyTo,
+            attachments: attachments,
+            clientMessageId: clientMessageId
+        )
+        guard let messageId = result.messageId else {
+            throw BridgeConnectionError.decodingFailed("The broker returned no message id.")
+        }
+        return messageId
+    }
+
+    public func postMessageResult(
+        conversationId: String,
+        body: String,
+        replyTo: String?,
+        attachments: [MessageAttachment]?,
+        clientMessageId: String?
+    ) async throws -> ControlResult {
         let params = MobileCommsSendParams(
             conversationId: conversationId,
             body: body,
@@ -410,7 +453,16 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
             clientMessageId: clientMessageId ?? UUID().uuidString
         )
         let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
-        return result.messageId
+        return ControlResult(
+            ok: true,
+            messageId: result.messageId,
+            flightId: result.flightId,
+            invocationId: result.invocationId,
+            targetAgentId: result.targetAgentId,
+            lifecycleState: result.lifecycleState.flatMap(ConversationLifecycleState.init(rawValue:)),
+            summary: result.summary,
+            delivery: result.delivery?.toCapability()
+        )
     }
 
     @discardableResult
@@ -585,6 +637,15 @@ struct ActionDecideParams: Codable, Sendable {
 
 struct SessionIdParams: Codable, Sendable {
     let sessionId: String
+}
+
+struct CodexDeckAgentParams: Codable, Sendable {
+    let agentId: String
+}
+
+struct CodexDeckPromptParams: Codable, Sendable {
+    let agentId: String
+    let text: String
 }
 
 /// Decoded for void mutations whose result is `{}` or null.
@@ -872,6 +933,7 @@ struct MobileAgentSummary: Codable, Sendable {
             id: id,
             title: title,
             harness: harness,
+            transport: transport,
             projectName: projectName,
             statusLabel: statusLabel,
             state: mappedState,
@@ -985,6 +1047,24 @@ struct MobileCommsSendResult: Codable, Sendable {
     let targetAgentId: String?
     let lifecycleState: String?
     let summary: String?
+    let delivery: MobileOutboundDeliveryState?
+}
+
+struct MobileOutboundDeliveryState: Codable, Sendable {
+    let state: String
+    let reason: String?
+    let action: String?
+    let detail: String?
+
+    func toCapability() -> OutboundDeliveryState? {
+        guard let state = OutboundDeliveryState.State(rawValue: state) else { return nil }
+        return OutboundDeliveryState(
+            state: state,
+            reason: reason.flatMap(OutboundDeliveryState.Reason.init(rawValue:)),
+            action: action.flatMap(OutboundDeliveryState.RecoveryAction.init(rawValue:)),
+            detail: detail
+        )
+    }
 }
 
 struct MobileAttachmentUploadParams: Codable, Sendable {

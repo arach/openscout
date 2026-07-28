@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import HudsonUIAudio
 import HudsonVoice
 import os.log
 
@@ -192,20 +193,21 @@ public final class ScoutReplySpeaker: ObservableObject {
     private func synthesize(_ text: String) async {
         let modelId = ScoutSpeechSettings.model()
         let voiceId = ScoutSpeechSettings.voice()
+        let model = Self.model(for: modelId)
         var failure: String?
 
         do {
             let audio = try await Self.synthesizer.synthesize(
                 text,
-                modelId: modelId,
-                voiceId: voiceId
+                providerID: model.provider.hudsonID,
+                voice: voiceId
             )
             guard !Task.isCancelled else { return }
-            if playAudio(audio.data) {
+            if playAudio(audio.audioData) {
                 route = .provider(
-                    name: audio.provider.label,
-                    model: audio.modelId,
-                    voice: audio.voiceId
+                    name: model.provider.label,
+                    model: model.name,
+                    voice: audio.voice
                 )
                 return
             }
@@ -256,23 +258,79 @@ public final class ScoutReplySpeaker: ObservableObject {
 
     /// The in-process engine, holding whatever keys Scout has. Shared so a
     /// single registry is built rather than one per utterance.
-    private static let synthesizer = HudSpeechSynthesizer(
-        credentials: ScoutSpeechCredentials.all()
-    )
+    private static let synthesizer = HudTTS(credentialSource: ScoutSpeechCredentialSource())
 
-    /// Re-lend keys after the operator edits one in Settings.
+    /// Credentials are read from the Keychain for every provider request.
     public static func refreshCredentials() {
-        let credentials = ScoutSpeechCredentials.all()
-        Task { await synthesizer.updateCredentials(credentials) }
+        // Kept as the Settings call site contract. HudTTS's credential source
+        // is live, so there is no cached credential set to refresh.
     }
 
     /// Models the engine can actually reach, for the Settings picker.
-    public static func speechModels() async -> [HudSpeechModel] {
-        await synthesizer.models()
+    public static func speechModels() async -> [ScoutSpeechModel] {
+        let availability = Dictionary(
+            uniqueKeysWithValues: await synthesizer.providerStatuses().map { ($0.id, $0.isAvailable) }
+        )
+        return models.map { model in
+            ScoutSpeechModel(
+                id: model.id,
+                name: model.name,
+                provider: model.provider,
+                available: availability[model.provider.hudsonID] ?? false
+            )
+        }
     }
 
-    public static func speechVoices(modelId: String) async throws -> [HudSpeechVoice] {
-        try await synthesizer.voices(modelId: modelId)
+    public static func speechVoices(modelId: String) async throws -> [ScoutSpeechVoice] {
+        switch model(for: modelId).provider {
+        case .system:
+            let defaultIdentifier = HudSystemSpeechDefaults.defaultVoiceIdentifier
+            return AVSpeechSynthesisVoice.speechVoices()
+                .filter { $0.language.hasPrefix("en") }
+                .map {
+                    ScoutSpeechVoice(
+                        id: $0.identifier,
+                        name: $0.name,
+                        isDefault: $0.identifier == defaultIdentifier
+                    )
+                }
+        case .openai:
+            return ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"]
+                .map { ScoutSpeechVoice(id: $0, name: $0.capitalized, isDefault: $0 == "alloy") }
+        case .elevenlabs:
+            return [
+                ScoutSpeechVoice(
+                    id: "9BWtsMINqrJLrRacOk9x",
+                    name: "Aria",
+                    isDefault: true
+                ),
+            ]
+        }
+    }
+
+    private static let models: [ScoutSpeechModel] = [
+        ScoutSpeechModel(
+            id: "system",
+            name: "System voice",
+            provider: .system,
+            available: true
+        ),
+        ScoutSpeechModel(
+            id: "gpt-4o-mini-tts",
+            name: "GPT-4o mini TTS",
+            provider: .openai,
+            available: false
+        ),
+        ScoutSpeechModel(
+            id: "eleven_multilingual_v2",
+            name: "Eleven Multilingual v2",
+            provider: .elevenlabs,
+            available: false
+        ),
+    ]
+
+    private static func model(for id: String) -> ScoutSpeechModel {
+        models.first(where: { $0.id == id }) ?? models[0]
     }
 }
 

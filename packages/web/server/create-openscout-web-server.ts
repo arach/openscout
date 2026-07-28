@@ -210,6 +210,7 @@ import {
   type WebTailRuntime,
 } from "./routes/scoutbot.ts";
 import { mountScoutVoiceRoutes } from "./routes/voice.ts";
+import { mountScoutDeckSurfaceRoutes } from "./routes/deck-surface.ts";
 import {
   snapshotRecentBroadcasts,
   subscribeBroadcast,
@@ -4514,6 +4515,11 @@ export async function createOpenScoutWebServer(
   installScoutApiMiddleware(app, "openscout-web api", {
     trustedHosts: options.trustedHosts,
     trustedOrigins: options.trustedOrigins,
+  });
+
+  mountScoutDeckSurfaceRoutes(app, {
+    currentDirectory,
+    hostName: options.advertisedHost?.trim() || "This Mac",
   });
 
   mountRepoDiffRoutes(app, {

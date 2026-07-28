@@ -8,6 +8,8 @@
  * as documentation.
  */
 
+import { StudyHeader } from "@/components/StudyHeader";
+
 type Row = { sample: React.ReactNode; spec: Array<[string, string]> };
 
 const DISPLAY: Row[] = [
@@ -66,20 +68,12 @@ const MONO: Row[] = [
 export default function TypographyPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · foundations · typography
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Typography
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Three families, three ramps, one prose stress-test. Display is Play, body
-          is Inter Tight, chrome is JetBrains Mono. Sizes match the rules in{" "}
-          <code className="font-mono text-[11px] text-studio-ink">.studio-prose</code>{" "}
-          (app/globals.css) and the conventions used across existing studies.
-        </p>
-      </header>
+      <StudyHeader eyebrow="foundations · typography" title="Typography">
+        Three families, three ramps, one prose stress-test. Display is Play, body
+        is Inter Tight, chrome is JetBrains Mono. Sizes match the rules in{" "}
+        <code className="font-mono text-sm text-studio-ink">.studio-prose</code>{" "}
+        (app/globals.css) and the conventions used across existing studies.
+      </StudyHeader>
 
       <Section title="Display ramp" hint="Play — page titles and prose headings">
         <RampTable rows={DISPLAY} />

@@ -117,6 +117,31 @@ function freshest(pages: StudioPage[], mtimes: Record<string, number>): number {
   return max;
 }
 
+/** Compact relative age ("12m" · "3h" · "5d" · "2w" · "4mo") — the stamp
+ *  that makes the recency ordering legible on the row itself. */
+function ageLabel(ms: number): string {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`;
+  if (s < 86400 * 30) return `${Math.floor(s / (86400 * 7))}w`;
+  return `${Math.floor(s / (86400 * 30))}mo`;
+}
+
+function AgeStamp({ ms }: { ms?: number }) {
+  if (!ms) return null;
+  return (
+    // suppressHydrationWarning: the label derives from Date.now(), which can
+    // cross a unit boundary between server render and hydration.
+    <span
+      suppressHydrationWarning
+      className="ml-1 shrink-0 font-mono text-2xs tabular-nums text-studio-ink-faint"
+    >
+      {ageLabel(ms)}
+    </span>
+  );
+}
+
 function BucketSection({
   title,
   bucket,
@@ -147,10 +172,11 @@ function BucketSection({
                 label={surfaceLabel(surface)}
                 groups={[...familyGroups(pages)].sort(
                   (a, b) =>
-                    (studyMtimes[b.primary.href] ?? 0) -
-                    (studyMtimes[a.primary.href] ?? 0),
+                    freshest([b.primary, ...b.variants], studyMtimes) -
+                    freshest([a.primary, ...a.variants], studyMtimes),
                 )}
                 pathname={pathname}
+                mtimes={studyMtimes}
               />
             ))
         ) : (
@@ -245,10 +271,12 @@ function SurfaceBlock({
   label,
   groups,
   pathname,
+  mtimes,
 }: {
   label: string;
   groups: ReturnType<typeof familyGroups>;
   pathname: string | null;
+  mtimes?: Record<string, number>;
 }) {
   return (
     <div>
@@ -257,7 +285,14 @@ function SurfaceBlock({
       </h3>
       <div className="flex flex-col">
         {groups.map((group) => (
-          <PageItem key={group.primary.href} group={group} pathname={pathname} />
+          <PageItem
+            key={group.primary.href}
+            group={group}
+            pathname={pathname}
+            // The family's freshest, not the primary's — the row must wear
+            // the same recency the sort ranked it by.
+            mtime={mtimes ? freshest([group.primary, ...group.variants], mtimes) || undefined : undefined}
+          />
         ))}
       </div>
     </div>
@@ -267,9 +302,11 @@ function SurfaceBlock({
 function PageItem({
   group,
   pathname,
+  mtime,
 }: {
   group: { primary: StudioPage; variants: StudioPage[] };
   pathname: string | null;
+  mtime?: number;
 }) {
   const { primary, variants } = group;
   const hasVariants = variants.length > 0;
@@ -282,6 +319,7 @@ function PageItem({
       <div className="flex items-center">
         <SidebarLink href={primary.href} active={activeHere} className="flex-1">
           <span className="flex-1 truncate">{primary.label}</span>
+          <AgeStamp ms={mtime} />
           {primary.status ? <StatusDot status={primary.status} /> : null}
         </SidebarLink>
         {hasVariants ? (

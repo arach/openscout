@@ -166,6 +166,44 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertEqual(brokerRequestFailureCategory(URLError(.notConnectedToInternet)), "Network -1009")
     }
 
+    func testEndedSessionRPCErrorExplainsHowToContinue() {
+        let error = BridgeConnectionError.rpcError(
+            code: -32603,
+            message: "Session session-old is no longer attachable (endpoint offline)."
+        )
+
+        XCTAssertEqual(
+            error.errorDescription,
+            "This agent session has ended and can’t accept more messages. Start a new session from the project to continue."
+        )
+        XCTAssertFalse(error.errorDescription?.contains("session-old") ?? true)
+    }
+
+    func testRecoverableDeliveryStateDecodesWithoutBecomingABridgeError() throws {
+        let data = """
+        {
+          "conversationId": "chn-ended",
+          "messageId": "msg-draft",
+          "lifecycleState": "failed",
+          "summary": "This session ended.",
+          "delivery": {
+            "state": "recoverable",
+            "reason": "session_ended",
+            "action": "start_replacement",
+            "detail": "This session ended. Start a new session from the project to deliver this message."
+          }
+        }
+        """.data(using: .utf8)!
+
+        let wire = try JSONDecoder().decode(MobileCommsSendResult.self, from: data)
+        let delivery = wire.delivery?.toCapability()
+
+        XCTAssertEqual(delivery?.state, .recoverable)
+        XCTAssertEqual(delivery?.reason, .sessionEnded)
+        XCTAssertEqual(delivery?.action, .startReplacement)
+        XCTAssertEqual(wire.messageId, "msg-draft")
+    }
+
     // MARK: - Listing wire → contract mapping
 
     func testMobileSessionSummaryMapping() throws {

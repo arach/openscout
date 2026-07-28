@@ -10,6 +10,8 @@
  * columns double as live documentation.
  */
 
+import { StudyHeader } from "@/components/StudyHeader";
+
 type Solo = { name: string; dark: string; light: string; ink?: boolean };
 type Pair = { label: string; fg: Solo; bg: Solo };
 
@@ -54,20 +56,12 @@ const PAIR_COLS = "grid grid-cols-[120px_1fr_1fr_minmax(220px,1fr)_minmax(220px,
 export default function ColorTokensPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · foundations · color tokens
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Color tokens
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Every studio CSS var, side-by-side in both themes. Each swatch sits inside a forced{" "}
-          <code className="font-mono text-[11px] text-studio-ink">data-theme</code> wrapper so
-          comparison holds regardless of the global toggle. Values sourced verbatim from{" "}
-          <code className="font-mono text-[11px] text-studio-ink">app/globals.css</code>.
-        </p>
-      </header>
+      <StudyHeader eyebrow="foundations · color tokens" title="Color tokens">
+        Every studio CSS var, side-by-side in both themes. Each swatch sits inside a forced{" "}
+        <code className="font-mono text-sm text-studio-ink">data-theme</code> wrapper so
+        comparison holds regardless of the global toggle. Values sourced verbatim from{" "}
+        <code className="font-mono text-sm text-studio-ink">app/globals.css</code>.
+      </StudyHeader>
 
       <Section title="Studio chrome" hint="Canvas, surface, ink, edge — the structural palette">
         <SoloHeader />

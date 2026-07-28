@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
+import ScoutIOSCore
 
 /// Comms — the operator's window into the mesh: shared **Channels** and 1:1
 /// **Direct Messages** with agents. A grouped, glanceable list (last message +
@@ -613,12 +614,14 @@ struct CommsThreadView: View {
     @State private var isSending = false
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var composerError: String?
+    @State private var deliveryNotice: OutboundDeliveryState?
+    @State private var deliveryDraftId: String?
+    @State private var outboundDraftId: String?
+    /// Held for the leave-the-screen teardown; the composer owns the dictation UI.
     @Environment(HudDictation.self) private var voice
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var micPulse = false
-    @FocusState private var composerFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -632,7 +635,11 @@ struct CommsThreadView: View {
         // optional, not the only way out of a thread.
         .background(InteractivePopGestureEnabler())
         .safeAreaInset(edge: .bottom) { composer }
-        .task { await load(); await onRead() }
+        .task {
+            await restoreOutboundDraft()
+            await load()
+            await onRead()
+        }
         .onDisappear { if voice.isListening { voice.cancel() } }
     }
 
@@ -734,56 +741,40 @@ struct CommsThreadView: View {
 
     // MARK: Composer
 
+    /// The shared pill composer (ComposerKit). A comms thread routes a message
+    /// to a person or a channel, not to a runtime, so it passes no tools slot —
+    /// the same component, one param lighter.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            if !pendingAttachments.isEmpty {
-                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
-                    pendingAttachments.removeAll { $0.id == id }
-                }
-            }
-            if let composerError {
-                Text(composerError)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.statusError)
-                    .lineLimit(2)
-            }
-            HStack(alignment: .bottom, spacing: HudSpacing.md) {
-                micButton
-                attachPhotoButton
-                attachFileButton
-
-                TextField(composerPlaceholder, text: $composerText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...4)
-                    .font(HudFont.ui(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.ink)
-                    .tint(HudPalette.accent)
-                    .focused($composerFocused)
-                    .onSubmit(send)
-                    .padding(.vertical, HudSpacing.xs)
-
-                Button(action: send) {
-                    Glyphic.arrow(.top, size: 17)
-                        .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(canSend ? HudPalette.accent : ScoutSurface.inset))
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-            }
-            .padding(.leading, HudSpacing.lg)
-            .padding(.trailing, HudSpacing.sm)
-            .padding(.vertical, HudSpacing.sm)
-            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
-                            lineWidth: HudStrokeWidth.standard)
-            )
-        }
-        .padding(.horizontal, HudSpacing.lg)
-        .padding(.bottom, HudSpacing.sm)
+        ScoutMessageComposer(
+            text: $composerText,
+            placeholder: composerPrompt,
+            rows: 1,
+            onSend: send,
+            canSend: canSend,
+            sending: isSending,
+            attach: ScoutComposerAttach(
+                onPhoto: { showPhotoPicker = true },
+                onFile: { showFileImporter = true }
+            ),
+            attachments: $pendingAttachments,
+            error: composerError,
+            notice: deliveryNotice.map { notice in
+                ScoutComposerNotice(
+                    notice.detail ?? "Message saved. Delivery needs attention.",
+                    actionLabel: notice.action.map { $0 == .retry ? "Retry" : "Back" },
+                    action: notice.action.map { action in { recoverDelivery(action) } }
+                )
+            },
+            density: .thread,
+            appearance: .pill
+        )
         .background(HudPalette.bg)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $selectedPhotoItems,
+            maxSelectionCount: 8,
+            matching: .images
+        )
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await addPhotos(items) }
@@ -797,79 +788,11 @@ struct CommsThreadView: View {
         (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty) && !isSending
     }
 
-    private var attachPhotoButton: some View {
-        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
-            Image(systemName: "photo")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 28, height: 28)
-        }
-        .disabled(isSending)
-    }
-
-    private var attachFileButton: some View {
-        Button { showFileImporter = true } label: {
-            Image(systemName: "paperclip")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSending)
-    }
-
-    private var micButton: some View {
-        Button {
-            voice.toggleFromUserIntent()
-        } label: {
-            ZStack {
-                if voice.isListening {
-                    Circle()
-                        .fill(HudPalette.accent.opacity(micPulse ? 0.22 : 0.08))
-                        .frame(width: 28, height: 28)
-                }
-                MicGlyph()
-                    .stroke(micColor, style: StrokeStyle(lineWidth: voice.isListening ? 1.6 : 1.2, lineCap: .round, lineJoin: .round))
-                    .frame(width: 15, height: 15)
-            }
-            .frame(width: 28, height: 28)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isSending)
-        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
-        .onChange(of: voice.finalCount) { _, _ in
-            let text = voice.finalText
-            if !text.isEmpty { appendDictation(text) }
-        }
-    }
-
-    private var micColor: Color {
-        switch voice.state {
-        case .listening: return HudPalette.accent
-        case .transcribing, .preparing: return ScoutInk.muted
-        case .unavailable: return ScoutInk.dim.opacity(0.5)
-        case .idle: return ScoutInk.muted
-        }
-    }
-
-    private var composerPlaceholder: String {
-        switch voice.state {
-        case .listening: return voice.partialText.isEmpty ? "Listening…" : voice.partialText
-        case .transcribing: return "Transcribing…"
-        case .preparing, .idle, .unavailable: return composerPrompt
-        }
-    }
-
     private var composerPrompt: String {
         switch conversation.kind {
         case .channel, .system: return "Message # \(conversation.title)…"
         default: return "Message \(conversation.participants.first ?? "agent")…"
         }
-    }
-
-    private func appendDictation(_ text: String) {
-        composerText = composerText.isEmpty ? text : composerText + " " + text
     }
 
     @MainActor
@@ -904,17 +827,6 @@ struct CommsThreadView: View {
         }
     }
 
-    private func updatePulse(for state: HudDictation.State) {
-        micPulse = false
-        if case .listening = state, shouldAnimateMicPulse {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
-        }
-    }
-
-    private var shouldAnimateMicPulse: Bool {
-        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
-
     // MARK: Data
 
     private func load() async {
@@ -927,16 +839,28 @@ struct CommsThreadView: View {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = pendingAttachments
         guard (!text.isEmpty || !attachments.isEmpty), !isSending else { return }
-        composerText = ""
-        pendingAttachments = []
         composerError = nil
+        deliveryNotice = nil
+        deliveryDraftId = nil
         isSending = true
         Task {
+            let clientMessageId = outboundDraftId ?? "ios-\(UUID().uuidString)"
             do {
+                try await OutboundDraftStore.shared.save(
+                    OutboundDraftRecord(
+                        id: clientMessageId,
+                        conversationId: conversation.id,
+                        body: text,
+                        attachments: attachments.map(\.upload)
+                    )
+                )
+                try Task.checkCancellation()
+                outboundDraftId = clientMessageId
+                composerText = ""
+                pendingAttachments = []
                 let hosted = try await upload(attachments) ?? []
                 // Optimistic echo after hosting so the rendered chip/thumbnail
                 // uses the same link-backed metadata the broker stores.
-                let clientMessageId = "ios-\(UUID().uuidString)"
                 let optimistic = CommsMessage(
                     id: clientMessageId,
                     conversationId: conversation.id,
@@ -950,13 +874,16 @@ struct CommsThreadView: View {
                     clientMessageId: clientMessageId
                 )
                 messages.append(optimistic)
-                let messageId = try await client.postMessage(
+                let result = try await client.postMessageResult(
                     conversationId: conversation.id,
                     body: text,
                     replyTo: nil,
                     attachments: hosted.isEmpty ? nil : hosted,
                     clientMessageId: clientMessageId
                 )
+                guard let messageId = result.messageId else {
+                    throw BridgeConnectionError.decodingFailed("The broker returned no message id.")
+                }
                 var authoritative = optimistic
                 authoritative.id = messageId
                 if let localIndex = messages.firstIndex(where: { $0.clientMessageId == clientMessageId }) {
@@ -971,14 +898,89 @@ struct CommsThreadView: View {
                     if !hasEcho { fresh.append(authoritative) }
                     messages = fresh
                 }
+                deliveryNotice = result.delivery?.state == .recoverable ? result.delivery : nil
+                if result.delivery?.state == .recoverable {
+                    deliveryDraftId = clientMessageId
+                } else {
+                    try? await OutboundDraftStore.shared.remove(id: clientMessageId)
+                }
+                outboundDraftId = nil
                 isSending = false
             } catch {
                 composerText = text
                 pendingAttachments = attachments
+                outboundDraftId = clientMessageId
                 composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 isSending = false
             }
         }
+    }
+
+    private func restoreOutboundDraft() async {
+        guard composerText.isEmpty, pendingAttachments.isEmpty else { return }
+        guard let draft = try? await OutboundDraftStore.shared.latest(conversationId: conversation.id) else {
+            return
+        }
+        outboundDraftId = draft.id
+        composerText = draft.body
+        pendingAttachments = draft.attachments.map { attachment in
+            ScoutComposerAttachment(
+                data: attachment.data,
+                mediaType: attachment.mediaType,
+                fileName: attachment.fileName ?? "attachment"
+            )
+        }
+        deliveryNotice = OutboundDeliveryState(
+            state: .recoverable,
+            reason: .targetUnavailable,
+            action: .retry,
+            detail: "Recovered an unsent message. Review it and retry when ready."
+        )
+        deliveryDraftId = draft.id
+    }
+
+    private func recoverDelivery(_ action: OutboundDeliveryState.RecoveryAction) {
+        switch action {
+        case .retry:
+            let hasCurrentDraft = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingAttachments.isEmpty
+            guard !hasCurrentDraft else {
+                deliveryNotice?.detail = "Your current draft is still here. Send or clear it before retrying the saved message."
+                return
+            }
+            guard let deliveryDraftId else { return }
+            Task {
+                guard let draft = try? await OutboundDraftStore.shared.draft(id: deliveryDraftId) else {
+                    deliveryNotice?.detail = "This message is already saved by Scout. Reopen the thread to retry."
+                    return
+                }
+                outboundDraftId = draft.id
+                composerText = draft.body
+                pendingAttachments = draft.attachments.map { attachment in
+                    ScoutComposerAttachment(
+                        data: attachment.data,
+                        mediaType: attachment.mediaType,
+                        fileName: attachment.fileName ?? "attachment"
+                    )
+                }
+                send()
+            }
+        case .startReplacement:
+            preserveCurrentComposerIfNeeded()
+            onClose()
+        }
+    }
+
+    private func preserveCurrentComposerIfNeeded() {
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
+        let draft = OutboundDraftRecord(
+            id: outboundDraftId ?? "ios-\(UUID().uuidString)",
+            conversationId: conversation.id,
+            body: text,
+            attachments: pendingAttachments.map(\.upload)
+        )
+        Task { try? await OutboundDraftStore.shared.save(draft) }
     }
 
     private func upload(_ attachments: [ScoutComposerAttachment]) async throws -> [MessageAttachment]? {

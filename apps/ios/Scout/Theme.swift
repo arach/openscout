@@ -2,6 +2,39 @@ import SwiftUI
 import Foundation
 import HudsonUI
 
+// MARK: - Motion vocabulary
+
+/// Scout's four motions, so the app moves in one language rather than in as
+/// many languages as it has animated views. Every one of them has to answer
+/// "where did this come from / where did it go" — motion that only decorates
+/// isn't in the vocabulary.
+///
+/// The springs are short and snappy (~0.3s, barely-there settle). A rubbery
+/// spring reads as a toy; a spring that never settles reads as a glitch.
+enum ScoutMotion {
+    /// Something GROWS out of the thing you touched — the runtime panel from
+    /// its chip. The overshoot is nearly gone (0.86) so the panel arrives, it
+    /// doesn't wobble.
+    static let grow = Animation.spring(response: 0.30, dampingFraction: 0.86)
+
+    /// Something TRAVELS between two seats it already had — the tab bar's
+    /// machined seat sliding from tab to tab, the harness rail's marker. A hair
+    /// more life than `grow` (0.82), because travel is the pleasure here.
+    static let travel = Animation.spring(response: 0.30, dampingFraction: 0.82)
+
+    /// Something just CHANGES: a scrim, a tint, a crossfade. No spring — there
+    /// is no distance being covered.
+    static let fade = Animation.easeOut(duration: 0.16)
+
+    /// The Reduce Motion form of all of the above: the same event, no travel.
+    static let plain = Animation.easeOut(duration: 0.12)
+
+    /// Pick the honest animation for the current accessibility setting.
+    static func honoring(_ reduceMotion: Bool, _ animation: Animation) -> Animation {
+        reduceMotion ? plain : animation
+    }
+}
+
 // MARK: - Shared surface entrance
 
 /// One launch-lifetime entrance latch owned by a top-level surface. Keeping the
@@ -419,6 +452,69 @@ enum ScoutSignalSurface {
     static let edge = Color(red: 58.0/255, green: 62.0/255, blue: 63.0/255)
     static let rule = Color(red: 42.0/255, green: 46.0/255, blue: 47.0/255)
     static let neutralSignal = Color(red: 118.0/255, green: 124.0/255, blue: 125.0/255)
+}
+
+/// The machined complication plate, factored out of the crown study so the
+/// masthead's complications and the glass tab bar's active seat are literally
+/// the same object at two scales. The physicality is LIGHTING, not hue: a
+/// top-lit graphite face, a rim light bright at the crown and gone by the
+/// waist, a hairline that holds the silhouette against the canvas, and fine
+/// grain. Never the tone cards (brown under the warm tone) and never the
+/// accent — the crown study banned green on complications.
+struct ScoutMachinedPlate<S: Shape>: View {
+    let shape: S
+    /// Extra rim brightness for the active state (crown parity: +0.15).
+    var rimBoost: Double = 0
+    /// Reach of the pooled top light. Scale it with the plate — the crown's 78
+    /// is sized for a 56pt circle and washes a masthead disc flat.
+    var lightReach: CGFloat = 34
+    var grainOpacity: Double = 0.05
+
+    var body: some View {
+        shape
+            .fill(
+                LinearGradient(
+                    colors: [ScoutSignalSurface.top, ScoutSignalSurface.bottom],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+            .overlay(
+                shape.fill(
+                    RadialGradient(
+                        colors: [Color.white.opacity(0.09), .clear],
+                        center: .top, startRadius: 0, endRadius: lightReach
+                    )
+                )
+            )
+            .overlay(ScoutMachinedRim(shape: shape, rimBoost: rimBoost))
+            .overlay(ScoutFilmGrain(grainOpacity: grainOpacity).clipShape(shape))
+    }
+}
+
+/// The machined lighting on its own — a rim light bright at the crown and gone
+/// by the waist, over a faint full hairline that holds the silhouette. For
+/// surfaces that bring their own fill and must keep it: the liquid-glass tab
+/// bar wears this so the rail is edged like the complications it seats,
+/// without turning the glass opaque.
+struct ScoutMachinedRim<S: Shape>: View {
+    let shape: S
+    var rimBoost: Double = 0
+
+    var body: some View {
+        shape
+            .stroke(
+                LinearGradient(
+                    stops: [
+                        .init(color: ScoutSignalSurface.neutralSignal.opacity(0.55 + rimBoost), location: 0),
+                        .init(color: ScoutSignalSurface.neutralSignal.opacity(0.16 + rimBoost * 0.4), location: 0.35),
+                        .init(color: .clear, location: 0.55),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+            .overlay(shape.stroke(ScoutSignalSurface.edge.opacity(0.35), lineWidth: HudStrokeWidth.thin))
+    }
 }
 
 struct SignalPanelShape: InsettableShape {

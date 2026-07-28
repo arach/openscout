@@ -240,6 +240,77 @@ CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
 
 type ControlPlaneDrizzleMigrations = ReturnType<typeof readMigrationFiles>;
 
+// A short-lived role-assignment branch shipped its own 0003-0005 migration
+// lineage before the context and route-alias migrations landed on main. Pilot
+// databases can therefore contain the final role schema under these hashes,
+// while the current journal assigns that equivalent DDL to 0004. Preserve the
+// historical rows and add the current identities so the migrator does not
+// replay plain CREATE TABLE statements over an already-upgraded database.
+const LEGACY_ROLE_MIGRATION_HASHES = [
+  "0b135c4d057d5c26bddb07d1cbda3f027bd2ef4d90babfc2e23fede3ff8be5cb",
+  "7df85f271d1a6e9e37552adf3dc2f1869ca0f685b343aaf328488aeb11a2f64d",
+  "7b2b31c19f753638f597e2f73dee3855a84f3d4c6aec7e615825745d81928aac",
+] as const;
+
+const RECONCILED_MAIN_MIGRATION_MILLIS = [
+  1783665705710, // context tables: supplied by the idempotent raw-schema repair below
+  1784834739171, // role assignments + mission log: equivalent legacy DDL already applied
+] as const;
+
+function hasSchemaObject(
+  database: ControlPlaneSqliteDatabase,
+  type: "table" | "index",
+  name: string,
+): boolean {
+  return database
+    .query("SELECT 1 FROM sqlite_master WHERE type = ?1 AND name = ?2 LIMIT 1")
+    .get(type, name) !== null;
+}
+
+function reconcileLegacyRoleMigrationLineage(
+  database: ControlPlaneSqliteDatabase,
+  migrations: ControlPlaneDrizzleMigrations,
+): void {
+  const hasLegacyChain = LEGACY_ROLE_MIGRATION_HASHES.every((hash) =>
+    database
+      .query('SELECT 1 FROM "__drizzle_migrations" WHERE hash = ?1 LIMIT 1')
+      .get(hash) !== null
+  );
+  if (!hasLegacyChain) {
+    return;
+  }
+
+  const equivalentRoleShape: Array<["table" | "index", string]> = [
+    ["table", "mission_log_entries"],
+    ["table", "role_assignments"],
+    ["index", "idx_mission_log_entries_mission_seq"],
+    ["index", "idx_mission_log_entries_mission_at"],
+    ["index", "idx_mission_log_entries_actor_at"],
+    ["index", "idx_role_assignments_agent_active"],
+    ["index", "idx_role_assignments_mission_role_active"],
+    ["index", "idx_role_assignments_role_active"],
+  ];
+  if (!equivalentRoleShape.every(([type, name]) => hasSchemaObject(database, type, name))) {
+    return;
+  }
+
+  for (const folderMillis of RECONCILED_MAIN_MIGRATION_MILLIS) {
+    const migration = migrations.find((candidate) => candidate.folderMillis === folderMillis);
+    if (!migration) {
+      continue;
+    }
+    database
+      .query(
+        `INSERT INTO "__drizzle_migrations" (hash, created_at)
+         SELECT ?1, ?2
+         WHERE NOT EXISTS (
+           SELECT 1 FROM "__drizzle_migrations" WHERE hash = ?1
+         )`,
+      )
+      .run(migration.hash, migration.folderMillis);
+  }
+}
+
 function seedControlPlaneDrizzleLedger(
   database: ControlPlaneSqliteDatabase,
   migrations: ControlPlaneDrizzleMigrations,
@@ -304,6 +375,7 @@ export function applyControlPlaneDrizzleMigrations(database: ControlPlaneSqliteD
   const migrations = readMigrationFiles({ migrationsFolder });
   database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
   seedControlPlaneDrizzleLedger(database, migrations);
+  reconcileLegacyRoleMigrationLineage(database, migrations);
 
   // Inlined replacement for drizzle-orm's bun-sqlite `migrate()`: identical
   // ledger contract (same table shape, same "created_at newer than the last

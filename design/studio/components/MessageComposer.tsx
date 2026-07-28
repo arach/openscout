@@ -1,21 +1,40 @@
 "use client";
 
 /**
- * MessageComposer — classic chat input atom (sandwich layout).
+ * MessageComposer — the one chat input across Scout (sandwich layout).
  *
- *   ┌ header ─ reply / annotation (optional) ─────────┐
+ *   ┌ header ─ reply / annotation (optional slot) ────┐
  *   │ body ── message input                           │
  *   │         waveform from speech energy (not a loop)│
  *   ├ toolbar ────────────────────────────────────────┤
  *   │ [attach]              [tools/model] [mic] [Send]│
  *   └─────────────────────────────────────────────────┘
  *
+ * ── The contract ─────────────────────────────────────────────────────────
+ * `MessageComposerProps` below is the SPEC every port mirrors: the web
+ * production twin (packages/web/client/components/MessageComposer/), the iOS
+ * study kit (components/scout-ios/composer.tsx) and the eventual SwiftUI
+ * view. Every variant any surface needs is expressible as params, so no
+ * surface re-rolls the markup. How each category translates to Swift:
+ *
+ *   strings / numbers      → `String` / `Int`
+ *   booleans (`show*`)     → `Bool`
+ *   `density`              → a Swift `enum`, never a raw string
+ *   callbacks (`on*`)      → escaping closures
+ *   slots (header, tools)  → `@ViewBuilder` params
+ *   `className`            → web-only styling escape hatch. The Swift port
+ *                            drops it; a port that needs per-surface chrome
+ *                            adds a real param instead.
+ *
+ * State DERIVES — it is never passed in. "Armed" is `draft is non-empty`,
+ * focus is real focus (`autoFocus`), recording is internal. There is no
+ * `armed` / `focused` prop and there must not be: a study that wants to pin a
+ * visual state pins it through the real mechanism, so a mock can never drift
+ * from shipped behaviour.
+ *
  * Studio dictation mock: advances a real phrase and drives bar heights from
  * vowel/consonant/pause energy along that utterance — so the wave is
  * representative of what is being "said", not a decorative CSS cycle.
- *
- * Production twin:
- *   packages/web/client/components/MessageComposer/
  */
 
 import {
@@ -28,31 +47,72 @@ import {
 } from "react";
 import { ArrowUp, ChevronDown, Mic, Paperclip, Square } from "lucide-react";
 
+/**
+ * Outer rhythm — how much room the composer takes in its host. `panel` —
+ * standalone, no outer padding, 15px body (the default; what a page or a
+ * phone dock puts its own padding around). `thread` — docked at the foot of
+ * a transcript, roomy outer padding. `compact` — dense chrome, tight outer
+ * padding and a 13px body.
+ */
 export type MessageComposerDensity = "panel" | "thread" | "compact";
 
+/**
+ * The shell's idiom — orthogonal to density.
+ *
+ * `panel` (default) — the desktop card: 14px radius, a tinted toolbar tray
+ * fenced off by a hairline. Room for a header, several tools, long drafts.
+ *
+ * `pill` — the phone idiom: a soft 21px capsule, no tray and no fence, 28px
+ * controls, one-line body. With nothing on the base row (no `showAttach`, no
+ * `tools`) the controls fold up beside the input and the whole thing is a
+ * single ~44px line — the classic ask box. Add `tools` and the base row
+ * appears underneath, still untrayed, so it stays light on glass.
+ */
+export type MessageComposerAppearance = "panel" | "pill";
+
 export interface MessageComposerProps {
+  // ── Draft ────────────────────────────────────────────────────────────
+  /** Controlled draft. Omit for uncontrolled. */
   value?: string;
+  /** Uncontrolled seed. A non-empty seed is also how a study arms Send. */
   defaultValue?: string;
-  onChange?: (value: string) => void;
-  onSend?: (value: string) => void;
   placeholder?: string;
-  disabled?: boolean;
-  sending?: boolean;
+  /** Initial textarea rows; the body autosizes from there up to 160px. */
+  rows?: number;
+  /** Take focus on mount — how a study pins the "keyboard is up" state. */
+  autoFocus?: boolean;
+  onChange?: (value: string) => void;
+
+  // ── Commit ───────────────────────────────────────────────────────────
+  onSend?: (value: string) => void;
+  /** Override the derived rule (draft non-empty · not sending · enabled). */
   canSend?: boolean;
+  /** In flight — the body locks, Send stays down. */
+  sending?: boolean;
+  disabled?: boolean;
+  /** Agent is running: the Send slot becomes Stop. Not a mic control. */
   stopMode?: boolean;
   onStop?: () => void;
-  showDictation?: boolean;
+
+  // ── Toolbar ──────────────────────────────────────────────────────────
+  /** Attach anchors the toolbar's left end. */
   showAttach?: boolean;
   onAttach?: () => void;
+  /** Mic starts/stops dictation — never commits. */
+  showDictation?: boolean;
+  /** Top slot: reply annotation, context chips. */
   header?: ReactNode;
-  /** Toolbar tools on the right, before mic/Send (model picker, etc.). */
+  /** Right toolbar slot, before mic/Send: routing / harness / model chips
+   *  (use `MessageComposerSelect`, which is the designed resting shape). */
   tools?: ReactNode;
-  /** @deprecated use `tools` */
-  footer?: ReactNode;
+
+  // ── Presentation ─────────────────────────────────────────────────────
   density?: MessageComposerDensity;
+  appearance?: MessageComposerAppearance;
+  /** Web-only escape hatch — the Swift port drops it. */
   className?: string;
-  rows?: number;
-  onSendNotice?: (value: string) => void;
+
+  // ── Studio dictation mock ────────────────────────────────────────────
   /**
    * Full phrase the studio "speaks" while recording. Waveform energy tracks
    * this text; partial caption reveals it as progress advances.
@@ -64,12 +124,22 @@ function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-const iconBtn = cx(
-  "inline-flex h-8 w-8 items-center justify-center rounded-full",
-  "border border-studio-edge text-studio-ink-faint transition-colors",
-  "hover:border-studio-ink/35 hover:text-studio-ink",
-  "disabled:cursor-not-allowed disabled:opacity-40",
-);
+// NOTE on colours: Tailwind cannot put an opacity modifier on the studio
+// palette — `colors.studio.*` are bare `var(--studio-*)` strings holding
+// oklch, and Tailwind 3 emits NO RULE for `border-studio-ink/35` (see the
+// "Ink tints" block in app/globals.css). Every tint here therefore uses a
+// registered token or one of that file's color-mix utilities, so the atom
+// looks the same wherever its tokens are re-pointed (e.g. inside the iOS
+// phone, where `.scoutios` rebinds `--studio-*` to the phone palette).
+/** Outlined round control. `pill` appearance runs one step smaller. */
+const iconBtn = (pill: boolean) =>
+  cx(
+    "inline-flex items-center justify-center rounded-full",
+    pill ? "h-7 w-7" : "h-8 w-8",
+    "border border-studio-edge text-studio-ink-faint transition-colors",
+    "hover:border-studio-edge-strong hover:text-studio-ink",
+    "disabled:cursor-not-allowed disabled:opacity-40",
+  );
 
 const WAVE_BARS = 48;
 const DEFAULT_UTTERANCE =
@@ -148,11 +218,11 @@ export function MessageComposer({
   onAttach,
   header,
   tools,
-  footer,
   density = "panel",
+  appearance = "panel",
   className,
   rows = 2,
-  onSendNotice,
+  autoFocus = false,
   demoUtterance = DEFAULT_UTTERANCE,
 }: MessageComposerProps) {
   const reactId = useId();
@@ -165,7 +235,6 @@ export function MessageComposer({
   const [samples, setSamples] = useState<number[]>(() =>
     Array.from({ length: WAVE_BARS }, () => 0.05),
   );
-  const toolsSlot = tools ?? footer;
   const rafRef = useRef(0);
   const progressRef = useRef(0);
   const startedAtRef = useRef(0);
@@ -254,7 +323,6 @@ export function MessageComposer({
   const commitSend = () => {
     if (!sendEnabled) return;
     onSend?.(value.trim());
-    onSendNotice?.(value.trim());
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -295,35 +363,127 @@ export function MessageComposer({
   const showVoice =
     phase === "recording" || phase === "processing" || Boolean(partial);
 
+  const pill = appearance === "pill";
+  // The pill's fold: with nothing to put on a base row, mic and Send sit
+  // beside the input and the composer is one ~44px line. Dictation unfolds it
+  // again — the waveform needs the full width.
+  const inlineControls = pill && !showAttach && !tools && !showVoice;
+
+  const controls = (
+    <div
+      className={cx(
+        "flex shrink-0 items-center justify-end",
+        pill ? "gap-1" : "gap-1.5",
+      )}
+    >
+      {tools ? (
+        <div className="flex min-w-0 flex-nowrap items-center justify-end gap-1">
+          {tools}
+        </div>
+      ) : null}
+      {showDictation ? (
+        <button
+          type="button"
+          disabled={disabled || sending || phase === "processing"}
+          aria-label={recording ? "Stop recording" : "Start recording"}
+          title={recording ? "Stop recording" : "Start recording"}
+          aria-pressed={recording}
+          onClick={toggleMic}
+          className={cx(
+            iconBtn(pill),
+            recording && "border-emerald-500/50 bg-emerald-500/10 text-emerald-400",
+          )}
+        >
+          {phase === "processing" ? (
+            <span className="h-3 w-3 animate-pulse rounded-full bg-current" />
+          ) : recording ? (
+            <Square size={11} className="fill-current" />
+          ) : (
+            <Mic size={13} />
+          )}
+        </button>
+      ) : null}
+
+      {stopMode ? (
+        <button
+          type="button"
+          aria-label="Stop agent"
+          title="Stop agent"
+          onClick={onStop}
+          className={cx(
+            "inline-flex items-center justify-center rounded-full",
+            pill ? "h-7 w-7" : "h-8 w-8",
+            "bg-red-500 text-white transition-transform hover:scale-105",
+          )}
+        >
+          <Square size={11} className="fill-current" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={!sendEnabled}
+          data-action="send"
+          aria-label="Send message (Cmd+Enter)"
+          title="Send (Cmd+Enter)"
+          onClick={commitSend}
+          className={cx(
+            "inline-flex items-center justify-center rounded-full",
+            pill ? "h-7 w-7" : "h-8 w-8",
+            "bg-studio-ink text-studio-canvas transition-transform",
+            "hover:scale-105 disabled:cursor-default disabled:opacity-25 disabled:hover:scale-100",
+          )}
+        >
+          <ArrowUp size={pill ? 14 : 15} strokeWidth={2.25} />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className={cx("w-full min-w-0", pad, className)} data-composer-id={reactId}>
       <div
         className={cx(
-          "relative flex flex-col overflow-hidden rounded-[14px] border border-studio-edge",
-          "bg-studio-surface transition-colors focus-within:border-studio-ink/40",
+          "relative flex flex-col overflow-hidden border border-studio-edge",
+          pill ? "rounded-[21px]" : "rounded-[14px]",
+          "bg-studio-surface transition-colors focus-within:border-studio-edge-strong",
         )}
       >
         {header ? (
-          <div className="border-b border-studio-edge bg-studio-canvas/40 px-3 py-2">
+          <div
+            className={cx(
+              "px-3 py-2",
+              pill ? "pb-1" : "canvas-tint border-b border-studio-edge",
+            )}
+          >
             {header}
           </div>
         ) : null}
 
-        <div className="flex flex-col px-3 pb-1.5 pt-2.5">
+        <div
+          className={cx(
+            "flex",
+            inlineControls
+              ? "flex-row items-center gap-1.5 py-1.5 pl-4 pr-1.5"
+              : "flex-col",
+            !inlineControls && (pill ? "px-4 pb-0.5 pt-2" : "px-3 pb-1.5 pt-2.5"),
+          )}
+        >
           <textarea
             ref={textareaRef}
             value={value}
             disabled={disabled || sending}
             rows={rows}
+            autoFocus={autoFocus}
             placeholder={placeholder}
             aria-label="Message"
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={onKeyDown}
             className={cx(
-              "block min-h-[44px] max-h-40 w-full min-w-0 resize-none",
+              "block max-h-40 w-full min-w-0 resize-none",
               "border-0 bg-transparent font-sans text-[15px] leading-normal",
               "text-studio-ink outline-none placeholder:text-studio-ink-faint",
               "disabled:cursor-not-allowed disabled:opacity-55",
+              pill ? "min-h-[24px]" : "min-h-[44px]",
               density === "compact" && "min-h-[32px] text-[13px]",
             )}
           />
@@ -359,99 +519,49 @@ export function MessageComposer({
               </div>
             </div>
           ) : null}
+
+          {inlineControls ? controls : null}
         </div>
 
-        <div
-          className={cx(
-            "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2",
-            "border-t border-studio-edge bg-studio-canvas/30 px-2 py-1.5",
-          )}
-        >
-          <div className="flex min-w-0 items-center gap-1.5">
-            {showAttach ? (
-              <button
-                type="button"
-                disabled={disabled || sending}
-                title="Add attachment"
-                aria-label="Add attachment"
-                onClick={onAttach}
-                className={iconBtn}
-              >
-                <Paperclip size={14} />
-              </button>
-            ) : null}
-          </div>
-
-          {/* Right: model/tools · mic · Send */}
-          <div className="col-start-3 flex shrink-0 items-center justify-end gap-1.5 justify-self-end">
-            {toolsSlot ? (
-              <div className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5">
-                {toolsSlot}
-              </div>
-            ) : null}
-            {showDictation ? (
-              <button
-                type="button"
-                disabled={disabled || sending || phase === "processing"}
-                aria-label={recording ? "Stop recording" : "Start recording"}
-                title={recording ? "Stop recording" : "Start recording"}
-                aria-pressed={recording}
-                onClick={toggleMic}
-                className={cx(
-                  iconBtn,
-                  recording && "border-emerald-500/50 bg-emerald-500/10 text-emerald-400",
-                )}
-              >
-                {phase === "processing" ? (
-                  <span className="h-3 w-3 animate-pulse rounded-full bg-current" />
-                ) : recording ? (
-                  <Square size={11} className="fill-current" />
-                ) : (
-                  <Mic size={13} />
-                )}
-              </button>
-            ) : null}
-
-            {stopMode ? (
-              <button
-                type="button"
-                aria-label="Stop agent"
-                title="Stop agent"
-                onClick={onStop}
-                className={cx(
-                  "inline-flex h-8 w-8 items-center justify-center rounded-full",
-                  "bg-red-500 text-white transition-transform hover:scale-105",
-                )}
-              >
-                <Square size={11} className="fill-current" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={!sendEnabled}
-                data-action="send"
-                aria-label="Send message (Cmd+Enter)"
-                title="Send (Cmd+Enter)"
-                onClick={commitSend}
-                className={cx(
-                  "inline-flex h-8 w-8 items-center justify-center rounded-full",
-                  "bg-studio-ink text-studio-canvas transition-transform",
-                  "hover:scale-105 disabled:cursor-default disabled:opacity-25 disabled:hover:scale-100",
-                )}
-              >
-                <ArrowUp size={15} strokeWidth={2.25} />
-              </button>
+        {inlineControls ? null : (
+          <div
+            className={cx(
+              "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2",
+              pill
+                ? "px-2 pb-1.5 pt-0.5"
+                : "canvas-tint border-t border-studio-edge px-2 py-1.5",
             )}
+          >
+            <div className="flex min-w-0 items-center gap-1.5">
+              {showAttach ? (
+                <button
+                  type="button"
+                  disabled={disabled || sending}
+                  title="Add attachment"
+                  aria-label="Add attachment"
+                  onClick={onAttach}
+                  className={iconBtn(pill)}
+                >
+                  <Paperclip size={14} />
+                </button>
+              ) : null}
+            </div>
+
+            {/* Right: tools · mic · Send */}
+            <div className="col-start-3 justify-self-end">{controls}</div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 /**
- * Designed resting chip for model / harness tools.
- * Value-only pill (no kicker labels, no border) · mono value · chevron.
+ * Designed resting chip for the `tools` slot — routing, harness, model.
+ * Value-only pill (no kicker labels, no border) · mono value · chevron: the
+ * name of the thing is redundant next to its value, and on a 390px phone
+ * toolbar it is the difference between fitting and wrapping. `label` is the
+ * accessible name only. Swift port: a `Menu` with the same value-only label.
  */
 export function MessageComposerSelect({
   label,
@@ -459,14 +569,17 @@ export function MessageComposerSelect({
   onChange,
   options,
   disabled,
+  size = "md",
 }: {
+  /** Accessible name — never rendered. */
   label: string;
-  kicker?: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
-  hideKicker?: boolean;
+  /** `sm` is the phone chip — three of these plus attach, mic and Send have
+   *  to sit on 390px of glass without wrapping. */
+  size?: "sm" | "md";
 }) {
   const selected = options.find((option) => option.value === value);
   const display = selected?.label
@@ -475,22 +588,28 @@ export function MessageComposerSelect({
   return (
     <label
       className={cx(
-        "relative inline-flex max-w-[200px] items-center gap-1",
-        "min-h-7 rounded-full border-0 px-2.5",
-        "bg-studio-ink/[0.07] transition-colors",
-        "hover:bg-studio-ink/[0.11]",
-        "focus-within:bg-studio-ink/[0.12] focus-within:shadow-[0_0_0_2px_rgba(255,255,255,0.08)]",
+        // `ink-chip` (globals.css) is the color-mix stand-in for the
+        // `bg-studio-ink/[0.07]` modifier Tailwind cannot emit here.
+        "ink-chip relative inline-flex max-w-[200px] items-center",
+        "rounded-full border-0 transition-colors",
+        size === "sm" ? "min-h-6 gap-0.5 px-2" : "min-h-7 gap-1 px-2.5",
+        "focus-within:shadow-[0_0_0_2px_rgba(255,255,255,0.08)]",
         disabled && "cursor-not-allowed opacity-45",
         !disabled && "cursor-pointer",
       )}
     >
-      <span className="min-w-0 truncate font-mono text-[11px] font-medium tracking-[0.01em] text-studio-ink-faint">
+      <span
+        className={cx(
+          "min-w-0 truncate font-mono font-medium tracking-[0.01em] text-studio-ink-faint",
+          size === "sm" ? "text-[10px]" : "text-[11px]",
+        )}
+      >
         {display}
       </span>
       <ChevronDown
-        size={10}
+        size={size === "sm" ? 9 : 10}
         strokeWidth={2}
-        className="shrink-0 text-studio-ink-faint/80"
+        className="shrink-0 text-studio-ink-faint"
         aria-hidden
       />
       <select

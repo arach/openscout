@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "6ff5cd7c346c0af1",
+  "assetRevision": "cfdb4ed0b525e8e1",
   "protocol": {
     "minimum": 1,
     "maximum": 1
   },
   "toolchain": {
-    "node": "26.4.0",
-    "bun": "1.3.11",
+    "node": "22.21.1",
+    "bun": "1.3.13",
     "vite": "^7.0.0",
-    "lockfileSha256": "5a5e18b893c8deb686266e200a55d78f112bde1885c47f5fb5d83ddfc09c0d34"
+    "lockfileSha256": "554bdaf20f15996c4e1510a476e5fcfec747f2b945b4c895c8d2ba0f3a6c7a03"
   },
   "surfaces": {
     "lanes": {
@@ -35,25 +35,28 @@
     },
     "deck": {
       "entry": "deck/index.html",
-      "wireSurface": "lanes",
       "capabilities": [
         "bootstrap",
         "native.openExternalURL",
         "native.getPreferences",
         "native.setPreferences",
         "native.cancel",
+        "native.voice.snapshot",
+        "native.voice.toggleInput",
+        "native.voice.speak",
+        "native.voice.stopOutput",
         "agents.list",
         "agents.observe",
         "tail.recent",
         "tail.subscribe",
-        "native.setLaneSelection"
+        "native.setLaneSelection",
+        "codex.thread.snapshot",
+        "codex.thread.connect",
+        "codex.turn.start",
+        "codex.turn.steer",
+        "codex.turn.interrupt"
       ],
-      "preferences": [
-        "lanes.layout",
-        "lanes.horizon",
-        "lanes.gridColumns",
-        "lanes.collapseTechnicalEvents"
-      ]
+      "preferences": []
     },
     "dispatch": {
       "entry": "dispatch/index.html",
@@ -76,13 +79,13 @@
   "files": [
     {
       "path": "deck/app.css",
-      "sha256": "bfeda715b1b17e3c895c7756aa84eaaae7c7c42bdffddca724284213c5ff84e0",
-      "bytes": 250163
+      "sha256": "8bfc07e8ea952905e079ee3d15c75a54087afb80463d23dc110ae9407833391a",
+      "bytes": 59013
     },
     {
       "path": "deck/app.js",
-      "sha256": "af73accd0cac4f06ff9691897b6c41fa941bdf90756577faf552867798ec478d",
-      "bytes": 554954
+      "sha256": "039d204a922af3be355a981c18c3a38b2fd6212c6853d9ca025187a3acc5bbef",
+      "bytes": 290552
     },
     {
       "path": "deck/index.html",
@@ -96,8 +99,8 @@
     },
     {
       "path": "dispatch/app.js",
-      "sha256": "d90e29de4457bbc842be824090fb00014f1b6946103ed38333603b5bf11af4ea",
-      "bytes": 197391
+      "sha256": "5af818423dc8dc8ac13e6ab40fddb3b1a18e098757ea6293682e7fa51ca5ba8f",
+      "bytes": 197936
     },
     {
       "path": "dispatch/index.html",
@@ -106,13 +109,13 @@
     },
     {
       "path": "lanes/app.css",
-      "sha256": "b8aa9c0fdb6f07d137df7c8cbd047f536cd8a72c4c268c4471dfc2b890fcb167",
-      "bytes": 250163
+      "sha256": "540e86e8dfbd58a877dbfe9d5df53b54e3cf3ede8a00124d6bdbd561312a5bbc",
+      "bytes": 264198
     },
     {
       "path": "lanes/app.js",
-      "sha256": "c22d1d0cc83afd6b43e531cd5c1355c5a2330b5ed50c578bb140a29cf3234c45",
-      "bytes": 554919
+      "sha256": "7f1849f84589ea5aad4ecb36d1c3ff4020e28d211fa116b1c8c0f10d4d0a27c5",
+      "bytes": 556494
     },
     {
       "path": "lanes/index.html",

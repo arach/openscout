@@ -382,7 +382,7 @@ export default function RouteInventoryPage() {
         </div>
         <div className="mt-2 grid gap-5 lg:grid-cols-[minmax(0,1fr)_520px]">
           <div>
-            <h1 className="font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
+            <h1 className="font-display text-4xl font-medium leading-none tracking-tight text-studio-ink">
               OpenScout route inventory
             </h1>
             <p className="mt-3 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">

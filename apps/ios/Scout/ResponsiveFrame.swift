@@ -8,6 +8,12 @@ struct ScoutLayoutMetrics: Equatable {
     let physicalWidth: CGFloat
     let designWidth: CGFloat
     let scale: CGFloat
+    /// True when the window around us is a REGULAR-width environment — an iPad
+    /// full screen or in a wide split. Keyed on the horizontal size class rather
+    /// than the device idiom so a slide-over or a narrow split behaves exactly
+    /// like a phone, and so a resize crosses the boundary live. Compact is the
+    /// baseline: every metric below collapses to its phone value there.
+    var isRegularWidth: Bool = false
 
     var isMiniPhone: Bool { physicalWidth > 0 && physicalWidth <= 380 }
     var isNarrowPhone: Bool { physicalWidth > 0 && physicalWidth < 390 }
@@ -37,6 +43,34 @@ struct ScoutLayoutMetrics: Equatable {
     var statusSideInset: CGFloat { isNarrowPhone ? HudSpacing.xxxl : 42 }
     var statusCenterGap: CGFloat { isNarrowPhone ? HudSpacing.md : HudSpacing.lg }
     var statusMachineMaxLabelWidth: CGFloat { isNarrowPhone ? 72 : 120 }
+
+    // MARK: - Regular width (iPad)
+
+    /// The measure the WORKING COLUMN stops growing at. Scout's surfaces are
+    /// authored against a ~360pt phone lane; running that same furniture out to
+    /// 1000pt is exactly what makes an iPad read as a stretched phone — a
+    /// full-bleed composer, a Connect card the width of the desk, and a void in
+    /// between. Capping the column is the whole adaptation: the canvas, the
+    /// masthead complications, and the tab bar all keep the full width.
+    ///
+    /// 660 by eye: wide enough that the composer and the destination rows feel
+    /// like iPad furniture rather than a phone screenshot pasted on glass, and
+    /// narrow enough that the recents lane still scans in one eye movement.
+    var readableMeasure: CGFloat { 660 }
+
+    /// Horizontal gutter for the working column. Compact: the surface padding,
+    /// untouched. Regular: whatever centres a `readableMeasure` lane — but never
+    /// less than the surface padding, so a regular-width window that is NARROWER
+    /// than the measure (a 50/50 split on a big iPad) simply keeps the phone's
+    /// full-bleed lane instead of inventing negative gutters.
+    var contentInset: CGFloat {
+        guard isRegularWidth else { return surfacePadding }
+        return max(surfacePadding, (designWidth - readableMeasure) / 2)
+    }
+
+    /// The working column's own width — the regular-aware twin of the surfaces'
+    /// `laneWidth`, and identical to it on every compact width.
+    var contentWidth: CGFloat { max(0, designWidth - contentInset * 2) }
 }
 
 private struct ScoutLayoutMetricsKey: EnvironmentKey {
@@ -73,6 +107,12 @@ struct DesignFrame<Content: View>: View {
     /// Smallest native phone target. The 13 mini is 375pt wide.
     var nativeMinimumWidth: CGFloat = 375
 
+    /// Regular vs compact comes from the environment, not from the measured
+    /// width: the system already accounts for split view, slide over, and Stage
+    /// Manager, and reading it here means every surface downstream gets the
+    /// answer through `scoutLayout` without touching the environment itself.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     private let content: (ScoutLayoutMetrics) -> Content
 
     init(@ViewBuilder content: @escaping () -> Content) {
@@ -97,7 +137,12 @@ struct DesignFrame<Content: View>: View {
             // and clipping both edges.
             let designWidth = scale < 1 ? avail.width / scale : avail.width
             let designHeight = scale > 0 ? avail.height / scale : avail.height
-            let metrics = ScoutLayoutMetrics(physicalWidth: avail.width, designWidth: designWidth, scale: scale)
+            let metrics = ScoutLayoutMetrics(
+                physicalWidth: avail.width,
+                designWidth: designWidth,
+                scale: scale,
+                isRegularWidth: horizontalSizeClass == .regular
+            )
 
             content(metrics)
                 .environment(\.scoutLayout, metrics)

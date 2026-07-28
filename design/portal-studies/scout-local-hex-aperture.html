@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scout local — hex aperture study</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        /* Near-black field, warm off-white ink, muted warm greys. No accent hue. */
+        --bg: #0a0a09;
+        --panel: #100f0d;
+        --ink: #f1ece1;
+        --ink-2: #a49d90;
+        --ink-3: #6f6960;
+        --edge: #23221f;
+        --edge-2: #3d3a34;
+
+        /* Tone ramp — the only "color" on the page. This study uses three of
+           the five: t2 for graduations, t3 for the frame, t4 for the datum
+           and the registration index. t1 was tried for the graduations and
+           disappears at 1x, which turns the deliberate gaps into damage. */
+        --t0: #2e2b27;
+        --t1: #474339;
+        --t2: #6b6558;
+        --t3: #968e7f;
+        --t4: #d5cdbd;
+
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        align-content: center;
+        /* `stretch` + an explicit max-width, rather than centring the grid
+           item and sizing it with a percentage — the column then never has to
+           resolve a percentage width against its own max-content. */
+        justify-items: stretch;
+        padding: 40px 32px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      main { width: 100%; max-width: 760px; min-width: 0; margin-inline: auto; }
+
+      /* ---------- hero ---------- */
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 32px 44px;
+        align-items: center;
+        margin-bottom: 40px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 22px;
+      }
+      .mark { display: block; color: var(--ink-2); }
+      .host {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: var(--ink-2);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 34px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+      }
+      .lede {
+        margin: 0;
+        max-width: 42ch;
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--ink-2);
+      }
+
+      /* ---------- ascii instrument aperture ----------
+         No radial mask here, unlike the density study: nothing is computed on
+         a rectangle, so there is no rectangle boundary to dissolve. Every lit
+         cell is a deliberate stroke and keeps its hard edge. */
+      .field { position: relative; user-select: none; }
+      .field__layer {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 12px;
+        white-space: pre;
+        letter-spacing: 0;
+      }
+      /* First layer sits in flow and sizes the box; the rest stack on top. */
+      .field__layer + .field__layer { position: absolute; inset: 0; }
+      .field__layer[data-t="0"] { color: var(--t0); }
+      .field__layer[data-t="1"] { color: var(--t1); }
+      .field__layer[data-t="2"] { color: var(--t2); }
+      .field__layer[data-t="3"] { color: var(--t3); }
+      .field__layer[data-t="4"] { color: var(--t4); }
+
+      /* ---------- node ---------- */
+      .node {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 16px 18px;
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        background: var(--panel);
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 140ms ease, transform 140ms ease, background-color 140ms ease;
+      }
+      .node:hover,
+      .node:focus-visible {
+        border-color: var(--edge-2);
+        background: #14130f;
+        transform: translateY(-1px);
+      }
+      .node:focus-visible { outline: 1px solid var(--ink-3); outline-offset: 2px; }
+      .node__id { display: grid; gap: 4px; min-width: 0; }
+      .node__host {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .node__sub { font-size: 12px; color: var(--ink-3); }
+      .node__open {
+        flex: none;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        transition: color 140ms ease;
+      }
+      .node:hover .node__open,
+      .node:focus-visible .node__open { color: var(--ink); }
+
+      /* ---------- trust ---------- */
+      .trust {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 16px;
+        margin-top: 28px;
+        padding-top: 18px;
+        border-top: 1px solid var(--edge);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        color: var(--ink-3);
+      }
+      .trust a {
+        color: var(--ink-2);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: color 140ms ease, border-color 140ms ease;
+      }
+      .trust a:hover,
+      .trust a:focus-visible { color: var(--ink); border-bottom-color: var(--edge-2); }
+      .trust .sep { color: var(--edge-2); }
+      .trust .note { margin-left: auto; }
+
+      @media (max-width: 680px) {
+        .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+        .field { justify-self: start; }
+        h1 { font-size: 28px; }
+        .trust .note { margin-left: 0; flex-basis: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <div>
+          <div class="brand">
+            <span class="mark" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
+                <polygon points="16,4.8 26.2,10.7 26.2,21.9 16,27.8 5.8,21.9 5.8,10.7" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" fill="currentColor" fill-opacity="0.06"/>
+                <path d="M16 4.8v23M5.8 10.7 16 16.6 26.2 10.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>
+                <polygon points="16,11 21.1,14 21.1,19.6 16,22.6 10.9,19.6 10.9,14" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" fill="currentColor" fill-opacity="0.14" opacity="0.9"/>
+              </svg>
+            </span>
+            <span class="host">scout.local</span>
+          </div>
+          <h1>Scout local</h1>
+          <p class="lede">
+            Registered machines on this local Scout mesh. Open a node to inspect
+            agents, sessions, activity, and settings.
+          </p>
+        </div>
+
+        <div class="field" aria-hidden="true">
+          <pre class="field__layer" data-t="0"></pre>
+          <pre class="field__layer" data-t="1"></pre>
+          <pre class="field__layer" data-t="2"></pre>
+          <pre class="field__layer" data-t="3"></pre>
+          <pre class="field__layer" data-t="4"></pre>
+        </div>
+      </div>
+
+      <a class="node" href="http://arts-mac-mini.scout.local/">
+        <span class="node__id">
+          <span class="node__host">arts-mac-mini.scout.local</span>
+          <span class="node__sub">Local web node</span>
+        </span>
+        <span class="node__open">Open</span>
+      </a>
+
+      <div class="trust">
+        <a href="https://openscout.app/docs" target="_blank" rel="noopener noreferrer">Docs</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <a href="https://github.com/arach/openscout" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span class="note">served by this machine’s Scout broker</span>
+      </div>
+    </main>
+
+    <script>
+      // ------------------------------------------------------------------
+      // Hex aperture.
+      //
+      // The other portal studies fill a shape. This one cuts one out. It is
+      // the signal panel from DESIGN.md — chamfered instrument frame,
+      // hairline edge, corner registration marks, one short datum whose
+      // length and tone carry state — re-cut as a hexagon and drawn in
+      // characters. The interior is empty on purpose; the negative space is
+      // the ornament. Roughly fifty cells are lit, in three tones, and
+      // nothing on the page glows.
+      //
+      // ---- why the hexagon is flat-top ---------------------------------
+      // The cell decides the orientation, not the brand mark. `╱` and `╲`
+      // draw corner-to-corner across one cell, so a run of them is a
+      // continuous hairline at exactly atan(12 / 6.6) = 61° — and 60° is a
+      // flat-top hexagon's diagonal. A pointy-top hexagon (the mark's
+      // orientation) needs 30° edges, which no character can draw: you have
+      // to staircase runs of `─`, and at this size six staircases resolve
+      // into a lumpy dashed circle. Tested, screenshotted, discarded. The
+      // medium picks the rotation.
+      //
+      // ---- what carries the form ---------------------------------------
+      //  1. Corners, not edges. Each of the six vertices gets an L-bracket:
+      //     three cells along each of the two edges meeting there, exactly
+      //     as SignalCornerMark traces a panel corner. The middle of every
+      //     edge is absent. A broken edge cannot read as a circle, and six
+      //     brackets at 120° can only resolve as a hexagon.
+      //  2. Six single-cell graduations sit at the edge midpoints, one tone
+      //     step down. They mark where the edge would have been without
+      //     redrawing it, which is what stops the gaps reading as damage.
+      //  3. One datum, three to six cells, hung under the leading corner
+      //     inside the frame. It is the only thing in the interior and the
+      //     brightest thing in the ornament.
+      //
+      // Glyphs: box-drawing strokes only — `─` `╱` `╲`. Nothing here is a
+      // density ramp, so the `·`/`░` dither set goes unused; the shaded and
+      // full block glyphs (U+2592, U+2593, U+2588) are banned outright,
+      // since they tile and a tiled cell is a bar, not a stroke.
+      //
+      // Motion is two discrete state changes and nothing else: the datum
+      // extends and retracts by whole cells (one character every ~3s), and a
+      // single registration index steps vertex to vertex every 6s, one cell
+      // changing tone. The DOM is written only when the state key changes,
+      // so the loop is idle for seconds at a time. If you can tell it is
+      // animating, it is wrong for this study.
+      // ------------------------------------------------------------------
+      (function () {
+        // Grid: 41 x 20 cells at 6.6 x 12px = 271 x 240px, the same hero slot
+        // the density study occupies. Odd width so the top and bottom edges
+        // have a true centre column for their graduation; even height so the
+        // left and right vertices are a two-cell point rather than a flat.
+        var W = 41, H = 20;
+        var TOP_FROM = 9, TOP_TO = W - 1 - TOP_FROM; // horizontal edge span
+        var DIAG = 9;      // cells per diagonal edge
+        // Bracket length is measured in PIXELS, not cells: a cell is 6.6px
+        // wide but a diagonal cell is 13.7px along its own edge, so three of
+        // each would make the diagonal arm twice the length of the
+        // horizontal one and the corner would stop reading as a right mark.
+        var BRACKET_H = 6, BRACKET_D = 3; // ~40px of edge at every vertex
+        var TONES = 5;
+        var T_FRAME = 3, T_GRAD = 2, T_INDEX = 4;
+        var STILL_T = 2.6; // phase used for the reduced-motion frame
+
+        var layers = [].slice.call(document.querySelectorAll(".field__layer"));
+        if (layers.length !== TONES) return;
+
+        // ---- geometry -> a static list of lit cells --------------------
+        // Built once; render() only re-tones the index cell and the datum.
+        var marks = [], seen = {};
+        function put(c, r, ch, t) {
+          if (c < 0 || c >= W || r < 0 || r >= H) return;
+          var i = r * W + c;
+          if (seen[i] !== undefined) {
+            if (t > marks[seen[i]].t) marks[seen[i]].t = t;
+            return;
+          }
+          seen[i] = marks.length;
+          marks.push({ i: i, ch: ch, t: t });
+        }
+        function flip(ch) { return ch === "╱" ? "╲" : ch === "╲" ? "╱" : ch; }
+        // Every mark is stamped into all four quadrants, so the aperture is
+        // symmetric by construction rather than by rounding luck. A mirrored
+        // diagonal is the other diagonal.
+        function put4(c, r, ch, t) {
+          put(c, r, ch, t);
+          put(W - 1 - c, r, flip(ch), t);
+          put(c, H - 1 - r, flip(ch), t);
+          put(W - 1 - c, H - 1 - r, ch, t);
+        }
+
+        // Horizontal edges: brackets at both ends, one graduation at centre.
+        var nTop = TOP_TO - TOP_FROM + 1;
+        for (var k = 0; k < nTop; k++) {
+          if (k < BRACKET_H || k >= nTop - BRACKET_H) put4(TOP_FROM + k, 0, "─", T_FRAME);
+          else if (k === (nTop - 1) / 2) put4(TOP_FROM + k, 0, "─", T_GRAD);
+        }
+        // Diagonal edges: same rule, walked from the horizontal edge's corner
+        // down to the side vertex.
+        for (var d = 0; d < DIAG; d++) {
+          if (d < BRACKET_D || d >= DIAG - BRACKET_D) put4(TOP_FROM - 1 - d, 1 + d, "╱", T_FRAME);
+          else if (d === (DIAG - 1) / 2) put4(TOP_FROM - 1 - d, 1 + d, "╱", T_GRAD);
+        }
+
+        // The six vertices, clockwise from the top-left. Each entry lists the
+        // cells sitting exactly on the corner — what the index steps through.
+        // The side vertices are two cells, since the point falls on a row
+        // boundary rather than in a row.
+        var VERTS = [
+          [TOP_FROM],
+          [TOP_TO],
+          [(DIAG) * W + (W - 1), (DIAG + 1) * W + (W - 1)],
+          [(H - 1) * W + TOP_TO],
+          [(H - 1) * W + TOP_FROM],
+          [DIAG * W, (DIAG + 1) * W],
+        ];
+
+        // Datum: inside the frame, below the leading corner and inset two
+        // cells — the panel datum's "short line at the top-leading edge",
+        // re-hung on a hexagon. It sits two rows in rather than one: hung
+        // directly under the edge it reads as a doubled stroke, i.e. as a
+        // rendering artefact, instead of as the one mark in the aperture.
+        var DATUM_ROW = 2, DATUM_COL = TOP_FROM + 2;
+
+        // ---- buffers ---------------------------------------------------
+        var STRIDE = W + 1; // trailing newline per row
+        var bufs = [];
+        for (var b = 0; b < TONES; b++) {
+          var buf = new Array(H * STRIDE);
+          for (var j = 0; j < buf.length; j++) buf[j] = " ";
+          for (var rr = 0; rr < H; rr++) buf[rr * STRIDE + W] = "\n";
+          bufs.push(buf);
+        }
+        function slot(i) { return ((i / W) | 0) * STRIDE + (i % W); }
+
+        var INDEX_PERIOD = 6;   // seconds per vertex — 36s for one circuit
+        var DATUM_PERIOD = 21;  // seconds per extend/retract cycle
+        var lastKey = "";
+
+        function render(t) {
+          var idx = ((Math.floor(t / INDEX_PERIOD) % 6) + 6) % 6;
+          // 3..6 cells, quantised: the datum steps by a whole character and
+          // never appears to slide.
+          var len = 3 + Math.round(1.5 + 1.5 * Math.sin((t * Math.PI * 2) / DATUM_PERIOD));
+          var key = idx + ":" + len;
+          if (key === lastKey) return;
+          lastKey = key;
+
+          for (var k = 0; k < TONES; k++) {
+            var bk = bufs[k];
+            for (var y = 0; y < H; y++) {
+              var o = y * STRIDE;
+              for (var x = 0; x < W; x++) bk[o + x] = " ";
+            }
+          }
+          for (var m = 0; m < marks.length; m++) {
+            var mk = marks[m];
+            bufs[mk.t][slot(mk.i)] = mk.ch;
+          }
+          // One vertex at a time carries the index tone; the rest stay frame
+          // tone. A character's worth of state, stepping once every 6s.
+          var v = VERTS[idx];
+          for (var q = 0; q < v.length; q++) {
+            var s = slot(v[q]);
+            var ch = bufs[T_FRAME][s];
+            if (ch === " ") continue;
+            bufs[T_FRAME][s] = " ";
+            bufs[T_INDEX][s] = ch;
+          }
+          // Length and tone both carry state, as they do on the native panel.
+          var dTone = len >= 5 ? 4 : 3;
+          for (var e = 0; e < len; e++) {
+            bufs[dTone][slot(DATUM_ROW * W + DATUM_COL + e)] = "─";
+          }
+          for (var p = 0; p < TONES; p++) layers[p].textContent = bufs[p].join("");
+        }
+
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+        var raf = 0, start = -1, last = -1;
+        var STEP = 250; // the state can only change every ~3s; poll lazily
+
+        function loop(ts) {
+          raf = requestAnimationFrame(loop);
+          if (start < 0) start = ts;
+          if (last >= 0 && ts - last < STEP) return;
+          last = ts;
+          // Resume from STILL_T so the first animated frame is the frame
+          // already on screen — no pop on load or on tab re-focus.
+          render(STILL_T + (ts - start) / 1000);
+        }
+        function stop() {
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        }
+        function play() {
+          if (reduce.matches || document.hidden || raf) return;
+          last = -1;
+          raf = requestAnimationFrame(loop);
+        }
+
+        render(STILL_T); // paints before first frame; the still frame if motion is off
+
+        // Review aid: `?t=<seconds>` pins one frame so a specific state of
+        // the instrument can be screenshotted or compared side by side.
+        var pinned = /[?&]t=(-?[\d.]+)/.exec(window.location.search);
+        if (pinned) render(parseFloat(pinned[1]));
+        else play();
+
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) stop(); else play();
+        });
+        function onMotionPreferenceChange() {
+          stop();
+          if (reduce.matches) { lastKey = ""; render(STILL_T); }
+          else play();
+        }
+        if (reduce.addEventListener) reduce.addEventListener("change", onMotionPreferenceChange);
+        else if (reduce.addListener) reduce.addListener(onMotionPreferenceChange);
+      })();
+    </script>
+  </body>
+</html>

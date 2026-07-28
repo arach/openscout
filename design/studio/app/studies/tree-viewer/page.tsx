@@ -15,6 +15,7 @@
 
 import { countFiles, readTree } from "@/lib/repo-tree";
 import { TreeView } from "@/components/TreeView";
+import { StudyHeader } from "@/components/StudyHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -29,26 +30,18 @@ export default function TreeViewerPage() {
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · studies · web · tree-viewer
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Tree viewer
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Generic collapsible tree, server-walked from real repo paths
-          via{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            lib/repo-tree.ts
-          </code>
-          . Files link into the existing{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            /eng/file
-          </code>{" "}
-          viewer; expand/collapse is local state.
-        </p>
-      </header>
+      <StudyHeader eyebrow="studies · web · tree-viewer" title="Tree viewer">
+        Generic collapsible tree, server-walked from real repo paths
+        via{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          lib/repo-tree.ts
+        </code>
+        . Files link into the existing{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          /eng/file
+        </code>{" "}
+        viewer; expand/collapse is local state.
+      </StudyHeader>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Column

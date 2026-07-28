@@ -1,0 +1,164 @@
+/* RuntimePicker motion.
+ *
+ * The studio ships no animation library, so the panel's choreography is CSS
+ * only — which is also what the port into packages/web wants. Every duration
+ * here is short enough to read as physics rather than as a transition: the
+ * panel is a menu, and a menu that takes 300ms to arrive feels broken.
+ *
+ * One rule throughout: things enter from the direction of the trigger. The
+ * panel opens upward out of the chip, so it rises the last 6px into place and
+ * its rows arrive a beat behind it, top-down.
+ */
+
+/* ── Tints ──────────────────────────────────────────────────────────────────
+ *
+ * Tailwind's `/alpha` modifier cannot be used on the studio palette. The
+ * `studio-*` and `scout-*` tokens resolve to CSS vars holding a complete
+ * `oklch(...)` value, and Tailwind 3 implements the modifier by splicing alpha
+ * into bare channels — so `bg-studio-ink/[0.07]` emits an invalid color and
+ * computes to `rgba(0,0,0,0)`. It fails silently: the element simply has no
+ * background.
+ *
+ * Every translucent tint in this component is therefore declared here with
+ * `color-mix`, which the palette already uses (`--scout-accent-soft`). Mixing
+ * in oklab keeps the tint neutral instead of dragging it toward the ground's
+ * hue, and it inverts correctly between themes because it mixes the live token.
+ */
+
+.rp-chip {
+  background: color-mix(in oklab, var(--studio-ink) 7%, transparent);
+}
+.rp-chip:hover {
+  background: color-mix(in oklab, var(--studio-ink) 11%, transparent);
+}
+.rp-chip[data-open="true"] {
+  background: color-mix(in oklab, var(--studio-ink) 13%, transparent);
+}
+
+.rp-divider {
+  background: color-mix(in oklab, var(--studio-ink) 22%, transparent);
+}
+
+/* Row states — selected sits above hover so a selected row doesn't dim on
+ * pointer-out mid-transition. */
+.rp-row:hover {
+  background: color-mix(in oklab, var(--studio-ink) 5%, transparent);
+}
+.rp-row[data-on="true"],
+.rp-row[data-on="true"]:hover {
+  background: color-mix(in oklab, var(--studio-ink) 8%, transparent);
+}
+
+/* Ladder segments. The filled-but-not-current steps need to read as a level,
+ * so they sit well above the empty ones rather than a hair above. */
+.rp-seg[data-state="filled"] {
+  background: color-mix(in oklab, var(--studio-ink) 42%, transparent);
+}
+.rp-seg[data-state="empty"] {
+  background: color-mix(in oklab, var(--studio-ink) 14%, transparent);
+}
+.rp-seg[data-state="empty"]:hover,
+button:hover > .rp-seg[data-state="empty"] {
+  background: color-mix(in oklab, var(--studio-ink) 26%, transparent);
+}
+.rp-seg[data-state="current"] {
+  background: var(--scout-accent);
+}
+
+/* Accent-tinted selection for the bands treatment. */
+.rp-tile[data-on="true"] {
+  border-color: color-mix(in oklab, var(--scout-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--scout-accent) 9%, transparent);
+}
+
+@keyframes rp-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes rp-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rp-swap-in {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.rp-panel {
+  transform-origin: bottom left;
+  animation: rp-panel-in 170ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+.rp-panel[data-placement="down"] {
+  transform-origin: top left;
+}
+
+/* Rows arrive after the box, stepped. The delay is set inline per row so the
+ * stagger survives a variant swap without a second keyframe set. */
+.rp-stagger {
+  animation: rp-row-in 160ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+/* Model list re-keys on harness change; it slides rather than cutting so the
+ * eye follows the swap instead of re-reading the whole column. */
+.rp-swap {
+  animation: rp-swap-in 150ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+/* The single selection marker that travels between harness rows. Moving one
+ * element beats fading a border on each row — it reads as the same object. */
+.rp-marker {
+  transition:
+    transform 200ms cubic-bezier(0.16, 0.84, 0.44, 1),
+    opacity 120ms linear;
+}
+
+.rp-caret {
+  transition: transform 180ms cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.rp-caret[data-open="true"] {
+  transform: rotate(180deg);
+}
+
+/* Effort ladder. Segments fill left-to-right; the travelling one carries the
+ * accent so the level reads without counting. */
+.rp-seg {
+  transition:
+    background-color 140ms ease-out,
+    opacity 140ms ease-out,
+    transform 140ms cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-panel,
+  .rp-stagger,
+  .rp-swap {
+    animation-duration: 0.01ms;
+    animation-delay: 0ms !important;
+  }
+  .rp-marker,
+  .rp-caret,
+  .rp-seg {
+    transition-duration: 0.01ms;
+  }
+}

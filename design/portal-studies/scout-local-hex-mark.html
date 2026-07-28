@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scout local — hex mark study</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        /* Near-black field, warm off-white ink, muted warm greys. */
+        --bg: #0a0a09;
+        --panel: #100f0d;
+        --ink: #f1ece1;
+        --ink-2: #a49d90;
+        --ink-3: #6f6960;
+        --edge: #23221f;
+        --edge-2: #3d3a34;
+
+        /* Tone ramp — warm neutrals, stepped so the resting lattice still
+           reads against --bg at 1x while the wire stays clearly separated at
+           the top of the ramp. */
+        --t0: #2e2b27;
+        --t1: #474339;
+        --t2: #6b6558;
+        --t3: #968e7f;
+        --t4: #d5cdbd;
+
+        /* The one hue on the page, on exactly one element: the inner hex
+           echo. "This node is live" — nothing else is allowed to carry it. */
+        --live: #a6e15e;
+
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        align-content: center;
+        justify-items: stretch;
+        padding: 40px 32px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      main { width: 100%; max-width: 760px; min-width: 0; margin-inline: auto; }
+
+      /* ---------- hero ---------- */
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 32px 44px;
+        align-items: center;
+        margin-bottom: 40px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 22px;
+      }
+      .mark { display: block; color: var(--ink-2); }
+      .host {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: var(--ink-2);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 34px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+      }
+      .lede {
+        margin: 0;
+        max-width: 42ch;
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--ink-2);
+      }
+
+      /* ---------- the mark, at field scale ---------- */
+      .field {
+        position: relative;
+        user-select: none;
+        /* Only the outermost dust is dissolved. The cube's own silhouette sits
+           well inside the solid stop — a logo does not get its corners eaten. */
+        -webkit-mask-image: radial-gradient(ellipse 82% 84% at 50% 50%, #000 64%, transparent 100%);
+        mask-image: radial-gradient(ellipse 82% 84% at 50% 50%, #000 64%, transparent 100%);
+      }
+      .field__layer {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 10px;
+        /* 1.1 is load-bearing. The wire strokes ▔ ─ ▁ are drawn from the
+           glyph box, which is ~1.22em tall in SF Mono/Menlo; at an 11px row
+           the bottom stroke of row N and the top stroke of row N+1 overlap
+           rather than gap, so a shallow line stays continuous across a row
+           boundary. Wider rows would break the wire into dashes. */
+        line-height: 1.1;
+        white-space: pre;
+        letter-spacing: 0;
+      }
+      /* First layer sits in flow and sizes the box; the rest stack on top. */
+      .field__layer + .field__layer { position: absolute; inset: 0; }
+      .field__layer[data-t="0"] { color: var(--t0); }
+      .field__layer[data-t="1"] { color: var(--t1); }
+      .field__layer[data-t="2"] { color: var(--t2); }
+      .field__layer[data-t="3"] { color: var(--t3); }
+      .field__layer[data-t="4"] { color: var(--t4); }
+      .field__layer[data-t="a"] { color: var(--live); }
+      /* Zero-hue variant: `?hue=off`, given its best shot rather than a
+         straw man — the echo takes the top of the warm ramp and the outer
+         hex steps down, so the focal role the hue was playing is at least
+         handed to something. Compare the two at ?t=2.6. */
+      :root[data-hue="off"] .field__layer[data-t="4"] { color: var(--t3); }
+      :root[data-hue="off"] .field__layer[data-t="a"] { color: var(--t4); }
+
+      /* ---------- node ---------- */
+      .node {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 16px 18px;
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        background: var(--panel);
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 140ms ease, transform 140ms ease, background-color 140ms ease;
+      }
+      .node:hover,
+      .node:focus-visible {
+        border-color: var(--edge-2);
+        background: #14130f;
+        transform: translateY(-1px);
+      }
+      .node:focus-visible { outline: 1px solid var(--ink-3); outline-offset: 2px; }
+      .node__id { display: grid; gap: 4px; min-width: 0; }
+      .node__host {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .node__sub { font-size: 12px; color: var(--ink-3); }
+      .node__open {
+        flex: none;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-3);
+        transition: color 140ms ease;
+      }
+      .node:hover .node__open,
+      .node:focus-visible .node__open { color: var(--ink); }
+
+      /* ---------- trust ---------- */
+      .trust {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 16px;
+        margin-top: 28px;
+        padding-top: 18px;
+        border-top: 1px solid var(--edge);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        color: var(--ink-3);
+      }
+      .trust a {
+        color: var(--ink-2);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: color 140ms ease, border-color 140ms ease;
+      }
+      .trust a:hover,
+      .trust a:focus-visible { color: var(--ink); border-bottom-color: var(--edge-2); }
+      .trust .sep { color: var(--edge-2); }
+      .trust .note { margin-left: auto; }
+
+      @media (max-width: 680px) {
+        .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+        .field { justify-self: start; }
+        h1 { font-size: 28px; }
+        .trust .note { margin-left: 0; flex-basis: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <div>
+          <div class="brand">
+            <span class="mark" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
+                <polygon points="16,4.8 26.2,10.7 26.2,21.9 16,27.8 5.8,21.9 5.8,10.7" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round" fill="currentColor" fill-opacity="0.06"/>
+                <path d="M16 4.8v23M5.8 10.7 16 16.6 26.2 10.7" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>
+                <polygon points="16,11 21.1,14 21.1,19.6 16,22.6 10.9,19.6 10.9,14" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round" fill="currentColor" fill-opacity="0.14" opacity="0.9"/>
+              </svg>
+            </span>
+            <span class="host">scout.local</span>
+          </div>
+          <h1>Scout local</h1>
+          <p class="lede">
+            Registered machines on this local Scout mesh. Open a node to inspect
+            agents, sessions, activity, and settings.
+          </p>
+        </div>
+
+        <div class="field" aria-hidden="true">
+          <pre class="field__layer" data-t="0"></pre>
+          <pre class="field__layer" data-t="1"></pre>
+          <pre class="field__layer" data-t="2"></pre>
+          <pre class="field__layer" data-t="3"></pre>
+          <pre class="field__layer" data-t="4"></pre>
+          <pre class="field__layer" data-t="a"></pre>
+        </div>
+      </div>
+
+      <a class="node" href="http://arts-mac-mini.scout.local/">
+        <span class="node__id">
+          <span class="node__host">arts-mac-mini.scout.local</span>
+          <span class="node__sub">Local web node</span>
+        </span>
+        <span class="node__open">Open</span>
+      </a>
+
+      <div class="trust">
+        <a href="https://openscout.app/docs" target="_blank" rel="noopener noreferrer">Docs</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <a href="https://github.com/arach/openscout" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span class="note">served by this machine’s Scout broker</span>
+      </div>
+    </main>
+
+    <script>
+      // ------------------------------------------------------------------
+      // The mark itself, at field scale.
+      //
+      // Not a shape that rhymes with the logo — the same object. Every
+      // number below is lifted from the 24px <svg> in .brand: outer hex
+      // (half-width 10.2, side vertex ±5.6, apex ±11.5 in its 32-unit
+      // space), four depth rays converging at centre, inner hex echo at
+      // exactly half scale. Set the two side by side and they are one
+      // drawing at two resolutions.
+      //
+      // Two glyph vocabularies, kept strictly apart:
+      //
+      //   wire    ▔ ─ ▁ │   structural strokes. ▔/─/▁ are the SAME stroke at
+      //                     three heights inside a cell — that sub-cell
+      //                     resolution is what lets a 30° isometric edge run
+      //                     ~3.2 columns per row without staircasing.
+      //   density · ░       and nothing else. ▒ ▓ █ tile seamlessly; two
+      //                     adjacent cells make a bar and the field stops
+      //                     reading as ASCII.
+      //
+      // Hollow wireframe or wireframe over a wash? Washed, and lit: the top
+      // plane carries a ░ wash, the two flank planes · lattices a tone apart,
+      // and every cell inside the echo steps one further tone. A hollow
+      // wireframe is a hexagon with lines in it; three shaded planes are a
+      // *cube*, and the shading is the only thing at this size that says
+      // which way is up. It is also faithful — the SVG fills both hexes
+      // (0.06 outside, 0.14 inside), it is just too faint to notice at 24px.
+      // At field scale that fill is where the dither goes.
+      //
+      // Motion: the wire never moves. Identity does not wobble. What moves is
+      // ρ — the hexagonal shell coordinate, ρ=1 on the outer hex, ρ=0.5 on
+      // the inner echo — carrying a sharpened wavefront outward. The contours
+      // of ρ are scaled copies of the mark, so the animation is concentric
+      // cube shells expanding through the planes and dissolving into the dust
+      // outside. The green echo is one of those shells, held still.
+      // ------------------------------------------------------------------
+      (function () {
+        // ---- grid -------------------------------------------------------
+        var W = 39, H = 22;
+        var CX = 19;   // centre column index (odd width ⇒ a true centre column)
+        var CY = 11;   // centre as a continuous row coord (a row boundary)
+        var HW = 16;   // outer hex half-width, columns
+
+        // Mark units → grid. A cell is 6 × 11px, so one unit is HW/10.2
+        // columns and (6/11) of that in rows: the 30° edges stay 30°.
+        var UX = HW / 10.2;
+        var UY = UX * (6 / 11);
+        var HH = 11.5 * UY;  // apex offset, rows
+        var SY = 5.6 * UY;   // side-vertex offset, rows
+
+        var K = 1.5;        // shells between centre and outer hex
+        var PERIOD = 6.5;   // seconds per shell
+        var STILL_T = 2.6;  // phase used for the reduced-motion frame
+        var TAU = Math.PI * 2;
+        var LAYERS = 6;     // 5 warm tones + 1 accent
+
+        var layers = [].slice.call(document.querySelectorAll(".field__layer"));
+        if (layers.length !== LAYERS) return;
+
+        var N = W * H;
+        var WG = new Array(N);          // wire glyph, or undefined
+        var WT = new Uint8Array(N);     // wire layer index
+        var RHO = new Float32Array(N);  // hexagonal shell coordinate
+        var FGL = new Array(N);         // field glyph
+        var RT = new Uint8Array(N);     // field tone at rest
+        var LT = new Uint8Array(N);     // field tone under a passing shell
+        var GR = new Float32Array(N);   // fixed grain
+
+        // ---- wire -------------------------------------------------------
+        // Drawn once. Everything is written through putM so the two halves
+        // are mirror-exact — a logo that is 1px lopsided is a broken logo.
+        function put(x, y, g, tone) {
+          if (x < 0 || x >= W || y < 0 || y >= H) return;
+          var i = y * W + x;
+          WG[i] = g;
+          WT[i] = tone;
+        }
+        function putM(x, y, g, tone) {
+          put(x, y, g, tone);
+          put(2 * CX - x, y, g, tone);
+        }
+        function putWeak(x, y, g, tone) { // never overwrites an existing stroke
+          if (x < 0 || x >= W || y < 0 || y >= H) return;
+          if (WG[y * W + x] === undefined) put(x, y, g, tone);
+        }
+        function putWeakM(x, y, g, tone) {
+          putWeak(x, y, g, tone);
+          putWeak(2 * CX - x, y, g, tone);
+        }
+
+        // A shallow (≈30°) edge running out from the centre column, drawn in
+        // two passes.
+        //
+        // Pass 1 — one glyph per column, the fractional row picking which
+        // third of the cell the stroke sits in. At 3.17 columns per row that
+        // is very nearly one sub-step per column.
+        //
+        // Pass 2 — the antialiasing that makes it a line rather than a
+        // dotted diagonal. Consecutive strokes sit a third of a row apart,
+        // which is a 2.7px gap; the widest gaps are the ones that straddle a
+        // row boundary. So where a column's slice of the edge crosses into
+        // the next row, a second stroke is placed there too. It fires on
+        // roughly one column in three — exactly the ones that need it.
+        function edge(halfW, rApex, rSide, tone) {
+          var slope = (rSide - rApex) / halfW;
+          var half = Math.abs(slope) * 0.5;
+          var d, r, row;
+          for (d = 0; d <= halfW; d++) {
+            r = rApex + slope * d;
+            row = Math.floor(r);
+            putM(CX + d, row, THIRD(r - row), tone);
+          }
+          for (d = 0; d <= halfW; d++) {
+            r = rApex + slope * d;
+            row = Math.floor(r);
+            if (Math.floor(r - half) < row) putWeakM(CX + d, row - 1, "▁", tone);
+            if (Math.floor(r + half) > row) putWeakM(CX + d, row + 1, "▔", tone);
+          }
+        }
+        function THIRD(f) { return f < 1 / 3 ? "▔" : f < 2 / 3 ? "─" : "▁"; }
+        // A vertical edge. Rows are claimed on >50% coverage, which lands the
+        // ends exactly where the shallow edges arrive — the corners join with
+        // no notch and no overshoot.
+        function vline(dx, rTop, rBot, tone) {
+          var a = Math.round(rTop), b = Math.round(rBot) - 1;
+          for (var r = a; r <= b; r++) putM(CX + dx, r, "│", tone);
+        }
+
+        var rApexT = CY - HH, rApexB = CY + HH;
+        var rSideT = CY - SY, rSideB = CY + SY;
+
+        // Depth rays first, so the hex outline and the echo overwrite them at
+        // the crossings exactly as the SVG paints them. The two shallow rays
+        // sit a tone above the vertical one: a solid │ twenty rows long
+        // carries far more weight than a stepped shallow edge of the same
+        // nominal tone, and the four rays have to read as equals.
+        edge(HW, CY, rSideT, 3);              // centre → upper-left / upper-right
+        vline(0, rApexT, rApexB, 2);          // the full vertical, apex to apex
+
+        // Outer hex at the top of the ramp — this is the silhouette.
+        edge(HW, rApexT, rSideT, 4);
+        edge(HW, rApexB, rSideB, 4);
+        vline(HW, rSideT, rSideB, 4);
+
+        // Inner echo at exactly half scale: its vertices land on the midpoints
+        // of the four rays, which is why it reads as construction rather than
+        // decoration. Layer 5 is the only place a hue is allowed.
+        edge(HW / 2, CY - HH / 2, CY - SY / 2, 5);
+        edge(HW / 2, CY + HH / 2, CY + SY / 2, 5);
+        vline(HW / 2, CY - SY / 2, CY + SY / 2, 5);
+
+        // ---- static field -----------------------------------------------
+        for (var y = 0; y < H; y++) {
+          for (var x = 0; x < W; x++) {
+            var i = y * W + x;
+            var u = (x - CX) / UX;          // mark units, +right
+            var v = (y + 0.5 - CY) / UY;    // mark units, +down
+            var au = Math.abs(u), av = Math.abs(v);
+
+            // Which scaled copy of the mark's hexagon passes through here.
+            // 1.0 on the outer hex, 0.5 on the inner echo, >1 outside.
+            var rho = Math.max(au / 10.2, (av + (5.9 / 10.2) * au) / 11.5);
+            RHO[i] = rho;
+
+            var n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+            var h = n - Math.floor(n); // per-cell uniform hash, 0..1
+            GR[i] = (h * 2 - 1) * 0.1;
+
+            // Face by the depth rays: above both up-rays is the top plane,
+            // then left/right of the down-ray. Standard isometric shading is
+            // the whole reason this reads as a volume rather than a hexagon
+            // with lines in it — the lit top plane is the ░ wash, the two
+            // flank planes are · lattices a tone apart.
+            //
+            // How much fill is the other half of the fidelity question, and
+            // the SVG answers it: 0.06 outside, 0.14 inside the echo. Almost
+            // nothing, and the core about twice the shell. So every cell
+            // inside the inner hexagon simply steps one tone — the core is
+            // denser, exactly as it is at 24px, and the ratio does the work
+            // that a second wash would have done badly.
+            var top = v < -(5.6 / 10.2) * au;
+            if (rho <= 1) {
+              FGL[i] = top ? "░" : "·";
+              RT[i] = (top ? 0 : u > 0 ? 1 : 0) + (rho <= 0.5 ? 1 : 0);
+            } else {
+              // Outside, the field thins into dust rather than stopping at a
+              // hard edge — but never past · at the bottom tone, so nothing
+              // out here can compete with the silhouette.
+              FGL[i] = h < 0.5 * Math.exp(-(rho - 1) * 4.6) ? "·" : " ";
+              RT[i] = 0;
+            }
+            // Under a passing shell the cell steps one tone. Brightness, not
+            // a glyph swap — and capped below the wire
+            // so a passing shell can never be mistaken for structure. The ░
+            // wash is exempt: a shell crossing it mottles the one surface
+            // that has to stay flat to read as a plane, so the sweep lives
+            // entirely in the two · lattices.
+            LT[i] = FGL[i] === "░" ? RT[i] : Math.min(RT[i] + 1, 2);
+          }
+        }
+
+        // ---- buffers ----------------------------------------------------
+        var STRIDE = W + 1; // trailing newline per row
+        var bufs = [];
+        for (var b = 0; b < LAYERS; b++) {
+          var buf = new Array(H * STRIDE);
+          for (var j = 0; j < buf.length; j++) buf[j] = " ";
+          for (var r0 = 0; r0 < H; r0++) buf[r0 * STRIDE + W] = "\n";
+          bufs.push(buf);
+        }
+
+        function render(t) {
+          var ph = t / PERIOD;
+          for (var y = 0; y < H; y++) {
+            var o = y * STRIDE;
+            for (var x = 0; x < W; x++) {
+              var i = y * W + x;
+              var g, tone;
+              if (WG[i] !== undefined) {
+                g = WG[i];
+                tone = WT[i];
+              } else {
+                // One thin shell contour, sharpened hard so it stays a
+                // contour: a wide crest here is a smudge, and a smudge is
+                // what made the incumbent orb look cheap. The grain rides on
+                // the threshold rather than the value, so the shell edge
+                // dithers instead of stepping.
+                var c = 0.5 + 0.5 * Math.cos(TAU * (RHO[i] * K - ph));
+                var c2 = c * c, c4 = c2 * c2;
+                g = FGL[i];
+                tone = c4 * c4 + GR[i] > 0.42 ? LT[i] : RT[i];
+              }
+              for (var k = 0; k < LAYERS; k++) bufs[k][o + x] = k === tone ? g : " ";
+            }
+          }
+          for (var m = 0; m < LAYERS; m++) layers[m].textContent = bufs[m].join("");
+        }
+
+        // ---- loop -------------------------------------------------------
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+        var raf = 0, start = -1, last = -1;
+        var STEP = 1000 / 24; // calm cadence; also keeps this cheap
+
+        function loop(ts) {
+          raf = requestAnimationFrame(loop);
+          if (start < 0) start = ts;
+          if (last >= 0 && ts - last < STEP) return;
+          last = ts;
+          // Resume from STILL_T so the first animated frame is the frame
+          // already on screen — no pop on load or on tab re-focus.
+          render(STILL_T + (ts - start) / 1000);
+        }
+        function stop() {
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        }
+        function play() {
+          if (reduce.matches || document.hidden || raf) return;
+          last = -1;
+          raf = requestAnimationFrame(loop);
+        }
+
+        // Review aids: `?hue=off` for the zero-hue variant, `?t=<seconds>` to
+        // pin one frame so phases are comparable side by side.
+        if (/[?&]hue=off/.test(window.location.search)) {
+          document.documentElement.setAttribute("data-hue", "off");
+        }
+
+        render(STILL_T); // paints before first frame; the still frame if motion is off
+
+        var pinned = /[?&]t=(-?[\d.]+)/.exec(window.location.search);
+        if (pinned) render(parseFloat(pinned[1]));
+        else play();
+
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) stop(); else play();
+        });
+        function onMotionPreferenceChange() {
+          stop();
+          if (reduce.matches) render(STILL_T);
+          else play();
+        }
+        if (reduce.addEventListener) reduce.addEventListener("change", onMotionPreferenceChange);
+        else if (reduce.addListener) reduce.addListener(onMotionPreferenceChange);
+      })();
+    </script>
+  </body>
+</html>

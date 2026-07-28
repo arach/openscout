@@ -520,47 +520,51 @@ struct ScoutRootView: View {
     }
 
     private func rootShell(layout: ScoutShellLayout) -> some View {
-        rootChrome(layout: layout)
-        .hudsonAppManifest(manifest)
-        .environment(\.hudTheme, ScoutDesign.theme)
-        // Opaque chrome rail (not behind-window vibrancy): the `.liquidGlass`
-        // surface samples the desktop through the window, collapsing the rail to
-        // mid-gray and dropping nav-label contrast to ~1.3:1 over a busy
-        // wallpaper. `.base` gives a solid chrome plane (+ subtle gradient and a
-        // trailing hairline) so labels stay legible against the light theme.
-        .environment(\.hudsonSidebarStyle, HudSidebarStyle(
-            surface: .base,
-            indicator: .base,
-            icon: .editorial,
-            motion: .base
-        ))
-        .hudsonSidebarMotionMode(.smoothFade)
-        .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
-        .overlay(alignment: .bottomTrailing) {
-            realtimeVoiceOverlay
-        }
-        .onChange(of: realtimeVoiceEnabled) { _, enabled in
-            if !enabled {
-                stopRealtimeVoice()
+        let themedChrome = rootChrome(layout: layout)
+            .hudsonAppManifest(manifest)
+            .environment(\.hudTheme, ScoutDesign.theme)
+            // Opaque chrome rail (not behind-window vibrancy): the `.liquidGlass`
+            // surface samples the desktop through the window, collapsing the rail to
+            // mid-gray and dropping nav-label contrast to ~1.3:1 over a busy
+            // wallpaper. `.base` gives a solid chrome plane (+ subtle gradient and a
+            // trailing hairline) so labels stay legible against the light theme.
+            .environment(\.hudsonSidebarStyle, HudSidebarStyle(
+                surface: .base,
+                indicator: .base,
+                icon: .editorial,
+                motion: .base
+            ))
+            .hudsonSidebarMotionMode(.smoothFade)
+
+        let voiceAndWindowChrome = themedChrome
+            .scoutStatusLogBridge(store: store, tail: tail, repos: repos)
+            .overlay(alignment: .bottomTrailing) {
+                realtimeVoiceOverlay
             }
-        }
-        .onChange(of: showingRealtimeVoice) { _, showing in
-            guard showing else { return }
-            realtimeVoiceSurfaceMounted = true
-        }
-        .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
-            ScoutLogPanel(title: "Activity Log") {
-                showingActivityLog = false
+            .onChange(of: realtimeVoiceEnabled) { _, enabled in
+                if !enabled {
+                    stopRealtimeVoice()
+                }
             }
-        }
-        .background {
-            #if os(macOS)
-            ScoutWindowBackdrop(opacity: appearance.windowOpacity)
-                .ignoresSafeArea()
-            #endif
-        }
-        .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity, themeMode: appearance.themeMode))
-        .onAppear {
+            .onChange(of: showingRealtimeVoice) { _, showing in
+                guard showing else { return }
+                realtimeVoiceSurfaceMounted = true
+            }
+            .hudEdgeSheet(isPresented: $showingActivityLog, edge: .trailing) {
+                ScoutLogPanel(title: "Activity Log") {
+                    showingActivityLog = false
+                }
+            }
+            .background {
+                #if os(macOS)
+                ScoutWindowBackdrop(opacity: appearance.windowOpacity)
+                    .ignoresSafeArea()
+                #endif
+            }
+            .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity, themeMode: appearance.themeMode))
+
+        let lifecycleChrome = voiceAndWindowChrome
+            .onAppear {
             store.start()
             pairingApprovals.start()
             if let cId = ScoutExternalCommand.takePendingChannelId() {
@@ -628,10 +632,12 @@ struct ScoutRootView: View {
             syncScopedStoreLifecycles()
             ScoutAttentionCenter.shared.noteSelection(cId: store.selectedCId, isCommsVisible: newSection == .comms)
         }
-        .onChange(of: modalPresented) { _, _ in
-            syncScopedStoreLifecycles()
-        }
-        .overlay {
+            .onChange(of: modalPresented) { _, _ in
+                syncScopedStoreLifecycles()
+            }
+
+        return lifecycleChrome
+            .overlay {
             if let sessionDraft {
                 ScoutSessionComposer(
                     draft: sessionDraft,

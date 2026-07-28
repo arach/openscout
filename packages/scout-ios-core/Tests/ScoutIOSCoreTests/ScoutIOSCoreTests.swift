@@ -330,6 +330,27 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(ConnectionLogEvent.auth.label, "AUTH")
     }
 
+    @MainActor
+    func testDisconnectPreservesConversationStreamSubscriberForReconnect() async {
+        let defaults = makeDefaults()
+        let connection = BridgeConnection(
+            connectionLog: ConnectionLogHandle(ConnectionLog()),
+            userDefaults: defaults
+        )
+        let stream = connection.mobileConversationChanges()
+        let ended = expectation(description: "stream should survive transport disconnect")
+        ended.isInverted = true
+        let consumer = Task {
+            for await _ in stream {}
+            ended.fulfill()
+        }
+
+        connection.disconnect()
+
+        await fulfillment(of: [ended], timeout: 0.05)
+        consumer.cancel()
+    }
+
     func testOpenScoutNetworkRendezvousExtractsLiveMobilePairingCandidates() throws {
         let nowMs: Int64 = 10_000
         let payload = """

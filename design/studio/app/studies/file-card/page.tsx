@@ -19,6 +19,7 @@ import {
 } from "@/components/FileCard";
 import { resolveRepoPath } from "@/lib/repo-path";
 import { readFileStat, type FileStat } from "@/lib/repo-tree";
+import { StudyHeader } from "@/components/StudyHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -62,26 +63,18 @@ export default function FileCardPage() {
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · studies · web · file-card
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          File card
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          One file primitive in three sizes. All metadata (lines,
-          bytes, mtime) read live from disk via{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            lib/repo-tree.ts
-          </code>
-          . Each card links into the existing{" "}
-          <code className="font-mono text-[11px] text-studio-ink">
-            /eng/file
-          </code>{" "}
-          viewer.
-        </p>
-      </header>
+      <StudyHeader eyebrow="studies · web · file-card" title="File card">
+        One file primitive in three sizes. All metadata (lines,
+        bytes, mtime) read live from disk via{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          lib/repo-tree.ts
+        </code>
+        . Each card links into the existing{" "}
+        <code className="font-mono text-sm text-studio-ink">
+          /eng/file
+        </code>{" "}
+        viewer.
+      </StudyHeader>
 
       <Section
         title="Compact"

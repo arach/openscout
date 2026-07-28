@@ -1,8 +1,37 @@
 import SwiftUI
 import Foundation
+import PhotosUI
+import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
+
+/// What another surface hands New when it wants a session started from its own
+/// composer. The prompt is the only required part; a surface that offers a REAL
+/// runtime choice (Home · Entry's chip) carries the pick too, and it lands on
+/// `SessionInitiationSpec.Execution` verbatim. Attachments ride along so the
+/// front door's paperclip is a real one rather than a decoration.
+struct NewSessionSeed: Equatable {
+    var prompt: String
+    var harnessId: String?
+    var familyId: String?
+    var effortId: String?
+    var attachments: [ScoutComposerAttachment] = []
+
+    init(
+        prompt: String,
+        harnessId: String? = nil,
+        familyId: String? = nil,
+        effortId: String? = nil,
+        attachments: [ScoutComposerAttachment] = []
+    ) {
+        self.prompt = prompt
+        self.harnessId = harnessId
+        self.familyId = familyId
+        self.effortId = effortId
+        self.attachments = attachments
+    }
+}
 
 /// New Session — a composer that builds a project-modality
 /// `SessionInitiationSpec` (target.projectPath set, execution.session = .new,
@@ -27,11 +56,11 @@ struct NewSessionSurface: View {
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
-    /// One-shot prompt seed (Home's inline ask composer routes here with typed
-    /// text). Consumed on change: lands in the prompt box, focuses it, clears
+    /// One-shot seed (Home's ask composers route here). Consumed on change: the
+    /// runtime pick lands first, then the prompt, then focus; the seed clears
     /// itself. A binding because this surface stays mounted for the app
     /// lifetime, so init-time state would never reseed.
-    @Binding var promptSeed: String?
+    @Binding var promptSeed: NewSessionSeed?
 
     /// Empty until the paired Mac returns its current workspace inventory. A
     /// device must never guess the Mac account name or carry a developer-specific
@@ -46,36 +75,72 @@ struct NewSessionSurface: View {
     @State private var harnessId: String = ComposerModelHarness.catalog[0].id
     @State private var familyId: String = ComposerModelHarness.catalog[0].defaultFamily.id
     @State private var effortId: String = ComposerEffortOption.defaultId
+    /// A seed carried an explicit runtime pick — so the machine's workspace
+    /// recommendation must not quietly overwrite it. Held until that seeded ask
+    /// is actually submitted.
+    @State private var runtimePinned = false
     @State private var showModelPicker = false
     /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
     /// each carrying the harnesses actually installed there. Empty until loaded /
     /// when offline, in which case the harness picker falls back to the curated
     /// catalog below.
     @State private var workspaces: [WorkspaceSummary] = []
-    @State private var showProjectPicker = false
+    /// In flight — so the list can say "looking" instead of "nothing here" on a
+    /// surface whose whole top half is that list.
+    @State private var isLoadingWorkspaces = false
+    /// The project search. Doubles as the manual-path field: a query that looks
+    /// like a path and matches no known workspace is offered verbatim.
+    @State private var projectQuery = ""
+    /// The lane is three rows at rest; this is the whole inventory, opened in
+    /// place. Not a sheet — the composer stays put and stays reachable, and
+    /// backing out costs the same tap that opened it.
+    @State private var isPickerOpen = false
+    /// The curated split, computed once per load (see `recurate`). Kept as
+    /// state rather than derived in `body`: the umbrella test is O(n²) over the
+    /// inventory and has no business running per row per frame.
+    @State private var durableWorkspaces: [WorkspaceSummary] = []
+    @State private var workspaceKinds: [String: WorkspaceKind] = [:]
+    /// Device-local recency — newline-separated roots, most recent first.
+    @AppStorage("scout.new.recentProjectRoots") private var recentRootsRaw = ""
     @State private var isSubmitting = false
     @State private var result: SessionInitiationResult?
     @State private var errorText: String?
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
+    /// The composer owns focus; this only says who SHOULD be holding it. False
+    /// at rest — unlike Home, composing is not this surface's opening posture
+    /// (you choose where the work lands first). A seeded ask flips it true.
+    @State private var composerWantsKeyboard = false
+    /// Focus for the project filter. The composer owns its own; this surface has
+    /// TWO fields, so it has to know which one is up to offer the right toggle.
+    @FocusState private var searchFocused: Bool
+    @State private var showPhotoPicker = false
+    @State private var showFileImporter = false
+    @State private var photoItems: [PhotosPickerItem] = []
     @State private var route: ConversationRoute?
-    @FocusState private var instructionsFocused: Bool
     /// Nav mode (tabs/crown) — crown mode reserves no bottom chrome, so the
     /// composer pads itself clear of the floating crown (CrownMetric.bottomReserve).
     @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
 
-    /// Shared on-device dictation (Parakeet via Vox + Apple fallback), injected at
-    /// the app root — the same controller the Comms composer and Settings use.
-    @Environment(HudDictation.self) private var voice
+    // Dictation is the shared composer's own business now — it reads
+    // `HudDictation` from the environment and runs the mic, the trail and the
+    // transcript append itself, exactly as it does on Home.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scoutLayout) private var layout
-    @State private var micPulse = false
     @StateObject private var entrance = CockpitEntrancePhase()
+    /// One marker travels down the project list, as it does across the runtime
+    /// panel's harness rail.
+    @Namespace private var projectMarker
 
     /// Definite content width inside the surface padding — the same discipline
     /// Home uses so wide rows (the agent row, the Start button) fit and truncate
     /// within the screen instead of inflating the column and clipping off the
     /// right edge on a scaled/native phone.
-    private var laneWidth: CGFloat { max(0, layout.designWidth - layout.surfacePadding * 2) }
+    ///
+    /// This whole surface IS the working column (destination lane + composer +
+    /// keyboard line), so it takes the shared measure wholesale: unchanged at
+    /// every phone width, capped and centred at regular width so New reads the
+    /// same as the Entry home on an iPad.
+    private var laneWidth: CGFloat { layout.contentWidth }
 
     /// Macs you can start a session on right now.
     private var onlineMachines: [AppModel.PairedMachine] {
@@ -180,57 +245,85 @@ struct NewSessionSurface: View {
     }
 
     var body: some View {
-        // Fill the screen height (no scroll) so the Prompt box can grow into the
-        // space between the agent row and the Start button. The column is pinned
-        // to a DEFINITE lane width, left-anchored, with a trailing Spacer absorbing
-        // any surplus — so wide rows truncate within the lane instead of inflating
-        // the column and dragging the Start button (and agent row) off the edge.
+        // The SAME room as the Entry home, with different furniture. Home is
+        // air, then a quiet lane of recents, then the docked composer. New is
+        // air, then a quiet lane of the two things that gate Start — ① which
+        // Mac, ② which project — then the same docked composer, with the
+        // keyboard toggle on its own line beneath it.
+        //
+        // What this replaced: a project list that owned the whole screen. It
+        // was the honest reading of "the destination is the page", and on real
+        // data it was wrong twice over — the operator does not re-choose the
+        // repo most visits, and the raw inventory is 57 rows of which a third
+        // are worktree clones and /tmp checkouts. Three curated rows and a way
+        // to the rest says the same thing in a fifth of the screen.
         HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: HudSpacing.md) {
-                topRow
-                    .cockpitEntrance(index: 0, phase: entrance)
-                instructionsSection
-                    .frame(maxHeight: .infinity)
-                    .cockpitEntrance(index: 1, phase: entrance)
-                if let errorText {
-                    Text(errorText)
-                        .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.statusError)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .cockpitEntrance(index: 2, phase: entrance)
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                // The air IS the design: it absorbs whatever the lane does not
+                // need, so the destination hugs the composer at rest and simply
+                // takes the room when the picker is open.
+                Spacer(minLength: 0)
                 if let result {
                     resultCard(result)
-                        .cockpitEntrance(index: 3, phase: entrance)
+                        .padding(.bottom, HudSpacing.md)
+                        .cockpitEntrance(index: 2, phase: entrance)
                 }
+                destination
+                    .cockpitEntrance(index: 0, phase: entrance)
+                composerDock
+                    .cockpitEntrance(index: 1, phase: entrance)
+                keyboardBar
             }
             .frame(width: laneWidth, alignment: .leading)
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(maxHeight: .infinity)
             Spacer(minLength: 0)
         }
-        .padding(.leading, layout.surfacePadding)
+        // Leading gutter carries the centring (the trailing `Spacer` absorbs the
+        // rest); the vertical rhythm stays on the surface padding — the measure
+        // is a horizontal idea only.
+        .padding(.leading, layout.contentInset)
         .padding(.vertical, layout.surfacePadding)
         // Crown mode reserves nothing at the bottom — surfaces flow behind the
         // chrome — but the composer's action row is INTERACTIVE, so it must
         // clear the resting crown outright (same pattern as MissionControl).
         .padding(.bottom, ScoutNavMode.resolve(navModeRaw) == .crown ? CrownMetric.bottomReserve : 0)
-        .overlay {
-            if showModelPicker {
-                modelPickerOverlay
-            }
+        // Same anchored panel as the Entry composer — it grows out of the model
+        // token in the composer card rather than covering it with a sheet.
+        .scoutRuntimePicker(
+            isPresented: $showModelPicker,
+            harnesses: pickerHarnesses,
+            harnessId: $harnessId,
+            familyId: $familyId,
+            effortId: $effortId
+        )
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems, maxSelectionCount: 8, matching: .images)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addPhotos(items) }
         }
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: showModelPicker)
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            addFiles(result)
+        }
         .onChange(of: promptSeed) { _, seed in
             guard let seed else { return }
-            let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+            defer { promptSeed = nil }
+            if let harness = seed.harnessId {
+                harnessId = harness
+                familyId = seed.familyId
+                    ?? ComposerModelHarness.curated(harness)?.defaultFamily.id
+                    ?? familyId
+                effortId = seed.effortId ?? effortId
+                runtimePinned = true
+            }
+            pendingAttachments.append(contentsOf: seed.attachments)
+            let trimmed = seed.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             if instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 instructions = trimmed
             } else {
                 instructions += "\n" + trimmed
             }
-            instructionsFocused = true
-            promptSeed = nil
+            composerWantsKeyboard = true
         }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
@@ -241,14 +334,26 @@ struct NewSessionSurface: View {
                 onStatusContextChange: onConversationStatusContext
             )
         }
-            .sheet(isPresented: $showProjectPicker) {
-                ProjectPickerSheet(client: activeClient, projectPath: $projectPath)
-            }
             .task(id: "\(reloadToken)|\(isActive)") {
                 guard isActive else { return }
                 await entrance.reveal(when: isActive, animated: !reduceMotion)
                 await loadWorkspaces()
             }
+        #if DEBUG
+        // Sibling of Home's `SCOUT_OPEN_RUNTIME`: the open picker is a
+        // touch-only state, so this lets a headless capture photograph the real
+        // thing rather than a preview of it. DEBUG only.
+        .onAppear {
+            guard ProcessInfo.processInfo.environment["SCOUT_OPEN_PICKER"] == "1" else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(900))
+                isPickerOpen = true
+                if let query = ProcessInfo.processInfo.environment["SCOUT_PICKER_QUERY"] {
+                    projectQuery = query
+                }
+            }
+        }
+        #endif
         // When the project changes, adopt that machine workspace's harnesses.
         .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
         // Picking a different Mac re-reads its workspaces (the project list + the
@@ -263,16 +368,38 @@ struct NewSessionSurface: View {
     // MARK: - Machine-backed harnesses
 
     private func loadWorkspaces() async {
+        isLoadingWorkspaces = workspaces.isEmpty
+        defer { isLoadingWorkspaces = false }
+        #if DEBUG
+        // Sim verification hook, sibling to Home's `SCOUT_OPEN_RUNTIME`: the
+        // loaded state of this surface is only interesting against a POLLUTED
+        // inventory, and a sim that cannot reach a Mac reporting one has no way
+        // to show it. `SCOUT_WORKSPACE_FIXTURE=1` substitutes the inventory
+        // transcribed off the phone on 2026-07-28 so a headless capture can
+        // photograph the real shape. DEBUG only; never ships in release
+        // behavior, and it replaces the fetch rather than padding it — a
+        // fixture mixed into live data would be a lie.
+        if ProcessInfo.processInfo.environment["SCOUT_WORKSPACE_FIXTURE"] == "1" {
+            let loaded = Self.captureFixture
+            workspaces = loaded
+            recurate(loaded)
+            if trimmedProjectPath.isEmpty {
+                projectPath = shortlist.first?.root ?? loaded.first?.root ?? ""
+            }
+            applyWorkspaceDefault()
+            return
+        }
+        #endif
         // Don't clobber the current list (or the curated fallback) on a failed
         // fetch — only a successful load replaces it.
         guard let loaded = try? await activeClient.listWorkspaces(query: nil, limit: 200) else { return }
         workspaces = loaded
+        recurate(loaded)
         if trimmedProjectPath.isEmpty {
-            let preferred = loaded.first { workspace in
-                workspace.projectName.localizedCaseInsensitiveCompare("openscout") == .orderedSame
-                    || workspace.title.localizedCaseInsensitiveCompare("openscout") == .orderedSame
-            } ?? loaded.first
-            projectPath = preferred?.root ?? ""
+            // The default lands on a project you have actually worked in, then
+            // on the first DURABLE root — never on whatever the index happened
+            // to return first, which on the real Mac was a worktree clone.
+            projectPath = shortlist.first?.root ?? loaded.first?.root ?? ""
         }
         applyWorkspaceDefault()
     }
@@ -284,6 +411,9 @@ struct NewSessionSurface: View {
     private func applyWorkspaceDefault() {
         let valid = harnessChoices.map(\.id)
         guard !valid.isEmpty else { return }
+        // An explicit pick made on the front door outranks the recommendation —
+        // but only while this machine can actually run it.
+        if runtimePinned, valid.contains(harnessId) { return }
         // Prefer the selected project's recommended harness; otherwise keep the
         // current choice if it's still valid, else fall back to the first.
         if let preferred = selectedWorkspace?.defaultHarness, valid.contains(preferred) {
@@ -298,42 +428,596 @@ struct NewSessionSurface: View {
         familyId = pickerHarnesses.first { $0.id == harnessId }?.defaultFamily.id ?? familyId
     }
 
-    // MARK: - Project
+    // MARK: - Destination
+    //
+    // Where the work lands, and it gets the whole body. Two decisions, coarse to
+    // fine: which Mac, then which project — the same reading order the surface
+    // always claimed but never had the room to show. The project list is the
+    // machine's own `listWorkspaces` inventory, searched in place, so choosing
+    // is one tap rather than a chip that opens a sheet that opens a tree.
 
-    /// Top line — the "where": the project picker (flexible) with the target Mac
-    /// picker beside it, collapsed onto one row as two compact one-line cards.
-    private var topRow: some View {
-        HStack(spacing: HudSpacing.sm) {
-            projectButton
-                .frame(maxWidth: .infinity)
-            machineMenu
+    /// Instrument language, not form language. The two controls here used to be
+    /// a labelled line and a filled rounded search box — and that box was the
+    /// problem: stacked above a filled rounded composer pill, the eye could not
+    /// tell which of the two was the one you type the task into. So the search
+    /// is a bare line on a rule (a readout you can type in), the composer keeps
+    /// the only pill on the screen, and hairlines carry the structure the boxes
+    /// used to.
+    private var destination: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            hostLine
+            rule
+            // The query only exists while the picker is open. At rest the lane
+            // is four lines — host, three projects, and the way to the rest —
+            // and a field you use one visit in five does not earn a permanent
+            // row on a screen whose whole point is calm.
+            if isPickerOpen {
+                projectSearchField
+            }
+            projectList
+            if !workspaces.isEmpty {
+                moreFoot
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var rule: some View {
+        Rectangle()
+            .fill(HudHairline.standard)
+            .frame(height: HudStrokeWidth.thin)
+    }
+
+    /// Which Mac. One paired Mac is a readout, not a choice — several become a
+    /// scrollable strip of chips with the target lit. Same grammar as the
+    /// masthead's host chips, so "which machine" reads the same everywhere.
+    ///
+    /// Every PAIRED Mac shows, not just the reachable ones: a Mac you know about
+    /// that has gone offline is information, and hiding it turns "your Mac is
+    /// asleep" into "you have no Macs". Offline chips are simply not selectable —
+    /// you cannot start a session on a machine that can't hear you.
+    @ViewBuilder
+    private var hostLine: some View {
+        let machines = model.pairedMachines
+        HStack(spacing: HudSpacing.md) {
+            eyebrow("Host")
+            if machines.isEmpty {
+                Text("Not connected")
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(ScoutInk.dim)
+            } else if machines.count == 1, let only = machines.first {
+                HStack(spacing: HudSpacing.xs) {
+                    HudStatusDot(color: only.isOnline ? HudPalette.accent : ScoutInk.dim, size: 6)
+                    Text(only.name)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                        .foregroundStyle(ScoutInk.muted)
+                        .lineLimit(1)
+                    if !only.isOnline {
+                        Text("offline")
+                            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                            .tracking(0.6)
+                            .textCase(.uppercase)
+                            .foregroundStyle(ScoutInk.dim)
+                    }
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: HudSpacing.xs) {
+                        ForEach(machines) { machine in
+                            hostChip(machine)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        // ① of the destination section, and in the common case — one paired Mac
+        // — it costs exactly this one line. No eyebrow row of its own, no band,
+        // no rule above it. An earlier pass charged host full price (eyebrow +
+        // row + rule) on a screen where it is usually a readout.
+        .frame(height: 30)
+    }
+
+    private func hostChip(_ machine: AppModel.PairedMachine) -> some View {
+        let selected = activeMachine?.id == machine.id
+        let plate = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return Button {
+            guard machine.isOnline else { return }
+            selectedMachineId = machine.id
+        } label: {
+            HStack(spacing: HudSpacing.xs) {
+                HudStatusDot(color: machine.isOnline ? HudPalette.accent : ScoutInk.dim, size: 5)
+                Text(machine.name)
+                    .font(HudFont.mono(10.5, weight: .medium))
+                    .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 108, alignment: .leading)
+            }
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, 3)
+            .background(plate.fill(selected ? ScoutSurface.raised : ScoutSurface.inset))
+            .overlay(plate.stroke(selected ? ScoutInk.dim : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Start on \(machine.name)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Search over the machine's known projects — and the manual-path escape
+    /// hatch, because a query that looks like a path IS one. That folds what
+    /// used to be a separate sheet (a "Path" field over a disclosure tree) into
+    /// the one field the operator was going to type in anyway.
+    ///
+    /// Deliberately unboxed: a glyph, the text, and the rules above and below it
+    /// are the whole control. See `destination` for why it must not look like
+    /// the composer.
+    private var projectSearchField: some View {
+        HStack(spacing: HudSpacing.md) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ScoutInk.dim)
+            TextField("Filter projects, or type a path", text: $projectQuery)
+                .textFieldStyle(.plain)
+                .font(HudFont.ui(HudTextSize.sm))
+                .foregroundStyle(HudPalette.ink)
+                .tint(HudPalette.accent)
+                .focused($searchFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+            if !projectQuery.isEmpty {
+                Button {
+                    projectQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(ScoutInk.dim)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .frame(height: 42)
+        // The WHOLE line is the field. A bare TextField only takes focus inside
+        // its own text box, so tapping the magnifier — or the empty half of the
+        // row, which is most of it — did nothing and the keyboard stayed down.
+        .contentShape(Rectangle())
+        .onTapGesture { searchFocused = true }
+    }
+
+    /// The foot of the lane: the way out to everything else, carrying the count
+    /// so no eyebrow row has to, and NAMING what is being kept back — a hidden
+    /// pile you cannot name is just a missing list.
+    private var moreFoot: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : ScoutMotion.grow) {
+                isPickerOpen.toggle()
+            }
+            if isPickerOpen {
+                searchFocused = true
+            } else {
+                projectQuery = ""
+                searchFocused = false
+            }
+        } label: {
+            HStack(spacing: HudSpacing.md) {
+                Text(isPickerOpen ? "Close" : "All \(workspaces.count) projects")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                    .foregroundStyle(ScoutInk.muted)
+                    .fixedSize()
+                if !isPickerOpen, let summary = demotedSummary {
+                    Text(summary)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutInk.dim)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Spacer(minLength: 0)
+                if !isPickerOpen {
+                    Glyphic(kind: .chevron, size: 11)
+                        .foregroundStyle(ScoutInk.dim)
+                }
+            }
+            .padding(.leading, HudSpacing.lg)
+            .frame(height: 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(HudHairline.subtle)
+                    .frame(height: HudStrokeWidth.thin)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isPickerOpen ? "Close the project list" : "All \(workspaces.count) projects")
+    }
+
+    private var keyboardIsUp: Bool { searchFocused || composerWantsKeyboard }
+
+    /// The way back out of the keyboard — and back in. It sits BELOW the
+    /// composer on a line of its own: the operator drew a line from the old seat
+    /// (the project heading, where it read as a list control) down to here. Home
+    /// puts the same toggle in the pinned slot of its accessory strip; New has
+    /// no honest smart actions to fill such a strip with, so the control gets a
+    /// thin line to itself and nothing keeps it company.
+    ///
+    /// Not a `.toolbar(placement: .keyboard)`: that placement merges across
+    /// every mounted surface, and iOS 26 renders it as glass capsules.
+    private var keyboardBar: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Button(action: toggleKeyboard) {
+                Glyphic(kind: keyboardIsUp ? .keyboardDown : .keyboardUp, size: 17)
+                    .foregroundStyle(ScoutInk.dim)
+                    .frame(width: 44, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(keyboardIsUp ? "Hide keyboard" : "Show keyboard")
+        }
+        .frame(width: laneWidth)
+        .padding(.top, HudSpacing.xs)
+    }
+
+    /// Down when the keyboard is up, up when it isn't. Which field it raises
+    /// depends on what is on screen: with the picker open the live field is the
+    /// filter, otherwise it is the composer — the same rule Home follows, where
+    /// the composer is the only field there is.
+    private func toggleKeyboard() {
+        if keyboardIsUp {
+            searchFocused = false
+            composerWantsKeyboard = false
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+            )
+        } else if isPickerOpen {
+            searchFocused = true
+        } else {
+            composerWantsKeyboard = true
         }
     }
 
-    /// The project value, tapping through to the known-projects tree. One line
-    /// (folder · name · caret) so it sits on the top row beside the machine.
-    private var projectButton: some View {
-        Button {
-            showProjectPicker = true
-        } label: {
-            HStack(spacing: HudSpacing.sm) {
-                Glyphic(kind: .folder, size: 16)
-                    .foregroundStyle(ScoutInk.muted)
-                Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(projectLeaf.isEmpty ? ScoutInk.dim : HudPalette.ink)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: HudSpacing.xs)
-                Glyphic.chevron(.bottom, size: 12)
-                    .foregroundStyle(ScoutInk.muted)
+    /// `~` for the Mac's home, so the parent path is readable at 11pt instead of
+    /// spending a third of the row on `/Users/<someone>`.
+    private func abbreviate(_ path: String) -> String {
+        guard path.hasPrefix("/Users/") else { return path }
+        let rest = path.dropFirst("/Users/".count)
+        guard let slash = rest.firstIndex(of: "/") else { return "~" }
+        return "~" + rest[slash...]
+    }
+
+    private var filteredWorkspaces: [WorkspaceSummary] {
+        let query = projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return workspaces }
+        return workspaces.filter {
+            $0.projectName.lowercased().contains(query)
+                || $0.title.lowercased().contains(query)
+                || $0.root.lowercased().contains(query)
+        }
+    }
+
+    /// A query the operator clearly means as a path, that no known workspace
+    /// answers. Offered verbatim rather than swallowed — the Mac may well have a
+    /// checkout the workspace index hasn't seen.
+    private var typedPath: String? {
+        let raw = projectQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.hasPrefix("/") || raw.hasPrefix("~") else { return nil }
+        guard !filteredWorkspaces.contains(where: { $0.root == raw }) else { return nil }
+        return raw
+    }
+
+    // MARK: - Curation
+    //
+    // The Mac's inventory is not a list of projects; it is a list of directories
+    // that happen to contain code. On this Mac, 57 rows: three umbrella folders
+    // (`Art` = /Users/art, `Dev` = ~/dev), six worktree clones under
+    // `~/.codex/worktrees/<hash>` (four of them called some case of
+    // "openscout"), and five /tmp checkouts — and the surface had one of the
+    // CLONES selected by default. Interleaved as peers they made the list
+    // unreadable and the default wrong.
+    //
+    // So: durable project roots lead and are the only thing the resting lane
+    // shows; the swept-up rest is kept, labelled and one tap away. This is pure
+    // path arithmetic over `root` — no new field, no extra fetch — and the
+    // classification is computed once per load, not per row per frame.
+
+    enum WorkspaceKind: String {
+        case project, umbrella, worktree, scratch
+    }
+
+    private static let scratchPrefixes = [
+        "/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/",
+    ]
+    private static let worktreeMarkers = [
+        "/.codex/worktrees/", "/.claude/worktrees/", "/worktrees/", "/.git/worktrees/",
+    ]
+
+    /// Which of the four a root is. `all` is needed only for the umbrella test:
+    /// a directory is an umbrella when the index also knows what is inside it.
+    static func workspaceKind(root: String, in all: [WorkspaceSummary]) -> WorkspaceKind {
+        if scratchPrefixes.contains(where: { root.hasPrefix($0) }) { return .scratch }
+        if worktreeMarkers.contains(where: { root.contains($0) }) { return .worktree }
+        // The home directory itself is never a project.
+        let parts = root.split(separator: "/")
+        if parts.count == 2, parts[0] == "Users" { return .umbrella }
+        // A directory that merely CONTAINS other indexed roots. Two, not one,
+        // so a real project with a single vendored checkout stays a project.
+        let contained = all.reduce(into: 0) { count, other in
+            if other.root != root, other.root.hasPrefix(root + "/") { count += 1 }
+        }
+        return contained >= 2 ? .umbrella : .project
+    }
+
+    /// Recompute the split. Called when a load lands, never from `body`.
+    private func recurate(_ loaded: [WorkspaceSummary]) {
+        var kinds: [String: WorkspaceKind] = [:]
+        var durable: [WorkspaceSummary] = []
+        for workspace in loaded {
+            let kind = Self.workspaceKind(root: workspace.root, in: loaded)
+            kinds[workspace.root] = kind
+            if kind == .project { durable.append(workspace) }
+        }
+        workspaceKinds = kinds
+        durableWorkspaces = durable
+    }
+
+    /// The badge text for a root that is NOT a durable project — nil for the
+    /// ordinary case, so ordinary rows carry nothing extra.
+    private func demotedKindLabel(_ root: String) -> String? {
+        switch workspaceKinds[root] {
+        case .worktree: return "worktree"
+        case .scratch: return "scratch"
+        case .umbrella: return "folder"
+        default: return nil
+        }
+    }
+
+    /// One line for the pile being held back, honest about what is in it.
+    private var demotedSummary: String? {
+        var worktree = 0, scratch = 0, umbrella = 0
+        for kind in workspaceKinds.values {
+            switch kind {
+            case .worktree: worktree += 1
+            case .scratch: scratch += 1
+            case .umbrella: umbrella += 1
+            case .project: break
             }
-            .padding(.horizontal, HudSpacing.md)
-            .padding(.vertical, HudSpacing.sm + 2)
+        }
+        var parts: [String] = []
+        if worktree > 0 { parts.append("\(worktree) worktree\(worktree == 1 ? "" : "s")") }
+        if scratch > 0 { parts.append("\(scratch) scratch") }
+        if umbrella > 0 { parts.append("\(umbrella) folder\(umbrella == 1 ? "" : "s")") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The short list: device-recent roots first, in recency order, then the
+    /// Mac's own order. Never a demoted root, and the current pick is always in
+    /// it — a chosen row that vanishes from under the selection marker reads as
+    /// a bug.
+    private var shortlist: [WorkspaceSummary] {
+        let byRoot = Dictionary(durableWorkspaces.map { ($0.root, $0) }, uniquingKeysWith: { a, _ in a })
+        var picked: [WorkspaceSummary] = []
+        var seen = Set<String>()
+        func add(_ workspace: WorkspaceSummary?) {
+            guard let workspace, seen.insert(workspace.root).inserted else { return }
+            picked.append(workspace)
+        }
+        add(workspaces.first { $0.root == trimmedProjectPath })
+        for root in recentRoots { add(byRoot[root]) }
+        // Before falling back to the Mac's own order — which is arbitrary, and
+        // on a fresh device is ALL you have — prefer roots the Mac has actually
+        // configured a harness for. `defaultHarness` is a real field off the
+        // machine, and "this checkout has a coding agent set up in it" is the
+        // closest honest proxy for "this is a project you work in". It is not a
+        // ranking by agent activity: that would need a project PATH on
+        // AgentSummary, which the contract does not carry.
+        for workspace in durableWorkspaces where workspace.defaultHarness?.isEmpty == false {
+            add(workspace)
+        }
+        for workspace in durableWorkspaces { add(workspace) }
+        return Array(picked.prefix(shortlistLength))
+    }
+
+    /// Three, per the operator: enough to be the answer most visits, few enough
+    /// that the screen still reads as mostly air.
+    private var shortlistLength: Int { 3 }
+
+    /// What the lane actually renders: the shortlist at rest, the curated
+    /// matches when the picker is open (durable first, then the swept-up rest,
+    /// because a search for "openscout" on the real Mac returns four of them).
+    private var visibleWorkspaces: [WorkspaceSummary] {
+        guard isPickerOpen else { return shortlist }
+        let matches = filteredWorkspaces
+        let durable = matches.filter { workspaceKinds[$0.root] == .project }
+        let rest = matches.filter { workspaceKinds[$0.root] != .project }
+        return durable + rest
+    }
+
+    /// The roots THIS DEVICE last started work in — the only ranking signal that
+    /// is actually backed today. `AgentSummary` carries no project path
+    /// (ScoutCapabilities/Listing.swift), so ordering by "where your agents are"
+    /// is not available, and inventing an order would be worse than none.
+    private var recentRoots: [String] {
+        recentRootsRaw.split(separator: "\n").map(String.init)
+    }
+
+    private func rememberRoot(_ root: String) {
+        guard !root.isEmpty, !root.contains("\n") else { return }
+        var list = recentRoots.filter { $0 != root }
+        list.insert(root, at: 0)
+        recentRootsRaw = list.prefix(8).joined(separator: "\n")
+    }
+
+    /// ② PROJECT. Three rows at rest, the curated inventory when the picker is
+    /// open. Three is enough because the three are CHOSEN — device-recency
+    /// first, then the Mac's own order, and never a swept-up root.
+    @ViewBuilder
+    private var projectList: some View {
+        if isPickerOpen {
+            // Open, the lane scrolls and stops well short of the composer.
+            ScrollView(showsIndicators: false) {
+                projectRows
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .frame(maxWidth: .infinity, maxHeight: 268, alignment: .top)
+        } else {
+            // Closed, it is EXACTLY as tall as its rows. It must not be a
+            // ScrollView here: a scroll view is greedy, and a greedy view in
+            // this stack eats the air the calm layout is made of — the lane
+            // ends up pinned under the masthead instead of hugging the
+            // composer, which is the whole shape.
+            projectRows
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var projectRows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+                if isPickerOpen, let typedPath {
+                    projectRow(
+                        path: typedPath,
+                        name: (typedPath as NSString).lastPathComponent,
+                        harness: nil,
+                        kind: nil,
+                        isTyped: true
+                    )
+                }
+                ForEach(visibleWorkspaces) { workspace in
+                    projectRow(
+                        path: workspace.root,
+                        name: workspace.projectName.isEmpty ? workspace.title : workspace.projectName,
+                        harness: workspace.defaultHarness,
+                        // The badge only appears where it is news: in the open
+                        // picker, on a root that is not a durable project.
+                        kind: isPickerOpen ? demotedKindLabel(workspace.root) : nil,
+                        isTyped: false
+                    )
+                }
+            if visibleWorkspaces.isEmpty, typedPath == nil { projectListNotice }
+        }
+        // The column has to CLAIM the width, or a short list (or a one-line
+        // notice) sizes the stack to itself and the enclosing view centres it.
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One project.
+    ///
+    /// The pick carries a left accent BAR rather than a dot — these are flat
+    /// full-width list rows, which is the one shape the house rules let an edge
+    /// marker sit on, and it is the same travelling marker the runtime panel's
+    /// harness rail uses. Same act, same grammar.
+    ///
+    /// The mark on the left is the harness this workspace actually recommends
+    /// (`defaultHarness`, straight off the Mac), so the row answers "and what
+    /// will run here" before you have to look down at the composer's chip — and
+    /// picking the project is visibly what re-points that chip.
+    private func projectRow(path: String, name: String, harness: String?, kind: String?, isTyped: Bool) -> some View {
+        let selected = trimmedProjectPath == path
+        return Button {
+            projectPath = path
+            // Picking from the open picker is the end of picking.
+            if isPickerOpen {
+                withAnimation(reduceMotion ? nil : ScoutMotion.grow) { isPickerOpen = false }
+                projectQuery = ""
+                searchFocused = false
+            }
+        } label: {
+            HStack(spacing: HudSpacing.md) {
+                Group {
+                    if isTyped {
+                        Glyphic(kind: .folder, size: 13)
+                    } else if let harness, HarnessMark.identifies(harness) {
+                        HarnessMark(harness: harness, size: 13)
+                    }
+                }
+                // A fixed slot whether or not there is a mark, so every name in
+                // the list starts on one x.
+                .frame(width: 14)
+                .foregroundStyle(selected ? HudPalette.accent : ScoutInk.dim)
+
+                // The name holds the row. It takes layout priority over the
+                // path, so under pressure the PATH is the side that gives —
+                // on the shipped surface `Openscout Work List Wt` and its
+                // `/private/tmp` tail overlapped outright.
+                Text(name)
+                    .font(HudFont.ui(HudTextSize.sm, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? HudPalette.ink : ScoutInk.muted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(2)
+
+                if let kind {
+                    Text(kind)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .tracking(0.7)
+                        .textCase(.uppercase)
+                        .foregroundStyle(ScoutInk.dim)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                        )
+                        .fixedSize()
+                        .layoutPriority(1)
+                }
+
+                Spacer(minLength: HudSpacing.md)
+
+                Text(isTyped ? "USE THIS PATH" : abbreviate((path as NSString).deletingLastPathComponent))
+                    .font(HudFont.mono(isTyped ? HudTextSize.micro : HudTextSize.xxs, weight: isTyped ? .semibold : .regular))
+                    .tracking(isTyped ? 0.6 : 0)
+                    .foregroundStyle(isTyped ? HudPalette.accent : ScoutInk.dim)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: 128, alignment: .trailing)
+                    .layoutPriority(0)
+            }
+            .padding(.leading, HudSpacing.lg)
+            .frame(height: 38)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .scoutCard(cornerRadius: HudRadius.standard)
+            .background(alignment: .leading) {
+                if selected {
+                    Capsule()
+                        .fill(HudPalette.accent)
+                        .frame(width: 2, height: 18)
+                        .matchedGeometryEffect(id: "project-marker", in: projectMarker)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isTyped ? "Use path \(path)" : name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Honest about which nothing this is: still fetching, nothing matched, or
+    /// no Mac to ask.
+    @ViewBuilder
+    private var projectListNotice: some View {
+        let text: String = {
+            if isLoadingWorkspaces { return "Looking for projects…" }
+            if onlineMachines.isEmpty { return "Connect a Mac to choose a project." }
+            if !projectQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "No project matches. Type a full path to use one anyway."
+            }
+            return "This Mac hasn't reported any projects yet."
+        }()
+        Text(text)
+            .font(HudFont.mono(HudTextSize.xs))
+            .foregroundStyle(ScoutInk.dim)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, HudSpacing.lg)
+            .padding(.vertical, HudSpacing.xl)
+    }
+
+    private func eyebrow(_ text: String) -> some View {
+        Text(text)
+            .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+            .tracking(1.2)
+            .textCase(.uppercase)
+            .foregroundStyle(ScoutInk.dim)
     }
 
     private var projectLeaf: String {
@@ -349,285 +1033,94 @@ struct NewSessionSurface: View {
         projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - Instructions
+    // MARK: - Composer
+    //
+    // The SAME object as Home's front-door composer: `ScoutMessageComposer` at
+    // `lead` density in the `pill` appearance, with attach anchoring the base
+    // row and the runtime chip in the tools slot. What used to live here was a
+    // second implementation of that contract — its own TextEditor and
+    // placeholder, its own "+" attach, its own mic and pulse and waveform, its
+    // own accent-filled send, its own model token. Every one of those is a way
+    // for the two screens to drift apart, and several already had.
+    //
+    // Two things stay New's own, because they are genuinely different here:
+    //  · Send is armed by having a PROJECT, not by having typed something —
+    //    "leave blank to open a fresh session" is a real flow, which is exactly
+    //    what the contract's `canSend` override exists for.
+    //  · The keyboard is not raised on arrival. Home opens composing; New opens
+    //    on a choice, and only a seeded ask (Home routing an ask here) asks for
+    //    the keyboard.
 
-    /// The classic message input box: a filling prompt with, at the bottom, an
-    /// action row — "+" attach (left), and the model token + dictation mic +
-    /// circular send (right).
-    private var instructionsSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            TextEditor(text: $instructions)
-                .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(HudPalette.ink)
-                .scrollContentBackground(.hidden)
-                .focused($instructionsFocused)
-                .frame(maxHeight: .infinity)
-                .overlay(alignment: .topLeading) {
-                    if instructions.isEmpty {
-                        Text("Describe the task, or leave blank to open a fresh session.")
-                            .font(HudFont.ui(HudTextSize.base))
-                            .foregroundStyle(ScoutInk.dim)
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Done") { dismissKeyboard() }
-                    }
-                }
-            if voice.isListening, !voice.partialText.isEmpty {
-                Text(voice.partialText)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutInk.muted)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-            if !pendingAttachments.isEmpty {
-                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
-                    pendingAttachments.removeAll { $0.id == id }
-                }
-            }
-            composerBar
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .padding(HudSpacing.lg)
-        .scoutCard(cornerRadius: HudRadius.standard)
-    }
-
-    private func dismissKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-
-    /// Bottom of the box: a live waveform line while dictation is recording,
-    /// over the action row — "+" attach (left) and the model token, mic, and
-    /// circular send (right, mic immediately left of send).
-    private var composerBar: some View {
-        VStack(spacing: HudSpacing.sm) {
-            if voice.isListening {
-                RecordingWaveform()
-            }
-            HStack(spacing: HudSpacing.sm) {
-                ComposerAttachButton(attachments: $pendingAttachments, disabled: isSubmitting)
-                Spacer(minLength: HudSpacing.sm)
-                modelToken
-                micButton
-                sendButton
-            }
-        }
-        // Menus inherit the system blue tint by default; pull onto the cockpit accent.
-        .tint(HudPalette.accent)
-    }
-
-    /// The model token at rest — the family in bold with the effort secondary
-    /// under a single caret, styled after the study's bordered chip. Tapping
-    /// opens the model-picker popover (draft semantics: Done commits, scrim
-    /// tap or swipe-down cancels).
-    private var modelToken: some View {
-        Button {
-            instructionsFocused = false
-            showModelPicker = true
-        } label: {
-            HStack(spacing: 5) {
-                Text(selectedFamily.displayName)
-                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 104, alignment: .trailing)
-                Text(selectedEffort.label)
-                    .font(HudFont.ui(HudTextSize.xxs, weight: .medium))
-                    .foregroundStyle(ScoutInk.dim)
-                    .lineLimit(1)
-                Glyphic.chevron(.bottom, size: 9)
-                    .foregroundStyle(ScoutInk.dim)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(showModelPicker ? ModelPickerTone.accentSoft : ModelPickerTone.chipFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(showModelPicker ? ModelPickerTone.accentDim : ModelPickerTone.tokenEdge, lineWidth: 1)
+    private var composerDock: some View {
+        ScoutMessageComposer(
+            text: $instructions,
+            // Short enough to survive the lane at `lead`'s 16pt — the long form
+            // ("…to open a fresh session") truncated, which taught nobody
+            // anything. Send arms on having a project, so the blank-is-fine
+            // affordance is discoverable from the control itself.
+            placeholder: "Describe the task, or leave blank…",
+            rows: 1,
+            autoFocus: composerWantsKeyboard && isActive,
+            onSend: submit,
+            canSend: canSubmit && !isSubmitting,
+            sending: isSubmitting,
+            attach: ScoutComposerAttach(
+                onPhoto: { showPhotoPicker = true },
+                onFile: { showFileImporter = true }
+            ),
+            attachments: $pendingAttachments,
+            error: errorText,
+            onFocusChange: { composerWantsKeyboard = $0 },
+            density: .lead,
+            appearance: .pill
+        ) {
+            ScoutRuntimeChip(
+                harness: harnessId,
+                model: selectedFamily.value,
+                effort: selectedEffort.label,
+                isPicking: showModelPicker,
+                onPick: { showModelPicker.toggle() }
             )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Model: \(selectedFamily.displayName), effort \(selectedEffort.label)")
+        // The runtime panel takes its left and right edges from the composer,
+        // so the two read as one column when it opens.
+        .scoutRuntimeLane()
+        .padding(.top, HudSpacing.xl)
     }
 
-    /// Scrim + the rising machined plate (the approved study's popover). The
-    /// scrim tap and the plate's swipe-down both CANCEL — only the plate's
-    /// Done writes the draft back into the composer state.
-    private var modelPickerOverlay: some View {
-        ZStack(alignment: .bottom) {
-            ModelPickerTone.scrim
-                .background(.ultraThinMaterial)
-                .ignoresSafeArea()
-                .onTapGesture { showModelPicker = false }
-                .transition(.opacity)
-            ModelPickerPopover(
-                harnesses: pickerHarnesses,
-                harnessId: $harnessId,
-                familyId: $familyId,
-                effortId: $effortId,
-                onCommit: { showModelPicker = false },
-                onCancel: { showModelPicker = false }
+    // MARK: - Attachments
+    //
+    // The shared composer hands the host two intents rather than a picker, so
+    // the surface that has to surface a read failure is the one that owns the
+    // pickers. Same shape as Home.
+
+    @MainActor
+    private func addPhotos(_ items: [PhotosPickerItem]) async {
+        defer { photoItems = [] }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
+            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
+            pendingAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(pendingAttachments.count + 1).\(ext)")
             )
-            .padding(.horizontal, 14)
-            .padding(.bottom, 96)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
-    /// Circular send (bottom-right) — starts the session. The accent fill is always
-    /// present (dimmed until a project is ready) so it doesn't pop in grey→green a
-    /// beat after the box appears; it just brightens when submittable.
-    private var sendButton: some View {
-        Button {
-            submit()
-        } label: {
-            Group {
-                if isSubmitting {
-                    ProgressView().controlSize(.small).tint(HudPalette.bg)
-                } else {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(HudPalette.bg)
-                }
-            }
-            .frame(width: 30, height: 30)
-            .background(Circle().fill(ScoutVibe.accent.opacity(canSubmit && !isSubmitting ? 1 : 0.32)))
-            .animation(.easeInOut(duration: 0.2), value: canSubmit)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSubmitting || !canSubmit)
-        .accessibilityLabel("Start session")
-    }
-
-    // MARK: - Dictation
-
-    /// Dictation toggle, mirroring the Comms composer: tap to start/stop, a pulsing
-    /// accent ring while listening, transcribed text appended to the prompt.
-    private var micButton: some View {
-        Button {
-            voice.toggleFromUserIntent()
-        } label: {
-            ZStack {
-                // An OPAQUE inset base so the mic reads as a floating control and
-                // masks the waveform running behind it; it warms to the accent + a
-                // pulse while active.
-                Circle().fill(ScoutSurface.inset)
-                if voice.isListening {
-                    Circle().fill(HudPalette.accent.opacity(micPulse ? 0.26 : 0.14))
-                }
-                Circle()
-                    .stroke(voice.isListening ? HudPalette.accent.opacity(0.5) : HudHairline.standard,
-                            lineWidth: HudStrokeWidth.thin)
-                MicGlyph()
-                    .stroke(micColor, style: StrokeStyle(lineWidth: voice.isListening ? 1.8 : 1.3, lineCap: .round, lineJoin: .round))
-                    .frame(width: 16, height: 16)
-            }
-            .frame(width: 40, height: 40)
-            .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
-        .onChange(of: voice.finalCount) { _, _ in
-            let text = voice.finalText
-            if !text.isEmpty { appendDictation(text) }
+    private func addFiles(_ result: Result<[URL], Error>) {
+        guard let urls = try? result.get() else { return }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let type = UTType(filenameExtension: url.pathExtension)
+            let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
+            pendingAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
+            )
         }
     }
-
-    private var micColor: Color {
-        switch voice.state {
-        case .listening: return HudPalette.accent
-        case .transcribing, .preparing: return ScoutInk.muted
-        case .unavailable: return ScoutInk.dim.opacity(0.5)
-        case .idle: return ScoutInk.muted
-        }
-    }
-
-    private func appendDictation(_ text: String) {
-        instructions = instructions.isEmpty ? text : instructions + " " + text
-    }
-
-    private func updatePulse(for state: HudDictation.State) {
-        micPulse = false
-        if case .listening = state, shouldAnimateMicPulse {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
-        }
-    }
-
-    private var shouldAnimateMicPulse: Bool {
-        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
-
-    // MARK: - Agent
-
-    /// A value token that opens a menu on tap: ink text + a small muted caret.
-    private func choiceMenu<Menu: View>(value: String, @ViewBuilder menu: () -> Menu) -> some View {
-        SwiftUI.Menu {
-            menu()
-        } label: {
-            HStack(spacing: HudSpacing.xxs) {
-                Text(value)
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
-                Glyphic.chevron(.bottom, size: 12)
-                    .foregroundStyle(ScoutInk.muted)
-            }
-        }
-    }
-
-    private var tokenSeparator: some View {
-        Text("·")
-            .font(HudFont.ui(HudTextSize.sm))
-            .foregroundStyle(ScoutInk.dim)
-    }
-
-    /// Target-machine picker in the agent row — which paired Mac the session lands
-    /// on. A value token (dot · name · chevron) opening a menu of online Macs; the
-    /// chevron shows only once there's more than one to choose between.
-    private var machineMenu: some View {
-        let machines = onlineMachines
-        return SwiftUI.Menu {
-            ForEach(machines) { machine in
-                Button {
-                    selectedMachineId = machine.id
-                } label: {
-                    if activeMachine?.id == machine.id {
-                        Label(machine.name, systemImage: "checkmark")
-                    } else {
-                        Text(machine.name)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: HudSpacing.xs) {
-                HudStatusDot(color: (activeMachine?.isOnline ?? false) ? HudPalette.accent : ScoutInk.muted, size: 6)
-                Text(activeMachine?.name ?? "Not connected")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(ScoutInk.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 108, alignment: .leading)
-                // A caret marks it as a picker (beside the project on the top row).
-                Glyphic.chevron(.bottom, size: 12)
-                    .foregroundStyle(ScoutInk.muted)
-            }
-            .padding(.horizontal, HudSpacing.md)
-            .padding(.vertical, HudSpacing.sm + 2)
-            .scoutCard(cornerRadius: HudRadius.standard)
-        }
-        .tint(HudPalette.accent)
-        .disabled(machines.isEmpty)
-    }
-
     // MARK: - Result
 
     private func resultCard(_ result: SessionInitiationResult) -> some View {
@@ -706,9 +1199,19 @@ struct NewSessionSurface: View {
     private func submit() {
         guard !isSubmitting, canSubmit else { return }
         isSubmitting = true
+        // The seeded pick has had its run; from here the workspace default is
+        // free to lead again.
+        runtimePinned = false
         errorText = nil
         result = nil
-        instructionsFocused = false
+        // The one ranking signal this surface owns: you started work here, so
+        // this root leads the short list next time.
+        rememberRoot(trimmedProjectPath)
+        // Hand the keyboard back: the composer resigns when nobody is asking
+        // for it, and the surface is about to push a conversation.
+        composerWantsKeyboard = false
+        searchFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let attachments = pendingAttachments
         pendingAttachments = []
         Task {
@@ -745,216 +1248,52 @@ struct NewSessionSurface: View {
         let last = projectLeaf
         return last.isEmpty ? "New session" : last
     }
-}
 
-/// A recording indicator: a horizontal row of accent bars whose heights animate
-/// while dictation is live, spanning the mic line above the composer's send row.
-/// The motion is ambient (a time-driven wave), NOT live audio amplitude — the
-/// dictation controller exposes no metering — so it reads as "recording" without
-/// claiming to visualize the actual voice. Wire real levels here if the voice
-/// package gains a meter.
-private struct RecordingWaveform: View {
-    private let barCount = 45
-    private let barWidth: CGFloat = 2.5
-    private let spacing: CGFloat = 2.5
-    private let maxBar: CGFloat = 22
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            HStack(spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    Capsule()
-                        .fill(ScoutVibe.accent.opacity(0.5))
-                        .frame(width: barWidth, height: barHeight(index: index, time: t))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
+    #if DEBUG
+    /// The head of a REAL `mobile/workspaces` reply, transcribed off the phone
+    /// (2026-07-28, `PROJECT 57`), plus enough durable roots to make the curated
+    /// split visible. Names are verbatim, including the inconsistent casing the
+    /// index produces. Only reachable via `SCOUT_WORKSPACE_FIXTURE=1`.
+    static let captureFixture: [WorkspaceSummary] = {
+        let both = [
+            WorkspaceSummary.Harness(harness: "claude", readiness: .ready),
+            WorkspaceSummary.Harness(harness: "codex", readiness: .ready),
+        ]
+        func ws(_ name: String, _ root: String, _ harness: String?) -> WorkspaceSummary {
+            WorkspaceSummary(
+                id: root, title: name, projectName: name, root: root,
+                defaultHarness: harness, harnesses: both
+            )
         }
-        .frame(height: maxBar + 6)
-        .allowsHitTesting(false)
-        .transition(.opacity)
-    }
-
-    private func barHeight(index: Int, time: Double) -> CGFloat {
-        let a = sin(time * 5.5 + Double(index) * 0.55)
-        let b = sin(time * 2.7 + Double(index) * 1.10)
-        let v = (a * 0.6 + b * 0.4 + 1) / 2   // 0…1
-        return 3 + CGFloat(v) * maxBar
-    }
-}
-
-/// Known-projects picker: a tree of the paired Mac's current workspace roots
-/// (grouped by parent directory), plus a manual path field for anything not yet
-/// known. Session history is deliberately not a source of paths: it can outlive
-/// a Mac account rename or migration.
-private struct ProjectPickerSheet: View {
-    let client: any ScoutBrokerClient
-    @Binding var projectPath: String
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var groups: [ProjectGroup] = []
-    @State private var isLoading = true
-    @State private var loadError: String?
-    @State private var manualPath: String = ""
-
-    private struct ProjectGroup: Identifiable {
-        let id: String          // parent directory
-        let parent: String
-        let projects: [Project]
-    }
-
-    private struct Project: Identifiable {
-        let id: String          // full path
-        let name: String
-        let path: String
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: HudSpacing.xxl) {
-                    manualSection
-                    knownSection
-                }
-                .padding(HudSpacing.xxl)
-            }
-            .background(HudPalette.bg)
-            .navigationTitle("Choose project")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(HudPalette.accent)
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .tint(HudPalette.accent)
-        .task { await load() }
-    }
-
-    // MARK: Manual entry
-
-    private var manualSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Path")
-            HudField("Project path", text: $manualPath, icon: "folder")
-            HStack {
-                Spacer()
-                HudButton("Use this path", icon: "arrow.right", style: .secondary) {
-                    commit(manualPath)
-                }
-                .disabled(manualPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-    }
-
-    // MARK: Known projects
-
-    private var knownSection: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Known projects")
-            if isLoading {
-                HStack(spacing: HudSpacing.md) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading…")
-                        .font(HudFont.ui(HudTextSize.sm))
-                        .foregroundStyle(ScoutInk.muted)
-                }
-                .padding(.vertical, HudSpacing.lg)
-            } else if let loadError {
-                Text(loadError)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.statusError)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if groups.isEmpty {
-                HudEmptyState(title: "No known projects yet", icon: "folder")
-            } else {
-                VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                    ForEach(groups) { group in
-                        DisclosureGroup {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(group.projects) { project in
-                                    projectRow(project)
-                                }
-                            }
-                            .padding(.top, HudSpacing.xs)
-                        } label: {
-                            Text(group.parent)
-                                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                                .foregroundStyle(ScoutInk.muted)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func projectRow(_ project: Project) -> some View {
-        Button {
-            commit(project.path)
-        } label: {
-            HStack(spacing: HudSpacing.md) {
-                Glyphic(kind: .folder, size: 16)
-                    .foregroundStyle(ScoutInk.dim)
-                Text(project.name)
-                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                Spacer(minLength: HudSpacing.md)
-                if project.path == projectPath.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    Glyphic(kind: .check, size: 14)
-                        .foregroundStyle(HudPalette.accent)
-                }
-            }
-            .padding(.vertical, HudSpacing.sm)
-            .padding(.leading, HudSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: Data
-
-    private func commit(_ path: String) {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        projectPath = trimmed
-        dismiss()
-    }
-
-    private func load() async {
-        if manualPath.isEmpty { manualPath = projectPath }
-        do {
-            let workspaces = try await client.listWorkspaces(query: nil, limit: 200)
-            let roots = workspaces.compactMap { workspace -> String? in
-                let root = workspace.root.trimmingCharacters(in: .whitespacesAndNewlines)
-                return root.isEmpty ? nil : root
-            }
-            groups = Self.group(Array(Set(roots)))
-            isLoading = false
-        } catch {
-            loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            isLoading = false
-        }
-    }
-
-    private static func group(_ roots: [String]) -> [ProjectGroup] {
-        let byParent = Dictionary(grouping: roots) { ($0 as NSString).deletingLastPathComponent }
-        return byParent
-            .map { parent, paths in
-                ProjectGroup(
-                    id: parent,
-                    parent: parent,
-                    projects: paths
-                        .sorted { ($0 as NSString).lastPathComponent.localizedCaseInsensitiveCompare(($1 as NSString).lastPathComponent) == .orderedAscending }
-                        .map { Project(id: $0, name: ($0 as NSString).lastPathComponent, path: $0) }
-                )
-            }
-            .sorted { $0.parent.localizedCaseInsensitiveCompare($1.parent) == .orderedAscending }
-    }
+        return [
+            ws("Art", "/Users/art", nil),
+            ws("Dev", "/Users/art/dev", nil),
+            ws("Openscout", "/Users/art/.codex/worktrees/a5d0f1c2/openscout", "claude"),
+            ws("Openscout Work List Wt", "/private/tmp/openscout-work-list-wt", "claude"),
+            ws("openscout", "/Users/art/.codex/worktrees/c50e77a1/openscout", "codex"),
+            ws("openscout", "/Users/art/.codex/worktrees/b4229d30/openscout", "codex"),
+            ws("talkie", "/tmp/talkie", "claude"),
+            ws("All", "/Users/art/dev/all", nil),
+            ws("Action", "/Users/art/dev/action", nil),
+            ws("Arach Io", "/Users/art/dev/arach.io", "claude"),
+            ws("openscout", "/Users/art/.codex/worktrees/7f31b8c4/openscout", "codex"),
+            ws("hudson", "/Users/art/.codex/worktrees/9ab4e025/hudson", "codex"),
+            ws("Scout Ios Nav", "/private/tmp/scout-ios-nav", "claude"),
+            ws("Studio Craft Pass", "/private/tmp/studio-craft-pass", "claude"),
+            ws("Src", "/Users/art/src", nil),
+            ws("openscout", "/Users/art/dev/openscout", "claude"),
+            ws("talkie", "/Users/art/dev/talkie", "claude"),
+            ws("hudson", "/Users/art/dev/hudson", "codex"),
+            ws("lattices", "/Users/art/dev/lattices", "claude"),
+            ws("studio", "/Users/art/dev/studio", "claude"),
+            ws("herdr", "/Users/art/dev/herdr", "claude"),
+            ws("parakeet-ios", "/Users/art/dev/parakeet-ios", "claude"),
+            ws("glyphd", "/Users/art/dev/glyphd", nil),
+            ws("oscout-net", "/Users/art/dev/oscout-net", "codex"),
+            ws("kernel-notes", "/Users/art/src/kernel-notes", nil),
+            ws("wasm-lab", "/Users/art/src/wasm-lab", "codex"),
+            ws("rustlings", "/Users/art/src/rustlings", nil),
+        ]
+    }()
+    #endif
 }

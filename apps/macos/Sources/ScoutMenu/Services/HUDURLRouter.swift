@@ -92,9 +92,7 @@ enum HUDURLRouter {
         case "web":
             controller.restartWebApp()
         case "all":
-            controller.restartBroker()
-            controller.restartPairing()
-            controller.restartWebApp()
+            controller.restartAllServices()
         default:
             NSLog("[scout://] services/restart: unrecognized target %@", target)
         }

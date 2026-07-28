@@ -28,7 +28,7 @@
 		741F2DAB4801448A9F10E6A4 /* ScoutCapabilities in Frameworks */ = {isa = PBXBuildFile; productRef = F960FAE5750A226F975A1D4A /* ScoutCapabilities */; };
 		85B694654037EF9C27946559 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 40896C5C3766C4916251E5A6 /* Assets.xcassets */; };
 		9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */; };
-		9AFD3A2D7E8A36B31474BE5F /* ModelPickerPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */; };
+		9AFD3A2D7E8A36B31474BE5F /* RuntimePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF71D83939403B02EEFD2F68 /* RuntimePicker.swift */; };
 		9BDEC97D48105B41E523268A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A316466B11B7AC47D040624 /* ConnectionView.swift */; };
 		B4ABFE9168E650E489CB69B9 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DFB2A1CDEC721D8EA6132A /* Theme.swift */; };
 		B5906155C97B01F118DD0A6A /* HudsonTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 786902EB94C9072D331CC743 /* HudsonTerminal */; };
@@ -43,6 +43,7 @@
 		DB8F903E04363889BD812D92 /* HudsonUIKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = 584654D474049D1CBCF23765 /* HudsonUIKeyboard */; };
 		DE1F33605C41B333D2C5A32E /* TerminalIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3EA06DF3A1A0BCFCD51F73C /* TerminalIdentity.swift */; };
 		E2D01EE306008EF0180E9119 /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DED02FFDAD0ED3E523A9B0E /* TerminalSurface.swift */; };
+		E6A03A5F5A91C1419D2DE5E6 /* NotificationsSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC13CA9774EAD2DD3E17383C /* NotificationsSurface.swift */; };
 		EF2AD30B027E43A99EFDE01A /* ScoutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769BB6D71500EDFD3E91FF5F /* ScoutApp.swift */; };
 		F2FEA97EC4E6AEE631C77A87 /* HudsonUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD61C1C8D14331233860CC9F /* HudsonUI */; };
 		F5FAEF989FB9533485D7A3D9 /* ConnectScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6169E474B4A7208F0E38C3 /* ConnectScreen.swift */; };
@@ -74,7 +75,7 @@
 		9DED02FFDAD0ED3E523A9B0E /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
 		A3EA06DF3A1A0BCFCD51F73C /* TerminalIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalIdentity.swift; sourceTree = "<group>"; };
 		A93C0A052854DF158E6F267C /* WebSurfaces */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WebSurfaces; path = Scout/Resources/WebSurfaces; sourceTree = SOURCE_ROOT; };
-		AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelPickerPopover.swift; sourceTree = "<group>"; };
+		AF71D83939403B02EEFD2F68 /* RuntimePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimePicker.swift; sourceTree = "<group>"; };
 		B8933E55164CF59F7C7E73C8 /* ComposerKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerKit.swift; sourceTree = "<group>"; };
 		BCE6AE0FA16BF46CEE025503 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		C2A9756949044BB4C30C7783 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -86,6 +87,7 @@
 		E275231B2EFA1F4912EFE090 /* TerminalHostedKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostedKeyboard.swift; sourceTree = "<group>"; };
 		F8C87CCC2468150B82CCC066 /* scout-native-core */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "scout-native-core"; path = "../../packages/scout-native-core"; sourceTree = SOURCE_ROOT; };
 		FB98C7CE1E51DB391A2D819A /* TailSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailSurface.swift; sourceTree = "<group>"; };
+		FC13CA9774EAD2DD3E17383C /* NotificationsSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSurface.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -153,8 +155,9 @@
 				E204EEA7E7F90B8A9AE38FFF /* Info.plist */,
 				D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */,
 				34E79CC5635705D5309ACA11 /* MissionControlSurface.swift */,
-				AF71D83939403B02EEFD2F68 /* ModelPickerPopover.swift */,
+				AF71D83939403B02EEFD2F68 /* RuntimePicker.swift */,
 				C2B8504A784962A834C94F75 /* NewSessionSurface.swift */,
+				FC13CA9774EAD2DD3E17383C /* NotificationsSurface.swift */,
 				968AD5AEE705455890FF8202 /* PairingView.swift */,
 				96D794A6F847385880257434 /* ResponsiveFrame.swift */,
 				BCE6AE0FA16BF46CEE025503 /* RootView.swift */,
@@ -310,8 +313,9 @@
 				023EE611E907C05E112C7048 /* HomeSurface.swift in Sources */,
 				9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */,
 				FC7B708016BE0921AB2FD052 /* MissionControlSurface.swift in Sources */,
-				9AFD3A2D7E8A36B31474BE5F /* ModelPickerPopover.swift in Sources */,
+				9AFD3A2D7E8A36B31474BE5F /* RuntimePicker.swift in Sources */,
 				0B61140F772CEDBA893A95E6 /* NewSessionSurface.swift in Sources */,
+				E6A03A5F5A91C1419D2DE5E6 /* NotificationsSurface.swift in Sources */,
 				D519634F832221E01877AE42 /* PairingView.swift in Sources */,
 				326E75ED261973A9CD055271 /* ResponsiveFrame.swift in Sources */,
 				577ACC07D24970910FF7C90D /* RootView.swift in Sources */,

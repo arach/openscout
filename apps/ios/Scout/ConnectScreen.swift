@@ -48,9 +48,11 @@ struct ConnectScreen: View {
 
     private var brand: some View {
         VStack(spacing: HudSpacing.lg) {
-            ScoutMark()
-                .frame(width: 56, height: 56)
-                .foregroundStyle(HudPalette.accent)
+            Image("ScoutWireMark")
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel("Scout")
+            .frame(width: 104, height: 100)
 
             VStack(spacing: HudSpacing.xs) {
                 Text("Scout")
@@ -153,10 +155,22 @@ struct ConnectScreen: View {
                     .signInWithAppleButtonStyle(.white)
                     .frame(height: 44)
                     .frame(maxWidth: .infinity)
-                    .disabled(model.isCompletingAppleSignIn)
-                    HudButton("Sign in with GitHub", icon: "person.crop.circle.badge.checkmark", style: .secondary) {
-                        model.openOpenScoutNetworkLogin()
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        NetworkSignInButtonLabel(provider: .apple)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
+                    .disabled(model.isCompletingAppleSignIn)
+                    .opacity(model.isCompletingAppleSignIn ? 0.55 : 1)
+
+                    Button {
+                        model.openOpenScoutNetworkLogin()
+                    } label: {
+                        NetworkSignInButtonLabel(provider: .github)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Sign in with GitHub")
                     .frame(maxWidth: .infinity)
                 }
             } else if !model.openScoutNetworkPairTargets.isEmpty {
@@ -234,7 +248,7 @@ struct ConnectScreen: View {
 
             if model.lanPairTargets.isEmpty {
                 // No Mac on the LAN — QR is the primary way in.
-                HudButton("Pair with your Mac", icon: "qrcode.viewfinder", style: .primary(.green)) {
+                HudButton("Pair with your Mac", icon: "qrcode", style: .primary(.green)) {
                     model.showPairing = true
                 }
                 .frame(maxWidth: .infinity)
@@ -250,7 +264,7 @@ struct ConnectScreen: View {
                 #endif
             } else {
                 // A Mac is offered above; QR is just the off-network fallback.
-                HudButton("Scan a QR instead", icon: "qrcode.viewfinder", style: .secondary) {
+                HudButton("Scan a QR instead", icon: "qrcode", style: .secondary) {
                     model.showPairing = true
                 }
                 .frame(maxWidth: .infinity)
@@ -266,6 +280,51 @@ struct ConnectScreen: View {
             }
             .buttonStyle(.plain)
             .padding(.top, HudSpacing.xs)
+        }
+    }
+}
+
+private struct NetworkSignInButtonLabel: View {
+    enum Provider {
+        case apple
+        case github
+
+        var title: String {
+            switch self {
+            case .apple: "Sign in with Apple"
+            case .github: "Sign in with GitHub"
+            }
+        }
+    }
+
+    let provider: Provider
+
+    var body: some View {
+        HStack(spacing: 10) {
+            providerIcon
+                .frame(width: 18, height: 18)
+            Text(provider.title)
+                .font(.system(size: 17, weight: .medium))
+        }
+        .foregroundStyle(Color.black)
+        .frame(maxWidth: .infinity)
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white)
+        )
+    }
+
+    @ViewBuilder private var providerIcon: some View {
+        switch provider {
+        case .apple:
+            Image(systemName: "apple.logo")
+                .font(.system(size: 17, weight: .medium))
+        case .github:
+            Image("GitHubMark")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
         }
     }
 }
@@ -379,22 +438,5 @@ private struct OpenScoutNetworkPairTargetRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(target.displayName), \(target.detail)")
         .accessibilityAddTraits(.isButton)
-    }
-}
-
-/// The Scout cockpit glyph — a hand-drawn reticle (preferred over SF Symbols for
-/// the cockpit aesthetic). A ring with a centered cross and a gap at the top.
-private struct ScoutMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let r = min(rect.width, rect.height) / 2
-        // Ring with a small gap at top.
-        p.addArc(center: c, radius: r, startAngle: .degrees(-70), endAngle: .degrees(250), clockwise: false)
-        // Crosshair ticks.
-        let t = r * 0.42
-        p.move(to: CGPoint(x: c.x, y: c.y - t)); p.addLine(to: CGPoint(x: c.x, y: c.y + t))
-        p.move(to: CGPoint(x: c.x - t, y: c.y)); p.addLine(to: CGPoint(x: c.x + t, y: c.y))
-        return p.strokedPath(.init(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
     }
 }

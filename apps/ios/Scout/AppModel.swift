@@ -92,6 +92,11 @@ final class AppModel {
     private let fleet: FleetConnectionManager
     let connectionLog: ConnectionLog
 
+    /// The notifications ledger — the device-local record behind the alerts.
+    /// The Mac only reports what is pending right now, so history lives here.
+    /// See `NotificationsStore`.
+    let notifications = NotificationsStore()
+
     /// Shared on-device dictation controller (Parakeet via Vox + Apple fallback),
     /// used by every conversation composer and reflected/controlled in Settings.
     let dictation = HudDictation()
@@ -417,7 +422,7 @@ final class AppModel {
         let turnId = Self.nonEmptyString(turnId)
         let blockId = Self.nonEmptyString(blockId)
         guard conversationId != nil || messageId != nil || itemId != nil || sessionId != nil else { return }
-        pendingNotificationRoute = NotificationRoute(
+        let route = NotificationRoute(
             kind: kind,
             conversationId: conversationId,
             messageId: messageId,
@@ -426,6 +431,55 @@ final class AppModel {
             turnId: turnId,
             blockId: blockId
         )
+        pendingNotificationRoute = route
+        // Conversation alerts land in Comms and are already durable there; only
+        // fleet alerts go in the ledger. The stub is thin on purpose — the APNs
+        // payload carries no content — and the next inbox read fills it in.
+        if conversationId == nil {
+            notifications.recordPush(
+                kind: kind,
+                itemId: itemId,
+                sessionId: sessionId,
+                turnId: turnId,
+                blockId: blockId
+            )
+        }
+    }
+
+    /// Fold every reachable Mac's live inbox into the ledger.
+    ///
+    /// Reads across ALL paired Macs, not the `machineFilter` scope: an alert
+    /// you were pushed doesn't stop existing because the fleet view is narrowed
+    /// to one machine. Only successful reads are ingested — an item's absence
+    /// is what settles a pending entry, so a dropped poll must never reach the
+    /// store or it would mass-settle a queue that is still waiting.
+    /// Reads BOTH channels the Mac reports operator attention through, because
+    /// neither contains the other: the inbox carries session attention
+    /// (approvals, questions, failures), while the agent list carries
+    /// `needsAttention` / `pendingAsk`, which also covers collaboration asks —
+    /// an agent addressing you in a conversation. Home's needs-you lane reads
+    /// the second, so a ledger that read only the first would be missing alerts
+    /// the operator can see on the home screen. Each is ingested separately and
+    /// settles only its own entries.
+    func refreshNotifications() async {
+        var polledAnyMachine = false
+        for machine in pairedMachines where machine.isOnline {
+            guard let client = fleet.connectedClient(machineId: machine.id) else { continue }
+            if let items = try? await client.mobileNotifications() {
+                polledAnyMachine = true
+                notifications.ingest(items, machineId: machine.id, machineName: machine.name)
+            }
+            if let agents = try? await client.listAgents(query: nil, limit: 200) {
+                notifications.ingestAgentAttention(
+                    agents,
+                    machineId: machine.id,
+                    machineName: machine.name
+                )
+            }
+        }
+        if polledAnyMachine {
+            notifications.settleUnclaimedStubs()
+        }
     }
 
     func consumeNotificationRoute(_ route: NotificationRoute) {
@@ -623,11 +677,17 @@ final class AppModel {
     private var reconnectCandidateMachineId: String? {
         let machineIds = trustedMachineIds
         guard !machineIds.isEmpty else { return nil }
+        let candidates = fleet.machineIdsNeedingConnection(machineIds)
+        guard !candidates.isEmpty else { return nil }
         if let reconnectMachineId = reconnectMachineId?.lowercased(),
-           machineIds.contains(reconnectMachineId) {
+           candidates.contains(reconnectMachineId) {
             return reconnectMachineId
         }
-        return preferredFocusMachineId(in: machineIds)
+        if let preferred = preferredFocusMachineId(in: machineIds),
+           candidates.contains(preferred) {
+            return preferred
+        }
+        return candidates.first
     }
 
     private func handleUnexpectedDisconnect(machineId: String, event: BridgeConnectionDisconnectEvent) {
@@ -777,12 +837,14 @@ final class AppModel {
                 level: .success,
                 route: route
             )
+            scheduleNextFleetReconnectIfNeeded(completedMachineId: key)
         case .failed(let message):
             connectionLog.log(
                 "Reconnect attempt \(attempt) failed for \(shortMachineId(key)): \(message)",
                 event: .reconnect,
                 level: .warning
             )
+            rotateReconnectTarget(after: key)
             scheduleReconnect(reason: "attempt \(attempt) failed: \(message)", immediate: false)
         case .idle:
             connectionLog.log(
@@ -813,6 +875,22 @@ final class AppModel {
         reconnectAttempt = 0
         reconnectMachineId = nil
         nextReconnectAt = nil
+    }
+
+    /// Drain every disconnected paired Mac rather than letting the most recent
+    /// disconnect overwrite the previous one in the single visible scheduler.
+    private func scheduleNextFleetReconnectIfNeeded(completedMachineId: String) {
+        let remaining = fleet.machineIdsNeedingConnection(trustedMachineIds)
+            .filter { $0 != completedMachineId }
+        guard let next = remaining.first else { return }
+        reconnectMachineId = next
+        scheduleReconnect(reason: "continuing fleet reconnect", immediate: true)
+    }
+
+    private func rotateReconnectTarget(after failedMachineId: String) {
+        let remaining = fleet.machineIdsNeedingConnection(trustedMachineIds)
+            .filter { $0 != failedMachineId }
+        reconnectMachineId = remaining.first ?? failedMachineId
     }
 
     private func reconnectDelayMs(for attempt: Int) -> Int {
@@ -1921,6 +1999,7 @@ final class AppModel {
     struct WebSurfaceMachine {
         let machineId: String
         let name: String
+        let isFocused: Bool
         let isOnline: Bool
         let client: (any ScoutBrokerClient)?
     }
@@ -1930,6 +2009,7 @@ final class AppModel {
             WebSurfaceMachine(
                 machineId: machine.id,
                 name: machine.name,
+                isFocused: machine.isActive,
                 isOnline: machine.isOnline,
                 client: machine.isOnline ? fleet.connectedClient(machineId: machine.id) : nil
             )
@@ -2884,6 +2964,16 @@ private final class FleetConnectionManager: @unchecked Sendable {
 
     func connectedClients() -> [BridgeBrokerClient] {
         clients.keys.sorted().compactMap { connectedClient(machineId: $0) }
+    }
+
+    func machineIdsNeedingConnection(_ machineIds: [String]) -> [String] {
+        machineIds
+            .map { $0.lowercased() }
+            .filter { machineId in
+                if case .connected = states[machineId] { return false }
+                return true
+            }
+            .sorted()
     }
 
     var hasConnectedMachine: Bool {
