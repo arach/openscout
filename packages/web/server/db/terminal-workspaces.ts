@@ -25,8 +25,10 @@
 import { Database } from "bun:sqlite";
 
 import {
+  normalizeTerminalWorkspaceColumnCount,
   normalizeTerminalWorkspaceColumns,
   type TerminalWorkspaceCell,
+  type TerminalWorkspaceLayout,
   type TerminalWorkspaceRecord,
   type TerminalWorkspaceRecordInput,
 } from "@openscout/protocol";
@@ -40,6 +42,7 @@ type TerminalWorkspaceRow = {
   name: string;
   purpose: string;
   columns_count: number;
+  layout_json: string | null;
   cells_json: string | null;
   metadata_json: string | null;
   created_at: number;
@@ -60,8 +63,28 @@ function writableDb(): Database {
     writeDbPath = path;
     writeDb.exec("PRAGMA busy_timeout = 2000");
     writeDb.exec(CONTROL_PLANE_TERMINAL_WORKSPACE_SQLITE_SCHEMA);
+    applyTerminalWorkspaceShapeRepairs(writeDb);
   }
   return writeDb;
+}
+
+/**
+ * Bring an existing table up to the current shape.
+ *
+ * The DDL above is `CREATE TABLE IF NOT EXISTS`, which is a no-op on a
+ * database that already has the table — so a column added to it later never
+ * reaches a machine that ran an earlier build, and the field it backs silently
+ * fails to persist there. That is exactly what happened to `layout_json`. This
+ * handle deliberately does not run the control-plane migration pipeline
+ * (see the module header), so it repairs the one table it owns itself, with
+ * the same guarded ALTER the runtime migration uses.
+ */
+function applyTerminalWorkspaceShapeRepairs(database: Database): void {
+  const columns = database.query("SELECT name FROM pragma_table_info('terminal_workspaces')")
+    .all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "layout_json")) {
+    database.exec("ALTER TABLE terminal_workspaces ADD COLUMN layout_json TEXT");
+  }
 }
 
 /** Call on server shutdown. */
@@ -104,12 +127,13 @@ export function upsertTerminalWorkspace(input: TerminalWorkspaceRecordInput): Te
   const now = Date.now();
   writableDb().query(
     `INSERT INTO terminal_workspaces (
-       id, name, purpose, columns_count, cells_json, metadata_json, created_at, updated_at
-     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       id, name, purpose, columns_count, layout_json, cells_json, metadata_json, created_at, updated_at
+     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        purpose = excluded.purpose,
        columns_count = excluded.columns_count,
+       layout_json = excluded.layout_json,
        cells_json = excluded.cells_json,
        metadata_json = excluded.metadata_json,
        updated_at = excluded.updated_at`,
@@ -118,6 +142,7 @@ export function upsertTerminalWorkspace(input: TerminalWorkspaceRecordInput): Te
     input.name,
     input.purpose ?? "",
     normalizeTerminalWorkspaceColumns(input.columns),
+    input.layout === undefined ? null : JSON.stringify(input.layout),
     JSON.stringify(input.cells ?? []),
     input.metadata === undefined ? null : JSON.stringify(input.metadata),
     now,
@@ -140,15 +165,38 @@ export function deleteTerminalWorkspace(id: string): boolean {
 }
 
 function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceRecord {
+  const layout = parseTerminalWorkspaceLayout(row.layout_json);
   return {
     id: row.id,
     name: row.name,
     purpose: row.purpose,
     columns: normalizeTerminalWorkspaceColumns(row.columns_count),
+    // Absent for rows written before layouts were stored. The record then
+    // carries only the resolved column count, and `terminalWorkspaceLayoutOf`
+    // infers a shape from it — a fold-forward, not a substitute for the real
+    // thing, which is why the column exists.
+    ...(layout ? { layout } : {}),
     cells: parseJson<TerminalWorkspaceCell[]>(row.cells_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+/**
+ * Read back a stored layout, or null when there is nothing trustworthy there.
+ * The mode is validated because a value that is not one of the three shapes
+ * would flow straight into the client's grid resolver.
+ */
+function parseTerminalWorkspaceLayout(value: string | null | undefined): TerminalWorkspaceLayout | null {
+  const parsed = parseJson<Partial<TerminalWorkspaceLayout> | null>(value, null);
+  const mode = parsed?.mode;
+  if (mode !== "solo" && mode !== "lanes" && mode !== "grid") return null;
+  return {
+    mode,
+    ...(parsed?.columns === undefined
+      ? {}
+      : { columns: normalizeTerminalWorkspaceColumnCount(parsed.columns) }),
   };
 }
 

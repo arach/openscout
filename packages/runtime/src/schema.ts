@@ -155,6 +155,13 @@ CREATE TABLE IF NOT EXISTS terminal_workspaces (
   name TEXT NOT NULL,
   purpose TEXT NOT NULL DEFAULT '',
   columns_count INTEGER NOT NULL DEFAULT 2,
+  -- The authored layout: shape plus column count, where the count may be the
+  -- literal "dynamic". columns_count above is the RESOLVED number at the time
+  -- of writing, kept for clients that predate layouts; it cannot stand in for
+  -- this one, because resolving is lossy in both directions. "dynamic" comes
+  -- back pinned to whatever number the tile count produced, and a lanes
+  -- workspace with more tiles than the six-column clamp reloads as a grid.
+  layout_json TEXT,
   cells_json TEXT NOT NULL DEFAULT '[]',
   metadata_json TEXT,
   created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),

@@ -79,6 +79,22 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     },
   },
   {
+    // The table above is created with layout_json, but it already exists
+    // without it on machines that ran the branch that introduced it, and
+    // `CREATE TABLE IF NOT EXISTS` is a no-op on those — the whole reason the
+    // workspace layout silently failed to persist there. A shape change needs
+    // a real guarded ALTER, exactly like briefings.markdown below. Still
+    // additive, so still no CONTROL_PLANE_SCHEMA_VERSION bump: an older build
+    // that never reads this table cannot be hurt by a column on it.
+    id: "terminal-workspaces-layout-column",
+    description: "Adds terminal_workspaces.layout_json to databases whose table predates authored layouts.",
+    apply(database) {
+      if (!hasColumn(database, "terminal_workspaces", "layout_json")) {
+        database.exec("ALTER TABLE terminal_workspaces ADD COLUMN layout_json TEXT");
+      }
+    },
+  },
+  {
     id: "briefings-markdown-column",
     description:
       "Adds briefings.markdown to databases provisioned before schema v8 (folds in the web server's defensive ALTER; SCO-037).",
