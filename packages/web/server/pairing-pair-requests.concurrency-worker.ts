@@ -20,13 +20,23 @@
 // order, the answer has to be the same one — an extension that took must
 // survive the sweep, and a token whose payload was handed over must not come
 // back through it.
+//
+// The `fulfil` scenario races the delivery itself. The instance pair mode came
+// up on has the short window, and it hands the payload over PAST that window —
+// so the only thing keeping the row alive is the extension the other instance
+// made a moment earlier. Handing a payload over and burying the token are one
+// decision, and this is where they are furthest apart: the row this side can
+// see is expired and the one in the file is not. Either the store delivers and
+// the token is dead on both instances from that moment, or it delivers nothing
+// at all. What must never happen is a payload going out while the instance
+// holding the extension goes on serving the token.
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
 
 type Role = "decider" | "poller";
-type Scenario = "approve" | "deny" | "expire" | "sweep";
+type Scenario = "approve" | "deny" | "expire" | "sweep" | "fulfil";
 
 interface GoSignal {
   round: number;
@@ -37,6 +47,11 @@ interface GoSignal {
 
 interface DoneSignal {
   round: number;
+}
+
+/** What the decider did with the token, for the side that has to live with it. */
+interface ActedSignal extends DoneSignal {
+  delivered: boolean;
 }
 
 /** Long enough for the peer to notice the signal, short enough to stay cheap. */
@@ -54,7 +69,7 @@ function requiredArg(name: string): string {
   return found.slice(prefix.length);
 }
 
-function publish(path: string, value: GoSignal | DoneSignal): void {
+function publish(path: string, value: GoSignal | DoneSignal | ActedSignal): void {
   const temp = `${path}.${process.pid}.tmp`;
   writeFileSync(temp, JSON.stringify(value));
   renameSync(temp, path);
@@ -98,13 +113,14 @@ const donePath = join(signalDir, "done.json");
 const sweptPath = join(signalDir, "swept.json");
 
 // The expire scenario needs rows that are already expired by the rendezvous.
-// The sweep scenario needs the two instances to disagree about the window, so
-// the collecting side runs a short one and the polling side a long one — which
-// is the disagreement a device actively polling one instance creates anyway,
-// made reliable. Every other scenario needs rows that outlive the round.
+// The sweep and fulfil scenarios need the two instances to disagree about the
+// window, so the collecting (or delivering) side runs a short one and the
+// polling side a long one — which is the disagreement a device actively polling
+// one instance creates anyway, made reliable. Every other scenario needs rows
+// that outlive the round.
 const ttlMs = scenario === "expire"
   ? 1
-  : scenario === "sweep" && role === "decider"
+  : (scenario === "sweep" || scenario === "fulfil") && role === "decider"
     ? SWEEP_TTL_MS
     : 60_000;
 const store = createPendingPairRequestStore({ statePath, ttlMs });
@@ -112,6 +128,8 @@ const store = createPendingPairRequestStore({ statePath, ttlMs });
 if (role === "decider") {
   let lost = 0;
   let resurrected = 0;
+  /** Fulfils that actually handed a payload over, in the `fulfil` scenario. */
+  let delivered = 0;
   /** Last round's fulfilled token, which this round's churn must not revive. */
   let buried: string | null = null;
   for (let round = 0; round < rounds; round += 1) {
@@ -135,11 +153,31 @@ if (role === "decider") {
       spinUntil(actAt + SWEEP_DELAY_MS);
       store.create({ requesterIp: "10.1.0.1", requesterLabel: "sweeper" });
       publish(sweptPath, { round } satisfies DoneSignal);
+    } else if (scenario === "fulfil") {
+      // Past this instance's own window too, so the copy of the row it holds is
+      // expired and the only reason the token is still open is the extension
+      // the poller just published. The delivery is decided on that.
+      spinUntil(actAt + SWEEP_DELAY_MS);
+      const handedOver = store.fulfill(request.token);
+      if (handedOver !== null) {
+        delivered += 1;
+        // Nothing may bring a token back once its payload has gone out, and the
+        // instance that sent it is the first place that must agree.
+        if (store.get(request.token) !== null) resurrected += 1;
+        buried = request.token;
+      }
+      publish(sweptPath, { round, delivered: handedOver !== null } satisfies ActedSignal);
     } else {
       store.decide(request.token, scenario === "approve" ? "approve" : "deny");
     }
 
     awaitSignal<DoneSignal>(donePath, round);
+
+    if (scenario === "fulfil") {
+      // Delivered or refused, it was settled at the rendezvous; there is
+      // nothing left for this round to do to the token.
+      continue;
+    }
 
     const settled = store.get(request.token);
     if (scenario === "expire") {
@@ -159,7 +197,9 @@ if (role === "decider") {
       if (store.get(request.token) !== null) resurrected += 1;
     }
   }
-  process.stdout.write(`${JSON.stringify({ role, scenario, rounds, lost, resurrected })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ role, scenario, rounds, lost, resurrected, delivered })}\n`,
+  );
 } else {
   let touched = 0;
   let extended = 0;
@@ -169,7 +209,16 @@ if (role === "decider") {
     spinUntil(go.actAt);
     store.touch(go.token);
     touched += 1;
-    if (scenario === "sweep") {
+    if (scenario === "fulfil") {
+      // An extension that took is the contested state: the row is alive here on
+      // a window the other instance cannot see the end of, and it is about to
+      // hand the payload over from exactly that.
+      if (store.get(go.token) !== null) extended += 1;
+      const acted = awaitSignal<ActedSignal>(sweptPath, round);
+      // A payload went out. This instance is the one holding the extension, so
+      // it is the one a lost marker would have serving a spent token.
+      if (acted.delivered && store.get(go.token) !== null) lost += 1;
+    } else if (scenario === "sweep") {
       // Only an extension that actually took is one there is anything to
       // defend: if the row had already gone by the time we got there, the touch
       // was a no-op and the sweeper was simply first, which is correct.

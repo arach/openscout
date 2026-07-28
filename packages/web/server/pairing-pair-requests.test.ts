@@ -50,6 +50,16 @@ function currentStateFile(statePath: string): string {
   return pairRequestGenerationPath(statePath, generation);
 }
 
+/** The tokens the newest published generation carries terminal markers for. */
+function markerTokens(statePath: string): string[] {
+  const parsed = JSON.parse(readFileSync(currentStateFile(statePath), "utf8")) as {
+    fulfilled?: { token?: unknown }[];
+  };
+  return (parsed.fulfilled ?? [])
+    .map((marker) => marker?.token)
+    .filter((token): token is string => typeof token === "string");
+}
+
 /** Every state file the store is currently keeping, newest first. */
 function stateFiles(statePath: string): string[] {
   const directory = dirname(statePath);
@@ -396,11 +406,13 @@ describe("pending pair request store under multi-process contention", () => {
   const RACE_TIMEOUT_MS = 120_000;
 
   interface RaceResult {
-    decider: { lost: number; resurrected: number; rounds: number };
+    decider: { lost: number; resurrected: number; delivered: number; rounds: number };
     poller: { touched: number; extended: number; lost: number };
   }
 
-  async function race(scenario: "approve" | "deny" | "expire" | "sweep"): Promise<RaceResult> {
+  async function race(
+    scenario: "approve" | "deny" | "expire" | "sweep" | "fulfil",
+  ): Promise<RaceResult> {
     const home = tempConfigHome();
     const statePath = pairRequestStatePath(home);
     const signals = join(home, "signals");
@@ -489,6 +501,27 @@ describe("pending pair request store under multi-process contention", () => {
       expect(result.poller.touched).toBe(RACE_ROUNDS);
       // Without this the run could pass by never reaching the state it is about.
       expect(result.poller.extended).toBeGreaterThan(0);
+      expect(result.poller.lost).toBe(0);
+      expect(result.decider.resurrected).toBe(0);
+    },
+    RACE_TIMEOUT_MS,
+  );
+
+  // The delivery itself, raced. Pair mode comes up on the instance with the
+  // short window, and it hands the payload over past that window — so the row
+  // it can see is expired and the only thing keeping the token open is the
+  // extension the other instance published a moment earlier. Handing the
+  // payload over and burying the token are one decision, and this is the widest
+  // the gap between them ever gets.
+  test(
+    "a delivered payload never leaves the token open on the instance that extended it",
+    async () => {
+      const result = await race("fulfil");
+      expect(result.decider.rounds).toBe(RACE_ROUNDS);
+      expect(result.poller.touched).toBe(RACE_ROUNDS);
+      // Otherwise the run could pass by never reaching the state it is about.
+      expect(result.poller.extended).toBeGreaterThan(0);
+      expect(result.decider.delivered).toBeGreaterThan(0);
       expect(result.poller.lost).toBe(0);
       expect(result.decider.resurrected).toBe(0);
     },
@@ -1180,6 +1213,128 @@ describe("pending pair request store with an unwritable home", () => {
       store.dispose();
     },
   );
+
+  // Handing the payload over and burying the token are ONE decision, and the
+  // window between them is where they used to come apart. The shared copy of a
+  // row can reach its expiry while a degraded peer holds a legal extension of
+  // it that never got published; the commit a fulfil runs in prunes that
+  // expired copy before the fulfil looks the row up, so what got published was
+  // a deletion with an empty ledger — which is precisely what a sweep looks
+  // like. The peer keeps its extension, republishes the row as pending, and a
+  // token whose payload has already gone out is live again.
+  test.skipIf(runsAsRoot)("never hands a payload over without burying the token", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+    const clock = fixedClock();
+    const ttlMs = 1_000;
+
+    const writable = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    const req = writable.create({ requesterIp: "192.168.1.90" });
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // The phone is polling the other instance, whose home goes read-only
+    // mid-pair. Its extension is legal and it is the truth; it just cannot be
+    // published, so the copy in the file still carries the original expiry.
+    const degraded = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    expect(degraded.get(req.token)?.token).toBe(req.token);
+    chmodSync(runDirectory, 0o500);
+    clock.advance(900);
+    degraded.touch(req.token);
+    const extendedTo = clock.now() + ttlMs;
+    expect(degraded.get(req.token)?.expiresAt).toBe(extendedTo);
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+    // Writes come back, and pair mode comes up on the instance that cannot see
+    // the extension — so the only copy of the row it has is one its own commit
+    // is about to prune.
+    chmodSync(runDirectory, 0o700);
+    clock.advance(200);
+    expect(clock.now()).toBeGreaterThan(req.expiresAt);
+    const delivered = writable.fulfill(req.token);
+
+    // Whichever way that went, the two halves have to agree: a fulfil that
+    // reports a delivery has published the marker that buries the token, and
+    // one that reports none has said nothing about the token at all.
+    expect(delivered === null).toBe(!markerTokens(statePath).includes(req.token));
+
+    // And the peer holding the extension has to agree with the same decision. A
+    // delivered token never comes back; a refused one is still the phone's to
+    // retry against the instance that can actually see it.
+    clock.advance(100);
+    degraded.touch(req.token);
+    expect(freshRead(statePath, req.token, clock.now) === null).toBe(delivered !== null);
+
+    // The other side of the same ordering: a row that IS live when the payload
+    // goes out is buried even though the very same commit is pruning somebody
+    // else's expired row on the way past.
+    const stale = writable.create({ requesterIp: "192.168.1.91" });
+    clock.advance(ttlMs + 1);
+    const fresh = writable.create({ requesterIp: "192.168.1.92" });
+    expect(writable.fulfill(fresh.token)?.token).toBe(fresh.token);
+    expect(markerTokens(statePath)).toContain(fresh.token);
+    // The pruned row went for the other reason, and nothing may claim otherwise.
+    expect(markerTokens(statePath)).not.toContain(stale.token);
+
+    degraded.dispose();
+    writable.dispose();
+  });
+
+  // A marker exists to outlive every copy of the row it buries, and the horizon
+  // it is minted with is only a bound on the copies it can see. An instance
+  // that delivered a payload while its home was unwritable holds the only
+  // record of it, so the peers still holding the row keep extending it — and
+  // they can push it past that horizon. Collecting the marker there hands the
+  // next reload a live row and no reason to disbelieve it.
+  test.skipIf(runsAsRoot)("keeps an unpublished marker while peers keep extending the row", () => {
+    const home = tempConfigHome();
+    const statePath = pairRequestStatePath(home);
+    const runDirectory = dirname(statePath);
+    mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+    const clock = fixedClock();
+    const ttlMs = 1_000;
+
+    const writable = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    const req = writable.create({ requesterIp: "192.168.1.93" });
+
+    const degraded = createPendingPairRequestStore({ statePath, ttlMs, now: clock.now });
+    expect(degraded.get(req.token)?.token).toBe(req.token);
+
+    // Pair mode is up on THIS instance, so it is the one that hands the payload
+    // over — and its home has just gone read-only, so the marker saying so
+    // exists nowhere but in this process.
+    chmodSync(runDirectory, 0o500);
+    degraded.fulfill(req.token);
+    expect(degraded.get(req.token)).toBeNull();
+    expect(latestPairRequestGeneration(statePath)).toBe(1);
+    const mintedHorizon = req.expiresAt + ttlMs;
+
+    // The peer knows nothing of the delivery, and the device is still polling
+    // it, so the row is extended again and again — every extension legal, and
+    // every one of them pushing the row's life past the horizon the marker was
+    // minted with.
+    chmodSync(runDirectory, 0o700);
+    for (let poll = 0; poll < 4; poll += 1) {
+      clock.advance(900);
+      writable.touch(req.token);
+      // The instance that delivered the payload must go on saying so at every
+      // point in that sequence, not just up to the horizon.
+      expect(degraded.get(req.token)).toBeNull();
+    }
+    expect(clock.now()).toBeGreaterThan(mintedHorizon);
+    expect(freshRead(statePath, req.token, clock.now)?.token).toBe(req.token);
+
+    // Then the marker lands on the next write this instance makes, and the
+    // spent row dies everywhere — including for a store that has never held it.
+    degraded.touch(req.token);
+    expect(markerTokens(statePath)).toContain(req.token);
+    expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+    expect(writable.get(req.token)).toBeNull();
+
+    degraded.dispose();
+    writable.dispose();
+  });
 
   // Generation numbers restart. A cleared run directory takes the chain back to
   // one, and "a later generation than the one I saw this row in" means nothing

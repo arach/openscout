@@ -4855,8 +4855,19 @@ export async function createOpenScoutWebServer(
     // Live payload available (pair mode running) — hand it straight over. This
     // is the existing fast path: manual start, QR, or an approved request whose
     // pair mode has come up. Once delivered, the request is done.
+    //
+    // Delivering it and burying the token are one decision, so the store takes
+    // it: `fulfill` reports the row it buried, and only a report is licence to
+    // redirect. A token whose row this instance cannot see live — expired here
+    // while a peer holds an extension it could not publish, or already spent —
+    // gets the answer any unknown token gets, and nothing is handed over. The
+    // instance that can still see the row is the one that serves it.
     if (location) {
-      if (token) pendingPairRequests.fulfill(token);
+      if (token && !pendingPairRequests.fulfill(token)) {
+        return wantsJson
+          ? c.json({ status: "expired", token }, 410)
+          : c.text("Pairing request expired.", 410);
+      }
       return c.redirect(location, 302);
     }
 

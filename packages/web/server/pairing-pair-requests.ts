@@ -129,8 +129,18 @@ export interface PendingPairRequestStore {
   list(): PairRequest[];
   /** Apply an approve/deny decision; returns the updated request or null. */
   decide(token: string, decision: "approve" | "deny"): PairRequest | null;
-  /** Mark a request fulfilled (payload delivered) and drop it. */
-  fulfill(token: string): void;
+  /**
+   * Hand a request's payload over: bury the token and report the row that was
+   * delivered, or null when there is no live row here to deliver.
+   *
+   * The report is the point. Handing the payload to the device and recording
+   * that it went are one decision, and a caller that delivers first and tells
+   * the store afterwards can be left having delivered a payload the store never
+   * marked — the row it was about pruned out from under it in between. So the
+   * store takes the decision, on state it can actually see, and null means
+   * nothing was handed over and nothing was buried.
+   */
+  fulfill(token: string): PairRequest | null;
   dispose(): void;
 }
 
@@ -512,19 +522,40 @@ export function createPendingPairRequestStore(
     const horizon = terminalMarkerHorizon(request.expiresAt);
     const known = fulfilledMarkers.get(request.token);
     fulfilledMarkers.set(request.token, known === undefined ? horizon : Math.max(known, horizon));
-    unpublishedFulfilled.add(request.token);
+    // Only a store with a shared file can have a marker nobody else has seen.
+    // Without one there are no peers to tell, nothing for the marker to ride,
+    // and nothing anywhere that could bring the row back.
+    if (statePath) unpublishedFulfilled.add(request.token);
   }
 
-  /** Drop markers whose row could no longer come back even without them. */
+  /**
+   * Drop markers whose row could no longer come back even without them.
+   *
+   * Two things keep a marker past the horizon it was minted with.
+   *
+   * A marker that has never ridden a publish is not collected at all. The
+   * horizon's whole argument is "no copy of this row can still be live", and
+   * that only holds for a marker every peer has had the chance to read. While
+   * it exists nowhere but here, the peers that cannot see it are free to go on
+   * extending the very row it buries — legally, because to them the token is
+   * simply still open — and collecting it would hand our next reload a live row
+   * and no reason to disbelieve it. Once it has landed in a published
+   * generation the ordinary horizon applies again. The boundary this leaves is
+   * the one the whole degraded mode already has: if the process dies while its
+   * home is unwritable, everything it could not publish dies with it, and the
+   * marker is no different from the rows beside it.
+   *
+   * And the horizon moves. `adopt` raises it every time the shared state still
+   * shows the marked token, so peers extending a row can never outrun the
+   * marker that buries it.
+   */
   function collectTerminalMarkers(): void {
     const t = now();
     for (const [token, collectAfter] of fulfilledMarkers) {
+      if (unpublishedFulfilled.has(token)) continue;
       // Strictly after: at the horizon itself a copy extended to exactly that
       // instant is still live by the store's own `expiresAt > now` rule.
-      if (collectAfter < t) {
-        fulfilledMarkers.delete(token);
-        unpublishedFulfilled.delete(token);
-      }
+      if (collectAfter < t) fulfilledMarkers.delete(token);
     }
   }
 
@@ -665,6 +696,22 @@ export function createPendingPairRequestStore(
         marker.token,
         known === undefined ? marker.collectAfter : Math.max(known, marker.collectAfter),
       );
+    }
+    // A marker's horizon is monotonic against the extensions we can see. It was
+    // minted from one reading of the row's expiry, and an instance that has not
+    // read the marker yet can legally push that row further out than the
+    // horizon reaches. So every time the shared state still shows a marked
+    // token, the horizon is raised to cover the longest life that copy could
+    // still be given — the same arithmetic the marker was minted with, an
+    // expiry plus the one stranded touch that can extend it, applied to newer
+    // evidence and only ever upwards. A marker whose token is no longer in the
+    // file stops being raised, which is what keeps this bounded: there is
+    // nothing left for it to outlive.
+    for (const [token, row] of loaded) {
+      const known = fulfilledMarkers.get(token);
+      if (known === undefined) continue;
+      const floor = row.expiresAt + ttlMs;
+      if (floor > known) fulfilledMarkers.set(token, floor);
     }
     // Every row in the file demonstrably reached the shared state, in this
     // generation of this chain. Recorded before the merge, which reads
@@ -1103,25 +1150,46 @@ export function createPendingPairRequestStore(
     },
 
     fulfill(token) {
-      commit(() => {
-        const request = byToken.get(token);
-        if (request) {
-          // Terminal, and said out loud rather than left to be inferred from
-          // the row's absence: the payload behind this token has been handed to
-          // the device, and no instance may bring it back. The marker is what
-          // stacks if this write cannot land, so the row stays buried either
-          // way.
+      // Taken once, on the first attempt that sees the shared state, and
+      // carried through the retries. A lost swap reloads — and by then the
+      // marker this call minted has emptied the row out of everything it can
+      // reload, so deciding again there would report a refusal for a payload
+      // that has already gone to the device.
+      let delivered: PairRequest | null = null;
+      return commit<PairRequest | null>(() => {
+        if (delivered === null) {
+          const request = byToken.get(token);
+          // Only a row this instance can see LIVE is one it may act on. An
+          // expired copy is not a delivery it is entitled to make: a peer that
+          // could not publish may be holding a legal extension of that very
+          // row, and burying the token here would take the extension with it —
+          // the row would leave the file with no marker, which reads as a
+          // sweep, and the phone would be sent back to a peer republishing a
+          // token whose payload had already gone out. Refusing costs the device
+          // a retry against the instance that can still see the row. It is
+          // availability, not a lost decision.
           //
-          // Only a row we are actually holding is marked. A token we do not
-          // have is one a peer has already removed — if they fulfilled it their
-          // marker is in the file we just loaded, and if they swept it there is
-          // nothing to bury. Marking regardless would turn an unauthenticated
-          // LAN endpoint into a way to plant markers for arbitrary strings.
-          markFulfilled(request);
-          byToken.delete(token);
-          unpersistedUpserts.delete(token);
+          // Only a row we are actually holding is marked, for the same reason
+          // in the other direction. A token we do not have is one a peer has
+          // already removed — if they fulfilled it their marker is in the file
+          // we just loaded, and if they swept it there is nothing to bury.
+          // Marking regardless would turn an unauthenticated LAN endpoint into
+          // a way to plant markers for arbitrary strings.
+          if (!request || !isLive(request)) return { value: null, touched: [] };
+          // The snapshot handed over IS what the marker is minted from, taken
+          // at the moment of the decision. Nothing between here and the write
+          // looks the row up a second time, so no prune can come between the
+          // handover and the marker.
+          delivered = { ...request };
         }
-        return { value: undefined, touched: [] };
+        // Terminal, and said out loud rather than left to be inferred from the
+        // row's absence: the payload behind this token has been handed to the
+        // device, and no instance may bring it back. The marker is what stacks
+        // if this write cannot land, so the row stays buried either way.
+        markFulfilled(delivered);
+        byToken.delete(token);
+        unpersistedUpserts.delete(token);
+        return { value: delivered, touched: [] };
       });
     },
 
