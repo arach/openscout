@@ -45,7 +45,10 @@ import {
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
-import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
+import {
+  createPendingPairRequestStore,
+  pairRequestStatePath,
+} from "./pairing-pair-requests.ts";
 import { startScoutPairLanBeacon } from "./pairing-lan-beacon.ts";
 import {
   createCachedSnapshot,
@@ -258,6 +261,7 @@ import {
   provisionalAgentNamesApiFields,
 } from "@openscout/runtime/provisional-agent-names";
 import {
+  localConfigHome,
   localConfigPath,
 } from "@openscout/runtime/local-config";
 import {
@@ -4379,7 +4383,12 @@ export async function createOpenScoutWebServer(
 
   // Approval-gated LAN pairing: a phone tapping an idle Mac registers a request
   // here; the Mac approves it before pair mode starts and the payload is served.
-  const pendingPairRequests = createPendingPairRequestStore();
+  // Shared per-Mac, not per-process: the pairing identity is shared by every
+  // local instance, so the requests made against it have to be too. See
+  // pairing-pair-requests.ts.
+  const pendingPairRequests = createPendingPairRequestStore({
+    statePath: pairRequestStatePath(localConfigHome()),
+  });
   // Always-on discovery beacon so idle Macs still appear in the iOS "On your
   // network" list. Stands down only when the controller has its own LAN advert.
   const lanPairBeacon = options.backgroundServices === false
