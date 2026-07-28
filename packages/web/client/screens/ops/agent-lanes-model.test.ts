@@ -980,7 +980,8 @@ describe("isAgentLaneWorking", () => {
     expect(data.metadata?.usage?.outputTokens).toBe(800);
     expect(data.metadata?.usage?.reasoningOutputTokens).toBe(125);
     expect(data.metadata?.usage?.totalTokens).toBe(50_800);
-    expect(data.metadata?.usage?.contextInputTokens).toBe(80_000);
+    // cached_input_tokens is a subset of input_tokens — context is last input only
+    expect(data.metadata?.usage?.contextInputTokens).toBe(50_000);
     expect(data.metadata?.usage?.contextWindowTokens).toBe(200_000);
     expect(data.metadata?.usage?.planType).toBe("pro");
   });
@@ -1168,7 +1169,8 @@ describe("isAgentLaneWorking", () => {
     expect(data.metadata?.session?.effort).toBe("xhigh");
     expect(data.metadata?.session?.originator).toBe("Codex Desktop");
     expect(data.metadata?.usage?.totalTokens).toBe(42);
-    expect(data.metadata?.usage?.contextInputTokens).toBe(16);
+    // last.input_tokens only (cached is a subset, not additive)
+    expect(data.metadata?.usage?.contextInputTokens).toBe(12);
     expect(data.metadata?.usage?.contextWindowTokens).toBe(1000);
     expect(data.metadata?.usage?.cacheReadInputTokens).toBe(4);
     expect(facts.model).toBe("gpt-5.5");

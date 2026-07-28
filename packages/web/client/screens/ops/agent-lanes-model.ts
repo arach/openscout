@@ -386,20 +386,16 @@ function usageFromCodexTokenEvent(
 
   const usage: ObserveUsageMeta = {};
   const inputTokens = numberValue(counted?.input_tokens);
+  // Codex cached_input_tokens is a subset of input_tokens, not additive.
+  // Latest-turn context fill is last.input_tokens only.
   const lastInputTokens = numberValue(last?.input_tokens);
-  const lastCacheReadInputTokens = numberValue(last?.cached_input_tokens)
-    ?? numberValue(last?.cache_read_input_tokens);
-  const lastCacheCreationInputTokens = numberValue(last?.cache_creation_input_tokens);
-  const contextInputTokens = sumNumberValues([
-    lastInputTokens,
-    lastCacheReadInputTokens,
-    lastCacheCreationInputTokens,
-  ]);
+  const contextInputTokens = lastInputTokens;
   const outputTokens = numberValue(counted?.output_tokens);
   const reasoningOutputTokens = numberValue(counted?.reasoning_output_tokens);
   const cacheReadInputTokens = numberValue(counted?.cached_input_tokens)
     ?? numberValue(counted?.cache_read_input_tokens);
-  const cacheCreationInputTokens = numberValue(counted?.cache_creation_input_tokens);
+  const cacheCreationInputTokens = numberValue(counted?.cache_creation_input_tokens)
+    ?? numberValue(counted?.cache_write_input_tokens);
   const totalTokens = numberValue(counted?.total_tokens)
     ?? (
       inputTokens !== undefined || outputTokens !== undefined
