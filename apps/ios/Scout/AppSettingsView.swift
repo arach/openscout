@@ -35,6 +35,7 @@ struct AppSettingsView: View {
     @State private var tab: String
     @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
     @AppStorage(ScoutNavMode.storageKey) private var navMode = ScoutNavMode.default.rawValue
+    @AppStorage(ScoutHomeStyle.storageKey) private var homeStyle = ScoutHomeStyle.default.rawValue
     @State private var renamingMachine: AppModel.PairedMachine?
     @State private var renameText = ""
     @State private var copiedLogs = false
@@ -189,13 +190,27 @@ struct AppSettingsView: View {
                 ]
             )
         case .home:
-            surfaceContextPanel(
-                title: "Home",
-                rows: [
-                    ("Source", "Fleet snapshot", "projects, agents, and recent activity"),
-                    ("Connection", statusShort, routeLabel)
-                ]
-            )
+            VStack(alignment: .leading, spacing: 0) {
+                HudInspectorSection("Home") {
+                    // Which front door Home presents. Fleet is the shipped
+                    // dashboard; Entry is the composer-first treatment.
+                    HudInspectorCycleRow(
+                        "Style",
+                        selection: $homeStyle,
+                        choices: ScoutHomeStyle.allCases.map { HudInspectorChoice(id: $0.rawValue, title: $0.title) },
+                        hint: homeStyleHint
+                    )
+                    HudInspectorFieldRow("Source", value: "Fleet snapshot", hint: "projects, agents, and recent activity")
+                    HudInspectorFieldRow("Connection", value: statusShort, hint: routeLabel)
+                }
+                HudInspectorSection("About") {
+                    HudInspectorFieldRow(
+                        "Context",
+                        value: "Active surface",
+                        hint: "shared app settings remain available in the rail"
+                    )
+                }
+            }
         case .agents:
             surfaceContextPanel(
                 title: "Agents",
@@ -228,6 +243,13 @@ struct AppSettingsView: View {
                     ("Connection", statusShort, routeLabel)
                 ]
             )
+        }
+    }
+
+    private var homeStyleHint: String {
+        switch ScoutHomeStyle.resolve(homeStyle) {
+        case .fleet: return "the fleet dashboard"
+        case .entry: return "composer-first — ask, then recents"
         }
     }
 

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
+import ScoutIOSCore
 
 private enum UserSendPhase: Equatable {
     case preparing
@@ -17,6 +18,7 @@ private enum UserSendPhase: Equatable {
     case working
     case waiting
     case completed
+    case recoverable(OutboundDeliveryState.RecoveryAction?, String?)
     case failed(String)
     case cancelled
 
@@ -32,6 +34,13 @@ private enum UserSendPhase: Equatable {
         case .working: return "Agent is working"
         case .waiting: return "Agent needs input"
         case .completed: return "Agent responded"
+        case .recoverable(let action, let detail):
+            if let detail, !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return detail
+            }
+            return action == .startReplacement
+                ? "Session ended · start a new session to deliver"
+                : "Message saved · retry delivery"
         case .failed(let detail):
             let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "Send failed" : "Send failed: \(trimmed)"
@@ -43,7 +52,7 @@ private enum UserSendPhase: Equatable {
         switch self {
         case .preparing, .uploading, .sending, .queued, .dispatching, .acknowledged, .working:
             return true
-        case .posted, .waiting, .completed, .failed, .cancelled:
+        case .posted, .waiting, .completed, .recoverable, .failed, .cancelled:
             return false
         }
     }
@@ -52,7 +61,7 @@ private enum UserSendPhase: Equatable {
         switch self {
         case .failed, .cancelled:
             return HudPalette.statusError
-        case .waiting:
+        case .waiting, .recoverable:
             return HudPalette.accent
         case .acknowledged, .working, .completed:
             return HudPalette.statusOk
@@ -99,8 +108,13 @@ struct ConversationSurface: View {
     @State private var isSending = false
     @State private var pendingAttachments: [ScoutComposerAttachment] = []
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var composerError: String?
+    @State private var composerNotice: String?
+    /// Stable id for a locally durable send attempt. It survives transport loss
+    /// and is reused on retry so the broker can return the original delivery.
+    @State private var outboundDraftId: String?
     @State private var showSettings = false
     /// Messages sent from this device that haven't yet appeared in an
     /// authoritative snapshot. They render immediately (optimistic) and are
@@ -128,10 +142,8 @@ struct ConversationSurface: View {
     /// While a request is unsettled, periodically reconcile the authoritative
     /// snapshot so a reconnect cannot leave a persisted agent reply invisible.
     @State private var reconciliationTask: Task<Void, Never>?
+    /// Held for the leave-the-screen teardown; the composer owns the dictation UI.
     @Environment(HudDictation.self) private var voice
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var micPulse = false
-    @FocusState private var composerFocused: Bool
 
     private var turns: [TurnState] { projection.state?.turns ?? [] }
 
@@ -161,7 +173,10 @@ struct ConversationSurface: View {
         .background(HudPalette.bg)
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: conversationId) { restartRun() }
+        .task(id: conversationId) {
+            await restoreOutboundDraft()
+            restartRun()
+        }
         .onAppear {
             publishStatusContext()
         }
@@ -191,64 +206,40 @@ struct ConversationSurface: View {
 
     // MARK: - Composer
 
-    /// A self-contained, clearly-bounded input box (not a docked bar): rounded
-    /// surface + hairline border so it reads as a field, growing from one line
-    /// to at most three before scrolling internally.
+    /// The shared pill composer (ComposerKit) with this surface's params —
+    /// pending attachments, the recovered-draft notice, and the session's
+    /// runtime in the tools slot. No composer markup lives here: surfaces
+    /// differ by what they pass, never by re-rolling the shell.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            if !pendingAttachments.isEmpty {
-                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
-                    pendingAttachments.removeAll { $0.id == id }
-                }
-            }
-            if let composerError {
-                Text(composerError)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.statusError)
-                    .lineLimit(2)
-            }
-            HStack(alignment: .bottom, spacing: HudSpacing.md) {
-                micButton
-                attachPhotoButton
-                attachFileButton
-
-                TextField(composerPlaceholder, text: $composerText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...3)
-                    .font(HudFont.ui(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.ink)
-                    .tint(HudPalette.accent)
-                    .focused($composerFocused)
-                    .onSubmit(send)
-                    .padding(.vertical, HudSpacing.xs)
-
-                Button(action: send) {
-                    Glyphic.arrow(.top, size: 17)
-                        .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            Circle().fill(canSend ? HudPalette.accent : ScoutSurface.inset)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-            }
-            .padding(.leading, HudSpacing.lg)
-            .padding(.trailing, HudSpacing.sm)
-            .padding(.vertical, HudSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .fill(ScoutSurface.inset)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
-                            lineWidth: HudStrokeWidth.standard)
+        ScoutMessageComposer(
+            text: $composerText,
+            placeholder: "Steer the agent…",
+            rows: 1,
+            onSend: send,
+            canSend: canSend,
+            sending: isSending,
+            attach: ScoutComposerAttach(
+                onPhoto: { showPhotoPicker = true },
+                onFile: { showFileImporter = true }
+            ),
+            attachments: $pendingAttachments,
+            error: composerError,
+            notice: composerNotice.map { ScoutComposerNotice($0) },
+            density: .thread,
+            appearance: .pill
+        ) {
+            ScoutRuntimeChip(
+                harness: projection.state?.session.adapterType,
+                model: projection.state?.session.model
             )
         }
-        .padding(.horizontal, HudSpacing.lg)
-        .padding(.bottom, HudSpacing.sm)
         .background(HudPalette.bg)
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $selectedPhotoItems,
+            maxSelectionCount: 8,
+            matching: .images
+        )
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await addPhotos(items) }
@@ -260,101 +251,6 @@ struct ConversationSurface: View {
 
     private var canSend: Bool {
         (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty) && !isSending
-    }
-
-    private var attachPhotoButton: some View {
-        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
-            Image(systemName: "photo")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 28, height: 28)
-        }
-        .disabled(isSending)
-    }
-
-    private var attachFileButton: some View {
-        Button { showFileImporter = true } label: {
-            Image(systemName: "paperclip")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSending)
-    }
-
-    /// On-device dictation toggle (HudsonKit `HudDictation`: Parakeet via Vox,
-    /// Apple Speech fallback). Listening pulses the accent ring; the live partial
-    /// previews in the placeholder, and each final utterance appends to the field.
-    private var micButton: some View {
-        Button {
-            voice.toggleFromUserIntent()
-        } label: {
-            ZStack {
-                if voice.isListening {
-                    Circle()
-                        .fill(HudPalette.accent.opacity(micPulse ? 0.22 : 0.08))
-                        .frame(width: 28, height: 28)
-                }
-                MicGlyph()
-                    .stroke(
-                        micColor,
-                        style: StrokeStyle(
-                            lineWidth: voice.isListening ? 1.6 : 1.2,
-                            lineCap: .round,
-                            lineJoin: .round
-                        )
-                    )
-                    .frame(width: 15, height: 15)
-                    .opacity(isMicBusy && micPulse ? 0.5 : 1)
-            }
-            .frame(width: 28, height: 28)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isSending)
-        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
-        .onChange(of: voice.finalCount) { _, _ in
-            let text = voice.finalText
-            if !text.isEmpty { appendDictation(text) }
-        }
-    }
-
-    private var isMicBusy: Bool {
-        switch voice.state {
-        case .transcribing, .preparing: return true
-        case .idle, .listening, .unavailable: return false
-        }
-    }
-
-    private var micColor: Color {
-        switch voice.state {
-        case .listening:                return HudPalette.accent
-        case .transcribing, .preparing: return ScoutInk.muted
-        case .unavailable:              return ScoutInk.dim.opacity(0.5)
-        case .idle:                     return ScoutInk.muted
-        }
-    }
-
-    private var composerPlaceholder: String {
-        switch voice.state {
-        case .listening:
-            return voice.partialText.isEmpty ? "Listening…" : voice.partialText
-        case .transcribing:
-            return "Transcribing…"
-        // The model warms silently in the background — no loading copy in the
-        // composer. Preparing reads the same as idle.
-        case .preparing, .idle, .unavailable:
-            return "steer the agent…"
-        }
-    }
-
-    private func appendDictation(_ text: String) {
-        if composerText.isEmpty {
-            composerText = text
-        } else {
-            composerText += " " + text
-        }
     }
 
     @MainActor
@@ -389,26 +285,6 @@ struct ConversationSurface: View {
         }
     }
 
-    private func updatePulse(for state: HudDictation.State) {
-        micPulse = false
-        switch state {
-        case .listening:
-            // Pulse ONLY while actively recording. Preparing/transcribing must not
-            // mimic a hot mic — those read via the placeholder ("Preparing voice… N%")
-            // and a static muted glyph, so a backgrounded model download never looks live.
-            guard shouldAnimateMicPulse else { return }
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                micPulse = true
-            }
-        case .idle, .transcribing, .preparing, .unavailable:
-            break
-        }
-    }
-
-    private var shouldAnimateMicPulse: Bool {
-        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
-
     // MARK: - Header
 
     private var header: some View {
@@ -422,17 +298,12 @@ struct ConversationSurface: View {
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                if let model = projection.state?.session.model {
-                    Text(model)
-                        .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(ScoutInk.muted)
-                }
-            }
+            // The runtime lives on the composer's chip now — repeating the model
+            // here was the same fact twice on one screen.
+            Text(title)
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1)
             Spacer()
             // Only the active state earns a badge. Once you're inside a specific
             // agent, an "idle" tag is just noise — a settled agent reads as idle
@@ -504,6 +375,7 @@ struct ConversationSurface: View {
                             TurnView(
                                 turn: turn,
                                 sendPhase: sendPhase(for: turn),
+                                onRecover: recoverDelivery,
                                 onAnswer: answer,
                                 onDecide: decide
                             )
@@ -644,18 +516,34 @@ struct ConversationSurface: View {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = pendingAttachments
         guard !text.isEmpty || !attachments.isEmpty else { return }
-        composerText = ""
-        pendingAttachments = []
         composerError = nil
+        composerNotice = nil
         isSending = true
-        let clientMessageId = "ios-\(UUID().uuidString)"
-        let outgoing = PendingUserSend(id: clientMessageId, text: text, attachments: attachments, startedAt: nowMs())
-        pending.append(outgoing)
-        sendPhases[clientMessageId] = attachments.isEmpty ? .sending : .preparing
-        insertOptimisticUserTurn(outgoing)
+        let clientMessageId = outboundDraftId ?? "ios-\(UUID().uuidString)"
 
         sendTask = Task {
             do {
+                try await OutboundDraftStore.shared.save(
+                    OutboundDraftRecord(
+                        id: clientMessageId,
+                        conversationId: conversationId,
+                        body: text,
+                        attachments: attachments.map(\.upload)
+                    )
+                )
+                try Task.checkCancellation()
+                outboundDraftId = clientMessageId
+                composerText = ""
+                pendingAttachments = []
+                let outgoing = PendingUserSend(
+                    id: clientMessageId,
+                    text: text,
+                    attachments: attachments,
+                    startedAt: nowMs()
+                )
+                pending.append(outgoing)
+                sendPhases[clientMessageId] = attachments.isEmpty ? .sending : .preparing
+                insertOptimisticUserTurn(outgoing)
                 if !attachments.isEmpty {
                     sendPhases[clientMessageId] = .uploading
                 }
@@ -670,6 +558,11 @@ struct ConversationSurface: View {
                     )
                 )
                 recordSendResult(result, clientMessageId: clientMessageId)
+                let deliveryNeedsRecovery = result.delivery?.state == .recoverable
+                if !deliveryNeedsRecovery {
+                    try? await OutboundDraftStore.shared.remove(id: clientMessageId)
+                }
+                outboundDraftId = nil
                 // Re-enable the composer as soon as the send is acknowledged —
                 // the reply can keep streaming in while you queue the next message.
                 isSending = false
@@ -683,10 +576,75 @@ struct ConversationSurface: View {
                 removeOptimisticSend(clientMessageId)
                 composerText = text
                 pendingAttachments = attachments
+                outboundDraftId = clientMessageId
                 composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 isSending = false
             }
         }
+    }
+
+    private func restoreOutboundDraft() async {
+        guard composerText.isEmpty, pendingAttachments.isEmpty else { return }
+        guard let draft = try? await OutboundDraftStore.shared.latest(conversationId: conversationId) else {
+            return
+        }
+        outboundDraftId = draft.id
+        composerText = draft.body
+        pendingAttachments = draft.attachments.map { attachment in
+            ScoutComposerAttachment(
+                data: attachment.data,
+                mediaType: attachment.mediaType,
+                fileName: attachment.fileName ?? "attachment"
+            )
+        }
+        composerNotice = "Recovered an unsent message. Review it and retry when ready."
+    }
+
+    private func recoverDelivery(
+        clientMessageId: String,
+        action: OutboundDeliveryState.RecoveryAction
+    ) {
+        switch action {
+        case .retry:
+            let hasCurrentDraft = !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingAttachments.isEmpty
+            guard !hasCurrentDraft else {
+                composerNotice = "Your current draft is still here. Send or clear it before retrying the saved message."
+                return
+            }
+            Task {
+                guard let draft = try? await OutboundDraftStore.shared.draft(id: clientMessageId) else {
+                    composerNotice = "This message is already saved by Scout. Reopen it from the conversation to retry."
+                    return
+                }
+                outboundDraftId = draft.id
+                composerText = draft.body
+                pendingAttachments = draft.attachments.map { attachment in
+                    ScoutComposerAttachment(
+                        data: attachment.data,
+                        mediaType: attachment.mediaType,
+                        fileName: attachment.fileName ?? "attachment"
+                    )
+                }
+                composerNotice = "Retrying the saved message…"
+                send()
+            }
+        case .startReplacement:
+            preserveCurrentComposerIfNeeded()
+            onClose()
+        }
+    }
+
+    private func preserveCurrentComposerIfNeeded() {
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
+        let draft = OutboundDraftRecord(
+            id: outboundDraftId ?? "ios-\(UUID().uuidString)",
+            conversationId: conversationId,
+            body: text,
+            attachments: pendingAttachments.map(\.upload)
+        )
+        Task { try? await OutboundDraftStore.shared.save(draft) }
     }
 
     private func upload(_ attachments: [ScoutComposerAttachment]) async throws -> [MessageAttachment]? {
@@ -703,7 +661,9 @@ struct ConversationSurface: View {
             sendFlightIdsByClientMessageId[clientMessageId] = flightId
             clientMessageIdsByFlightId[flightId] = clientMessageId
         }
-        if let state = result.lifecycleState {
+        if result.delivery?.state == .recoverable {
+            sendPhases[clientMessageId] = .recoverable(result.delivery?.action, result.delivery?.detail)
+        } else if let state = result.lifecycleState {
             sendPhases[clientMessageId] = UserSendPhase.fromLifecycle(state)
         } else if result.flightId != nil {
             sendPhases[clientMessageId] = .dispatching
@@ -903,6 +863,7 @@ struct ConversationSurface: View {
 private struct TurnView: View {
     let turn: TurnState
     let sendPhase: UserSendPhase?
+    let onRecover: (_ clientMessageId: String, _ action: OutboundDeliveryState.RecoveryAction) -> Void
     let onAnswer: (_ turnId: String, _ blockId: String, _ choice: [String]) -> Void
     let onDecide: (_ turnId: String, _ blockId: String, _ version: Int, _ decision: ActionDecisionSpec.Decision) -> Void
 
@@ -926,12 +887,23 @@ private struct TurnView: View {
                 BlockView(blockState: blockState, isUser: isUser, turnId: turn.id, onAnswer: onAnswer, onDecide: onDecide)
             }
             if isUser, let sendPhase {
-                HStack(spacing: HudSpacing.xs) {
-                    HudStatusDot(color: sendPhase.tint, size: 5, pulses: sendPhase.pulses)
-                    Text(sendPhase.label)
-                        .font(HudFont.mono(HudTextSize.xxs))
-                        .foregroundStyle(sendPhase.tint)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                    HStack(spacing: HudSpacing.xs) {
+                        HudStatusDot(color: sendPhase.tint, size: 5, pulses: sendPhase.pulses)
+                        Text(sendPhase.label)
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(sendPhase.tint)
+                            .lineLimit(2)
+                    }
+                    if case .recoverable(let action?, _) = sendPhase,
+                       let clientMessageId = turn.clientMessageId {
+                        Button(action == .retry ? "Retry delivery" : "Choose replacement") {
+                            onRecover(clientMessageId, action)
+                        }
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                        .foregroundStyle(HudPalette.accent)
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.top, -HudSpacing.xs)
             }
@@ -1138,28 +1110,5 @@ private struct BlockView: View {
         case .failed: return HudPalette.statusError       // red == genuine failure
         case .awaitingApproval: return HudPalette.statusWarn  // amber == needs you
         }
-    }
-}
-
-/// Compact cockpit mic glyph — a hand-drawn capsule body, pickup arc, and stand,
-/// stroked so it can pick up the composer's recording/idle tint.
-struct MicGlyph: Shape {
-    func path(in rect: CGRect) -> Path {
-        let sx = rect.width / 14.0
-        let sy = rect.height / 14.0
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
-        }
-        var path = Path()
-        let body = CGRect(x: rect.minX + 5 * sx, y: rect.minY + 2 * sy, width: 4 * sx, height: 6.5 * sy)
-        let radius = 2 * min(sx, sy)
-        path.addRoundedRect(in: body, cornerSize: CGSize(width: radius, height: radius))
-        path.move(to: p(4, 8.5))
-        path.addQuadCurve(to: p(10, 8.5), control: p(7, 13.5))
-        path.move(to: p(7, 11))
-        path.addLine(to: p(7, 12.7))
-        path.move(to: p(5, 12.7))
-        path.addLine(to: p(9, 12.7))
-        return path
     }
 }

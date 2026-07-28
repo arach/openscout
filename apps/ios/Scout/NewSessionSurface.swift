@@ -4,6 +4,33 @@ import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
 
+/// What another surface hands New when it wants a session started from its own
+/// composer. The prompt is the only required part; a surface that offers a REAL
+/// runtime choice (Home · Entry's chip) carries the pick too, and it lands on
+/// `SessionInitiationSpec.Execution` verbatim. Attachments ride along so the
+/// front door's paperclip is a real one rather than a decoration.
+struct NewSessionSeed: Equatable {
+    var prompt: String
+    var harnessId: String?
+    var familyId: String?
+    var effortId: String?
+    var attachments: [ScoutComposerAttachment] = []
+
+    init(
+        prompt: String,
+        harnessId: String? = nil,
+        familyId: String? = nil,
+        effortId: String? = nil,
+        attachments: [ScoutComposerAttachment] = []
+    ) {
+        self.prompt = prompt
+        self.harnessId = harnessId
+        self.familyId = familyId
+        self.effortId = effortId
+        self.attachments = attachments
+    }
+}
+
 /// New Session — a composer that builds a project-modality
 /// `SessionInitiationSpec` (target.projectPath set, execution.session = .new,
 /// seed.instructions) and dispatches it through the broker client, then shows
@@ -27,11 +54,11 @@ struct NewSessionSurface: View {
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
-    /// One-shot prompt seed (Home's inline ask composer routes here with typed
-    /// text). Consumed on change: lands in the prompt box, focuses it, clears
+    /// One-shot seed (Home's ask composers route here). Consumed on change: the
+    /// runtime pick lands first, then the prompt, then focus; the seed clears
     /// itself. A binding because this surface stays mounted for the app
     /// lifetime, so init-time state would never reseed.
-    @Binding var promptSeed: String?
+    @Binding var promptSeed: NewSessionSeed?
 
     /// Empty until the paired Mac returns its current workspace inventory. A
     /// device must never guess the Mac account name or carry a developer-specific
@@ -46,6 +73,10 @@ struct NewSessionSurface: View {
     @State private var harnessId: String = ComposerModelHarness.catalog[0].id
     @State private var familyId: String = ComposerModelHarness.catalog[0].defaultFamily.id
     @State private var effortId: String = ComposerEffortOption.defaultId
+    /// A seed carried an explicit runtime pick — so the machine's workspace
+    /// recommendation must not quietly overwrite it. Held until that seeded ask
+    /// is actually submitted.
+    @State private var runtimePinned = false
     @State private var showModelPicker = false
     /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
     /// each carrying the harnesses actually installed there. Empty until loaded /
@@ -222,7 +253,17 @@ struct NewSessionSurface: View {
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: showModelPicker)
         .onChange(of: promptSeed) { _, seed in
             guard let seed else { return }
-            let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+            defer { promptSeed = nil }
+            if let harness = seed.harnessId {
+                harnessId = harness
+                familyId = seed.familyId
+                    ?? ComposerModelHarness.curated(harness)?.defaultFamily.id
+                    ?? familyId
+                effortId = seed.effortId ?? effortId
+                runtimePinned = true
+            }
+            pendingAttachments.append(contentsOf: seed.attachments)
+            let trimmed = seed.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             if instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 instructions = trimmed
@@ -230,7 +271,6 @@ struct NewSessionSurface: View {
                 instructions += "\n" + trimmed
             }
             instructionsFocused = true
-            promptSeed = nil
         }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
@@ -284,6 +324,9 @@ struct NewSessionSurface: View {
     private func applyWorkspaceDefault() {
         let valid = harnessChoices.map(\.id)
         guard !valid.isEmpty else { return }
+        // An explicit pick made on the front door outranks the recommendation —
+        // but only while this machine can actually run it.
+        if runtimePinned, valid.contains(harnessId) { return }
         // Prefer the selected project's recommended harness; otherwise keep the
         // current choice if it's still valid, else fall back to the first.
         if let preferred = selectedWorkspace?.defaultHarness, valid.contains(preferred) {
@@ -372,10 +415,16 @@ struct NewSessionSurface: View {
                             .allowsHitTesting(false)
                     }
                 }
+                // Keyboard toolbars MERGE across every mounted surface, and New
+                // stays mounted for the launch lifetime — so this "Done" has to
+                // withdraw when New isn't the page, or it rides the keyboard
+                // (and the tab bar) over whatever surface actually has focus.
                 .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Done") { dismissKeyboard() }
+                        if isActive {
+                            Spacer()
+                            Button("Done") { dismissKeyboard() }
+                        }
                     }
                 }
             if voice.isListening, !voice.partialText.isEmpty {
@@ -706,6 +755,9 @@ struct NewSessionSurface: View {
     private func submit() {
         guard !isSubmitting, canSubmit else { return }
         isSubmitting = true
+        // The seeded pick has had its run; from here the workspace default is
+        // free to lead again.
+        runtimePinned = false
         errorText = nil
         result = nil
         instructionsFocused = false

@@ -257,7 +257,8 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
             invocationId: result.invocationId,
             targetAgentId: result.targetAgentId,
             lifecycleState: result.lifecycleState.flatMap(ConversationLifecycleState.init(rawValue:)),
-            summary: result.summary
+            summary: result.summary,
+            delivery: result.delivery?.toCapability()
         )
     }
 
@@ -402,6 +403,26 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
 
     @discardableResult
     public func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> String {
+        let result = try await postMessageResult(
+            conversationId: conversationId,
+            body: body,
+            replyTo: replyTo,
+            attachments: attachments,
+            clientMessageId: clientMessageId
+        )
+        guard let messageId = result.messageId else {
+            throw BridgeConnectionError.decodingFailed("The broker returned no message id.")
+        }
+        return messageId
+    }
+
+    public func postMessageResult(
+        conversationId: String,
+        body: String,
+        replyTo: String?,
+        attachments: [MessageAttachment]?,
+        clientMessageId: String?
+    ) async throws -> ControlResult {
         let params = MobileCommsSendParams(
             conversationId: conversationId,
             body: body,
@@ -410,7 +431,16 @@ public final class BridgeBrokerClient: ScoutBrokerClient, MobileNotificationCapa
             clientMessageId: clientMessageId ?? UUID().uuidString
         )
         let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
-        return result.messageId
+        return ControlResult(
+            ok: true,
+            messageId: result.messageId,
+            flightId: result.flightId,
+            invocationId: result.invocationId,
+            targetAgentId: result.targetAgentId,
+            lifecycleState: result.lifecycleState.flatMap(ConversationLifecycleState.init(rawValue:)),
+            summary: result.summary,
+            delivery: result.delivery?.toCapability()
+        )
     }
 
     @discardableResult
@@ -985,6 +1015,24 @@ struct MobileCommsSendResult: Codable, Sendable {
     let targetAgentId: String?
     let lifecycleState: String?
     let summary: String?
+    let delivery: MobileOutboundDeliveryState?
+}
+
+struct MobileOutboundDeliveryState: Codable, Sendable {
+    let state: String
+    let reason: String?
+    let action: String?
+    let detail: String?
+
+    func toCapability() -> OutboundDeliveryState? {
+        guard let state = OutboundDeliveryState.State(rawValue: state) else { return nil }
+        return OutboundDeliveryState(
+            state: state,
+            reason: reason.flatMap(OutboundDeliveryState.Reason.init(rawValue:)),
+            action: action.flatMap(OutboundDeliveryState.RecoveryAction.init(rawValue:)),
+            detail: detail
+        )
+    }
 }
 
 struct MobileAttachmentUploadParams: Codable, Sendable {

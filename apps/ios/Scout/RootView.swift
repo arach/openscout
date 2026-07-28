@@ -22,17 +22,41 @@ struct RootView: View {
     // Opt-in alternative navigation. `.tabs` keeps the shipped chrome (titleBar +
     // dockedTabBar + status strip) exactly; `.crown` swaps in the summonable crown.
     @AppStorage(ScoutNavMode.storageKey) private var navModeRaw = ScoutNavMode.default.rawValue
+    // The Home variant also picks the app's bottom chrome: `.entry` (the calm
+    // composer-first front door) wears the floating liquid-glass bar, `.fleet`
+    // keeps the docked bar + cockpit strip untouched.
+    @AppStorage(ScoutHomeStyle.storageKey) private var homeStyleRaw = ScoutHomeStyle.default.rawValue
     @State private var crownAssembled = true
     @State private var showVitals = false
     @State private var showTailSheet = false
-    @State private var notificationLandingRoute: AppModel.NotificationRoute?
-    /// One-shot prompt seed from Home's inline ask composer — consumed by the
-    /// New surface (which stays mounted, so this must be a binding, not init
-    /// state) and cleared once it lands in the prompt box.
-    @State private var newComposerSeed: String?
+    /// The Notifications destination (the ledger) + the correlation id an
+    /// opened push wants it to land on.
+    @State private var showNotifications = false
+    @State private var notificationsFocusItemId: String?
+    /// One-shot seed from Home's ask composers — prompt, plus the runtime pick
+    /// and attachments when the surface offered them. Consumed by the New
+    /// surface (which stays mounted, so this must be a binding, not init state)
+    /// and cleared once it lands in the composer.
+    @State private var newComposerSeed: NewSessionSeed?
+    /// The keyboard is on screen. The docked tab bar steps aside while it is —
+    /// iOS lets the keyboard cover the bar rather than shoving it up a row.
+    @State private var keyboardIsUp = false
+    /// The Places map, and the navigation a row picked — run on dismiss so a
+    /// destination that presents its own sheet isn't swallowed.
+    @State private var showPlaces = false
+    @State private var pendingPlace: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
+
+    /// The composer-first front door is on. It picks the app's chrome, not just
+    /// Home's body: the calm masthead and the floating glass bar below.
+    private var isEntryHome: Bool { ScoutHomeStyle.resolve(homeStyleRaw) == .entry }
+
+    /// Liquid-glass bottom chrome — a flavor of TABS chrome under the Entry
+    /// home, never entangled with crown mode (the crown owns the bottom on its
+    /// own terms and is unchanged by this).
+    private var usesGlassChrome: Bool { navMode == .tabs && isEntryHome }
 
     private var client: any ScoutBrokerClient { model.client }
 
@@ -126,6 +150,7 @@ struct RootView: View {
                                     onConversationStatusContext: { sessionStatusContext = $0 },
                                     onSeeAllAgents: { selectSurface(.agents) },
                                     onSeeAllActivity: { selectSurface(.comms) },
+                                    onSeeAllNotifications: { openNotifications() },
                                     onCompose: { seed in
                                         newComposerSeed = seed
                                         selectSurface(.new)
@@ -195,9 +220,20 @@ struct RootView: View {
                     // bleeding through the home-indicator area. `safeAreaInset` insets
                     // the surfaces' scroll content above it, and the material masks
                     // anything that scrolls behind it — the conventional iOS pattern.
+                    //
+                    // The keyboard COVERS it, as on every other iOS app: a docked
+                    // bar riding up above the keys spends a whole row on chrome
+                    // nobody can reach. Only surface content rises, so composers
+                    // still land directly on the keyboard.
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if navMode == .tabs {
-                            dockedTabBar(layout)
+                        if navMode == .tabs, !keyboardIsUp {
+                            // The Entry home wears the floating glass bar; the
+                            // classic Fleet home keeps the docked bar exactly.
+                            if usesGlassChrome {
+                                glassTabBar(layout)
+                            } else {
+                                dockedTabBar(layout)
+                            }
                         }
                         // Crown mode reserves NOTHING at the bottom: surface
                         // content flows through behind the floating crown, and
@@ -209,6 +245,12 @@ struct RootView: View {
                         if navMode == .crown {
                             Color.clear.frame(height: CrownMetric.topReserve(for: layout))
                         }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                        keyboardIsUp = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                        keyboardIsUp = false
                     }
 
                     // Read-only connection readout pinned flush to the true screen
@@ -222,13 +264,29 @@ struct RootView: View {
                     // request produces no model mutation. The underlying fetch
                     // instant only advances after a successfully decoded broker
                     // query (see BrokerRequestLog).
-                    if navMode == .tabs {
+                    // Glass chrome ABSORBS this strip: a floating bar wants clear
+                    // air under it, and the permanent readouts it carried are
+                    // already elsewhere (route + host on the masthead chip, fleet
+                    // counts on Home and Agents). What the strip alone could tell
+                    // you — connection dropped, or data quietly gone stale — comes
+                    // back as one line above the glass bar, and only while true.
+                    if usesGlassChrome {
+                        EmptyView()
+                    } else if navMode == .tabs {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             ScoutStatusBar(
                                 leading: appReadouts(layout),
                                 trailing: statsReadouts(layout, now: context.date)
                             )
                         }
+                        // Pinned to the design width, leading: the strip's readouts
+                        // are intrinsically sized, so a wide fleet ("200 agents")
+                        // makes the run longer than the screen — and an unclamped
+                        // strip then inflated the whole shell stack, shoving the
+                        // masthead and every surface ~20pt right until the trailing
+                        // complication clipped. The strip still runs off its own
+                        // trailing end exactly as before; nothing else moves now.
+                        .frame(width: layout.designWidth, alignment: .leading)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .ignoresSafeArea(edges: .bottom)
                         // The nav stack leaves a residual inset; push the last bit so
@@ -284,6 +342,17 @@ struct RootView: View {
                         .animation(reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: 0.22), value: crownAssembled)
                     }
                 }
+                // The ledger polls on its own cadence, on every surface: the
+                // masthead bell has to be right wherever you are, and an alert
+                // captured while it is still pending is the only way the ledger
+                // learns what it said (the Mac drops it once it settles).
+                .task(id: model.fleetDataReadyToken) {
+                    guard model.fleetDataReadyToken != 0 else { return }
+                    while !Task.isCancelled {
+                        await model.refreshNotifications()
+                        try? await Task.sleep(for: .seconds(30))
+                    }
+                }
                 .task(id: "\(model.fleetDataReadyToken)|\(surface.rawValue)") {
                     guard model.fleetDataReadyToken != 0, surface != .home else { return }
                     // Keep the status bar's agent / active counts roughly live while
@@ -311,17 +380,13 @@ struct RootView: View {
         .sheet(isPresented: $showConnection) {
             ConnectionView(model: model)
         }
-        .sheet(item: $notificationLandingRoute) { route in
-            NotificationLandingSheet(
-                model: model,
-                route: route,
-                onOpenHome: {
-                    notificationLandingRoute = nil
-                    selectSurface(.home)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        // The map. The picked destination runs on dismiss (see `pendingPlace`).
+        .sheet(isPresented: $showPlaces, onDismiss: {
+            let go = pendingPlace
+            pendingPlace = nil
+            go?()
+        }) {
+            placesSheet
         }
         // Crown-mode LED quick-action: a compact vitals panel (route, hosts,
         // refresh). The Connect corner still opens the full ConnectionView.
@@ -339,17 +404,11 @@ struct RootView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $notificationLandingRoute) { route in
-            NotificationLandingSheet(
-                model: model,
-                route: route,
-                onOpenHome: {
-                    notificationLandingRoute = nil
-                    selectSurface(.home)
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+        // Notifications is a destination, not a card: the ledger is a page you
+        // go to (from the masthead bell, the Home lane, or an opened push), and
+        // it pushes conversations of its own.
+        .fullScreenCover(isPresented: $showNotifications, onDismiss: { notificationsFocusItemId = nil }) {
+            NotificationsSurface(model: model, focusItemId: notificationsFocusItemId)
         }
         // Settings is a full page, not a card sheet — the shell carries its own
         // close control, so present it edge-to-edge.
@@ -380,6 +439,13 @@ struct RootView: View {
                     showVitals = true
                 }
             }
+            // `SCOUT_OPEN_NOTIFICATIONS=1` opens the ledger for capture.
+            if ProcessInfo.processInfo.environment["SCOUT_OPEN_NOTIFICATIONS"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showNotifications = true
+                }
+            }
             if ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS"] != nil {
                 let delayMilliseconds = Int(
                     ProcessInfo.processInfo.environment["SCOUT_OPEN_SETTINGS_DELAY_MS"] ?? "0"
@@ -404,6 +470,11 @@ struct RootView: View {
         .onChange(of: surface) { _, _ in sessionStatusContext = nil }
     }
 
+    /// Where an opened alert lands. Conversation alerts belong to Comms (the
+    /// thread is their durable home); every other alert belongs to the ledger,
+    /// which holds the full text the push deliberately withheld — and keeps
+    /// holding it after the item stops being pending, which the old landing
+    /// sheet could not (it only knew how to say "no longer active").
     private func openNotification(_ route: AppModel.NotificationRoute) {
         if route.conversationId != nil {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
@@ -412,8 +483,15 @@ struct RootView: View {
             return
         }
 
-        notificationLandingRoute = route
+        // Same identity the ledger records a push stub under, so an alert whose
+        // payload carried no correlation id still lands on its own entry.
+        openNotifications(focusItemId: route.itemId ?? route.sessionId)
         model.consumeNotificationRoute(route)
+    }
+
+    private func openNotifications(focusItemId: String? = nil) {
+        notificationsFocusItemId = focusItemId
+        showNotifications = true
     }
 
     private var settingsContext: AppSettingsContext {
@@ -495,6 +573,130 @@ struct RootView: View {
                 .shadow(color: Color.black.opacity(0.6), radius: 11, y: -6)
         }
         .environment(\.colorScheme, .dark)
+    }
+
+    /// Liquid-glass tab bar — the Apple-shaped bottom chrome the Entry home
+    /// wears. A capsule floating inset from every edge, drawn with the REAL
+    /// iOS 26 glass: `hudLiquidBarMaterial` resolves to `.glassEffect(.regular,
+    /// in: .capsule)` and only Reduce Transparency drops it to a solid plate.
+    /// The current tab is seated on the same machined plate the masthead
+    /// complications are cut from — graphite instruments in a glass rail, so
+    /// the top-left and the bottom read as one system.
+    private func glassTabBar(_ layout: ScoutLayoutMetrics) -> some View {
+        let tabs = visibleSurfaces(layout)
+        let sideInset = layout.isNarrowPhone ? HudSpacing.xxl : HudSpacing.xxxl
+        // Same equal-column discipline as the docked bar: an explicit width per
+        // tab so "Terminal" shrinks inside its column instead of overflowing.
+        let barWidth = max(0, layout.designWidth - sideInset * 2)
+        let tabWidth = max(0, (barWidth - HudSpacing.sm * 2) / CGFloat(max(1, tabs.count)))
+        return VStack(spacing: HudSpacing.xs) {
+            glassStatusLine
+            tabRail(tabs, layout: layout, tabWidth: tabWidth, barWidth: barWidth)
+        }
+        // Floats clear of the home indicator instead of bleeding into it: the
+        // whole point of the shape is the air around it.
+        .padding(.top, HudSpacing.sm)
+        .padding(.bottom, HudSpacing.xxs)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func tabRail(
+        _ tabs: [Surface],
+        layout: ScoutLayoutMetrics,
+        tabWidth: CGFloat,
+        barWidth: CGFloat
+    ) -> some View {
+        HStack(spacing: 0) {
+            ForEach(tabs) { glassTabButton($0, layout: layout, width: tabWidth) }
+        }
+        // Glass shows AROUND the seated tab — the seat has to sit in the rail,
+        // not fill it, or the bar reads as a slab with a lid.
+        .padding(.horizontal, HudSpacing.sm)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(width: barWidth)
+        .hudLiquidBarMaterial(tint: .regular)
+        // The rail is edged like the complications it seats: the same top rim
+        // light + hairline the machined plates carry, over the glass rather
+        // than over graphite. This is what makes the masthead and the bar read
+        // as one system instead of two materials that happen to share a screen.
+        .overlay(ScoutMachinedRim(shape: Capsule()))
+        .shadow(color: .black.opacity(0.5), radius: 14, y: 6)
+    }
+
+    /// One glass-bar tab. Selection reads exactly as it does on the docked bar
+    /// — accent glyph + label, still the only green down here — with the
+    /// machined seat carrying the WHERE, so the accent stays rationed.
+    @ViewBuilder
+    private func glassTabButton(_ s: Surface, layout: ScoutLayoutMetrics, width: CGFloat) -> some View {
+        let isSelected = surface == s
+        Button {
+            guard surface != s else { return }
+            #if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            #endif
+            selectSurface(s)
+        } label: {
+            VStack(spacing: HudSpacing.xxs) {
+                Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
+                Text(s.rawValue)
+                    .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? HudPalette.accent : ScoutInk.muted)
+            // The seat HUGS its tab (Apple's shape), so it can't be sized off
+            // the equal column the way the docked bar's columns are. The
+            // longest label ("Terminal") still clears its neighbours at both
+            // phone widths — hence fixed, unscaled type here.
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: layout.tabButtonHeight)
+            .background {
+                if isSelected {
+                    ScoutMachinedPlate(
+                        shape: Capsule(),
+                        rimBoost: 0.15,
+                        lightReach: layout.tabButtonHeight,
+                        grainOpacity: 0.05
+                    )
+                }
+            }
+            .frame(width: width)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(s.rawValue)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// What the absorbed cockpit strip still owes you, and nothing else: one
+    /// dim line above the glass bar, shown ONLY when the connection is down or
+    /// the last good fetch has gone stale. Silence means "connected, fresh" —
+    /// which is the state the calm chrome is designed for. Ticks on a 15s
+    /// cadence (the readout is minutes-grained; a per-second timer would wake
+    /// the whole shell for nothing).
+    private var glassStatusLine: some View {
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            if let note = degradedNote(now: context.date) {
+                Text(note)
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .tracking(0.6)
+                    .foregroundStyle(ScoutInk.dim)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// The one honest sentence about a degraded shell: not connected, or the
+    /// broker data has quietly stopped arriving (3 minutes ≈ nine missed poll
+    /// cycles — a real stall, not one slow request).
+    private func degradedNote(now: Date) -> String? {
+        guard case .connected = model.connectionState else {
+            return model.statusLabel.uppercased()
+        }
+        guard let fetchedAt = model.lastSuccessfulFetchAt else { return nil }
+        let age = Int(now.timeIntervalSince(fetchedAt))
+        guard age >= 180 else { return nil }
+        return age < 3600 ? "STALE · \(age / 60)m" : "STALE · \(age / 3600)h"
     }
 
     /// Preserve the six-tab phone layout; mission control earns dedicated tabs
@@ -664,24 +866,40 @@ struct RootView: View {
         // A quiet masthead, lifted from the studio: a thin all-caps SCOUT
         // wordmark paired with two small circular complications (compose · gear)
         // over a refined hairline — no logo tile, no heavy weight.
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+        // The row is pinned to a DEFINITE width rather than left to fill: a wide
+        // surface below can inflate the shared column, and an elastic masthead
+        // rides that inflation until the trailing gear clips off the screen.
+        let barWidth = max(0, layout.designWidth - layout.titleHorizontalPadding * 2)
+        return VStack(alignment: .leading, spacing: HudSpacing.xs) {
             HStack(spacing: HudSpacing.sm) {
-                if homeIdentityEnabled {
-                    EtchedScoutWordmark(size: layout.wordmarkSize)
-                } else {
-                    Text("SCOUT")
-                        .font(HudFont.ui(layout.wordmarkSize, weight: .light))
-                        .tracking(2.5)
-                        .foregroundStyle(HudPalette.ink)
+                placesButton(layout)
+                // The Entry home drops the wordmark: on the composer-first front
+                // door the app's name is the one thing on the row that answers no
+                // question you have. The complications and the host you're
+                // steering carry the masthead instead. The Fleet home — a
+                // dashboard, read at arm's length — keeps it.
+                if !isEntryHome {
+                    if homeIdentityEnabled {
+                        EtchedScoutWordmark(size: layout.wordmarkSize)
+                    } else {
+                        Text("SCOUT")
+                            .font(HudFont.ui(layout.wordmarkSize, weight: .light))
+                            .tracking(2.5)
+                            .foregroundStyle(HudPalette.ink)
+                    }
                 }
                 machineArea
                     .frame(maxWidth: .infinity, alignment: .leading)
-                settingsButton
+                    // Without the wordmark the chip would butt against the places
+                    // disc; give it the breath the wordmark used to occupy.
+                    .padding(.leading, isEntryHome ? HudSpacing.sm : 0)
+                notificationsButton(layout)
+                settingsButton(layout)
             }
+            .frame(width: barWidth)
             Rectangle()
                 .fill(HudHairline.standard)
-                .frame(height: HudStrokeWidth.thin)
-                .frame(maxWidth: .infinity)
+                .frame(width: barWidth, height: HudStrokeWidth.thin)
         }
         .padding(.horizontal, layout.titleHorizontalPadding)
         .padding(.top, layout.titleTopPadding)
@@ -751,15 +969,131 @@ struct RootView: View {
         }
     }
 
-    /// Settings as a contained icon complication — an inset circular button so it
-    /// reads as a control paired with the host area, not a stray glyph.
-    private var settingsButton: some View {
+    /// The Notifications destination as a masthead complication, paired with the
+    /// gear. The unread count rides the corner as a small accent pip — the one
+    /// place in the chrome that carries a number, because "how many alerts have
+    /// I not looked at" is the only count that should pull you somewhere.
+    private func notificationsButton(_ layout: ScoutLayoutMetrics) -> some View {
+        let unseen = model.notifications.unseenCount
+        return Button { openNotifications() } label: {
+            complicationDisc(.inbox, layout: layout, tint: unseen > 0 ? ScoutVibe.ink : ScoutInk.muted)
+                .overlay(alignment: .topTrailing) {
+                    if unseen > 0 {
+                        Text(unseen > 99 ? "99+" : "\(unseen)")
+                            .font(HudFont.mono(HudTextSize.micro - 1, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(HudPalette.bg)
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 14, minHeight: 14)
+                            .background(Capsule().fill(ScoutVibe.accent))
+                            .overlay(Capsule().stroke(HudPalette.bg, lineWidth: 1.5))
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(unseen > 0 ? "Notifications, \(unseen) unread" : "Notifications")
+    }
+
+    /// The way to everywhere else — leading the masthead, because a new user's
+    /// first question is "where can I go", and the answer should not be "read
+    /// the tab bar".
+    private func placesButton(_ layout: ScoutLayoutMetrics) -> some View {
+        Button { showPlaces = true } label: {
+            complicationDisc(.places, layout: layout)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Places")
+    }
+
+    /// ONE masthead complication family — places leading, bell + gear trailing,
+    /// all three cut from the crown's machined plate at the crown's own SEAT
+    /// scale (`CrownSizing.seat`), so the top row reads as instruments rather
+    /// than as outlined icons. Calmer than the crown only where the masthead
+    /// demands it: a single contact shadow instead of the crown's floating
+    /// pair. Never the accent — the rule the crown study set.
+    private func complicationDisc(
+        _ glyph: GlyphShape.Kind,
+        layout: ScoutLayoutMetrics,
+        tint: Color = ScoutInk.muted
+    ) -> some View {
+        let sizing = CrownSizing.resolve(layout)
+        return ScoutMachinedPlate(shape: Circle(), lightReach: sizing.seat, grainOpacity: 0.05)
+            .overlay(Glyphic(kind: glyph, size: sizing.seatGlyph).foregroundStyle(tint))
+            .frame(width: sizing.seat, height: sizing.seat)
+            .shadow(color: .black.opacity(0.45), radius: 3, y: 1.5)
+    }
+
+    /// The map. Every row is REAL navigation this shell already performs — tab
+    /// selection, the bell's route, the gear's sheet — so there is nothing here
+    /// that leads nowhere. Mission Control's lanes/deck/dispatch are deliberately
+    /// left out: they are a power surface, not one of the places a new operator
+    /// is looking for.
+    private var placesSheet: some View {
+        let places: [ScoutPlace] = [
+            ScoutPlace(glyph: .agent, name: "Agents", blurb: "Who's working, and on what") { selectSurface(.agents) },
+            ScoutPlace(glyph: .comms, name: "Comms", blurb: "Conversations with your agents") { selectSurface(.comms) },
+            ScoutPlace(glyph: .tail, name: "Tail", blurb: "Watch the work stream live") { selectSurface(.tail) },
+            ScoutPlace(glyph: .plus, name: "New session", blurb: "Start an agent on something") { selectSurface(.new) },
+            ScoutPlace(glyph: .terminal, name: "Terminal", blurb: "A shell on your paired Mac") { selectSurface(.terminal) },
+            ScoutPlace(glyph: .inbox, name: "Notifications", blurb: "What asked for you") { openNotifications() },
+            ScoutPlace(glyph: .gear, name: "Settings", blurb: "Connection, appearance, what Home shows") { showSettings = true },
+        ]
+        return NavigationStack {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(places) { place in
+                        Button {
+                            // Run AFTER the sheet is gone — two of these open
+                            // sheets of their own, and iOS drops the second
+                            // presentation if the first is still on screen.
+                            pendingPlace = place.go
+                            showPlaces = false
+                        } label: {
+                            HStack(spacing: HudSpacing.xxl) {
+                                Glyphic(kind: place.glyph, size: 19)
+                                    .foregroundStyle(ScoutInk.muted)
+                                    .frame(width: 34, height: 34)
+                                    .background(Circle().fill(ScoutSurface.inset))
+                                    .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(place.name)
+                                        .font(HudFont.ui(HudTextSize.md, weight: .medium))
+                                        .foregroundStyle(HudPalette.ink)
+                                    Text(place.blurb)
+                                        .font(HudFont.ui(HudTextSize.sm))
+                                        .foregroundStyle(ScoutInk.dim)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Glyphic.chevron(.trailing, size: 12)
+                                    .foregroundStyle(ScoutInk.dim)
+                            }
+                            .padding(.vertical, HudSpacing.xl)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .overlay(alignment: .bottom) {
+                            if place.id != places.last?.id { HudDivider(color: HudHairline.subtle) }
+                        }
+                    }
+                }
+                .padding(.horizontal, HudSpacing.xxl)
+            }
+            .background(HudPalette.bg)
+            .navigationTitle("Places")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        // Sized so the whole map is on screen at rest — a destination list you
+        // have to scroll to see the end of is not a map.
+        .presentationDetents([.fraction(0.68), .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Settings, trailing the complication family.
+    private func settingsButton(_ layout: ScoutLayoutMetrics) -> some View {
         Button { showSettings = true } label: {
-            Glyphic(kind: .gear, size: 16)
-                .foregroundStyle(ScoutInk.muted)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(ScoutSurface.inset))
-                .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            complicationDisc(.gear, layout: layout)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Settings")
@@ -799,247 +1133,14 @@ private struct EtchedScoutWordmark: View {
     }
 }
 
-/// Resolves an opaque APNs correlation id against the paired Mac and presents
-/// the actual situation locally. This keeps prompts, commands, paths, and error
-/// details out of APNs while still giving every non-conversation alert a real
-/// destination when the operator opens it.
-private struct NotificationLandingSheet: View {
-    let model: AppModel
-    let route: AppModel.NotificationRoute
-    let onOpenHome: () -> Void
+/// One destination on the Places map: a glyph, its name, and the one sentence
+/// that says what you'd go there to do. `go` is the shell's OWN navigation —
+/// there is no route here that doesn't already exist.
+private struct ScoutPlace: Identifiable {
+    let glyph: GlyphShape.Kind
+    let name: String
+    let blurb: String
+    let go: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var item: MobileNotificationItem?
-    @State private var itemClient: (any ScoutBrokerClient)?
-    @State private var isLoading = true
-    @State private var loadError: String?
-    @State private var answer = ""
-    @State private var isSubmitting = false
-    @State private var actionResult: String?
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                Group {
-                    if isLoading {
-                        HudEmptyState(
-                            title: "Loading notification",
-                            subtitle: "Fetching details from your paired Mac.",
-                            icon: "bell"
-                        )
-                    } else if let item {
-                        notificationDetail(item)
-                    } else {
-                        HudEmptyState(
-                            title: fallbackTitle,
-                            subtitle: loadError ?? "This notification is no longer active on the paired Mac.",
-                            icon: "bell.slash"
-                        )
-                        Button("Open Home", action: onOpenHome)
-                            .buttonStyle(.borderedProminent)
-                            .tint(ScoutVibe.accent)
-                            .padding(.top, HudSpacing.lg)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(HudSpacing.xxl)
-            }
-            .background(HudPalette.bg.ignoresSafeArea())
-            .navigationTitle("Notification")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        .task(id: route.id) { await load() }
-    }
-
-    @ViewBuilder
-    private func notificationDetail(_ item: MobileNotificationItem) -> some View {
-        VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(kindLabel(item.kind).uppercased())
-                    .font(HudFont.mono(9, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(kindTint(item.kind))
-                Spacer()
-                Text(item.sessionName)
-                    .font(HudFont.mono(9))
-                    .foregroundStyle(ScoutInk.dim)
-                    .lineLimit(1)
-            }
-
-            Text(item.title)
-                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
-                .foregroundStyle(ScoutVibe.ink)
-
-            Text(item.description)
-                .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(ScoutInk.muted)
-                .textSelection(.enabled)
-
-            if let detail = item.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !detail.isEmpty,
-               detail != item.description {
-                Text(detail)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(ScoutInk.muted)
-                    .textSelection(.enabled)
-                    .padding(HudSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(ScoutSurface.inset))
-                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
-            }
-
-            notificationActions(item)
-
-            if let actionResult {
-                Text(actionResult)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(actionResult == "Sent" ? ScoutVibe.accent : ScoutVibe.amber)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func notificationActions(_ item: MobileNotificationItem) -> some View {
-        if item.kind == "approval",
-           item.turnId != nil, item.blockId != nil, item.version != nil {
-            HStack(spacing: HudSpacing.sm) {
-                Button("Deny") { Task { await decide(.deny, item: item) } }
-                    .buttonStyle(.bordered)
-                Button("Approve") { Task { await decide(.approve, item: item) } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ScoutVibe.accent)
-            }
-            .disabled(isSubmitting || actionResult == "Sent")
-        } else if item.kind == "question", item.turnId != nil, item.blockId != nil {
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                TextField("Answer", text: $answer, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                Button("Send answer") { Task { await submitAnswer(item) } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ScoutVibe.accent)
-                    .disabled(
-                        isSubmitting
-                            || actionResult == "Sent"
-                            || answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-            }
-        } else {
-            Button("Open Home", action: onOpenHome)
-                .buttonStyle(.borderedProminent)
-                .tint(ScoutVibe.accent)
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        loadError = nil
-        var completedRead = false
-
-        for machine in model.agentMachines() {
-            guard let client = machine.client,
-                  let notifications = client as? any MobileNotificationCapability else { continue }
-            do {
-                let items = try await notifications.mobileNotifications()
-                completedRead = true
-                if let match = matchingItem(in: items) {
-                    item = match
-                    itemClient = client
-                    isLoading = false
-                    return
-                }
-            } catch {
-                loadError = "Couldn’t load details from \(machine.name)."
-            }
-        }
-
-        if !completedRead, loadError == nil {
-            loadError = "Connect to the paired Mac to load this notification."
-        }
-        isLoading = false
-    }
-
-    private func matchingItem(in items: [MobileNotificationItem]) -> MobileNotificationItem? {
-        if let itemId = route.itemId,
-           let exact = items.first(where: { $0.id == itemId }) {
-            return exact
-        }
-        guard let sessionId = route.sessionId else { return nil }
-        return items.first { candidate in
-            candidate.sessionId == sessionId
-                && (route.turnId == nil || candidate.turnId == route.turnId)
-                && (route.blockId == nil || candidate.blockId == route.blockId)
-        }
-    }
-
-    private func decide(_ decision: ActionDecisionSpec.Decision, item: MobileNotificationItem) async {
-        guard let client = itemClient,
-              let turnId = item.turnId,
-              let blockId = item.blockId,
-              let version = item.version else { return }
-        isSubmitting = true
-        defer { isSubmitting = false }
-        do {
-            _ = try await client.decideAction(ActionDecisionSpec(
-                conversationId: item.sessionId,
-                turnId: turnId,
-                blockId: blockId,
-                decision: decision,
-                version: version
-            ))
-            actionResult = "Sent"
-        } catch {
-            actionResult = "Couldn’t send the decision. Refresh and try again."
-        }
-    }
-
-    private func submitAnswer(_ item: MobileNotificationItem) async {
-        guard let client = itemClient,
-              let turnId = item.turnId,
-              let blockId = item.blockId else { return }
-        let value = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return }
-        isSubmitting = true
-        defer { isSubmitting = false }
-        do {
-            _ = try await client.answerQuestion(QuestionAnswerSpec(
-                conversationId: item.sessionId,
-                turnId: turnId,
-                blockId: blockId,
-                answer: [value]
-            ))
-            actionResult = "Sent"
-        } catch {
-            actionResult = "Couldn’t send the answer. Refresh and try again."
-        }
-    }
-
-    private var fallbackTitle: String {
-        guard let kind = route.kind else { return "Notification unavailable" }
-        return kindLabel(kind)
-    }
-
-    private func kindLabel(_ kind: String) -> String {
-        switch kind {
-        case "approval": return "Approval needed"
-        case "question": return "Question"
-        case "failed_action": return "Action failed"
-        case "failed_turn": return "Turn failed"
-        case "session_error": return "Session error"
-        case "native_attention": return "Needs attention"
-        case "delivery_issue": return "Delivery issue"
-        default: return "Agent notification"
-        }
-    }
-
-    private func kindTint(_ kind: String) -> Color {
-        switch kind {
-        case "failed_action", "failed_turn", "session_error": return .red
-        case "approval", "question", "native_attention": return ScoutVibe.amber
-        default: return ScoutVibe.accent
-        }
-    }
+    var id: String { name }
 }
