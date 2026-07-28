@@ -242,7 +242,8 @@ export type RepoWatchNativeScanExec = (
   request: RepoWatchNativeScanRequest,
 ) => Promise<RepoWatchNativeScanResponse>;
 
-const DEFAULT_CACHE_TTL_MS = 2_500;
+// Match the fastest known Projects overview poll so adjacent reads reuse one machine scan.
+const DEFAULT_CACHE_TTL_MS = 10_000;
 const DEFAULT_MAX_ROOTS = 8;
 const DEFAULT_MAX_WORKTREES = 4;
 const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
