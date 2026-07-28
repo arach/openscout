@@ -45,6 +45,12 @@ struct RootView: View {
     /// destination that presents its own sheet isn't swallowed.
     @State private var showPlaces = false
     @State private var pendingPlace: (() -> Void)?
+    /// The glass bar's machined seat is ONE object that travels between tabs.
+    /// It is drawn inside whichever button is selected and matched across the
+    /// swap, so switching tabs slides the seat from the old glyph to the new
+    /// instead of extinguishing one and lighting another — the bar answers
+    /// "where did I come from" without the surfaces having to move at all.
+    @Namespace private var glassTabSeat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var navMode: ScoutNavMode { ScoutNavMode.resolve(navModeRaw) }
@@ -511,6 +517,13 @@ struct RootView: View {
     /// A stable, always-mounted slot for one top-level surface. The selected
     /// slot crossfades above the others; hidden slots remain in the hierarchy but
     /// cannot receive touch or accessibility focus.
+    ///
+    /// The fade is deliberately the shortest thing in the app and is declared
+    /// HERE rather than inherited from whoever set `surface` — a tab switch on
+    /// iOS is instant, and a surface that slides or springs into place is a
+    /// surface you have to wait for. The pleasure lives in the bar; the content
+    /// just has to arrive. (Whole-surface movement is banned outright: nothing
+    /// here translates.)
     private func surfaceLayer<Content: View>(
         _ candidate: Surface,
         @ViewBuilder content: () -> Content
@@ -518,17 +531,22 @@ struct RootView: View {
         let isActive = surface == candidate
         return content()
             .opacity(isActive ? 1 : 0)
+            .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.fade), value: isActive)
             .allowsHitTesting(isActive)
             .accessibilityHidden(!isActive)
             .zIndex(isActive ? 1 : 0)
     }
 
+    /// Selection is a plain state change: the glass rail declares the seat's
+    /// spring, each surface slot declares its own crossfade, and the docked bar
+    /// keeps the tint ease it always had. Nothing here imposes one animation on
+    /// all three — that is how the seat ended up sharing the surfaces' timing.
     private func selectSurface(_ next: Surface) {
         guard surface != next else { return }
         if reduceMotion {
             surface = next
         } else {
-            withAnimation(.easeOut(duration: 0.18)) { surface = next }
+            withAnimation(ScoutMotion.fade) { surface = next }
         }
     }
 
@@ -614,6 +632,11 @@ struct RootView: View {
         .padding(.horizontal, HudSpacing.sm)
         .padding(.vertical, HudSpacing.sm)
         .frame(width: barWidth)
+        // The seat's travel and the glyph/label tint ease together, and this
+        // animation overrides the shell's own surface crossfade for everything
+        // inside the rail — the bar gets the spring, the surfaces keep their
+        // fast, flat fade.
+        .animation(ScoutMotion.honoring(reduceMotion, ScoutMotion.travel), value: surface)
         .hudLiquidBarMaterial(tint: .regular)
         // The rail is edged like the complications it seats: the same top rim
         // light + hairline the machined plates carry, over the glass rather
@@ -658,6 +681,13 @@ struct RootView: View {
                         lightReach: layout.tabButtonHeight,
                         grainOpacity: 0.05
                     )
+                    // One seat, shared identity: SwiftUI interpolates the frame
+                    // between the tab that had it and the tab taking it, so the
+                    // plate slides and stretches to its new label's width
+                    // rather than teleporting. Reduce Motion drops the match
+                    // (the seat simply appears where it belongs) — a matched
+                    // geometry animated with `nil` is exactly a cut.
+                    .matchedGeometryEffect(id: "glass-tab-seat", in: glassTabSeat)
                 }
             }
             .frame(width: width)
@@ -888,11 +918,26 @@ struct RootView: View {
                             .foregroundStyle(HudPalette.ink)
                     }
                 }
-                machineArea
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // Without the wordmark the chip would butt against the places
-                    // disc; give it the breath the wordmark used to occupy.
-                    .padding(.leading, isEntryHome ? HudSpacing.sm : 0)
+                // New carries its own HOST control, because choosing where a
+                // session lands is that surface's whole first half. Repeating
+                // the same machine in the masthead says it twice and makes the
+                // operator wonder whether they are two different settings.
+                if surface != .new {
+                    machineArea
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Without the wordmark the chip would butt against the
+                        // places disc; give it the breath the wordmark used to
+                        // occupy.
+                        .padding(.leading, isEntryHome ? HudSpacing.sm : 0)
+                } else {
+                    // An EXPLICIT spacer, because an empty `Group` does not take
+                    // part in layout however greedy a frame you hang on it — so
+                    // on New the row collapsed to its three discs and the
+                    // `.frame(width:)` centred them in the middle of the screen.
+                    // The complications seat on the EDGES: places top-left,
+                    // bell + gear top-right, on every surface.
+                    Spacer(minLength: 0)
+                }
                 notificationsButton(layout)
                 settingsButton(layout)
             }

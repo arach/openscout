@@ -270,8 +270,12 @@ struct HomeSurface: View {
                 VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
                     if isNotConnected { notConnectedState }
                 }
-                .frame(width: laneWidth, alignment: .leading)
-                .padding(.horizontal, layout.surfacePadding)
+                // `contentWidth`/`contentInset`, not `laneWidth`/`surfacePadding`:
+                // at regular width the working column stops at the readable
+                // measure and centres, so the Connect card is a card and not a
+                // banner across the whole desk. Identical on every phone width.
+                .frame(width: layout.contentWidth, alignment: .leading)
+                .padding(.horizontal, layout.contentInset)
                 // The studio's 44px breath under the masthead, minus what the
                 // shipped masthead already leaves below its rule.
                 .padding(.top, HudSpacing.huge)
@@ -287,10 +291,16 @@ struct HomeSurface: View {
             entryAccessoryLine
         }
         .animation(.easeOut(duration: 0.22), value: isLoading)
-        .overlay {
-            if showEntryModelPicker { entryModelPickerOverlay }
-        }
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: showEntryModelPicker)
+        // The runtime panel grows out of the composer's chip, in place. It has
+        // to be attached HERE — the surface that contains the chip — because
+        // that container is the coordinate space the chip's anchor is read in.
+        .scoutRuntimePicker(
+            isPresented: $showEntryModelPicker,
+            harnesses: ComposerModelHarness.catalog,
+            harnessId: $entryHarnessId,
+            familyId: $entryFamilyId,
+            effortId: $entryEffortId
+        )
         .photosPicker(isPresented: $showEntryPhotoPicker, selection: $entryPhotoItems, maxSelectionCount: 8, matching: .images)
         .onChange(of: entryPhotoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -299,6 +309,20 @@ struct HomeSurface: View {
         .fileImporter(isPresented: $showEntryFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             addEntryFiles(result)
         }
+        #if DEBUG
+        // Sim verification hook, sibling to RootView's `SCOUT_OPEN_VITALS` /
+        // `SCOUT_OPEN_SETTINGS`: the runtime panel is a touch-only state, so
+        // `SCOUT_OPEN_RUNTIME=1` opens it on launch and a headless capture can
+        // photograph the real thing instead of a preview of it. Never ships in
+        // release behavior.
+        .onAppear {
+            guard ProcessInfo.processInfo.environment["SCOUT_OPEN_RUNTIME"] == "1" else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                showEntryModelPicker = true
+            }
+        }
+        #endif
         .onChange(of: isActive) { _, active in
             // Coming back to Home re-arms the composing posture; leaving hands
             // the keyboard back so it can't hover over another surface.
@@ -349,8 +373,8 @@ struct HomeSurface: View {
         // Same discipline as the dashboard's lanes: a DEFINITE width, so the
         // preview truncates inside the row instead of inflating the column (and
         // with it the whole surface, which shoves the masthead off-screen).
-        .frame(width: max(0, laneWidth - HudSpacing.xxl * 2), alignment: .leading)
-        .padding(.horizontal, layout.surfacePadding + HudSpacing.xxl)
+        .frame(width: max(0, layout.contentWidth - HudSpacing.xxl * 2), alignment: .leading)
+        .padding(.horizontal, layout.contentInset + HudSpacing.xxl)
     }
 
     /// OUR line where the system's QuickType strip used to be: the smart-action
@@ -416,12 +440,16 @@ struct HomeSurface: View {
                 )
                 entryKeyboardToggle
             }
-            .frame(width: laneWidth, height: entryAccessoryRow)
-            .padding(.horizontal, layout.surfacePadding)
+            .frame(width: layout.contentWidth, height: entryAccessoryRow)
+            .padding(.horizontal, layout.contentInset)
             .overlay(alignment: .top) {
                 Rectangle()
                     .fill(HudHairline.subtle)
-                    .frame(height: HudStrokeWidth.thin)
+                    // Compact: the rule spans the surface, as designed (a nil
+                    // width takes the full proposal). Regular: it stops with the
+                    // column, so it reads as the composer's shoulder instead of
+                    // a divider drawn clean across the desk.
+                    .frame(width: layout.isRegularWidth ? layout.contentWidth : nil, height: HudStrokeWidth.thin)
             }
         }
     }
@@ -482,24 +510,34 @@ struct HomeSurface: View {
                 harness: entryHarnessId,
                 model: entryFamily.value,
                 effort: entryEffort.label,
+                isPicking: showEntryModelPicker,
                 onPick: {
-                    // The plate rises from the bottom edge — give it the room
-                    // the keyboard is holding.
-                    dismissEntryKeyboard()
-                    showEntryModelPicker = true
+                    // The keyboard STAYS. The panel opens upward out of the
+                    // chip, which is already sitting above the keys — dropping
+                    // them would move the composer out from under the operator
+                    // mid-gesture, and losing the draft line is exactly what
+                    // the anchored panel exists to stop.
+                    showEntryModelPicker.toggle()
                 }
             )
         }
-        .frame(width: laneWidth)
-        .padding(.horizontal, layout.surfacePadding)
+        // The runtime panel takes its left and right edges from the composer,
+        // so the two read as one column when it opens.
+        .scoutRuntimeLane()
+        .frame(width: layout.contentWidth)
+        .padding(.horizontal, layout.contentInset)
         // A decent distance from the whisper lane: the recents are the quietest
         // thing on screen and must not crowd the one loud one.
         .padding(.top, HudSpacing.huge)
         .padding(.bottom, HudSpacing.xl)
     }
 
+    /// The picker is deliberately NOT in this condition: an anchored panel sits
+    /// above the keyboard rather than needing the room it holds, and a composer
+    /// that resigned focus to open a settings panel would drop the draft line
+    /// out from under the very gesture that opened it.
     private var entryDockHoldsKeyboard: Bool {
-        entryKeyboardRequested && isActive && route == nil && !isLoading && !showEntryModelPicker
+        entryKeyboardRequested && isActive && route == nil && !isLoading
     }
 
     /// The trailing control is a TOGGLE: down when the keyboard is up, up when
@@ -535,30 +573,6 @@ struct HomeSurface: View {
 
     private var entryEffort: ComposerEffortOption {
         ComposerEffortOption.catalog.first { $0.id == entryEffortId } ?? ComposerEffortOption.catalog[0]
-    }
-
-    /// The same machined plate the New surface uses. The catalog is the plate
-    /// list here — Home holds no workspace inventory, and New re-seats the pick
-    /// if the target Mac turns out not to have that harness installed.
-    private var entryModelPickerOverlay: some View {
-        ZStack(alignment: .bottom) {
-            ModelPickerTone.scrim
-                .background(.ultraThinMaterial)
-                .ignoresSafeArea()
-                .onTapGesture { showEntryModelPicker = false }
-                .transition(.opacity)
-            ModelPickerPopover(
-                harnesses: ComposerModelHarness.catalog,
-                harnessId: $entryHarnessId,
-                familyId: $entryFamilyId,
-                effortId: $entryEffortId,
-                onCommit: { showEntryModelPicker = false },
-                onCancel: { showEntryModelPicker = false }
-            )
-            .padding(.horizontal, 14)
-            .padding(.bottom, HudSpacing.huge)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
     }
 
     // MARK: Entry attachments
