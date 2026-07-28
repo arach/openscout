@@ -159,6 +159,42 @@ export function normalizeTerminalWorkspaceColumnCount(value: unknown): TerminalW
   return value === "dynamic" ? "dynamic" : normalizeTerminalWorkspaceColumns(value);
 }
 
+/**
+ * Read a stored `layout_json` column back, or null when there is nothing
+ * trustworthy in it.
+ *
+ * Every store that persists a workspace decodes the layout through this, and
+ * that is the point: `layout_json` was added to the schema and then read by one
+ * handle and ignored by the other, so a layout written through the web server
+ * came back as `null` through the runtime store. One decoder means one answer.
+ *
+ * The mode is validated rather than trusted. It flows straight into the
+ * client's grid resolver, so a value that is not one of the three shapes must
+ * become "no stored layout" — which folds forward from the column count — and
+ * not a mode nothing can render.
+ */
+export function parseTerminalWorkspaceLayoutJson(
+  value: string | null | undefined,
+): TerminalWorkspaceLayout | null {
+  if (!value) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const candidate = parsed as Partial<TerminalWorkspaceLayout>;
+  const mode = candidate.mode;
+  if (mode !== "solo" && mode !== "lanes" && mode !== "grid") return null;
+  return {
+    mode,
+    ...(candidate.columns === undefined
+      ? {}
+      : { columns: normalizeTerminalWorkspaceColumnCount(candidate.columns) }),
+  };
+}
+
 export function terminalWorkspaceLayoutLabel(layout: TerminalWorkspaceLayout): string {
   if (layout.mode === "solo") return "Solo";
   const shape = layout.mode === "lanes" ? "Lanes" : "Grid";

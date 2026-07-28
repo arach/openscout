@@ -4,7 +4,12 @@ import { dirname } from "node:path";
 
 import { and, asc, eq } from "drizzle-orm";
 
-import { epochMs, normalizeTerminalWorkspaceColumns, nowMs } from "@openscout/protocol";
+import {
+  epochMs,
+  normalizeTerminalWorkspaceColumns,
+  nowMs,
+  parseTerminalWorkspaceLayoutJson,
+} from "@openscout/protocol";
 import type {
   ActorIdentity,
   AgentDefinition,
@@ -390,6 +395,8 @@ interface TerminalWorkspaceRow {
   name: string;
   purpose: string;
   columns_count: number;
+  /** Absent, not just null, on a row read from a table that predates the column. */
+  layout_json?: string | null;
   cells_json: string | null;
   metadata_json: string | null;
   created_at: number;
@@ -577,11 +584,17 @@ function terminalSessionRegistryId(harness: string, sourceSessionId: string): st
 }
 
 function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceRecord {
+  const layout = parseTerminalWorkspaceLayoutJson(row.layout_json);
   return {
     id: row.id,
     name: row.name,
     purpose: row.purpose,
     columns: normalizeTerminalWorkspaceColumns(row.columns_count),
+    // Absent for a row written before layouts were stored, and for a row from a
+    // table that predates the column. The record then carries only the resolved
+    // column count and `terminalWorkspaceLayoutOf` infers a shape from it — a
+    // fold-forward, not a substitute, which is why the column exists.
+    ...(layout ? { layout } : {}),
     cells: parseJson<TerminalWorkspaceCell[]>(row.cells_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1341,12 +1354,13 @@ export class SQLiteControlPlaneStore {
     const now = currentTimestampMs();
     this.db.query(
       `INSERT INTO terminal_workspaces (
-         id, name, purpose, columns_count, cells_json, metadata_json, created_at, updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         id, name, purpose, columns_count, layout_json, cells_json, metadata_json, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          purpose = excluded.purpose,
          columns_count = excluded.columns_count,
+         layout_json = excluded.layout_json,
          cells_json = excluded.cells_json,
          metadata_json = excluded.metadata_json,
          updated_at = excluded.updated_at`,
@@ -1355,6 +1369,10 @@ export class SQLiteControlPlaneStore {
       input.name,
       input.purpose ?? "",
       normalizeTerminalWorkspaceColumns(input.columns),
+      // The authored shape, which the resolved column count cannot stand in
+      // for: "dynamic" comes back pinned to a number, and a lanes workspace
+      // wider than the column clamp comes back a grid.
+      input.layout === undefined ? null : JSON.stringify(input.layout),
       JSON.stringify(input.cells ?? []),
       stringify(input.metadata),
       now,

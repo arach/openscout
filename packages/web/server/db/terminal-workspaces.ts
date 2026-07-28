@@ -25,10 +25,9 @@
 import { Database } from "bun:sqlite";
 
 import {
-  normalizeTerminalWorkspaceColumnCount,
   normalizeTerminalWorkspaceColumns,
+  parseTerminalWorkspaceLayoutJson,
   type TerminalWorkspaceCell,
-  type TerminalWorkspaceLayout,
   type TerminalWorkspaceRecord,
   type TerminalWorkspaceRecordInput,
 } from "@openscout/protocol";
@@ -165,7 +164,7 @@ export function deleteTerminalWorkspace(id: string): boolean {
 }
 
 function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceRecord {
-  const layout = parseTerminalWorkspaceLayout(row.layout_json);
+  const layout = parseTerminalWorkspaceLayoutJson(row.layout_json);
   return {
     id: row.id,
     name: row.name,
@@ -180,23 +179,6 @@ function terminalWorkspaceFromRow(row: TerminalWorkspaceRow): TerminalWorkspaceR
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
-  };
-}
-
-/**
- * Read back a stored layout, or null when there is nothing trustworthy there.
- * The mode is validated because a value that is not one of the three shapes
- * would flow straight into the client's grid resolver.
- */
-function parseTerminalWorkspaceLayout(value: string | null | undefined): TerminalWorkspaceLayout | null {
-  const parsed = parseJson<Partial<TerminalWorkspaceLayout> | null>(value, null);
-  const mode = parsed?.mode;
-  if (mode !== "solo" && mode !== "lanes" && mode !== "grid") return null;
-  return {
-    mode,
-    ...(parsed?.columns === undefined
-      ? {}
-      : { columns: normalizeTerminalWorkspaceColumnCount(parsed.columns) }),
   };
 }
 

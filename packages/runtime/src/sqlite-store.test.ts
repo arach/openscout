@@ -2024,6 +2024,89 @@ describe("terminal workspaces", () => {
     }
   });
 
+  test("round-trips the authored layout, not just the resolved column count", () => {
+    const store = createStore();
+    try {
+      // "dynamic" is the case the resolved count cannot carry: it comes back
+      // pinned to whatever number the tile count produced.
+      const created = store.upsertTerminalWorkspace({
+        name: "Lanes desk",
+        layout: { mode: "lanes", columns: "dynamic" },
+        cells,
+      });
+
+      expect(created.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+      expect(store.getTerminalWorkspace(created.id)?.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+      expect(store.listTerminalWorkspaces()[0]?.layout).toEqual({ mode: "lanes", columns: "dynamic" });
+
+      // An update rewrites the layout rather than leaving the first one behind.
+      const updated = store.upsertTerminalWorkspace({
+        id: created.id,
+        name: "Lanes desk",
+        layout: { mode: "grid", columns: 3 },
+        cells,
+      });
+      expect(updated.layout).toEqual({ mode: "grid", columns: 3 });
+      expect(store.getTerminalWorkspace(created.id)?.layout).toEqual({ mode: "grid", columns: 3 });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a workspace saved without a layout, or with an unreadable one, reports none", () => {
+    const store = createStore();
+    try {
+      const none = store.upsertTerminalWorkspace({ name: "No layout", cells });
+      expect(none.layout).toBeUndefined();
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+
+      // A mode nothing can render must fold back to "no stored layout" rather
+      // than reach the client's grid resolver.
+      const db = getWritableDb(store);
+      db.query("UPDATE terminal_workspaces SET layout_json = ?1 WHERE id = ?2")
+        .run(JSON.stringify({ mode: "hexagons", columns: 2 }), none.id);
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+
+      db.query("UPDATE terminal_workspaces SET layout_json = ?1 WHERE id = ?2").run("{not json", none.id);
+      expect(store.getTerminalWorkspace(none.id)?.layout).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a row from a table that predates layout_json still loads", () => {
+    const store = createStore();
+    try {
+      // The shape a machine that ran the earlier build actually has: the table
+      // exists without the column, so `SELECT *` returns no `layout_json` at
+      // all — not a null one.
+      const db = getWritableDb(store);
+      db.exec("DROP TABLE terminal_workspaces");
+      db.exec(`CREATE TABLE terminal_workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT '',
+        columns_count INTEGER NOT NULL DEFAULT 2,
+        cells_json TEXT NOT NULL DEFAULT '[]',
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.query(
+        `INSERT INTO terminal_workspaces (id, name, purpose, columns_count, cells_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      ).run("tw.legacy", "Old desk", "", 3, JSON.stringify(cells), 1000, 1000);
+
+      const record = store.getTerminalWorkspace("tw.legacy");
+      expect(record?.name).toBe("Old desk");
+      expect(record?.columns).toBe(3);
+      expect(record?.cells).toEqual(cells);
+      expect(record?.layout).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
   test("updating a workspace keeps its identity and creation time", () => {
     const store = createStore();
     try {
