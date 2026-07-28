@@ -175,13 +175,6 @@
     "owner": "runtime"
   },
   {
-    "path": "packages/runtime/src/base-daemon.ts",
-    "symbol": "spawnSync",
-    "category": "boot",
-    "reason": "daemon startup port ownership check before spawning broker",
-    "owner": "runtime"
-  },
-  {
     "path": "packages/runtime/src/broker-process-manager.ts",
     "symbol": "node:child_process",
     "category": "process-lifecycle",
