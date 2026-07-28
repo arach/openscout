@@ -14,67 +14,64 @@
 //
 // Baseline entries are keyed by file + code + message, never by line, so
 // unrelated edits above a known error do not trip the gate.
+//
+// Three properties make this a ratchet rather than a suggestion, and a change
+// here must keep all three. They are graded in scripts/typecheck-core.mjs and
+// pinned by test/typecheck-ratchet.test.mjs:
+//
+// 1. A compiler that did not actually check is a FAILURE, never a pass.
+// 2. The baseline only ever shrinks; `--update` refuses to record anything it
+//    did not previously allow, so the escape hatch cannot launder a regression.
+// 3. Fixing an error tightens the baseline immediately, so no headroom is left
+//    banked for a future error with a byte-identical file, code, and message.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  baselineGrowth,
+  baselineTotalOf,
+  compilerRunProblem,
+  diagnosticKey,
+  parseDiagnostics,
+  regressionsOf,
+  tally,
+} from "./typecheck-core.mjs";
+
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const baselinePath = join(packageRoot, "typecheck-baseline.json");
+// Test seams. The suite drives the whole CLI against a stub compiler and a
+// throwaway baseline; nothing else sets these.
+const baselinePath = process.env.OPENSCOUT_WEB_TYPECHECK_BASELINE?.trim()
+  || join(packageRoot, "typecheck-baseline.json");
+const tscBin = process.env.OPENSCOUT_WEB_TYPECHECK_TSC?.trim()
+  || join(packageRoot, "node_modules", ".bin", "tsc");
 const update = process.argv.includes("--update");
 
-const ERROR_LINE = /^(?<file>[^(]+)\((?<line>\d+),(?<column>\d+)\): error (?<code>TS\d+): (?<message>.*)$/u;
+function fail(message, detail) {
+  console.error(`[web:check] ${message}`);
+  if (detail?.trim()) {
+    console.error("\n--- tsc output ---");
+    console.error(detail.trim());
+    console.error("--- end tsc output ---");
+  }
+  process.exit(1);
+}
 
 function runTsc() {
-  const result = spawnSync(
-    join(packageRoot, "node_modules", ".bin", "tsc"),
-    ["--noEmit", "-p", "tsconfig.json"],
-    { cwd: packageRoot, encoding: "utf8" },
-  );
+  const result = spawnSync(tscBin, ["--noEmit", "-p", "tsconfig.json"], {
+    cwd: packageRoot,
+    encoding: "utf8",
+  });
   if (result.error) {
-    console.error(`[web:check] could not run tsc: ${result.error.message}`);
-    process.exit(1);
+    fail(`could not run tsc: ${result.error.message}`);
   }
-  return `${result.stdout ?? ""}${result.stderr ?? ""}`;
-}
-
-function parseDiagnostics(output) {
-  const diagnostics = [];
-  for (const rawLine of output.split(/\r?\n/u)) {
-    const match = ERROR_LINE.exec(rawLine.trim());
-    if (!match?.groups) continue;
-    diagnostics.push({
-      file: match.groups.file,
-      code: match.groups.code,
-      message: match.groups.message,
-      line: Number(match.groups.line),
-    });
-  }
-  return diagnostics;
-}
-
-function diagnosticKey(diagnostic) {
-  return JSON.stringify([diagnostic.file, diagnostic.code, diagnostic.message]);
-}
-
-function tally(diagnostics) {
-  const entries = new Map();
-  for (const diagnostic of diagnostics) {
-    const key = diagnosticKey(diagnostic);
-    const entry = entries.get(key);
-    if (entry) {
-      entry.count += 1;
-      continue;
-    }
-    entries.set(key, {
-      file: diagnostic.file,
-      code: diagnostic.code,
-      message: diagnostic.message,
-      count: 1,
-    });
-  }
-  return entries;
+  return {
+    output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    status: result.status,
+    signal: result.signal,
+  };
 }
 
 function readBaseline() {
@@ -90,19 +87,21 @@ function readBaseline() {
   }
 }
 
-function writeBaseline(diagnostics) {
-  const errors = [...tally(diagnostics).values()].sort((left, right) =>
+const BASELINE_NOTE = "Known packages/web type errors that predate the typecheck gate. "
+  + "Never add to this file by hand: fix the error instead. The gate rewrites it "
+  + "downward on its own whenever an error is fixed; `node scripts/typecheck.mjs "
+  + "--update` refuses any change that would grow it.";
+
+function writeBaseline(observed) {
+  const errors = [...observed.values()].sort((left, right) =>
     left.file.localeCompare(right.file)
     || left.code.localeCompare(right.code)
     || left.message.localeCompare(right.message)
   );
-  const note = "Known packages/web type errors that predate the typecheck gate. "
-    + "Never add to this file by hand: fix the error instead. Regenerate with "
-    + "`node scripts/typecheck.mjs --update` only when the count goes DOWN.";
   writeFileSync(
     baselinePath,
     `${JSON.stringify({
-      note,
+      note: BASELINE_NOTE,
       total: errors.reduce((sum, entry) => sum + entry.count, 0),
       errors,
     }, null, 2)}\n`,
@@ -110,26 +109,35 @@ function writeBaseline(diagnostics) {
   return errors.length;
 }
 
-const diagnostics = parseDiagnostics(runTsc());
+const run = runTsc();
+const parsed = parseDiagnostics(run.output);
+const problem = compilerRunProblem(run, parsed);
+if (problem) fail(problem, run.output);
+
+const diagnostics = parsed.diagnostics;
+const observed = tally(diagnostics);
+const baseline = readBaseline();
 
 if (update) {
-  const distinct = writeBaseline(diagnostics);
+  // The escape hatch is a ratchet too: `--update` re-records reality only when
+  // reality is a subset of what was already allowed. Otherwise the one command
+  // meant to lock in an improvement becomes the command that launders a
+  // regression into the baseline.
+  const growth = baselineGrowth(observed, baseline);
+  if (growth.length > 0) {
+    console.error(`[web:check] refusing to update: ${growth.length} baseline entr(y|ies) would GROW:\n`);
+    for (const entry of growth) {
+      console.error(`  ${entry.file} ${entry.code}: ${entry.message} (${entry.allowed} allowed, ${entry.count} observed)`);
+    }
+    console.error("\nThe baseline records pre-existing debt only. Fix the error instead.");
+    process.exit(1);
+  }
+  const distinct = writeBaseline(observed);
   console.log(`[web:check] recorded ${diagnostics.length} error(s) across ${distinct} baseline entries`);
   process.exit(0);
 }
 
-const baseline = readBaseline();
-const observed = tally(diagnostics);
-const regressions = [];
-const reported = new Set();
-for (const diagnostic of diagnostics) {
-  const key = diagnosticKey(diagnostic);
-  if (reported.has(key)) continue;
-  if ((observed.get(key)?.count ?? 0) <= (baseline.get(key) ?? 0)) continue;
-  reported.add(key);
-  regressions.push(diagnostic);
-}
-
+const regressions = regressionsOf(diagnostics, observed, baseline);
 if (regressions.length > 0) {
   console.error(`[web:check] ${regressions.length} new type error(s) not in typecheck-baseline.json:\n`);
   for (const diagnostic of regressions) {
@@ -139,12 +147,23 @@ if (regressions.length > 0) {
   process.exit(1);
 }
 
-const baselineTotal = [...baseline.values()].reduce((sum, count) => sum + count, 0);
+const baselineTotal = baselineTotalOf(baseline);
 if (diagnostics.length < baselineTotal) {
-  console.log(
-    `[web:check] ok - ${diagnostics.length} baselined error(s) left, down from ${baselineTotal}. `
-      + "Run `node scripts/typecheck.mjs --update` to lock in the improvement.",
-  );
+  // Tighten in place rather than printing a suggestion. A baseline left larger
+  // than reality is banked headroom: a future error that happens to share a
+  // fixed one's file, code, and message would be spent against it silently.
+  try {
+    writeBaseline(observed);
+    console.log(
+      `[web:check] ok - ${diagnostics.length} baselined error(s) left, down from ${baselineTotal}. `
+        + "Baseline tightened; commit typecheck-baseline.json.",
+    );
+  } catch (error) {
+    fail(
+      `${diagnostics.length} baselined error(s) left, down from ${baselineTotal}, but the baseline `
+        + `could not be tightened: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 } else {
   console.log(`[web:check] ok - no new type errors (${diagnostics.length} baselined)`);
 }
