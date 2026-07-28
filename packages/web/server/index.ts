@@ -21,6 +21,7 @@ import {
   type ManagedTerminalRelay,
 } from "./managed-terminal-relay.ts";
 import { loadServiceBudgets } from "./service-budgets.ts";
+import { startProcessParentWatchdog } from "./process-parent-watchdog.ts";
 
 process.title = "scout-web";
 
@@ -267,12 +268,17 @@ try {
 // then exit. A second signal forces immediate exit.
 const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 let shuttingDown = false;
+// Broker-launched web must not survive a broker crash as an unowned listener.
+// Standalone `scout server` processes do not receive OPENSCOUT_PARENT_PID, so
+// this is intentionally inactive outside broker supervision.
+const parentWatchdog = startProcessParentWatchdog(process.env.OPENSCOUT_PARENT_PID);
 const shutdown = async (signal: NodeJS.Signals) => {
   if (shuttingDown) {
     console.log(`[scout] ${signal} received during shutdown — forcing exit.`);
     process.exit(1);
   }
   shuttingDown = true;
+  if (parentWatchdog) clearInterval(parentWatchdog);
   console.log(`[scout] ${signal} received — draining (up to ${SHUTDOWN_DRAIN_TIMEOUT_MS}ms)...`);
   const forceExit = setTimeout(() => {
     console.error("[scout] Drain timeout exceeded — forcing exit.");

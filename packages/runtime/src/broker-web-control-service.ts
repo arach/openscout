@@ -55,6 +55,7 @@ export type BrokerWebControlServiceOptions = {
   respawnMaxDelayMs?: number;
   respawnMaxFailures?: number;
   respawnFailureWindowMs?: number;
+  stopTimeoutMs?: number;
   log?: (message: string, detail?: unknown) => void;
   warn?: (message: string) => void;
   error?: (message: string, detail?: unknown) => void;
@@ -67,6 +68,10 @@ const DEFAULT_RESPAWN_BASE_DELAY_MS = 1_000;
 const DEFAULT_RESPAWN_MAX_DELAY_MS = 30_000;
 const DEFAULT_RESPAWN_MAX_FAILURES = 5;
 const DEFAULT_RESPAWN_FAILURE_WINDOW_MS = 60_000;
+// Keep this below the broker's outer shutdown allowance. The web server has
+// its own drain window, so clearing our child handle immediately after TERM
+// would make a replacement or parent shutdown race the still-live process.
+const DEFAULT_STOP_TIMEOUT_MS = 10_000;
 
 export function appendCsvValue(input: string | undefined, value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -178,6 +183,7 @@ export class BrokerWebControlService {
   private readonly respawnMaxDelayMs: number;
   private readonly respawnMaxFailures: number;
   private readonly respawnFailureWindowMs: number;
+  private readonly stopTimeoutMs: number;
   private readonly respawnFailures: number[] = [];
   private webServerProcess: RuntimeChildProcessLike | null = null;
   private webStartInFlight: Promise<WebControlStatus> | null = null;
@@ -204,6 +210,7 @@ export class BrokerWebControlService {
     this.respawnMaxDelayMs = options.respawnMaxDelayMs ?? DEFAULT_RESPAWN_MAX_DELAY_MS;
     this.respawnMaxFailures = options.respawnMaxFailures ?? DEFAULT_RESPAWN_MAX_FAILURES;
     this.respawnFailureWindowMs = options.respawnFailureWindowMs ?? DEFAULT_RESPAWN_FAILURE_WINDOW_MS;
+    this.stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
   }
 
   port(): number {
@@ -291,6 +298,9 @@ export class BrokerWebControlService {
   }
 
   async startIfNeeded(context: WebStartContext = {}): Promise<WebControlStatus> {
+    if (this.stopping) {
+      return this.failureStatus("Scout web cannot start while the broker is stopping.");
+    }
     if (this.webStartInFlight) {
       return this.webStartInFlight;
     }
@@ -299,6 +309,12 @@ export class BrokerWebControlService {
       try {
         if (await this.isHealthy()) {
           return this.status();
+        }
+        // stop() can run while the initial health probe is in flight. Recheck
+        // the lifecycle boundary after that await so shutdown cannot return
+        // before a late web child is spawned.
+        if (this.stopping) {
+          return this.failureStatus("Scout web cannot start while the broker is stopping.");
         }
         if (!isChildProcessRunning(this.webServerProcess)) {
           this.webServerProcess = this.spawnWebServer(context);
@@ -393,10 +409,41 @@ export class BrokerWebControlService {
     return this.webRestartInFlight;
   }
 
-  stop(): void {
+  /**
+   * Stop only the web process this broker launched. This deliberately awaits
+   * the owned child before releasing its handle, giving the parent a real
+   * shutdown boundary rather than a best-effort signal.
+   */
+  async stop(): Promise<void> {
     this.stopping = true;
-    if (this.webServerProcess && !this.webServerProcess.killed) {
-      this.webServerProcess.kill("SIGTERM");
+    const child = this.webServerProcess;
+    if (!isChildProcessRunning(child)) {
+      return;
+    }
+    try {
+      child.kill("SIGTERM");
+    } catch (error) {
+      this.options.warn?.(`[openscout-runtime] could not stop broker-managed Scout web: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+
+    const deadline = Date.now() + this.stopTimeoutMs;
+    while (isChildProcessRunning(child) && Date.now() < deadline) {
+      await this.sleep(this.startPollIntervalMs);
+    }
+    if (isChildProcessRunning(child)) {
+      this.options.warn?.(`[openscout-runtime] Scout web did not exit within ${this.stopTimeoutMs}ms; forcing broker-managed child shutdown.`);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Preserve the handle below if the process still appears alive.
+      }
+      const forceDeadline = Date.now() + 2_000;
+      while (isChildProcessRunning(child) && Date.now() < forceDeadline) {
+        await this.sleep(this.startPollIntervalMs);
+      }
+    }
+    if (!isChildProcessRunning(child) && this.webServerProcess === child) {
       this.webServerProcess = null;
     }
   }
@@ -489,6 +536,7 @@ export class BrokerWebControlService {
       OPENSCOUT_WEB_PORT: String(this.port()),
       OPENSCOUT_WEB_BUN_URL: this.url(),
       OPENSCOUT_BROKER_INTERNAL_URL: this.options.brokerControlUrl,
+      OPENSCOUT_PARENT_PID: String(process.pid),
       ...(context.publicOrigin && !this.env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim()
         ? { OPENSCOUT_WEB_PUBLIC_ORIGIN: context.publicOrigin }
         : {}),
@@ -510,7 +558,6 @@ export class BrokerWebControlService {
       ["run", entry],
       {
         argv0: this.webProcessName,
-        detached: true,
         env,
         stdio: ["ignore", logFd, logFd],
       },
