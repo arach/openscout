@@ -1714,7 +1714,7 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
     clearInterval(parentWatcher);
     parentWatcher = null;
   }
-  webControl.stop();
+  await webControl.stop();
   peerDelivery.stop();
   meshRendezvousPublisher?.stop();
   irohBridgeService?.stop();
