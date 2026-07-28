@@ -1,10 +1,16 @@
 /**
- * MessageComposer atom gallery — sandwich layout contract.
+ * MessageComposer atom gallery — the prop contract's living documentation.
  *
  *   header (reply) → input → toolbar [attach ··· model · mic · Send]
  *
+ * Every panel is labelled with the EXACT param combination that produces it,
+ * because that list is the spec the ports mirror. If a surface needs a shape
+ * this page cannot express in params, the contract is missing a param — not
+ * the surface a wrapper.
+ *
  * Production: packages/web/client/components/MessageComposer/
  * Studio:     design/studio/components/MessageComposer.tsx
+ * Phone:      design/studio/components/scout-ios/composer.tsx (defaults only)
  */
 
 "use client";
@@ -14,45 +20,52 @@ import {
   MessageComposer,
   MessageComposerSelect,
 } from "@/components/MessageComposer";
+import { StudyHeader } from "@/components/StudyHeader";
 
 export default function MessageComposerAtomPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-8 max-w-prose">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          · atoms · message-composer
-        </div>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          MessageComposer
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Sandwich layout: decoration on top, message in the middle, button-y
-          controls on the base.{" "}
-          <strong className="font-medium text-studio-ink">Send</strong> is an
-          upright arrow and always commits the draft.{" "}
-          <strong className="font-medium text-studio-ink">Mic</strong> only
-          starts/stops recording. While live, a full-width{" "}
-          <strong className="font-medium text-studio-ink">waveform</strong>{" "}
-          sits in the body so model pickers stay clean in the toolbar.
-        </p>
-      </header>
+      <StudyHeader eyebrow="atoms · message-composer" title="MessageComposer">
+        Sandwich layout: decoration on top, message in the middle, button-y
+        controls on the base.{" "}
+        <strong className="font-medium text-studio-ink">Send</strong> is an
+        upright arrow and always commits the draft.{" "}
+        <strong className="font-medium text-studio-ink">Mic</strong> only
+        starts/stops recording. While live, a full-width{" "}
+        <strong className="font-medium text-studio-ink">waveform</strong>{" "}
+        sits in the body so model pickers stay clean in the toolbar. One
+        interface everywhere — web, the iOS kit, and the SwiftUI port — so each
+        panel below is labelled with the params that produce it.
+      </StudyHeader>
 
       <ContractStrip />
 
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <Panel title="Canonical · attach + model + mic + Send">
+        <Panel
+          title="Canonical · attach + harness/model + mic + Send"
+          params="value · onChange · onSend · showAttach · onAttach · tools={2 × Select}"
+        >
           <InteractiveCanonical />
         </Panel>
 
-        <Panel title="Reply annotation on top">
+        <Panel
+          title="Reply annotation on top"
+          params="header · tools={Select} · showAttach · placeholder"
+        >
           <InteractiveWithHeader />
         </Panel>
 
-        <Panel title="Voice flow · speech-shaped waveform (try mic)">
+        <Panel
+          title="Voice flow · speech-shaped waveform (try mic)"
+          params="showAttach · demoUtterance · placeholder"
+        >
           <InteractiveVoice />
         </Panel>
 
-        <Panel title="Agent stop mode (Send slot becomes Stop)">
+        <Panel
+          title="Agent stop mode (Send slot becomes Stop)"
+          params="defaultValue · showAttach · stopMode · onStop · tools={Select}"
+        >
           <MessageComposer
             defaultValue="Keep going on the sidebar polish…"
             showAttach
@@ -72,7 +85,10 @@ export default function MessageComposerAtomPage() {
           />
         </Panel>
 
-        <Panel title="Compact density">
+        <Panel
+          title="Compact density"
+          params={`density="compact" · placeholder · showAttach`}
+        >
           <MessageComposer
             defaultValue=""
             placeholder="Quick note…"
@@ -81,7 +97,30 @@ export default function MessageComposerAtomPage() {
           />
         </Panel>
 
-        <Panel title="Sending">
+        <Panel
+          title="Pill · folded (the phone ask box)"
+          params={`appearance="pill" · rows={1} — no attach, no tools → one ~44px line`}
+        >
+          <MessageComposer appearance="pill" rows={1} placeholder="Ask the fleet…" />
+        </Panel>
+
+        <Panel
+          title="Pill · runtime chips (harness · model · effort)"
+          params={`appearance="pill" · rows={1} · showAttach · tools={3 × Select size="sm"}`}
+        >
+          <MessageComposer
+            appearance="pill"
+            rows={1}
+            placeholder="Ask the fleet…"
+            showAttach
+            tools={<RuntimeTriplet />}
+          />
+        </Panel>
+
+        <Panel
+          title="Sending"
+          params="value · sending · canSend={false} · showAttach · tools={Select}"
+        >
           <MessageComposer
             value="Routing to Action…"
             sending
@@ -98,7 +137,10 @@ export default function MessageComposerAtomPage() {
           />
         </Panel>
 
-        <Panel title="No dictation">
+        <Panel
+          title="No dictation"
+          params="defaultValue · showDictation={false} · showAttach"
+        >
           <MessageComposer
             defaultValue="No mic in this surface."
             showDictation={false}
@@ -106,7 +148,10 @@ export default function MessageComposerAtomPage() {
           />
         </Panel>
 
-        <Panel title="Thread density (conversation footer)">
+        <Panel
+          title="Thread density (conversation footer)"
+          params={`density="thread" · placeholder · showAttach · tools`}
+        >
           <div className="rounded-md border border-studio-edge bg-studio-canvas">
             <div className="px-4 py-8 text-center font-mono text-[11px] text-studio-ink-faint">
               · transcript ·
@@ -129,19 +174,39 @@ export default function MessageComposerAtomPage() {
       <div className="mt-12 grid max-w-4xl gap-8 border-t border-studio-edge pt-6 md:grid-cols-2">
         <div>
           <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-            · props
+            · the contract
           </div>
           <pre className="overflow-x-auto font-mono text-[11.5px] leading-relaxed text-studio-ink">
-{`type Props = {
-  value / onChange / onSend
-  header?                 // top: reply annotation
-  tools?                  // right toolbar: model / harness (before mic/Send)
-  showAttach? / onAttach?
-  showDictation?
-  stopMode? / onStop?     // agent stop (not mic)
-  density?: panel|thread|compact|bare
-}`}
+{`// draft            Swift
+value?             String
+defaultValue?      String     // non-empty = armed
+placeholder?       String
+rows?              Int
+autoFocus?         Bool
+onChange?          (String) -> Void
+
+// commit
+onSend?            (String) -> Void
+canSend?           Bool       // override the derived rule
+sending? disabled? Bool
+stopMode? onStop?  Bool / () -> Void
+
+// toolbar
+showAttach? onAttach?
+showDictation?     Bool
+header?  tools?    @ViewBuilder
+
+// presentation
+density?           enum panel | thread | compact
+appearance?        enum panel | pill
+className?         web only — the port drops it`}
           </pre>
+          <p className="mt-3 font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+            No <code className="font-mono">armed</code> or{" "}
+            <code className="font-mono">focused</code> prop, by design: state
+            derives from the draft and from real focus, so a study can never
+            pin a look the shipped component would not produce.
+          </p>
         </div>
         <div>
           <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
@@ -165,6 +230,27 @@ export default function MessageComposerAtomPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/** The phone's toolbar set — what `components/scout-ios/composer.tsx` passes
+ *  as `tools`. Value-only, `sm`, so three of them fit beside attach/mic/Send. */
+function RuntimeTriplet() {
+  return (
+    <>
+      <MessageComposerSelect
+        label="Harness" size="sm" value="claude" onChange={() => undefined}
+        options={[{ value: "claude", label: "claude" }, { value: "codex", label: "codex" }]}
+      />
+      <MessageComposerSelect
+        label="Model" size="sm" value="opus-4.8" onChange={() => undefined}
+        options={[{ value: "opus-4.8", label: "opus-4.8" }, { value: "sonnet-4.8", label: "sonnet-4.8" }]}
+      />
+      <MessageComposerSelect
+        label="Effort" size="sm" value="high" onChange={() => undefined}
+        options={[{ value: "high", label: "high" }, { value: "low", label: "low" }]}
+      />
+    </>
   );
 }
 
@@ -314,11 +400,24 @@ function InteractiveVoice() {
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+/** One demonstrated variant. `params` is the exact combination that produces
+ *  it — the page is the contract's documentation, so it has to be literal. */
+function Panel({
+  title,
+  params,
+  children,
+}: {
+  title: string;
+  params: string;
+  children: ReactNode;
+}) {
   return (
     <div>
-      <div className="mb-2 font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
         · {title}
+      </div>
+      <div className="mb-2 mt-1 overflow-x-auto whitespace-nowrap font-mono text-[10px] text-studio-ink-muted">
+        {params}
       </div>
       <div className="rounded-md border border-studio-edge bg-studio-canvas p-4">
         {children}

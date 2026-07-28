@@ -49,6 +49,32 @@ export const SCOUT_IOS_CSS = `
 .scoutios { --i-font: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
   --i-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; }
 
+/* ── Token bridge — studio atoms on phone tokens ─────────────────────── */
+/* The kit renders shared studio atoms as-is (today: MessageComposer +
+   MessageComposerSelect). Those are styled in Tailwind studio-* / scout-*
+   classes, which resolve to the --studio-* / --scout-* vars declared on :root
+   in app/globals.css. Rebinding the whole registered set here from the --i-*
+   palette makes any such atom follow Paper / Shipped / Higher-contrast
+   automatically — and the override is inert outside .scoutios.
+   --studio-edge deliberately takes --i-hairline-strong, not --i-hairline: the
+   kit reserves --i-hairline for row separators, and a control border at that
+   value is invisible on the Shipped surface. --studio-edge-strong has no kit
+   equivalent that is reliably stronger (--i-border is LIGHTER than
+   --i-hairline-strong on Paper), so it is mixed from ink — it carries focus
+   and hover, which have to read as a lift in every palette. */
+.scoutios {
+  --studio-canvas: var(--i-bg);
+  --studio-canvas-alt: var(--i-chrome);
+  --studio-surface: var(--i-surface);
+  --studio-ink: var(--i-ink);
+  --studio-ink-muted: var(--i-muted);
+  --studio-ink-faint: var(--i-dim);
+  --studio-edge: var(--i-hairline-strong);
+  --studio-edge-strong: color-mix(in oklab, var(--i-ink) 24%, var(--i-hairline-strong));
+  --scout-accent: var(--i-accent);
+  --scout-accent-soft: var(--i-accent-soft);
+}
+
 /* ── Shipped — exact native HudPalette + Scout layer ─────────────────── */
 .scoutios[data-v="shipped"] {
   --i-bg: #0a0a0a; --i-surface: #171717; --i-chrome: #060606;
@@ -593,6 +619,177 @@ export const SCOUT_IOS_CSS = `
   .iLogText { font-size: 12.5px; }
 }
 
+/* ── Entry — composer-first Home ────────────────────────────────────────── */
+/* The front door inverted: the pulse greeting up top, the Ask well at thumb
+   height, instruments demoted to Ops/the Mac. The treatment renders its own
+   bottom chrome (Steering Loop grammar): dock + tabs, no cockpit ticker. */
+.iEntry { display: flex; flex-direction: column; overflow: hidden; }
+.iEntryPulse { padding: 44px 6px 0; }
+.iEntryHeadline { font-size: 25px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
+  color: var(--i-ink); }
+.iEntrySub { margin-top: 8px; font-size: 13px; color: var(--i-muted); }
+.iEntryAir { flex: 1 1 auto; min-height: 18px; }
+.iEntryMore { padding: 8px 6px 0; font-size: 11.5px; color: var(--i-dim); }
+/* recents are a WHISPER — the composer is the page; recency is just the
+   shortest path back. Names muted, previews dim, nothing bold. */
+.iEntryRecents { flex: none; }
+.iEntryRecent { display: flex; align-items: baseline; gap: 8px; padding: 7px 14px; }
+.iEntryConvName { font-size: 12px; font-weight: 500; color: var(--i-muted); flex: none; }
+.iEntryConvPrev { flex: 1; min-width: 0; font-size: 11.5px; color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iEntryConvAge { font-size: 9.5px; font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+/* The composer inside is the MessageComposer atom in its pill appearance —
+   phone shape comes from params, not from CSS here (see the token bridge at
+   the top of this sheet). */
+.iEntryDock { flex: none; padding: 10px 14px 12px; position: relative; z-index: 2; }
+/* first run */
+.iEntryWelcome { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center;
+  padding: 0 10px 44px; }
+.iEntryHeadline.big { font-size: 29px; letter-spacing: -0.025em; }
+.iEntryPromise { margin: 13px 0 0; font-size: 14px; line-height: 1.55; color: var(--i-muted);
+  max-width: 330px; }
+.iEntryConnect { margin-top: 28px; height: 50px; border-radius: 15px; display: grid;
+  place-items: center; font-size: 15px; font-weight: 600; color: #04130d;
+  background: linear-gradient(180deg, var(--i-accent-2), var(--i-accent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25),
+    0 5px 16px -5px color-mix(in oklab, var(--i-accent) 55%, transparent); }
+.iEntryHint { margin-top: 13px; font-size: 12px; color: var(--i-dim); }
+/* Liquid-glass tab bar — the Apple-shaped bottom chrome the Entry home wears
+   (iOS 26 glassEffect natively; backdrop-filter is the honest CSS
+   analogue). A capsule floating inset from every edge, over content rather
+   than docked to it, carrying the same top rim light + hairline the machined
+   complications wear — glass rail, graphite instruments. No cockpit status
+   strip under it: a floating bar wants clear air, and what the strip alone
+   could tell you (connection dropped / data gone stale) returns as one dim
+   line above the bar, and only while it is true. */
+/* The rail owns the home-indicator safe area itself (no cockpit strip below
+   to absorb it), so the capsule floats clear of the indicator. */
+.iGlassRail { flex: none; padding: 6px 20px 18px; display: flex; flex-direction: column;
+  align-items: center; gap: 4px; }
+.iGlassNote { font-size: 9px; font-family: var(--i-mono); font-weight: 500;
+  letter-spacing: 0.06em; color: var(--i-dim); }
+.iGlassBar { width: 100%; display: flex; border-radius: 999px; padding: 6px;
+  background: rgba(233,240,241,0.07);
+  -webkit-backdrop-filter: blur(26px) saturate(180%); backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(190,198,199,0.4), 0 0 0 1px rgba(58,62,63,0.35),
+    0 10px 22px -8px rgba(0,0,0,0.65); }
+.scoutios[data-v="paper"] .iGlassBar { background: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 1px var(--i-hairline-strong),
+    0 10px 22px -10px rgba(62,56,44,0.28); }
+.iGlassTab { flex: 1; display: flex; justify-content: center; }
+/* The seat HUGS its tab (Apple's shape) instead of filling the column, and it
+   is the masthead complication's plate in capsule form. */
+.iGlassSeat { display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 5px 12px; border-radius: 999px; color: var(--i-muted); }
+.iGlassTab[data-on="true"] .iGlassSeat { color: var(--i-accent);
+  background: linear-gradient(180deg, #131516, #0b0d0e);
+  box-shadow: inset 0 1px 0 rgba(190,198,199,0.42), 0 0 0 1px rgba(58,62,63,0.35); }
+.scoutios[data-v="paper"] .iGlassTab[data-on="true"] .iGlassSeat {
+  background: linear-gradient(180deg, #fdfcfa, #efece4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 0 0 1px var(--i-hairline-strong); }
+.iGlassLabel { font-size: 9px; font-weight: 500; font-family: var(--i-mono); letter-spacing: 0.02em; }
+/* entry masthead — places leads, the host chip sits beside it, gear trails
+   (no wordmark: the front door's row carries only what you'd act on) */
+.iMastEntry { justify-content: flex-start; position: relative; }
+.iMastGap { flex: 1 1 auto; }
+/* Host chip — an indicator, not a filter: which Mac you're steering. Crisp
+   plate + hairline, never a stadium (the chrome is plates and hairlines). */
+.iHostChip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: 5px; font-family: var(--i-mono); font-size: 10.5px; font-weight: 500;
+  color: var(--i-muted); background: var(--i-surface);
+  border: 1px solid var(--i-hairline-strong); }
+.iHostDot { width: 5px; height: 5px; border-radius: 999px; background: var(--i-accent); }
+/* Masthead complication family — places leading, gear trailing, both cut from
+   the crown study's machined plate at the crown's own SEAT scale (36px), so
+   the top row reads as instruments rather than outlined icons. Calmer than the
+   crown only where the masthead demands it: one contact shadow instead of the
+   crown's floating pair. Never the accent (the crown study banned green on
+   complications). The bottom glass bar seats its current tab on this same
+   plate — that pairing is what makes top-left and bottom one system. */
+.iComplication { width: 36px; height: 36px; border-radius: 999px; display: grid;
+  place-items: center; color: var(--i-muted);
+  background: linear-gradient(180deg, #131516, #0b0d0e);
+  box-shadow: inset 0 1px 0 rgba(190,198,199,0.34), 0 0 0 1px rgba(58,62,63,0.35),
+    0 1.5px 3px rgba(0,0,0,0.45); }
+.scoutios[data-v="paper"] .iComplication { background: linear-gradient(180deg, #fdfcfa, #efece4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 0 0 1px var(--i-hairline-strong),
+    0 1.5px 3px rgba(62,56,44,0.16); }
+/* Places sheet — the map the disc opens: every important destination with the
+   one line that says what you'd do there. Rows only, no tiles: a name and a
+   verb read faster than a grid of glyphs. */
+.iPlacesScrim { position: absolute; inset: 0; z-index: 5; display: flex;
+  align-items: flex-end; background: rgba(3,4,3,0.5); }
+.iPlacesSheet { width: 100%; max-height: 68%; overflow: auto; padding: 8px 14px 20px;
+  border-radius: 14px 14px 0 0; background: var(--i-bg);
+  border-top: 1px solid var(--i-hairline-strong); }
+.iPlacesGrab { width: 36px; height: 4px; border-radius: 2px; margin: 0 auto 10px;
+  background: var(--i-hairline-strong); }
+.iPlacesTitle { text-align: center; font-size: 16px; font-weight: 600; color: var(--i-ink);
+  padding-bottom: 10px; }
+.iPlacesList { display: flex; flex-direction: column; }
+.iPlaceRow { display: flex; align-items: center; gap: 14px; padding: 12px 0;
+  border-bottom: 1px solid var(--i-hairline); }
+.iPlaceRow:last-child { border-bottom: 0; }
+.iPlaceGlyph { flex: none; width: 34px; height: 34px; border-radius: 999px; display: grid;
+  place-items: center; color: var(--i-muted); background: var(--i-surface);
+  border: 1px solid var(--i-hairline); }
+.iPlaceText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.iPlaceName { font-size: 14px; font-weight: 500; color: var(--i-ink); }
+.iPlaceBlurb { font-size: 12px; color: var(--i-dim); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.iPlaceCaret { flex: none; color: var(--i-dim); }
+/* accessory line — OUR line where the system QuickType strip used to be.
+   The composer declares predictions:false, so the system bar is gone; this
+   row takes its place. Smart-action PILLS scroll on the left (fading out
+   before the pinned slot so nothing clips raw), the keyboard TOGGLE is
+   pinned right behind a hairline. Persistent in both keyboard states — it is
+   how the keyboard comes back. One left rail: the first pill starts where
+   the composer's draft line and attach control do (14px). */
+.iAcc { flex: none; display: flex; align-items: center; height: 44px;
+  padding: 0 14px; border-top: 1px solid var(--i-hairline); }
+.iAccScroll { flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 86%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 86%, transparent 100%); }
+.iAccScroll::-webkit-scrollbar { display: none; }
+.iAccPills { display: flex; align-items: center; gap: 8px; padding-left: 14px; padding-right: 8px; }
+.iAccPill { flex: none; height: 28px; display: inline-flex; align-items: center;
+  padding: 0 14px; border-radius: 999px; white-space: nowrap;
+  font-size: 12.5px; font-weight: 500; color: var(--i-muted);
+  background: var(--i-card-top); border: 1px solid var(--i-hairline); }
+.iAccToggle { flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+  color: var(--i-muted); border-left: 1px solid var(--i-hairline-strong); }
+
+/* keyboard slab — realistic iOS geometry: uniform flexing letter keys,
+   half-key indent on the home row, wide shift/delete with the double gap,
+   123 · space · return base. The entry's resting state is keyboard-up
+   (messenger posture); the slab owns the home-indicator safe area while
+   raised, and it COVERS the tab bar (standard iOS) rather than pushing it up
+   a row. */
+.iKb { flex: none; margin-top: 2px; padding: 0 3px 18px; background: var(--i-chrome);
+  border-top: 1px solid var(--i-hairline); display: flex; flex-direction: column; gap: 10px; }
+.iKb > .iKbRow:first-child { margin-top: 8px; }
+.iKbRow { display: flex; gap: 6px; padding: 0 3px; }
+.iKbRow.indent { padding: 0 22px; }
+.iKey { flex: 1 1 0; min-width: 0; height: 42px; display: grid; place-items: center;
+  border-radius: 5.5px; font-size: 16.5px; color: var(--i-ink); font-family: var(--i-font);
+  background: linear-gradient(180deg, color-mix(in oklab, #fff 6%, var(--i-surface)), var(--i-surface));
+  border: 1px solid var(--i-hairline-strong); box-shadow: 0 1px 0 rgba(0,0,0,0.4); }
+.iKeyMod { background: var(--i-bg); color: var(--i-muted); font-size: 14px; }
+.iKeyShift, .iKeyBksp { flex: 0 0 45px; }
+.iKeyShift { margin-right: 6px; }
+.iKeyBksp { margin-left: 6px; }
+.iKey123 { flex: 0 0 88px; font-size: 12.5px; }
+.iKeySpace { flex: 1 1 auto; font-size: 12.5px; color: var(--i-muted); }
+.iKeyGo { flex: 0 0 88px; font-size: 12.5px; font-weight: 600;
+  background: var(--i-accent); color: #04130d; border-color: var(--i-accent); }
+.scoutios[data-v="paper"] .iKey { background: #fdfcfa; border-color: var(--i-hairline-strong);
+  box-shadow: 0 1px 0 rgba(62,56,44,0.28); }
+.scoutios[data-v="paper"] .iKeyMod { background: #e6e3dc; }
+.scoutios[data-v="paper"] .iKeySpace { background: #fdfcfa; }
+.scoutios[data-v="paper"] .iKeyGo { background: linear-gradient(180deg, var(--i-accent-2), var(--i-accent));
+  color: #04130d; border-color: var(--i-accent); box-shadow: 0 1px 0 rgba(62,56,44,0.2); }
+
 /* ── Tablet frame (wide exhibit) ───────────────────────────────────────── */
 /* iPad landscape-ish stage for responsive treatments — same palette wash. */
 .iPad { width: 100%; max-width: 1060px; border-radius: 34px; padding: 10px;
@@ -886,6 +1083,118 @@ export const SCOUT_IOS_CSS = `
   border: 1px solid var(--i-hairline-strong); margin: 0 0 6px 2px; }
 .iReasonChipDot { width: 4px; height: 4px; border-radius: 50%; background: var(--i-dim); }
 .iReasonChipCaret { color: var(--i-dim); font-family: var(--i-mono); }
+
+/* ── Notifications destination (the ledger) ─────────────────────────────── */
+/* Filter: Open (the triage queue) vs All (the history). A quiet inset track,
+   the active segment lifted — the same plate language as the host chips, so it
+   reads as a scope, not a set of buttons. */
+.iLedFilter { display: flex; gap: 4px; padding: 8px 0 9px; }
+.iLedFilterBtn { display: flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 6px;
+  font-family: var(--i-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; cursor: pointer;
+  background: var(--i-bg); color: var(--i-dim); border: 1px solid var(--i-hairline); }
+.iLedFilterBtn[data-on] { background: var(--i-surface); color: var(--i-ink); border-color: var(--i-border); }
+.iLedFilterCount { font-size: 9.5px; font-weight: 700; color: var(--i-dim); }
+.iLedFilterBtn[data-on] .iLedFilterCount { color: var(--i-accent); }
+
+.iLedList { overflow: hidden; }
+/* One entry. Open entries hold ink weight; settled ones recede a step so the
+   queue leads and the history reads as a log underneath it. */
+.iLedRow { display: flex; gap: 9px; padding: 11px 13px 12px; }
+.iLedTick { width: 3px; border-radius: 2px; flex: none; margin: 2px 0 2px;
+  background: var(--i-hairline); }
+.iLedTick[data-unseen] { background: var(--i-accent); }
+.iLedBody { flex: 1; min-width: 0; }
+.iLedTop { display: flex; align-items: baseline; gap: 7px; }
+.iLedKind { font-size: 8.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); flex: none; }
+.iLedRow[data-open] .iLedKind { color: var(--i-muted); }
+.iLedSession { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iLedAge { font-size: 10.5px; font-family: var(--i-mono); color: var(--i-dim);
+  flex: none; margin-left: auto; }
+.iLedTitle { font-size: 13px; font-weight: 600; color: var(--i-muted); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iLedRow[data-open] .iLedTitle { color: var(--i-ink); }
+.iLedSummary { font-size: 12px; line-height: 1.45; color: var(--i-dim); margin-top: 2px; }
+.iLedRow[data-open] .iLedSummary { color: var(--i-muted); }
+/* The payload the push withheld — command, path, or the first error line. */
+.iLedPayload { display: flex; align-items: center; gap: 8px; margin-top: 7px;
+  padding: 5px 9px; border-radius: 8px; background: var(--i-bg);
+  border: 1px solid var(--i-hairline); font-size: 11px; font-family: var(--i-mono);
+  color: var(--i-dim); }
+.iLedRow[data-open] .iLedPayload { color: var(--i-ink); }
+.iLedPayloadText { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iLedRisk { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  font-family: var(--i-mono); flex: none; color: var(--i-dim); }
+.iLedRisk[data-high] { color: var(--i-ink); }
+.iLedActions { display: flex; align-items: center; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+/* Third-rank control: a real action with a real effect, but never competing
+   with Approve for the thumb. Text-weight, no fill, no border. */
+.iLedGhostBtn { font-size: 11.5px; font-weight: 600; padding: 5px 4px; border: none; cursor: pointer;
+  background: transparent; color: var(--i-dim); font-family: var(--i-font); margin-left: auto; }
+/* PREVIEW row (All / Archived) — two lines, no payload, no decisions. */
+.iLedRow--preview { align-items: center; padding: 9px 11px 10px 13px; }
+.iLedPreviewLine { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+.iLedPreviewLine .iLedTitle { flex: 1; min-width: 0; margin-top: 0; }
+.iLedPreviewLine .iLedStateTag { flex: none; }
+/* File-away control at the trailing edge — one glyph, dim at rest. */
+.iLedFileBtn { flex: none; width: 28px; height: 28px; border-radius: 6px; display: grid;
+  place-items: center; cursor: pointer; align-self: center;
+  background: transparent; color: var(--i-dim); border: 1px solid transparent; }
+.iLedFileBtn:hover { background: var(--i-bg); border-color: var(--i-hairline); color: var(--i-muted); }
+/* Detail triage pair — set apart from the decision row so Dismiss/Archive is
+   never a mis-tap on Approve, with the consequence spelled out beside it. */
+.iLedTriage { display: flex; align-items: center; gap: 10px; margin-top: 14px;
+  padding-top: 10px; border-top: 1px solid var(--i-hairline); }
+.iLedTriage .iLedGhostBtn { margin-left: 0; padding: 4px 10px; border: 1px solid var(--i-hairline-strong);
+  border-radius: 8px; color: var(--i-muted); }
+.iLedTriageNote { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim); }
+/* How it ended. Ours (decided on this device) gets the ink; anything that
+   merely stopped being pending stays dim and is never named as a decision. */
+.iLedState { display: flex; align-items: baseline; gap: 7px; margin-top: 7px; }
+.iLedStateTag { font-size: 9px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  font-family: var(--i-mono); color: var(--i-dim); padding: 1px 6px; border-radius: 4px;
+  background: var(--i-bg); border: 1px solid var(--i-hairline); }
+.iLedStateTag[data-ours] { color: var(--i-muted); border-color: var(--i-hairline-strong); }
+.iLedStateBy, .iLedStateAge { font-size: 10px; font-family: var(--i-mono); color: var(--i-dim); }
+.iLedStateAge { margin-left: auto; }
+.iLedFoot { font-size: 9.5px; font-family: var(--i-mono); letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--i-dim); text-align: center; padding: 12px 0 4px; }
+
+/* Detail — the opened notification. */
+.iLedDetail { padding: 12px 2px; }
+.iLedDetailTitle { font-size: 17px; font-weight: 600; color: var(--i-ink); margin-top: 8px;
+  line-height: 1.3; }
+.iLedDetailSummary { font-size: 13px; line-height: 1.5; color: var(--i-muted); margin-top: 6px; }
+.iLedDetailWell { margin-top: 11px; padding: 9px 11px; border-radius: 9px; background: var(--i-bg);
+  border: 1px solid var(--i-hairline); font-size: 11.5px; font-family: var(--i-mono);
+  color: var(--i-ink); line-height: 1.55; white-space: pre-wrap; }
+.iLedDetailRisk { margin-top: 6px; }
+.iLedAnswer { padding: 10px 0 0; }
+/* Provenance — which Mac, which conversation, when, and how it ended. A stat
+   readout in the Instrument voice: dot-led key on the left, value on the right. */
+.iLedProv { margin-top: 14px; border-top: 1px solid var(--i-hairline); padding-top: 10px; }
+.iLedProvRow { display: flex; align-items: baseline; gap: 10px; padding: 3px 0;
+  font-family: var(--i-mono); font-size: 10.5px; color: var(--i-dim); }
+.iLedProvRow > span:first-child { text-transform: uppercase; letter-spacing: 0.09em; font-size: 9px;
+  font-weight: 700; min-width: 92px; }
+.iLedProvVal { color: var(--i-muted); margin-left: auto; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iLedProvVal[data-open] { color: var(--i-accent); }
+.iLedOpenConv { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  margin-top: 14px; padding: 9px 0; border-radius: 9px; cursor: pointer;
+  font-family: var(--i-font); font-size: 12.5px; font-weight: 600;
+  background: var(--i-surface); color: var(--i-ink); border: 1px solid var(--i-hairline-strong); }
+
+/* Masthead bell — the destination's entry point, with an unread count. */
+.iBell { position: relative; width: 30px; height: 30px; border-radius: 50%; display: grid;
+  place-items: center; flex: none; background: var(--i-surface); color: var(--i-muted);
+  border: 1px solid var(--i-hairline-strong); }
+.iBellCount { position: absolute; top: -3px; right: -3px; min-width: 14px; height: 14px;
+  padding: 0 3px; border-radius: 999px; background: var(--i-accent); color: var(--i-bg);
+  font-family: var(--i-mono); font-size: 8.5px; font-weight: 700; display: grid; place-items: center;
+  border: 1.5px solid var(--i-bg); box-sizing: content-box; }
 
 /* ── Crisp language (data-lang) — squarer · lighter-weight · quieter ───── */
 /* A comparison design language, additive over any palette: radii step down

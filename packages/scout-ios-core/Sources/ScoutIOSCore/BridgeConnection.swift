@@ -50,7 +50,12 @@ public enum BridgeConnectionError: Error, LocalizedError, Sendable {
         case .notConnected: return "Not connected to the bridge."
         case .encodingFailed: return "Failed to encode the RPC request."
         case .decodingFailed(let detail): return "Failed to decode an RPC result: \(detail)"
-        case .rpcError(let code, let message): return "Bridge RPC error \(code): \(message)"
+        case .rpcError(let code, let message):
+            if message.localizedCaseInsensitiveContains("session_reference_not_attachable")
+                || message.localizedCaseInsensitiveContains("no longer attachable") {
+                return "This agent session has ended and can’t accept more messages. Start a new session from the project to continue."
+            }
+            return "Bridge RPC error \(code): \(message)"
         case .rpcTimeout(let method): return "RPC timed out: \(method)"
         }
     }
@@ -701,7 +706,10 @@ public final class BridgeConnection: @unchecked Sendable {
         )
     }
 
-    /// Tear down the connection and all streams.
+    /// Tear down the current transport while keeping local stream subscribers.
+    /// Views bind to a stable broker client across background/foreground and
+    /// route changes; ending their fan-outs here would silently strand those
+    /// consumers after the next successful reconnect.
     public func disconnect() {
         lock.lock()
         connectionGeneration += 1
@@ -716,12 +724,6 @@ public final class BridgeConnection: @unchecked Sendable {
         _isConnected = false
         _currentRoute = .none
         _currentHost = nil
-        let events = Array(eventFanout.values)
-        let tails = Array(tailFanout.values)
-        let mobileChanges = Array(mobileConversationChangeFanout.values)
-        eventFanout.removeAll()
-        tailFanout.removeAll()
-        mobileConversationChangeFanout.removeAll()
         lock.unlock()
 
         activeReceive?.cancel()
@@ -729,9 +731,6 @@ public final class BridgeConnection: @unchecked Sendable {
         activeTransport?.shutdown()
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
         cancelAllPendingRequests(with: BridgeConnectionError.notConnected)
-        events.forEach { $0.finish() }
-        tails.forEach { $0.finish() }
-        mobileChanges.forEach { $0.finish() }
     }
 
     // MARK: - Relay candidate assembly (distilled from relayURLsForTrustedBridge)

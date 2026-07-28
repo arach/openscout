@@ -1,5 +1,7 @@
 import SwiftUI
 import Foundation
+import PhotosUI
+import UniformTypeIdentifiers
 import HudsonUI
 import ScoutCapabilities
 import ScoutIOSCore
@@ -23,6 +25,33 @@ enum ScoutHomeSection {
     static let tailKey = "scout.home.sec.tail"
 }
 
+/// Which front door Home presents. `.fleet` is the shipped dashboard (every
+/// section above, unchanged); `.entry` is the composer-first treatment ported
+/// from the studio (design/studio/components/scout-ios/entry-surface.tsx): the
+/// phone is for STEERING, the Mac is for monitoring — air, whisper recents, and
+/// the composer at thumb height. Attention deliberately does NOT live here: the
+/// masthead bell and the Notifications ledger own it, and the fleet dashboard
+/// keeps its Needs-you lane. Opt-in; the dashboard stays the default. Switched
+/// in Settings → Home.
+enum ScoutHomeStyle: String, CaseIterable {
+    case fleet
+    case entry
+
+    var title: String {
+        switch self {
+        case .fleet: return "Fleet"
+        case .entry: return "Entry"
+        }
+    }
+
+    static let storageKey = "scout.home.style"
+    static let `default`: ScoutHomeStyle = .fleet
+
+    static func resolve(_ raw: String?) -> ScoutHomeStyle {
+        ScoutHomeStyle(rawValue: raw ?? "") ?? .default
+    }
+}
+
 /// Data provenance: Needs you / Working / Activity / the sparkline / the tail
 /// are real broker reads. The dock opens the real New-session composer.
 struct HomeSurface: View {
@@ -35,7 +64,10 @@ struct HomeSurface: View {
     var onConversationStatusContext: (String?) -> Void = { _ in }
     var onSeeAllAgents: () -> Void = {}
     var onSeeAllActivity: () -> Void = {}
-    var onCompose: (String) -> Void = { _ in }
+    /// Opens the Notifications destination — the ledger this lane is the live
+    /// tip of. See `NotificationsSurface`.
+    var onSeeAllNotifications: () -> Void = {}
+    var onCompose: (NewSessionSeed) -> Void = { _ in }
     var onConnect: () -> Void = {}
     var reloadToken: Int = 0
 
@@ -53,6 +85,30 @@ struct HomeSurface: View {
     @StateObject private var entrance = CockpitEntrancePhase()
     @State private var askDraft = ""
     @FocusState private var askFocused: Bool
+    /// Entry only: the recent conversations the whisper lane reads from (the
+    /// same list the Comms tab shows). Not fetched in the fleet dashboard.
+    @State private var conversations: [HomeConversation] = []
+    /// Entry only: whether the dock should be holding the keyboard. Starts up
+    /// (composing IS the resting posture) and drops when the operator dismisses
+    /// it; re-arms whenever Home becomes the page again.
+    @State private var entryKeyboardRequested = true
+    /// Entry only: the dock's REAL focus, reported by the composer. The
+    /// accessory line rides this, not the request above, so tapping back into
+    /// the field after a dismiss brings the line back with the keyboard.
+    @State private var entryComposerFocused = false
+    /// Entry only: the runtime the ask will start on. A real creation-time
+    /// choice — it rides the seed onto `SessionInitiationSpec.Execution`.
+    @State private var entryHarnessId = ComposerModelHarness.catalog[0].id
+    @State private var entryFamilyId = ComposerModelHarness.catalog[0].defaultFamily.id
+    @State private var entryEffortId = ComposerEffortOption.defaultId
+    @State private var showEntryModelPicker = false
+    /// Entry only: attachments staged on the front door, handed to New with the
+    /// prompt (the paperclip is real — see `NewSessionSeed`).
+    @State private var entryAttachments: [ScoutComposerAttachment] = []
+    @State private var entryPhotoItems: [PhotosPickerItem] = []
+    @State private var showEntryPhotoPicker = false
+    @State private var showEntryFileImporter = false
+    @AppStorage(ScoutHomeStyle.storageKey) private var homeStyleRaw = ScoutHomeStyle.default.rawValue
     // Modular home sections (see ScoutHomeSection) — each switch gates its
     // section's rendering below; the tail switch also gates its 5s fetch.
     @AppStorage(ScoutHomeSection.vitalsKey) private var vitalsEnabled = true
@@ -84,7 +140,63 @@ struct HomeSurface: View {
         "\(reloadToken).\(model.fleetRevision).\(filterKey)"
     }
 
+    private var homeStyle: ScoutHomeStyle { ScoutHomeStyle.resolve(homeStyleRaw) }
+
     var body: some View {
+        Group {
+            switch homeStyle {
+            case .fleet: fleetSurface
+            case .entry: entrySurface
+            }
+        }
+        // The style is part of the key: flipping to Entry has to go fetch the
+        // whisper lane's conversations, which the dashboard never reads.
+        .task(id: "\(reloadKey)|\(isActive)|\(homeStyleRaw)") {
+            guard isActive else { return }
+            await load()
+            guard reloadToken != 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if Task.isCancelled { break }
+                guard route == nil else { continue }
+                await load()
+            }
+        }
+        // The tail runs on the Tail surface's faster cadence — Home's own 30s
+        // reload would leave it feeling stale. Skipped entirely while the tail
+        // module is switched off (no fetch for a hidden section).
+        .task(id: "tail|\(tailEnabled)|\(reloadKey)|\(isActive)") {
+            guard isActive, tailEnabled, homeStyle == .fleet else { return }
+            await fetchTail()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { break }
+                guard route == nil else { continue }
+                await fetchTail()
+            }
+        }
+        .navigationDestination(item: $route) { route in
+            switch route {
+            case .session(let id, let title):
+                ConversationSurface(
+                    client: routeClient ?? model.client,
+                    conversationId: id,
+                    title: title,
+                    onClose: { self.route = nil },
+                    onStatusContextChange: onConversationStatusContext
+                )
+            case .comms(let conversation):
+                CommsThreadView(
+                    client: routeClient ?? model.client,
+                    conversation: conversation,
+                    onClose: { self.route = nil },
+                    onRead: { _ = try? await (routeClient ?? model.client).markConversationRead(conversationId: conversation.id) }
+                )
+            }
+        }
+    }
+
+    private var fleetSurface: some View {
         ScrollView {
             // Pin the column to a DEFINITE lane width, left-aligned, with a trailing
             // Spacer absorbing any surplus. This forces rows to truncate within the
@@ -143,49 +255,383 @@ struct HomeSurface: View {
         }
         .animation(.easeOut(duration: 0.22), value: isLoading)
         .refreshable { if isActive { await load() } }
-        .task(id: "\(reloadKey)|\(isActive)") {
-            guard isActive else { return }
-            await load()
-            guard reloadToken != 0 else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                if Task.isCancelled { break }
-                guard route == nil else { continue }
-                await load()
+    }
+
+    // MARK: - Entry (composer-first)
+
+    /// The composer-first front door. The resting body is AIR, then the whisper
+    /// of recents, then the composer — nothing that asks to be read. Attention
+    /// is not duplicated here (it lives in the masthead bell / Notifications and
+    /// in the fleet dashboard), so the front door never opens with a headline
+    /// you have to process before you can type.
+    private var entrySurface: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+                    if isNotConnected { notConnectedState }
+                }
+                .frame(width: laneWidth, alignment: .leading)
+                .padding(.horizontal, layout.surfacePadding)
+                // The studio's 44px breath under the masthead, minus what the
+                // shipped masthead already leaves below its rule.
+                .padding(.top, HudSpacing.huge)
+                // Content or not, the lane has to claim the space above the
+                // recents — that emptiness IS the design, and it keeps the
+                // pull-to-refresh gesture alive on a calm fleet.
+                .frame(maxWidth: .infinity, minHeight: 1, alignment: .leading)
+            }
+            .refreshable { if isActive { await load() } }
+            .scrollDismissesKeyboard(.interactively)
+            entryRecents
+            entryDock
+            entryAccessoryLine
+        }
+        .animation(.easeOut(duration: 0.22), value: isLoading)
+        .overlay {
+            if showEntryModelPicker { entryModelPickerOverlay }
+        }
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: showEntryModelPicker)
+        .photosPicker(isPresented: $showEntryPhotoPicker, selection: $entryPhotoItems, maxSelectionCount: 8, matching: .images)
+        .onChange(of: entryPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addEntryPhotos(items) }
+        }
+        .fileImporter(isPresented: $showEntryFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            addEntryFiles(result)
+        }
+        .onChange(of: isActive) { _, active in
+            // Coming back to Home re-arms the composing posture; leaving hands
+            // the keyboard back so it can't hover over another surface.
+            entryKeyboardRequested = active
+        }
+    }
+
+    /// Recent conversations as a WHISPER — the composer is the page, recency is
+    /// just the shortest path back. Several turns you could pick up again, kept
+    /// the quietest thing on screen: muted name, dim preview, dim mono age.
+    @ViewBuilder
+    private var entryRecents: some View {
+        let rows = Array(conversations.prefix(5))
+        VStack(spacing: 0) {
+            ForEach(rows) { row in
+                Button {
+                    routeClient = row.client
+                    route = .comms(row.conversation)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
+                        Text(row.conversation.title)
+                            .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                            .foregroundStyle(ScoutInk.muted)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Text(row.conversation.lastMessagePreview ?? "")
+                            .font(HudFont.ui(11.5))
+                            .foregroundStyle(ScoutInk.dim)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: HudSpacing.sm)
+                        if let age = relativeAgeString(row.conversation.lastMessageAt) {
+                            Text(age)
+                                .font(HudFont.mono(9.5))
+                                .foregroundStyle(ScoutInk.dim)
+                                .monospacedDigit()
+                                .fixedSize()
+                        }
+                    }
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(row.conversation.title), \(row.conversation.lastMessagePreview ?? "no messages")")
             }
         }
-        // The tail runs on the Tail surface's faster cadence — Home's own 30s
-        // reload would leave it feeling stale. Skipped entirely while the tail
-        // module is switched off (no fetch for a hidden section).
-        .task(id: "tail|\(tailEnabled)|\(reloadKey)|\(isActive)") {
-            guard isActive, tailEnabled else { return }
-            await fetchTail()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                if Task.isCancelled { break }
-                guard route == nil else { continue }
-                await fetchTail()
-            }
-        }
-        .navigationDestination(item: $route) { route in
-            switch route {
-            case .session(let id, let title):
-                ConversationSurface(
-                    client: routeClient ?? model.client,
-                    conversationId: id,
-                    title: title,
-                    onClose: { self.route = nil },
-                    onStatusContextChange: onConversationStatusContext
+        // Same discipline as the dashboard's lanes: a DEFINITE width, so the
+        // preview truncates inside the row instead of inflating the column (and
+        // with it the whole surface, which shoves the masthead off-screen).
+        .frame(width: max(0, laneWidth - HudSpacing.xxl * 2), alignment: .leading)
+        .padding(.horizontal, layout.surfacePadding + HudSpacing.xxl)
+    }
+
+    /// OUR line where the system's QuickType strip used to be: the smart-action
+    /// steers scrolling on the left, the keyboard toggle pinned right. It is
+    /// PERSISTENT — the toggle raises the keyboard as readily as it drops it,
+    /// so a row that vanished with the keyboard would take its own way back
+    /// with it.
+    ///
+    /// It is a row in this stack rather than a `.toolbar(placement: .keyboard)`
+    /// — that placement merges across every mounted surface (New's "Done" lands
+    /// in it) and iOS 26 renders it as glass capsules.
+    @ViewBuilder
+    private var entryAccessoryLine: some View {
+        let actions = entrySmartActions
+        if !actions.isEmpty {
+            HStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // Distinct objects, not a run of text: each steer is a
+                    // capsule in the runtime chip's grammar (card fill, hairline
+                    // rim) so it reads as tappable at a glance.
+                    HStack(spacing: HudSpacing.md) {
+                        ForEach(actions) { action in
+                            Button {
+                                action.run()
+                                // A prefill you can't immediately type after is
+                                // half an action.
+                                if action.opensKeyboard { entryKeyboardRequested = true }
+                            } label: {
+                                Text(action.label)
+                                    .font(HudFont.ui(12.5, weight: .medium))
+                                    .foregroundStyle(ScoutInk.muted)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.horizontal, HudSpacing.xxl)
+                                    .frame(height: entryAccessoryControl)
+                                    .background(Capsule().fill(ScoutSurface.card))
+                                    .overlay(Capsule().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+                                    .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    // The rail: the first pill starts where the draft line and
+                    // the attach control do.
+                    .padding(.leading, HudSpacing.xxl)
+                    .padding(.trailing, HudSpacing.md)
+                    .frame(height: entryAccessoryRow)
+                }
+                // Clipped, not greedy — the pinned slot owns the right end.
+                // A fade rather than an opaque plate: the canvas behind this
+                // row is a gradient, so any flat plate reads as a patch.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.86),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
                 )
-            case .comms(let conversation):
-                CommsThreadView(
-                    client: routeClient ?? model.client,
-                    conversation: conversation,
-                    onClose: { self.route = nil },
-                    onRead: { _ = try? await (routeClient ?? model.client).markConversationRead(conversationId: conversation.id) }
-                )
+                entryKeyboardToggle
+            }
+            .frame(width: laneWidth, height: entryAccessoryRow)
+            .padding(.horizontal, layout.surfacePadding)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(HudHairline.subtle)
+                    .frame(height: HudStrokeWidth.thin)
             }
         }
+    }
+
+    /// The pinned slot, marked off by a hairline on its leading edge so the
+    /// scrolling steers visibly end before it.
+    private var entryKeyboardToggle: some View {
+        Button(action: toggleEntryKeyboard) {
+            Glyphic(kind: entryComposerFocused ? .keyboardDown : .keyboardUp, size: 18)
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 44, height: entryAccessoryRow)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(HudHairline.standard)
+                        .frame(width: HudStrokeWidth.thin, height: 16)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entryComposerFocused ? "Hide keyboard" : "Show keyboard")
+    }
+
+    /// One rhythm for the row: pills and the toggle share a centre line, and
+    /// the pill height matches the composer's 28pt controls.
+    private var entryAccessoryRow: CGFloat { 44 }
+    private var entryAccessoryControl: CGFloat { 28 }
+
+    /// The one obvious action, as the full sandwich: the draft on its own line,
+    /// then attach · runtime · mic · send. The typed text is carried to the New
+    /// composer as the seeded prompt — and so is the runtime pick, which lands
+    /// verbatim on `SessionInitiationSpec.Execution`.
+    private var entryDock: some View {
+        ScoutMessageComposer(
+            text: $askDraft,
+            placeholder: "Ask the fleet…",
+            rows: 1,
+            autoFocus: entryDockHoldsKeyboard,
+            onSend: sendAskDraft,
+            attach: ScoutComposerAttach(
+                onPhoto: { showEntryPhotoPicker = true },
+                onFile: { showEntryFileImporter = true }
+            ),
+            attachments: $entryAttachments,
+            // Our accessory line takes that line; two suggestion bars stacked
+            // is one too many.
+            predictions: false,
+            onFocusChange: { focused in
+                entryComposerFocused = focused
+                // Mirror reality back into the request, so the toggle always
+                // has a false→true edge to raise on — including after an
+                // interactive scroll-dismiss that this surface never asked for.
+                entryKeyboardRequested = focused
+            },
+            density: .lead,
+            appearance: .pill
+        ) {
+            ScoutRuntimeChip(
+                harness: entryHarnessId,
+                model: entryFamily.value,
+                effort: entryEffort.label,
+                onPick: {
+                    // The plate rises from the bottom edge — give it the room
+                    // the keyboard is holding.
+                    dismissEntryKeyboard()
+                    showEntryModelPicker = true
+                }
+            )
+        }
+        .frame(width: laneWidth)
+        .padding(.horizontal, layout.surfacePadding)
+        // A decent distance from the whisper lane: the recents are the quietest
+        // thing on screen and must not crowd the one loud one.
+        .padding(.top, HudSpacing.huge)
+        .padding(.bottom, HudSpacing.xl)
+    }
+
+    private var entryDockHoldsKeyboard: Bool {
+        entryKeyboardRequested && isActive && route == nil && !isLoading && !showEntryModelPicker
+    }
+
+    /// The trailing control is a TOGGLE: down when the keyboard is up, up when
+    /// it isn't. Raising is just re-asserting the request the composer's
+    /// `autoFocus` reads; the request tracks real focus, so there is always an
+    /// edge to raise on.
+    private func toggleEntryKeyboard() {
+        if entryComposerFocused {
+            dismissEntryKeyboard()
+        } else {
+            entryKeyboardRequested = true
+        }
+    }
+
+    /// Genuinely rest the keyboard. `autoFocus` says who SHOULD hold focus, so
+    /// dropping the request alone can't resign a field the operator re-tapped —
+    /// the responder chain can, and the two together leave nothing to re-arm it
+    /// until the operator asks.
+    private func dismissEntryKeyboard() {
+        entryKeyboardRequested = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    // MARK: Entry runtime
+
+    private var entryHarness: ComposerModelHarness {
+        ComposerModelHarness.catalog.first { $0.id == entryHarnessId } ?? ComposerModelHarness.catalog[0]
+    }
+
+    private var entryFamily: ComposerModelFamily {
+        entryHarness.families.first { $0.id == entryFamilyId } ?? entryHarness.defaultFamily
+    }
+
+    private var entryEffort: ComposerEffortOption {
+        ComposerEffortOption.catalog.first { $0.id == entryEffortId } ?? ComposerEffortOption.catalog[0]
+    }
+
+    /// The same machined plate the New surface uses. The catalog is the plate
+    /// list here — Home holds no workspace inventory, and New re-seats the pick
+    /// if the target Mac turns out not to have that harness installed.
+    private var entryModelPickerOverlay: some View {
+        ZStack(alignment: .bottom) {
+            ModelPickerTone.scrim
+                .background(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .onTapGesture { showEntryModelPicker = false }
+                .transition(.opacity)
+            ModelPickerPopover(
+                harnesses: ComposerModelHarness.catalog,
+                harnessId: $entryHarnessId,
+                familyId: $entryFamilyId,
+                effortId: $entryEffortId,
+                onCommit: { showEntryModelPicker = false },
+                onCancel: { showEntryModelPicker = false }
+            )
+            .padding(.horizontal, 14)
+            .padding(.bottom, HudSpacing.huge)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    // MARK: Entry attachments
+
+    @MainActor
+    private func addEntryPhotos(_ items: [PhotosPickerItem]) async {
+        defer { entryPhotoItems = [] }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
+            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
+            entryAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(entryAttachments.count + 1).\(ext)")
+            )
+        }
+    }
+
+    private func addEntryFiles(_ result: Result<[URL], Error>) {
+        guard let urls = try? result.get() else { return }
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let type = UTType(filenameExtension: url.pathExtension)
+            let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
+            entryAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
+            )
+        }
+    }
+
+    /// The app's best guess at your next steer, derived from real state only —
+    /// never canned prompts. One tap either prefills the ask or takes you to the
+    /// agent that is actually waiting; the label says which. The line scrolls,
+    /// so more than three real derivations can sit there.
+    private var entrySmartActions: [EntrySmartAction] {
+        var actions: [EntrySmartAction] = []
+        for row in needsYouRows.prefix(2) {
+            guard let open = tap(row) else { continue }
+            actions.append(
+                EntrySmartAction(
+                    id: "reply:\(row.id)",
+                    label: "Reply to \(row.agent.title)",
+                    opensKeyboard: false,
+                    run: open
+                )
+            )
+        }
+        actions.append(
+            EntrySmartAction(id: "recap", label: "Catch me up") {
+                askDraft = "Catch me up on what the fleet has been working on."
+            }
+        )
+        for project in entryRecentProjects {
+            actions.append(
+                EntrySmartAction(id: "project:\(project)", label: "Status on \(project)") {
+                    askDraft = "What's the status on \(project)?"
+                }
+            )
+        }
+        return actions
+    }
+
+    /// The projects of the most recently active agents — the ones the operator
+    /// is most likely steering next.
+    private var entryRecentProjects: [String] {
+        var seen = Set<String>()
+        return workingRows
+            .compactMap { $0.agent.projectName?.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .prefix(2)
+            .map { $0 }
     }
 
     private var isNotConnected: Bool {
@@ -201,6 +647,10 @@ struct HomeSurface: View {
         identityEnabled
             && model.pairedMachines.contains(where: \.isOnline)
             && needsYouRows.isEmpty
+            // "All clear" while alerts sit unlooked-at would be a false claim —
+            // and the emblem replaces every lane, including the one that leads
+            // to them.
+            && model.notifications.unseenCount == 0
             && workingRows.isEmpty
             && recentActivity.isEmpty
             && !lastActivityReadFailed
@@ -301,11 +751,24 @@ struct HomeSurface: View {
             .sorted { ($0.agent.lastActiveAt ?? .distantPast) > ($1.agent.lastActiveAt ?? .distantPast) }
     }
 
+    /// Two different objects share this slot, so they don't share a name:
+    /// "Needs you" is AGENT-level attention (one card per agent waiting on you,
+    /// tapping into its conversation), while "Notifications" is the ledger's
+    /// unread count. Calling the card lane "Notifications" implied it was the
+    /// same list as the destination, which it never was — the destination is
+    /// per-alert and holds history too. Either way "All →" leads to the ledger,
+    /// which now records both channels (see `NotificationsStore`).
     @ViewBuilder
     private var needsYouSection: some View {
+        let unseen = model.notifications.unseenCount
         if !needsYouRows.isEmpty {
             VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                laneHeader("Notifications", count: needsYouRows.count, attention: true)
+                laneHeader(
+                    "Needs you",
+                    count: needsYouRows.count,
+                    attention: true,
+                    onAll: onSeeAllNotifications
+                )
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: HudSpacing.sm) {
                         ForEach(needsYouRows) { row in
@@ -316,6 +779,13 @@ struct HomeSurface: View {
                 }
                 .frame(width: laneWidth, alignment: .leading)
             }
+        } else if unseen > 0 {
+            laneHeader(
+                "Notifications",
+                count: unseen,
+                trailing: "unread",
+                onAll: onSeeAllNotifications
+            )
         }
     }
 
@@ -455,7 +925,21 @@ struct HomeSurface: View {
         guard !text.isEmpty else { return }
         askDraft = ""
         askFocused = false
-        onCompose(text)
+        // Entry carries the runtime the chip is showing and anything staged on
+        // its paperclip; the dashboard's strip names neither, so New keeps its
+        // own workspace default there.
+        guard homeStyle == .entry else { return onCompose(NewSessionSeed(prompt: text)) }
+        let staged = entryAttachments
+        entryAttachments = []
+        onCompose(
+            NewSessionSeed(
+                prompt: text,
+                harnessId: entryHarnessId,
+                familyId: entryFamilyId,
+                effortId: entryEffortId,
+                attachments: staged
+            )
+        )
     }
 
     /// The running tail — the cross-agent event log as Home's LAST section, free
@@ -702,8 +1186,13 @@ struct HomeSurface: View {
         let noReadableMachines = machines.allSatisfy { $0.client == nil }
         var freshAgents: [HomeAgent] = []
         var freshActivity: [HomeActivity] = []
+        var freshConversations: [HomeConversation] = []
         var sawAgentRead = false
         var sawActivityRead = false
+        var sawConversationRead = false
+        // The whisper lane is Entry's only extra read; the dashboard never
+        // pays for it.
+        let readsConversations = homeStyle == .entry
 
         for machine in machines {
             guard let client = machine.client else { continue }
@@ -717,6 +1206,12 @@ struct HomeSurface: View {
                 sawActivityRead = true
                 freshActivity.append(contentsOf: rows.map { event in
                     HomeActivity(id: "\(machine.id)::\(event.id)", machineId: machine.id, machineName: machine.name, client: client, event: event)
+                })
+            }
+            if readsConversations, let rows = try? await client.listConversations(kind: nil, limit: 12) {
+                sawConversationRead = true
+                freshConversations.append(contentsOf: rows.map { conversation in
+                    HomeConversation(id: "\(machine.id)::\(conversation.id)", client: client, conversation: conversation)
                 })
             }
         }
@@ -752,6 +1247,13 @@ struct HomeSurface: View {
             // Keep a same-scope successful snapshot on screen, but make the failed
             // leg explicit. The next 30-second cycle independently retries it.
             lastActivityReadFailed = true
+        }
+        if sawConversationRead {
+            conversations = freshConversations.sorted {
+                ($0.conversation.lastMessageAt ?? .distantPast) > ($1.conversation.lastMessageAt ?? .distantPast)
+            }
+        } else if noReadableMachines {
+            conversations = []
         }
         await model.refreshFleetStats()
         isLoading = false
@@ -810,6 +1312,24 @@ private struct HomeActivity: Identifiable {
     let machineName: String
     let client: any ScoutBrokerClient
     let event: TailEvent
+}
+
+/// One recent conversation behind Entry's whisper lane — the same rows the
+/// Comms tab lists, carried with the client that can open them.
+private struct HomeConversation: Identifiable {
+    let id: String
+    let client: any ScoutBrokerClient
+    let conversation: CommsConversation
+}
+
+/// One steer on Entry's accessory line. `opensKeyboard` separates the two
+/// shapes: a PREFILL leaves you mid-draft and should hand you the keyboard, a
+/// NAVIGATION takes you somewhere else and must not.
+private struct EntrySmartAction: Identifiable {
+    let id: String
+    let label: String
+    var opensKeyboard: Bool = true
+    let run: () -> Void
 }
 
 // MARK: - Needs you kind display
@@ -1191,6 +1711,9 @@ private struct SparklineShape: Shape {
 /// truthful jump-in, not a fake control.
 private struct NeedCard: View {
     let agent: AgentSummary
+    /// Card width. The dashboard's horizontal lane wants a fixed 212pt tile;
+    /// Entry stacks the same card down the full lane.
+    var width: CGFloat = 212
     let onTap: () -> Void
 
     private var kind: PendingAsk.Kind { agent.pendingAsk?.kind ?? .question }
@@ -1232,7 +1755,7 @@ private struct NeedCard: View {
             }
             .padding(.vertical, HudSpacing.sm)
             .padding(.horizontal, HudSpacing.md)
-            .frame(width: 212, alignment: .leading)
+            .frame(width: width, alignment: .leading)
             // A small refined chip (studio `.iNotif`): rounded well, hairline, the
             // tinted kind tag carries the signal — no left bar on a rounded box.
             .background(RoundedRectangle(cornerRadius: ScoutVibe.cardRadius, style: .continuous).fill(ScoutSurface.raised))

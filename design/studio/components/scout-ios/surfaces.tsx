@@ -33,7 +33,7 @@ import {
  *  then the demand and its inline decision (approve/deny · option chips · the
  *  awaiting command). Kind reads from the mono label; risk reads from contrast
  *  (high = ink-bright, lower = dim), not a colored pill. */
-function InboxRow({ it }: { it: InboxItem }) {
+export function InboxRow({ it }: { it: InboxItem }) {
   return (
     <div className="iNeedRow">
       <div className="iNeedBody">

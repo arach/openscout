@@ -35,15 +35,16 @@ export interface Treatment {
   /** Responsive exhibit: the same surface rendered in a wide (iPad) frame
    *  below the phone stage, so a container-query treatment shows both formats. */
   wide?: ReactNode;
+  /** Per-treatment chrome overrides. A lab that pairs a TAB surface with a
+   *  PUSHED one (e.g. Home → notification detail) needs the masthead + tab bar
+   *  on one treatment and a detail header with no tab bar on the next; a
+   *  treatment that draws its own bottom chrome (the Entry compose dock)
+   *  passes `showChrome: false`. Both fall back to the lab-level props. */
+  header?: ReactNode;
+  showChrome?: boolean;
   /** Palette this treatment is designed against — selecting the treatment
    *  flips the lab's palette to it (the toggle stays live for comparison). */
   defaultVariant?: Variant;
-  /** Per-treatment chrome overrides. A lab that pairs a TAB surface with a
-   *  PUSHED one (e.g. Home → notification detail) needs the masthead + tab bar
-   *  on one treatment and a detail header with no tab bar on the next. Both
-   *  fall back to the lab-level props when omitted. */
-  header?: ReactNode;
-  showChrome?: boolean;
 }
 
 /** Inject the scoped CSS once. Safe to mount more than once (identical text). */
@@ -53,7 +54,7 @@ export function ScoutIOSStyles() {
 
 /** The device + RootView chrome around a surface body. */
 export function PhoneShell({
-  surface, variant, mods, header, showChrome = true, tabBadges, children,
+  surface, variant, mods, header, showChrome = true, tabBadges, bellCount, children,
 }: {
   surface: Surface; variant: Variant; mods?: TreatmentMods;
   /** Replaces the default "Scout" masthead (for pushed/sheet surfaces). */
@@ -62,6 +63,8 @@ export function PhoneShell({
   showChrome?: boolean;
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
+  /** Unread alerts on the masthead bell — the Notifications entry point. */
+  bellCount?: number;
   children: ReactNode;
 }) {
   return (
@@ -87,6 +90,12 @@ export function PhoneShell({
                 <span className="iWordmark">Scout</span>
                 {COMPOSE_SURFACES.includes(surface) && (
                   <span className="iCompose"><Glyph kind="plus" size={18} /></span>
+                )}
+                {bellCount != null && (
+                  <span className="iBell">
+                    <Glyph kind="inbox" size={16} />
+                    {bellCount > 0 && <span className="iBellCount">{bellCount}</span>}
+                  </span>
                 )}
                 <span className="iGear"><Glyph kind="gear" size={20} /></span>
               </div>
@@ -236,7 +245,7 @@ export function SurfaceNav({ current }: { current: Surface | "theme" }) {
  * notes column. Each surface study is `<SurfaceLab surface="…" treatments={…}/>`.
  */
 export function SurfaceLab({
-  surface, title, blurb, source, treatments, controls, header, showChrome = true, tabBadges,
+  surface, title, blurb, source, treatments, controls, header, showChrome = true, tabBadges, bellCount,
 }: {
   surface: Surface;
   title: string;
@@ -252,6 +261,8 @@ export function SurfaceLab({
   showChrome?: boolean;
   /** Count badges per tab, keyed by lowercased label (e.g. `{ inbox: 5 }`). */
   tabBadges?: Partial<Record<string, number>>;
+  /** Unread alerts on the masthead bell — the Notifications entry point. */
+  bellCount?: number;
 }) {
   // Deep-linkable initial state: ?t=<treatment id> and ?v=<palette>. Without
   // ?v, a deep-linked treatment opens on its declared home palette.
@@ -307,6 +318,7 @@ export function SurfaceLab({
           header={current?.header ?? header}
           showChrome={current?.showChrome ?? showChrome}
           tabBadges={tabBadges}
+          bellCount={bellCount}
         >
           {current?.body}
         </PhoneShell>
