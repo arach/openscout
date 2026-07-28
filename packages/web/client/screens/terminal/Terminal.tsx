@@ -84,6 +84,7 @@ import {
   type TerminalWorkspaceDeckState,
   type TerminalWorkspaceDefinition,
 } from "./workspace-deck.ts";
+import { terminalHostSupportsControl, useTerminalHosts } from "../../lib/terminal-hosts.ts";
 import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { usePersistentState } from "@hudsonkit";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
@@ -324,6 +325,7 @@ function useTerminalRelaySession(params: {
   showContextMenu: (event: ReactMouseEvent, items: MenuItem[]) => void;
 }) {
   const { agentId, agent, mode, navigate, registeredTarget, showContextMenu } = params;
+  const { hosts: terminalHosts } = useTerminalHosts();
   const color = agent ? actorColor(agent.name) : "var(--accent)";
   const terminalBodyRef = useRef<HTMLDivElement>(null);
   const terminalSurface: TerminalSurfaceDescriptor | null = registeredTarget
@@ -483,7 +485,7 @@ function useTerminalRelaySession(params: {
 
   const forceQuitClaudeInstance = useCallback(() => {
     clearTerminalRelayStorage(binding.relayStorageSessionKey);
-    if (terminalSurface && !window.confirm(`Force quit Claude in ${terminalSurface.sessionName}?`)) {
+    if (terminalSurface && !window.confirm(`Force quit Claude in ${compactTerminalName(terminalSurface.sessionName)}?`)) {
       return;
     }
     const surfaceControl = runSurfaceControl("force-quit");
@@ -503,7 +505,7 @@ function useTerminalRelaySession(params: {
 
   const restartResumeClaudeInstance = useCallback(() => {
     if (!terminalSurface) return;
-    if (!window.confirm(`Restart Claude in ${terminalSurface.sessionName} and resume its latest session?`)) {
+    if (!window.confirm(`Restart Claude in ${compactTerminalName(terminalSurface.sessionName)} and resume its latest session?`)) {
       return;
     }
     clearTerminalRelayStorage(binding.relayStorageSessionKey);
@@ -527,20 +529,34 @@ function useTerminalRelaySession(params: {
     navigate(terminalRouteBase);
   }, [navigate, terminalRouteBase]);
 
+  // Actions are drawn from what the host declares it can do. A host that cannot
+  // restart a harness simply has no entry for it, instead of an entry whose
+  // route answers 501 after the click.
   const sessionMenuItems = useMemo<MenuItem[]>(() => {
-    const items: MenuItem[] = [
-      { kind: "action", label: "Detach Terminal Clients", onSelect: detachRelay },
-      { kind: "action", label: "Reconnect Terminal Session", onSelect: reconnectRelay },
-      { kind: "separator" },
-      { kind: "action", label: "Restart Claude From Session", onSelect: restartResumeClaudeInstance },
-      { kind: "action", label: "Force Quit Claude", onSelect: forceQuitClaudeInstance },
-    ];
+    const backend = terminalSurface?.backend ?? null;
+    const supports = (action: Parameters<typeof terminalHostSupportsControl>[2]) =>
+      terminalHostSupportsControl(terminalHosts, backend, action);
+    const items: MenuItem[] = [];
+    if (!backend || supports("detach")) {
+      items.push({ kind: "action", label: "Leave this session running", onSelect: detachRelay });
+    }
+    items.push({ kind: "action", label: "Reconnect", onSelect: reconnectRelay });
+    const harnessItems: MenuItem[] = [];
+    if (supports("restart-resume")) {
+      harnessItems.push({ kind: "action", label: "Restart Claude and resume", onSelect: restartResumeClaudeInstance });
+    }
+    if (supports("force-quit")) {
+      harnessItems.push({ kind: "action", label: "Force quit Claude", onSelect: forceQuitClaudeInstance });
+    }
+    if (harnessItems.length > 0) items.push({ kind: "separator" }, ...harnessItems);
     return items;
   }, [
     detachRelay,
     forceQuitClaudeInstance,
     reconnectRelay,
     restartResumeClaudeInstance,
+    terminalHosts,
+    terminalSurface?.backend,
   ]);
 
   const handleSessionMenu = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -734,7 +750,7 @@ function TerminalSummary({
         </div>
         <div className="s-term-summary-preview">
           <TmuxPeekPanel
-            surface={target.surface}
+            surface={terminalSurfaceDescriptorFromRegisteredSurface(target.surface)}
             lines={26}
             columns={112}
             pollMs={30_000}
@@ -822,7 +838,7 @@ function TerminalRelayCanvas({
           </span>
           {session.terminalSurface && (
             <span className="s-term-session" title={session.terminalSurface.sessionName}>
-              {session.terminalSurface.backend} · {session.terminalSurface.sessionName}
+              {compactTerminalName(session.terminalSurface.sessionName)}
             </span>
           )}
         </div>
@@ -1434,9 +1450,15 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     }
     if (items.length > 0) items.push({ kind: "separator" });
     items.push(
-      { kind: "action", label: "Replace with Shell", onSelect: () => replaceTile(tile.id, "pty") },
-      { kind: "action", label: "Replace with Tmux", onSelect: () => replaceTile(tile.id, "tmux") },
-      { kind: "action", label: "Replace with Zellij", onSelect: () => replaceTile(tile.id, "zellij") },
+      // Described by the property that matters, not by which renderer runs it.
+      { kind: "action", label: "Replace with a disposable shell", onSelect: () => replaceTile(tile.id, "pty") },
+      ...TERMINAL_BACKEND_OPTIONS
+        .filter((option) => option.value !== "pty")
+        .map((option): MenuItem => ({
+          kind: "action",
+          label: `Replace with a session that survives (${option.label})`,
+          onSelect: () => replaceTile(tile.id, option.value),
+        })),
       { kind: "separator" },
       { kind: "action", label: "Remove cell", onSelect: () => closeTile(tile.id) },
       { kind: "separator" },
@@ -2354,8 +2376,8 @@ function TerminalHomeSessionRow({
           <TerminalIcon size={15} strokeWidth={1.8} />
         </span>
         <span className="s-term-home-row-copy">
-          <span className="s-term-home-row-title">{item.title}</span>
-          <span className="s-term-home-row-detail" title={item.surface.sessionName}>{item.surface.sessionName}</span>
+          <span className="s-term-home-row-title" title={item.surface.sessionName}>{item.title}</span>
+          <span className="s-term-home-row-detail">{item.cwdLabel || item.detail}</span>
         </span>
       </button>
       <div className="s-term-data-cell" role="cell">
@@ -2451,7 +2473,7 @@ function TerminalHomeAgentRow({
         </span>
         <span className="s-term-home-row-copy">
           <span className="s-term-home-row-title" title={terminalSurface.sessionName}>{terminalTitle}</span>
-          <span className="s-term-home-row-detail" title={terminalSurface.sessionName}>{terminalSurface.sessionName}</span>
+          <span className="s-term-home-row-detail">{projectDetail}</span>
         </span>
       </button>
       <div className="s-term-data-cell" role="cell">

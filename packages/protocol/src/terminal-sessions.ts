@@ -17,14 +17,21 @@
  */
 
 import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "./terminal-surface-id.js";
-import type { TerminalBackend, TerminalSurfaceId } from "./terminal-surface-id.js";
+import type { TerminalHostId, TerminalSurfaceId } from "./terminal-surface-id.js";
 
 /** Lifecycle of a single materialized surface. */
 export type TerminalSurfaceState = "live" | "detached" | "exited";
 
-/** Backend-neutral relay descriptor for one surface. */
+/**
+ * Relay descriptor for one surface.
+ *
+ * The per-backend optional fields are legacy: they are what a relay built
+ * before host adapters expects to find, and they are only populated for the
+ * hosts that predate the registry. A new host adds an adapter, not a field —
+ * `backend` plus `sessionName` is the whole contract.
+ */
 export type TerminalSurfaceRelay = {
-  backend: TerminalBackend;
+  backend: TerminalHostId;
   sessionName: string;
   tmuxSession?: string;
   zellijSession?: string;
@@ -38,7 +45,8 @@ export type TerminalSurface = {
    * surface ids existed; derive one with `terminalSurfaceIdForSurface`.
    */
   surfaceId?: TerminalSurfaceId;
-  backend: TerminalBackend;
+  /** Host that owns the surface. Registered adapters may add hosts the union does not name. */
+  backend: TerminalHostId;
   /** Backend session name (e.g. tmux target, zellij session). Secondary metadata. */
   sessionName: string;
   paneId: string | null;

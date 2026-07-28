@@ -97,7 +97,27 @@ export function surfacePartsFromKey(
   return { backend: address.backend, sessionName: address.hostSession };
 }
 
-export function terminalSurfaceDescriptorFromRegisteredSurface(surface: TerminalSurface): TerminalSurfaceDescriptor {
+/**
+ * Hosts the web relay can materialize in a tile today. This is narrower than
+ * the set of hosts Scout can address: the relay is vendored from Hudson and
+ * only knows these two. Ask the host registry (`/api/terminal-hosts`) what a
+ * host supports; ask this what the browser can render.
+ */
+export function isRelayCapableTerminalBackend(
+  backend: string | null | undefined,
+): backend is TerminalSurfaceDescriptor["backend"] {
+  return backend === "tmux" || backend === "zellij";
+}
+
+/**
+ * Relay descriptor for a surface, or null when the web relay cannot carry that
+ * host. Null is the honest answer — the alternative is casting a herdr surface
+ * into a tmux descriptor and letting the relay fail at connect time.
+ */
+export function terminalSurfaceDescriptorFromRegisteredSurface(
+  surface: TerminalSurface,
+): TerminalSurfaceDescriptor | null {
+  if (!isRelayCapableTerminalBackend(surface.backend)) return null;
   return {
     backend: surface.backend,
     sessionName: surface.sessionName,

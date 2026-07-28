@@ -3,6 +3,7 @@ import type { ObserveCacheEntry } from "../../lib/observe.ts";
 // node-only history helpers (node:path) that crash the browser bundle.
 import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
 import type { TerminalSessionRecord } from "@openscout/protocol";
+import { isRelayCapableTerminalBackend } from "../../lib/terminal-sessions.ts";
 import {
   filesFromObserveEvents,
   filterObserveDataForHorizonWithFill,
@@ -936,8 +937,8 @@ function projectFromPath(path: string | null | undefined): string | null {
 function terminalSurfaceDescriptor(
   session: TerminalSessionRecord,
 ): Agent["terminalSurface"] {
-  const surface = session.surfaces[0];
-  if (!surface) return null;
+  const surface = session.surfaces.find((candidate) => isRelayCapableTerminalBackend(candidate.backend));
+  if (!surface || !isRelayCapableTerminalBackend(surface.backend)) return null;
   return {
     backend: surface.backend,
     sessionName: surface.sessionName,

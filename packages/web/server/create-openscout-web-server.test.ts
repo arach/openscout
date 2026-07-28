@@ -3398,6 +3398,70 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("publishes what each terminal host can do, so clients stop offering dead actions", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/terminal-hosts");
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      ok: boolean;
+      hosts: Array<{
+        id: string;
+        capabilities: { control: string[]; harnessControl: string[]; relayAttach: boolean };
+        availability: { installed: boolean };
+      }>;
+      preferredHostId: string | null;
+    };
+
+    expect(payload.ok).toBe(true);
+    expect(payload.hosts.map((host) => host.id).sort()).toEqual(["herdr", "tmux", "zellij"]);
+    const herdr = payload.hosts.find((host) => host.id === "herdr")!;
+    // Herdr sessions outlive Scout: detach yes, kill no.
+    expect(herdr.capabilities.control).toEqual(["detach", "force-quit-bridge"]);
+    expect(herdr.capabilities.harnessControl).toEqual([]);
+    expect(herdr.capabilities.relayAttach).toBe(false);
+    // A preferred host is only offered when one is actually installed here.
+    if (payload.preferredHostId !== null) {
+      const preferred = payload.hosts.find((host) => host.id === payload.preferredHostId)!;
+      expect(preferred.availability.installed).toBe(true);
+      expect(preferred.capabilities.relayAttach).toBe(true);
+    }
+  });
+
+  test("refuses a control verb the host cannot perform, naming the host and the verb", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/terminal-sessions/control", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ backend: "zellij", sessionName: "scout-zj-demo", action: "restart-resume" }),
+    });
+
+    // 501, not 400: the request is well-formed, the capability is absent.
+    expect(response.status).toBe(501);
+    await expect(response.json()).resolves.toEqual({
+      error: "zellij does not support restart-resume",
+      backend: "zellij",
+      action: "restart-resume",
+      capability: "control",
+    });
+
+    const unknownHost = await server.app.request("http://localhost/api/terminal-sessions/control", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ backend: "screen", sessionName: "x", action: "detach" }),
+    });
+    expect(unknownHost.status).toBe(400);
+  });
+
   test("redirects the remote pairing page to the iOS deep link", async () => {
     const qrValue = JSON.stringify({
       v: 1,

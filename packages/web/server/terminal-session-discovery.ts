@@ -1,127 +1,124 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import {
-  tmuxSessionsProbe,
-  zellijSessionsProbe,
-} from "@openscout/runtime/system-probes";
-
 import { formatTerminalSurfaceId } from "@openscout/protocol";
 import type {
-  TerminalBackend,
   TerminalSessionRecord,
   TerminalSurface,
   TerminalSurfaceId,
   TerminalSurfaceState,
 } from "@openscout/protocol";
 
+import {
+  isKnownTerminalHost,
+  terminalHostAdapter,
+  terminalHostAdapters,
+} from "./terminal-hosts/index.ts";
+import type { TerminalHostAdapter, TerminalHostSession } from "./terminal-hosts/index.ts";
+
 type DiscoveredTerminalSession = TerminalSessionRecord & {
   metadata: Record<string, unknown>;
 };
 
 type DiscoveryOptions = {
-  backend?: TerminalBackend;
+  /** Restrict discovery to one registered host. */
+  backend?: string;
   excludeSurfaces?: Iterable<string>;
   limit?: number;
   env?: NodeJS.ProcessEnv;
 };
 
-type TmuxSessionInfo = {
+/**
+ * Enumerate live host sessions through the host registry. Adding a host means
+ * registering an adapter; this function never learns its name.
+ */
+export async function queryDiscoveredTerminalSessions(
+  options: DiscoveryOptions = {},
+): Promise<TerminalSessionRecord[]> {
+  const env = options.env ?? process.env;
+  const excluded = new Set(options.excludeSurfaces ?? []);
+  const limit = normalizedDiscoveryLimit(options.limit);
+  const adapters = options.backend
+    ? [terminalHostAdapter(options.backend)].filter((adapter): adapter is TerminalHostAdapter => adapter !== null)
+    : terminalHostAdapters().filter((adapter) => adapter.capabilities.list);
+
+  const sessions: TerminalSessionRecord[] = [];
+  for (const adapter of adapters) {
+    for (const session of await listHostSessions(adapter, env)) {
+      const surface = adapter.surface(session, { env });
+      const surfaceId = surface.surfaceId ?? terminalSurfaceKey(adapter.id, session.name);
+      if (excluded.has(surfaceId)) continue;
+      sessions.push(discoveredRecordFromSurface({ adapter, session, surface, surfaceId }));
+    }
+  }
+  return sessions.slice(0, limit);
+}
+
+/**
+ * A host that is not installed is not an error: it has no sessions. A host that
+ * is installed but broken should not take the whole inventory down with it
+ * either, so one failing adapter contributes nothing and the rest still list.
+ */
+async function listHostSessions(
+  adapter: TerminalHostAdapter,
+  env: NodeJS.ProcessEnv,
+): Promise<TerminalHostSession[]> {
+  try {
+    return await adapter.list({ env });
+  } catch {
+    return [];
+  }
+}
+
+export function terminalSurfaceKey(backend: string, sessionName: string): TerminalSurfaceId {
+  return formatTerminalSurfaceId({ backend, hostSession: sessionName });
+}
+
+export function isDiscoverableTerminalBackend(backend: string | null | undefined): boolean {
+  return isKnownTerminalHost(backend);
+}
+
+function discoveredRecordFromSurface(input: {
+  adapter: TerminalHostAdapter;
+  session: TerminalHostSession;
+  surface: TerminalSurface;
+  surfaceId: TerminalSurfaceId;
+}): DiscoveredTerminalSession {
+  const now = Date.now();
+  return {
+    id: `discovered.${input.surfaceId}`,
+    // A discovered surface is a live host session, not a known harness session:
+    // nothing here says which agent (if any) runs inside it, and there is no
+    // resume command for it. Both fields used to be stuffed with the backend
+    // and the attach argv, which destroyed the very distinction the protocol
+    // header asserts. Leave them empty and declare the origin instead.
+    harness: "",
+    sourceSessionId: input.session.name,
+    cwd: input.session.cwd ?? "",
+    resumeCommand: "",
+    origin: "discovered",
+    surfaces: [input.surface],
+    createdAt: now,
+    updatedAt: now,
+    metadata: {
+      source: "backend-discovery",
+      registryState: "discovered",
+      host: input.adapter.id,
+      ...(input.session.attachedClients === null || input.session.attachedClients === undefined
+        ? {}
+        : { attachedClients: input.session.attachedClients }),
+      ...(input.session.currentCommand ? { currentCommand: input.session.currentCommand } : {}),
+      ...(input.session.cwd ? { currentPath: input.session.cwd } : {}),
+      ...(input.session.state === "live" ? {} : { backendState: input.session.state }),
+      ...(input.session.metadata ?? {}),
+    },
+  };
+}
+
+export function parseTmuxSessionList(output: string): Array<{
   name: string;
   windows: number;
   attached: number;
   currentCommand: string | null;
   currentPath: string | null;
-};
-
-type ZellijSessionInfo = {
-  name: string;
-  state: TerminalSurfaceState;
-  raw: string;
-};
-
-export async function queryDiscoveredTerminalSessions(options: DiscoveryOptions = {}): Promise<TerminalSessionRecord[]> {
-  const env = options.env ?? process.env;
-  const excluded = new Set(options.excludeSurfaces ?? []);
-  const limit = normalizedDiscoveryLimit(options.limit);
-  const sessions: TerminalSessionRecord[] = [];
-
-  if (!options.backend || options.backend === "tmux") {
-    sessions.push(...await discoverTmuxSessions({ env, excluded }));
-  }
-
-  if (!options.backend || options.backend === "zellij") {
-    sessions.push(...await discoverZellijSessions({ env, excluded }));
-  }
-
-  return sessions.slice(0, limit);
-}
-
-async function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): Promise<DiscoveredTerminalSession[]> {
-  const snapshot = await tmuxSessionsProbe.for({ env: input.env }).fresh();
-  return (snapshot.value ?? [])
-    .filter((session) => !input.excluded.has(terminalSurfaceKey("tmux", session.name)))
-    .map((session) => discoveredRecordFromSurface({
-      backend: "tmux",
-      name: session.name,
-      state: "live",
-      cwd: session.currentPath ?? "",
-      surface: {
-        backend: "tmux",
-        sessionName: session.name,
-        paneId: null,
-        attachCommand: ["tmux", "attach", "-t", session.name],
-        observeCommand: null,
-        relay: {
-          backend: "tmux",
-          sessionName: session.name,
-          tmuxSession: session.name,
-        },
-        state: "live",
-      },
-      metadata: {
-        source: "backend-discovery",
-        registryState: "discovered",
-        attachedClients: session.attached,
-        windows: session.windows,
-        currentCommand: session.currentCommand,
-        currentPath: session.currentPath,
-      },
-    }));
-}
-
-async function discoverZellijSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): Promise<DiscoveredTerminalSession[]> {
-  const socketDir = resolveZellijSocketDir(input.env);
-  const snapshot = await zellijSessionsProbe.for({ env: input.env, socketDir }).fresh();
-  return (snapshot.value ?? [])
-    .filter((session) => !input.excluded.has(terminalSurfaceKey("zellij", session.name)))
-    .map((session) => discoveredRecordFromSurface({
-      backend: "zellij",
-      name: session.name,
-      state: session.state,
-      surface: {
-        backend: "zellij",
-        sessionName: session.name,
-        paneId: null,
-        attachCommand: ["env", `ZELLIJ_SOCKET_DIR=${socketDir}`, "zellij", "attach", session.name],
-        observeCommand: ["env", `ZELLIJ_SOCKET_DIR=${socketDir}`, "zellij", "watch", session.name],
-        relay: {
-          backend: "zellij",
-          sessionName: session.name,
-          zellijSession: session.name,
-        },
-        state: session.state,
-        socketDir,
-      },
-      metadata: {
-        source: "backend-discovery",
-        registryState: "discovered",
-        backendState: session.state,
-        raw: session.raw,
-      },
-    }));
-}
-
-export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
+}> {
   return output
     .split(/\r?\n/gu)
     .map((line) => line.trim())
@@ -139,10 +136,14 @@ export function parseTmuxSessionList(output: string): TmuxSessionInfo[] {
         currentPath: cleanOptionalString(currentPath),
       };
     })
-    .filter((session): session is TmuxSessionInfo => Boolean(session));
+    .filter((session): session is NonNullable<typeof session> => Boolean(session));
 }
 
-export function parseZellijSessionList(output: string): ZellijSessionInfo[] {
+export function parseZellijSessionList(output: string): Array<{
+  name: string;
+  state: TerminalSurfaceState;
+  raw: string;
+}> {
   return stripAnsi(output)
     .split(/\r?\n/gu)
     .map((line) => line.trim())
@@ -152,45 +153,11 @@ export function parseZellijSessionList(output: string): ZellijSessionInfo[] {
       if (!name) return null;
       return {
         name,
-        state: /\bEXITED\b/iu.test(line) ? "exited" : "live",
+        state: (/\bEXITED\b/iu.test(line) ? "exited" : "live") as TerminalSurfaceState,
         raw: line,
       };
     })
-    .filter((session): session is ZellijSessionInfo => Boolean(session));
-}
-
-export function terminalSurfaceKey(backend: string, sessionName: string): TerminalSurfaceId {
-  return formatTerminalSurfaceId({ backend, hostSession: sessionName });
-}
-
-function discoveredRecordFromSurface(input: {
-  backend: TerminalBackend;
-  name: string;
-  state: TerminalSurfaceState;
-  cwd?: string;
-  surface: TerminalSurface;
-  metadata: Record<string, unknown>;
-}): DiscoveredTerminalSession {
-  const now = Date.now();
-  const surfaceId = terminalSurfaceKey(input.backend, input.name);
-  return {
-    id: `discovered.${surfaceId}`,
-    // A discovered surface is a live multiplexer session, not a known harness
-    // session: nothing here says which agent (if any) is running inside it, and
-    // there is no resume command for it. Both fields used to be stuffed with
-    // the backend and the attach argv, which made a discovered pane
-    // indistinguishable from a real registry record. Leave them empty and say
-    // so in `origin`; the attach argv lives on the surface where it belongs.
-    harness: "",
-    sourceSessionId: input.name,
-    cwd: input.cwd ?? "",
-    resumeCommand: "",
-    origin: "discovered",
-    surfaces: [{ ...input.surface, surfaceId }],
-    createdAt: now,
-    updatedAt: now,
-    metadata: input.metadata,
-  };
+    .filter((session): session is NonNullable<typeof session> => Boolean(session));
 }
 
 function cleanOptionalString(value: string | undefined): string | null {
@@ -214,12 +181,6 @@ function normalizedDiscoveryLimit(value: number | undefined, fallback = 100, max
     return fallback;
   }
   return Math.max(0, Math.min(max, Math.floor(value)));
-}
-
-function resolveZellijSocketDir(env: NodeJS.ProcessEnv): string {
-  return env.ZELLIJ_SOCKET_DIR?.trim()
-    || env.OPENSCOUT_ZELLIJ_SOCKET_DIR?.trim()
-    || join(env.HOME?.trim() || homedir(), ".openscout", "zellij-sockets");
 }
 
 function stripAnsi(value: string): string {

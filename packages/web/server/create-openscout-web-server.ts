@@ -66,6 +66,14 @@ import {
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
 import {
+  describeTerminalHosts,
+  isKnownTerminalHost,
+  resolvePreferredTerminalHost,
+  resolveTerminalHostAdapter,
+  terminalHostAdapter,
+  terminalHostSupportsControl,
+} from "./terminal-hosts/index.ts";
+import {
   getImageBlob,
   ImageBlobError,
   putImageBlob,
@@ -1175,9 +1183,10 @@ function firstMetadataString(...values: Array<unknown>): string | null {
   return null;
 }
 
-function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | undefined {
+/** Any host with a registered adapter, not a hardcoded pair. */
+function parseTerminalSessionBackend(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+  return normalized && isKnownTerminalHost(normalized) ? normalized : undefined;
 }
 
 function parseTerminalSessionLimit(value: string | undefined): number {
@@ -5054,10 +5063,24 @@ export async function createOpenScoutWebServer(
     );
     return c.json(summary ? agents.map(agentListSummary) : agents);
   });
+  // What each terminal host can do, and whether it is installed here. Clients
+  // read this to decide which actions to render, so a host that cannot do
+  // something never gets a button that 400s.
+  app.get("/api/terminal-hosts", async (c) => {
+    const hosts = await describeTerminalHosts();
+    const preferred = await resolvePreferredTerminalHost();
+    return c.json({
+      ok: true,
+      count: hosts.length,
+      preferredHostId: preferred?.id ?? null,
+      hosts,
+    });
+  });
+
   app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
-      return c.json({ error: "backend must be tmux or zellij" }, 400);
+      return c.json({ error: "backend must be a registered terminal host" }, 400);
     }
     const limit = parseTerminalSessionLimit(c.req.query("limit"));
     const sessions = queryTerminalSessions({
@@ -5091,12 +5114,13 @@ export async function createOpenScoutWebServer(
     const columns = parseTmuxPeekColumnCount(c.req.query("cols") ?? c.req.query("columns"));
 
     if (!backend) {
-      return c.json({ error: "backend must be tmux or zellij" }, 400);
+      return c.json({ error: "backend must be a registered terminal host" }, 400);
     }
     if (!sessionName) {
       return c.json({ error: "sessionName is required" }, 400);
     }
-    if (backend !== "tmux") {
+    const previewHost = terminalHostAdapter(backend);
+    if (!previewHost?.capabilities.capture) {
       return c.json({
         available: false,
         agentId: "terminal",
@@ -5106,7 +5130,24 @@ export async function createOpenScoutWebServer(
         lineCount: lines,
         columnCount: columns,
         truncated: false,
-        reason: `${backend} previews are not available yet.`,
+        reason: `${previewHost?.label ?? backend} does not report screen contents.`,
+      });
+    }
+    if (backend !== "tmux") {
+      // tmux keeps the dedicated capture path (line/column normalization, the
+      // injectable capture hook the tests drive); other hosts go through the
+      // adapter's own capture verb.
+      const body = await previewHost.capture?.({ sessionName, lines });
+      return c.json({
+        available: Boolean(body),
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: body ? normalizeTmuxPeekBody(body, lines, columns) : "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        ...(body ? {} : { reason: `The ${previewHost.label} session is not available right now.` }),
       });
     }
 
@@ -6685,28 +6726,49 @@ export async function createOpenScoutWebServer(
     const sessionName = body.sessionName?.trim();
     const action = parseTerminalSurfaceControlAction(body.action);
 
-    if (!backend) return c.json({ error: "backend must be tmux or zellij" }, 400);
+    if (!backend) return c.json({ error: "backend must be a registered terminal host" }, 400);
     if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
     if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
 
+    // Capability, not backend. A host that cannot perform a verb says so with
+    // the capability that is missing, and the UI is expected to have read
+    // /api/terminal-hosts and not offered the action in the first place.
+    const support = terminalHostSupportsControl(backend, action);
+    if (!support.supported) {
+      return c.json({
+        error: `${backend} does not support ${action}`,
+        backend,
+        action,
+        capability: "control",
+      }, 501);
+    }
+
     let delivered = false;
     let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
-    if (backend === "tmux" && action === "restart-resume") {
-      resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
-      delivered = resumeResult.ok;
-    } else if (backend === "tmux" && action !== "force-quit-bridge") {
-      delivered = await controlTmuxSurface(sessionName, action);
+    if (support.via === "harness") {
+      // Harness-aware verbs walk a process tree and read a Claude transcript;
+      // they are Scout features layered over one host, not host features.
+      if (action === "restart-resume") {
+        resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
+        delivered = resumeResult.ok;
+      } else if (action !== "force-quit-bridge") {
+        delivered = await controlTmuxSurface(sessionName, action);
+      }
     } else if (action !== "force-quit-bridge") {
-      return c.json({ error: `${backend} surface control is not available yet` }, 400);
+      const adapter = resolveTerminalHostAdapter(backend);
+      const result = await adapter.control?.(action, { sessionName });
+      delivered = result?.delivered ?? false;
     }
 
     let destroyed = 0;
     if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
-      if (options.destroyTerminalRelaySurface) {
+      // Only hosts the relay can carry have a bridge to tear down.
+      if (options.destroyTerminalRelaySurface && (backend === "tmux" || backend === "zellij")) {
         destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
       }
-      if (backend === "tmux" && action !== "restart-resume") {
-        await controlTmuxSurface(sessionName, "detach");
+      const detachSupport = terminalHostSupportsControl(backend, "detach");
+      if (action !== "restart-resume" && action !== "detach" && detachSupport.supported) {
+        await resolveTerminalHostAdapter(backend).control?.("detach", { sessionName });
       }
     }
 
