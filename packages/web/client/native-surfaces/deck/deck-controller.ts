@@ -46,13 +46,14 @@ export type DeckTurnPhase =
 type DeckPending = { kind: "connecting" | "sending" | "stopping"; at: number };
 
 /**
- * The three controller treatments. They are separate interaction models over
+ * The four controller treatments. They are separate interaction models over
  * one controller: the same snapshot, the same lifecycle, the same host calls.
  */
-export const DECK_TREATMENTS = ["yoke", "console", "brief"] as const;
+export const DECK_TREATMENTS = ["ops", "yoke", "console", "brief"] as const;
 export type DeckTreatment = (typeof DECK_TREATMENTS)[number];
 
 export const DECK_TREATMENT_META: Record<DeckTreatment, { label: string; tagline: string }> = {
+  ops: { label: "Ops", tagline: "Agent operations · routed control" },
   yoke: { label: "Yoke", tagline: "Two-grip cockpit · thumb-anchored" },
   console: { label: "Console", tagline: "Fleet board · one command bar" },
   brief: { label: "Brief", tagline: "Single column · command palette" },
@@ -62,7 +63,10 @@ export const DECK_TREATMENT_META: Record<DeckTreatment, { label: string; tagline
 const PENDING_TIMEOUT_MS = 9_000;
 
 const HOST_SCOPE_STORAGE_KEY = "scout.deck.hostScope";
-const TREATMENT_STORAGE_KEY = "scout.deck.treatment";
+// v2 promotes the reference-led Ops surface to the default. Versioning the
+// preference prevents a remembered exploratory treatment from hiding it after
+// an app update; the next explicit choice is remembered normally.
+const TREATMENT_STORAGE_KEY = "scout.deck.treatment.v2";
 const AUTO_SEND_STORAGE_KEY = "scout.deck.autoSend";
 const VOICE_OUT_STORAGE_KEY = "scout.deck.voiceOut";
 
@@ -256,7 +260,7 @@ export function resolveInitialTreatment(search: URLSearchParams): DeckTreatment 
   if (isTreatment(requested)) return requested;
   const remembered = localStorage.getItem(TREATMENT_STORAGE_KEY);
   if (isTreatment(remembered)) return remembered;
-  return "yoke";
+  return "ops";
 }
 
 function isTreatment(value: string | null): value is DeckTreatment {
@@ -271,7 +275,7 @@ function previewLaneIndex(search: URLSearchParams): number {
 }
 
 /**
- * One controller, three treatments. Everything a treatment can render or drive
+ * One controller, four treatments. Everything a treatment can render or drive
  * is derived here so no layout can invent a state the host never reported.
  */
 export function useDeckController() {

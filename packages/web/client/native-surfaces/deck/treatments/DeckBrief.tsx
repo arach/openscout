@@ -118,6 +118,12 @@ export function DeckBrief({ model }: { model: DeckModel }) {
         run: () => model.setSettingsOpen(true),
       },
       {
+        id: "ops",
+        group: "Layout",
+        label: "Switch to Ops (routed agent controller)",
+        run: () => model.setTreatment("ops"),
+      },
+      {
         id: "yoke",
         group: "Layout",
         label: "Switch to Yoke (two-grip cockpit)",

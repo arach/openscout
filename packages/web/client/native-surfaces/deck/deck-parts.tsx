@@ -106,7 +106,7 @@ export function TreatmentSwitch({ model }: { model: DeckModel }) {
           title={DECK_TREATMENT_META[value].tagline}
         >
           {DECK_TREATMENT_META[value].label}
-          {value === "yoke" ? <em>default</em> : null}
+          {value === "ops" ? <em>default</em> : null}
         </button>
       ))}
     </div>

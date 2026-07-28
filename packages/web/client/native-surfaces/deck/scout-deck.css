@@ -1,7 +1,7 @@
 /* Scout Deck — shared foundation.
  *
  * Everything here is treatment-agnostic: the palette, the type scale, and the
- * control primitives (primary key, stop, chips, streams, sheets) that all three
+ * control primitives (primary key, stop, chips, streams, sheets) that all four
  * interaction models are assembled from. Treatment files own layout only.
  *
  * Type scale note: this surface is driven at arm's length on an iPad. Nothing
@@ -116,6 +116,30 @@ body {
   white-space: nowrap;
 }
 
+.scout-deck__ops-brand { display: inline-flex; align-items: center; gap: 7px; }
+.scout-deck__ops-brand strong,
+.scout-deck__ops-brand small,
+.scout-deck__ops-brand i {
+  font: 650 10px/1 var(--deck-mono);
+  letter-spacing: .16em;
+  font-style: normal;
+}
+.scout-deck__ops-brand strong { color: #e2e2df; }
+.scout-deck__ops-brand small { color: #71716c; }
+.scout-deck__ops-brand i { color: #4a4a4d; }
+.scout-deck__ops-mode {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid rgba(129,221,134,.36); border-radius: 5px;
+  background: rgba(129,221,134,.07); color: #81dd86;
+  font: 600 8px/1 var(--deck-mono); letter-spacing: .13em;
+}
+.scout-deck__ops-mode i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.scout-deck__ops-count {
+  margin-left: auto; color: #4a4a4d;
+  font: 600 8px/1 var(--deck-mono); letter-spacing: .12em; white-space: nowrap;
+}
+
 .deck-switch { flex: none; display: flex; gap: 4px; padding: 4px; border: 1px solid var(--deck-line); border-radius: 8px; background: rgba(255,255,255,.02); }
 .deck-switch__key {
   position: relative;
@@ -140,6 +164,29 @@ body {
   color: var(--deck-green);
 }
 .deck-switch__key[data-active="true"] em { color: rgba(106,242,197,.5); }
+
+/* Ops uses the flatter source-deck top rail. The switch remains available for
+   the earlier explorations, but reads as a compact view selector. */
+.scout-deck[data-treatment="ops"] {
+  gap: 7px;
+  padding: 8px 10px 0;
+  background: radial-gradient(120% 100% at 50% 0%, #0a0a0c, #060607 70%);
+}
+.scout-deck[data-treatment="ops"] .scout-deck__strip {
+  min-height: 38px; padding: 2px 6px 7px;
+  border: 0; border-bottom: 1px solid rgba(255,255,255,.07); border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.scout-deck[data-treatment="ops"] .scout-deck__brand { gap: 10px; }
+.scout-deck[data-treatment="ops"] .scout-deck__sim {
+  padding: 4px 7px; font-size: 8px; border-color: rgba(228,182,92,.3); background: rgba(228,182,92,.07);
+}
+.scout-deck[data-treatment="ops"] .deck-switch { gap: 2px; padding: 2px; border-color: rgba(255,255,255,.05); border-radius: 6px; }
+.scout-deck[data-treatment="ops"] .deck-switch__key {
+  min-width: 54px; min-height: 30px; padding: 4px 7px;
+  border-radius: 4px; font-size: 8px; letter-spacing: .09em;
+}
+.scout-deck[data-treatment="ops"] .deck-switch__key em { display: none; }
 
 /* --------------------------------------------------------- shared atoms */
 
