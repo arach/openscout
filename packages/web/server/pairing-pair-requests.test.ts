@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import {
   createPendingPairRequestStore,
   latestPairRequestGeneration,
+  type PairRequest,
   pairRequestGenerationPath,
   pairRequestStatePath,
 } from "./pairing-pair-requests.ts";
@@ -783,6 +784,14 @@ describe("pending pair request store with a suspended instance", () => {
 // kept a request it could not share. Dropping it is worse than not having the
 // shared file at all, because the phone gets 410 and stops polling.
 describe("pending pair request store with an unwritable home", () => {
+  /** What the next instance to read the file is told — i.e. what the phone gets. */
+  function freshRead(statePath: string, token: string, now: () => number): PairRequest | null {
+    const observer = createPendingPairRequestStore({ statePath, now });
+    const seen = observer.get(token);
+    observer.dispose();
+    return seen;
+  }
+
   test.skipIf(runsAsRoot)(
     "keeps serving a request it could not publish when another instance publishes",
     () => {
@@ -888,6 +897,100 @@ describe("pending pair request store with an unwritable home", () => {
     degraded.dispose();
     writable.dispose();
   });
+
+  // Keeping what could not be published is the floor; keeping it forever is a
+  // hole. A row that reached the shared file and was then deleted there is not
+  // a row only this instance has, and merging it back republishes a token whose
+  // payload has already been handed over.
+  test.skipIf(runsAsRoot)(
+    "does not resurrect a row another instance fulfilled while it could not publish",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      const runDirectory = dirname(statePath);
+      mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+      const clock = fixedClock();
+
+      const writable = createPendingPairRequestStore({ statePath, now: clock.now });
+      const req = writable.create({ requesterIp: "192.168.1.66" });
+      expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+      // The phone is polling THIS instance, so it has read the row out of the
+      // shared file. That is what makes it different from a row nobody else has.
+      const degraded = createPendingPairRequestStore({ statePath, now: clock.now });
+      expect(degraded.get(req.token)?.token).toBe(req.token);
+
+      chmodSync(runDirectory, 0o500); // ~/.openscout goes read-only mid-pair
+      clock.advance(1_000);
+      degraded.touch(req.token); // a poll that gets no further than memory
+      expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+      // Writes come back, and the OTHER instance delivers the payload.
+      chmodSync(runDirectory, 0o700);
+      writable.fulfill(req.token);
+      expect(latestPairRequestGeneration(statePath)).toBe(2);
+      expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+
+      // The phone polls once more. Its stranded row is not one the shared state
+      // has never seen — it is one a peer deleted at a later generation.
+      clock.advance(1_000);
+      degraded.touch(req.token);
+      expect(degraded.get(req.token)).toBeNull();
+      expect(degraded.list()).toEqual([]);
+      // Nothing was written at all: there is no outstanding row left to owe.
+      expect(latestPairRequestGeneration(statePath)).toBe(2);
+      expect(freshRead(statePath, req.token, clock.now)).toBeNull();
+
+      degraded.dispose();
+      writable.dispose();
+    },
+  );
+
+  test.skipIf(runsAsRoot)(
+    "keeps a row stranded in the same window as one a peer fulfilled",
+    () => {
+      const home = tempConfigHome();
+      const statePath = pairRequestStatePath(home);
+      const runDirectory = dirname(statePath);
+      mkdirSync(runDirectory, { recursive: true, mode: 0o700 });
+      const clock = fixedClock();
+
+      const writable = createPendingPairRequestStore({ statePath, now: clock.now });
+      const shared = writable.create({ requesterIp: "192.168.1.67" });
+
+      const degraded = createPendingPairRequestStore({ statePath, now: clock.now });
+      expect(degraded.get(shared.token)?.token).toBe(shared.token);
+
+      // One unwritable window, two rows: a poll of the row the file already
+      // holds, and a second device that taps this instance and gets registered
+      // somewhere nobody else can see.
+      chmodSync(runDirectory, 0o500);
+      clock.advance(1_000);
+      degraded.touch(shared.token);
+      const stranded = degraded.create({ requesterIp: "192.168.1.68" });
+      expect(latestPairRequestGeneration(statePath)).toBe(1);
+
+      chmodSync(runDirectory, 0o700);
+      writable.fulfill(shared.token);
+      expect(latestPairRequestGeneration(statePath)).toBe(2);
+
+      // The merge has to answer both at once, out of the same degraded window:
+      // drop the row a peer deleted, keep the row only this instance has held.
+      clock.advance(1_000);
+      degraded.touch(stranded.token);
+      expect(degraded.get(shared.token)).toBeNull();
+      expect(degraded.get(stranded.token)?.token).toBe(stranded.token);
+
+      // And the retained row reaches the file on that same write, without
+      // carrying the fulfilled one back with it.
+      expect(latestPairRequestGeneration(statePath)).toBe(3);
+      expect(freshRead(statePath, stranded.token, clock.now)?.token).toBe(stranded.token);
+      expect(freshRead(statePath, shared.token, clock.now)).toBeNull();
+
+      degraded.dispose();
+      writable.dispose();
+    },
+  );
 });
 
 // A pair-request row is a bearer credential: whoever reads one can complete the

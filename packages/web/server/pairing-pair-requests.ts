@@ -258,6 +258,17 @@ function fileSignature(path: string): string | null {
   }
 }
 
+/**
+ * The published state a row was last seen in.
+ *
+ * Which generation, and which file that generation was — the second only
+ * matters for generation 0, the one name a pre-swap instance can write twice.
+ */
+interface SharedSighting {
+  generation: number;
+  signature: string | null;
+}
+
 function inodeOf(path: string): number | null {
   try {
     return statSync(path).ino;
@@ -290,6 +301,15 @@ export function createPendingPairRequestStore(
    */
   const unpersistedUpserts = new Set<string>();
   const unpersistedDeletes = new Map<string, number>();
+  /**
+   * Where each row we know reached the shared state was last seen in it.
+   *
+   * Recorded when we read a row out of a published generation and when we
+   * publish one ourselves; forgotten once the row is no longer ours to hold.
+   * This is the provenance that tells a row the shared state has never held
+   * apart from one a peer has since deleted. See `mergeUnpersisted`.
+   */
+  const lastSeenInShared = new Map<string, SharedSighting>();
   /**
    * Unique per store, so two stores sharing a path — two servers in one
    * process, or the cross-instance tests — never collide on the temp file and
@@ -329,6 +349,22 @@ export function createPendingPairRequestStore(
   }
 
   /**
+   * Has the shared state moved past the point a row was last seen in it?
+   *
+   * Generations only ever go up, so the number answers this on its own —
+   * except at generation 0, the file a pre-swap instance rewrites in place,
+   * where the second write lands on the same name. The fingerprint the reader
+   * already keeps in order to know whether it has parsed a file covers that,
+   * and a generation older than the sighting (a run directory cleared and
+   * started again) is not evidence of anything, so it does not count.
+   */
+  function movedOnSince(sighting: SharedSighting): boolean {
+    const generation = loadedGeneration ?? -1;
+    if (generation !== sighting.generation) return generation > sighting.generation;
+    return loadedSignature !== sighting.signature;
+  }
+
+  /**
    * Reconcile the file against writes of ours that never reached it.
    *
    * Without this, a degraded instance is strictly worse than the per-process
@@ -336,6 +372,24 @@ export function createPendingPairRequestStore(
    * instance publishes anything at all, and the wholesale reload drops the
    * token the phone is holding — which answers the next poll with 410 and
    * stops it retrying. Keeping unpublished rows in memory is the floor.
+   *
+   * Which is not the same as keeping every row we happen to be holding.
+   * "Missing from the state we just loaded" has two causes that look identical
+   * in the map and mean opposite things: a row we created and could not
+   * publish, which nobody else can be holding and which has to survive; and a
+   * row that WAS published and that a peer has since deleted by fulfilling or
+   * sweeping it, which must not come back. Retaining the second is how a
+   * fulfilled token gets answered as `pending` again — reproduced 10/10 by
+   * failing a poll's publish, letting another instance fulfil the row, and
+   * merging: the next publication carried the row back into the shared file at
+   * a later generation than the one that had deleted it.
+   *
+   * The generational model already separates the two. A row absent from a
+   * generation LATER than the one we last saw it in went away between them,
+   * and it was not us that removed it. So sightings are recorded on the way
+   * past, and only a row the shared state has never held is kept alive here —
+   * along with whatever local change was stacked on it, which now has nothing
+   * left to apply to.
    */
   function mergeUnpersisted(loaded: Map<string, PairRequest>): void {
     for (const token of [...unpersistedUpserts]) {
@@ -347,6 +401,13 @@ export function createPendingPairRequestStore(
       }
       const theirs = loaded.get(token);
       if (!theirs) {
+        const sighting = lastSeenInShared.get(token);
+        if (sighting && movedOnSince(sighting)) {
+          // A peer's deletion, not a row only we have. Republishing it would
+          // hand the phone a token whose payload has already been delivered.
+          unpersistedUpserts.delete(token);
+          continue;
+        }
         loaded.set(token, mine);
         continue;
       }
@@ -377,12 +438,33 @@ export function createPendingPairRequestStore(
     }
   }
 
+  /**
+   * Forget sightings of rows we are no longer holding.
+   *
+   * A token is a UUID and never legitimately comes back, so a row that has left
+   * the map has left for good; without this the record would grow for the life
+   * of the process.
+   */
+  function forgetSightingsWeNoLongerHold(): void {
+    for (const token of lastSeenInShared.keys()) {
+      if (!byToken.has(token)) lastSeenInShared.delete(token);
+    }
+  }
+
   function adopt(rows: PairRequest[]): void {
     const loaded = new Map<string, PairRequest>();
     for (const row of rows) loaded.set(row.token, row);
+    // Every row in the file demonstrably reached the shared state, in this
+    // generation. Recorded before the merge, which reads sightings back.
+    const sighting: SharedSighting = {
+      generation: loadedGeneration ?? 0,
+      signature: loadedSignature,
+    };
+    for (const token of loaded.keys()) lastSeenInShared.set(token, sighting);
     mergeUnpersisted(loaded);
     byToken.clear();
     for (const [token, request] of loaded) byToken.set(token, request);
+    forgetSightingsWeNoLongerHold();
   }
 
   /**
@@ -541,6 +623,11 @@ export function createPendingPairRequestStore(
     // we removed. Nothing of ours is outstanding any more.
     unpersistedUpserts.clear();
     unpersistedDeletes.clear();
+    // And every row in it has now been seen in the shared state at this
+    // generation — by us, which is the same evidence as having read it there.
+    const sighting: SharedSighting = { generation: next, signature };
+    for (const token of byToken.keys()) lastSeenInShared.set(token, sighting);
+    forgetSightingsWeNoLongerHold();
     collectSuperseded(next);
     return "won";
   }
@@ -772,6 +859,7 @@ export function createPendingPairRequestStore(
       byToken.clear();
       unpersistedUpserts.clear();
       unpersistedDeletes.clear();
+      lastSeenInShared.clear();
     },
   };
 }
