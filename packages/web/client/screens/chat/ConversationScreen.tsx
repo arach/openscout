@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,8 +15,10 @@ import { api } from "../../lib/api.ts";
 import { uploadMediaFiles, type OutgoingAttachment } from "../../lib/media-blobs.ts";
 import { useComposerAttachments } from "../../components/MessageComposer/index.ts";
 import {
+  canLoadEarlierConversationMessages,
   hasCachedConversationHistory,
   loadConversationHistory,
+  loadEarlierConversationMessages,
   loadConversationTail,
   readCachedConversationTail,
   writeCachedConversationTail,
@@ -109,6 +112,7 @@ import {
   readScoutDispatch,
   resolveAgentByIdentity,
   resolveComposeAction,
+  resolveConversationAutoscroll,
   resolveAskReplyContext,
   resolveMessageAgent,
   resolveThreadEmbedProps,
@@ -245,6 +249,12 @@ export function ConversationScreen({
     typeof window === "undefined" ? null : messageIdFromLocationHash(window.location.hash),
   );
   const [error, setError] = useState<string | null>(null);
+  const [loadingEarlierMessages, setLoadingEarlierMessages] = useState(false);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const pendingHistoryScrollRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
@@ -254,6 +264,28 @@ export function ConversationScreen({
   const lastPostedReadCursorMessageIdRef = useRef<string | null>(null);
   const activeConversationIdRef = useRef(conversationId);
   activeConversationIdRef.current = conversationId;
+  const canLoadEarlierMessages =
+    canLoadEarlierConversationMessages(conversationId);
+
+  // Set by the layout effect below and read by the autoscroll effect later in
+  // the same commit: by then `pendingHistoryScrollRef` has already been
+  // consumed, so this is what tells autoscroll to stand down.
+  const historyRestoreAppliedRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const pending = pendingHistoryScrollRef.current;
+    const feed = feedRef.current;
+    if (!pending || !feed) return;
+    feed.scrollTop = pending.scrollTop + (feed.scrollHeight - pending.scrollHeight);
+    pendingHistoryScrollRef.current = null;
+    historyRestoreAppliedRef.current = true;
+  });
+
+  useEffect(() => {
+    setLoadingEarlierMessages(false);
+    pendingHistoryScrollRef.current = null;
+    historyRestoreAppliedRef.current = false;
+  }, [conversationId]);
 
   const agentId = sessionMeta?.agentId ?? null;
   const isDm = sessionMeta?.kind === "direct";
@@ -432,6 +464,38 @@ export function ConversationScreen({
       return next;
     });
   }, [currentFlight?.id]);
+
+  const loadEarlierMessages = useCallback(async () => {
+    if (loadingEarlierMessages || !canLoadEarlierConversationMessages(conversationId)) {
+      return;
+    }
+    const feed = feedRef.current;
+    const scrollSnapshot = feed
+      ? { scrollHeight: feed.scrollHeight, scrollTop: feed.scrollTop }
+      : null;
+    setLoadingEarlierMessages(true);
+    setError(null);
+    try {
+      const loaded = await loadEarlierConversationMessages(conversationId);
+      if (activeConversationIdRef.current !== conversationId) return;
+      if (scrollSnapshot) {
+        pendingHistoryScrollRef.current = scrollSnapshot;
+      }
+      setMessages(
+        sortMessages(loaded).filter(
+          (message) => !isNoisyConversationStatusMessage(message),
+        ),
+      );
+    } catch (cause) {
+      if (activeConversationIdRef.current === conversationId) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    } finally {
+      if (activeConversationIdRef.current === conversationId) {
+        setLoadingEarlierMessages(false);
+      }
+    }
+  }, [conversationId, loadingEarlierMessages, setMessages]);
 
   const [draft, setDraft] = useState(() => initialDraft ?? "");
   const [sending, setSending] = useState(false);
@@ -1082,17 +1146,30 @@ export function ConversationScreen({
     };
   }, [load]);
 
-  const visualRowCount = messages.length + (presence.showTyping ? 1 : 0);
-  const previousVisualRowCount = useRef(0);
+  const previousNewestMessageIdRef = useRef<string | null>(null);
+  const previousShowTypingRef = useRef(false);
   const initialScrollDoneRef = useRef(false);
+  // Runs on every commit so the "what changed since last paint" refs below are
+  // never stale, and so a suppressed prepend commit still clears its own flag.
   useEffect(() => {
-    if (visualRowCount > previousVisualRowCount.current) {
-      const behavior = initialScrollDoneRef.current ? "smooth" : "instant";
-      bottomRef.current?.scrollIntoView({ behavior });
+    const newestMessageId = messages.at(-1)?.id ?? null;
+    const decision = resolveConversationAutoscroll({
+      newestMessageId,
+      previousNewestMessageId: previousNewestMessageIdRef.current,
+      showTyping: presence.showTyping,
+      previousShowTyping: previousShowTypingRef.current,
+      historyRestorePending: historyRestoreAppliedRef.current
+        || pendingHistoryScrollRef.current !== null,
+      initialScrollDone: initialScrollDoneRef.current,
+    });
+    if (decision !== "none") {
+      bottomRef.current?.scrollIntoView({ behavior: decision });
       initialScrollDoneRef.current = true;
     }
-    previousVisualRowCount.current = visualRowCount;
-  }, [visualRowCount]);
+    historyRestoreAppliedRef.current = false;
+    previousNewestMessageIdRef.current = newestMessageId;
+    previousShowTypingRef.current = presence.showTyping;
+  });
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -1512,8 +1589,24 @@ export function ConversationScreen({
 
         {error && <p className="s-thread-error">{error}</p>}
 
-        <div className="s-thread-feed">
+        <div className="s-thread-feed" ref={feedRef}>
           <div className="s-thread-feed-spacer" />
+          {!showThreadSkeleton && messages.length > 0 && canLoadEarlierMessages && (
+            <div className="s-thread-history-control">
+              <button
+                type="button"
+                className="s-thread-history-button"
+                disabled={loadingEarlierMessages}
+                aria-busy={loadingEarlierMessages}
+                onClick={() => void loadEarlierMessages()}
+              >
+                {loadingEarlierMessages && (
+                  <span className="s-thread-history-spinner" aria-hidden="true" />
+                )}
+                {loadingEarlierMessages ? "Loading earlier messages…" : "Load earlier messages"}
+              </button>
+            </div>
+          )}
           {showThreadSkeleton ? (
             <ThreadLoadingSkeleton />
           ) : messages.length === 0 ? (

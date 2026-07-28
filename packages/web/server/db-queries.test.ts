@@ -27,6 +27,12 @@ import {
 } from "./db-queries.ts";
 import { SQLiteControlPlaneStore } from "../../runtime/src/sqlite-store.ts";
 import { directChannelNaturalKey } from "../../protocol/src/channel-identity.ts";
+import {
+  MAX_MESSAGE_PAGE_LIMIT,
+  MessageCursorError,
+  compareMessagesAsc,
+  encodeMessageHistoryCursor,
+} from "../shared/message-pagination.ts";
 
 const tempRoots = new Set<string>();
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
@@ -169,6 +175,32 @@ function setConversationCreatedAt(conversationId: string, createdAt: number): vo
   const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
   try {
     rawDb.query("UPDATE conversations SET created_at = ?1 WHERE id = ?2").run(createdAt, conversationId);
+  } finally {
+    rawDb.close();
+  }
+}
+
+function seedConversationMessages(store: SQLiteControlPlaneStore, count: number): void {
+  for (let index = 1; index <= count; index += 1) {
+    store.recordMessage({
+      id: `msg-page-${index}`,
+      conversationId: "c.conv-1",
+      actorId: "operator",
+      originNodeId: "node-1",
+      class: "operator",
+      body: `Page ${index}`,
+      visibility: "private",
+      policy: "durable",
+      createdAt: 10_000 + index,
+    });
+  }
+}
+
+function deleteMessages(messageIds: string[]): void {
+  const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+  try {
+    const remove = rawDb.query("DELETE FROM messages WHERE id = ?1");
+    for (const messageId of messageIds) remove.run(messageId);
   } finally {
     rawDb.close();
   }
@@ -1172,6 +1204,158 @@ describe("web db timestamp normalization", () => {
 });
 
 describe("web db message filtering", () => {
+  test("pages to messages before a stable message id", () => {
+    const store = createSeededStore();
+
+    try {
+      for (const index of [1, 2, 3, 4]) {
+        store.recordMessage({
+          id: `msg-page-${index}`,
+          conversationId: "c.conv-1",
+          actorId: index % 2 == 0 ? "agent-1" : "operator",
+          originNodeId: "node-1",
+          class: index % 2 == 0 ? "agent" : "operator",
+          body: `Page ${index}`,
+          visibility: "private",
+          policy: "durable",
+          createdAt: 10_000 + index,
+        });
+      }
+
+      const messages = queryRecentMessages(2, {
+        conversationId: "c.conv-1",
+        beforeMessageId: "msg-page-4",
+      });
+
+      expect(messages.map((message) => message.id)).toEqual([
+        "msg-page-3",
+        "msg-page-2",
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("keeps paging when the cursor message was deleted between pages", () => {
+    const store = createSeededStore();
+
+    try {
+      seedConversationMessages(store, 6);
+
+      const firstPage = queryRecentMessages(3, { conversationId: "c.conv-1" });
+      expect(firstPage.map((message) => message.id)).toEqual([
+        "msg-page-6",
+        "msg-page-5",
+        "msg-page-4",
+      ]);
+
+      const oldestOnScreen = firstPage.at(-1)!;
+      const cursor = encodeMessageHistoryCursor(oldestOnScreen);
+      deleteMessages([oldestOnScreen.id]);
+
+      // The anchor is gone, but the cursor carries its position, so the page
+      // behind it is still reachable. Before the fix this returned [] and the
+      // client read it as end-of-history.
+      const earlier = queryRecentMessages(3, {
+        conversationId: "c.conv-1",
+        beforeMessageId: cursor,
+      });
+      expect(earlier.map((message) => message.id)).toEqual([
+        "msg-page-3",
+        "msg-page-2",
+        "msg-page-1",
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("reports an unresolvable legacy cursor instead of an empty page", () => {
+    const store = createSeededStore();
+
+    try {
+      seedConversationMessages(store, 3);
+
+      expect(() =>
+        queryRecentMessages(3, {
+          conversationId: "c.conv-1",
+          beforeMessageId: "msg-page-deleted",
+        })
+      ).toThrow(MessageCursorError);
+      expect(() =>
+        queryRecentMessages(3, {
+          conversationId: "c.conv-1",
+          beforeMessageId: "not-a-cursor|",
+        })
+      ).toThrow(MessageCursorError);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("breaks tied timestamps by binary id so a page never repeats itself", () => {
+    const store = createSeededStore();
+
+    try {
+      // The reviewer's fixture: one timestamp, three id families whose order
+      // differs between SQLite BINARY and ICU locale collation.
+      for (const suffix of ["!000", "0000", "_000"]) {
+        store.recordMessage({
+          id: `msg-${suffix}`,
+          conversationId: "c.conv-1",
+          actorId: "operator",
+          originNodeId: "node-1",
+          class: "operator",
+          body: suffix,
+          visibility: "private",
+          policy: "durable",
+          createdAt: 10_000,
+        });
+      }
+
+      const firstPage = queryRecentMessages(2, { conversationId: "c.conv-1" });
+      expect(firstPage.map((message) => message.id)).toEqual(["msg-_000", "msg-0000"]);
+
+      // Locale order would nominate "msg-_000" as the oldest row on screen; the
+      // server reads that cursor in BINARY order and answers with "msg-0000",
+      // a row already on screen. Dedupe hides it, the cursor never moves, and
+      // "msg-!000" stays unreachable forever.
+      const localeOldest = [...firstPage].sort((left, right) =>
+        left.id.localeCompare(right.id)
+      )[0]!;
+      const duplicatePage = queryRecentMessages(1, {
+        conversationId: "c.conv-1",
+        beforeMessageId: encodeMessageHistoryCursor(localeOldest),
+      });
+      expect(duplicatePage.map((message) => message.id)).toEqual(["msg-0000"]);
+      expect(firstPage.map((message) => message.id)).toContain(duplicatePage[0]!.id);
+
+      // The shared order nominates the true oldest row, and the page advances.
+      const sharedOldest = [...firstPage].sort(compareMessagesAsc)[0]!;
+      expect(sharedOldest.id).toBe("msg-0000");
+      const earlier = queryRecentMessages(1, {
+        conversationId: "c.conv-1",
+        beforeMessageId: encodeMessageHistoryCursor(sharedOldest),
+      });
+      expect(earlier.map((message) => message.id)).toEqual(["msg-!000"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("clamps an oversized page request to the shared maximum", () => {
+    const store = createSeededStore();
+
+    try {
+      seedConversationMessages(store, MAX_MESSAGE_PAGE_LIMIT + 20);
+
+      expect(queryRecentMessages(1_000, { conversationId: "c.conv-1" }))
+        .toHaveLength(MAX_MESSAGE_PAGE_LIMIT);
+    } finally {
+      store.close();
+    }
+  });
+
   test("hides broker requester-wait timeout statuses from recent messages", () => {
     const store = createSeededStore();
 

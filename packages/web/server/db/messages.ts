@@ -14,22 +14,46 @@ import {
   sqlTimestampMsExpression,
   transientBrokerWorkingStatusPredicate,
 } from "./internal/sql-helpers.ts";
+import {
+  MessageCursorError,
+  clampMessagePageLimit,
+  parseMessageHistoryCursor,
+  type MessageOrderKey,
+} from "../../shared/message-pagination.ts";
 import type { WebMessage } from "./types/web.ts";
 
 type ThreadSummary = NonNullable<WebMessage["threadSummary"]>;
 
-export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
+export function queryRecentMessages(
+  limit = 80,
+  opts?: { conversationId?: string; beforeMessageId?: string },
+): WebMessage[] {
   if (opts?.conversationId && !isOpaqueChannelId(opts.conversationId)) {
     return [];
   }
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
+  const pageLimit = clampMessagePageLimit(limit);
+  const beforeMessage = resolveBeforeMessage(
+    opts?.beforeMessageId,
+    conversationIds,
+    messageCreatedAtExpression,
+  );
   const where = sqlJoinClauses([
     transientBrokerWorkingStatusPredicate("m"),
     conversationIds.length > 0
       ? `m.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
       : "m.conversation_id LIKE 'c.%' AND length(m.conversation_id) > 2",
+    beforeMessage
+      ? `(
+          ${messageCreatedAtExpression} < ?
+          OR (${messageCreatedAtExpression} = ? AND m.id < ?)
+        )`
+      : null,
   ]);
+  const beforeParams = beforeMessage
+    ? [beforeMessage.createdAt, beforeMessage.createdAt, beforeMessage.id]
+    : [];
 
   const rows = db()
     .prepare(
@@ -47,10 +71,10 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
        FROM messages m
        JOIN actors ac ON ac.id = m.actor_id
        WHERE ${where}
-       ORDER BY ${messageCreatedAtExpression} DESC
+       ORDER BY ${messageCreatedAtExpression} DESC, m.id DESC
        LIMIT ?`,
     )
-    .all(...conversationIds, limit) as Array<{
+    .all(...conversationIds, ...beforeParams, pageLimit) as Array<{
     id: string;
     conversation_id: string;
     actor_id: string;
@@ -82,6 +106,44 @@ export function queryRecentMessages(limit = 80, opts?: { conversationId?: string
     };
   });
   return attachThreadSummaries(messages);
+}
+
+/// Turn a `beforeMessageId` query value into the transcript position to page
+/// back from. A composite cursor carries that position, so a page still lands
+/// correctly after its anchor message is deleted; only the legacy bare-id form
+/// needs a lookup, and a lookup that misses is reported rather than silently
+/// answered with an empty page.
+function resolveBeforeMessage(
+  beforeMessageId: string | undefined,
+  conversationIds: string[],
+  messageCreatedAtExpression: string,
+): MessageOrderKey | null {
+  const cursor = parseMessageHistoryCursor(beforeMessageId);
+  if (!cursor) return null;
+  if (cursor.kind === "position") {
+    return { createdAt: cursor.createdAt, id: cursor.id };
+  }
+
+  const conversationClause = conversationIds.length > 0
+    ? ` AND m.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
+    : "";
+  const anchor = db()
+    .prepare(
+      `SELECT
+         m.id,
+         ${messageCreatedAtExpression} AS created_at
+       FROM messages m
+       WHERE m.id = ?${conversationClause}
+       LIMIT 1`,
+    )
+    .get(cursor.id, ...conversationIds) as {
+      id: string;
+      created_at: number | null;
+    } | null;
+  if (!anchor) {
+    throw new MessageCursorError("unknown", cursor.id);
+  }
+  return { createdAt: anchor.created_at ?? 0, id: anchor.id };
 }
 
 function attachThreadSummaries(messages: WebMessage[]): WebMessage[] {
