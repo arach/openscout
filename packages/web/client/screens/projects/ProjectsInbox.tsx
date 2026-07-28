@@ -720,6 +720,9 @@ function ProjectSessionOverview({
       mode: "takeover",
     }, { returnTo: route });
   };
+  // Null when the surface handle will not parse. Better no link than one the
+  // native handler drops on the floor.
+  const nativeDeepLink = terminalTarget ? nativeTerminalDeepLink(terminalTarget, "takeover") : null;
 
   return (
     <section className="pi-sessionOverview" aria-label="Session overview">
@@ -746,10 +749,12 @@ function ProjectSessionOverview({
               tmux · {terminalTarget.sessionName}
             </span>
             <button type="button" onClick={openWebTerminal}>Open in web terminal</button>
-            <a href={nativeTerminalDeepLink(terminalTarget, "takeover")}>
-              Open in native terminal
-              <ExternalLink size={11} strokeWidth={1.8} aria-hidden />
-            </a>
+            {nativeDeepLink ? (
+              <a href={nativeDeepLink}>
+                Open in native terminal
+                <ExternalLink size={11} strokeWidth={1.8} aria-hidden />
+              </a>
+            ) : null}
           </div>
         ) : null}
       </section>

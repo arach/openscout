@@ -6,7 +6,8 @@ import {
 } from "../scope/paths.ts";
 import { scopeRoutePath } from "../scope/presentation.ts";
 import { normalizeRoute } from "./synthetic-agent-routing.ts";
-import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
+import { isTerminalSurfaceId } from "@openscout/protocol";
+import { canonicalTerminalSurfaceId, surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {
   AgentTab,
   DispatchFilter,
@@ -644,7 +645,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "terminal") {
     const mode = parseTerminalMode(url.searchParams.get("mode"));
     const terminalSessionId = url.searchParams.get("session")?.trim() || undefined;
-    const terminalSurfaceKey = url.searchParams.get("surface")?.trim() || undefined;
+    const terminalSurfaceKey = canonicalTerminalSurfaceId(url.searchParams.get("surface")) ?? undefined;
     if (parts[1] === "new") {
       const terminalBackend = parseTerminalBackend(url.searchParams.get("backend")) ?? "pty";
       const terminalAgent = parseTerminalAgent(url.searchParams.get("agent")) ?? "shell";
@@ -660,10 +661,17 @@ export function routeFromUrl(urlLike: string | URL): Route {
         ...(zellijSocketDir ? { zellijSocketDir } : {}),
       };
     }
-    const pathSurfaceKey = surfaceKeyFromParts(
-      parts[1] ? decodeURIComponent(parts[1]) : undefined,
-      parts[2] ? decodeURIComponent(parts.slice(2).join("/")) : undefined,
-    );
+    // `/terminal/s/<surfaceId>` carries an opaque handle; the older
+    // `/terminal/<backend>/<name>` form still parses, through the same
+    // constructor, so existing deep links keep resolving.
+    const pathSurfaceKey = parts[1] === "s" && parts[2]
+      ? (isTerminalSurfaceId(decodeURIComponent(parts.slice(2).join("/")))
+        ? decodeURIComponent(parts.slice(2).join("/"))
+        : null)
+      : surfaceKeyFromParts(
+        parts[1] ? decodeURIComponent(parts[1]) : undefined,
+        parts[2] ? decodeURIComponent(parts.slice(2).join("/")) : undefined,
+      );
     if (pathSurfaceKey) {
       return {
         view: "terminal",
@@ -908,6 +916,10 @@ export function routePath(r: Route, pathname?: string): string {
         const surfaceParts = surfacePartsFromKey(r.terminalSurfaceKey);
         if (surfaceParts) {
           return `/terminal/${encodeURIComponent(surfaceParts.backend)}/${encodeURIComponent(surfaceParts.sessionName)}${searchSuffix(params)}`;
+        }
+        // Pane- or node-scoped surfaces have no readable two-segment form.
+        if (isTerminalSurfaceId(r.terminalSurfaceKey)) {
+          return `/terminal/s/${encodeURIComponent(r.terminalSurfaceKey!)}${searchSuffix(params)}`;
         }
         if (r.terminalSessionId) params.set("session", r.terminalSessionId);
         if (r.terminalSurfaceKey) params.set("surface", r.terminalSurfaceKey);

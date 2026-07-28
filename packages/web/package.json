@@ -15,6 +15,8 @@
   ],
   "scripts": {
     "build": "node ./scripts/build.mjs",
+    "check": "node ./scripts/typecheck.mjs",
+    "check:update": "node ./scripts/typecheck.mjs --update",
     "build:client": "vite build",
     "build:native-surfaces": "node ./scripts/build-native-surfaces.mjs",
     "check:native-surfaces": "node ./scripts/validate-native-surfaces.mjs ../../apps/ios/Scout/Resources/WebSurfaces",

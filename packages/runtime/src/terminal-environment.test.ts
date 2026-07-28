@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildInteractiveTerminalEnvironment,
   buildInteractiveTerminalShellDirectives,
+  INHERITED_CLAUDE_SESSION_ENV_KEYS,
 } from "./terminal-environment.js";
 
 describe("buildInteractiveTerminalEnvironment", () => {
@@ -33,12 +34,30 @@ describe("buildInteractiveTerminalEnvironment", () => {
     });
     expect(env.NO_COLOR).toBeUndefined();
   });
+
+  test("does not leak parent Claude session identity into a fresh terminal", () => {
+    const inherited = Object.fromEntries(
+      INHERITED_CLAUDE_SESSION_ENV_KEYS.map((key) => [key, "inherited"]),
+    );
+    const env = buildInteractiveTerminalEnvironment({
+      PATH: "/usr/bin",
+      ...inherited,
+      CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
+    });
+
+    for (const key of INHERITED_CLAUDE_SESSION_ENV_KEYS) {
+      expect(env[key]).toBeUndefined();
+    }
+    // Only the parent-session markers go; deliberate configuration stays.
+    expect(env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE).toBe("1");
+  });
 });
 
 describe("buildInteractiveTerminalShellDirectives", () => {
   test("removes an inherited color opt-out and preserves explicit capabilities", () => {
     expect(buildInteractiveTerminalShellDirectives()).toEqual([
       "unset NO_COLOR",
+      `unset ${INHERITED_CLAUDE_SESSION_ENV_KEYS.join(" ")}`,
       'export COLORTERM="${COLORTERM:-truecolor}"',
       'export FORCE_COLOR="${FORCE_COLOR:-1}"',
     ]);

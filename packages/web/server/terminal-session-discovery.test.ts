@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import { formatTerminalSurfaceId, parseTerminalSurfaceId } from "@openscout/protocol";
+
 import {
+  isDiscoverableTerminalBackend,
   parseTmuxSessionList,
+  queryDiscoveredTerminalSessions,
   parseZellijSessionList,
   terminalSurfaceKey,
 } from "./terminal-session-discovery.ts";
@@ -31,7 +35,41 @@ describe("terminal session discovery", () => {
     }]);
   });
 
-  test("keys backend surfaces by backend and session name", () => {
-    expect(terminalSurfaceKey("tmux", "relay-claude")).toBe("tmux:relay-claude");
+  test("keys backend surfaces through the one surface-id constructor", () => {
+    const key = terminalSurfaceKey("tmux", "relay-claude");
+    expect(key).toBe(formatTerminalSurfaceId({ backend: "tmux", hostSession: "relay-claude" }));
+    expect(parseTerminalSurfaceId(key)).toEqual({
+      backend: "tmux",
+      hostSession: "relay-claude",
+      paneId: null,
+      nodeId: null,
+    });
+  });
+});
+
+describe("discovered records", () => {
+  test("stop stuffing the backend into harness and the attach argv into resumeCommand", async () => {
+    // No host reachable: discovery must degrade to an empty inventory, not throw.
+    const sessions = await queryDiscoveredTerminalSessions({
+      env: { ...process.env, PATH: "/nonexistent-scout-probe" },
+    });
+    expect(Array.isArray(sessions)).toBe(true);
+    for (const session of sessions) {
+      expect(session.origin).toBe("discovered");
+      expect(session.harness).toBe("");
+      expect(session.resumeCommand).toBe("");
+    }
+  });
+
+  test("rejects an unregistered backend filter by discovering nothing", async () => {
+    expect(await queryDiscoveredTerminalSessions({ backend: "not-a-host" })).toEqual([]);
+  });
+
+  test("knows which backends are discoverable from the registry, not a literal", () => {
+    expect(isDiscoverableTerminalBackend("tmux")).toBe(true);
+    expect(isDiscoverableTerminalBackend("zellij")).toBe(true);
+    expect(isDiscoverableTerminalBackend("herdr")).toBe(true);
+    expect(isDiscoverableTerminalBackend("screen")).toBe(false);
+    expect(isDiscoverableTerminalBackend(null)).toBe(false);
   });
 });

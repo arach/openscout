@@ -1,6 +1,11 @@
 import { Eye, LogIn, RefreshCw, Terminal as TerminalIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchTerminalSessions, surfaceKey, terminalListItems } from "../../lib/terminal-sessions.ts";
+import {
+  fetchTerminalSessions,
+  surfaceKey,
+  terminalListItems,
+  terminalSurfaceIdsEqual,
+} from "../../lib/terminal-sessions.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { makeSearchHandoff, rovingTabIndex, useListArrowNav, useSlashToFocus } from "../../lib/keyboard-nav.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -73,16 +78,14 @@ export function TerminalLeft() {
   const visibleAgents = normalizedQuery
     ? agentTargets.filter((agent) => terminalAgentSearchable(agent).includes(normalizedQuery))
     : agentTargets;
-  const activeTerminalKey = route.view === "terminal" && route.terminalSurfaceKey
-    ? route.terminalSessionId
-      ? `${route.terminalSessionId}:${route.terminalSurfaceKey}`
-      : route.terminalSurfaceKey
-    : null;
+  const activeTerminalSurfaceKey = route.view === "terminal" ? route.terminalSurfaceKey ?? null : null;
+  const activeTerminalSessionId = route.view === "terminal" ? route.terminalSessionId ?? null : null;
+  const isActiveTerminalItem = (item: ReturnType<typeof terminalListItems>[number]) =>
+    terminalSurfaceIdsEqual(item.key, activeTerminalSurfaceKey)
+    && (!activeTerminalSessionId || item.session.id === activeTerminalSessionId);
   const activeAgentKey = route.view === "terminal" && route.agentId ? `agent:${route.agentId}` : null;
   const hasAnyActive = Boolean(
-    (activeTerminalKey != null && visibleItems.some((item) =>
-      item.id === activeTerminalKey || item.key === activeTerminalKey
-    ))
+    visibleItems.some(isActiveTerminalItem)
     || (activeAgentKey != null && visibleAgents.some((agent) => `agent:${agent.id}` === activeAgentKey)),
   );
   const firstRowId = visibleItems[0]?.id ?? (visibleAgents[0] ? `agent:${visibleAgents[0].id}` : undefined);
@@ -153,7 +156,7 @@ export function TerminalLeft() {
                 <span>{visibleItems.length}</span>
               </div>
               {visibleItems.map((item) => {
-                const active = item.id === activeTerminalKey || item.key === activeTerminalKey;
+                const active = isActiveTerminalItem(item);
                 return (
                   <div
                     key={item.id}
