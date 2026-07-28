@@ -106,7 +106,17 @@ export const zellijTerminalHost: TerminalHostAdapter = {
         timeoutMs: 5_000,
         env: zellijEnv(context),
       });
-      return { created: true };
+      // `attach --create-background` takes no command, and typing one into the
+      // new session with `action write-chars` would be Scout guessing at a
+      // shell prompt that may not be ready. So the session comes back and the
+      // harness does not, and the caller is told which of those happened.
+      return {
+        created: true,
+        resumed: input.resumeCommand?.trim() ? false : null,
+        ...(input.resumeCommand?.trim()
+          ? { reason: "zellij starts a background session with no command; the harness was not resumed" }
+          : {}),
+      };
     } catch (error) {
       return { created: false, reason: errorReason(error) };
     }

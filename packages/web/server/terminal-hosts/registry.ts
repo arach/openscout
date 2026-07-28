@@ -49,6 +49,41 @@ export function isKnownTerminalHost(id: string | null | undefined): boolean {
 }
 
 /**
+ * Verbs a host's own adapter performs.
+ *
+ * `force-quit-bridge` tears down Scout's relay bridge, not anything on the
+ * host, so every host declares it and no adapter implements it. Separating the
+ * two is what lets "declares a control verb" and "has a control method" stay
+ * equivalent for the verbs that actually reach a host.
+ */
+export function hostPerformedControlActions(
+  capabilities: TerminalHostCapabilities,
+): TerminalHostControlAction[] {
+  return capabilities.control.filter((action) => action !== "force-quit-bridge");
+}
+
+/**
+ * The host id to hand the vendored relay, or null when the relay has no bridge
+ * for this host.
+ *
+ * Two conditions, and keeping them in one named place is the point. Whether a
+ * bridge should exist is the declared `relayAttach` capability. Whether this
+ * relay build can carry it is a narrower fact: the relay is vendored from
+ * Hudson under a sync fence and its own API names tmux and zellij in its type,
+ * so a fourth host can declare `relayAttach` and still need a Hudson change
+ * first. Callers used to spell the second half as a bare
+ * `backend === "tmux" || backend === "zellij"` at the call site, which is
+ * correct today and is the line a fourth host forgets.
+ */
+export function relayCarriedTerminalBackend(
+  id: string | null | undefined,
+): "tmux" | "zellij" | null {
+  const adapter = terminalHostAdapter(id);
+  if (!adapter?.capabilities.relayAttach) return null;
+  return adapter.id === "tmux" || adapter.id === "zellij" ? adapter.id : null;
+}
+
+/**
  * Whether a host performs a verb itself, or performs it through Scout's
  * harness-aware layer. A UI asks this before drawing the button; a route asks
  * it before doing the work.
@@ -65,14 +100,27 @@ export function terminalHostSupportsControl(
 }
 
 /**
- * Availability is cached briefly per host.
+ * Availability is cached briefly per host AND per environment.
  *
  * A binary does not get uninstalled while an operator works, but a `--version`
  * shell-out CAN time out on a loaded machine — and when it did, the host
  * silently disappeared from "start something new". Holding the last successful
  * answer for a short window means a busy box no longer looks like a machine
- * without tmux. Failures are never cached, so a genuinely missing host is
- * reported as soon as it is asked about.
+ * without tmux.
+ *
+ * Two rules keep that from becoming a lie, and a review reproduced what
+ * happens without them.
+ *
+ * The cache used to be keyed by host id alone, so one successful probe of this
+ * process's environment answered for EVERY environment: a probe run with a
+ * PATH that contains no terminal hosts at all came back reporting tmux,
+ * zellij, and herdr installed, with versions collected somewhere else. An
+ * environment is what decides which binary is found, so it belongs in the key.
+ *
+ * And a substituted answer now says so. `stale` marks a reading that came from
+ * cache after the current check failed, with a reason naming the age and the
+ * failure, so a caller about to shell out can re-probe for real instead of
+ * treating a memory as an observation.
  */
 const HOST_AVAILABILITY_TTL_MS = 30_000;
 const availabilityCache = new Map<string, { at: number; value: TerminalHostAvailability }>();
@@ -82,21 +130,50 @@ export function resetTerminalHostAvailabilityCache(): void {
   availabilityCache.clear();
 }
 
-async function probeTerminalHostAvailability(
+/**
+ * Everything about an environment that changes which binary a probe finds:
+ * the search path and the explicit binary overrides. Keying on the whole
+ * environment would make the cache useless (one entry per distinct object);
+ * keying on the host id alone is what let one environment answer for another.
+ */
+function availabilityCacheKey(adapter: TerminalHostAdapter, context: TerminalHostContext): string {
+  const env = context.env ?? process.env;
+  return JSON.stringify([
+    adapter.id,
+    env.PATH ?? "",
+    env.OPENSCOUT_TMUX_BIN ?? "",
+    env.OPENSCOUT_ZELLIJ_BIN ?? "",
+    env.OPENSCOUT_HERDR_BIN ?? "",
+  ]);
+}
+
+export async function probeTerminalHostAvailability(
   adapter: TerminalHostAdapter,
   context: TerminalHostContext,
+  now: number = Date.now(),
 ): Promise<TerminalHostAvailability> {
-  const cached = availabilityCache.get(adapter.id);
-  const fresh = cached && Date.now() - cached.at < HOST_AVAILABILITY_TTL_MS;
+  const key = availabilityCacheKey(adapter, context);
+  const cached = availabilityCache.get(key);
   const availability = await adapter.probe(context).catch((error): TerminalHostAvailability => ({
     installed: false,
     reason: error instanceof Error ? error.message : String(error),
   }));
   if (availability.installed) {
-    availabilityCache.set(adapter.id, { at: Date.now(), value: availability });
-    return availability;
+    availabilityCache.set(key, { at: now, value: { ...availability, stale: false, checkedAt: now } });
+    return { ...availability, stale: false, checkedAt: now };
   }
-  return fresh && cached ? cached.value : availability;
+
+  const age = cached ? now - cached.at : Number.POSITIVE_INFINITY;
+  if (cached && age < HOST_AVAILABILITY_TTL_MS) {
+    return {
+      ...cached.value,
+      stale: true,
+      checkedAt: cached.at,
+      reason: `last seen ${Math.round(age / 1000)}s ago; the current check failed: `
+        + `${availability.reason ?? "unknown"}`,
+    };
+  }
+  return { ...availability, stale: false, checkedAt: now };
 }
 
 export type TerminalHostDescriptor = {

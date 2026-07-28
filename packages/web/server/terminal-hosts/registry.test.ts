@@ -5,15 +5,23 @@ import { parseTerminalSurfaceId } from "@openscout/protocol";
 import {
   DEFAULT_TERMINAL_HOST_ID,
   describeTerminalHosts,
+  hostPerformedControlActions,
   resetTerminalHostAvailabilityCache,
   isKnownTerminalHost,
+  probeTerminalHostAvailability,
+  relayCarriedTerminalBackend,
   resolveTerminalHostAdapter,
   terminalHostAdapter,
   terminalHostAdapters,
   terminalHostSupportsControl,
   TERMINAL_HOST_ADAPTERS,
 } from "./registry.ts";
-import type { TerminalHostControlAction } from "./types.ts";
+import { tmuxTerminalHost } from "./tmux.ts";
+import type {
+  TerminalHostAdapter,
+  TerminalHostAvailability,
+  TerminalHostControlAction,
+} from "./types.ts";
 
 const ALL_ACTIONS: TerminalHostControlAction[] = [
   "interrupt",
@@ -53,7 +61,10 @@ describe("terminal host registry", () => {
       expect(Boolean(adapter.create)).toBe(capabilities.create);
       expect(Boolean(adapter.capture)).toBe(capabilities.capture);
       expect(Boolean(adapter.observedAgents)).toBe(capabilities.observedAgentState);
-      expect(Boolean(adapter.control)).toBe(capabilities.control.length > 0);
+      // Only verbs that reach a HOST need a method. `force-quit-bridge` tears
+      // down Scout's relay bridge and no adapter implements it, so counting it
+      // here would demand a method that does nothing.
+      expect(Boolean(adapter.control)).toBe(hostPerformedControlActions(capabilities).length > 0);
       // A verb cannot be claimed twice; "via" must be unambiguous.
       for (const action of capabilities.harnessControl) {
         expect(capabilities.control).not.toContain(action);
@@ -97,11 +108,24 @@ describe("terminal host registry", () => {
         create: true,
         // The one host that reports agent state instead of Scout inferring it.
         observedAgentState: true,
-        // Scout detaches from a herdr session; Scout never kills it.
-        control: ["detach", "force-quit-bridge"],
+        // No detach: `herdr session` is list/attach/stop/delete, and there is
+        // no other verb that detaches. It was declared and implemented as
+        // `herdr agent focus`, which focuses an agent pane.
+        control: ["force-quit-bridge"],
         harnessControl: [],
       },
     });
+  });
+
+  test("herdr does not offer a detach it cannot perform", () => {
+    const herdr = terminalHostAdapter("herdr")!;
+    expect(herdr.capabilities.control).not.toContain("detach");
+    // Nothing left for a host-side control method to do, so there is no method
+    // to accidentally point at the wrong verb again.
+    expect(herdr.control).toBeUndefined();
+    // Which is what makes the UI stop drawing "Leave this session running" and
+    // the route answer 501 instead of running something else entirely.
+    expect(terminalHostSupportsControl("herdr", "detach")).toEqual({ supported: false, via: null });
   });
 
   test("support answers which route a verb takes, or that there is none", () => {
@@ -109,9 +133,17 @@ describe("terminal host registry", () => {
     expect(terminalHostSupportsControl("tmux", "restart-resume")).toEqual({ supported: true, via: "harness" });
     expect(terminalHostSupportsControl("zellij", "interrupt")).toEqual({ supported: true, via: "host" });
     expect(terminalHostSupportsControl("zellij", "restart-resume")).toEqual({ supported: false, via: null });
-    expect(terminalHostSupportsControl("herdr", "detach")).toEqual({ supported: true, via: "host" });
+    expect(terminalHostSupportsControl("herdr", "force-quit-bridge")).toEqual({ supported: true, via: "host" });
     expect(terminalHostSupportsControl("herdr", "force-quit")).toEqual({ supported: false, via: null });
     expect(terminalHostSupportsControl("nope", "detach")).toEqual({ supported: false, via: null });
+  });
+
+  test("the relay bridge is decided by capability, not by a backend list", () => {
+    expect(relayCarriedTerminalBackend("tmux")).toBe("tmux");
+    expect(relayCarriedTerminalBackend("zellij")).toBe("zellij");
+    // herdr declares relayAttach: false, so there is no bridge to tear down.
+    expect(relayCarriedTerminalBackend("herdr")).toBeNull();
+    expect(relayCarriedTerminalBackend("nope")).toBeNull();
   });
 
   test("every host answers every verb without throwing", () => {
@@ -155,18 +187,63 @@ describe("adapter surfaces", () => {
 });
 
 describe("host availability", () => {
+  /** An adapter whose probe answers whatever the test says next. */
+  function fakeAdapter(answers: TerminalHostAvailability[]): TerminalHostAdapter {
+    let index = 0;
+    return {
+      ...tmuxTerminalHost,
+      id: "fake-host",
+      probe: async () => answers[Math.min(index++, answers.length - 1)]!,
+    };
+  }
+
   test("a transient probe failure does not make an installed host disappear", async () => {
     resetTerminalHostAvailabilityCache();
-    // A real probe first, so the cache holds a successful answer.
-    const first = await describeTerminalHosts();
-    const installed = first.filter((host) => host.availability.installed).map((host) => host.id);
-    expect(installed.length).toBeGreaterThan(0);
+    const adapter = fakeAdapter([
+      { installed: true, version: "tmux 3.5" },
+      { installed: false, reason: "timed out" },
+    ]);
 
-    // Now make every host unreachable. Within the TTL the last good answer
-    // stands, because a busy machine is not a machine without tmux.
-    const second = await describeTerminalHosts({ env: { ...process.env, PATH: "/nonexistent-scout-probe" } });
-    expect(second.filter((host) => host.availability.installed).map((host) => host.id).sort())
-      .toEqual([...installed].sort());
+    const first = await probeTerminalHostAvailability(adapter, {}, 1_000);
+    expect(first).toMatchObject({ installed: true, version: "tmux 3.5", stale: false });
+
+    // Within the TTL the last good answer stands, because a busy machine is not
+    // a machine without tmux — but it is MARKED as the memory it is, so a
+    // caller about to shell out can re-probe instead of trusting it.
+    const second = await probeTerminalHostAvailability(adapter, {}, 6_000);
+    expect(second.installed).toBe(true);
+    expect(second.stale).toBe(true);
+    expect(second.checkedAt).toBe(1_000);
+    expect(second.reason).toContain("timed out");
+  });
+
+  test("the substitution expires rather than standing forever", async () => {
+    resetTerminalHostAvailabilityCache();
+    const adapter = fakeAdapter([
+      { installed: true, version: "tmux 3.5" },
+      { installed: false, reason: "not found" },
+    ]);
+    await probeTerminalHostAvailability(adapter, {}, 1_000);
+    const later = await probeTerminalHostAvailability(adapter, {}, 1_000 + 30_001);
+    expect(later.installed).toBe(false);
+    expect(later.stale).toBe(false);
+  });
+
+  test("one environment's success never answers for another", async () => {
+    resetTerminalHostAvailabilityCache();
+    // A real probe first, so the cache holds a successful answer for THIS
+    // environment. Keyed by host alone, that answer used to be served to a
+    // probe of an environment with no terminal hosts on its PATH at all —
+    // reporting tmux, zellij, and herdr installed, with versions collected
+    // somewhere else entirely.
+    const first = await describeTerminalHosts();
+    expect(first.some((host) => host.availability.installed)).toBe(true);
+
+    const elsewhere = await describeTerminalHosts({
+      env: { ...process.env, PATH: "/nonexistent-scout-probe" },
+    });
+    expect(elsewhere.every((host) => host.availability.installed)).toBe(false);
+    resetTerminalHostAvailabilityCache();
   });
 
   test("a host that was never reachable is reported as missing", async () => {

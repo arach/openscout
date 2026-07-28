@@ -70,6 +70,16 @@ export type TerminalHostAvailability = {
   version?: string | null;
   /** Operator-facing reason the host is unusable, when it is. */
   reason?: string | null;
+  /**
+   * True when this reading came from cache after the CURRENT check failed.
+   * A stale `installed: true` is a memory, not an observation: it exists so a
+   * momentarily busy machine does not look like a machine with no terminal
+   * hosts, and any caller about to actually shell out should re-probe rather
+   * than act on it.
+   */
+  stale?: boolean;
+  /** When the reading it reports was actually taken. */
+  checkedAt?: number;
 };
 
 export type TerminalHostSession = {
@@ -90,6 +100,31 @@ export type TerminalHostContext = {
 export type TerminalHostControlResult = {
   delivered: boolean;
   /** Why not, when `delivered` is false and the reason is known. */
+  reason?: string | null;
+};
+
+export type TerminalHostCreateInput = {
+  sessionName: string;
+  cwd?: string | null;
+  /**
+   * Command to run as the new session's first process — a saved cell's harness
+   * resume command, when it has one. A host that cannot start a session with a
+   * command must ignore this and report `resumed: false` rather than create an
+   * empty shell and let the caller assume the harness came back.
+   */
+  resumeCommand?: string | null;
+};
+
+export type TerminalHostCreateResult = {
+  created: boolean;
+  /**
+   * Whether {@link TerminalHostCreateInput.resumeCommand} actually ran in the
+   * new session. Null when none was asked for. The distinction is the whole
+   * point: "the tile is back" and "an empty shell is back where your agent used
+   * to be" are different answers and an operator is owed the right one.
+   */
+  resumed?: boolean | null;
+  /** Why not, when something did not happen and the reason is known. */
   reason?: string | null;
 };
 
@@ -121,9 +156,9 @@ export type TerminalHostAdapter = {
   surface(session: TerminalHostSession, context?: TerminalHostContext): TerminalSurface;
   /** Present only when {@link TerminalHostCapabilities.create} is true. */
   create?(
-    input: { sessionName: string; cwd?: string | null },
+    input: TerminalHostCreateInput,
     context?: TerminalHostContext,
-  ): Promise<{ created: boolean; reason?: string | null }>;
+  ): Promise<TerminalHostCreateResult>;
   /** Present only when {@link TerminalHostCapabilities.control} is non-empty. */
   control?(
     action: TerminalHostControlAction,

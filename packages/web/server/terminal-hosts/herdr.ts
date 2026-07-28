@@ -16,8 +16,6 @@ import type { TerminalSurface } from "@openscout/protocol";
 import { errorReason, probeCommand } from "./tmux.ts";
 import type {
   TerminalHostAdapter,
-  TerminalHostContext,
-  TerminalHostControlResult,
   TerminalHostSession,
 } from "./types.ts";
 
@@ -44,10 +42,15 @@ export const herdrTerminalHost: TerminalHostAdapter = {
     // The whole reason to prefer herdr: `herdr agent wait --status` answers the
     // question tmux delivery verification infers from rendered TUI frames.
     observedAgentState: true,
-    // A herdr host session outlives the Scout client attached to it. Scout
-    // detaches; Scout never kills the host. That is a declared boundary, not a
-    // route that 400s after the operator has already clicked.
-    control: ["detach", "force-quit-bridge"],
+    // Only the Scout-side verb. herdr has no detach: `herdr session` is
+    // list/attach/stop/delete, and the `herdr agent focus` this once called
+    // FOCUSES an agent pane — the opposite action, against a target type
+    // (terminal ids, agent names, pane ids) that a session name is not, with
+    // the `--session` scoping every other verb here passes dropped, so it
+    // addressed the default session whatever session the surface belonged to.
+    // A herdr session outliving Scout is still true; it is just not something
+    // Scout performs, so it is not a capability.
+    control: ["force-quit-bridge"],
     harnessControl: [],
   },
 
@@ -91,31 +94,32 @@ export const herdrTerminalHost: TerminalHostAdapter = {
       // spawned detached rather than awaited: awaiting it would hang until the
       // operator stopped the session.
       const [serverBin, ...serverArgs] = buildHerdrStartServerCommand(sessionName);
-      spawnDetachedHerdrServer(serverBin!, serverArgs, env);
+      const spawnFailure = await spawnDetachedHerdrServer(serverBin!, serverArgs, env);
+      if (spawnFailure) {
+        return {
+          created: false,
+          reason: errorReason(spawnFailure) ?? `${serverBin} could not be started`,
+        };
+      }
       await waitForHerdrSession(sessionName, env);
       const [, ...workspaceArgs] = buildHerdrWorkspaceCreateCommand(sessionName, {
         cwd: input.cwd,
         label: "Scout",
       });
       await execSystemFile("herdr", workspaceArgs, { timeoutMs: 5_000, env });
-      return { created: true };
+      // Scout creates the herdr SESSION and its first workspace and stops
+      // there; herdr owns what runs inside. `herdr agent start` could launch a
+      // harness, but nothing here knows enough to claim it resumed the saved
+      // one, so the caller is told the session came back without it.
+      return {
+        created: true,
+        resumed: input.resumeCommand?.trim() ? false : null,
+        ...(input.resumeCommand?.trim()
+          ? { reason: "Scout creates the herdr session; the harness inside it was not resumed" }
+          : {}),
+      };
     } catch (error) {
       return { created: false, reason: errorReason(error) };
-    }
-  },
-
-  async control(action, target, context = {}): Promise<TerminalHostControlResult> {
-    if (action !== "detach") {
-      return { delivered: false, reason: `herdr sessions outlive Scout; ${action} is not offered` };
-    }
-    try {
-      await execSystemFile("herdr", ["agent", "focus", target.sessionName], {
-        timeoutMs: HERDR_TIMEOUT_MS,
-        env: context.env,
-      });
-      return { delivered: true };
-    } catch (error) {
-      return { delivered: false, reason: errorReason(error) };
     }
   },
 
@@ -157,10 +161,40 @@ export const herdrTerminalHost: TerminalHostAdapter = {
 /**
  * A herdr session server outlives this request by design, so it is spawned
  * detached and unref'd. `execSystemFile` would wait for it to exit.
+ *
+ * Resolves with the spawn failure, or null once the child is running.
+ *
+ * The await is not incidental. `spawn()` does not throw when the binary is
+ * missing: it reports ENOENT asynchronously through the child's `error` event,
+ * and an EventEmitter `error` with no listener is re-thrown on the event loop,
+ * where no `try`/`catch` around this call can reach it. With herdr uninstalled
+ * — or uninstalled between the availability probe and this call, which is
+ * exactly the race a 30-second availability cache makes possible — that took
+ * the whole web process down. Node and Bun both guarantee exactly one of
+ * `spawn` or `error` fires, so waiting for whichever it is costs one tick on
+ * the happy path and turns a crash into `{created: false}` with a reason.
  */
-function spawnDetachedHerdrServer(bin: string, args: string[], env: NodeJS.ProcessEnv): void {
-  const child = spawn(bin, args, { env, detached: true, stdio: "ignore" });
-  child.unref();
+function spawnDetachedHerdrServer(
+  bin: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<Error | null> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, args, { env, detached: true, stdio: "ignore" });
+    } catch (error) {
+      resolve(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    // Stays attached after it resolves: a later `error` on a child nothing is
+    // listening to is the same crash, just further away.
+    child.once("error", (error: Error) => resolve(error));
+    child.once("spawn", () => {
+      child.unref();
+      resolve(null);
+    });
+  });
 }
 
 /** Wait for the new session to appear before driving it. */

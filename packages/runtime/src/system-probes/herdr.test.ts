@@ -51,9 +51,27 @@ describe("herdr session helpers", () => {
     expect(buildHerdrCreateAttachCommand("  ")).toEqual(["herdr"]);
   });
 
-  test("never keys the probe on caller-supplied input", () => {
-    expect(herdrProbeKey({ env: { HOME: "/tmp" } as NodeJS.ProcessEnv })).toBe("default");
-    expect(herdrProbeKey(null)).toBe("default");
+  test("keys the probe on the environment, not on caller-supplied input", () => {
+    // The key is DERIVED from an environment rather than taken from a caller,
+    // which is what keeps a browser from steering the probe at an arbitrary
+    // socket — the property the old "always 'default'" key was reaching for. It
+    // achieved that by making every environment share one cache entry, so a
+    // probe of a PATH with no herdr on it was served the inventory collected
+    // for a completely different environment.
+    const here = herdrProbeKey({ env: { PATH: "/usr/bin", HOME: "/tmp" } as NodeJS.ProcessEnv });
+    const elsewhere = herdrProbeKey({ env: { PATH: "/nowhere", HOME: "/tmp" } as NodeJS.ProcessEnv });
+    const otherHome = herdrProbeKey({ env: { PATH: "/usr/bin", HOME: "/other" } as NodeJS.ProcessEnv });
+    const otherBin = herdrProbeKey({
+      env: { PATH: "/usr/bin", HOME: "/tmp", OPENSCOUT_HERDR_BIN: "/opt/herdr" } as NodeJS.ProcessEnv,
+    });
+
+    expect(here).toBe(herdrProbeKey({ env: { PATH: "/usr/bin", HOME: "/tmp" } as NodeJS.ProcessEnv }));
+    expect(new Set([here, elsewhere, otherHome, otherBin]).size).toBe(4);
+    // No socket path appears in a key, whatever a caller puts in the env.
+    expect(here).not.toContain(".sock");
+    // A bare string key is still accepted and is not a socket either.
+    expect(herdrProbeKey("default")).toBe("default");
+    expect(herdrProbeKey(null)).toBe(herdrProbeKey({ env: process.env }));
   });
 });
 

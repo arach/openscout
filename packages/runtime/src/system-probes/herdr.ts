@@ -1,6 +1,8 @@
+import { homedir } from "node:os";
+
 import type { RuntimeEnv } from "../portable-types.js";
 
-import { defineProbeFamily, type ProbeCtx } from "./registry.js";
+import { defineProbeFamily, probeRunOutput, type ProbeCtx } from "./registry.js";
 import { execProbeFile, ProbeCommandError } from "./exec.js";
 import { runWithScoutdFallback } from "./scoutd-client.js";
 
@@ -32,16 +34,53 @@ function herdrBin(env: RuntimeEnv = process.env): string {
   return env.OPENSCOUT_HERDR_BIN?.trim() || "herdr";
 }
 
+/**
+ * The parts of an environment that decide what `herdr session list` answers:
+ * which binary runs, where it is found, and which config home its sessions
+ * live in. Everything else in an environment is noise for this probe.
+ */
+type HerdrProbeTarget = { bin: string; path: string; home: string };
+
+function herdrProbeTarget(env: RuntimeEnv): HerdrProbeTarget {
+  return {
+    bin: herdrBin(env),
+    path: env.PATH ?? "",
+    home: env.XDG_CONFIG_HOME?.trim() || env.HOME?.trim() || homedir(),
+  };
+}
+
+function parseHerdrProbeKey(key: string): HerdrProbeTarget {
+  try {
+    const parsed = JSON.parse(key) as Partial<HerdrProbeTarget>;
+    if (typeof parsed?.bin === "string" && typeof parsed.path === "string" && typeof parsed.home === "string") {
+      return { bin: parsed.bin, path: parsed.path, home: parsed.home };
+    }
+  } catch {
+    // A caller-supplied opaque string key; fall through to this process.
+  }
+  return herdrProbeTarget(process.env);
+}
+
 function isUnavailable(error: unknown): boolean {
   return error instanceof ProbeCommandError
     && (error.code === "ENOENT" || error.code === "spawn" || error.code === "exit");
 }
 
+/**
+ * One cache entry per ENVIRONMENT, the way the tmux and zellij probes key on
+ * socket path and socket dir.
+ *
+ * This used to collapse every environment to the literal string `"default"`,
+ * so a caller passing an environment with no herdr on its PATH was served the
+ * inventory collected for a completely different environment — nine live
+ * sessions from a probe that should have found none. A client-supplied socket
+ * path is still never accepted, which is the property the old comment was
+ * reaching for; that is achieved by deriving the key from an environment
+ * instead of taking one.
+ */
 export function herdrProbeKey(input?: string | { env?: RuntimeEnv } | null): string {
   if (typeof input === "string") return input.trim() || "default";
-  // One inventory per environment; a client-supplied socket path is never
-  // accepted, so a browser cannot steer the probe at an arbitrary socket.
-  return "default";
+  return JSON.stringify(herdrProbeTarget(input?.env ?? process.env));
 }
 
 export function parseHerdrSessionListJson(output: string): HerdrSessionInfo[] {
@@ -173,9 +212,20 @@ function normalizeHerdrAgentStatus(value: unknown): HerdrAgentInfo["status"] {
   }
 }
 
-async function readHerdrSessionsLocal(_key: string, ctx: ProbeCtx): Promise<HerdrSessionInfo[]> {
+/**
+ * Run the listing in the environment the KEY names, not in this process's.
+ *
+ * The key already encodes the binary, the PATH, and the config home, so
+ * rebuilding an environment from it is what makes the cache entry honest: the
+ * answer stored under a key is the answer that key's environment produces.
+ * Previously the environment a caller supplied was thrown away here and the
+ * probe always ran against `process.env`.
+ */
+async function readHerdrSessionsLocal(key: string, ctx: ProbeCtx): Promise<HerdrSessionInfo[]> {
+  const target = parseHerdrProbeKey(key);
   try {
-    const { stdout } = await execProbeFile(ctx, herdrBin(), ["session", "list", "--json"], {
+    const { stdout } = await execProbeFile(ctx, target.bin, ["session", "list", "--json"], {
+      env: { ...process.env, PATH: target.path, HOME: target.home, XDG_CONFIG_HOME: target.home },
       maxStdoutBytes: 512 * 1024,
       maxStderrBytes: 64 * 1024,
     });
@@ -190,16 +240,24 @@ export const herdrSessionsProbe = defineProbeFamily<string | { env?: RuntimeEnv 
   id: "herdr.sessions",
   ttlMs: HERDR_TTL_MS,
   timeoutMs: HERDR_TIMEOUT_MS,
-  maxKeys: 4,
+  maxKeys: 8,
   idleKeyTtlMs: 5 * 60_000,
   maxConcurrentKeys: 1,
   normalizeKey: herdrProbeKey,
-  run: (key, ctx) => runWithScoutdFallback({
-    probeId: "herdr.sessions",
-    key,
-    ctx,
-    local: () => readHerdrSessionsLocal(key, ctx),
-  }),
+  run: (key, ctx) => {
+    // scoutd answers from ITS environment, so it cannot serve a key that names
+    // a different one. It does not serve this family today; asking anyway once
+    // it does would silently reintroduce the bug this key was widened to fix.
+    if (key !== herdrProbeKey(process.env ? { env: process.env } : null)) {
+      return readHerdrSessionsLocal(key, ctx).then((value) => probeRunOutput(value, { backend: "local" }));
+    }
+    return runWithScoutdFallback({
+      probeId: "herdr.sessions",
+      key,
+      ctx,
+      local: () => readHerdrSessionsLocal(key, ctx),
+    });
+  },
 });
 
 export async function readHerdrSessions(options: { env?: RuntimeEnv; maxAgeMs?: number } = {}): Promise<HerdrSessionInfo[]> {

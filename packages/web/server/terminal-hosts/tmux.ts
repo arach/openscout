@@ -65,6 +65,10 @@ export const tmuxTerminalHost: TerminalHostAdapter = {
   },
 
   async create(input, context = {}) {
+    // tmux runs a trailing shell command as the session's first process, which
+    // is what makes reviving a saved agent tile a real resume rather than an
+    // empty shell where the agent used to be.
+    const resumeCommand = input.resumeCommand?.trim() || null;
     try {
       await execSystemFile("tmux", [
         "new-session",
@@ -72,8 +76,9 @@ export const tmuxTerminalHost: TerminalHostAdapter = {
         "-s",
         input.sessionName,
         ...(input.cwd ? ["-c", input.cwd] : []),
+        ...(resumeCommand ? [resumeCommand] : []),
       ], { timeoutMs: 5_000, env: context.env });
-      return { created: true };
+      return { created: true, resumed: resumeCommand ? true : null };
     } catch (error) {
       return { created: false, reason: errorReason(error) };
     }
