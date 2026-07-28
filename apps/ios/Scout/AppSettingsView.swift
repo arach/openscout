@@ -222,9 +222,9 @@ struct AppSettingsView: View {
             )
         case .lanes, .dispatch:
             surfaceContextPanel(
-                title: context == .lanes ? "Lanes" : "Dispatch",
+                title: context == .lanes ? "Deck" : "Dispatch",
                 rows: [
-                    ("Source", "Scout Web", "paired Mac embed"),
+                    ("Source", context == .lanes ? "Bundled Scout Deck" : "Scout Web", context == .lanes ? "native bridge" : "paired Mac embed"),
                     ("Connection", statusShort, routeLabel)
                 ]
             )

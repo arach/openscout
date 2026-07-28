@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "assetRevision": "eca2a8e338686ec2",
+  "assetRevision": "97b53c654ff7b037",
   "protocol": {
     "minimum": 1,
     "maximum": 1
@@ -68,7 +68,7 @@
     },
     {
       "path": "lanes/index.html",
-      "sha256": "08af5ef043331f35263d55a2f633f4db9c32ad3d3981ced5836765c9ad8960cb",
+      "sha256": "e6692eeb317d49900bdb148b20751af691212829444a1ed7c1763d2c4744f1f5",
       "bytes": 776
     },
     {
@@ -82,14 +82,14 @@
       "bytes": 1652
     },
     {
-      "path": "shared/lanes-BjYVj-Qi.js",
-      "sha256": "521bc916c1e7489aa12f3a943f904ed666b69781421e32dfc3fe8d34119443f4",
-      "bytes": 27784
+      "path": "shared/lanes-B0Cvvf80.css",
+      "sha256": "5d5a1c595a82de5edbbc3d75427998535b696c473b1250488f889ac104abb230",
+      "bytes": 24239
     },
     {
-      "path": "shared/lanes-CVx5o6vA.css",
-      "sha256": "03ed75830985b765ae86adced84e6792828c1328baa7280dce8b9bc5863fd275",
-      "bytes": 23643
+      "path": "shared/lanes-NKTG2at_.js",
+      "sha256": "4ed69aa35c36df6696f3604fda58924f46099aa6fa72fb814fb018a911609776",
+      "bytes": 28509
     },
     {
       "path": "shared/native-scout-surface-client-BLDiyy5e.js",

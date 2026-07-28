@@ -24,6 +24,9 @@ type DeckLane = SurfaceAgent & {
 
 type DeckConnection = "waiting" | "ready" | "partial" | "offline" | "error";
 type DeckView = "thread" | "signal";
+type DeckHostScope = "all" | string;
+
+const HOST_SCOPE_STORAGE_KEY = "scout.deck.hostScope";
 
 declare global {
   interface Window {
@@ -221,6 +224,7 @@ export function ScoutDeckSurface() {
     () => window.__scoutSurfaceBootstrap ?? null,
   );
   const [lanes, setLanes] = useState<DeckLane[]>(preview ? PREVIEW_LANES : []);
+  const [hostScope, setHostScope] = useState<DeckHostScope>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(preview ? PREVIEW_LANES[0]?.key ?? null : null);
   const [connection, setConnection] = useState<DeckConnection>(preview ? "ready" : "waiting");
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +264,14 @@ export function ScoutDeckSurface() {
           setLanes([]);
           return;
         }
+        const connectedHostIds = new Set(value.hosts.filter((host) => host.state === "connected").map((host) => host.id));
+        const rememberedScope = localStorage.getItem(HOST_SCOPE_STORAGE_KEY);
+        const nextScope = rememberedScope === "all" || (rememberedScope && connectedHostIds.has(rememberedScope))
+          ? rememberedScope
+          : value.focusedHostId && connectedHostIds.has(value.focusedHostId)
+            ? value.focusedHostId
+            : hostIds[0] ?? "all";
+        setHostScope(nextScope);
         const scope = { hostIds };
         const [agents, tail] = await Promise.all([
           client.agents.list(scope),
@@ -285,7 +297,8 @@ export function ScoutDeckSurface() {
   }, []);
 
   const hosts = preview ? PREVIEW_HOSTS : bootstrap?.hosts ?? [];
-  const selected = lanes.find((lane) => lane.key === selectedKey) ?? lanes[0] ?? null;
+  const scopedLanes = hostScope === "all" ? lanes : lanes.filter((lane) => lane.hostId === hostScope);
+  const selected = scopedLanes.find((lane) => lane.key === selectedKey) ?? scopedLanes[0] ?? null;
   const selectedRoute = selected ? { hostId: selected.hostId, agentId: selected.id } satisfies CodexDeckRoute : null;
   const adapterAvailable = Boolean(
     selected?.transport === "codex_app_server"
@@ -427,16 +440,22 @@ export function ScoutDeckSurface() {
   }, []);
 
   const attention = useMemo(
-    () => lanes.filter((lane) => lane.state === "waiting" || lane.state === "blocked" || lane.state === "error"),
-    [lanes],
+    () => scopedLanes.filter((lane) => lane.state === "waiting" || lane.state === "blocked" || lane.state === "error"),
+    [scopedLanes],
   );
-  const active = lanes.filter((lane) => lane.state === "active" || lane.state === "running").length;
+  const active = scopedLanes.filter((lane) => lane.state === "active" || lane.state === "running").length;
   const selectedActivity = activityBins(selected?.events ?? []);
   const isRunning = thread?.state === "running";
   const canCompose = Boolean(adapterAvailable && thread && thread.state !== "disconnected" && !threadBusy);
   const voiceInputActive = voice.input.state === "listening" || voice.input.state === "transcribing";
 
   const selectLane = (lane: DeckLane) => setSelectedKey(lane.key);
+
+  const selectHostScope = (scope: DeckHostScope) => {
+    setHostScope(scope);
+    setSelectedKey(null);
+    localStorage.setItem(HOST_SCOPE_STORAGE_KEY, scope);
+  };
 
   const refreshThread = async () => {
     if (preview || !selectedRoute || !clientRef.current) return;
@@ -594,20 +613,40 @@ export function ScoutDeckSurface() {
           <span>{active.toString().padStart(2, "0")} active</span>
           <span>{hosts.filter((host) => host.state === "connected").length.toString().padStart(2, "0")} hosts</span>
         </div>
-        <div className="scout-deck__hosts" aria-label="Selected hosts">
+        <div className="scout-deck__hosts" aria-label="Agent lane scope">
+          {hosts.length > 1 ? (
+            <button
+              type="button"
+              className="scout-deck__host scout-deck__host--all"
+              data-active={hostScope === "all" || undefined}
+              onClick={() => selectHostScope("all")}
+              aria-pressed={hostScope === "all"}
+            >
+              <i />All
+            </button>
+          ) : null}
           {hosts.map((host) => (
-            <span className="scout-deck__host" data-state={host.state} key={host.id}>
+            <button
+              type="button"
+              className="scout-deck__host"
+              data-state={host.state}
+              data-active={hostScope === host.id || undefined}
+              key={host.id}
+              onClick={() => selectHostScope(host.id)}
+              disabled={host.state !== "connected"}
+              aria-pressed={hostScope === host.id}
+            >
               <i />{host.name}
-            </span>
+            </button>
           ))}
         </div>
       </header>
 
       <div className="scout-deck__workbench">
         <aside className="scout-deck__bank" aria-label="Agent channels">
-          <div className="scout-deck__panel-label"><span>Channel bank</span><span>01—{String(lanes.length).padStart(2, "0")}</span></div>
+          <div className="scout-deck__panel-label"><span>Channel bank</span><span>01—{String(scopedLanes.length).padStart(2, "0")}</span></div>
           <div className="scout-deck__keys">
-            {lanes.map((lane, index) => (
+            {scopedLanes.map((lane, index) => (
               <button
                 type="button"
                 className="scout-deck__key"
@@ -632,7 +671,7 @@ export function ScoutDeckSurface() {
             <>
               <div className="scout-deck__stage-head">
                 <div>
-                  <span className="scout-deck__stage-index">{String(lanes.indexOf(selected) + 1).padStart(2, "0")}</span>
+                  <span className="scout-deck__stage-index">{String(scopedLanes.indexOf(selected) + 1).padStart(2, "0")}</span>
                   <span className="scout-deck__stage-label">Focused lane</span>
                 </div>
                 <span className="scout-deck__route">{selected.hostName} / explicit route</span>
@@ -782,7 +821,7 @@ export function ScoutDeckSurface() {
               {hosts.map((host) => (
                 <div className="scout-deck__fleet-host" key={host.id}>
                   <i data-state={host.state} />
-                  <span><strong>{host.name}</strong><small>{lanes.filter((lane) => lane.hostId === host.id).length} lanes</small></span>
+                  <span><strong>{host.name}</strong><small>{lanes.filter((lane) => lane.hostId === host.id).length} lanes · {hostScope === host.id ? "scoped" : "available"}</small></span>
                   <em>{host.state}</em>
                 </div>
               ))}

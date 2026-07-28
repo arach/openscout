@@ -88,10 +88,16 @@ body {
 [data-connection="error"] .scout-deck__telemetry-item,
 [data-connection="error"] .scout-deck__lamp { color: var(--deck-red); background: var(--deck-red); }
 
-.scout-deck__hosts { min-width: 0; display: flex; justify-content: flex-end; gap: 6px; overflow: hidden; }
-.scout-deck__host { display: inline-flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 10px; border: 1px solid var(--deck-line); border-radius: 4px; color: rgba(237,242,235,.74); background: rgba(255,255,255,.025); font: 550 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.scout-deck__hosts { min-width: 0; display: flex; justify-content: flex-end; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.scout-deck__hosts::-webkit-scrollbar { display: none; }
+.scout-deck__host { display: inline-flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 10px; border: 1px solid var(--deck-line); border-radius: 4px; color: rgba(237,242,235,.58); background: rgba(255,255,255,.018); font: 550 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; cursor: pointer; transition: color 120ms ease, border-color 120ms ease, background 120ms ease; }
+.scout-deck__host:hover { color: rgba(237,242,235,.84); border-color: rgba(222,236,226,.24); }
+.scout-deck__host:focus-visible { outline: 2px solid rgba(106,242,197,.58); outline-offset: 2px; }
+.scout-deck__host[data-active="true"] { color: var(--deck-green); border-color: rgba(106,242,197,.34); background: rgba(106,242,197,.075); box-shadow: inset 0 1px rgba(255,255,255,.035); }
+.scout-deck__host:disabled { opacity: .4; cursor: default; }
 .scout-deck__host i { width: 5px; height: 5px; border-radius: 50%; background: var(--deck-dim); }
 .scout-deck__host[data-state="connected"] i { background: var(--deck-green); box-shadow: 0 0 7px rgba(106,242,197,.65); }
+.scout-deck__host--all i { border: 1px solid currentColor; background: transparent; box-shadow: none; }
 
 .scout-deck__workbench { min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 220px; border: 1px solid var(--deck-line); border-top: 0; overflow: hidden; }
 .scout-deck__bank,

@@ -56,7 +56,7 @@ final class ScoutWebSurfaceBridge {
     private weak var model: AppModel?
     private let surface: Surface
     private let epoch = UUID().uuidString.lowercased()
-    private var activity: HudWebViewActivity = .hiddenWarm
+    private var activity: ScoutWebViewActivity = .hiddenWarm
     private var tasks: [String: Task<Void, Never>] = [:]
     private var laneSelection: LaneSelectionRequest?
     private let speechSynthesizer = AVSpeechSynthesizer()
@@ -66,10 +66,10 @@ final class ScoutWebSurfaceBridge {
         self.surface = surface
     }
 
-    lazy var integration: HudWebViewIntegration = {
-        let integration = HudWebViewIntegration(
-            userScripts: [HudWebViewUserScript(source: bootstrapScript())],
-            messageHandlers: [HudWebViewMessageHandler(name: Self.handlerName) { [weak self] body, reply in
+    lazy var integration: ScoutWebViewIntegration = {
+        let integration = ScoutWebViewIntegration(
+            userScripts: [ScoutWebViewUserScript(source: bootstrapScript())],
+            messageHandlers: [ScoutWebViewMessageHandler(name: Self.handlerName) { [weak self] body, reply in
                 self?.handle(body: body, reply: reply)
             }],
             onActivityChange: { [weak self] activity in
@@ -100,7 +100,7 @@ final class ScoutWebSurfaceBridge {
         """
     }
 
-    private func handle(body: Any, reply: HudWebViewReply) {
+    private func handle(body: Any, reply: ScoutWebViewReply) {
         guard let object = body as? [String: Any],
               Set(object.keys).isSubset(of: Self.allowedEnvelopeKeys),
               JSONSerialization.isValidJSONObject(object),
@@ -232,7 +232,7 @@ final class ScoutWebSurfaceBridge {
 
     private func performCodex<T: Encodable>(
         request: RequestEnvelope,
-        reply: HudWebViewReply,
+        reply: ScoutWebViewReply,
         deadline: Int,
         operation: @escaping @MainActor (BridgeBrokerClient, CodexRouteRequest) async throws -> T
     ) {
@@ -250,7 +250,7 @@ final class ScoutWebSurfaceBridge {
 
     private func perform(
         request: RequestEnvelope,
-        reply: HudWebViewReply,
+        reply: ScoutWebViewReply,
         deadline: Int,
         operation: @escaping @MainActor () async throws -> Any
     ) {
@@ -305,6 +305,7 @@ final class ScoutWebSurfaceBridge {
             ]
         }
         let selected = machines.filter(\.isOnline).map { hostId(for: $0.machineId) }
+        let focusedHostId = machines.first(where: \.isFocused).map { hostId(for: $0.machineId) }
         let revision = model?.fleetRevision ?? 0
         return [
             "surface": surface.rawValue,
@@ -316,6 +317,7 @@ final class ScoutWebSurfaceBridge {
             "device": ["platform": "ios", "formFactor": UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "phone"],
             "hosts": hosts,
             "selectedHostIds": selected,
+            "focusedHostId": focusedHostId ?? NSNull(),
             "connectionRevision": revision,
             "activity": activity.rawValue,
         ]

@@ -97,6 +97,8 @@ export type SurfaceBootstrap = {
   device: SurfaceDevice;
   hosts: readonly SurfaceHost[];
   selectedHostIds: readonly HostId[];
+  /** Native app focus at bootstrap; absent on older hosts and browser previews. */
+  focusedHostId?: HostId | null;
   connectionRevision: number;
   activity: SurfaceActivityState;
 };

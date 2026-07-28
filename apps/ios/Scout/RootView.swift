@@ -9,7 +9,7 @@ import UIKit
 /// Top-level navigation for Scout. Wraps the active surface in the
 /// `HudPhoneAppShell` (which supplies the NavigationStack + dark Hudson
 /// background) and switches between the native phone surfaces plus iPad-only
-/// Lanes and Dispatch mission control via the docked tab bar.
+/// Deck and Dispatch mission control via the docked tab bar.
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var showConnection = false
@@ -50,6 +50,15 @@ struct RootView: View {
 
         var id: String { rawValue }
 
+        var displayName: String {
+            self == .lanes ? "Deck" : rawValue
+        }
+
+        static func launchSurface(named name: String) -> Surface? {
+            if name.caseInsensitiveCompare("Deck") == .orderedSame { return .lanes }
+            return allCases.first { $0.rawValue.caseInsensitiveCompare(name) == .orderedSame }
+        }
+
         /// Hand-drawn glyph from the unified set (see `Glyphs.swift`).
         var glyph: GlyphShape.Kind {
             switch self {
@@ -80,11 +89,11 @@ struct RootView: View {
         let arguments = CommandLine.arguments
         if let flag = arguments.firstIndex(of: "--scout-tab"),
            arguments.indices.contains(flag + 1),
-           let surface = Surface(rawValue: arguments[flag + 1]) {
+           let surface = Surface.launchSurface(named: arguments[flag + 1]) {
             return surface
         }
         if let raw = ProcessInfo.processInfo.environment["SCOUT_TAB"],
-           let s = Surface(rawValue: raw) { return s }
+           let s = Surface.launchSurface(named: raw) { return s }
         #endif
         return .home
     }
@@ -494,7 +503,7 @@ struct RootView: View {
         } label: {
             VStack(spacing: HudSpacing.xxs) {
                 Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
-                Text(s.rawValue)
+                Text(s.displayName)
                     .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
                     .lineLimit(1)
                     // Shrink a hair rather than clip: guarantees the longest labels
@@ -512,7 +521,7 @@ struct RootView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(s.rawValue)
+        .accessibilityLabel(s.displayName)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

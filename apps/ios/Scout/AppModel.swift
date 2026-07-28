@@ -1887,6 +1887,7 @@ final class AppModel {
     struct WebSurfaceMachine {
         let machineId: String
         let name: String
+        let isFocused: Bool
         let isOnline: Bool
         let client: (any ScoutBrokerClient)?
     }
@@ -1896,6 +1897,7 @@ final class AppModel {
             WebSurfaceMachine(
                 machineId: machine.id,
                 name: machine.name,
+                isFocused: machine.isActive,
                 isOnline: machine.isOnline,
                 client: machine.isOnline ? fleet.connectedClient(machineId: machine.id) : nil
             )
